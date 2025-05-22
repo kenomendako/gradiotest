@@ -87,12 +87,18 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
     if not u_parts: return "エラー: 送信するテキストまたは画像がありません。", fin_log or ""
     print(f"Gemini ({selected_model}) へ送信開始... 履歴: {len(g_hist)}件, 新規入力パーツ: {len(u_parts)}件")
     try:
-        # --- 現状のPython SDKでは検索グラウンディングの明示的有効化は不可 ---
-        model = genai.GenerativeModel(
-            model_name=selected_model,
-            system_instruction=sys_ins,
-            safety_settings=config_manager.SAFETY_CONFIG
-        )
+        model_kwargs = {
+            "model_name": selected_model,
+            "system_instruction": sys_ins,
+            "safety_settings": config_manager.SAFETY_CONFIG
+        }
+        if "2.5-pro" in selected_model.lower() or "2.5-flash" in selected_model.lower():
+            print(f"情報: モデル '{selected_model}' のため、Google検索グラウンディングを有効化します。")
+            model_kwargs["tools"] = [types.Tool(google_search_retrieval=types.GoogleSearchRetrieval())]
+        else:
+            print(f"情報: モデル '{selected_model}' は現在グラウンディング対象外です。")
+
+        model = genai.GenerativeModel(**model_kwargs)
         resp = model.generate_content(g_hist + [{"role": "user", "parts": u_parts}])
         r_txt = None
         try:
