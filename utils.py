@@ -26,12 +26,20 @@ def load_chat_log(file_path, character_name):
     return messages
 
 def format_response_for_display(response_text):
-    if not response_text: return ""
+    if not response_text:
+        return ""
     match = re.search(r"【Thoughts】(.*?)【/Thoughts】", response_text, re.DOTALL | re.IGNORECASE)
     if match:
-        thought = f"<div class='thoughts'>{match.group(1).strip()}</div>"
+        # Thoughts部分を<pre><code>...</code></pre>でラップし、折り返し有効＋段落間余白を調整
+        thoughts_content = match.group(1).strip()
+        thought = (
+            "<div class='thoughts' style='white-space:pre-wrap;overflow-x:auto;word-break:break-word; margin-bottom:0.5em;'>"
+            "<pre style='white-space:pre-wrap;overflow-x:auto;word-break:break-word; margin:0 0 0.3em 0; line-height:1.5;'><code style='white-space:pre-wrap;word-break:break-word; margin:0; padding:0; line-height:1.5;'>{}</code></pre></div>"
+        ).format(thoughts_content.replace('\n', '\n'))
         main_resp = re.sub(r"【Thoughts】.*?【/Thoughts】\s*", "", response_text, flags=re.DOTALL | re.IGNORECASE).strip()
+        # 本文はそのままマークダウンとして返す
         return f"{thought}\n\n{main_resp}" if main_resp else thought
+    # Thoughtsが無い場合もそのまま返す（マークダウン解釈用）
     return response_text.strip()
 
 def format_history_for_gradio(messages):

@@ -145,7 +145,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     memory_json_editor = gr.Code(value=get_initial_memory_data_str(config_manager.initial_character_global), label="記憶データ (JSON形式で編集)", language="json", interactive=True, elem_id="memory_json_editor_code")
                     save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
 
-                with gr.Accordion("⏰ アラーム設定", open=False):
+                with gr.Accordion(" 🐦アラーム設定", open=False):
                     alarm_checklist = gr.CheckboxGroup(label="設定済みアラーム (削除したい項目を選択)", interactive=True, elem_id="alarm_checklist")
                     delete_selected_alarms_button = gr.Button("✔️ 選択したアラームを削除", variant="stop")
                     # アプリ起動時にアラームリストを読み込む (alarm_managerの関数を使用)
@@ -166,7 +166,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                             alarm_clear_button = gr.Button("入力クリア")
 
                 # タイマーUIの統一とプロンプト設定の追加
-                with gr.Accordion("⏰ アラーム・タイマー設定", open=False):
+                with gr.Accordion("⏰ タイマー設定", open=False):
                     timer_type_dropdown = gr.Dropdown(
                         label="タイマータイプ",
                         choices=["通常タイマー", "ポモドーロタイマー"],

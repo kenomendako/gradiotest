@@ -87,12 +87,26 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
     if not u_parts: return "エラー: 送信するテキストまたは画像がありません。", fin_log or ""
     print(f"Gemini ({selected_model}) へ送信開始... 履歴: {len(g_hist)}件, 新規入力パーツ: {len(u_parts)}件")
     try:
-        # --- 現状のPython SDKでは検索グラウンディングの明示的有効化は不可 ---
-        model = genai.GenerativeModel(
-            model_name=selected_model,
-            system_instruction=sys_ins,
-            safety_settings=config_manager.SAFETY_CONFIG
-        )
+        model_kwargs = {
+            "model_name": selected_model,
+            "system_instruction": sys_ins,
+            "safety_settings": config_manager.SAFETY_CONFIG
+        }
+        if "2.5-pro" in selected_model.lower() or "2.5-flash" in selected_model.lower():
+            print(f"情報: モデル '{selected_model}' のため、Google検索グラウンディングを有効化します。")
+            # GoogleSearchRetrievalが存在しない場合はtoolsを指定しない
+            try:
+                GoogleSearchRetrieval = getattr(types, "GoogleSearchRetrieval", None)
+                if GoogleSearchRetrieval is not None:
+                    model_kwargs["tools"] = [types.Tool(google_search_retrieval=GoogleSearchRetrieval())]
+                else:
+                    print("警告: types.GoogleSearchRetrieval が見つからないため、グラウンディング機能は無効化されます。")
+            except Exception as e:
+                print(f"警告: GoogleSearchRetrievalのセットアップ中に例外: {e}")
+        else:
+            print(f"情報: モデル '{selected_model}' は現在グラウンディング対象外です。")
+
+        model = genai.GenerativeModel(**model_kwargs)
         resp = model.generate_content(g_hist + [{"role": "user", "parts": u_parts}])
         r_txt = None
         try:
@@ -198,7 +212,11 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
             block_reason_str = str(block_reason) if block_reason is not None else "不明"
             return f"【アラームエラー】応答取得失敗 ({e}) ブロック理由: {block_reason_str}"
         if r_txt is not None:
-            cleaned_resp = re.sub(r"^\s*([-*_#=`>]+|\n)+\s*", "", r_txt.strip())
+            # コードブロック（```）で始まる場合は何も除去しない
+            if r_txt.strip().startswith("```"):
+                cleaned_resp = r_txt.strip()
+            else:
+                cleaned_resp = re.sub(r"^\s*([-*_#=`>]+|\n)+\s*", "", r_txt.strip())
             return cleaned_resp
         else:
             return "【アラームエラー】モデルから空の応答が返されました。"
