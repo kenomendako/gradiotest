@@ -3,6 +3,8 @@ import gradio as gr
 import datetime
 import json
 import os
+import uuid
+import shutil
 # 分割したモジュールから必要な関数や変数をインポート
 import config_manager
 from timers import Timer, PomodoroTimer, UnifiedTimer  # Use absolute import if 'my_timer_module.py' is in the same directory
@@ -12,9 +14,12 @@ from gemini_api import configure_google_api, send_to_gemini
 from memory_manager import save_memory_data, load_memory_data_safe
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log
 
+ATTACHMENTS_DIR = "chat_attachments"
+
 # --- Gradio UI イベントハンドラ ---
 def handle_message_submission(textbox, chatbot, current_character_name, current_model_name, current_api_key_name_state, file_input, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state):
     print(f"\n--- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
+    os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
     error_message = ""
     if not all([current_character_name, current_model_name, current_api_key_name_state]):
         error_message = "キャラクター、AIモデル、APIキーが選択されていません。設定を確認してください。"
@@ -31,60 +36,122 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
         error_message = f"キャラクター '{current_character_name}' のファイル（ログ、プロンプト、記憶）が見つかりません。"
         return chatbot, textbox.update(value=""), None, error_message
 
-    msg_send = textbox.strip() if textbox else ""
-    ts = ""
-    if (add_timestamp_checkbox and (msg_send or file_input)):
-        now = datetime.datetime.now()
-        ts = f"\n{now.strftime('%Y-%m-%d (%a) %H:%M:%S')}"
-        if msg_send: msg_send += ts
+    original_user_text = textbox.strip() if textbox else ""
+    original_filename = os.path.basename(file_input) if file_input else None
+    
+    # Arguments for send_to_gemini - these will be modified based on file type
+    api_text_arg = original_user_text 
+    api_file_arg = file_input # This is the temporary path of the uploaded file
 
-    if not msg_send and not file_input:
+    # This will be the final path for images copied to ATTACHMENTS_DIR
+    final_attachment_path = None 
+    # This will hold the combined content for text file uploads (original_user_text + file_content)
+    # and will include a timestamp if applicable, specifically for logging.
+    text_file_log_content_with_ts = None
+
+    if not original_user_text and not file_input:
         error_message = "送信するメッセージまたは画像がありません。"
-        return chatbot, "", None, error_message
+        # Ensure textbox value is explicitly managed for UI consistency, return original content if it was just spaces
+        return chatbot, textbox.update(value=original_user_text), None, error_message
+
 
     try:
-        # --- Gemini 2.5 Pro/Flashモデル時は検索ツール自動利用（toolsパラメータ有効化）でAPI呼び出し（send_to_gemini側で自動判定） ---
-        if file_input:
-            if file_input.endswith(('.png', '.jpg', '.jpeg')):
-                resp, _ = send_to_gemini(sys_p, log_f, msg_send, current_model_name, current_character_name, send_thoughts_state, api_history_limit_state, file_input, mem_p)
-                file_input = None
-            elif file_input.endswith(('.txt', '.json')):
+        if file_input: # A file is being submitted
+            if original_filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                # Image file processing
+                unique_filename = f"{uuid.uuid4()}{os.path.splitext(original_filename)[1]}"
+                final_attachment_path = os.path.join(ATTACHMENTS_DIR, unique_filename)
+                shutil.copy2(file_input, final_attachment_path)
+                # For API: api_text_arg is original_user_text (already set).
+                # api_file_arg is the temp path of the image (already set).
+                
+            elif original_filename.lower().endswith(('.txt', '.json')):
+                # Text file processing
                 try:
                     with open(file_input, 'r', encoding='utf-8') as file:
                         file_content = file.read()
-                    resp, _ = send_to_gemini(sys_p, log_f, msg_send + "\n" + file_content, current_model_name, current_character_name, send_thoughts_state, api_history_limit_state, None, mem_p)
+                    
+                    # For API: original text + file content
+                    api_text_arg = (original_user_text + "\n" + file_content) if original_user_text else file_content
+                    api_file_arg = None # Text file content is now part of api_text_arg for Gemini
+
+                    # For logging (text_file_log_content_with_ts will be used):
+                    # This combines the potentially modified api_text_arg with a timestamp.
+                    text_file_log_content_with_ts = api_text_arg 
+                    if add_timestamp_checkbox: # Apply timestamp if checkbox is checked
+                        now = datetime.datetime.now()
+                        timestamp_str_for_text_file = f"\n{now.strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+                        text_file_log_content_with_ts += timestamp_str_for_text_file
+                                
                 except Exception as e:
                     error_message = f"ファイルの読み込み中にエラーが発生しました: {e}"
-                    return chatbot, textbox or "", None, error_message
-                file_input = None
+                    return chatbot, textbox.update(value=original_user_text), None, error_message # Preserve user text
             else:
+                # Unsupported file type
                 error_message = "サポートされていないファイル形式です。画像、テキスト、またはJSONファイルをアップロードしてください。"
-                return chatbot, textbox or "", None, error_message
+                return chatbot, textbox.update(value=original_user_text), None, error_message # Preserve user text
+            
+        # --- API Call ---
+        # api_text_arg and api_file_arg have been set appropriately based on file type.
+        resp, _ = send_to_gemini(sys_p, log_f, api_text_arg, current_model_name, current_character_name, send_thoughts_state, api_history_limit_state, api_file_arg, mem_p)
 
-            if not msg_send.strip():
-                error_message = f"送信したファイル名: {os.path.basename(file_input)}"
-                return chatbot, textbox or "", None, error_message
-
-            textbox = ""
-        else:
-            resp, _ = send_to_gemini(sys_p, log_f, msg_send, current_model_name, current_character_name, send_thoughts_state, api_history_limit_state, None, mem_p)
-
-        # --- エラー応答の場合はログに書き込まずUIのみ更新 ---
+        # --- Error response from API ---
         if resp and (resp.strip().startswith("エラー:") or resp.strip().startswith("API通信エラー:") or resp.strip().startswith("応答取得エラー") or resp.strip().startswith("応答生成失敗")):
             error_message = f"Gemini APIエラー: {resp}"
-            return chatbot, textbox or "", None, error_message
+            return chatbot, textbox.update(value=original_user_text), None, error_message # Preserve user text
 
-        if msg_send.strip():
-            save_message_to_log(log_f, _get_user_header_from_log(log_f, current_character_name), msg_send)
+        # --- User Message Logging ---
+        user_header = _get_user_header_from_log(log_f, current_character_name)
+
+        # Scenario 1: Text + Image submitted
+        if original_user_text and final_attachment_path: # final_attachment_path is the variable holding the copied image path
+            # a. Log Text First
+            text_to_log = original_user_text
+            if add_timestamp_checkbox: # Check if timestamp should be added
+                now = datetime.datetime.now()
+                timestamp_str = f"\n{now.strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+                text_to_log += timestamp_str
+            save_message_to_log(log_f, user_header, text_to_log)
+            
+            # b. Log Image Second (no separate timestamp)
+            image_log_entry = f"[image_attachment:{final_attachment_path}]"
+            save_message_to_log(log_f, user_header, image_log_entry)
+
+        # Scenario 2: Image-only submission
+        elif final_attachment_path: 
+            image_log_entry = f"[image_attachment:{final_attachment_path}]"
+            if add_timestamp_checkbox: # Check if timestamp should be added
+                now = datetime.datetime.now()
+                timestamp_str = f"\n{now.strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+                image_log_entry += timestamp_str
+            save_message_to_log(log_f, user_header, image_log_entry)
+        
+        # Scenario 3: Text file submission (with or without original_user_text)
+        # text_file_log_content_with_ts is prepared in the file processing block and already includes a timestamp
+        elif text_file_log_content_with_ts: 
+            save_message_to_log(log_f, user_header, text_file_log_content_with_ts)
+
+        # Scenario 4: Text-only submission
+        elif original_user_text: 
+            text_to_log = original_user_text
+            if add_timestamp_checkbox: # Check if timestamp should be added
+                now = datetime.datetime.now()
+                timestamp_str = f"\n{now.strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+                text_to_log += timestamp_str
+            save_message_to_log(log_f, user_header, text_to_log)
+
+        # --- AI Response Logging ---
         if resp and resp.strip():
             save_message_to_log(log_f, f"## {current_character_name}:", resp)
-
+        
     except Exception as e:
         error_message = f"API送信中にエラーが発生しました: {e}"
-        return chatbot, textbox or "", None, error_message
+        # Preserve user text in textbox on general error
+        return chatbot, textbox.update(value=original_user_text), None, error_message
 
     new_log = load_chat_log(log_f, current_character_name)
     new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
+    # Return "" for the textbox component to clear it after successful submission.
     return new_hist, "", None, ""
 
 def update_ui_on_character_change(character_name):

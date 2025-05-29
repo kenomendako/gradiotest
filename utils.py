@@ -43,22 +43,51 @@ def format_response_for_display(response_text):
     return response_text.strip()
 
 def format_history_for_gradio(messages):
-    hist = []; user_msg = None
+    hist = []
+    user_msg_accumulator = None # To hold the current user message (text or image path)
+
     for msg in messages:
-        role, content = msg.get("role"), msg.get("content", "")
-        if not content: continue
-        display = format_response_for_display(content) if role == "model" else content
+        role = msg.get("role")
+        content = msg.get("content", "")
+
+        if not content:
+            continue
+
         if role == "user":
-            if user_msg is not None:
-                hist.append([user_msg, None]) # 前のユーザー発言が残っていたら確定
-            user_msg = display
+            # If there's an accumulated user message, it means the previous message was also from the user
+            # or it's the start. We finalize the previous user message before processing the new one if it was waiting for a model response.
+            # This logic is tricky with consecutive user messages if not handled carefully.
+            # The original logic implied a user message is only added to hist when a model message follows, or at the end.
+            # Let's refine to handle image attachments specifically.
+
+            image_match = re.fullmatch(r"\[image_attachment:(.*?)\]", content)
+            if image_match:
+                attachment_path = image_match.group(1)
+                # If a user message (text) was pending, add it with no model response yet
+                if user_msg_accumulator is not None:
+                    hist.append([user_msg_accumulator, None])
+                # Add the image as a new user message
+                user_msg_accumulator = (attachment_path, "添付画像")
+            else: # Regular text message from user
+                # If a user message (image) was pending, add it
+                if user_msg_accumulator is not None:
+                     hist.append([user_msg_accumulator, None]) # Add pending message (could be image or text)
+                user_msg_accumulator = content # Store as current user message
+
         elif role == "model":
-            if user_msg is None: # AI発言が先に来る場合（ほぼないはずだが念のため）
-                hist.append([None, display])
+            display_content = format_response_for_display(content)
+            if user_msg_accumulator is not None:
+                # Pair the accumulated user message with this model message
+                hist.append([user_msg_accumulator, display_content])
+                user_msg_accumulator = None # Reset accumulator
             else:
-                hist.append([user_msg, display])
-            user_msg = None # AIの発言が終わったらリセット
-    if user_msg is not None: hist.append([user_msg, None]) # 最後のユーザー発言が残っていれば追加
+                # Model message without a preceding user message (should be rare, but handle)
+                hist.append([None, display_content])
+
+    # If there's any uncommitted user message at the end (e.g., last message in log is from user)
+    if user_msg_accumulator is not None:
+        hist.append([user_msg_accumulator, None])
+
     return hist
 
 def save_message_to_log(log_file, header, text):
