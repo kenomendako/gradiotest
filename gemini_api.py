@@ -118,11 +118,9 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 GoogleSearchRetrieval_cls = getattr(types, "GoogleSearchRetrieval", None)
                 
                 if GoogleSearchRetrieval_cls:
-                    print(f"デバッグ: `GoogleSearchRetrieval` クラスが見つかりました: {type(GoogleSearchRetrieval_cls)}")
                     # If GoogleSearchRetrieval is found, create the tool using types.Tool
                     # We assume types.Tool is generally available if 'types' itself is imported.
                     tool_instance = types.Tool(google_search_retrieval=GoogleSearchRetrieval_cls())
-                    print(f"デバッグ: 作成された `tool_instance`: {tool_instance}") # This might be verbose, consider type(tool_instance) or specific attributes
                     model_kwargs["tools"] = [tool_instance]
                     print("情報: Google検索グラウンディングがセットアップされました。")
                 else:
@@ -136,8 +134,6 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         else:
             print(f"情報: モデル '{selected_model}' は現在グラウンディング対象外のため、検索グラウンディングは試行されません。")
 
-        # Add this line for debugging model_kwargs:
-        print(f"デバッグ: `genai.GenerativeModel` に渡される `model_kwargs`: {model_kwargs}")
         model = genai.GenerativeModel(**model_kwargs)
         # Use parts_for_gemini_api for the user's current turn
         resp = model.generate_content(g_hist + [{"role": "user", "parts": parts_for_gemini_api}])
