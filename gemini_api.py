@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import google.generativeai as genai
 from google.generativeai import types
+from google.generativeai.types import GoogleSearchRetrieval, Tool
 import os
 import json
 import google.api_core.exceptions
@@ -113,15 +114,16 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         }
         if "2.5-pro" in selected_model.lower() or "2.5-flash" in selected_model.lower():
             print(f"情報: モデル '{selected_model}' のため、Google検索グラウンディングを有効化します。")
-            # GoogleSearchRetrievalが存在しない場合はtoolsを指定しない
             try:
-                GoogleSearchRetrieval = getattr(types, "GoogleSearchRetrieval", None)
-                if GoogleSearchRetrieval is not None:
-                    model_kwargs["tools"] = [types.Tool(google_search_retrieval=GoogleSearchRetrieval())]
-                else:
-                    print("警告: types.GoogleSearchRetrieval が見つからないため、グラウンディング機能は無効化されます。")
+                # Ensure GoogleSearchRetrieval and Tool are imported directly at the top of the file
+                model_kwargs["tools"] = [Tool(google_search_retrieval=GoogleSearchRetrieval())]
+            except NameError: # In case the imports weren't successful or available
+                print("警告: GoogleSearchRetrieval または Tool が利用できません。グラウンディング機能は無効化されます。")
+                # Optionally, remove the 'tools' key if it was somehow partially set
+                if "tools" in model_kwargs: del model_kwargs["tools"]
             except Exception as e:
                 print(f"警告: GoogleSearchRetrievalのセットアップ中に例外: {e}")
+                if "tools" in model_kwargs: del model_kwargs["tools"]
         else:
             print(f"情報: モデル '{selected_model}' は現在グラウンディング対象外です。")
 
