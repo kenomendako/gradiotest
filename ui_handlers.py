@@ -90,7 +90,7 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
     if not original_user_text and not file_input_list:
         error_message = "送信するメッセージまたはファイルがありません。"
         # Return 4 values: chatbot state, textbox state, file input state (clear), error message
-        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message 
+        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message
 
     try:
         if file_input_list:
