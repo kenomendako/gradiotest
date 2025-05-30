@@ -54,22 +54,26 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
     print(f"\n--- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
     os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
     error_message = ""
+    # Preserve the original text from the textbox parameter for potential restoration
+    original_user_text_on_entry = textbox.strip() if textbox else ""
+
     if not all([current_character_name, current_model_name, current_api_key_name_state]):
         error_message = "キャラクター、AIモデル、APIキーが選択されていません。設定を確認してください。"
-        return chatbot, textbox.update(value=""), gr.update(value=None), error_message
+        return chatbot, gr.update(value=""), gr.update(value=None), error_message
 
     # APIキー設定エラー処理
     ok, msg = configure_google_api(current_api_key_name_state)
     if not ok:
         error_message = f"APIキー設定エラー: {msg}"
-        return chatbot, textbox or "", gr.update(value=None), error_message
+        # Restore the original text if API key config fails
+        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message
 
     log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
     if not all([log_f, sys_p, mem_p]):
         error_message = f"キャラクター '{current_character_name}' のファイル（ログ、プロンプト、記憶）が見つかりません。"
-        return chatbot, textbox.update(value=""), gr.update(value=None), error_message
+        return chatbot, gr.update(value=""), gr.update(value=None), error_message
 
-    original_user_text = textbox.strip() if textbox else ""
+    original_user_text = textbox.strip() if textbox else "" # This is the current text, might be empty if cleared by previous error
     # file_input_list is now a list of file objects from gr.Files
     
     api_text_arg = original_user_text # Base text for API
@@ -86,7 +90,7 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
     if not original_user_text and not file_input_list:
         error_message = "送信するメッセージまたはファイルがありません。"
         # Return 4 values: chatbot state, textbox state, file input state (clear), error message
-        return chatbot, textbox.update(value=original_user_text), gr.update(value=None), error_message 
+        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message
 
     try:
         if file_input_list:
@@ -179,7 +183,7 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
             # error_message is already initialized and might contain unsupported file messages
             error_message += f"\nGemini APIエラー: {resp}" if error_message else f"Gemini APIエラー: {resp}"
             # Preserve original text and return any accumulated error messages
-            return chatbot, textbox.update(value=original_user_text), gr.update(value=None), error_message.strip()
+            return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message.strip()
 
 
         # --- User Message Logging ---
@@ -229,7 +233,7 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
     except Exception as e:
         error_message = (error_message + "\n" if error_message else "") + f"処理中に予期せぬエラーが発生: {e}"
         traceback.print_exc()
-        return chatbot, textbox.update(value=original_user_text), gr.update(value=None), error_message.strip()
+        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message.strip()
 
     new_log = load_chat_log(log_f, current_character_name)
     new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
