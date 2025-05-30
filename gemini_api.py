@@ -1,44 +1,41 @@
 # -*- coding: utf-8 -*-
-import google.genai as genai # Changed
-from google.genai import types # Changed
-from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part # Added
-from google.ai.generativelanguage import HarmCategory, SafetySetting # Corrected: HarmBlockThreshold removed
+import google.genai as genai 
+from google.genai import types 
+from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part 
+from google.ai.generativelanguage import HarmCategory, SafetySetting 
 import os
 import json
 import google.api_core.exceptions
 import re
 import math
 import traceback
-import base64 # Added for processing multiple file types
-from PIL import Image # Kept for now, might be removed if not used elsewhere, but send_to_gemini will not use it directly for file parts
-# config_manager モジュール全体をインポートするように変更
+import base64 
+from PIL import Image 
 import config_manager
 from utils import load_chat_log
 from character_manager import get_character_files_paths
 
-_gemini_client = None # Added
+_gemini_client = None 
 
 # --- Google API (Gemini) 連携関数 ---
 def configure_google_api(api_key_name):
     if not api_key_name: return False, "APIキー名が指定されていません。"
-    # 関数内で config_manager.API_KEYS を参照するように変更
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        # エラーメッセージは変更せず、参照方法のみ変更
         return False, f"APIキー名 '{api_key_name}' に対応する有効なAPIキーが設定されていません。"
     try:
-        global _gemini_client # Added
-        _gemini_client = genai.Client(api_key=api_key) # Changed
-        print(f"Google GenAI Client for API key '{api_key_name}' initialized successfully.") # Changed
+        global _gemini_client 
+        _gemini_client = genai.Client(api_key=api_key) 
+        print(f"Google GenAI Client for API key '{api_key_name}' initialized successfully.") 
         return True, None
     except Exception as e:
-        return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}" # Changed
+        return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}" 
 
 def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
     if _gemini_client is None:
         return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。"
 
-    print(f"--- 通常対話開始 (google-genai SDK) --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
+    print(f"--- 通常対話開始 (google-genai SDK, client.models.generate_content) --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
     
     sys_ins_text = "あなたはチャットボットです。" 
     if system_prompt_path and os.path.exists(system_prompt_path):
@@ -58,6 +55,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             if m_api: sys_ins_text += f"\n\n---\n## 参考記憶:\n{json.dumps(m_api, indent=2, ensure_ascii=False)}\n---"
         except Exception as e: print(f"記憶ファイル '{memory_json_path}' 読込/処理エラー: {e}")
 
+    # Renamed from g_hist and parts_for_gemini_api to api_contents_from_history and current_turn_parts
     msgs = load_chat_log(log_file_path, character_name)
     if api_history_limit_option.isdigit():
         limit_turns = int(api_history_limit_option)
@@ -66,7 +64,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             print(f"情報: API履歴を直近 {limit_turns} 往復 ({limit_msgs} メッセージ) に制限します。")
             msgs = msgs[-limit_msgs:]
 
-    api_contents = [] # This will be the history + current turn for model.generate_content
+    api_contents_from_history = []
     th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
     for m in msgs:
         sdk_role = "user" if m.get("role") == "user" else "model"
@@ -78,7 +76,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         elif sdk_role == "model" and not send_thoughts_to_api:
             processed_text = th_pat.sub("", processed_text).strip()
         if processed_text:
-            api_contents.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
+            api_contents_from_history.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
 
     current_turn_parts = []
     if user_prompt: 
@@ -97,22 +95,32 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 except Exception as e: print(f"警告: ファイル '{os.path.basename(file_path)}' の処理中にエラー: {e}. スキップします。")
             else: print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。スキップします。")
 
-    if not current_turn_parts:
-        if user_prompt is not None or uploaded_file_parts: 
+    if not current_turn_parts and not api_contents_from_history:
+         if user_prompt is not None or uploaded_file_parts: # Intended to send something, but it became empty
              return "エラー: 送信する有効なコンテンツがありません (テキストが空か、ファイル処理に失敗しました)。"
-        if not api_contents:
-            return "エラー: 送信するメッセージ履歴も現在の入力もありません。"
-
-    if current_turn_parts:
-        api_contents.append(Content(role="user", parts=current_turn_parts))
+         else: # No history and no new input
+             return "エラー: 送信するメッセージ履歴も現在の入力もありません。"
     
-    if not api_contents: 
-        return "エラー: 最終的な送信コンテンツが空です。" # Should be unreachable if logic above is correct
+    # Prepare final_api_contents (prepending system instruction)
+    final_api_contents = [] 
+    if sys_ins_text:
+        print(f"デバッグ: Prepending system instruction to contents in send_to_gemini.")
+        final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
+        # Optional: Add a model acknowledgment 
+        # final_api_contents.append(Content(role="model", parts=[Part(text="了解しました。システム指示に従います。")]))
+
+    final_api_contents.extend(api_contents_from_history) 
+    
+    if current_turn_parts: # Add current user's turn if there are any parts
+        final_api_contents.append(Content(role="user", parts=current_turn_parts))
+    
+    if not final_api_contents: 
+        return "エラー: 最終的な送信コンテンツが空です。"
 
     tools_list = []
     if "2.5-pro" in selected_model.lower() or "2.5-flash" in selected_model.lower():
         try:
-            google_search_tool = Tool(google_search=GoogleSearch()) # Assumes Tool, GoogleSearch are imported
+            google_search_tool = Tool(google_search=GoogleSearch()) 
             tools_list.append(google_search_tool)
             print("情報: Google検索グラウンディング (google-genai SDK) がセットアップされました。")
         except Exception as e:
@@ -122,50 +130,42 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
     if config_manager.SAFETY_CONFIG:
         try:
             for category, threshold in config_manager.SAFETY_CONFIG.items():
-                formatted_safety_settings.append(SafetySetting(category=category, threshold=threshold)) # Assumes types are imported
-            print(f"デバッグ: formatted_safety_settings for send_to_gemini: {formatted_safety_settings}")
+                formatted_safety_settings.append(SafetySetting(category=category, threshold=threshold))
         except NameError as ne: 
-            print(f"警告: SafetySetting, HarmCategory, or HarmBlockThreshold types not found. Error: {ne}")
+            print(f"警告: SafetySetting, HarmCategory, or HarmBlockThreshold types not found for send_to_gemini. Safety settings may not be correctly applied. Error: {ne}")
         except Exception as e_ss:
-            print(f"警告: Error processing safety settings: {e_ss}.")
+            print(f"警告: Error processing safety settings for send_to_gemini: {e_ss}. Safety settings may not be applied.")
     if not formatted_safety_settings:
-        formatted_safety_settings = None
+        formatted_safety_settings = None 
 
-    model_init_args = {"model_name": selected_model}
-    if sys_ins_text:
-        model_init_args["system_instruction"] = sys_ins_text
-    if formatted_safety_settings:
-        model_init_args["safety_settings"] = formatted_safety_settings
-    
-    try:
-        model = _gemini_client.get_generative_model(**model_init_args)
-        print(f"情報: GenerativeModel '{selected_model}' initialized with sys_ins and safety_settings.")
-    except Exception as e_model_init:
-        print(f"エラー: GenerativeModel '{selected_model}' の初期化中にエラー: {e_model_init}")
-        return f"エラー: モデル '{selected_model}' の初期化に失敗しました: {e_model_init}"
+    generation_config_args = {}
+    if tools_list: 
+        generation_config_args["tools"] = tools_list
+    if formatted_safety_settings: 
+        generation_config_args["safety_settings"] = formatted_safety_settings
 
     active_generation_config = None
-    gen_config_for_tools_only_args = {}
-    if tools_list:
-        gen_config_for_tools_only_args["tools"] = tools_list
-    if gen_config_for_tools_only_args:
+    if generation_config_args: 
         try:
-            active_generation_config = GenerateContentConfig(**gen_config_for_tools_only_args)
+            active_generation_config = GenerateContentConfig(**generation_config_args)
+            print(f"デバッグ: GenerateContentConfig created with args: {generation_config_args}")
         except Exception as e:
-            print(f"警告: GenerateContentConfig (for tools) の作成中にエラー: {e}.")
+            print(f"警告: GenerateContentConfig の作成中にエラー: {e}. 引数なしで試行します。")
+            try:
+                active_generation_config = GenerateContentConfig() 
+            except Exception as e_cfg_fallback:
+                 print(f"警告: フォールバック GenerateContentConfig の作成中にもエラー: {e_cfg_fallback}.")
 
-    final_api_contents_for_generate = api_contents # This now correctly contains history + current turn
-
-    if not final_api_contents_for_generate:
-        return "エラー: 最終的な送信コンテンツが空です。" # Should be unreachable
-
-    print(f"Gemini (google-genai) model.generate_content へ送信開始... モデル: {selected_model}, contents長: {len(final_api_contents_for_generate)}")
+    print(f"Gemini (google-genai, client.models.generate_content) へ送信開始... モデル: {selected_model}, contents長: {len(final_api_contents)}")
     try:
-        gen_content_args = {"contents": final_api_contents_for_generate}
+        gen_content_args = {
+            "model": selected_model, 
+            "contents": final_api_contents,
+        }
         if active_generation_config:
             gen_content_args["generation_config"] = active_generation_config
         
-        response = model.generate_content(**gen_content_args)
+        response = _gemini_client.models.generate_content(**gen_content_args)
 
     except google.api_core.exceptions.ResourceExhausted as e: 
         return f"エラー: Gemini API リソース枯渇 (google-genai): {e}"
@@ -193,7 +193,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
     return final_text_response.strip() if final_text_response is not None else "応答生成失敗 (空の応答)"
 
 def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_model_name, api_key_name, log_file_path, alarm_api_history_turns):
-    print(f"--- アラーム応答生成開始 (google-genai SDK) --- キャラ: {character_name}, テーマ: '{theme}'") 
+    print(f"--- アラーム応答生成開始 (google-genai SDK, client.models.generate_content) --- キャラ: {character_name}, テーマ: '{theme}'") 
     if _gemini_client is None:
         print("警告: _gemini_client is None in send_alarm_to_gemini. Attempting to configure with provided api_key_name.")
         config_success, config_msg = configure_google_api(api_key_name) 
@@ -229,36 +229,8 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
             if m_api: sys_ins_text += f"\n\n---\n## 参考記憶:\n{json.dumps(m_api, indent=2, ensure_ascii=False)}\n---"
         except Exception as e: print(f"記憶ファイル '{memory_json_path}' 読込/処理エラー (アラーム): {e}")
 
-    # Prepare formatted_safety_settings
-    formatted_safety_settings = []
-    if config_manager.SAFETY_CONFIG:
-        try:
-            for category_enum, threshold_enum in config_manager.SAFETY_CONFIG.items(): 
-                formatted_safety_settings.append(SafetySetting(category=category_enum, threshold=threshold_enum))
-            print(f"デバッグ (alarm): formatted_safety_settings: {formatted_safety_settings}")
-        except NameError as ne: 
-            print(f"警告 (alarm): SafetySetting, HarmCategory, or HarmBlockThreshold types not found. Error: {ne}")
-        except Exception as e_ss:
-            print(f"警告 (alarm): Error processing safety settings: {e_ss}.")
-    if not formatted_safety_settings:
-        formatted_safety_settings = None
-
-    # Model Initialization
-    model_init_args = {"model_name": alarm_model_name}
-    if sys_ins_text:
-        model_init_args["system_instruction"] = sys_ins_text
-    if formatted_safety_settings:
-        model_init_args["safety_settings"] = formatted_safety_settings
-    
-    try:
-        model = _gemini_client.get_generative_model(**model_init_args)
-        print(f"情報 (alarm): GenerativeModel '{alarm_model_name}' initialized with sys_ins and safety_settings.")
-    except Exception as e_model_init:
-        print(f"エラー (alarm): GenerativeModel '{alarm_model_name}' の初期化中にエラー: {e_model_init}")
-        return f"【アラームエラー】モデル '{alarm_model_name}' の初期化に失敗: {e_model_init}"
-
-    # Prepare api_contents (history and placeholder - NO system instruction here)
-    api_contents = [] 
+    # Prepare api_contents_from_history (history only)
+    api_contents_from_history = []
     if alarm_api_history_turns > 0:
         msgs = load_chat_log(log_file_path, character_name)
         limit_msgs = alarm_api_history_turns * 2
@@ -277,31 +249,69 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
             processed_text = img_pat.sub("", processed_text).strip() 
             processed_text = alrm_pat.sub("", processed_text).strip()
             if processed_text:
-                api_contents.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
-        print(f"情報: アラーム応答生成のために、直近 {alarm_api_history_turns} 往復 ({len(api_contents)} 件) の整形済み履歴を参照します。")
+                api_contents_from_history.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
+        print(f"情報: アラーム応答生成のために、直近 {alarm_api_history_turns} 往復 ({len(api_contents_from_history)} 件) の整形済み履歴を参照します。")
     else:
         print("情報: アラーム応答生成では履歴を参照しません。")
 
-    if not api_contents or (api_contents and api_contents[-1].role == "model"):
-        placeholder_text = "（時間になりました。アラームメッセージをお願いします。）" if not api_contents else "（続けて）"
-        api_contents.append(Content(role="user", parts=[Part(text=placeholder_text)]))
+    # If history is empty, or last message was model's, add a placeholder user message.
+    # This placeholder becomes the "current turn" for the alarm.
+    current_alarm_turn_content = api_contents_from_history # Start with history
+    if not current_alarm_turn_content or (current_alarm_turn_content and current_alarm_turn_content[-1].role == "model"):
+        placeholder_text = "（時間になりました。アラームメッセージをお願いします。）" if not current_alarm_turn_content else "（続けて）"
+        # If api_contents_from_history was empty, this makes current_alarm_turn_content have one user message.
+        # If api_contents_from_history ended with model, this adds a user message.
+        current_alarm_turn_content.append(Content(role="user", parts=[Part(text=placeholder_text)]))
         print(f"情報: API呼び出し用に形式的なユーザー入力 ('{placeholder_text}') を追加しました。")
 
-    if not api_contents: 
+    if not current_alarm_turn_content: 
          return "【アラームエラー】内部エラー: 送信コンテンツ空"
-    
-    active_generation_config = None
-    # Example if other params were needed:
-    # gen_config_params_alarm = {"temperature": 0.7} 
-    # active_generation_config = GenerateContentConfig(**gen_config_params_alarm)
 
-    print(f"アラーム用モデル ({alarm_model_name}, google-genai) model.generate_content へ送信開始... 送信contents件数: {len(api_contents)}")
+    # Prepare final_api_contents (prepending system instruction)
+    final_api_contents = []
+    if sys_ins_text:
+        print(f"デバッグ (alarm): Prepending system instruction to contents.")
+        final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
+    final_api_contents.extend(current_alarm_turn_content)
+
+    if not final_api_contents:
+        return "【アラームエラー】最終送信コンテンツ空"
+
+    # Prepare formatted_safety_settings
+    formatted_safety_settings = []
+    if config_manager.SAFETY_CONFIG:
+        try:
+            for category_enum, threshold_enum in config_manager.SAFETY_CONFIG.items(): 
+                formatted_safety_settings.append(SafetySetting(category=category_enum, threshold=threshold_enum))
+            # print(f"デバッグ (alarm): formatted_safety_settings: {formatted_safety_settings}")
+        except NameError as ne: 
+            print(f"警告 (alarm): SafetySetting, HarmCategory, or HarmBlockThreshold types not found. Error: {ne}")
+        except Exception as e_ss:
+            print(f"警告 (alarm): Error processing safety settings: {e_ss}.")
+    if not formatted_safety_settings:
+        formatted_safety_settings = None
+    
+    generation_config_args = {}
+    if formatted_safety_settings: 
+        generation_config_args["safety_settings"] = formatted_safety_settings
+
+    active_generation_config = None
+    if generation_config_args: 
+        try:
+            active_generation_config = GenerateContentConfig(**generation_config_args)
+        except Exception as e:
+            print(f"警告: アラーム用 GenerateContentConfig の作成中にエラー: {e}.")
+
+    print(f"アラーム用モデル ({alarm_model_name}, client.models.generate_content) へ送信開始... 送信contents件数: {len(final_api_contents)}")
     try:
-        gen_content_args = {"contents": api_contents}
+        gen_content_args = {
+            "model": alarm_model_name, 
+            "contents": final_api_contents
+        }
         if active_generation_config: 
             gen_content_args["generation_config"] = active_generation_config
             
-        response = model.generate_content(**gen_content_args)
+        response = _gemini_client.models.generate_content(**gen_content_args)
 
     except Exception as e: 
         if "BlockedPromptException" in str(type(e)) or "StopCandidateException" in str(type(e)):
