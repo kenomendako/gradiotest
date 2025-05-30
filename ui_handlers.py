@@ -2,6 +2,7 @@
 import gradio as gr
 import datetime
 import json
+import traceback
 import os
 import uuid
 import shutil
@@ -153,7 +154,8 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
         # --- API Call ---
         # The send_to_gemini function will need to be adapted to handle a list of file parts.
         # For now, we pass it, assuming it will be updated.
-        resp, _ = send_to_gemini(sys_p, log_f, api_text_arg, current_model_name, current_character_name, send_thoughts_state, api_history_limit_state, files_for_gemini_api, mem_p)
+        # Corrected to handle single return value from send_to_gemini
+        resp = send_to_gemini(sys_p, log_f, api_text_arg, current_model_name, current_character_name, send_thoughts_state, api_history_limit_state, files_for_gemini_api, mem_p)
 
         # --- Error response from API ---
         if resp and (resp.strip().startswith("エラー:") or resp.strip().startswith("API通信エラー:") or resp.strip().startswith("応答取得エラー") or resp.strip().startswith("応答生成失敗")):
