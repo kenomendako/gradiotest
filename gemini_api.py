@@ -7,7 +7,8 @@ import google.api_core.exceptions
 import re
 import math
 import traceback
-from PIL import Image
+import base64 # Added for processing multiple file types
+from PIL import Image # Kept for now, might be removed if not used elsewhere, but send_to_gemini will not use it directly for file parts
 # config_manager モジュール全体をインポートするように変更
 import config_manager
 from utils import load_chat_log
@@ -28,7 +29,7 @@ def configure_google_api(api_key_name):
     except Exception as e:
         return False, f"APIキー '{api_key_name}' の設定中にエラーが発生しました: {e}"
 
-def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, image_path=None, memory_json_path=None):
+def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None): # MODIFIED signature
     print(f"--- 通常対話開始 --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
     sys_ins = "あなたはチャットボットです。"
     if system_prompt_path and os.path.exists(system_prompt_path):
@@ -69,23 +70,41 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         elif r == "model" and not send_thoughts_to_api:
              a_c = th_pat.sub("", a_c).strip()
         if a_c: g_hist.append({"role": r, "parts": [{"text": a_c}]})
-    u_parts, log_txt, img_log, pil = [], "", "", None
-    if user_prompt: u_parts.append({"text": user_prompt}); log_txt = user_prompt
-    if image_path and os.path.exists(image_path):
-        try:
-            pil = Image.open(image_path)
-            img_format = pil.format.upper()
-            if img_format not in ["JPEG", "PNG", "WEBP", "HEIC", "HEIF"]:
-                 print(f"警告: 画像 '{os.path.basename(image_path)}' の形式 ({img_format}) はGeminiでサポートされていない可能性があります。送信を試みますが、エラーになる場合があります。")
-            u_parts.append(pil)
-            img_log = f"[画像添付:{os.path.basename(image_path)}]"
-        except Exception as e:
-            print(f"画像ファイル '{image_path}' の処理中にエラー: {e}")
-            img_log = f"[画像読み込みエラー:{e}]"
-            if pil: pil.close(); pil = None
-    fin_log = (log_txt + " " + img_log).strip()
-    if not u_parts: return "エラー: 送信するテキストまたは画像がありません。", fin_log or ""
-    print(f"Gemini ({selected_model}) へ送信開始... 履歴: {len(g_hist)}件, 新規入力パーツ: {len(u_parts)}件")
+
+    parts_for_gemini_api = []
+    if user_prompt:
+        parts_for_gemini_api.append({"text": user_prompt})
+
+    if uploaded_file_parts: # This is the new list of file details
+        for file_detail in uploaded_file_parts:
+            file_path = file_detail['path']
+            mime_type = file_detail['mime_type']
+            if os.path.exists(file_path):
+                try:
+                    with open(file_path, 'rb') as f_bytes:
+                        file_bytes = f_bytes.read()
+                    encoded_data = base64.b64encode(file_bytes).decode('utf-8')
+                    parts_for_gemini_api.append({
+                        "inline_data": {
+                            "mime_type": mime_type,
+                            "data": encoded_data
+                        }
+                    })
+                    print(f"情報: ファイル '{os.path.basename(file_path)}' ({mime_type}) をAPIリクエストに追加しました。")
+                except Exception as e:
+                    print(f"警告: ファイル '{os.path.basename(file_path)}' の処理中にエラー: {e}. スキップします。")
+            else:
+                print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。スキップします。")
+    
+    # If only text was provided and it was empty, or only files were provided but all failed to process
+    if not parts_for_gemini_api:
+        # Check if there was an original user_prompt (even if empty string) or any file parts attempted
+        if user_prompt is not None or uploaded_file_parts: # User intended to send something
+             return "エラー: 送信する有効なコンテンツがありません (テキストが空か、ファイル処理に失敗しました)。"
+        else: # Should have been caught by ui_handlers, but as a safeguard
+             return "エラー: 送信するテキストまたはファイルが指定されていません。"
+
+    print(f"Gemini ({selected_model}) へ送信開始... 履歴: {len(g_hist)}件, 新規入力パーツ: {len(parts_for_gemini_api)}件")
     try:
         model_kwargs = {
             "model_name": selected_model,
@@ -107,7 +126,8 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             print(f"情報: モデル '{selected_model}' は現在グラウンディング対象外です。")
 
         model = genai.GenerativeModel(**model_kwargs)
-        resp = model.generate_content(g_hist + [{"role": "user", "parts": u_parts}])
+        # Use parts_for_gemini_api for the user's current turn
+        resp = model.generate_content(g_hist + [{"role": "user", "parts": parts_for_gemini_api}])
         r_txt = None
         try:
             r_txt = resp.text
@@ -115,18 +135,17 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             print(f"応答テキストの取得中にエラー: {e}")
             try: block_reason = resp.prompt_feedback.block_reason
             except: block_reason = "不明"
-            return f"応答取得エラー ({e}) ブロック理由: {block_reason}", fin_log
-        return (r_txt.strip() if r_txt is not None else "応答生成失敗 (空の応答)"), fin_log
+            return f"応答取得エラー ({e}) ブロック理由: {block_reason}" # Removed fin_log
+        return (r_txt.strip() if r_txt is not None else "応答生成失敗 (空の応答)") # Removed fin_log
     except google.api_core.exceptions.ResourceExhausted as e:
         error_message = f"Gemini APIとの通信中にエラーが発生しました: {str(e)}"
         print(error_message)
-        return f"エラー: {error_message}", None
+        return f"エラー: {error_message}" # Removed None
     except Exception as e:
         error_message = f"予期しないエラーが発生しました: {str(e)}"
         print(error_message)
-        return f"エラー: {error_message}", None
-    finally:
-        if pil: pil.close()
+        return f"エラー: {error_message}" # Removed None
+    # Removed PIL image closing as it's not opened here anymore
 
 def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_model_name, api_key_name, log_file_path, alarm_api_history_turns):
     print(f"--- アラーム応答生成開始 --- キャラ: {character_name}, テーマ: '{theme}'")

@@ -58,35 +58,54 @@ def format_history_for_gradio(messages):
             # or it's the start. We finalize the previous user message before processing the new one if it was waiting for a model response.
             # This logic is tricky with consecutive user messages if not handled carefully.
             # The original logic implied a user message is only added to hist when a model message follows, or at the end.
-            # Let's refine to handle image attachments specifically.
+            # Let's refine to handle different attachment types specifically.
 
-            # Regex to capture the attachment part and any trailing timestamp
-            # Group 1: Full image attachment string e.g. [image_attachment:path;filename]
-            # Group 2: Path
+            display_text_for_user_turn = content # Default to original content
+
+            # Regex for general file_attachment:
+            # Group 1: Full [file_attachment:path;filename;mime]
+            # Group 2: Path (not used for display)
             # Group 3: Original filename
-            # Group 4: Any trailing characters (timestamp)
-            image_match = re.match(r"(\[image_attachment:(.*?);(.*?)\])([\s\S]*)", content)
+            # Group 4: Mime type
+            # Group 5: Any trailing characters (timestamp)
+            file_attach_match = re.match(r"(\[file_attachment:(.*?);(.*?);(.*?)\])([\s\S]*)", content)
             
-            if image_match:
-                # attachment_string_part = image_match.group(1) # The actual [image_attachment:...]
-                # path_part = image_match.group(2) # Path, not used for display
-                original_filename = image_match.group(3)
-                timestamp_part = image_match.group(4).strip() # Get timestamp and strip whitespace
+            # Regex for text file placeholder:
+            # Group 1: Full [添付テキストファイル:filename]
+            # Group 2: Original filename
+            # Group 3: Any trailing characters (timestamp)
+            text_file_match = re.match(r"(\[添付テキストファイル:(.*?)\])([\s\S]*)", content)
 
-                display_text = f"画像: {original_filename}"
-                if timestamp_part: # If there was a timestamp
-                    # Prepend a newline to the timestamp if it doesn't already start with one, for better formatting.
-                    # The timestamp from ui_handlers.py already includes a leading newline.
-                    display_text += f"{timestamp_part}" if timestamp_part.startswith("\n") else f" {timestamp_part}"
+            if file_attach_match:
+                original_filename = file_attach_match.group(3)
+                mime_type = file_attach_match.group(4)
+                # Capture raw timestamp part to preserve leading newlines if present
+                raw_timestamp_part = file_attach_match.group(5)
+                timestamp_part_stripped = raw_timestamp_part.strip()
+
+                prefix = "添付ファイル:"
+                if mime_type.startswith("image/"): prefix = "画像:"
+                elif mime_type == "application/pdf": prefix = "PDF:"
+                elif mime_type.startswith("audio/"): prefix = "音声:"
+                elif mime_type.startswith("video/"): prefix = "動画:"
                 
-                if user_msg_accumulator is not None:
-                    hist.append([user_msg_accumulator, None])
-                user_msg_accumulator = display_text
-            else: # Regular text message from user
-                # If a user message (image or text) was pending, add it
-                if user_msg_accumulator is not None: # This implies the previous message was also a user message.
-                     hist.append([user_msg_accumulator, None]) # Add pending message (could be image or text)
-                user_msg_accumulator = content # Store as current user message
+                display_text_for_user_turn = f"{prefix} {original_filename}"
+                if timestamp_part_stripped:
+                    # If original timestamp part started with newline/carriage return, preserve that for formatting
+                    display_text_for_user_turn += f"{raw_timestamp_part.rstrip()}" if raw_timestamp_part.startswith(('\n', '\r')) else f" {timestamp_part_stripped}"
+            
+            elif text_file_match:
+                original_filename = text_file_match.group(2)
+                raw_timestamp_part = text_file_match.group(3)
+                timestamp_part_stripped = raw_timestamp_part.strip()
+                display_text_for_user_turn = f"添付テキスト: {original_filename}"
+                if timestamp_part_stripped:
+                    display_text_for_user_turn += f"{raw_timestamp_part.rstrip()}" if raw_timestamp_part.startswith(('\n', '\r')) else f" {timestamp_part_stripped}"
+            
+            # Accumulator logic using display_text_for_user_turn (which is 'content' if no patterns matched)
+            if user_msg_accumulator is not None:
+                hist.append([user_msg_accumulator, None])
+            user_msg_accumulator = display_text_for_user_turn
 
         elif role == "model":
             display_content = format_response_for_display(content)
