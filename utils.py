@@ -43,22 +43,65 @@ def format_response_for_display(response_text):
     return response_text.strip()
 
 def format_history_for_gradio(messages):
-    hist = []; user_msg = None
+    hist = []
+    user_msg_accumulator = None # To hold the current user message (text or image path)
+
     for msg in messages:
-        role, content = msg.get("role"), msg.get("content", "")
-        if not content: continue
-        display = format_response_for_display(content) if role == "model" else content
+        role = msg.get("role")
+        content = msg.get("content", "")
+
+        if not content:
+            continue
+
         if role == "user":
-            if user_msg is not None:
-                hist.append([user_msg, None]) # 前のユーザー発言が残っていたら確定
-            user_msg = display
+            # If there's an accumulated user message, it means the previous message was also from the user
+            # or it's the start. We finalize the previous user message before processing the new one if it was waiting for a model response.
+            # This logic is tricky with consecutive user messages if not handled carefully.
+            # The original logic implied a user message is only added to hist when a model message follows, or at the end.
+            # Let's refine to handle image attachments specifically.
+
+            # Regex to capture the attachment part and any trailing timestamp
+            # Group 1: Full image attachment string e.g. [image_attachment:path;filename]
+            # Group 2: Path
+            # Group 3: Original filename
+            # Group 4: Any trailing characters (timestamp)
+            image_match = re.match(r"(\[image_attachment:(.*?);(.*?)\])([\s\S]*)", content)
+            
+            if image_match:
+                # attachment_string_part = image_match.group(1) # The actual [image_attachment:...]
+                # path_part = image_match.group(2) # Path, not used for display
+                original_filename = image_match.group(3)
+                timestamp_part = image_match.group(4).strip() # Get timestamp and strip whitespace
+
+                display_text = f"画像: {original_filename}"
+                if timestamp_part: # If there was a timestamp
+                    # Prepend a newline to the timestamp if it doesn't already start with one, for better formatting.
+                    # The timestamp from ui_handlers.py already includes a leading newline.
+                    display_text += f"{timestamp_part}" if timestamp_part.startswith("\n") else f" {timestamp_part}"
+                
+                if user_msg_accumulator is not None:
+                    hist.append([user_msg_accumulator, None])
+                user_msg_accumulator = display_text
+            else: # Regular text message from user
+                # If a user message (image or text) was pending, add it
+                if user_msg_accumulator is not None: # This implies the previous message was also a user message.
+                     hist.append([user_msg_accumulator, None]) # Add pending message (could be image or text)
+                user_msg_accumulator = content # Store as current user message
+
         elif role == "model":
-            if user_msg is None: # AI発言が先に来る場合（ほぼないはずだが念のため）
-                hist.append([None, display])
+            display_content = format_response_for_display(content)
+            if user_msg_accumulator is not None:
+                # Pair the accumulated user message with this model message
+                hist.append([user_msg_accumulator, display_content])
+                user_msg_accumulator = None # Reset accumulator
             else:
-                hist.append([user_msg, display])
-            user_msg = None # AIの発言が終わったらリセット
-    if user_msg is not None: hist.append([user_msg, None]) # 最後のユーザー発言が残っていれば追加
+                # Model message without a preceding user message (should be rare, but handle)
+                hist.append([None, display_content])
+
+    # If there's any uncommitted user message at the end (e.g., last message in log is from user)
+    if user_msg_accumulator is not None:
+        hist.append([user_msg_accumulator, None])
+
     return hist
 
 def save_message_to_log(log_file, header, text):
