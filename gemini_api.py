@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-import google.generativeai as genai
-from google.generativeai import types
+import google.genai as genai
+from google.genai import types
 import os
 import json
 import google.api_core.exceptions
@@ -112,25 +112,18 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             "safety_settings": config_manager.SAFETY_CONFIG
         }
         if "2.5-pro" in selected_model.lower() or "2.5-flash" in selected_model.lower():
-            print(f"情報: モデル '{selected_model}' のため、Google検索グラウンディングを有効化しようと試みます。")
+            print(f"情報: モデル '{selected_model}' のため、Google検索グラウンディング (google-genai SDK) を有効化しようと試みます。")
             try:
-                # Attempt to get GoogleSearchRetrieval dynamically from the 'types' module
-                GoogleSearchRetrieval_cls = getattr(types, "GoogleSearchRetrieval", None)
-                
-                if GoogleSearchRetrieval_cls:
-                    # If GoogleSearchRetrieval is found, create the tool using types.Tool
-                    # We assume types.Tool is generally available if 'types' itself is imported.
-                    tool_instance = types.Tool(google_search_retrieval=GoogleSearchRetrieval_cls())
-                    model_kwargs["tools"] = [tool_instance]
-                    print("情報: Google検索グラウンディングがセットアップされました。")
-                else:
-                    # If GoogleSearchRetrieval is not found, print a warning
-                    print("警告: お使いの `google-generativeai` ライブラリバージョンでは `types.GoogleSearchRetrieval` が見つかりません。検索グラウンディング機能は有効になりません。")
-            
+                # Assuming types.Tool and types.GoogleSearchRetrieval are available
+                # from 'from google.genai import types'
+                tool_instance = types.Tool(google_search_retrieval=types.GoogleSearchRetrieval())
+                model_kwargs["tools"] = [tool_instance]
+                print("情報: Google検索グラウンディング (google-genai SDK) がセットアップされました。")
             except AttributeError as ae:
-                print(f"警告: `types.Tool` または `GoogleSearchRetrieval` のセットアップ中にAttributeErrorが発生しました: {ae}。検索グラウンディング機能は有効になりません。")
+                # This would occur if Tool or GoogleSearchRetrieval are not attributes of 'types'
+                print(f"警告: `google.genai.types` モジュールに `Tool` または `GoogleSearchRetrieval` が見つかりません: {ae}。検索グラウンディングは無効になります。")
             except Exception as e:
-                print(f"警告: Google検索グラウンディングのセットアップ中に予期せぬ例外が発生しました: {e}。検索グラウンディング機能は有効になりません。")
+                print(f"警告: Google検索グラウンディング (google-genai SDK) のセットアップ中に予期せぬ例外が発生しました: {e}。検索グラウンディングは無効になります。")
         else:
             print(f"情報: モデル '{selected_model}' は現在グラウンディング対象外のため、検索グラウンディングは試行されません。")
 
