@@ -118,22 +118,26 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 GoogleSearchRetrieval_cls = getattr(types, "GoogleSearchRetrieval", None)
                 
                 if GoogleSearchRetrieval_cls:
+                    print(f"デバッグ: `GoogleSearchRetrieval` クラスが見つかりました: {type(GoogleSearchRetrieval_cls)}")
                     # If GoogleSearchRetrieval is found, create the tool using types.Tool
                     # We assume types.Tool is generally available if 'types' itself is imported.
                     tool_instance = types.Tool(google_search_retrieval=GoogleSearchRetrieval_cls())
+                    print(f"デバッグ: 作成された `tool_instance`: {tool_instance}") # This might be verbose, consider type(tool_instance) or specific attributes
                     model_kwargs["tools"] = [tool_instance]
                     print("情報: Google検索グラウンディングがセットアップされました。")
                 else:
                     # If GoogleSearchRetrieval is not found, print a warning
                     print("警告: お使いの `google-generativeai` ライブラリバージョンでは `types.GoogleSearchRetrieval` が見つかりません。検索グラウンディング機能は有効になりません。")
+            
             except AttributeError as ae:
-                # This might happen if 'types.Tool' itself is not found, which is less likely if 'types' is imported
-                print(f"警告: `types.Tool` のセットアップ中にAttributeErrorが発生しました: {ae}。検索グラウンディング機能は有効になりません。")
+                print(f"警告: `types.Tool` または `GoogleSearchRetrieval` のセットアップ中にAttributeErrorが発生しました: {ae}。検索グラウンディング機能は有効になりません。")
             except Exception as e:
                 print(f"警告: Google検索グラウンディングのセットアップ中に予期せぬ例外が発生しました: {e}。検索グラウンディング機能は有効になりません。")
         else:
             print(f"情報: モデル '{selected_model}' は現在グラウンディング対象外のため、検索グラウンディングは試行されません。")
 
+        # Add this line for debugging model_kwargs:
+        print(f"デバッグ: `genai.GenerativeModel` に渡される `model_kwargs`: {model_kwargs}")
         model = genai.GenerativeModel(**model_kwargs)
         # Use parts_for_gemini_api for the user's current turn
         resp = model.generate_content(g_hist + [{"role": "user", "parts": parts_for_gemini_api}])
