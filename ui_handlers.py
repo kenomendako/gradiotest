@@ -56,18 +56,18 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
     error_message = ""
     if not all([current_character_name, current_model_name, current_api_key_name_state]):
         error_message = "キャラクター、AIモデル、APIキーが選択されていません。設定を確認してください。"
-        return chatbot, textbox.update(value=""), None, error_message
+        return chatbot, textbox.update(value=""), gr.update(value=None), error_message
 
     # APIキー設定エラー処理
     ok, msg = configure_google_api(current_api_key_name_state)
     if not ok:
         error_message = f"APIキー設定エラー: {msg}"
-        return chatbot, textbox or "", None, error_message
+        return chatbot, textbox or "", gr.update(value=None), error_message
 
     log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
     if not all([log_f, sys_p, mem_p]):
         error_message = f"キャラクター '{current_character_name}' のファイル（ログ、プロンプト、記憶）が見つかりません。"
-        return chatbot, textbox.update(value=""), None, error_message
+        return chatbot, textbox.update(value=""), gr.update(value=None), error_message
 
     original_user_text = textbox.strip() if textbox else ""
     # file_input_list is now a list of file objects from gr.Files
@@ -86,7 +86,7 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
     if not original_user_text and not file_input_list:
         error_message = "送信するメッセージまたはファイルがありません。"
         # Return 4 values: chatbot state, textbox state, file input state (clear), error message
-        return chatbot, textbox.update(value=original_user_text), None, error_message 
+        return chatbot, textbox.update(value=original_user_text), gr.update(value=None), error_message 
 
     try:
         if file_input_list:
@@ -117,12 +117,29 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
                     }
 
                     if category == 'text':
-                        try:
-                            with open(temp_file_path, 'r', encoding='utf-8') as f_content:
-                                current_file_info['content_for_api'] = f_content.read()
-                        except Exception as e:
-                            unsupported_files_messages.append(f"ファイル読込エラー ({original_filename}): {e}")
-                            continue 
+                        content_to_add = None
+                        encodings_to_try = ['utf-8', 'shift_jis', 'cp932']
+                        for enc in encodings_to_try:
+                            try:
+                                with open(temp_file_path, 'r', encoding=enc) as f_content:
+                                    content_to_add = f_content.read()
+                                print(f"Successfully read {original_filename} with encoding {enc}") # For debugging
+                                break # Success
+                            except UnicodeDecodeError:
+                                print(f"Failed to decode {original_filename} with {enc}, trying next...") # For debugging
+                                continue # Try next encoding
+                            except Exception as e: # Other file errors
+                                unsupported_files_messages.append(f"ファイル読込エラー ({original_filename}, encoding {enc}): {e}")
+                                content_to_add = None # Ensure it's None if other error occurred
+                                break # Don't try other encodings if a non-decode error happened
+                        
+                        if content_to_add is not None:
+                            current_file_info['content_for_api'] = content_to_add
+                        else:
+                            # If all encodings failed or another error occurred
+                            if not any(msg.startswith(f"ファイル読込エラー ({original_filename}") for msg in unsupported_files_messages): # Avoid duplicate general error if specific decode errors logged
+                                unsupported_files_messages.append(f"ファイルデコード失敗 ({original_filename}): 全てのエンコーディング試行に失敗しました。")
+                            continue # Skip this file from processed_files_info
                     elif category in ['image', 'pdf', 'audio', 'video']:
                         unique_filename_for_attachment = f"{uuid.uuid4()}{file_extension}"
                         saved_attachment_path = os.path.join(ATTACHMENTS_DIR, unique_filename_for_attachment)
@@ -162,7 +179,7 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
             # error_message is already initialized and might contain unsupported file messages
             error_message += f"\nGemini APIエラー: {resp}" if error_message else f"Gemini APIエラー: {resp}"
             # Preserve original text and return any accumulated error messages
-            return chatbot, textbox.update(value=original_user_text), None, error_message.strip()
+            return chatbot, textbox.update(value=original_user_text), gr.update(value=None), error_message.strip()
 
 
         # --- User Message Logging ---
@@ -212,13 +229,13 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
     except Exception as e:
         error_message = (error_message + "\n" if error_message else "") + f"処理中に予期せぬエラーが発生: {e}"
         traceback.print_exc()
-        return chatbot, textbox.update(value=original_user_text), None, error_message.strip()
+        return chatbot, textbox.update(value=original_user_text), gr.update(value=None), error_message.strip()
 
     new_log = load_chat_log(log_f, current_character_name)
     new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
     
-    # Return "" for textbox, None for gr.Files to clear it, and any error messages
-    return new_hist, "", None, error_message.strip() if error_message else ""
+    # Return "" for textbox, gr.update(value=None) for gr.Files to clear it, and any error messages
+    return new_hist, "", gr.update(value=None), error_message.strip() if error_message else ""
 
 def update_ui_on_character_change(character_name):
     if not character_name:
