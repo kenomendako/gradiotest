@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import google.genai as genai
 from google.genai import types
+from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part
 import os
 import json
 import google.api_core.exceptions
@@ -14,6 +15,8 @@ import config_manager
 from utils import load_chat_log
 from character_manager import get_character_files_paths
 
+_gemini_client = None
+
 # --- Google API (Gemini) 連携関数 ---
 def configure_google_api(api_key_name):
     if not api_key_name: return False, "APIキー名が指定されていません。"
@@ -23,18 +26,23 @@ def configure_google_api(api_key_name):
         # エラーメッセージは変更せず、参照方法のみ変更
         return False, f"APIキー名 '{api_key_name}' に対応する有効なAPIキーが設定されていません。"
     try:
-        genai.setup(api_key=api_key)
-        print(f"Google API キー '{api_key_name}' の設定が完了しました。")
+        global _gemini_client
+        _gemini_client = genai.Client(api_key=api_key)
+        print(f"Google GenAI Client for API key '{api_key_name}' initialized successfully.") # New success message
         return True, None
     except Exception as e:
-        return False, f"APIキー '{api_key_name}' の設定中にエラーが発生しました: {e}"
+        return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}"
 
-def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None): # MODIFIED signature
-    print(f"--- 通常対話開始 --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
-    sys_ins = "あなたはチャットボットです。"
+def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
+    if _gemini_client is None:
+        return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。"
+
+    print(f"--- 通常対話開始 (google-genai SDK) --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
+    
+    sys_ins_text = "あなたはチャットボットです。" # Renamed to avoid conflict with system_instruction parameter name
     if system_prompt_path and os.path.exists(system_prompt_path):
         try:
-            with open(system_prompt_path, "r", encoding="utf-8") as f: sys_ins = f.read().strip() or sys_ins
+            with open(system_prompt_path, "r", encoding="utf-8") as f: sys_ins_text = f.read().strip() or sys_ins_text
         except Exception as e: print(f"システムプロンプト '{system_prompt_path}' 読込エラー: {e}")
     if memory_json_path and os.path.exists(memory_json_path):
         try:
@@ -46,36 +54,42 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 "current_context": mem.get("current_context"),
                 "memory_summary": mem.get("memory_summary", [])[-config_manager.MEMORY_SUMMARY_LIMIT_FOR_API:]
             }.items() if v}
-            if m_api: sys_ins += f"\n\n---\n## 参考記憶:\n{json.dumps(m_api, indent=2, ensure_ascii=False)}\n---"
+            if m_api: sys_ins_text += f"\n\n---\n## 参考記憶:\n{json.dumps(m_api, indent=2, ensure_ascii=False)}\n---"
         except Exception as e: print(f"記憶ファイル '{memory_json_path}' 読込/処理エラー: {e}")
+
     msgs = load_chat_log(log_file_path, character_name)
     if api_history_limit_option.isdigit():
         limit_turns = int(api_history_limit_option)
         limit_msgs = limit_turns * 2
         if len(msgs) > limit_msgs:
-            print(f"情報: API履歴を直近 {limit_turns} 往復 ({limit_msgs} メッセージ) に制限します。")
+            print(f"情報: API履歴を直近 {limit_turns} 往復 ({limit_msgs} メッセージ) に制限します。") # Log message kept from original
             msgs = msgs[-limit_msgs:]
-        else:
-            print(f"情報: API履歴は全 {len(msgs)} メッセージ ({math.ceil(len(msgs)/2)} 往復相当) を送信します（制限未満）。")
-    else:
-         print(f"情報: API履歴は全 {len(msgs)} メッセージ ({math.ceil(len(msgs)/2)} 往復相当) を送信します。")
-    g_hist = []
+        # else: # Removed redundant log messages about history length from original prompt for brevity
+            # print(f"情報: API履歴は全 {len(msgs)} メッセージ ({math.ceil(len(msgs)/2)} 往復相当) を送信します（制限未満）。")
+    # else:
+        #  print(f"情報: API履歴は全 {len(msgs)} メッセージ ({math.ceil(len(msgs)/2)} 往復相当) を送信します。")
+
+    api_contents = []
     th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
     for m in msgs:
-        r, c = m.get("role"), m.get("content", "")
-        if not c: continue
-        a_c = c
-        if r == "user":
-            a_c = re.sub(r"\[画像添付:[^\]]+\]", "", a_c).strip()
-        elif r == "model" and not send_thoughts_to_api:
-             a_c = th_pat.sub("", a_c).strip()
-        if a_c: g_hist.append({"role": r, "parts": [{"text": a_c}]})
+        sdk_role = "user" if m.get("role") == "user" else "model"
+        content_text = m.get("content", "")
+        if not content_text: continue
+        
+        processed_text = content_text
+        if sdk_role == "user":
+            processed_text = re.sub(r"\[画像添付:[^\]]+\]", "", processed_text).strip()
+        elif sdk_role == "model" and not send_thoughts_to_api:
+            processed_text = th_pat.sub("", processed_text).strip()
+        
+        if processed_text:
+            api_contents.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
 
-    parts_for_gemini_api = []
+    current_turn_parts = []
     if user_prompt:
-        parts_for_gemini_api.append({"text": user_prompt})
-
-    if uploaded_file_parts: # This is the new list of file details
+        current_turn_parts.append(Part(text=user_prompt))
+    
+    if uploaded_file_parts:
         for file_detail in uploaded_file_parts:
             file_path = file_detail['path']
             mime_type = file_detail['mime_type']
@@ -84,169 +98,220 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                     with open(file_path, 'rb') as f_bytes:
                         file_bytes = f_bytes.read()
                     encoded_data = base64.b64encode(file_bytes).decode('utf-8')
-                    parts_for_gemini_api.append({
-                        "inline_data": {
-                            "mime_type": mime_type,
-                            "data": encoded_data
-                        }
-                    })
+                    current_turn_parts.append(Part(inline_data={"mime_type": mime_type, "data": encoded_data}))
                     print(f"情報: ファイル '{os.path.basename(file_path)}' ({mime_type}) をAPIリクエストに追加しました。")
                 except Exception as e:
                     print(f"警告: ファイル '{os.path.basename(file_path)}' の処理中にエラー: {e}. スキップします。")
             else:
                 print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。スキップします。")
-    
-    # If only text was provided and it was empty, or only files were provided but all failed to process
-    if not parts_for_gemini_api:
-        # Check if there was an original user_prompt (even if empty string) or any file parts attempted
-        if user_prompt is not None or uploaded_file_parts: # User intended to send something
+
+    if not current_turn_parts:
+        if user_prompt is not None or uploaded_file_parts:
              return "エラー: 送信する有効なコンテンツがありません (テキストが空か、ファイル処理に失敗しました)。"
-        else: # Should have been caught by ui_handlers, but as a safeguard
-             return "エラー: 送信するテキストまたはファイルが指定されていません。"
+        if not api_contents:
+            return "エラー: 送信するメッセージ履歴も現在の入力もありません。"
 
-    print(f"Gemini ({selected_model}) へ送信開始... 履歴: {len(g_hist)}件, 新規入力パーツ: {len(parts_for_gemini_api)}件")
-    try:
-        model_kwargs = {
-            "model_name": selected_model,
-            "system_instruction": sys_ins,
-            "safety_settings": config_manager.SAFETY_CONFIG
-        }
-        if "2.5-pro" in selected_model.lower() or "2.5-flash" in selected_model.lower():
-            print(f"情報: モデル '{selected_model}' のため、Google検索グラウンディング (google-genai SDK) を有効化しようと試みます。")
-            try:
-                # Assuming types.Tool and types.GoogleSearchRetrieval are available
-                # from 'from google.genai import types'
-                tool_instance = types.Tool(google_search_retrieval=types.GoogleSearchRetrieval())
-                model_kwargs["tools"] = [tool_instance]
-                print("情報: Google検索グラウンディング (google-genai SDK) がセットアップされました。")
-            except AttributeError as ae:
-                # This would occur if Tool or GoogleSearchRetrieval are not attributes of 'types'
-                print(f"警告: `google.genai.types` モジュールに `Tool` または `GoogleSearchRetrieval` が見つかりません: {ae}。検索グラウンディングは無効になります。")
-            except Exception as e:
-                print(f"警告: Google検索グラウンディング (google-genai SDK) のセットアップ中に予期せぬ例外が発生しました: {e}。検索グラウンディングは無効になります。")
-        else:
-            print(f"情報: モデル '{selected_model}' は現在グラウンディング対象外のため、検索グラウンディングは試行されません。")
+    if current_turn_parts:
+        api_contents.append(Content(role="user", parts=current_turn_parts))
+    
+    if not api_contents:
+        return "エラー: 最終的な送信コンテンツが空です。"
 
-        model = genai.GenerativeModel(**model_kwargs)
-        # Use parts_for_gemini_api for the user's current turn
-        resp = model.generate_content(g_hist + [{"role": "user", "parts": parts_for_gemini_api}])
-        r_txt = None
+    tools_list = []
+    if "2.5-pro" in selected_model.lower() or "2.5-flash" in selected_model.lower():
         try:
-            r_txt = resp.text
+            google_search_tool = Tool(google_search=GoogleSearch())
+            tools_list.append(google_search_tool)
+            print("情報: Google検索グラウンディング (google-genai SDK) がセットアップされました。")
         except Exception as e:
-            print(f"応答テキストの取得中にエラー: {e}")
-            try: block_reason = resp.prompt_feedback.block_reason
-            except: block_reason = "不明"
-            return f"応答取得エラー ({e}) ブロック理由: {block_reason}" # Removed fin_log
-        return (r_txt.strip() if r_txt is not None else "応答生成失敗 (空の応答)") # Removed fin_log
+            print(f"警告: GoogleSearch Toolのセットアップ中にエラー (google-genai SDK): {e}")
+    
+    generation_config_args = {}
+    if tools_list:
+        generation_config_args["tools"] = tools_list
+    
+    if config_manager.SAFETY_CONFIG:
+        generation_config_args["safety_settings"] = config_manager.SAFETY_CONFIG
+    
+    active_generation_config = None
+    if generation_config_args:
+        try:
+            active_generation_config = GenerateContentConfig(**generation_config_args)
+        except Exception as e:
+            print(f"警告: GenerateContentConfig の作成中にエラー: {e}. 引数なしで試行します。")
+            try:
+                active_generation_config = GenerateContentConfig()
+            except Exception as e_cfg_fallback:
+                 print(f"警告: フォールバック GenerateContentConfig の作成中にもエラー: {e_cfg_fallback}.")
+
+    print(f"Gemini (google-genai) へ送信開始... モデル: {selected_model}, contents長: {len(api_contents)}, sys_ins提供: {True if sys_ins_text else False}")
+    try:
+        gen_content_args = {
+            "model": selected_model,
+            "contents": api_contents
+        }
+        if sys_ins_text:
+            gen_content_args["system_instruction"] = sys_ins_text
+        if active_generation_config:
+            gen_content_args["generation_config"] = active_generation_config
+        
+        response = _gemini_client.models.generate_content(**gen_content_args)
+
     except google.api_core.exceptions.ResourceExhausted as e:
-        error_message = f"Gemini APIとの通信中にエラーが発生しました: {str(e)}"
-        print(error_message)
-        return f"エラー: {error_message}" # Removed None
+        return f"エラー: Gemini API リソース枯渇 (google-genai): {e}"
     except Exception as e:
-        error_message = f"予期しないエラーが発生しました: {str(e)}"
-        print(error_message)
-        return f"エラー: {error_message}" # Removed None
-    # Removed PIL image closing as it's not opened here anymore
+        import traceback
+        print(f"Gemini API (google-genai) 呼び出し中に予期しないエラー: {traceback.format_exc()}")
+        return f"エラー: Gemini APIとの通信中に予期しないエラー (google-genai): {e}"
+    
+    final_text_response = None
+    try:
+        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+            text_parts = [part.text for part in response.candidates[0].content.parts if hasattr(part, 'text')]
+            final_text_response = "".join(text_parts)
+        
+        if final_text_response is None or not final_text_response.strip():
+            if hasattr(response, 'prompt_feedback') and response.prompt_feedback and response.prompt_feedback.block_reason:
+                return f"応答取得エラー: プロンプトがブロックされました。理由: {response.prompt_feedback.block_reason}"
+            if final_text_response is None : 
+                 final_text_response = "応答にテキストコンテンツが見つかりませんでした。"
+
+    except Exception as e:
+        print(f"応答テキストの処理中にエラー: {e}")
+        if hasattr(response, 'prompt_feedback') and response.prompt_feedback and response.prompt_feedback.block_reason:
+            return f"応答取得エラー ({e}) ブロック理由: {response.prompt_feedback.block_reason}"
+        return f"応答取得エラー ({e}) ブロック理由は不明"
+    
+    return final_text_response.strip() if final_text_response is not None else "応答生成失敗 (空の応答)"
 
 def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_model_name, api_key_name, log_file_path, alarm_api_history_turns):
-    print(f"--- アラーム応答生成開始 --- キャラ: {character_name}, テーマ: '{theme}'")
-    # configure_google_api は内部で config_manager.API_KEYS を参照するようになった
-    ok, msg = configure_google_api(api_key_name)
-    if not ok: return f"【アラームエラー】APIキー設定失敗: {msg}"
-    sys_ins = ""
+    print(f"--- アラーム応答生成開始 (google-genai SDK) --- キャラ: {character_name}, テーマ: '{theme}'") # Updated log
+    if _gemini_client is None:
+        print("警告: _gemini_client is None in send_alarm_to_gemini. Attempting to configure with provided api_key_name.")
+        config_success, config_msg = configure_google_api(api_key_name) 
+        if not config_success:
+            return f"【アラームエラー】APIキー設定失敗: {config_msg}"
+        if _gemini_client is None: 
+            return "【アラームエラー】Geminiクライアントが初期化されていません。"
+
+    sys_ins_text = ""
     if flash_prompt_template:
-        sys_ins = flash_prompt_template.replace("[キャラクター名]", character_name).replace("[テーマ内容]", theme)
-        sys_ins += "\n\n**重要:** あなたの思考過程、応答の候補、メタテキスト（例: ---）などは一切出力せず、ユーザーに送る最終的な短いメッセージ本文のみを生成してください。"
-        print("情報: アラーム応答にカスタムプロンプトを使用します。")
+        sys_ins_text = flash_prompt_template.replace("[キャラクター名]", character_name).replace("[テーマ内容]", theme)
+        sys_ins_text += "\n\n**重要:** あなたの思考過程、応答の候補、メタテキスト（例: ---）などは一切出力せず、ユーザーに送る最終的な短いメッセージ本文のみを生成してください。"
+        # print("情報: アラーム応答にカスタムプロンプトを使用します。") # Redundant due to main log
     elif theme:
-        sys_ins = f"""あなたはキャラクター「{character_name}」です。
+        sys_ins_text = f"""あなたはキャラクター「{character_name}」です。
 以下のテーマについて、ユーザーに送る短いメッセージを生成してください。
 過去の会話履歴があれば参考にし、自然な応答を心がけてください。
 
 テーマ: {theme}
 
 重要: あなたの思考過程、応答の候補リスト、自己対話、マーカー（例: `---`）などは一切含めず、ユーザーに送る最終的な短いメッセージ本文のみを出力してください。"""
-        print("情報: アラーム応答にデフォルトプロンプト（テーマ使用）を使用します。")
+        # print("情報: アラーム応答にデフォルトプロンプト（テーマ使用）を使用します。") # Redundant
 
     _, _, _, memory_json_path = get_character_files_paths(character_name)
     if memory_json_path and os.path.exists(memory_json_path):
         try:
-            with open(memory_json_path, "r", encoding="utf-8") as f:
-                mem = json.load(f)
-                # 関数内で config_manager.MEMORY_SUMMARY_LIMIT_FOR_API を参照
-                m_api = {k: v for k, v in {
-                    "user_profile": mem.get("user_profile"),
-                    "self_identity": mem.get("self_identity"),
-                    "shared_language": mem.get("shared_language"),
-                    "current_context": mem.get("current_context"),
-                    "memory_summary": mem.get("memory_summary", [])[-config_manager.MEMORY_SUMMARY_LIMIT_FOR_API:] # 変更
-                }.items() if v}
-                if m_api:
-                    sys_ins += f"\n\n---\n## 参考記憶:\n{json.dumps(m_api, indent=2, ensure_ascii=False)}\n---"
-                    print("情報: memory.json の内容をシステムプロンプトに追加しました。")
-        except Exception as e:
-            print(f"記憶ファイル '{memory_json_path}' 読込/処理エラー: {e}")
-    else:
-        print("情報: memory.json が見つからないため、記憶データは追加されません。")
+            with open(memory_json_path, "r", encoding="utf-8") as f: mem = json.load(f)
+            m_api = {k: v for k, v in {
+                "user_profile": mem.get("user_profile"),
+                "self_identity": mem.get("self_identity"),
+                "shared_language": mem.get("shared_language"),
+                "current_context": mem.get("current_context"),
+                "memory_summary": mem.get("memory_summary", [])[-config_manager.MEMORY_SUMMARY_LIMIT_FOR_API:]
+            }.items() if v}
+            if m_api: sys_ins_text += f"\n\n---\n## 参考記憶:\n{json.dumps(m_api, indent=2, ensure_ascii=False)}\n---"
+            # print("情報: memory.json の内容をシステムプロンプトに追加しました。") # Redundant
+        except Exception as e: print(f"記憶ファイル '{memory_json_path}' 読込/処理エラー (アラーム): {e}")
+    # else:
+        # print("情報: memory.json が見つからないため、記憶データは追加されません。") # Can be noisy
 
-    print("情報: アラーム応答生成ではキャラクター記憶を参照します。")
-    g_hist = []
+    api_contents = []
     if alarm_api_history_turns > 0:
         msgs = load_chat_log(log_file_path, character_name)
         limit_msgs = alarm_api_history_turns * 2
         if len(msgs) > limit_msgs: msgs = msgs[-limit_msgs:]
+        
         th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
         img_pat = re.compile(r"\[画像添付:[^\]]+\]")
         alrm_pat = re.compile(r"（システムアラーム：.*?）")
+        
         for m in msgs:
-            r, c = m.get("role"), m.get("content", "")
-            if not c: continue
-            a_c = th_pat.sub("", c).strip() if r == "model" else img_pat.sub("", c).strip()
-            a_c = alrm_pat.sub("", a_c).strip()
-            if a_c: g_hist.append({"role": r, "parts": [{"text": a_c}]})
-        print(f"情報: アラーム応答生成のために、直近 {alarm_api_history_turns} 往復 ({len(g_hist)} 件) の整形済み履歴を参照します。")
+            sdk_role = "user" if m.get("role") == "user" else "model"
+            content_text = m.get("content", "")
+            if not content_text: continue
+            
+            processed_text = content_text
+            if sdk_role == "model": processed_text = th_pat.sub("", processed_text).strip()
+            processed_text = img_pat.sub("", processed_text).strip() 
+            processed_text = alrm_pat.sub("", processed_text).strip()
+
+            if processed_text:
+                api_contents.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
+        print(f"情報: アラーム応答生成のために、直近 {alarm_api_history_turns} 往復 ({len(api_contents)} 件) の整形済み履歴を参照します。")
     else:
         print("情報: アラーム応答生成では履歴を参照しません。")
-    contents_to_send = g_hist
-    if not contents_to_send:
-        print("情報: 履歴が空のため、API呼び出し用に形式的なユーザー入力を追加します。")
-        contents_to_send = [{"role": "user", "parts": [{"text": "（時間になりました。アラームメッセージをお願いします。）"}]}]
-    elif contents_to_send and contents_to_send[-1].get("role") == "model":
-        print("情報: 履歴の最後がモデル応答のため、API呼び出し用に形式的なユーザー入力を追加します。")
-        contents_to_send.append({"role": "user", "parts": [{"text": "（続けて）"}]})
-    if not contents_to_send:
-         print("致命的エラー: APIに送信するコンテンツリストを作成できませんでした。")
+
+    if not api_contents or (api_contents and api_contents[-1].role == "model"):
+        placeholder_text = "（時間になりました。アラームメッセージをお願いします。）" if not api_contents else "（続けて）"
+        api_contents.append(Content(role="user", parts=[Part(text=placeholder_text)]))
+        print(f"情報: API呼び出し用に形式的なユーザー入力 ('{placeholder_text}') を追加しました。")
+
+    if not api_contents: 
          return "【アラームエラー】内部エラー: 送信コンテンツ空"
-    print(f"アラーム用モデル ({alarm_model_name}) へ送信開始... 送信contents件数: {len(contents_to_send)}")
-    try:
-        # 関数内で config_manager.SAFETY_CONFIG を参照
-        model = genai.GenerativeModel(alarm_model_name, system_instruction=sys_ins, safety_settings=config_manager.SAFETY_CONFIG) # 変更
-        resp = model.generate_content(contents_to_send)
-        r_txt = None
+
+    generation_config_args = {}
+    if config_manager.SAFETY_CONFIG:
+        generation_config_args["safety_settings"] = config_manager.SAFETY_CONFIG
+    
+    active_generation_config = None
+    if generation_config_args:
         try:
-            r_txt = resp.text
+            active_generation_config = GenerateContentConfig(**generation_config_args)
         except Exception as e:
-            print(f"アラーム応答テキストの取得中にエラー: {e}")
-            try: block_reason = resp.prompt_feedback.block_reason
-            except: block_reason = "不明"
-            block_reason_str = str(block_reason) if block_reason is not None else "不明"
-            return f"【アラームエラー】応答取得失敗 ({e}) ブロック理由: {block_reason_str}"
-        if r_txt is not None:
-            # コードブロック（```）で始まる場合は何も除去しない
-            if r_txt.strip().startswith("```"):
-                cleaned_resp = r_txt.strip()
-            else:
-                cleaned_resp = re.sub(r"^\s*([-*_#=`>]+|\n)+\s*", "", r_txt.strip())
-            return cleaned_resp
-        else:
-            return "【アラームエラー】モデルから空の応答が返されました。"
-    except types.generation_types.BlockedPromptException as bpe:
-        print(f"アラームAPI呼び出しでプロンプトがブロックされました: {bpe}")
-        return f"【アラームエラー】プロンプトブロック"
-    except types.generation_types.StopCandidateException as sce:
-         print(f"アラームAPI呼び出しで候補生成が停止されました: {sce}")
-         return f"【アラームエラー】候補生成停止"
-    except Exception as e:
-        print(f"アラーム用モデル ({alarm_model_name}) との通信中にエラーが発生しました: {e}"); traceback.print_exc()
+            print(f"警告: アラーム用 GenerateContentConfig の作成中にエラー: {e}.")
+
+    print(f"アラーム用モデル ({alarm_model_name}, google-genai) へ送信開始... 送信contents件数: {len(api_contents)}, sys_ins提供: {True if sys_ins_text else False}")
+    try:
+        gen_content_args = {
+            "model": alarm_model_name, 
+            "contents": api_contents
+        }
+        if sys_ins_text:
+            gen_content_args["system_instruction"] = sys_ins_text
+        if active_generation_config:
+            gen_content_args["generation_config"] = active_generation_config
+
+        response = _gemini_client.models.generate_content(**gen_content_args)
+
+    except Exception as e: 
+        if "BlockedPromptException" in str(type(e)) or "StopCandidateException" in str(type(e)):
+             print(f"アラームAPI呼び出しでブロックまたは停止例外: {e}")
+             return f"【アラームエラー】プロンプトブロックまたは候補生成停止"
+
+        print(f"アラーム用モデル ({alarm_model_name}, google-genai) との通信中にエラーが発生しました: {traceback.format_exc()}")
         return f"【アラームエラー】API通信失敗: {e}"
+    
+    final_text_response = None
+    try:
+        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+            text_parts = [part.text for part in response.candidates[0].content.parts if hasattr(part, 'text')]
+            final_text_response = "".join(text_parts)
+
+        if final_text_response is None or not final_text_response.strip():
+            if hasattr(response, 'prompt_feedback') and response.prompt_feedback and response.prompt_feedback.block_reason:
+                block_reason_str = str(response.prompt_feedback.block_reason)
+                return f"【アラームエラー】応答取得失敗。ブロック理由: {block_reason_str}"
+            if final_text_response is None: 
+                 final_text_response = "【アラームエラー】モデルから空の応答または非テキスト応答が返されました。"
+        
+        if final_text_response.strip().startswith("```"):
+            return final_text_response.strip()
+        else:
+            return re.sub(r"^\s*([-*_#=`>]+|\n)+\s*", "", final_text_response.strip())
+
+    except Exception as e:
+        print(f"アラーム応答テキストの処理中にエラー: {e}")
+        if hasattr(response, 'prompt_feedback') and response.prompt_feedback and response.prompt_feedback.block_reason:
+            return f"【アラームエラー】応答処理エラー ({e}) ブロック理由: {response.prompt_feedback.block_reason}"
+        return f"【アラームエラー】応答処理エラー ({e}) ブロック理由は不明"
