@@ -23,7 +23,7 @@ def configure_google_api(api_key_name):
         # エラーメッセージは変更せず、参照方法のみ変更
         return False, f"APIキー名 '{api_key_name}' に対応する有効なAPIキーが設定されていません。"
     try:
-        genai.configure(api_key=api_key)
+        genai.setup(api_key=api_key)
         print(f"Google API キー '{api_key_name}' の設定が完了しました。")
         return True, None
     except Exception as e:
