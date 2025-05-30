@@ -62,15 +62,18 @@ def format_history_for_gradio(messages):
 
             image_match = re.fullmatch(r"\[image_attachment:(.*?)\]", content)
             if image_match:
-                attachment_path = image_match.group(1)
-                # If a user message (text) was pending, add it with no model response yet
+                relative_attachment_path = image_match.group(1)
+                # Convert to absolute path. os.getcwd() gives the root where the script is run.
+                # Assuming the script runs from the repository root, and paths in logs are relative to it.
+                absolute_attachment_path = os.path.abspath(relative_attachment_path)
+                # If a user message (text or previous image) was pending, add it with no model response yet
                 if user_msg_accumulator is not None:
                     hist.append([user_msg_accumulator, None])
-                # Add the image as a new user message
-                user_msg_accumulator = (attachment_path, "添付画像")
+                # Add the image as a new user message, using the absolute path
+                user_msg_accumulator = (absolute_attachment_path, "添付画像")
             else: # Regular text message from user
-                # If a user message (image) was pending, add it
-                if user_msg_accumulator is not None:
+                # If a user message (image or text) was pending, add it
+                if user_msg_accumulator is not None: # This implies the previous message was also a user message.
                      hist.append([user_msg_accumulator, None]) # Add pending message (could be image or text)
                 user_msg_accumulator = content # Store as current user message
 
