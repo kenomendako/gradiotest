@@ -291,7 +291,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     reload_button = gr.Button("リロード", variant="secondary")
 
                 with gr.Accordion("ファイルを添付", open=False):
-                    file_input = gr.File(label="ファイルアップロード (画像、テキスト、JSON)", type="filepath", file_types=[".png", ".jpg", ".jpeg", ".txt", ".json"], interactive=True)
+                    file_input = gr.Files(label="最大10個のファイルを添付 (対応形式多数)", file_count="multiple", file_types=['.png', '.jpg', '.jpeg', '.gif', '.webp', '.txt', '.json', '.xml', '.md', '.py', '.csv', '.yaml', '.yml', '.pdf', '.mp3', '.wav', '.mov', '.mp4', '.mpeg', '.mpg', '.avi', '.wmv', '.flv'], type="filepath", interactive=True)
 
                 # --- エラーメッセージ表示用ボックス ---
                 error_box = gr.Textbox(label="エラー通知", value="", visible=False, interactive=False, elem_id="error_box", max_lines=4)
