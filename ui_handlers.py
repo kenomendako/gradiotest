@@ -114,17 +114,18 @@ def handle_message_submission(textbox, chatbot, current_character_name, current_
             save_message_to_log(log_f, user_header, text_to_log)
             
             # b. Log Image Second (no separate timestamp)
-            image_log_entry = f"[image_attachment:{final_attachment_path}]"
+            image_log_entry = f"[image_attachment:{final_attachment_path};{original_filename}]" # MODIFIED LINE
             save_message_to_log(log_f, user_header, image_log_entry)
 
         # Scenario 2: Image-only submission
         elif final_attachment_path: 
-            image_log_entry = f"[image_attachment:{final_attachment_path}]"
+            image_log_entry_content = f"[image_attachment:{final_attachment_path};{original_filename}]" # MODIFIED LINE
+            image_log_to_save = image_log_entry_content
             if add_timestamp_checkbox: # Check if timestamp should be added
                 now = datetime.datetime.now()
                 timestamp_str = f"\n{now.strftime('%Y-%m-%d (%a) %H:%M:%S')}"
-                image_log_entry += timestamp_str
-            save_message_to_log(log_f, user_header, image_log_entry)
+                image_log_to_save += timestamp_str # Append timestamp outside the brackets
+            save_message_to_log(log_f, user_header, image_log_to_save)
         
         # Scenario 3: Text file submission (with or without original_user_text)
         # text_file_log_content_with_ts is prepared in the file processing block and already includes a timestamp

@@ -60,17 +60,28 @@ def format_history_for_gradio(messages):
             # The original logic implied a user message is only added to hist when a model message follows, or at the end.
             # Let's refine to handle image attachments specifically.
 
-            image_match = re.fullmatch(r"\[image_attachment:(.*?)\]", content)
+            # Regex to capture the attachment part and any trailing timestamp
+            # Group 1: Full image attachment string e.g. [image_attachment:path;filename]
+            # Group 2: Path
+            # Group 3: Original filename
+            # Group 4: Any trailing characters (timestamp)
+            image_match = re.match(r"(\[image_attachment:(.*?);(.*?)\])([\s\S]*)", content)
+            
             if image_match:
-                relative_attachment_path = image_match.group(1)
-                # Convert to absolute path. os.getcwd() gives the root where the script is run.
-                # Assuming the script runs from the repository root, and paths in logs are relative to it.
-                absolute_attachment_path = os.path.abspath(relative_attachment_path)
-                # If a user message (text or previous image) was pending, add it with no model response yet
+                # attachment_string_part = image_match.group(1) # The actual [image_attachment:...]
+                # path_part = image_match.group(2) # Path, not used for display
+                original_filename = image_match.group(3)
+                timestamp_part = image_match.group(4).strip() # Get timestamp and strip whitespace
+
+                display_text = f"画像: {original_filename}"
+                if timestamp_part: # If there was a timestamp
+                    # Prepend a newline to the timestamp if it doesn't already start with one, for better formatting.
+                    # The timestamp from ui_handlers.py already includes a leading newline.
+                    display_text += f"{timestamp_part}" if timestamp_part.startswith("\n") else f" {timestamp_part}"
+                
                 if user_msg_accumulator is not None:
                     hist.append([user_msg_accumulator, None])
-                # Add the image as a new user message, using the absolute path
-                user_msg_accumulator = (absolute_attachment_path, "添付画像")
+                user_msg_accumulator = display_text
             else: # Regular text message from user
                 # If a user message (image or text) was pending, add it
                 if user_msg_accumulator is not None: # This implies the previous message was also a user message.
