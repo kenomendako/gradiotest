@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from typing import List, Optional, Dict, Any # Added
 import gradio as gr
 import datetime
 import json
@@ -49,8 +50,17 @@ SUPPORTED_FILE_MAPPINGS = {
 }
 
 # --- Gradio UI イベントハンドラ ---
-# file_input is now a list of file objects (tempfile._TemporaryFileWrapper)
-def handle_message_submission(textbox, chatbot, current_character_name, current_model_name, current_api_key_name_state, file_input_list, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state):
+def handle_message_submission(
+    textbox: str,
+    chatbot: List[List[Optional[str]]],
+    current_character_name: str,
+    current_model_name: str,
+    current_api_key_name_state: str,
+    file_input_list: Optional[List[str]],
+    add_timestamp_checkbox: bool,
+    send_thoughts_state: bool,
+    api_history_limit_state: str
+):
     print(f"\n--- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
     os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
     error_message = ""
