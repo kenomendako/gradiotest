@@ -317,7 +317,7 @@ def handle_message_submission(
             system_prompt_path=sys_p,
             log_file_path=log_f,
             user_prompt=api_text_arg, # Combined text
-            model_name=current_model_name, # Ensured not None by validation
+            selected_model=current_model_name,, # Ensured not None by validation
             character_name=current_character_name, # Ensured not None by validation
             send_thoughts_to_api=send_thoughts_state,
             api_history_limit_option=api_history_limit_state,
