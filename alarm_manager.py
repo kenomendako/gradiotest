@@ -116,11 +116,9 @@ def render_alarm_list_for_checkboxgroup():
 def send_webhook_notification(webhook_url, message_text):
     """Webhook URLにシンプルなテキストメッセージをPOSTする関数"""
     if not webhook_url or not message_text:
-        # デバッグ用print削除
         return False
     headers = {'Content-Type': 'application/json'}
     payload = json.dumps({'content': message_text})
-    # デバッグ用print削除
     try:
         response = requests.post(webhook_url, headers=headers, data=payload, timeout=10)
         response.raise_for_status()
@@ -136,7 +134,6 @@ def send_webhook_notification(webhook_url, message_text):
 
 # --- アラームトリガーとスケジューリング ---
 def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
-    # デバッグ用print削除
     c = alarm_config.get("character")
     t = alarm_config.get("theme")
     tm = alarm_config.get("time")
@@ -146,20 +143,16 @@ def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
 
     log_f, _, _, _ = get_character_files_paths(c)
     if not log_f:
-        # デバッグ用print削除
         print(f"エラー: アラーム'{id}'のキャラクター'{c}'のログファイルが見つかりません。処理をスキップします。") # エラーログは残す
         return
 
     a_mod = config_manager.initial_alarm_model_global
     a_hist = config_manager.initial_alarm_api_history_turns_global
-    # デバッグ用print削除
 
     if not a_mod:
-        # デバッグ用print削除
         print(f"エラー: config.jsonでアラーム用モデル('alarm_model')が設定されていません。") # エラーログは残す
         return
     if not current_api_key_name:
-        # デバッグ用print削除
         print(f"エラー: 有効なAPIキー名が設定されていません。") # エラーログは残す
         return
 
@@ -178,78 +171,56 @@ def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
 
     theme = alarm_config.get("theme")
     flash_prompt = alarm_config.get("flash_prompt_template")
-    # if not theme and not flash_prompt:
-    #     print("エラー: アラームのテーマもカスタムプロンプトも設定されていません。応答生成をスキップします。")
-    #     return
 
-    # デバッグ用print削除
     response_text = gemini_api.send_alarm_to_gemini(c, t, fp, a_mod, current_api_key_name, log_f, a_hist)
-    # デバッグ用print削除
 
     if response_text and isinstance(response_text, str) and not response_text.startswith("【アラームエラー】"):
-        # デバッグ用print削除
         save_message_to_log(log_f, system_header, dummy_user_message)
         save_message_to_log(log_f, f"## {c}:", response_text)
         print(f"アラームログ記録完了 (ID:{id})") # ログ記録完了ログは残す
 
         if webhook_url:
-            # デバッグ用print削除
             notification_message = f"⏰  {c}\n\n{response_text}\n"
-            success = send_webhook_notification(webhook_url, notification_message)
-            # デバッグ用print削除
+            send_webhook_notification(webhook_url, notification_message)
         else:
-            # デバッグ用print削除
             print("情報: Webhook URLが設定されていないため、外部通知はスキップします。") # スキップ情報は残す
     else:
-        # デバッグ用print削除
         print(f"警告: アラーム応答の生成に失敗したか、エラーが返されたため、ログ記録と通知をスキップします (ID:{id})。応答: {response_text}") # 警告ログは残す
 
 
 def check_alarms():
     now_dt = datetime.datetime.now()
     now_t = now_dt.strftime("%H:%M")
-    # デバッグ用print削除 (毎分出力されるため)
 
     current_api_key = config_manager.initial_api_key_name_global
     webhook_url_to_use = config_manager.initial_notification_webhook_url_global
     alarms = load_alarms() # アラームリストを毎回再読み込み
-    # デバッグ用print削除
 
     if not current_api_key:
-        # デバッグ用print削除
         return # APIキーがなければこの回のチェックはスキップ
 
-    triggered_count = 0
-    for a in alarms:
+    for a in alarms: # Removed triggered_count as it was unused
         alarm_time = a.get("time")
         is_enabled = a.get("enabled")
         alarm_id_for_log = a.get('id', 'N/A')
 
         if is_enabled and alarm_time == now_t:
-            # デバッグ用print削除
-            triggered_count += 1
             try:
-                # 必要な情報を渡してトリガー
                 trigger_alarm(a, current_api_key, webhook_url_to_use)
             except Exception as e:
                 print(f"アラーム処理中に予期せぬエラー (ID:{alarm_id_for_log})") # 簡略化されたエラーログを残す
                 traceback.print_exc() # スタックトレースは残す
-
-    # デバッグ用print削除
 
 
 def schedule_thread_function():
     global alarm_thread_stop_event
     print("アラームスケジューラスレッドを開始します。") # スレッド開始ログは残す
     try:
-        # デバッグ用print削除
         check_alarms() # 初回実行
-        # デバッグ用print削除
     except Exception as e:
         print(f"初回アラームチェック中にエラー: {e}") # エラーログは残す
         traceback.print_exc()
 
-    # デバッグ用print削除
     schedule.every().minute.at(":00").do(check_alarms)
 
     while not alarm_thread_stop_event.is_set():

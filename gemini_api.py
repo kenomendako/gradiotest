@@ -2,15 +2,15 @@
 import google.genai as genai
 from google.genai import types
 from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part
-from google.ai.generativelanguage import HarmCategory, SafetySetting
+# from google.ai.generativelanguage import HarmCategory, SafetySetting # Should use types from google.genai
 import os
 import json
 import google.api_core.exceptions
 import re
-import math
+# import math # Unused
 import traceback
 import base64
-from PIL import Image
+# from PIL import Image # Unused
 import config_manager
 from utils import load_chat_log
 from character_manager import get_character_files_paths

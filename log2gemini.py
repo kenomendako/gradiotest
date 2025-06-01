@@ -6,7 +6,7 @@ import json
 import traceback
 import threading
 import time
-import google.api_core.exceptions
+# import google.api_core.exceptions # Not directly used in this file
 
 # --- 分割したモジュールをインポート ---
 import config_manager
@@ -351,12 +351,24 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
 # --- アプリケーション起動 ---
 if __name__ == "__main__":
-    # startup_ready のチェックを Block 外で行う
-    if 'startup_ready' not in locals() or not startup_ready :
-        # UI構築自体がスキップされたか、設定不足の場合
-        print("\n !!! Gradio UIの初期化中にエラーが発生したか、設定が不足しています。起動を中止します。 !!!")
-        print(" !!! コンソールログおよびUI上のエラーメッセージを確認してください。 !!!")
-        sys.exit("初期化エラーまたは設定不足により終了。")
+    startup_ready, startup_error_details, character_list_for_ui = perform_startup_checks()
+
+    if not startup_ready:
+        # perform_startup_checks already prints detailed errors and calls sys.exit()
+        # This block is effectively a fallback but should not be reached if perform_startup_checks exits.
+        print("\n !!! 起動前チェックに失敗しました。Gradio UIは起動しません。コンソールログを確認してください。 !!!")
+        # To be absolutely sure Gradio doesn't try to launch anything if somehow sys.exit didn't work:
+        if demo is not None: # demo might be None if perform_startup_checks had a very early critical fail
+            try:
+                demo.close() # Attempt to close Gradio if it was partially initialized by error_display_ui
+            except Exception:
+                pass # Ignore errors during this fallback cleanup
+        sys.exit("クリティカルな初期化エラーにより終了。")
+
+    # If startup_ready is True, demo should have been built by build_ui()
+    if demo is None:
+        print("\n !!! UIの構築に失敗しました。起動を中止します。 !!!")
+        sys.exit("UI構築失敗により終了。")
 
     print("\n" + "="*40 + "\n Gradio アプリケーション起動準備完了 \n" + "="*40)
     print(f"設定ファイル: {os.path.abspath(config_manager.CONFIG_FILE)}")

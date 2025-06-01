@@ -74,7 +74,11 @@ def load_config():
             raise
         except Exception as e: print(f"'{CONFIG_FILE}' 読込エラー: {e}。デフォルト設定使用。"); config = default_config
 
-    # --- 既存のconfig読み込み処理 (省略) ---
+    # --- 設定値の読み込みとグローバル変数への反映 ---
+    # 各設定項目は config.get を使用して安全に読み込まれ、
+    # 見つからない場合や型が不正な場合はデフォルト値が適用されるか、警告が出力されます。
+    # 詳細な初期化ロジックは各 _initialize_* ヘルパー関数 (現在はload_config内に展開) に集約されています。
+
     API_KEYS = config.get("api_keys", {})
     if not isinstance(API_KEYS, dict): API_KEYS = {}
     AVAILABLE_MODELS_GLOBAL = config.get("available_models", default_config["available_models"])
@@ -127,4 +131,4 @@ def save_config(key, value):
         if config.get(key) == value: return
         config[key] = value
         with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(config, f, indent=2, ensure_ascii=False)
-    except Exception as e: print(f"設定保存エラー ({key}): {e}"); traceback.print.exc()
+    except Exception as e: print(f"設定保存エラー ({key}): {e}"); traceback.print_exc()
