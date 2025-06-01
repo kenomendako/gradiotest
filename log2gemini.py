@@ -39,6 +39,18 @@ custom_css = """
     word-break: break-word;
     overflow-wrap: break-word;
 }
+#chat_output_area .thoughts pre {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important; /* Ensure this is also present */
+}
+#chat_output_area .thoughts pre code {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+    display: block !important; /* Explicitly make it a block to fill width */
+    width: 100% !important;    /* Ensure it uses the container's width */
+}
 #memory_json_editor_code .cm-editor { max-height: 300px !important; overflow-y: auto !important; }
 #memory_json_editor_code { max-height: 310px; overflow: hidden; border: 1px solid #ccc; border-radius: 5px; }
 #alarm_checklist .gr-input-label { margin-bottom: 5px !important; }

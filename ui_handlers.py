@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from typing import List, Optional, Dict, Any # Added
+from typing import List, Optional, Dict, Any, Tuple, Union # Added Union
 import gradio as gr
 import datetime
 import json
@@ -9,16 +9,17 @@ import uuid
 import shutil
 # 分割したモジュールから必要な関数や変数をインポート
 import config_manager
-from timers import Timer, PomodoroTimer, UnifiedTimer  # Use absolute import if 'my_timer_module.py' is in the same directory
-from alarm_manager import start_alarm_timer  # Assuming it is defined in alarm_manager
+from timers import UnifiedTimer # Timer, PomodoroTimer はUnifiedTimerに統合されたと仮定し、直接は使わない想定
 from character_manager import get_character_files_paths
 from gemini_api import configure_google_api, send_to_gemini
-from memory_manager import save_memory_data, load_memory_data_safe
+from memory_manager import load_memory_data_safe # save_memory_data はgemini_api内で呼ばれる想定
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log
 
 ATTACHMENTS_DIR = "chat_attachments"
+os.makedirs(ATTACHMENTS_DIR, exist_ok=True) # Ensure ATTACHMENTS_DIR exists at startup
 
 SUPPORTED_FILE_MAPPINGS = {
+    # (変更なし)
     # Images
     ".png": {"mime_type": "image/png", "category": "image"},
     ".jpg": {"mime_type": "image/jpeg", "category": "image"},
@@ -50,302 +51,602 @@ SUPPORTED_FILE_MAPPINGS = {
 }
 
 # --- Gradio UI イベントハンドラ ---
+
+# --- Helper Functions for handle_message_submission ---
+
+def _validate_submission_inputs(
+    character_name: Optional[str],
+    model_name: Optional[str],
+    api_key_name: Optional[str]
+) -> Optional[str]:
+    """
+    メッセージ送信に必要な入力（キャラクター名、モデル名、APIキー名）を検証します。
+
+    Args:
+        character_name: 選択されたキャラクター名。
+        model_name: 選択されたAIモデル名。
+        api_key_name: 選択されたAPIキー名。
+
+    Returns:
+        検証エラーメッセージ文字列。問題がなければNone。
+    """
+    if not character_name:
+        return "キャラクターが選択されていません。"
+    if not model_name:
+        return "AIモデルが選択されていません。"
+    if not api_key_name:
+        return "APIキーが選択されていません。"
+    return None
+
+def _configure_api_key_if_needed(api_key_name: str) -> Tuple[bool, str]:
+    """
+    選択されたAPIキーでGemini APIを設定します。
+
+    Args:
+        api_key_name: 設定するAPIキーの名前。
+
+    Returns:
+        Tuple[bool, str]: 設定成功のブール値と、エラーメッセージ（成功時は空文字列）。
+    """
+    success, message = configure_google_api(api_key_name)
+    if not success:
+        return False, f"APIキー設定エラー: {message or '不明なエラー'}"
+    return True, ""
+
+def _process_uploaded_files(
+    file_input_list: Optional[List[Any]] # Gradio File objects (e.g., FileData)
+) -> Tuple[str, List[Dict[str, str]], List[str]]:
+    """
+    アップロードされたファイルを処理します。
+    サポートされているテキストファイルからテキストを抽出し、他のファイルはAPI送信用に準備します。
+
+    Args:
+        file_input_list: Gradioのファイル入力コンポーネントからのファイルオブジェクトのリスト。
+                         各要素は 'name' (一時パス) と 'orig_name' (元のファイル名) 属性を持つことを期待します。
+
+    Returns:
+        Tuple[str, List[Dict[str, str]], List[str]]:
+            - consolidated_text (str): 全ての有効なテキストファイルから連結されたテキスト。
+            - files_for_api (List[Dict[str, str]]): API送信用ファイル情報（パス、MIMEタイプなど）のリスト。
+            - error_messages (List[str]): ファイル処理中に発生したエラーメッセージのリスト。
+    """
+    consolidated_text = ""
+    files_for_api: List[Dict[str, str]] = []
+    error_messages: List[str] = []
+
+    if not file_input_list:
+        return consolidated_text, files_for_api, error_messages
+
+    for file_obj in file_input_list:
+        original_filename = "unknown_file"
+        try:
+            temp_file_path = file_obj.name
+            original_filename = getattr(file_obj, 'orig_name', os.path.basename(temp_file_path))
+            file_extension = os.path.splitext(original_filename)[1].lower()
+            file_type_info = SUPPORTED_FILE_MAPPINGS.get(file_extension)
+
+            if not file_type_info:
+                error_messages.append(f"ファイル形式非対応: {original_filename}")
+                continue
+
+            mime_type = file_type_info["mime_type"]
+            category = file_type_info["category"]
+
+            if category == 'text':
+                content_to_add = None
+                encodings_to_try = ['utf-8', 'shift_jis', 'cp932', 'euc-jp', 'iso2022-jp', 'latin1']
+                for enc in encodings_to_try:
+                    try:
+                        with open(temp_file_path, 'r', encoding=enc) as f_content:
+                            content_to_add = f_content.read()
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                    except Exception as e_file_read:
+                        error_messages.append(f"ファイル読込エラー ({original_filename}, encoding {enc}): {str(e_file_read)}")
+                        content_to_add = None
+                        break
+                if content_to_add is not None:
+                    consolidated_text += f"\n\n--- 添付ファイル「{original_filename}」の内容 ---\n{content_to_add}"
+                elif not any(msg.startswith(f"ファイル読込エラー ({original_filename}") for msg in error_messages):
+                    error_messages.append(f"ファイルデコード失敗 ({original_filename}): 全てのエンコーディング試行に失敗しました。")
+            
+            elif category in ['image', 'pdf', 'audio', 'video']:
+                unique_filename_for_attachment = f"{uuid.uuid4()}{file_extension}"
+                saved_attachment_path = os.path.join(ATTACHMENTS_DIR, unique_filename_for_attachment)
+                shutil.copy2(temp_file_path, saved_attachment_path)
+                files_for_api.append({
+                    'path': saved_attachment_path,
+                    'mime_type': mime_type,
+                    'original_filename': original_filename
+                })
+            else:
+                 error_messages.append(f"未定義カテゴリ '{category}' のファイル: {original_filename}")
+
+        except Exception as e_process:
+            error_messages.append(f"ファイル処理中エラー ({original_filename}): {str(e_process)}")
+            traceback.print_exc()
+
+    return consolidated_text.strip(), files_for_api, error_messages
+
+def _log_user_interaction(
+    log_file_path: str,
+    user_header: str,
+    original_user_text: str,
+    text_from_files: str,
+    files_for_api: List[Dict[str, str]], # Renamed from files_for_gemini_api for clarity
+    add_timestamp_checkbox: bool,
+    user_action_timestamp_str: str
+) -> None:
+    """
+    ユーザーのテキスト入力と添付ファイル情報をログファイルに記録します。
+
+    Args:
+        log_file_path: ログファイルのパス。
+        user_header: ユーザーを示すログヘッダー（例: "## User:"）。
+        original_user_text: ユーザーがテキストボックスに入力した元のテキスト。
+        text_from_files: 添付されたテキストファイルから抽出された連結テキスト。
+        files_for_api: APIに送信される非テキストファイルの情報リスト。
+        add_timestamp_checkbox: タイムスタンプを追加するかどうかのフラグ。
+        user_action_timestamp_str: フォーマット済みのタイムスタンプ文字列（タイムスタンプ追加時）。
+    """
+    timestamp_applied_for_action = False
+
+    # 1. Log the original user text input (if any) combined with text from files
+    combined_text_for_log = original_user_text
+    if text_from_files:
+        if combined_text_for_log: # If there's original text, add a separator
+            combined_text_for_log += "\n" + text_from_files
+        else: # If no original text, text_from_files is the main message
+            combined_text_for_log = text_from_files
+    
+    if combined_text_for_log.strip():
+        if add_timestamp_checkbox:
+            combined_text_for_log += user_action_timestamp_str
+            timestamp_applied_for_action = True
+        save_message_to_log(log_file_path, user_header, combined_text_for_log)
+
+    # 2. Log non-text file attachments
+    for i, file_info in enumerate(files_for_api):
+        # Use 'path' which is the key for the saved path in files_for_api
+        log_entry_for_file = f"[ファイル添付: {file_info.get('path')};{file_info.get('original_filename', '不明なファイル')};{file_info.get('mime_type', '不明なMIMEタイプ')}]"
+        if add_timestamp_checkbox and not timestamp_applied_for_action:
+            # If no text message got the timestamp, or if logging files separately is desired,
+            # apply timestamp to the first file (or all, depending on desired granularity not implemented here)
+            log_entry_for_file += user_action_timestamp_str
+            timestamp_applied_for_action = True # Ensure timestamp is added at most once per user action via this function
+        save_message_to_log(log_file_path, user_header, log_entry_for_file)
+
 def handle_message_submission(
-    textbox: str,
-    chatbot: List[List[Optional[str]]],
-    current_character_name: str,
-    current_model_name: str,
-    current_api_key_name_state: str,
-    file_input_list: Optional[List[str]],
+    textbox_content: Optional[str], # Renamed from textbox for clarity
+    chatbot_history: List[List[Optional[str]]], # Renamed from chatbot
+    current_character_name: Optional[str],
+    current_model_name: Optional[str],
+    current_api_key_name_state: Optional[str],
+    file_input_list: Optional[List[Any]], # Gradio File objects
     add_timestamp_checkbox: bool,
     send_thoughts_state: bool,
     api_history_limit_state: str
-):
+) -> Tuple[List[List[Optional[str]]], Any, Any, str]:
+    """
+    ユーザーからのメッセージ送信を処理し、AIに応答を問い合わせ、チャット履歴を更新します。
+
+    Args:
+        textbox_content: テキストボックスの現在の内容。
+        chatbot_history: 現在のチャット履歴 (Gradio形式)。
+        current_character_name: 選択されているキャラクター名。
+        current_model_name: 選択されているAIモデル名。
+        current_api_key_name_state: 選択されているAPIキー名。
+        file_input_list: アップロードされたファイルのリスト (Gradio FileData オブジェクトなど)。
+        add_timestamp_checkbox: メッセージにタイムスタンプを追加するかのブール値。
+        send_thoughts_state: AIの思考過程をAPIに送信するかのブール値。
+        api_history_limit_state: APIに送信する履歴の制限設定。
+
+    Returns:
+        Tuple[List[List[Optional[str]]], Any, Any, str]:
+            - 更新されたチャット履歴 (Gradio形式)。
+            - テキストボックスの更新指示 (通常は空文字列にクリアするためのgr.update)。
+            - ファイル入力の更新指示 (通常はクリアするためのgr.update)。
+            - 表示用のエラーメッセージ文字列 (エラーがなければ空)。
+    """
     print(f"\n--- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
-    os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
     error_message = ""
-    # Preserve the original text from the textbox parameter for potential restoration
-    original_user_text_on_entry = textbox.strip() if textbox else ""
+    original_user_text_on_entry = textbox_content.strip() if textbox_content else ""
 
-    if not all([current_character_name, current_model_name, current_api_key_name_state]):
-        error_message = "キャラクター、AIモデル、APIキーが選択されていません。設定を確認してください。"
-        return chatbot, gr.update(value=""), gr.update(value=None), error_message
+    # 1. Input Validation
+    validation_error = _validate_submission_inputs(current_character_name, current_model_name, current_api_key_name_state)
+    if validation_error:
+        return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), validation_error
 
-    # APIキー設定エラー処理
-    ok, msg = configure_google_api(current_api_key_name_state)
-    if not ok:
-        error_message = f"APIキー設定エラー: {msg}"
-        # Restore the original text if API key config fails
-        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message
+    # 2. API Key Configuration
+    if not current_api_key_name_state: # Should have been caught by _validate_submission_inputs, but double check
+         return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), "APIキーが選択されていません (内部エラー)。"
+    
+    api_configured, api_error_msg = _configure_api_key_if_needed(current_api_key_name_state)
+    if not api_configured:
+        return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), api_error_msg
+
+    # 3. Get Character File Paths
+    if not current_character_name: # Should have been caught by _validate_submission_inputs
+        return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), "キャラクターが選択されていません (内部エラー)。"
 
     log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
     if not all([log_f, sys_p, mem_p]):
-        error_message = f"キャラクター '{current_character_name}' のファイル（ログ、プロンプト、記憶）が見つかりません。"
-        return chatbot, gr.update(value=""), gr.update(value=None), error_message
+        error_message = f"キャラクター '{current_character_name}' の必須ファイル（ログ、プロンプト、記憶）のパス取得に失敗しました。"
+        return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message
 
-    original_user_text = textbox.strip() if textbox else "" # This is the current text, might be empty if cleared by previous error
-    # file_input_list is now a list of file objects from gr.Files
-    
-    api_text_arg = original_user_text # Base text for API
-    processed_files_info = [] 
-    unsupported_files_messages = []
-    
-    # Timestamp for the overall user action, applied to the first text log entry
-    # or to individual file logs if no text is present.
+    # Timestamp for the user action
     user_action_timestamp_str = ""
-    if add_timestamp_checkbox and (original_user_text or (file_input_list and len(file_input_list) > 0)):
+    if add_timestamp_checkbox and (original_user_text_on_entry or file_input_list):
         now = datetime.datetime.now()
         user_action_timestamp_str = f"\n{now.strftime('%Y-%m-%d (%a) %H:%M:%S')}"
 
-    if not original_user_text and not file_input_list:
-        error_message = "送信するメッセージまたはファイルがありません。"
-        # Return 4 values: chatbot state, textbox state, file input state (clear), error message
-        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message
+    # 4. Process Uploaded Files
+    text_from_files, files_for_gemini_api, file_processing_errors = _process_uploaded_files(file_input_list)
+    if file_processing_errors:
+        error_message = (error_message + "\n" if error_message else "") + "\n".join(file_processing_errors)
 
+    # 5. Prepare final text for API (combined original text and text from files)
+    api_text_arg = original_user_text_on_entry
+    if text_from_files:
+        api_text_arg = (api_text_arg + "\n" + text_from_files).strip() if api_text_arg else text_from_files.strip()
+
+    # Check if there's anything to send
+    if not api_text_arg.strip() and not files_for_gemini_api:
+        error_message = (error_message + "\n" if error_message else "") + "送信するメッセージまたは処理可能なファイルがありません。"
+        # Return original text if nothing was to be sent, allowing user to correct.
+        return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message.strip()
+
+    # --- Main processing block ---
     try:
-        if file_input_list:
-            for file_obj in file_input_list:
-                original_filename = "unknown_file"
-                try:
-                    # Try to get original name, fallback to a generic name from temp path
-                    original_filename = file_obj.orig_name if hasattr(file_obj, 'orig_name') and file_obj.orig_name else os.path.basename(file_obj.name)
-                    temp_file_path = file_obj.name
-                    
-                    file_extension = os.path.splitext(original_filename)[1].lower()
-                    file_type_info = SUPPORTED_FILE_MAPPINGS.get(file_extension)
+        # 7. Call Gemini API
+        # Ensure all necessary variables are correctly passed
+        api_response_text = send_to_gemini(
+            system_prompt_path=sys_p,
+            log_file_path=log_f,
+            user_prompt=api_text_arg, # Combined text
+            selected_model=current_model_name, # Ensured not None by validation
+            character_name=current_character_name, # Ensured not None by validation
+            send_thoughts_to_api=send_thoughts_state,
+            api_history_limit_option=api_history_limit_state,
+            uploaded_file_parts=files_for_gemini_api, # Processed non-text files
+            memory_json_path=mem_p
+        )
 
-                    if not file_type_info:
-                        unsupported_files_messages.append(f"ファイル形式非対応: {original_filename}")
-                        continue
+        # 8. Handle API Response
+        if api_response_text and isinstance(api_response_text, str) and \
+           not (api_response_text.strip().startswith("エラー:") or \
+                api_response_text.strip().startswith("API通信エラー:") or \
+                api_response_text.strip().startswith("応答取得エラー") or \
+                api_response_text.strip().startswith("応答生成失敗")):
+            # Success from API
+            # Log User Interaction (moved here)
+            user_header = _get_user_header_from_log(log_f, current_character_name)
+            _log_user_interaction(
+                log_f,
+                user_header,
+                original_user_text_on_entry, # Pass the original text box content
+                text_from_files,             # Pass the text extracted from files
+                files_for_gemini_api,        # Pass the list of non-text files for API
+                add_timestamp_checkbox,
+                user_action_timestamp_str
+            )
+            save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
+        else:
+            # API returned an error string or response was None/empty
+            api_err = api_response_text or "APIから有効な応答がありませんでした。"
+            error_message = (error_message + "\n" if error_message else "") + api_err
+            print(f"API Error: {api_err}") # Log for server-side debugging
 
-                    mime_type = file_type_info["mime_type"]
-                    category = file_type_info["category"]
-                    
-                    current_file_info = {
-                        'original_filename': original_filename,
-                        'temp_path': temp_file_path,
-                        'saved_path': None, # Will be set for non-text files
-                        'mime_type': mime_type,
-                        'category': category,
-                        'content_for_api': None # For text files, their content
-                    }
-
-                    if category == 'text':
-                        content_to_add = None
-                        encodings_to_try = ['utf-8', 'shift_jis', 'cp932']
-                        for enc in encodings_to_try:
-                            try:
-                                with open(temp_file_path, 'r', encoding=enc) as f_content:
-                                    content_to_add = f_content.read()
-                                print(f"Successfully read {original_filename} with encoding {enc}") # For debugging
-                                break # Success
-                            except UnicodeDecodeError:
-                                print(f"Failed to decode {original_filename} with {enc}, trying next...") # For debugging
-                                continue # Try next encoding
-                            except Exception as e: # Other file errors
-                                unsupported_files_messages.append(f"ファイル読込エラー ({original_filename}, encoding {enc}): {e}")
-                                content_to_add = None # Ensure it's None if other error occurred
-                                break # Don't try other encodings if a non-decode error happened
-                        
-                        if content_to_add is not None:
-                            current_file_info['content_for_api'] = content_to_add
-                        else:
-                            # If all encodings failed or another error occurred
-                            if not any(msg.startswith(f"ファイル読込エラー ({original_filename}") for msg in unsupported_files_messages): # Avoid duplicate general error if specific decode errors logged
-                                unsupported_files_messages.append(f"ファイルデコード失敗 ({original_filename}): 全てのエンコーディング試行に失敗しました。")
-                            continue # Skip this file from processed_files_info
-                    elif category in ['image', 'pdf', 'audio', 'video']:
-                        unique_filename_for_attachment = f"{uuid.uuid4()}{file_extension}"
-                        saved_attachment_path = os.path.join(ATTACHMENTS_DIR, unique_filename_for_attachment)
-                        shutil.copy2(temp_file_path, saved_attachment_path)
-                        current_file_info['saved_path'] = saved_attachment_path
-                    
-                    processed_files_info.append(current_file_info)
-
-                except Exception as e:
-                    # Catch errors during individual file processing
-                    unsupported_files_messages.append(f"処理エラー ({original_filename}): {e}")
-                    traceback.print_exc() # Log detailed error to console
-
-        # Consolidate text file contents into api_text_arg
-        consolidated_text_file_contents = ""
-        for p_file in processed_files_info:
-            if p_file['category'] == 'text' and p_file['content_for_api']:
-                consolidated_text_file_contents += f"\n\n--- 以下は添付ファイル「{p_file['original_filename']}」の内容 ---\n{p_file['content_for_api']}"
-        
-        if consolidated_text_file_contents:
-            api_text_arg += consolidated_text_file_contents
-
-        # Prepare files for Gemini API (non-text files that are saved)
-        files_for_gemini_api = []
-        for p_file in processed_files_info:
-            if p_file['category'] != 'text' and p_file['saved_path']:
-                files_for_gemini_api.append({'path': p_file['saved_path'], 'mime_type': p_file['mime_type']})
-        
-        # --- API Call ---
-        # The send_to_gemini function will need to be adapted to handle a list of file parts.
-        # For now, we pass it, assuming it will be updated.
-        # Corrected to handle single return value from send_to_gemini
-        resp = send_to_gemini(sys_p, log_f, api_text_arg, current_model_name, current_character_name, send_thoughts_state, api_history_limit_state, files_for_gemini_api, mem_p)
-
-        # --- Error response from API ---
-        if resp and (resp.strip().startswith("エラー:") or resp.strip().startswith("API通信エラー:") or resp.strip().startswith("応答取得エラー") or resp.strip().startswith("応答生成失敗")):
-            # error_message is already initialized and might contain unsupported file messages
-            error_message += f"\nGemini APIエラー: {resp}" if error_message else f"Gemini APIエラー: {resp}"
-            # Preserve original text and return any accumulated error messages
-            return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message.strip()
-
-
-        # --- User Message Logging ---
-        user_header = _get_user_header_from_log(log_f, current_character_name)
-        
-        logged_any_user_action = False # Flag to ensure timestamp is applied only to the first logged action
-        user_action_timestamp_str_used = False
-
-        # 1. Log original user text if present
-        if original_user_text:
-            text_to_log = original_user_text
-            if add_timestamp_checkbox and not user_action_timestamp_str_used:
-                text_to_log += user_action_timestamp_str # Use the pre-calculated timestamp
-                user_action_timestamp_str_used = True
-            save_message_to_log(log_f, user_header, text_to_log)
-            logged_any_user_action = True
-
-        # 2. Log info about processed files
-        for p_file in processed_files_info:
-            log_entry = ""
-            # Determine if this specific file log should get the main action timestamp
-            # This happens if no original text was logged, and this is the first file being logged.
-            timestamp_for_this_file_log = ""
-            if add_timestamp_checkbox and not logged_any_user_action and not user_action_timestamp_str_used:
-                timestamp_for_this_file_log = user_action_timestamp_str
-                user_action_timestamp_str_used = True # Mark timestamp as used
-            
-            if p_file['category'] == 'text':
-                # Log a placeholder for text files, as their content is in api_text_arg
-                # These are logged individually without their content, as content is part of api_text_arg.
-                log_entry = f"[添付テキストファイル: {p_file['original_filename']}]" + timestamp_for_this_file_log
-            elif p_file['saved_path']: # Images, PDFs, Audio, Video that were saved
-                log_entry = f"[file_attachment:{p_file['saved_path']};{p_file['original_filename']};{p_file['mime_type']}]" + timestamp_for_this_file_log
-            
-            if log_entry:
-                save_message_to_log(log_f, user_header, log_entry)
-                logged_any_user_action = True # Mark that some user action has been logged
-
-        # Aggregate unsupported file messages with other errors
-        if unsupported_files_messages:
-            error_message = (error_message + "\n" if error_message else "") + "\n".join(unsupported_files_messages)
-            
-        # --- AI Response Logging ---
-        if resp and resp.strip():
-            save_message_to_log(log_f, f"## {current_character_name}:", resp)
-        
     except Exception as e:
-        error_message = (error_message + "\n" if error_message else "") + f"処理中に予期せぬエラーが発生: {e}"
         traceback.print_exc()
-        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message.strip()
+        err_msg = f"メッセージ処理中に予期せぬエラーが発生: {str(e)}"
+        error_message = (error_message + "\n" if error_message else "") + err_msg
+        # In case of unexpected error, return accumulated error message and allow user to retry.
+        # Chatbot history is not updated with this error. Textbox and files are preserved.
+        return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message.strip()
 
-    new_log = load_chat_log(log_f, current_character_name)
-    new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
+    # 9. Update Chat History and Return
+    # Load new log only if there wasn't a preceding error that prevented API call or logging.
+    if not error_message: # Or more fine-grained: if API call was successful
+        new_log = load_chat_log(log_f, current_character_name)
+        new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
+    else: # If there was an error, keep the old history
+        new_hist = chatbot_history
     
-    # Return "" for textbox, gr.update(value=None) for gr.Files to clear it, and any error messages
-    return new_hist, "", gr.update(value=None), error_message.strip() if error_message else ""
+    # Clear textbox and file input on successful submission or if error message is already set.
+    # If an error occurred and textbox/files were preserved by a return statement above, this won't override.
+    return new_hist, gr.update(value=""), gr.update(value=None), error_message.strip()
 
-def update_ui_on_character_change(character_name):
+def update_ui_on_character_change(
+    character_name: Optional[str]
+) -> Tuple[Optional[str], Any, Any, Any, Any, Optional[str]]:
+    """
+    キャラクター選択の変更に応じてUIの各要素（チャット履歴、キャラクター名表示など）を更新します。
+
+    Args:
+        character_name: 選択されたキャラクター名。Noneの場合もあります。
+
+    Returns:
+        Tuple[Optional[str], Any, Any, Any, Any, Optional[str]]:
+            - current_character_name_state: 更新後のキャラクター名。
+            - chatbot: 更新されたチャット履歴表示 (gr.update)。
+            - textbox: テキストボックスの更新 (通常はクリア、gr.update)。
+            - character_image: キャラクター画像の更新 (gr.update)。
+            - memory_display: 記憶データの表示更新 (gr.update)。
+            - timer_character_dropdown: タイマー設定用キャラクタードロップダウンの更新 (gr.update)。
+    """
     if not character_name:
-        # キャラクターが選択されていない場合（リストが空など）のフォールバック
-        return gr.update(), gr.update(value=[]), gr.update(value=""), gr.update(value=None), gr.update(value="{}")
-    print(f"キャラクター変更: '{character_name}'")
+        # キャラクターが選択解除されたか、初期状態で選択がない場合
+        gr.Info("キャラクターが選択されていません。")
+        return (
+            None,                                  # current_character_name_state
+            gr.update(value=[]),                   # chatbot
+            gr.update(value=""),                   # textbox
+            gr.update(value=None),                 # character_image
+            gr.update(value="{}"),                 # memory_display
+            gr.update(value=None)                  # timer_character_dropdown
+        )
+    
+    print(f"UI更新: キャラクター変更 -> '{character_name}'")
     config_manager.save_config("last_character", character_name)
+    
     log_f, _, img_p, mem_p = get_character_files_paths(character_name)
-    hist = []
-    if log_f:
-        hist = format_history_for_gradio(load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT*2):])
-    mem_data = load_memory_data_safe(mem_p)
-    mem_s = json.dumps(mem_data, indent=2, ensure_ascii=False) if isinstance(mem_data, dict) else json.dumps({"error": "Failed to load memory"}, indent=2)
+    
+    # チャット履歴の読み込みとフォーマット
+    chat_history_display = []
+    if log_f and os.path.exists(log_f):
+        # ログファイルが存在する場合のみ読み込む
+        chat_history_for_gradio = format_history_for_gradio(
+            load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT * 2):]
+        )
+        chat_history_display = chat_history_for_gradio
+    else:
+        gr.Warning(f"キャラクター '{character_name}' のログファイルが見つかりません: {log_f}")
 
-    # アラーム設定のキャラクタードロップダウンも更新
-    return character_name, gr.update(value=hist), gr.update(value=""), gr.update(value=img_p), gr.update(value=mem_s), gr.update(value=character_name)
+    # 記憶データの読み込み
+    memory_data = load_memory_data_safe(mem_p)
+    memory_display_str = json.dumps(memory_data, indent=2, ensure_ascii=False) \
+                         if isinstance(memory_data, dict) else \
+                         json.dumps({"error": "記憶データの読み込みまたは解析に失敗しました。"}, indent=2)
 
-def update_model_state(selected_model):
-    if selected_model is None: return gr.update() # 選択肢がない場合など
-    print(f"モデル変更: '{selected_model}'")
+    # 各UIコンポーネントの更新指示を返す
+    return (
+        character_name,                        # current_character_name_state
+        gr.update(value=chat_history_display), # chatbot
+        gr.update(value=""),                   # textbox (キャラクター変更時はクリア)
+        gr.update(value=img_p if img_p and os.path.exists(img_p) else None), # character_image
+        gr.update(value=memory_display_str),   # memory_display
+        gr.update(value=character_name)        # timer_character_dropdown
+    )
+
+def update_model_state(selected_model: Optional[str]) -> Union[Optional[str], Any]:
+    """
+    選択されたAIモデル名を更新し、設定ファイルに保存します。
+
+    Args:
+        selected_model: UIで選択されたモデル名。
+
+    Returns:
+        Union[Optional[str], Any]: 選択されたモデル名（GradioのState更新用）、または gr.update()。
+    """
+    if selected_model is None:
+        # モデルが選択解除されたか、利用可能なモデルがない場合
+        # gr.Warning("AIモデルが選択されていません。") # 必要に応じて通知
+        return gr.update() # Stateは変更しない、またはデフォルトに戻すなど状況による
+    
+    print(f"設定更新: モデル変更 -> '{selected_model}'")
     config_manager.save_config("last_model", selected_model)
-    return selected_model # Stateを更新するために返す
+    return selected_model # Gradio Stateを更新するために選択されたモデル名を返す
 
-def update_api_key_state(selected_api_key_name):
-    # global initial_api_key_name_global # グローバル変数を更新するため -> config_manager 経由でアクセス
-    if not selected_api_key_name: return gr.update()
-    print(f"APIキー変更: '{selected_api_key_name}'")
+def update_api_key_state(selected_api_key_name: Optional[str]) -> Union[Optional[str], Any]:
+    """
+    選択されたAPIキー名を更新し、設定ファイルに保存し、API設定を試みます。
+
+    Args:
+        selected_api_key_name: UIで選択されたAPIキーの名前。
+
+    Returns:
+        Union[Optional[str], Any]: 選択されたAPIキー名（GradioのState更新用）、または gr.update()。
+    """
+    if not selected_api_key_name:
+        # APIキーが選択解除された場合
+        # gr.Warning("APIキーが選択されていません。") # 必要に応じて通知
+        return gr.update()
+
+    print(f"設定更新: APIキー変更 -> '{selected_api_key_name}'")
     ok, msg = configure_google_api(selected_api_key_name)
     config_manager.save_config("last_api_key_name", selected_api_key_name)
-    config_manager.initial_api_key_name_global = selected_api_key_name # アラームチェックで使うためグローバルも更新
+    
+    # グローバルなAPIキー名も更新（アラーム機能などで外部から参照される場合があるため）
+    # config_manager を介して行うのが望ましいが、既存のコードに合わせて直接代入している場合は注意
+    # 例: config_manager.set_global_api_key_name(selected_api_key_name) のような関数を config_manager に用意する
+    # ここでは initial_api_key_name_global が config_manager の変数であることを前提とする
+    if hasattr(config_manager, 'initial_api_key_name_global'):
+         config_manager.initial_api_key_name_global = selected_api_key_name
+    else:
+        print("警告: config_manager.initial_api_key_name_global が見つかりません。")
+
+
     if ok:
         gr.Info(f"APIキー '{selected_api_key_name}' の設定に成功しました。")
     else:
         gr.Error(f"APIキー '{selected_api_key_name}' の設定に失敗しました: {msg}")
-    return selected_api_key_name # Stateを更新するために返す
+    
+    return selected_api_key_name # Gradio Stateを更新するために選択されたAPIキー名を返す
 
-def update_timestamp_state(add_timestamp_checked):
+def update_timestamp_state(add_timestamp_checked: bool) -> None:
+    """
+    タイムスタンプ追加チェックボックスの状態を設定ファイルに保存します。
+
+    Args:
+        add_timestamp_checked: チェックボックスの状態 (True/False)。
+
+    Returns:
+        None: この関数はUIの値を直接返さず、副作用（設定保存）のみ持ちます。
+              GradioのState更新はチェックボックス自体が行います。
+    """
     if isinstance(add_timestamp_checked, bool):
+        print(f"設定更新: タイムスタンプ付加設定 -> {add_timestamp_checked}")
         config_manager.save_config("add_timestamp", add_timestamp_checked)
-    # チェックボックスの状態はGradioが管理するので、明示的に返す必要はない
-    # 返り値として add_timestamp_checked を返すことでStateを更新することも可能だが、
-    # このチェックボックスは直接Stateにバインドされていないため、Noneを返すか、何も返さないのが適切
-    return None
+    else:
+        # 通常発生しないはずだが、予期せぬ型が来た場合のフォールバック
+        gr.Warning(f"タイムスタンプ設定の更新に失敗しました。無効な値: {add_timestamp_checked}")
+    return None # チェックボックスのStateはGradioが管理するため、明示的な返り値は不要
 
+def update_send_thoughts_state(send_thoughts_checked: bool) -> Union[bool, Any]:
+    """
+    「思考過程をAPIに送信する」チェックボックスの状態を更新し、設定ファイルに保存します。
 
-def update_send_thoughts_state(send_thoughts_checked):
-    if not isinstance(send_thoughts_checked, bool): return gr.update()
-    print(f"思考過程API送信設定変更: {send_thoughts_checked}")
+    Args:
+        send_thoughts_checked: チェックボックスの状態 (True/False)。
+
+    Returns:
+        Union[bool, Any]: チェックされた状態（GradioのState更新用）、または gr.update()。
+    """
+    if not isinstance(send_thoughts_checked, bool):
+        # 予期せぬ型の場合、現在の状態を維持 (gr.update() で更新しない)
+        gr.Warning(f"「思考過程を送信」設定の更新に失敗しました。無効な値: {send_thoughts_checked}")
+        return gr.update()
+        
+    print(f"設定更新: 思考過程API送信設定 -> {send_thoughts_checked}")
     config_manager.save_config("last_send_thoughts_to_api", send_thoughts_checked)
-    return send_thoughts_checked # Stateを更新するために返す
+    return send_thoughts_checked # Gradio Stateを更新
 
-def update_api_history_limit_state(selected_limit_option_ui_value):
-    # UI表示名から内部キー（"10", "all"など）を逆引き
-    key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == selected_limit_option_ui_value), None)
-    if key:
-        print(f"API履歴制限設定変更: '{key}' ({selected_limit_option_ui_value})")
-        config_manager.save_config("last_api_history_limit_option", key)
-        return key # Stateを更新するために返す
-    return gr.update() # 見つからなかった場合は更新しない
+def update_api_history_limit_state(selected_limit_option_ui_value: Optional[str]) -> Union[str, Any]:
+    """
+    API履歴制限の選択を更新し、設定ファイルに保存します。
 
-def reload_chat_log(character_name):
+    Args:
+        selected_limit_option_ui_value: UIで選択された履歴制限の表示名。
+
+    Returns:
+        Union[str, Any]: 対応する内部キー値（GradioのState更新用）、または gr.update()。
+    """
+    if not selected_limit_option_ui_value:
+        gr.Warning("API履歴制限が選択されていません。")
+        return gr.update() # 現在のStateを維持
+
+    # UI表示名から内部設定キーを逆引き
+    # config_manager.API_HISTORY_LIMIT_OPTIONS が {"internal_key": "UI Display Value", ...} の形式であると想定
+    internal_key = next(
+        (k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == selected_limit_option_ui_value),
+        None
+    )
+    
+    if internal_key:
+        print(f"設定更新: API履歴制限 -> '{internal_key}' (UI表示: '{selected_limit_option_ui_value}')")
+        config_manager.save_config("last_api_history_limit_option", internal_key)
+        return internal_key # Gradio Stateを更新 (内部キーを返す)
+    else:
+        gr.Error(f"無効なAPI履歴制限オプションが選択されました: '{selected_limit_option_ui_value}'")
+        return gr.update() # 現在のStateを維持
+
+def reload_chat_log(character_name: Optional[str]) -> List[List[Optional[str]]]:
+    """
+    指定されたキャラクターのチャットログを再読み込みしてGradio表示形式で返します。
+
+    Args:
+        character_name: チャットログを読み込むキャラクターの名前。
+
+    Returns:
+        List[List[Optional[str]]]: GradioのChatbotコンポーネント用のチャット履歴。
+                                     エラー時は空リスト。
+    """
     if not character_name:
+        gr.Info("ログ再読み込み: キャラクターが選択されていません。")
         return []
-    log_file, _, _, _ = get_character_files_paths(character_name)
-    if not log_file:
-        return []
-    return format_history_for_gradio(load_chat_log(log_file, character_name)[-(config_manager.HISTORY_LIMIT * 2):])
 
-# handle_timer_submission 関数を UnifiedTimer を使用するように更新
-def handle_timer_submission(timer_type, duration, work_duration, break_duration, cycles, current_character_name, work_theme, break_theme, api_key_name, webhook_url, normal_timer_theme):
+    log_file_path, _, _, _ = get_character_files_paths(character_name)
+    
+    if not log_file_path or not os.path.exists(log_file_path):
+        gr.Warning(f"ログ再読み込み: キャラクター '{character_name}' のログファイルが見つかりません ({log_file_path})。")
+        return []
+    
+    print(f"UI操作: '{character_name}' のチャットログを再読み込みします。")
+    # HISTORY_LIMIT * 2 はユーザーとAIの発言ペアを考慮していると推測
+    chat_log_for_display = format_history_for_gradio(
+        load_chat_log(log_file_path, character_name)[-(config_manager.HISTORY_LIMIT * 2):]
+    )
+    gr.Info(f"'{character_name}' のチャットログを再読み込みしました。")
+    return chat_log_for_display
+
+def handle_timer_submission(
+    timer_type: str,
+    duration: Optional[float], # 分単位で入力される想定だが、UnifiedTimerが秒に変換
+    work_duration: Optional[float], # 分単位
+    break_duration: Optional[float], # 分単位
+    cycles: Optional[int],
+    current_character_name: Optional[str],
+    work_theme: Optional[str],
+    break_theme: Optional[str],
+    api_key_name: Optional[str], # タイマー通知で使用するAPIキー
+    webhook_url: Optional[str], # タイマー通知で使用するWebhook URL
+    normal_timer_theme: Optional[str]
+) -> None:
+    """
+    タイマー設定フォームからの送信を処理し、適切なタイマーを開始します。
+
+    Args:
+        timer_type: "通常タイマー" または "ポモドーロタイマー"。
+        duration: 通常タイマーの期間（分）。
+        work_duration: ポモドーロタイマーの作業期間（分）。
+        break_duration: ポモドーロタイマーの休憩期間（分）。
+        cycles: ポモドーロタイマーのサイクル数。
+        current_character_name: タイマー通知のキャラクター名。
+        work_theme: ポモドーロタイマーの作業終了時テーマ。
+        break_theme: ポモドーロタイマーの休憩終了時テーマ。
+        api_key_name: 通知に使用するAPIキーの名前。
+        webhook_url: 通知に使用するWebhook URL。
+        normal_timer_theme: 通常タイマーのテーマ。
+
+    Returns:
+        None: UIへのフィードバックはgr.Info/gr.Errorで行うため、直接の戻り値なし。
+    """
+    # 1. 必須項目の検証
     if not current_character_name:
         gr.Error("キャラクターが選択されていません。タイマーを設定するにはキャラクターを選択してください。")
         return
+    if not api_key_name: # APIキーも通知に必須と仮定
+        gr.Error("APIキーが選択されていません。タイマー通知のためにAPIキーを選択してください。")
+        return
+    # webhook_url はオプションかもしれないので、ここでは必須チェックしない (UnifiedTimer内で処理)
 
-    if timer_type == "通常タイマー" and not duration:
-        gr.Error("タイマーの時間を入力してください。")
+    if timer_type == "通常タイマー":
+        if duration is None or duration <= 0: # 0以下の値も無効とする
+            gr.Error("通常タイマーの時間を正しく入力してください（0より大きい値）。")
+            return
+    elif timer_type == "ポモドーロタイマー":
+        if not (work_duration and work_duration > 0 and \
+                break_duration and break_duration > 0 and \
+                cycles and cycles > 0):
+            gr.Error("ポモドーロタイマーの作業時間、休憩時間、サイクル数を正しく入力してください（全て0より大きい値）。")
+            return
+    else:
+        gr.Error(f"不明なタイマータイプです: {timer_type}")
         return
 
-    if timer_type == "ポモドーロタイマー" and not (work_duration and break_duration and cycles):
-        gr.Error("作業時間、休憩時間、サイクル数を入力してください。")
-        return
+    print(f"タイマー設定実行: タイプ='{timer_type}', キャラクター='{current_character_name}', "
+          f"作業テーマ='{work_theme}', 休憩テーマ='{break_theme}', 通常テーマ='{normal_timer_theme}'")
 
-    print(f"タイマー設定: タイプ={timer_type}, キャラクター={current_character_name}, 作業テーマ={work_theme}, 休憩テーマ={break_theme}, 通常タイマーのテーマ={normal_timer_theme}")
-
-    unified_timer = UnifiedTimer(
-        timer_type=timer_type,
-        duration=duration,
-        work_duration=work_duration,
-        break_duration=break_duration,
-        cycles=cycles,
-        character_name=current_character_name,
-        work_theme=work_theme,
-        break_theme=break_theme,
-        api_key_name=api_key_name,
-        webhook_url=webhook_url,
-        normal_timer_theme=normal_timer_theme
-    )
-    unified_timer.start()
-    gr.Info(f"{timer_type} を開始しました。")
+    try:
+        # UnifiedTimerのコンストラクタに渡す値が存在しない可能性を考慮し、Noneを許容する
+        # duration, work_duration, break_duration は UnifiedTimer 側で * 60 されるので、そのまま渡す
+        unified_timer = UnifiedTimer(
+            timer_type=timer_type,
+            duration=duration if duration is not None else 0, # Noneを0に変換 (UnifiedTimerが処理)
+            work_duration=work_duration if work_duration is not None else 0,
+            break_duration=break_duration if break_duration is not None else 0,
+            cycles=cycles if cycles is not None else 0,
+            character_name=current_character_name,
+            work_theme=work_theme or "作業終了です！", # デフォルトテーマを設定
+            break_theme=break_theme or "休憩終了！作業を再開しましょう。",
+            api_key_name=api_key_name,
+            webhook_url=webhook_url, # Noneの可能性あり
+            normal_timer_theme=normal_timer_theme or "時間になりました！"
+        )
+        unified_timer.start()
+        gr.Info(f"{timer_type}を開始しました。")
+    except Exception as e:
+        gr.Error(f"タイマーの開始中にエラーが発生しました: {str(e)}")
+        traceback.print_exc()

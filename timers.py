@@ -103,7 +103,7 @@ class PomodoroTimer:
     def _trigger_alarm(self, theme, timer_id):
         if self.api_key_name and self.webhook_url:
             print(f"{timer_id}終了。アラーム処理を実行します。")
-            from backup.log2gemini20250501 import trigger_alarm
+            from alarm_manager import trigger_alarm
             from character_manager import log_to_character
 
             alarm_config = {
