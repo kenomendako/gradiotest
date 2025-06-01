@@ -321,7 +321,7 @@ def handle_message_submission(
             character_name=current_character_name, # Ensured not None by validation
             send_thoughts_to_api=send_thoughts_state,
             api_history_limit_option=api_history_limit_state,
-            uploaded_files=files_for_gemini_api, # Processed non-text files
+            uploaded_file_parts=files_for_gemini_api, # Processed non-text files
             memory_json_path=mem_p
         )
 
