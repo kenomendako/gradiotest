@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from typing import List, Optional, Dict, Any # Added
+from typing import List, Optional, Dict, Any, Tuple # Added Tuple
 import gradio as gr
 import datetime
 import json
@@ -50,6 +50,166 @@ SUPPORTED_FILE_MAPPINGS = {
 }
 
 # --- Gradio UI イベントハンドラ ---
+
+# --- Helper Functions for handle_message_submission ---
+
+def _validate_submission_inputs(character_name: str | None, model_name: str | None, api_key_name: str | None) -> str | None:
+    """Validates essential inputs for message submission."""
+    if not character_name: return "キャラクターが選択されていません。"
+    if not model_name: return "AIモデルが選択されていません。"
+    if not api_key_name: return "APIキーが選択されていません。"
+    return None
+
+def _configure_api_key_if_needed(api_key_name: str) -> tuple[bool, str]:
+    """Configures the Gemini API with the selected key. Returns success status and error message string (empty if success)."""
+    success, message = configure_google_api(api_key_name)
+    if not success:
+        return False, f"APIキー設定エラー: {message or '不明なエラー'}" # Ensure message is not None
+    return True, "" # Success, no error message
+
+def _process_uploaded_files(
+    file_input_list: Optional[List[Any]], # Gradio File objects. Type 'Any' for Gradio's FileData object.
+    # character_name: str # Optional: if files need to be saved in character-specific subdirs
+) -> tuple[str, List[Dict[str, str]], List[str]]:
+    """
+    Processes uploaded files. Copies them to a persistent location,
+    extracts text from supported text files, and prepares a list for Gemini API.
+
+    Returns:
+        - consolidated_text (str): Concatenated text from all valid text files.
+        - files_for_api (List[Dict[str, str]]): List of dicts for non-text files,
+                                                 e.g., {'path': str, 'mime_type': str, 'original_filename': str}.
+        - error_messages (List[str]): List of error messages encountered during processing.
+    """
+    consolidated_text = ""
+    files_for_api: List[Dict[str, str]] = []
+    error_messages: List[str] = []
+
+    if not file_input_list:
+        return consolidated_text, files_for_api, error_messages
+
+    for file_obj in file_input_list:
+        original_filename = "unknown_file" # Default in case of issues
+        try:
+            # Gradio's FileData object has 'name' (temp path) and 'orig_name' (original client-side name)
+            temp_file_path = file_obj.name
+            original_filename = getattr(file_obj, 'orig_name', os.path.basename(temp_file_path))
+
+            file_extension = os.path.splitext(original_filename)[1].lower()
+            file_type_info = SUPPORTED_FILE_MAPPINGS.get(file_extension)
+
+            if not file_type_info:
+                error_messages.append(f"ファイル形式非対応: {original_filename}")
+                continue
+
+            mime_type = file_type_info["mime_type"]
+            category = file_type_info["category"]
+
+            if category == 'text':
+                content_to_add = None
+                # Common encodings to try for text files
+                encodings_to_try = ['utf-8', 'shift_jis', 'cp932', 'euc-jp', 'iso2022-jp', 'latin1']
+                for enc in encodings_to_try:
+                    try:
+                        with open(temp_file_path, 'r', encoding=enc) as f_content:
+                            content_to_add = f_content.read()
+                        # print(f"情報: ファイル '{original_filename}' をエンコーディング '{enc}' で読み込み成功。")
+                        break
+                    except UnicodeDecodeError:
+                        # print(f"デバッグ: ファイル '{original_filename}' のデコード失敗 (エンコーディング: {enc})。")
+                        continue
+                    except Exception as e_file_read: # Catch other file read errors
+                        error_messages.append(f"ファイル読込エラー ({original_filename}, encoding {enc}): {str(e_file_read)}")
+                        content_to_add = None
+                        break
+
+                if content_to_add is not None:
+                    consolidated_text += f"\n\n--- 添付ファイル「{original_filename}」の内容 ---\n{content_to_add}"
+                else:
+                    # Avoid duplicate error if a specific read error was already logged
+                    if not any(msg.startswith(f"ファイル読込エラー ({original_filename}") for msg in error_messages):
+                        error_messages.append(f"ファイルデコード失敗 ({original_filename}): 全てのエンコーディング試行に失敗しました。")
+
+            elif category in ['image', 'pdf', 'audio', 'video']:
+                # Ensure ATTACHMENTS_DIR exists (already done at top-level but good for robustness)
+                # os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
+                unique_filename_for_attachment = f"{uuid.uuid4()}{file_extension}"
+                saved_attachment_path = os.path.join(ATTACHMENTS_DIR, unique_filename_for_attachment)
+
+                shutil.copy2(temp_file_path, saved_attachment_path) # Copy from temp path to persistent path
+                files_for_api.append({
+                    'path': saved_attachment_path,
+                    'mime_type': mime_type,
+                    'original_filename': original_filename # Keep original name for reference if needed
+                })
+                # print(f"情報: ファイル '{original_filename}' を '{saved_attachment_path}' にコピーしました。")
+            else:
+                 error_messages.append(f"未定義カテゴリ '{category}' のファイル: {original_filename}")
+
+        except Exception as e_process: # Catch errors during the processing of a single file
+            error_messages.append(f"ファイル処理中エラー ({original_filename}): {str(e_process)}")
+            traceback.print_exc() # Log detailed error to console
+
+    return consolidated_text.strip(), files_for_api, error_messages
+
+def _log_user_interaction(
+    log_file_path: str,
+    user_header: str,
+    original_user_text: str,
+    text_from_files: str, # To know if text files were part of the input
+    files_for_gemini_api: List[Dict[str, str]], # List of non-text files
+    add_timestamp_checkbox: bool,
+    user_action_timestamp_str: str # Already formatted timestamp string
+) -> None:
+    """Logs the user's text input and information about attached files in a structured way."""
+
+    timestamp_applied_for_action = False
+
+    # 1. Log the original user text input
+    if original_user_text:
+        text_to_log = original_user_text
+        if add_timestamp_checkbox:
+            text_to_log += user_action_timestamp_str
+            timestamp_applied_for_action = True
+        save_message_to_log(log_file_path, user_header, text_to_log)
+
+    # 2. Log if text from files was included (as a single consolidated message)
+    if text_from_files: # text_from_files already contains the formatted "--- Attached file... ---"
+        # This text is part of what's sent to the API (api_text_arg).
+        # For the log, we indicate that text file contents were part of the submission.
+        # The actual content of text_from_files is already logged if original_user_text was empty
+        # and text_from_files became the main part of api_text_arg.
+        # To avoid duplicate logging of the content of text files if they were part of api_text_arg,
+        # here we only log a placeholder if original_user_text was also present.
+        # If original_user_text was empty, text_from_files effectively becomes the user's main message.
+
+        # Simplified: The combined (original_user_text + text_from_files) is already part of api_text_arg.
+        # If api_text_arg is what's logged as the primary user message, this separate logging might be redundant
+        # or could be a placeholder like "[Content from text files was included in the message]".
+        # For now, assuming the main api_text_arg (which includes text_from_files) is logged elsewhere
+        # or that the current logging in handle_message_submission for api_text_arg is sufficient.
+        # This helper will focus on logging non-text file attachments clearly.
+        # However, if original_user_text is empty, text_from_files IS the main message.
+
+        # Let's refine: log a generic placeholder if original_user_text was present,
+        # otherwise, text_from_files was the main message and already logged (or will be).
+        if original_user_text: # If there was main text, just note that text files were also there.
+            log_entry_for_text_files = "[添付テキストファイルの内容はメインメッセージに結合されました]"
+            if add_timestamp_checkbox and not timestamp_applied_for_action:
+                log_entry_for_text_files += user_action_timestamp_str
+                timestamp_applied_for_action = True
+            save_message_to_log(log_file_path, user_header, log_entry_for_text_files)
+
+    # 3. Log non-text file attachments
+    for i, file_info in enumerate(files_for_gemini_api):
+        log_entry_for_file = f"[ファイル添付: {file_info.get('saved_path')};{file_info.get('original_filename', '不明なファイル')};{file_info.get('mime_type', '不明なMIMEタイプ')}]"
+        if add_timestamp_checkbox and not timestamp_applied_for_action and i == 0:
+            # If no text message got the timestamp, the first file attachment gets it.
+            log_entry_for_file += user_action_timestamp_str
+            timestamp_applied_for_action = True
+        save_message_to_log(log_file_path, user_header, log_entry_for_file)
+
+
 def handle_message_submission(
     textbox: str,
     chatbot: List[List[Optional[str]]],
@@ -60,28 +220,31 @@ def handle_message_submission(
     add_timestamp_checkbox: bool,
     send_thoughts_state: bool,
     api_history_limit_state: str
-):
+) -> Tuple[List[List[Optional[str]]], str, Optional[List[str]], str]: # Added return type hint
     print(f"\n--- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
     os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
     error_message = ""
     # Preserve the original text from the textbox parameter for potential restoration
     original_user_text_on_entry = textbox.strip() if textbox else ""
 
-    if not all([current_character_name, current_model_name, current_api_key_name_state]):
-        error_message = "キャラクター、AIモデル、APIキーが選択されていません。設定を確認してください。"
-        return chatbot, gr.update(value=""), gr.update(value=None), error_message
+    # 1. Input Validation
+    validation_error = _validate_submission_inputs(current_character_name, current_model_name, current_api_key_name_state)
+    if validation_error:
+        # Return 4 values: chatbot state, textbox state (empty), file input state (None), error message
+        return chatbot, "", None, validation_error
 
-    # APIキー設定エラー処理
-    ok, msg = configure_google_api(current_api_key_name_state)
-    if not ok:
-        error_message = f"APIキー設定エラー: {msg}"
+    # 2. API Key Configuration
+    api_configured, api_error_msg = _configure_api_key_if_needed(current_api_key_name_state)
+    if not api_configured:
         # Restore the original text if API key config fails
-        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message
+        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), api_error_msg
 
+    # 3. Get Character File Paths (moved after API key check for clarity)
     log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
-    if not all([log_f, sys_p, mem_p]):
-        error_message = f"キャラクター '{current_character_name}' のファイル（ログ、プロンプト、記憶）が見つかりません。"
-        return chatbot, gr.update(value=""), gr.update(value=None), error_message
+    if not all([log_f, sys_p, mem_p]): # mem_p is memory_json_path
+        error_message = f"キャラクター '{current_character_name}' の必須ファイル（ログ、プロンプト、記憶）のパス取得に失敗しました。"
+        # Restore original text as this is a setup issue, not a transient input error
+        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message
 
     original_user_text = textbox.strip() if textbox else "" # This is the current text, might be empty if cleared by previous error
     # file_input_list is now a list of file objects from gr.Files
@@ -93,158 +256,87 @@ def handle_message_submission(
     # Timestamp for the overall user action, applied to the first text log entry
     # or to individual file logs if no text is present.
     user_action_timestamp_str = ""
-    if add_timestamp_checkbox and (original_user_text or (file_input_list and len(file_input_list) > 0)):
+    # Check original_user_text (from textbox) or file_input_list (if files were provided)
+    if add_timestamp_checkbox and (original_user_text_on_entry or file_input_list):
         now = datetime.datetime.now()
         user_action_timestamp_str = f"\n{now.strftime('%Y-%m-%d (%a) %H:%M:%S')}"
 
-    if not original_user_text and not file_input_list:
-        error_message = "送信するメッセージまたはファイルがありません。"
-        # Return 4 values: chatbot state, textbox state, file input state (clear), error message
-        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message
+    # 4. Process Uploaded Files (Helper function call)
+    # Pass character_name for potential character-specific attachment subdirectories (though not used in current _process_uploaded_files)
+    text_from_files, files_for_gemini_api, file_processing_errors = _process_uploaded_files(file_input_list)
+    if file_processing_errors:
+        error_message = (error_message + "\n" if error_message else "") + "\n".join(file_processing_errors)
 
-    try:
-        if file_input_list:
-            for file_obj in file_input_list:
-                original_filename = "unknown_file"
-                try:
-                    # Try to get original name, fallback to a generic name from temp path
-                    original_filename = file_obj.orig_name if hasattr(file_obj, 'orig_name') and file_obj.orig_name else os.path.basename(file_obj.name)
-                    temp_file_path = file_obj.name
-                    
-                    file_extension = os.path.splitext(original_filename)[1].lower()
-                    file_type_info = SUPPORTED_FILE_MAPPINGS.get(file_extension)
+    # 5. Prepare final text for API
+    api_text_arg = original_user_text_on_entry + text_from_files # text_from_files is already pre-formatted
 
-                    if not file_type_info:
-                        unsupported_files_messages.append(f"ファイル形式非対応: {original_filename}")
-                        continue
-
-                    mime_type = file_type_info["mime_type"]
-                    category = file_type_info["category"]
-                    
-                    current_file_info = {
-                        'original_filename': original_filename,
-                        'temp_path': temp_file_path,
-                        'saved_path': None, # Will be set for non-text files
-                        'mime_type': mime_type,
-                        'category': category,
-                        'content_for_api': None # For text files, their content
-                    }
-
-                    if category == 'text':
-                        content_to_add = None
-                        encodings_to_try = ['utf-8', 'shift_jis', 'cp932']
-                        for enc in encodings_to_try:
-                            try:
-                                with open(temp_file_path, 'r', encoding=enc) as f_content:
-                                    content_to_add = f_content.read()
-                                print(f"Successfully read {original_filename} with encoding {enc}") # For debugging
-                                break # Success
-                            except UnicodeDecodeError:
-                                print(f"Failed to decode {original_filename} with {enc}, trying next...") # For debugging
-                                continue # Try next encoding
-                            except Exception as e: # Other file errors
-                                unsupported_files_messages.append(f"ファイル読込エラー ({original_filename}, encoding {enc}): {e}")
-                                content_to_add = None # Ensure it's None if other error occurred
-                                break # Don't try other encodings if a non-decode error happened
-                        
-                        if content_to_add is not None:
-                            current_file_info['content_for_api'] = content_to_add
-                        else:
-                            # If all encodings failed or another error occurred
-                            if not any(msg.startswith(f"ファイル読込エラー ({original_filename}") for msg in unsupported_files_messages): # Avoid duplicate general error if specific decode errors logged
-                                unsupported_files_messages.append(f"ファイルデコード失敗 ({original_filename}): 全てのエンコーディング試行に失敗しました。")
-                            continue # Skip this file from processed_files_info
-                    elif category in ['image', 'pdf', 'audio', 'video']:
-                        unique_filename_for_attachment = f"{uuid.uuid4()}{file_extension}"
-                        saved_attachment_path = os.path.join(ATTACHMENTS_DIR, unique_filename_for_attachment)
-                        shutil.copy2(temp_file_path, saved_attachment_path)
-                        current_file_info['saved_path'] = saved_attachment_path
-                    
-                    processed_files_info.append(current_file_info)
-
-                except Exception as e:
-                    # Catch errors during individual file processing
-                    unsupported_files_messages.append(f"処理エラー ({original_filename}): {e}")
-                    traceback.print_exc() # Log detailed error to console
-
-        # Consolidate text file contents into api_text_arg
-        consolidated_text_file_contents = ""
-        for p_file in processed_files_info:
-            if p_file['category'] == 'text' and p_file['content_for_api']:
-                consolidated_text_file_contents += f"\n\n--- 以下は添付ファイル「{p_file['original_filename']}」の内容 ---\n{p_file['content_for_api']}"
-        
-        if consolidated_text_file_contents:
-            api_text_arg += consolidated_text_file_contents
-
-        # Prepare files for Gemini API (non-text files that are saved)
-        files_for_gemini_api = []
-        for p_file in processed_files_info:
-            if p_file['category'] != 'text' and p_file['saved_path']:
-                files_for_gemini_api.append({'path': p_file['saved_path'], 'mime_type': p_file['mime_type']})
-        
-        # --- API Call ---
-        # The send_to_gemini function will need to be adapted to handle a list of file parts.
-        # For now, we pass it, assuming it will be updated.
-        # Corrected to handle single return value from send_to_gemini
-        resp = send_to_gemini(sys_p, log_f, api_text_arg, current_model_name, current_character_name, send_thoughts_state, api_history_limit_state, files_for_gemini_api, mem_p)
-
-        # --- Error response from API ---
-        if resp and (resp.strip().startswith("エラー:") or resp.strip().startswith("API通信エラー:") or resp.strip().startswith("応答取得エラー") or resp.strip().startswith("応答生成失敗")):
-            # error_message is already initialized and might contain unsupported file messages
-            error_message += f"\nGemini APIエラー: {resp}" if error_message else f"Gemini APIエラー: {resp}"
-            # Preserve original text and return any accumulated error messages
-            return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message.strip()
-
-
-        # --- User Message Logging ---
-        user_header = _get_user_header_from_log(log_f, current_character_name)
-        
-        logged_any_user_action = False # Flag to ensure timestamp is applied only to the first logged action
-        user_action_timestamp_str_used = False
-
-        # 1. Log original user text if present
-        if original_user_text:
-            text_to_log = original_user_text
-            if add_timestamp_checkbox and not user_action_timestamp_str_used:
-                text_to_log += user_action_timestamp_str # Use the pre-calculated timestamp
-                user_action_timestamp_str_used = True
-            save_message_to_log(log_f, user_header, text_to_log)
-            logged_any_user_action = True
-
-        # 2. Log info about processed files
-        for p_file in processed_files_info:
-            log_entry = ""
-            # Determine if this specific file log should get the main action timestamp
-            # This happens if no original text was logged, and this is the first file being logged.
-            timestamp_for_this_file_log = ""
-            if add_timestamp_checkbox and not logged_any_user_action and not user_action_timestamp_str_used:
-                timestamp_for_this_file_log = user_action_timestamp_str
-                user_action_timestamp_str_used = True # Mark timestamp as used
-            
-            if p_file['category'] == 'text':
-                # Log a placeholder for text files, as their content is in api_text_arg
-                # These are logged individually without their content, as content is part of api_text_arg.
-                log_entry = f"[添付テキストファイル: {p_file['original_filename']}]" + timestamp_for_this_file_log
-            elif p_file['saved_path']: # Images, PDFs, Audio, Video that were saved
-                log_entry = f"[file_attachment:{p_file['saved_path']};{p_file['original_filename']};{p_file['mime_type']}]" + timestamp_for_this_file_log
-            
-            if log_entry:
-                save_message_to_log(log_f, user_header, log_entry)
-                logged_any_user_action = True # Mark that some user action has been logged
-
-        # Aggregate unsupported file messages with other errors
-        if unsupported_files_messages:
-            error_message = (error_message + "\n" if error_message else "") + "\n".join(unsupported_files_messages)
-            
-        # --- AI Response Logging ---
-        if resp and resp.strip():
-            save_message_to_log(log_f, f"## {current_character_name}:", resp)
-        
-    except Exception as e:
-        error_message = (error_message + "\n" if error_message else "") + f"処理中に予期せぬエラーが発生: {e}"
-        traceback.print_exc()
+    # Check if there's anything to send
+    if not api_text_arg.strip() and not files_for_gemini_api:
+        error_message = (error_message + "\n" if error_message else "") + "送信するメッセージまたは処理可能なファイルがありません。"
         return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message.strip()
 
+    # --- Main processing block ---
+    try:
+        # 6. Log User Interaction
+        user_header = _get_user_header_from_log(log_file_path, character_name)
+        # The api_text_arg already contains original_user_text_on_entry + text_from_files.
+        # We log this combined text if it's not empty.
+        # Then, log non-text file attachments separately.
+        
+        # Log the combined text message that will be sent to the API (or was intended to)
+        # This includes text from files.
+        if api_text_arg.strip(): # Log only if there's actual text content
+            text_to_log_for_user = api_text_arg
+            if add_timestamp_checkbox: # Timestamp applies to the whole user submission turn
+                text_to_log_for_user += user_action_timestamp_str
+            save_message_to_log(log_file_path, user_header, text_to_log_for_user)
+            # If only files were attached, and api_text_arg was initially empty but got populated by text_from_files,
+            # then this log entry correctly includes that text and the timestamp.
+        
+        # Log non-text file attachments (images, pdfs etc.)
+        # These are logged as placeholders because their content isn't text.
+        # Timestamp is applied to the first of these IF no text was logged before with a timestamp.
+        timestamp_applied_to_files = not (api_text_arg.strip() and add_timestamp_checkbox)
+        for i, file_info in enumerate(files_for_gemini_api):
+            log_entry_for_file = f"[ファイル添付: {file_info.get('saved_path')};{file_info.get('original_filename', '不明なファイル')};{file_info.get('mime_type', '不明なMIMEタイプ')}]"
+            if add_timestamp_checkbox and not timestamp_applied_to_files and i == 0:
+                 log_entry_for_file += user_action_timestamp_str
+                 timestamp_applied_to_files = True # Ensure timestamp is added only once for the file group
+            save_message_to_log(log_file_path, user_header, log_entry_for_file)
+        
+        # 7. Call Gemini API
+        api_response_text = send_to_gemini(
+            system_prompt_path,
+            log_file_path,
+            api_text_arg, # Combined text
+            model_name,
+            character_name,
+            send_thoughts_to_api,
+            api_history_limit_option,
+            files_for_gemini_api, # Processed non-text files
+            memory_json_path
+        )
+
+        # 8. Handle API Response (Error or Success)
+        if api_response_text and isinstance(api_response_text, str) and \
+           not (api_response_text.strip().startswith("エラー:") or \
+                api_response_text.strip().startswith("API通信エラー:") or \
+                api_response_text.strip().startswith("応答取得エラー") or \
+                api_response_text.strip().startswith("応答生成失敗")):
+            # Success from API
+            save_message_to_log(log_file_path, f"## {character_name}:", api_response_text)
+        else:
+            # API returned an error string or response was None/empty
+            error_messages_list.append(api_response_text or "APIから有効な応答がありませんでした。")
+            # No need to return here, error_message will be returned at the end.
+
+    except Exception as e: # Catch-all for unexpected errors during processing/logging/API call
+        error_messages_list.append(f"処理中に予期せぬエラーが発生: {e}")
+        traceback.print_exc()
+        # Return original text to allow user to retry if it was a transient issue
+        return chatbot, gr.update(value=original_user_text_on_entry), gr.update(value=None), error_message.strip()
+
+    # 9. Update Chat History and Return
     new_log = load_chat_log(log_f, current_character_name)
     new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
     
