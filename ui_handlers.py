@@ -316,7 +316,7 @@ def handle_message_submission(
         api_response_text = send_to_gemini(
             system_prompt_path=sys_p,
             log_file_path=log_f,
-            user_text=api_text_arg, # Combined text
+            user_prompt=api_text_arg, # Combined text
             model_name=current_model_name, # Ensured not None by validation
             character_name=current_character_name, # Ensured not None by validation
             send_thoughts_to_api=send_thoughts_state,
