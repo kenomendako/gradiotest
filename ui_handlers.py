@@ -299,18 +299,6 @@ def handle_message_submission(
 
     # --- Main processing block ---
     try:
-        # 6. Log User Interaction (using the helper function)
-        user_header = _get_user_header_from_log(log_f, current_character_name)
-        _log_user_interaction(
-            log_f,
-            user_header,
-            original_user_text_on_entry, # Pass the original text box content
-            text_from_files,             # Pass the text extracted from files
-            files_for_gemini_api,        # Pass the list of non-text files for API
-            add_timestamp_checkbox,
-            user_action_timestamp_str
-        )
-        
         # 7. Call Gemini API
         # Ensure all necessary variables are correctly passed
         api_response_text = send_to_gemini(
@@ -332,6 +320,17 @@ def handle_message_submission(
                 api_response_text.strip().startswith("応答取得エラー") or \
                 api_response_text.strip().startswith("応答生成失敗")):
             # Success from API
+            # Log User Interaction (moved here)
+            user_header = _get_user_header_from_log(log_f, current_character_name)
+            _log_user_interaction(
+                log_f,
+                user_header,
+                original_user_text_on_entry, # Pass the original text box content
+                text_from_files,             # Pass the text extracted from files
+                files_for_gemini_api,        # Pass the list of non-text files for API
+                add_timestamp_checkbox,
+                user_action_timestamp_str
+            )
             save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
         else:
             # API returned an error string or response was None/empty
