@@ -11,7 +11,7 @@ import shutil
 import config_manager
 from timers import UnifiedTimer # Timer, PomodoroTimer はUnifiedTimerに統合されたと仮定し、直接は使わない想定
 from character_manager import get_character_files_paths
-from gemini_api import configure_google_api, send_to_gemini
+from gemini_api import configure_google_api, send_to_gemini, generate_image_with_gemini
 from memory_manager import load_memory_data_safe # save_memory_data はgemini_api内で呼ばれる想定
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log
 
@@ -293,69 +293,191 @@ def handle_message_submission(
 
     # Check if there's anything to send
     if not api_text_arg.strip() and not files_for_gemini_api:
-        error_message = (error_message + "\n" if error_message else "") + "送信するメッセージまたは処理可能なファイルがありません。"
-        # Return original text if nothing was to be sent, allowing user to correct.
-        return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message.strip()
+        # This check should happen AFTER /gazo check if /gazo only needs text_content
+        pass # Moved this check lower for /gazo command that might not need files_for_gemini_api
 
     # --- Main processing block ---
     try:
-        # 7. Call Gemini API
-        # Ensure all necessary variables are correctly passed
-        api_response_text = send_to_gemini(
-            system_prompt_path=sys_p,
-            log_file_path=log_f,
-            user_prompt=api_text_arg, # Combined text
-            selected_model=current_model_name, # Ensured not None by validation
-            character_name=current_character_name, # Ensured not None by validation
-            send_thoughts_to_api=send_thoughts_state,
-            api_history_limit_option=api_history_limit_state,
-            uploaded_file_parts=files_for_gemini_api, # Processed non-text files
-            memory_json_path=mem_p
-        )
+        user_header = _get_user_header_from_log(log_f, current_character_name)
 
-        # 8. Handle API Response
-        if api_response_text and isinstance(api_response_text, str) and \
-           not (api_response_text.strip().startswith("エラー:") or \
-                api_response_text.strip().startswith("API通信エラー:") or \
-                api_response_text.strip().startswith("応答取得エラー") or \
-                api_response_text.strip().startswith("応答生成失敗")):
-            # Success from API
-            # Log User Interaction (moved here)
-            user_header = _get_user_header_from_log(log_f, current_character_name)
+        if original_user_text_on_entry.startswith("/gazo "):
+            initial_image_prompt = original_user_text_on_entry[len("/gazo "):].strip()
+            if not initial_image_prompt:
+                error_message = "画像生成のプロンプトを指定してください。"
+                return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message
+
+            # Log the original /gazo command by user
+            # _log_user_interaction might be too complex if we only have simple text here
+            # We will log user's /gazo command, then AI's response (refined prompt + image tag)
+            # For now, let's save the user's /gazo command directly.
+            # Note: _log_user_interaction handles combined text and file logging.
+            # For /gazo, we only have the text command.
+
+            # Log user's initial /gazo command (without file attachments for this specific log entry)
+            user_gazo_log_text = original_user_text_on_entry
+            if add_timestamp_checkbox:
+                user_gazo_log_text += user_action_timestamp_str
+            save_message_to_log(log_f, user_header, user_gazo_log_text)
+
+            # Step A: Refine Prompt
+            # System prompt for refining image generation prompt
+            refine_system_prompt_text = f"""You are an AI assistant. The user wants to generate an image.
+Based on their idea: '{initial_image_prompt}', generate a concise and effective prompt that would be suitable for an image generation AI.
+Output only the prompt itself, with no additional conversational text.
+If the user's idea is too vague, too complex, or could be improved for clarity for an image AI, refine it.
+If the user's idea is already good, you can use it as is or make minor enhancements.
+Focus on key elements, style, and composition if appropriate from the initial idea.
+Example: User idea 'cat flying in space' -> Refined prompt 'A fluffy cat wearing a tiny astronaut helmet, soaring through a vibrant nebula, digital art'.
+Example: User idea 'beautiful sunset' -> Refined prompt 'A serene beach at sunset, with vibrant orange and purple hues reflecting on calm ocean waves, photorealistic'.
+"""
+            # Create a temporary system prompt file for this specific call, or pass text directly if send_to_gemini supports it.
+            # Assuming send_to_gemini primarily uses system_prompt_path, we create a temp file.
+            # However, send_to_gemini's first arg is system_prompt_path.
+            # A better approach would be to modify send_to_gemini to accept raw system prompt text.
+            # For now, let's use a simplified call or assume send_to_gemini can handle text if path is None.
+            # The existing send_to_gemini loads sys_ins_text from system_prompt_path.
+            # To avoid modifying send_to_gemini now, we'll skip using a system prompt for refinement,
+            # and directly use the user's initial prompt, or prepend a simple instruction.
+            # This is a deviation from "Construct a suitable system message" but simplifies immediate implementation.
+            # Let's try to formulate a prompt that asks the LLM to refine another prompt.
+
+            prompt_for_refinement = f"Refine this image generation idea into a concise and effective prompt for an image AI. Output only the refined prompt: '{initial_image_prompt}'"
+
+            print(f"画像プロンプト絞り込みのためGeminiに送信: '{prompt_for_refinement[:100]}...'")
+            refined_image_prompt_response = send_to_gemini(
+                system_prompt_path=sys_p, # Using the character's main system prompt for this meta-task
+                log_file_path=log_f,      # Log this meta-interaction? For now, no, to keep chat clean.
+                user_prompt=prompt_for_refinement,
+                selected_model=current_model_name,
+                character_name=current_character_name,
+                send_thoughts_to_api=False, # Probably don't need thoughts for this refinement
+                api_history_limit_option="0", # No history needed for this
+                uploaded_file_parts=[], # No files for refinement step
+                memory_json_path=mem_p
+            )
+
+            if not refined_image_prompt_response or refined_image_prompt_response.strip().startswith("エラー:") or refined_image_prompt_response.strip().startswith("API通信エラー:") or refined_image_prompt_response.strip().startswith("応答取得エラー"):
+                error_message = f"画像プロンプトの絞り込みに失敗: {refined_image_prompt_response or '不明なエラー'}"
+                # Log this failure to the main chat as an AI response to the /gazo command
+                save_message_to_log(log_f, f"## {current_character_name}:", error_message)
+                # Fallback: use initial prompt if refinement fails
+                # refined_image_prompt = initial_image_prompt
+                # print(f"警告: プロンプト絞り込み失敗。元のプロンプトを使用: {initial_image_prompt}")
+            else:
+                refined_image_prompt = refined_image_prompt_response.strip()
+                # Remove potential quotes around the refined prompt if the LLM added them
+                if refined_image_prompt.startswith('"') and refined_image_prompt.endswith('"'):
+                    refined_image_prompt = refined_image_prompt[1:-1]
+                if refined_image_prompt.startswith("'") and refined_image_prompt.endswith("'"):
+                    refined_image_prompt = refined_image_prompt[1:-1]
+                print(f"AIによって絞り込まれた画像プロンプト: {refined_image_prompt}")
+
+            if error_message: # If refinement failed and we set an error message
+                # Update history and return
+                new_log = load_chat_log(log_f, current_character_name)
+                new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
+                return new_hist, gr.update(value=""), gr.update(value=None), error_message.strip()
+
+            # Step B: Generate Image
+            # Sanitize initial_image_prompt for use in filename (simple version)
+            sanitized_base_name = "".join(c if c.isalnum() or c in [' ', '_'] else '' for c in initial_image_prompt[:30]).strip().replace(' ', '_')
+            if not sanitized_base_name: # If prompt was e.g. all symbols
+                sanitized_base_name = "generated_image"
+            filename_suggestion = f"{current_character_name}_{sanitized_base_name}"
+
+            print(f"画像生成API呼び出し: プロンプト='{refined_image_prompt[:100]}...', ファイル名提案='{filename_suggestion}'")
+            image_gen_text_response, image_path = generate_image_with_gemini(
+                prompt=refined_image_prompt,
+                output_image_filename_suggestion=filename_suggestion
+            )
+
+            ai_response_parts_for_log = []
+            if refined_image_prompt != initial_image_prompt:
+                 ai_response_parts_for_log.append(f"[AIが生成した画像プロンプト]: {refined_image_prompt}")
+
+            if image_gen_text_response:
+                ai_response_parts_for_log.append(image_gen_text_response)
+
+            if image_path:
+                print(f"画像生成成功: {image_path}")
+                ai_response_parts_for_log.append(f"[Generated Image: {image_path}]")
+            else:
+                print(f"画像生成失敗。テキスト応答: {image_gen_text_response}")
+                error_message = image_gen_text_response or "画像の生成に失敗しました (パスが返されませんでした)。"
+                if "[AIが生成した画像プロンプト]:" not in error_message and refined_image_prompt != initial_image_prompt:
+                    # Prepend the refined prompt to the error if it's not already part of it
+                    error_message = f"[AIが生成した画像プロンプト]: {refined_image_prompt}\n{error_message}"
+
+            final_ai_log_entry = "\n".join(ai_response_parts_for_log)
+            if not final_ai_log_entry and not error_message: # Should not happen if image_path or error
+                final_ai_log_entry = "画像処理が完了しましたが、テキスト応答も画像もありませんでした。"
+
+
+            if error_message and not image_path: # Ensure error is logged if image failed
+                 save_message_to_log(log_f, f"## {current_character_name}:", error_message)
+            elif final_ai_log_entry: # Log successful image generation or text response
+                 save_message_to_log(log_f, f"## {current_character_name}:", final_ai_log_entry)
+
+
+        else: # Not a /gazo command, proceed with normal message submission
+            if not api_text_arg.strip() and not files_for_gemini_api:
+                error_message = (error_message + "\n" if error_message else "") + "送信するメッセージまたは処理可能なファイルがありません。"
+                return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message.strip()
+
+            # Log User Interaction for normal messages
             _log_user_interaction(
                 log_f,
                 user_header,
-                original_user_text_on_entry, # Pass the original text box content
-                text_from_files,             # Pass the text extracted from files
-                files_for_gemini_api,        # Pass the list of non-text files for API
+                original_user_text_on_entry,
+                text_from_files,
+                files_for_gemini_api,
                 add_timestamp_checkbox,
                 user_action_timestamp_str
             )
-            save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
-        else:
-            # API returned an error string or response was None/empty
-            api_err = api_response_text or "APIから有効な応答がありませんでした。"
-            error_message = (error_message + "\n" if error_message else "") + api_err
-            print(f"API Error: {api_err}") # Log for server-side debugging
+
+            api_response_text = send_to_gemini(
+                system_prompt_path=sys_p,
+                log_file_path=log_f,
+                user_prompt=api_text_arg,
+                selected_model=current_model_name,
+                character_name=current_character_name,
+                send_thoughts_to_api=send_thoughts_state,
+                api_history_limit_option=api_history_limit_state,
+                uploaded_file_parts=files_for_gemini_api,
+                memory_json_path=mem_p
+            )
+
+            if api_response_text and isinstance(api_response_text, str) and \
+               not (api_response_text.strip().startswith("エラー:") or \
+                    api_response_text.strip().startswith("API通信エラー:") or \
+                    api_response_text.strip().startswith("応答取得エラー") or \
+                    api_response_text.strip().startswith("応答生成失敗")):
+                save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
+            else:
+                api_err = api_response_text or "APIから有効な応答がありませんでした。"
+                error_message = (error_message + "\n" if error_message else "") + api_err
+                print(f"API Error: {api_err}")
+                # Note: For normal messages, if API fails, error is added to UI, but not logged to chat history as AI response.
+                # This behavior is kept here. For /gazo, errors ARE logged as AI response.
 
     except Exception as e:
         traceback.print_exc()
         err_msg = f"メッセージ処理中に予期せぬエラーが発生: {str(e)}"
         error_message = (error_message + "\n" if error_message else "") + err_msg
-        # In case of unexpected error, return accumulated error message and allow user to retry.
-        # Chatbot history is not updated with this error. Textbox and files are preserved.
         return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message.strip()
 
-    # 9. Update Chat History and Return
-    # Load new log only if there wasn't a preceding error that prevented API call or logging.
-    if not error_message: # Or more fine-grained: if API call was successful
+    # Update Chat History and Return (common for both /gazo and normal messages)
+    if not error_message or image_path: # If /gazo was successful (image_path exists), error_message might be a text response
         new_log = load_chat_log(log_f, current_character_name)
         new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
-    else: # If there was an error, keep the old history
-        new_hist = chatbot_history
-    
-    # Clear textbox and file input on successful submission or if error message is already set.
-    # If an error occurred and textbox/files were preserved by a return statement above, this won't override.
+    else: # If there was an error (and for /gazo, image_path is None)
+        # If it was a /gazo error, it's already logged. We need to load history.
+        if original_user_text_on_entry.startswith("/gazo "):
+            new_log = load_chat_log(log_f, current_character_name)
+            new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
+        else: # For non-/gazo errors, keep old history if API call failed.
+            new_hist = chatbot_history
+
     return new_hist, gr.update(value=""), gr.update(value=None), error_message.strip()
 
 def update_ui_on_character_change(

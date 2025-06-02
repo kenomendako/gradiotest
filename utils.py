@@ -2,7 +2,8 @@
 import os
 import re
 import traceback
-from typing import List, Dict, Optional, Tuple # Added for type hints
+from typing import List, Dict, Optional, Tuple, Union # Added for type hints
+import gradio as gr
 
 # --- ユーティリティ関数 ---
 
@@ -124,109 +125,133 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[str]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[Union[str, gr.Markdown]], Optional[Union[str, gr.Markdown, gr.Image, gr.HTML, List[Union[gr.Markdown, gr.Image, gr.HTML]]]]]]:
     """
-    Converts a list of message dictionaries (from load_chat_log) into Gradio's
-    chatbot history format, which is a list of (user_message, bot_message) tuples.
-    It handles formatting for attachments and accumulates consecutive user messages
-    if necessary (though typical log format is alternating).
+    Converts a list of message dictionaries into Gradio's chatbot history format.
+    User messages are strings (Markdown). Model messages can be strings (Markdown)
+    or lists of Gradio components (Markdown, Image, HTML) for rich content like
+    displaying generated images and thoughts.
 
     Args:
         messages (List[Dict[str, str]]): List of message dictionaries.
 
     Returns:
-        List[Tuple[Optional[str], Optional[str]]]: History formatted for Gradio chatbot.
+        List containing (user_message, model_response) tuples, where elements
+        can be strings or Gradio components/lists of components.
     """
-    gradio_history: List[Tuple[Optional[str], Optional[str]]] = []
-    user_message_accumulator: Optional[str] = None
+    gradio_history: List[Tuple[Optional[Union[str, gr.Markdown]], Optional[Union[str, gr.Markdown, gr.Image, gr.HTML, List[Union[gr.Markdown, gr.Image, gr.HTML]]]]]] = []
+    user_message_accumulator: Optional[str] = None # User messages are still accumulated as strings
+
+    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
+    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
     for msg in messages:
         role = msg.get("role")
-        content = msg.get("content", "").strip() # Ensure content is stripped initially
+        content = msg.get("content", "").strip()
 
-        if not content: # Skip empty messages
+        if not content:
             continue
 
         if role == "user":
-            # Current message is from the user.
-            # If there was a previously accumulated user message, it means it didn't get paired
-            # with a model response (e.g., two user messages in a row, or user message at end of log).
-            # We add it to history with no model response.
             if user_message_accumulator is not None:
-                gradio_history.append((user_message_accumulator, None))
+                gradio_history.append((gr.Markdown(user_message_accumulator), None))
 
-            # Process current user message for display
+            # Process current user message for display (same logic as before for attachments)
             display_text_for_user_turn = content
-
-            # Regex for general file_attachment: [file_attachment:path;filename;mime]timestamp_info
-            # Group 1: Full tag e.g., [file_attachment:path;filename.png;image/png]
-            # Group 2: Path (captured but not directly used in display text)
-            # Group 3: Original filename
-            # Group 4: Mime type
-            # Group 5: Any trailing characters including potential timestamp (e.g., "\n2023-01-01...")
             file_attach_pattern = r"(\[file_attachment:(.*?);(.*?);(.*?)\])([\s\S]*)"
             file_attach_match = re.match(file_attach_pattern, content)
-            
-            # Regex for text file placeholder: [添付テキストファイル:filename.txt]timestamp_info
-            # Group 1: Full tag e.g., [添付テキストファイル:notes.txt]
-            # Group 2: Original filename
-            # Group 3: Any trailing characters including potential timestamp
             text_file_pattern = r"(\[添付テキストファイル:(.*?)\])([\s\S]*)"
             text_file_match = re.match(text_file_pattern, content)
-
-            timestamp_str = "" # Holds the extracted timestamp if any
+            timestamp_str = ""
 
             if file_attach_match:
                 original_filename = file_attach_match.group(3)
                 mime_type = file_attach_match.group(4)
-                timestamp_str = file_attach_match.group(5).strip() # Get timestamp, strip surrounding whitespace
-
+                timestamp_str = file_attach_match.group(5).strip()
                 prefix = "添付ファイル:"
                 if mime_type.startswith("image/"): prefix = "画像:"
                 elif mime_type == "application/pdf": prefix = "PDF:"
                 elif mime_type.startswith("audio/"): prefix = "音声:"
                 elif mime_type.startswith("video/"): prefix = "動画:"
-                
                 display_text_for_user_turn = f"{prefix} {original_filename}"
-            
             elif text_file_match:
                 original_filename = text_file_match.group(2)
-                timestamp_str = text_file_match.group(3).strip() # Get timestamp
+                timestamp_str = text_file_match.group(3).strip()
                 display_text_for_user_turn = f"添付テキスト: {original_filename}"
             
-            # Append timestamp if it exists and is not just whitespace
             if timestamp_str:
-                # Check if original content had a newline before timestamp, to preserve formatting
                 original_content_for_ts_check = file_attach_match.group(0) if file_attach_match else (text_file_match.group(0) if text_file_match else "")
                 original_timestamp_part = file_attach_match.group(5) if file_attach_match else (text_file_match.group(3) if text_file_match else "")
-
                 if original_timestamp_part.startswith(('\n', '\r')):
                     display_text_for_user_turn += f"\n{timestamp_str}"
                 else:
                     display_text_for_user_turn += f" ({timestamp_str})" if not display_text_for_user_turn.endswith(timestamp_str) else ""
 
-
-            user_message_accumulator = display_text_for_user_turn
+            user_message_accumulator = display_text_for_user_turn # Store as string
 
         elif role == "model":
-            # Current message is from the model.
-            # Format it for display (e.g., extracting thoughts).
-            formatted_model_response = format_response_for_display(content)
+            model_response_components: List[Union[gr.Markdown, gr.Image, gr.HTML]] = []
 
-            if user_message_accumulator is not None:
-                # Pair the accumulated user message with this model response.
-                gradio_history.append((user_message_accumulator, formatted_model_response))
-                user_message_accumulator = None # Reset for the next user message.
-            else:
-                # This means a model message appeared without a preceding user message in this batch.
-                # This can happen if the log starts with a model message or has errors.
-                # Add it as a model response with no corresponding user message for this turn.
-                gradio_history.append((None, formatted_model_response))
+            # 1. Extract Thoughts
+            thought_html_block_str = ""
+            thought_match = thoughts_pattern.search(content)
+            if thought_match:
+                thoughts_content = thought_match.group(1).strip()
+                thought_html_block_str = (
+                    f"<div class='thoughts'>"
+                    f"<pre><code>{thoughts_content}</code></pre>"
+                    f"</div>"
+                )
+                # Prepend thoughts as an HTML component if they exist
+                model_response_components.append(gr.HTML(value=thought_html_block_str))
 
-    # After the loop, if there's an uncommitted user message (i.e., the log ended with a user message),
-    # add it to the history with no model response.
+            # Main response text after removing thoughts
+            main_response_text = thoughts_pattern.sub("", content).strip()
+
+            # 2. Process for Image Tags
+            if not main_response_text and not model_response_components: # Only thoughts were present, and they were empty
+                 model_response_components.append(gr.Markdown(value="")) # Ensure there's something if content was just empty thoughts
+            elif main_response_text:
+                parts = image_tag_pattern.split(main_response_text)
+                # re.split with a capturing group will include the captured group (image path) in the list
+                # Example: "text1 [Generated Image: path1] text2 [Generated Image: path2] text3"
+                # -> ['text1 ', 'path1', ' text2 ', 'path2', ' text3']
+
+                idx = 0
+                while idx < len(parts):
+                    text_segment = parts[idx]
+                    if text_segment: # Add non-empty text segments as Markdown
+                        model_response_components.append(gr.Markdown(value=text_segment.strip()))
+
+                    idx += 1
+                    if idx < len(parts): # This part is an image path
+                        image_path = parts[idx].strip()
+                        if os.path.exists(image_path):
+                            model_response_components.append(gr.Image(value=image_path, interactive=False, show_label=False, show_download_button=True))
+                        else:
+                            model_response_components.append(gr.Markdown(value=f"\n\n*[Image not found: {image_path}]*\n\n"))
+                        idx += 1
+
+            # If after all processing, components list is empty (e.g. model response was empty or only whitespace)
+            if not model_response_components:
+                # This case might happen if the content was empty after thought removal, and no image tags.
+                # Or if content was just an image tag but image was not found and we didn't add the "not found" md.
+                # Let's ensure something is added if the original content (after thought removal) was non-empty
+                # but resulted in no components (e.g. an image tag for a non-existent image was the only content)
+                if main_response_text and not image_tag_pattern.search(main_response_text): # Contained only text, but it was stripped to empty
+                    model_response_components.append(gr.Markdown(value=main_response_text)) # Add the original stripped text
+                elif not main_response_text and not thought_html_block_str: # Original content was completely empty
+                     model_response_components.append(gr.Markdown(value="")) # Empty response
+                # If main_response_text had an image tag for a non-existent image, it's already handled by adding "[Image not found...]"
+
+            final_model_output = model_response_components if len(model_response_components) > 1 else (model_response_components[0] if model_response_components else gr.Markdown(value=""))
+
+            user_msg_to_display = gr.Markdown(user_message_accumulator) if user_message_accumulator is not None else None
+            gradio_history.append((user_msg_to_display, final_model_output))
+            user_message_accumulator = None
+
     if user_message_accumulator is not None:
-        gradio_history.append((user_message_accumulator, None))
+        gradio_history.append((gr.Markdown(user_message_accumulator), None))
 
     return gradio_history
 
