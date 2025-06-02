@@ -304,7 +304,6 @@ def handle_message_submission(
             initial_image_prompt = original_user_text_on_entry[len("/gazo "):].strip()
             if not initial_image_prompt:
                 error_message = "画像生成のプロンプトを指定してください。" # This error is for UI return
-                # No AI response logged for this specific user error.
                 return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message
 
             user_gazo_log_text = original_user_text_on_entry
@@ -313,6 +312,11 @@ def handle_message_submission(
             save_message_to_log(log_f, user_header, user_gazo_log_text)
 
             # Step A: Refine Prompt
+            # Initialize variables for refinement process
+            refined_image_prompt = initial_image_prompt
+            refinement_issues_notes = ""
+            did_refinement_succeed = False # Flag to track success of refinement
+
             prompt_for_refinement = f"""**Instruction:** You are a prompt refiner. Your sole task is to refine the following user idea into an effective image generation prompt.
 Output *only* the refined prompt itself, with no explanations, conversation, or markdown formatting (like quotes) around it.
 If the idea is already a good prompt, output it as is.
@@ -323,7 +327,6 @@ If the idea is already a good prompt, output it as is.
 **Refined Prompt:**
 """
             print(f"--- Debug /gazo --- Initial image prompt: '{initial_image_prompt}'")
-            # Increased length for debugging multiline prompt
             print(f"--- Debug /gazo --- Prompt for refinement (first 300 chars): {prompt_for_refinement[:300]}...")
 
             refined_image_prompt_response = send_to_gemini(
@@ -340,53 +343,95 @@ If the idea is already a good prompt, output it as is.
 
             print(f"--- Debug /gazo --- Raw refined_image_prompt_response: '{refined_image_prompt_response}'")
 
-            refined_image_prompt = initial_image_prompt # Default to initial prompt
-            refinement_issues_notes = ""
-
+            # Check for API errors from refinement call
+            api_error_during_refinement = False
             if not refined_image_prompt_response or \
                refined_image_prompt_response.strip().startswith("エラー:") or \
                refined_image_prompt_response.strip().startswith("API通信エラー:") or \
                refined_image_prompt_response.strip().startswith("応答取得エラー"):
-
                 refinement_issues_notes = f"(プロンプトの自動絞り込み処理でAPIエラーが発生したため、元のプロンプトを使用します。エラー詳細: {refined_image_prompt_response or '不明なエラー'})"
                 print(f"警告: プロンプト絞り込みAPI呼び出し失敗。{refinement_issues_notes}")
-            else:
-                cleaned_response = refined_image_prompt_response.strip()
+                api_error_during_refinement = True
+                # did_refinement_succeed remains False
+                # refined_image_prompt remains initial_image_prompt (already set as default)
 
-                # Try to extract content after "Refined Prompt:" (case-insensitive, search for last occurrence)
-                keyword_parts = re.split(r"refined prompt:", cleaned_response, flags=re.IGNORECASE)
-                if len(keyword_parts) > 1:
-                    cleaned_response = keyword_parts[-1].strip()
+            if not api_error_during_refinement:
+                # No API error, proceed with cleaning and validation
+                temp_cleaned_response_lower = refined_image_prompt_response.strip().lower()
+                # Keywords that indicate the model is refusing or explaining instead of providing a prompt
+                disqualification_keywords = [
+                    "sorry", "unable", "cannot", "instead", "text-based", "description of", "describe",
+                    "画像は生成できません", "できません", "申し訳ありません", "画像の説明", "テキストベース", "as an ai language model"
+                ]
 
-                # Strip leading/trailing quotes (single and double) more robustly
-                if (cleaned_response.startswith('"') and cleaned_response.endswith('"')) or \
-                   (cleaned_response.startswith("'") and cleaned_response.endswith("'")):
-                    cleaned_response = cleaned_response[1:-1].strip()
+                is_disqualified = False
+                for keyword in disqualification_keywords:
+                    if keyword in temp_cleaned_response_lower:
+                        refinement_issues_notes = f"(プロンプト絞り込みモデルが非協力的または不適切な応答を返したため ('{keyword}'検出)、元のプロンプトを使用します。応答: '{refined_image_prompt_response[:100]}...')"
+                        print(f"警告: {refinement_issues_notes}")
+                        is_disqualified = True
+                        break # Stays with initial_image_prompt, did_refinement_succeed remains False
 
-                lines = [line.strip() for line in cleaned_response.splitlines() if line.strip()]
+                if not is_disqualified:
+                    candidate_prompt = refined_image_prompt_response.strip() # Use original casing for actual prompt
 
-                temp_refined_prompt_candidate = None
-                if lines:
-                    last_line = lines[-1]
-                    # Prefer the whole cleaned_response if it's short and single-line after splitting by "Refined Prompt:"
-                    # This handles cases where the LLM *only* returns the prompt.
-                    if len(lines) == 1 and len(cleaned_response) < 250 and len(cleaned_response) > 0:
-                         temp_refined_prompt_candidate = cleaned_response # Use the already processed cleaned_response
-                    elif len(last_line) > 0: # If multiple lines, or single very long line, take last non-empty.
-                         temp_refined_prompt_candidate = last_line
+                    # Try to extract content after "Refined Prompt:" (case-insensitive, search for last occurrence)
+                    keyword_parts = re.split(r"refined prompt:", candidate_prompt, flags=re.IGNORECASE)
+                    if len(keyword_parts) > 1:
+                        candidate_prompt = keyword_parts[-1].strip()
 
-                if temp_refined_prompt_candidate:
-                    refined_image_prompt = temp_refined_prompt_candidate
-                else:
-                    refinement_issues_notes = "(プロンプトの自動絞り込み後、有効なプロンプトが得られなかったため、元のプロンプトを使用します。)"
-                    print(f"警告: {refinement_issues_notes} Raw response was: '{refined_image_prompt_response}'")
+                    # Strip leading/trailing quotes (single and double) more robustly
+                    if (candidate_prompt.startswith('"') and candidate_prompt.endswith('"')) or \
+                       (candidate_prompt.startswith("'") and candidate_prompt.endswith("'")):
+                        candidate_prompt = candidate_prompt[1:-1].strip()
 
-            if not refined_image_prompt.strip(): # Final check if refined_image_prompt is empty
-                refined_image_prompt = initial_image_prompt
-                refinement_issues_notes += " (最終的な絞り込みプロンプトが空だったため、元のプロンプトに戻しました。)" if refinement_issues_notes else "(最終的な絞り込みプロンプトが空だったため、元のプロンプトを使用します。)"
-                print(f"警告: 最終的な絞り込みプロンプトが空でした。元のプロンプトを使用します: '{initial_image_prompt}'")
+                    lines = [line.strip() for line in candidate_prompt.splitlines() if line.strip()]
 
-            print(f"--- Debug /gazo --- Final refined_image_prompt to be used: '{refined_image_prompt}'")
+                    final_candidate_from_lines = ""
+                    if lines:
+                        # If candidate_prompt (after keyword split & quote strip) is a single line and not too long, prefer it.
+                        if candidate_prompt.count('\n') == 0 and len(candidate_prompt) > 0 and len(candidate_prompt) < 350:
+                             final_candidate_from_lines = candidate_prompt
+                        else: # If original candidate_prompt was multi-line, or too long, take last line from 'lines'
+                             final_candidate_from_lines = lines[-1]
+
+                    print(f"--- Debug /gazo --- Candidate prompt after cleaning: '{final_candidate_from_lines}'")
+
+                    # Validate candidate_prompt
+                    max_prompt_len = 400
+                    max_newlines = 2 # Max 2 newlines (i.e., 3 lines of text)
+                    if final_candidate_from_lines and \
+                       len(final_candidate_from_lines) <= max_prompt_len and \
+                       final_candidate_from_lines.count('\n') < max_newlines:
+                        refined_image_prompt = final_candidate_from_lines
+                        did_refinement_succeed = True
+                        if refined_image_prompt == initial_image_prompt:
+                            refinement_issues_notes = "(絞り込み後のプロンプトは元のプロンプトと同じです。)"
+                        else: # Truly refined to something different
+                            refinement_issues_notes = ""
+                        print(f"情報: プロンプト絞り込み成功。使用プロンプト: '{refined_image_prompt}'")
+                    else: # Candidate validation failed
+                        if not final_candidate_from_lines:
+                            refinement_issues_notes = "(プロンプト絞り込みモデルの応答から有効なプロンプトを抽出できませんでした。元のプロンプトを使用します。)"
+                        elif len(final_candidate_from_lines) > max_prompt_len:
+                            refinement_issues_notes = f"(絞り込み後のプロンプトが長すぎるため ({len(final_candidate_from_lines)} > {max_prompt_len}文字)、元のプロンプトを使用します。)"
+                        else:
+                            refinement_issues_notes = f"(絞り込み後のプロンプトに改行が多すぎるため ({final_candidate_from_lines.count('\n')} >= {max_newlines})、元のプロンプトを使用します。)"
+                        print(f"警告: {refinement_issues_notes} Candidate was: '{final_candidate_from_lines[:max_prompt_len+50]}...'")
+                        # did_refinement_succeed remains False
+                        # refined_image_prompt remains initial_image_prompt (already set as default)
+
+            # Safety net: if refined_image_prompt ended up empty or only whitespace
+            if not refined_image_prompt.strip():
+                refined_image_prompt = initial_image_prompt # Fallback to original
+                if not refinement_issues_notes: # Add a note if one isn't already there from other failures
+                    refinement_issues_notes = "(絞り込み処理の結果プロンプトが空になったため、元のプロンプトを使用します。)"
+                print(f"警告: 最終的な絞り込みプロンプトが空または空白のみでした。元のプロンプトを使用します: '{initial_image_prompt}'")
+
+            print(f"--- Debug /gazo --- Final refined_image_prompt to be used for generation: '{refined_image_prompt}'")
+            print(f"--- Debug /gazo --- Refinement issues notes: '{refinement_issues_notes}'")
+            print(f"--- Debug /gazo --- Did refinement succeed flag: {did_refinement_succeed}")
+
 
             # Step B: Generate Image
             ai_response_parts_for_log = []
@@ -421,7 +466,7 @@ If the idea is already a good prompt, output it as is.
             final_ai_log_entry = "\n".join(filter(None, ai_response_parts_for_log))
             save_message_to_log(log_f, f"## {current_character_name}:", final_ai_log_entry)
 
-            error_message = ui_error_message_for_return
+            error_message = ui_error_message_for_return # This is what gets shown in red in the UI
 
         else: # Not a /gazo command, proceed with normal message submission
             if not api_text_arg.strip() and not files_for_gemini_api:
