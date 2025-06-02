@@ -125,7 +125,7 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, gr.Markdown, gr.Image, gr.HTML, List[Union[gr.Markdown, gr.Image, gr.HTML]]]]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, gr.Image, gr.HTML, List[Union[gr.Markdown, gr.Image, gr.HTML]]]]]]:
     """
     Converts a list of message dictionaries into Gradio's chatbot history format.
     User messages are strings. Model messages can be strings (Markdown)
@@ -244,7 +244,16 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                      model_response_components.append(gr.Markdown(value="")) # Empty response
                 # If main_response_text had an image tag for a non-existent image, it's already handled by adding "[Image not found...]"
 
-            final_model_output = model_response_components if len(model_response_components) > 1 else (model_response_components[0] if model_response_components else gr.Markdown(value=""))
+            if not model_response_components:
+                final_model_output = "" # Or None, "" is safer for Gradio
+            elif len(model_response_components) == 1:
+                single_component = model_response_components[0]
+                if isinstance(single_component, gr.Markdown):
+                    final_model_output = single_component.value # Pass as string
+                else: # It's gr.Image or gr.HTML
+                    final_model_output = single_component
+            else: # Multiple components
+                final_model_output = model_response_components
 
             user_msg_to_display = user_message_accumulator # Pass as plain string
             gradio_history.append((user_msg_to_display, final_model_output))
