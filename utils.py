@@ -125,7 +125,7 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, gr.Image, gr.HTML, List[Union[str, gr.Image, gr.HTML]]]]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, gr.Image, List[Union[str, gr.Image]]]]]]:
     """
     Converts a list of message dictionaries into Gradio's chatbot history format.
     User messages are strings. Model messages can be strings (Markdown)
@@ -139,7 +139,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
         List containing (user_message, model_response) tuples, where elements
         can be strings or Gradio components/lists of components.
     """
-    gradio_history: List[Tuple[Optional[str], Optional[Union[str, gr.Image, gr.HTML, List[Union[str, gr.Image, gr.HTML]]]]]] = [] # Note: Union for List elements updated
+    gradio_history: List[Tuple[Optional[str], Optional[Union[str, gr.Image, List[Union[str, gr.Image]]]]]] = []
     user_message_accumulator: Optional[str] = None # User messages are still accumulated as strings
 
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
@@ -197,19 +197,20 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             thought_match = thoughts_pattern.search(content)
             if thought_match:
                 thoughts_content = thought_match.group(1).strip()
+                # Construct HTML string for thoughts
                 thought_html_block_str = (
                     f"<div class='thoughts'>"
                     f"<pre><code>{thoughts_content}</code></pre>"
                     f"</div>"
                 )
-                # Prepend thoughts as an HTML component if they exist
-                model_response_components.append(gr.HTML(value=thought_html_block_str))
+                if thought_html_block_str: # Ensure it's not empty if thoughts_content was empty
+                    model_response_components.append(thought_html_block_str) # Append as string
 
             # Main response text after removing thoughts
             main_response_text = thoughts_pattern.sub("", content).strip()
 
             # 2. Process for Image Tags
-            # model_response_components can already have gr.HTML from thoughts
+            # model_response_components can already have string (HTML for thoughts)
 
             if main_response_text:
                 parts = image_tag_pattern.split(main_response_text)
@@ -228,8 +229,8 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                         if os.path.exists(image_path):
                             model_response_components.append(gr.Image(value=image_path, interactive=False, show_label=False, show_download_button=True))
                         else:
-                            # "Image not found" still uses Markdown for emphasis
-                            model_response_components.append(gr.Markdown(value=f"\n\n*[Image not found: {image_path}]*\n\n"))
+                            # Append "Image not found" message as a plain string (Markdown formatted)
+                            model_response_components.append(f"\n\n*[Image not found: {image_path}]*\n\n")
                         idx += 1
 
             # Determine final_model_output based on model_response_components
@@ -237,9 +238,9 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                 # This occurs if thoughts were empty AND main_response_text was empty.
                 final_model_output = ""
             elif len(model_response_components) == 1:
-                # If it's a single component (string, gr.Image, gr.HTML, or gr.Markdown for "not found")
+                # If it's a single component (string or gr.Image)
                 final_model_output = model_response_components[0]
-            else: # Multiple components (list of strings, gr.Image, gr.HTML, gr.Markdown)
+            else: # Multiple components (list of strings and gr.Image)
                 final_model_output = model_response_components
 
             user_msg_to_display = user_message_accumulator # Pass as plain string
