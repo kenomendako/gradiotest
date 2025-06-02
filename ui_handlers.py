@@ -303,85 +303,99 @@ def handle_message_submission(
         if original_user_text_on_entry.startswith("/gazo "):
             initial_image_prompt = original_user_text_on_entry[len("/gazo "):].strip()
             if not initial_image_prompt:
-                error_message = "画像生成のプロンプトを指定してください。"
+                error_message = "画像生成のプロンプトを指定してください。" # This error is for UI return
+                # No AI response logged for this specific user error.
                 return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message
 
-            # Log the original /gazo command by user
-            # _log_user_interaction might be too complex if we only have simple text here
-            # We will log user's /gazo command, then AI's response (refined prompt + image tag)
-            # For now, let's save the user's /gazo command directly.
-            # Note: _log_user_interaction handles combined text and file logging.
-            # For /gazo, we only have the text command.
-
-            # Log user's initial /gazo command (without file attachments for this specific log entry)
             user_gazo_log_text = original_user_text_on_entry
             if add_timestamp_checkbox:
                 user_gazo_log_text += user_action_timestamp_str
             save_message_to_log(log_f, user_header, user_gazo_log_text)
 
             # Step A: Refine Prompt
-            # System prompt for refining image generation prompt
-            refine_system_prompt_text = f"""You are an AI assistant. The user wants to generate an image.
-Based on their idea: '{initial_image_prompt}', generate a concise and effective prompt that would be suitable for an image generation AI.
-Output only the prompt itself, with no additional conversational text.
-If the user's idea is too vague, too complex, or could be improved for clarity for an image AI, refine it.
-If the user's idea is already good, you can use it as is or make minor enhancements.
-Focus on key elements, style, and composition if appropriate from the initial idea.
-Example: User idea 'cat flying in space' -> Refined prompt 'A fluffy cat wearing a tiny astronaut helmet, soaring through a vibrant nebula, digital art'.
-Example: User idea 'beautiful sunset' -> Refined prompt 'A serene beach at sunset, with vibrant orange and purple hues reflecting on calm ocean waves, photorealistic'.
+            prompt_for_refinement = f"""**Instruction:** You are a prompt refiner. Your sole task is to refine the following user idea into an effective image generation prompt.
+Output *only* the refined prompt itself, with no explanations, conversation, or markdown formatting (like quotes) around it.
+If the idea is already a good prompt, output it as is.
+
+**User Idea for Image Generation:**
+{initial_image_prompt}
+
+**Refined Prompt:**
 """
-            # Create a temporary system prompt file for this specific call, or pass text directly if send_to_gemini supports it.
-            # Assuming send_to_gemini primarily uses system_prompt_path, we create a temp file.
-            # However, send_to_gemini's first arg is system_prompt_path.
-            # A better approach would be to modify send_to_gemini to accept raw system prompt text.
-            # For now, let's use a simplified call or assume send_to_gemini can handle text if path is None.
-            # The existing send_to_gemini loads sys_ins_text from system_prompt_path.
-            # To avoid modifying send_to_gemini now, we'll skip using a system prompt for refinement,
-            # and directly use the user's initial prompt, or prepend a simple instruction.
-            # This is a deviation from "Construct a suitable system message" but simplifies immediate implementation.
-            # Let's try to formulate a prompt that asks the LLM to refine another prompt.
+            print(f"--- Debug /gazo --- Initial image prompt: '{initial_image_prompt}'")
+            # Increased length for debugging multiline prompt
+            print(f"--- Debug /gazo --- Prompt for refinement (first 300 chars): {prompt_for_refinement[:300]}...")
 
-            prompt_for_refinement = f"Refine this image generation idea into a concise and effective prompt for an image AI. Output only the refined prompt: '{initial_image_prompt}'"
-
-            print(f"画像プロンプト絞り込みのためGeminiに送信: '{prompt_for_refinement[:100]}...'")
             refined_image_prompt_response = send_to_gemini(
-                system_prompt_path=sys_p, # Using the character's main system prompt for this meta-task
-                log_file_path=log_f,      # Log this meta-interaction? For now, no, to keep chat clean.
+                system_prompt_path=sys_p,
+                log_file_path=log_f,
                 user_prompt=prompt_for_refinement,
                 selected_model=current_model_name,
                 character_name=current_character_name,
-                send_thoughts_to_api=False, # Probably don't need thoughts for this refinement
-                api_history_limit_option="0", # No history needed for this
-                uploaded_file_parts=[], # No files for refinement step
+                send_thoughts_to_api=False,
+                api_history_limit_option="0",
+                uploaded_file_parts=[],
                 memory_json_path=mem_p
             )
 
-            if not refined_image_prompt_response or refined_image_prompt_response.strip().startswith("エラー:") or refined_image_prompt_response.strip().startswith("API通信エラー:") or refined_image_prompt_response.strip().startswith("応答取得エラー"):
-                error_message = f"画像プロンプトの絞り込みに失敗: {refined_image_prompt_response or '不明なエラー'}"
-                # Log this failure to the main chat as an AI response to the /gazo command
-                save_message_to_log(log_f, f"## {current_character_name}:", error_message)
-                # Fallback: use initial prompt if refinement fails
-                # refined_image_prompt = initial_image_prompt
-                # print(f"警告: プロンプト絞り込み失敗。元のプロンプトを使用: {initial_image_prompt}")
-            else:
-                refined_image_prompt = refined_image_prompt_response.strip()
-                # Remove potential quotes around the refined prompt if the LLM added them
-                if refined_image_prompt.startswith('"') and refined_image_prompt.endswith('"'):
-                    refined_image_prompt = refined_image_prompt[1:-1]
-                if refined_image_prompt.startswith("'") and refined_image_prompt.endswith("'"):
-                    refined_image_prompt = refined_image_prompt[1:-1]
-                print(f"AIによって絞り込まれた画像プロンプト: {refined_image_prompt}")
+            print(f"--- Debug /gazo --- Raw refined_image_prompt_response: '{refined_image_prompt_response}'")
 
-            if error_message: # If refinement failed and we set an error message
-                # Update history and return
-                new_log = load_chat_log(log_f, current_character_name)
-                new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
-                return new_hist, gr.update(value=""), gr.update(value=None), error_message.strip()
+            refined_image_prompt = initial_image_prompt # Default to initial prompt
+            refinement_issues_notes = ""
+
+            if not refined_image_prompt_response or \
+               refined_image_prompt_response.strip().startswith("エラー:") or \
+               refined_image_prompt_response.strip().startswith("API通信エラー:") or \
+               refined_image_prompt_response.strip().startswith("応答取得エラー"):
+
+                refinement_issues_notes = f"(プロンプトの自動絞り込み処理でAPIエラーが発生したため、元のプロンプトを使用します。エラー詳細: {refined_image_prompt_response or '不明なエラー'})"
+                print(f"警告: プロンプト絞り込みAPI呼び出し失敗。{refinement_issues_notes}")
+            else:
+                cleaned_response = refined_image_prompt_response.strip()
+
+                # Try to extract content after "Refined Prompt:" (case-insensitive, search for last occurrence)
+                keyword_parts = re.split(r"refined prompt:", cleaned_response, flags=re.IGNORECASE)
+                if len(keyword_parts) > 1:
+                    cleaned_response = keyword_parts[-1].strip()
+
+                # Strip leading/trailing quotes (single and double) more robustly
+                if (cleaned_response.startswith('"') and cleaned_response.endswith('"')) or \
+                   (cleaned_response.startswith("'") and cleaned_response.endswith("'")):
+                    cleaned_response = cleaned_response[1:-1].strip()
+
+                lines = [line.strip() for line in cleaned_response.splitlines() if line.strip()]
+
+                temp_refined_prompt_candidate = None
+                if lines:
+                    last_line = lines[-1]
+                    # Prefer the whole cleaned_response if it's short and single-line after splitting by "Refined Prompt:"
+                    # This handles cases where the LLM *only* returns the prompt.
+                    if len(lines) == 1 and len(cleaned_response) < 250 and len(cleaned_response) > 0:
+                         temp_refined_prompt_candidate = cleaned_response # Use the already processed cleaned_response
+                    elif len(last_line) > 0: # If multiple lines, or single very long line, take last non-empty.
+                         temp_refined_prompt_candidate = last_line
+
+                if temp_refined_prompt_candidate:
+                    refined_image_prompt = temp_refined_prompt_candidate
+                else:
+                    refinement_issues_notes = "(プロンプトの自動絞り込み後、有効なプロンプトが得られなかったため、元のプロンプトを使用します。)"
+                    print(f"警告: {refinement_issues_notes} Raw response was: '{refined_image_prompt_response}'")
+
+            if not refined_image_prompt.strip(): # Final check if refined_image_prompt is empty
+                refined_image_prompt = initial_image_prompt
+                refinement_issues_notes += " (最終的な絞り込みプロンプトが空だったため、元のプロンプトに戻しました。)" if refinement_issues_notes else "(最終的な絞り込みプロンプトが空だったため、元のプロンプトを使用します。)"
+                print(f"警告: 最終的な絞り込みプロンプトが空でした。元のプロンプトを使用します: '{initial_image_prompt}'")
+
+            print(f"--- Debug /gazo --- Final refined_image_prompt to be used: '{refined_image_prompt}'")
 
             # Step B: Generate Image
-            # Sanitize initial_image_prompt for use in filename (simple version)
+            ai_response_parts_for_log = []
+            ai_response_parts_for_log.append(f"[画像生成に使用されたプロンプト]: {refined_image_prompt}")
+            if refinement_issues_notes:
+                 ai_response_parts_for_log.append(refinement_issues_notes.strip())
+
             sanitized_base_name = "".join(c if c.isalnum() or c in [' ', '_'] else '' for c in initial_image_prompt[:30]).strip().replace(' ', '_')
-            if not sanitized_base_name: # If prompt was e.g. all symbols
+            if not sanitized_base_name:
                 sanitized_base_name = "generated_image"
             filename_suggestion = f"{current_character_name}_{sanitized_base_name}"
 
@@ -391,33 +405,23 @@ Example: User idea 'beautiful sunset' -> Refined prompt 'A serene beach at sunse
                 output_image_filename_suggestion=filename_suggestion
             )
 
-            ai_response_parts_for_log = []
-            if refined_image_prompt != initial_image_prompt:
-                 ai_response_parts_for_log.append(f"[AIが生成した画像プロンプト]: {refined_image_prompt}")
+            ui_error_message_for_return = ""
 
             if image_gen_text_response:
-                ai_response_parts_for_log.append(image_gen_text_response)
+                ai_response_parts_for_log.append(f"[画像モデルからのテキスト]: {image_gen_text_response}")
 
             if image_path:
                 print(f"画像生成成功: {image_path}")
                 ai_response_parts_for_log.append(f"[Generated Image: {image_path}]")
             else:
-                print(f"画像生成失敗。テキスト応答: {image_gen_text_response}")
-                error_message = image_gen_text_response or "画像の生成に失敗しました (パスが返されませんでした)。"
-                if "[AIが生成した画像プロンプト]:" not in error_message and refined_image_prompt != initial_image_prompt:
-                    # Prepend the refined prompt to the error if it's not already part of it
-                    error_message = f"[AIが生成した画像プロンプト]: {refined_image_prompt}\n{error_message}"
+                print(f"画像生成失敗。画像モデルからのテキスト応答: {image_gen_text_response}")
+                ai_response_parts_for_log.append("[ERROR]: 画像の生成に失敗しました。")
+                ui_error_message_for_return = image_gen_text_response or "画像の生成に失敗しました (画像パスが返されませんでした)。"
 
-            final_ai_log_entry = "\n".join(ai_response_parts_for_log)
-            if not final_ai_log_entry and not error_message: # Should not happen if image_path or error
-                final_ai_log_entry = "画像処理が完了しましたが、テキスト応答も画像もありませんでした。"
+            final_ai_log_entry = "\n".join(filter(None, ai_response_parts_for_log))
+            save_message_to_log(log_f, f"## {current_character_name}:", final_ai_log_entry)
 
-
-            if error_message and not image_path: # Ensure error is logged if image failed
-                 save_message_to_log(log_f, f"## {current_character_name}:", error_message)
-            elif final_ai_log_entry: # Log successful image generation or text response
-                 save_message_to_log(log_f, f"## {current_character_name}:", final_ai_log_entry)
-
+            error_message = ui_error_message_for_return
 
         else: # Not a /gazo command, proceed with normal message submission
             if not api_text_arg.strip() and not files_for_gemini_api:
