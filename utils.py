@@ -125,7 +125,7 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, gr.Image, List[Union[str, gr.Image]]]]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, gr.Image, gr.HTML, List[Union[str, gr.Image, gr.HTML]]]]]]:
     """
     Converts a list of message dictionaries into Gradio's chatbot history format.
     User messages are strings. Model messages can be strings (Markdown)
@@ -139,7 +139,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
         List containing (user_message, model_response) tuples, where elements
         can be strings or Gradio components/lists of components.
     """
-    gradio_history: List[Tuple[Optional[str], Optional[Union[str, gr.Image, List[Union[str, gr.Image]]]]]] = []
+    gradio_history: List[Tuple[Optional[str], Optional[Union[str, gr.Image, gr.HTML, List[Union[str, gr.Image, gr.HTML]]]]]] = []
     user_message_accumulator: Optional[str] = None # User messages are still accumulated as strings
 
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
@@ -204,13 +204,13 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                     f"</div>"
                 )
                 if thought_html_block_str: # Ensure it's not empty if thoughts_content was empty
-                    model_response_components.append(thought_html_block_str) # Append as string
+                    model_response_components.append(gr.HTML(value=thought_html_block_str)) # Reverted to gr.HTML
 
             # Main response text after removing thoughts
             main_response_text = thoughts_pattern.sub("", content).strip()
 
             # 2. Process for Image Tags
-            # model_response_components can already have string (HTML for thoughts)
+            # model_response_components can already have gr.HTML from thoughts
 
             if main_response_text:
                 parts = image_tag_pattern.split(main_response_text)
@@ -238,9 +238,9 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                 # This occurs if thoughts were empty AND main_response_text was empty.
                 final_model_output = ""
             elif len(model_response_components) == 1:
-                # If it's a single component (string or gr.Image)
+                # If it's a single component (string, gr.Image, gr.HTML)
                 final_model_output = model_response_components[0]
-            else: # Multiple components (list of strings and gr.Image)
+            else: # Multiple components (list of strings, gr.Image, gr.HTML)
                 final_model_output = model_response_components
 
             user_msg_to_display = user_message_accumulator # Pass as plain string
