@@ -196,22 +196,23 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             # model_response_components: List[Union[str, gr.Image]] = [] # Corrected type for this list
             model_response_components: List[Union[str, gr.Image]] = []
 
+            # --- Start of temporarily removed Thoughts processing ---
+            # thought_match = thoughts_pattern.search(content)
+            # if thought_match:
+            #     thoughts_content = thought_match.group(1).strip()
+            #     if thoughts_content: # Only add if there's actual thought content
+            #         single_line_thoughts = thoughts_content.replace('\n', ' ').strip()
+            #         # Optionally, add truncation:
+            #         # single_line_thoughts = single_line_thoughts[:200]
+            #         thought_markdown_str = f"LLM Thoughts {single_line_thoughts}"
+            #         model_response_components.append(thought_markdown_str)
+            # --- End of temporarily removed Thoughts processing ---
 
-            thought_match = thoughts_pattern.search(content)
-            if thought_match:
-                thoughts_content = thought_match.group(1).strip()
-                if thoughts_content: # Only add if there's actual thought content
-                    single_line_thoughts = thoughts_content.replace('\n', ' ').strip()
-                    # Optionally, add truncation:
-                    # single_line_thoughts = single_line_thoughts[:200]
-                    thought_markdown_str = f"LLM Thoughts {single_line_thoughts}"
-                    model_response_components.append(thought_markdown_str)
-
-            # Main response text after removing thoughts
+            # Main response text after removing thoughts (or from full content if thoughts are disabled)
             main_response_text = thoughts_pattern.sub("", content).strip()
 
             # 2. Process for Image Tags
-            # model_response_components can already have string (Markdown for thoughts)
+            # model_response_components will be empty if thoughts were disabled and main_response_text is also empty
 
             if main_response_text:
                 parts = image_tag_pattern.split(main_response_text)
