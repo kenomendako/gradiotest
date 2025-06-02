@@ -416,7 +416,7 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
         # For genai SDK, GenerateContentConfig doesn't directly take response_modalities.
         # This might be an incorrect parameter or specific to a different API version/method.
         # Image generation is usually implied by the model like 'gemini-pro-vision' when multimodal content is sent,
-        or a specific image generation model.
+        # or a specific image generation model.
         # Given the model name "gemini-2.0-flash-preview-image-generation", it's likely an image-specific model.
         # The response will inherently contain an image if successful.
         # Let's assume the requirement implies we should check for both text and image in response.
