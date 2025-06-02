@@ -125,10 +125,10 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[Union[str, gr.Markdown]], Optional[Union[str, gr.Markdown, gr.Image, gr.HTML, List[Union[gr.Markdown, gr.Image, gr.HTML]]]]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, gr.Markdown, gr.Image, gr.HTML, List[Union[gr.Markdown, gr.Image, gr.HTML]]]]]]:
     """
     Converts a list of message dictionaries into Gradio's chatbot history format.
-    User messages are strings (Markdown). Model messages can be strings (Markdown)
+    User messages are strings. Model messages can be strings (Markdown)
     or lists of Gradio components (Markdown, Image, HTML) for rich content like
     displaying generated images and thoughts.
 
@@ -139,7 +139,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
         List containing (user_message, model_response) tuples, where elements
         can be strings or Gradio components/lists of components.
     """
-    gradio_history: List[Tuple[Optional[Union[str, gr.Markdown]], Optional[Union[str, gr.Markdown, gr.Image, gr.HTML, List[Union[gr.Markdown, gr.Image, gr.HTML]]]]]] = []
+    gradio_history: List[Tuple[Optional[str], Optional[Union[str, gr.Markdown, gr.Image, gr.HTML, List[Union[gr.Markdown, gr.Image, gr.HTML]]]]]] = []
     user_message_accumulator: Optional[str] = None # User messages are still accumulated as strings
 
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
@@ -154,7 +154,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
 
         if role == "user":
             if user_message_accumulator is not None:
-                gradio_history.append((gr.Markdown(user_message_accumulator), None))
+                gradio_history.append((user_message_accumulator, None))
 
             # Process current user message for display (same logic as before for attachments)
             display_text_for_user_turn = content
@@ -246,12 +246,12 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
 
             final_model_output = model_response_components if len(model_response_components) > 1 else (model_response_components[0] if model_response_components else gr.Markdown(value=""))
 
-            user_msg_to_display = gr.Markdown(user_message_accumulator) if user_message_accumulator is not None else None
+            user_msg_to_display = user_message_accumulator # Pass as plain string
             gradio_history.append((user_msg_to_display, final_model_output))
             user_message_accumulator = None
 
     if user_message_accumulator is not None:
-        gradio_history.append((gr.Markdown(user_message_accumulator), None))
+        gradio_history.append((user_message_accumulator, None))
 
     return gradio_history
 
