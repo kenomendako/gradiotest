@@ -125,7 +125,7 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, gr.Image, gr.HTML, List[Union[gr.Markdown, gr.Image, gr.HTML]]]]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, gr.Image, gr.HTML, List[Union[str, gr.Image, gr.HTML]]]]]]:
     """
     Converts a list of message dictionaries into Gradio's chatbot history format.
     User messages are strings. Model messages can be strings (Markdown)
@@ -139,7 +139,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
         List containing (user_message, model_response) tuples, where elements
         can be strings or Gradio components/lists of components.
     """
-    gradio_history: List[Tuple[Optional[str], Optional[Union[str, gr.Markdown, gr.Image, gr.HTML, List[Union[gr.Markdown, gr.Image, gr.HTML]]]]]] = []
+    gradio_history: List[Tuple[Optional[str], Optional[Union[str, gr.Image, gr.HTML, List[Union[str, gr.Image, gr.HTML]]]]]] = [] # Note: Union for List elements updated
     user_message_accumulator: Optional[str] = None # User messages are still accumulated as strings
 
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
@@ -209,19 +209,18 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             main_response_text = thoughts_pattern.sub("", content).strip()
 
             # 2. Process for Image Tags
-            if not main_response_text and not model_response_components: # Only thoughts were present, and they were empty
-                 model_response_components.append(gr.Markdown(value="")) # Ensure there's something if content was just empty thoughts
-            elif main_response_text:
+            # model_response_components can already have gr.HTML from thoughts
+
+            if main_response_text:
                 parts = image_tag_pattern.split(main_response_text)
-                # re.split with a capturing group will include the captured group (image path) in the list
-                # Example: "text1 [Generated Image: path1] text2 [Generated Image: path2] text3"
-                # -> ['text1 ', 'path1', ' text2 ', 'path2', ' text3']
+                # Example: "text1 [Generated Image: path1] text2"
+                # -> ['text1 ', 'path1', ' text2']
 
                 idx = 0
                 while idx < len(parts):
-                    text_segment = parts[idx]
-                    if text_segment: # Add non-empty text segments as Markdown
-                        model_response_components.append(gr.Markdown(value=text_segment.strip()))
+                    text_segment_candidate = parts[idx].strip()
+                    if text_segment_candidate: # Add non-empty text segments as STRINGS
+                        model_response_components.append(text_segment_candidate)
 
                     idx += 1
                     if idx < len(parts): # This part is an image path
@@ -229,30 +228,18 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                         if os.path.exists(image_path):
                             model_response_components.append(gr.Image(value=image_path, interactive=False, show_label=False, show_download_button=True))
                         else:
+                            # "Image not found" still uses Markdown for emphasis
                             model_response_components.append(gr.Markdown(value=f"\n\n*[Image not found: {image_path}]*\n\n"))
                         idx += 1
 
-            # If after all processing, components list is empty (e.g. model response was empty or only whitespace)
+            # Determine final_model_output based on model_response_components
             if not model_response_components:
-                # This case might happen if the content was empty after thought removal, and no image tags.
-                # Or if content was just an image tag but image was not found and we didn't add the "not found" md.
-                # Let's ensure something is added if the original content (after thought removal) was non-empty
-                # but resulted in no components (e.g. an image tag for a non-existent image was the only content)
-                if main_response_text and not image_tag_pattern.search(main_response_text): # Contained only text, but it was stripped to empty
-                    model_response_components.append(gr.Markdown(value=main_response_text)) # Add the original stripped text
-                elif not main_response_text and not thought_html_block_str: # Original content was completely empty
-                     model_response_components.append(gr.Markdown(value="")) # Empty response
-                # If main_response_text had an image tag for a non-existent image, it's already handled by adding "[Image not found...]"
-
-            if not model_response_components:
-                final_model_output = "" # Or None, "" is safer for Gradio
+                # This occurs if thoughts were empty AND main_response_text was empty.
+                final_model_output = ""
             elif len(model_response_components) == 1:
-                single_component = model_response_components[0]
-                if isinstance(single_component, gr.Markdown):
-                    final_model_output = single_component.value # Pass as string
-                else: # It's gr.Image or gr.HTML
-                    final_model_output = single_component
-            else: # Multiple components
+                # If it's a single component (string, gr.Image, gr.HTML, or gr.Markdown for "not found")
+                final_model_output = model_response_components[0]
+            else: # Multiple components (list of strings, gr.Image, gr.HTML, gr.Markdown)
                 final_model_output = model_response_components
 
             user_msg_to_display = user_message_accumulator # Pass as plain string
