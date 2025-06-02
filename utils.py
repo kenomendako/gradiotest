@@ -201,8 +201,10 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             if thought_match:
                 thoughts_content = thought_match.group(1).strip()
                 if thoughts_content: # Only add if there's actual thought content
-                    # Simplified Markdown formatting for thoughts
-                    thought_markdown_str = f"Thoughts:\n{thoughts_content}"
+                    single_line_thoughts = thoughts_content.replace('\n', ' ').strip()
+                    # Optionally, add truncation:
+                    # single_line_thoughts = single_line_thoughts[:200]
+                    thought_markdown_str = f"LLM Thoughts {single_line_thoughts}"
                     model_response_components.append(thought_markdown_str)
 
             # Main response text after removing thoughts
