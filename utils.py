@@ -190,62 +190,83 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             user_message_accumulator = display_text_for_user_turn # Store as string
 
         elif role == "model":
-            model_response_components: List[Union[gr.Markdown, gr.Image, gr.HTML]] = []
+            model_response_parts: List[Union[str, gr.Image]] = []
 
-            # 1. Extract Thoughts
-            # model_response_components: List[Union[str, gr.Image]] = [] # Corrected type for this list
-            model_response_components: List[Union[str, gr.Image, gr.HTML]] = [] # Allow gr.HTML or plain HTML strings
-
-            # 1. Extract Thoughts
+            thought_html_block = ""
             thought_match = thoughts_pattern.search(content)
             if thought_match:
                 thoughts_content = thought_match.group(1).strip()
-                if thoughts_content: # Only add if there's actual thought content
-                    # Use HTML structure similar to format_response_for_display
-                    # Ensure HTML characters within thoughts_content are preserved by pre/code
-                    thought_html_block = (
-                        f"<div class='thoughts'>"
-                        f"<pre><code>{thoughts_content}</code></pre>"
-                        f"</div>"
-                    )
-                    model_response_components.append(gr.HTML(value=thought_html_block))
+                if thoughts_content:
+                    thought_html_block = f"<div class='thoughts'><pre><code>{thoughts_content}</code></pre></div>"
 
-            # Main response text after removing thoughts (or from full content if no thoughts were matched)
-            main_response_text = thoughts_pattern.sub("", content).strip()
+            content_without_thoughts = thoughts_pattern.sub("", content).strip()
 
-            # 2. Process for Image Tags and remaining text
-            if main_response_text:
-                parts = image_tag_pattern.split(main_response_text)
-                # Example: "text1 [Generated Image: path1] text2"
-                # -> ['text1 ', 'path1', ' text2']
+            # If there are no image tags, the combined text is simple
+            if not image_tag_pattern.search(content_without_thoughts):
+                final_text_content = thought_html_block
+                if content_without_thoughts:
+                    if final_text_content: # If thoughts exist, add newline before main content
+                        final_text_content += f"\n\n{content_without_thoughts}"
+                    else: # No thoughts, just main content
+                        final_text_content = content_without_thoughts
 
-                idx = 0
-                while idx < len(parts):
-                    text_segment_candidate = parts[idx].strip()
-                    if text_segment_candidate: # Add non-empty text segments as STRINGS
-                        model_response_components.append(text_segment_candidate)
+                # Add if there's any content (either thoughts or text or both)
+                # or if model_response_parts is empty (e.g. this is the first and only part)
+                # This check ensures that if only thoughts exist, they are added.
+                if final_text_content: # Check if final_text_content is not empty
+                     model_response_parts.append(final_text_content)
+            else:
+                # Handle mixed text, thoughts, and images
+                first_text_segment_processed = False
+                accumulated_text = ""
+                segments = image_tag_pattern.split(content_without_thoughts)
 
-                    idx += 1
-                    if idx < len(parts): # This part is an image path
-                        image_path = parts[idx].strip()
-                        if os.path.exists(image_path):
-                            model_response_components.append(gr.Image(value=image_path, interactive=False, show_label=False, show_download_button=True))
+                for i, segment in enumerate(segments):
+                    if i % 2 == 0: # This is a text segment
+                        current_segment_text = segment
+                        if not first_text_segment_processed and thought_html_block:
+                            # Prepend thoughts to the very first text part
+                            if current_segment_text:
+                                accumulated_text += thought_html_block + "\n\n" + current_segment_text
+                            else: # Text segment is empty, but thoughts exist
+                                accumulated_text += thought_html_block
+                            first_text_segment_processed = True
                         else:
-                            # Append "Image not found" message as a plain string (Markdown formatted)
-                            model_response_components.append(f"\n\n*[Image not found: {image_path}]*\n\n")
-                        idx += 1
+                            accumulated_text += current_segment_text
+                    else: # This is an image path segment
+                        # Add accumulated text before the image, if any
+                        if accumulated_text.strip():
+                            model_response_parts.append(accumulated_text.strip())
+                        accumulated_text = "" # Reset accumulator for text after image
 
-            # Determine final_model_output based on model_response_components
-            if not model_response_components:
-                # This occurs if thoughts were empty AND main_response_text was empty.
+                        image_path = segment.strip()
+                        if os.path.exists(image_path):
+                            model_response_parts.append(gr.Image(value=image_path, interactive=False, show_label=False, show_download_button=True))
+                        else:
+                            model_response_parts.append(f"\n*[Image not found: {image_path}]*\n") # Add as a separate string part
+
+                # Add any remaining accumulated text (text after the last image)
+                if accumulated_text.strip():
+                    model_response_parts.append(accumulated_text.strip())
+
+                # If model_response_parts is still empty but thoughts existed (e.g. thoughts + image only, image failed, and no other text)
+                # This case is tricky: if thoughts were prepended to an empty first segment, and then an image failed,
+                # accumulated_text might be just the thought_html_block.
+                # The above "if accumulated_text.strip()" should handle adding it.
+                # Let's ensure if ONLY thoughts existed and were not processed with any text segment, they get added.
+                if not model_response_parts and thought_html_block and not first_text_segment_processed:
+                     model_response_parts.append(thought_html_block)
+
+            # Determine final_model_output
+            final_model_output: Union[str, List[Union[str, gr.Image]]]
+            if not model_response_parts:
                 final_model_output = ""
-            elif len(model_response_components) == 1:
-                # If it's a single component (string or gr.Image)
-                final_model_output = model_response_components[0]
-            else: # Multiple components (list of strings and gr.Image)
-                final_model_output = model_response_components
+            elif len(model_response_parts) == 1 and isinstance(model_response_parts[0], str):
+                final_model_output = model_response_parts[0]
+            else:
+                final_model_output = model_response_parts
 
-            user_msg_to_display = user_message_accumulator # Pass as plain string
+            user_msg_to_display = user_message_accumulator
             gradio_history.append((user_msg_to_display, final_model_output))
             user_message_accumulator = None
 
