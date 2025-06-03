@@ -430,11 +430,16 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
         # For now, we will proceed without it in `GenerateContentConfig` and parse parts directly.
         # If an error occurs, this is a point to revisit.
 
+        active_generation_config = GenerateContentConfig(
+            candidate_count=1
+            # No other parameters like temperature, top_p are set for now,
+            # keeping it simple to address the modality support error.
+        )
+
         response = _gemini_client.models.generate_content(
             model=model_name,
             contents=contents,
-            # Not adding generation_config with response_modalities as it's not a standard param.
-            # The model itself dictates the output type.
+            generation_config=active_generation_config
         )
 
         if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:

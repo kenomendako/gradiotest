@@ -303,6 +303,7 @@ def handle_message_submission(
 
         # --- START OF JULES' REPLACEMENT BLOCK ---
         if original_user_text_on_entry.startswith("/gazo "):
+            print(f"--- /gazo Debug --- /gazo command detected.")
             initial_image_prompt = original_user_text_on_entry[len("/gazo "):].strip()
             if not initial_image_prompt:
                 error_message = "画像生成のプロンプトを指定してください。" # This error is for UI return
@@ -329,7 +330,7 @@ If the idea is already a good prompt, output it as is.
 
 **Refined Prompt:**
 """
-            print(f"--- Debug /gazo --- Initial image prompt: '{initial_image_prompt}'")
+            print(f"--- /gazo Debug --- Initial User Prompt: '{initial_image_prompt}'")
             print(f"--- Debug /gazo --- Prompt for refinement (first 300 chars): {prompt_for_refinement[:300]}...")
 
             refined_image_prompt_response = send_to_gemini(
@@ -344,7 +345,7 @@ If the idea is already a good prompt, output it as is.
                 memory_json_path=mem_p
             )
             
-            print(f"--- Debug /gazo --- Raw refined_image_prompt_response: '{refined_image_prompt_response}'")
+            print(f"--- /gazo Debug --- Raw Refinement Response: '{refined_image_prompt_response}'")
             
             use_initial_prompt_due_to_refinement_issue = False
 
@@ -461,9 +462,9 @@ If the idea is already a good prompt, output it as is.
                     refinement_issues_notes += " (結果として元のプロンプトを使用します。)"
                 print(f"警告: 最終的な絞り込みプロンプトが空または空白のみでした。元のプロンプトを使用します: '{initial_image_prompt}'")
 
-            print(f"--- Debug /gazo --- Final refined_image_prompt to be used for generation: '{refined_image_prompt}'")
-            if refinement_issues_notes:
-                print(f"--- Debug /gazo --- Refinement issues notes: '{refinement_issues_notes}'")
+            # Log refinement issues and the final prompt for generation
+            print(f"--- /gazo Debug --- Refinement Issues Notes: '{refinement_issues_notes}'")
+            print(f"--- /gazo Debug --- Final Prompt for Image Generation: '{refined_image_prompt}'")
 
             # Step B: Generate Image
             ai_response_parts_for_log = []
