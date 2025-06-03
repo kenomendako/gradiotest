@@ -208,7 +208,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                         f"<pre><code>{thoughts_content}</code></pre>"
                         f"</div>"
                     )
-                    model_response_components.append(thought_html_block)
+                    model_response_components.append(gr.HTML(value=thought_html_block))
 
             # Main response text after removing thoughts (or from full content if no thoughts were matched)
             main_response_text = thoughts_pattern.sub("", content).strip()
