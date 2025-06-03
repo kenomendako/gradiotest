@@ -194,26 +194,26 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
 
             # 1. Extract Thoughts
             # model_response_components: List[Union[str, gr.Image]] = [] # Corrected type for this list
-            model_response_components: List[Union[str, gr.Image]] = []
+            model_response_components: List[Union[str, gr.Image, gr.HTML]] = [] # Allow gr.HTML or plain HTML strings
 
-            # --- Start of temporarily removed Thoughts processing ---
-            # thought_match = thoughts_pattern.search(content)
-            # if thought_match:
-            #     thoughts_content = thought_match.group(1).strip()
-            #     if thoughts_content: # Only add if there's actual thought content
-            #         single_line_thoughts = thoughts_content.replace('\n', ' ').strip()
-            #         # Optionally, add truncation:
-            #         # single_line_thoughts = single_line_thoughts[:200]
-            #         thought_markdown_str = f"LLM Thoughts {single_line_thoughts}"
-            #         model_response_components.append(thought_markdown_str)
-            # --- End of temporarily removed Thoughts processing ---
+            # 1. Extract Thoughts
+            thought_match = thoughts_pattern.search(content)
+            if thought_match:
+                thoughts_content = thought_match.group(1).strip()
+                if thoughts_content: # Only add if there's actual thought content
+                    # Use HTML structure similar to format_response_for_display
+                    # Ensure HTML characters within thoughts_content are preserved by pre/code
+                    thought_html_block = (
+                        f"<div class='thoughts'>"
+                        f"<pre><code>{thoughts_content}</code></pre>"
+                        f"</div>"
+                    )
+                    model_response_components.append(thought_html_block)
 
-            # Main response text after removing thoughts (or from full content if thoughts are disabled)
+            # Main response text after removing thoughts (or from full content if no thoughts were matched)
             main_response_text = thoughts_pattern.sub("", content).strip()
 
-            # 2. Process for Image Tags
-            # model_response_components will be empty if thoughts were disabled and main_response_text is also empty
-
+            # 2. Process for Image Tags and remaining text
             if main_response_text:
                 parts = image_tag_pattern.split(main_response_text)
                 # Example: "text1 [Generated Image: path1] text2"

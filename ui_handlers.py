@@ -346,92 +346,119 @@ If the idea is already a good prompt, output it as is.
             
             print(f"--- Debug /gazo --- Raw refined_image_prompt_response: '{refined_image_prompt_response}'")
             
-            api_error_during_refinement = False
-            if not refined_image_prompt_response or \
-               refined_image_prompt_response.strip().startswith("エラー:") or \
-               refined_image_prompt_response.strip().startswith("API通信エラー:") or \
-               refined_image_prompt_response.strip().startswith("応答取得エラー"):
-                refinement_issues_notes = f"(プロンプトの自動絞り込み処理でAPIエラーが発生したため、元のプロンプトを使用します。エラー詳細: {refined_image_prompt_response or '不明なエラー'})"
-                print(f"警告: プロンプト絞り込みAPI呼び出し失敗。{refinement_issues_notes}")
-                api_error_during_refinement = True
-                # refined_image_prompt remains initial_image_prompt
+            use_initial_prompt_due_to_refinement_issue = False
+
+            if not refined_image_prompt_response: # Check for empty response first
+                refinement_issues_notes = "(プロンプト絞り込みモデルの応答が空だったため、元のプロンプトを使用します。)"
+                print(f"警告: {refinement_issues_notes}")
+                use_initial_prompt_due_to_refinement_issue = True
+            else:
+                stripped_response = refined_image_prompt_response.strip()
+                if stripped_response.startswith("エラー:") or \
+                   stripped_response.startswith("API通信エラー:") or \
+                   stripped_response.startswith("応答取得エラー"):
+                    refinement_issues_notes = f"(プロンプトの自動絞り込み処理でAPIエラーが発生したため、元のプロンプトを使用します。エラー詳細: {stripped_response})"
+                    print(f"警告: プロンプト絞り込みAPI呼び出し失敗。{refinement_issues_notes}")
+                    use_initial_prompt_due_to_refinement_issue = True
             
-            if not api_error_during_refinement:
+            if not use_initial_prompt_due_to_refinement_issue:
+                # Convert to lowercase for case-insensitive keyword matching
                 temp_cleaned_response_lower = refined_image_prompt_response.strip().lower()
+
+                # Comprehensive list of keywords indicating refusal or unhelpfulness
                 disqualification_keywords = [
-                    "sorry", "unable", "cannot", "instead", "text-based", "description of", "describe",
-                    "画像は生成できません", "できません", "申し訳ありません", "画像の説明", "テキストベース", "as an ai language model",
-                    "i do not have the capability", "i am a language model", "i'm not able to create images"
-                ] 
+                    "sorry", "unable", "cannot", "instead", "text-based",
+                    "description of", "describe", "画像は生成できません", "できません",
+                    "申し訳ありません", "画像の説明", "テキストベース", "as an ai language model",
+                    "i do not have the capability", "i am a language model",
+                    "i'm not able to create images"
+                    # "エラー:", "API通信エラー:", "応答取得エラー" are checked above
+                ]
                 
-                is_disqualified = False
+                is_disqualified_by_keyword = False
                 for keyword in disqualification_keywords:
                     if keyword in temp_cleaned_response_lower:
                         refinement_issues_notes = f"(プロンプト絞り込みモデルが非協力的/会話的な応答を返したため ('{keyword}'検出)、元のプロンプトを使用します。)"
                         print(f"警告: {refinement_issues_notes} Raw refinement response was: '{refined_image_prompt_response[:200]}...'")
-                        is_disqualified = True
-                        break 
+                        is_disqualified_by_keyword = True
+                        break
                 
-                if not is_disqualified:
+                if is_disqualified_by_keyword:
+                    use_initial_prompt_due_to_refinement_issue = True
+                else:
+                    # Proceed with cleaning and using the refined prompt
                     candidate_prompt_str = refined_image_prompt_response.strip()
                     
+                    # Remove "Refined Prompt:" prefix (case-insensitive)
                     keyword_parts = re.split(r"refined prompt:", candidate_prompt_str, flags=re.IGNORECASE)
                     if len(keyword_parts) > 1:
                         candidate_prompt_str = keyword_parts[-1].strip()
 
+                    # Remove surrounding quotes
                     if (candidate_prompt_str.startswith('"') and candidate_prompt_str.endswith('"')) or \
                        (candidate_prompt_str.startswith("'") and candidate_prompt_str.endswith("'")):
                         candidate_prompt_str = candidate_prompt_str[1:-1].strip()
                     
+                    # Select the last non-empty line if multiple lines exist, otherwise use the string as is if it's short and single-line
                     lines = [line.strip() for line in candidate_prompt_str.splitlines() if line.strip()]
                     
                     final_candidate_from_lines = ""
                     if lines:
-                        if candidate_prompt_str.count('\n') == 0 and len(candidate_prompt_str) > 0 and len(candidate_prompt_str) < 350:
+                        # If the original candidate_prompt_str (after prefix/quote stripping) was single-line and not excessively long, prefer it.
+                        if candidate_prompt_str.count('\n') == 0 and len(candidate_prompt_str) > 0 and len(candidate_prompt_str) < 350: # Max length for "good" single line
                              final_candidate_from_lines = candidate_prompt_str
-                        else: 
+                        else: # Otherwise, take the last line.
                              final_candidate_from_lines = lines[-1] 
                     
                     print(f"--- Debug /gazo --- Candidate prompt after cleaning: '{final_candidate_from_lines}'")
 
+                    # Validate the cleaned candidate prompt (length, newlines, re-check keywords)
                     max_prompt_len = 400 
-                    max_newlines = 2 
+                    max_newlines = 2 # Allowing one newline, so < max_newlines means 0 or 1.
+
                     if final_candidate_from_lines and \
                        len(final_candidate_from_lines) <= max_prompt_len and \
                        final_candidate_from_lines.count('\n') < max_newlines:
                         
+                        # Final keyword check on the cleaned, selected candidate line
                         is_still_disqualified_after_cleaning = False
-                        for keyword in disqualification_keywords:
-                            if keyword in final_candidate_from_lines.lower(): # Check the cleaned candidate again
+                        for keyword in disqualification_keywords: # Use the same list
+                            if keyword in final_candidate_from_lines.lower():
                                 is_still_disqualified_after_cleaning = True
                                 break
                         
                         if not is_still_disqualified_after_cleaning:
-                            refined_image_prompt = final_candidate_from_lines # Assign to the actual variable
+                            refined_image_prompt = final_candidate_from_lines
                             if refined_image_prompt == initial_image_prompt: 
                                 refinement_issues_notes = "(絞り込み後のプロンプトは元のプロンプトと同じです。)"
                             else: 
-                                refinement_issues_notes = "" 
+                                refinement_issues_notes = "" # Successful refinement, no specific issue note needed unless it was same as original
                             print(f"情報: プロンプト絞り込み成功。使用プロンプト: '{refined_image_prompt}'")
                         else:
-                            refinement_issues_notes = "(絞り込み候補プロンプト内に非協力的/会話的なキーワードが再度検出されたため、元のプロンプトを使用します。)"
+                            refinement_issues_notes = f"(絞り込み候補プロンプト内に非協力的/会話的なキーワード ('{keyword}') が再度検出されたため、元のプロンプトを使用します。)"
                             print(f"警告: {refinement_issues_notes} Candidate was: '{final_candidate_from_lines[:200]}...'")
-                            # refined_image_prompt remains initial_image_prompt
+                            use_initial_prompt_due_to_refinement_issue = True
                     else: 
                         if not final_candidate_from_lines: 
-                            refinement_issues_notes = "(プロンプト絞り込みモデルの応答から有効なプロンプトを抽出できませんでした。元のプロンプトを使用します。)"
+                            refinement_issues_notes = "(プロンプト絞り込みモデルの応答から有効なプロンプトを抽出できませんでした (空または処理後空)。元のプロンプトを使用します。)"
                         elif len(final_candidate_from_lines) > max_prompt_len:
                             refinement_issues_notes = f"(絞り込み後のプロンプト候補が長すぎるため ({len(final_candidate_from_lines)} > {max_prompt_len}文字)、元のプロンプトを使用します。)"
-                        else: 
+                        else: # Too many newlines
                             refinement_issues_notes = f"(絞り込み後のプロンプト候補に改行が多すぎるため ({final_candidate_from_lines.count('\n')} >= {max_newlines})、元のプロンプトを使用します。)"
                         print(f"警告: {refinement_issues_notes} Candidate was: '{final_candidate_from_lines[:max_prompt_len+50]}...'")
-                        # refined_image_prompt remains initial_image_prompt
-            # If api_error_during_refinement or is_disqualified, refined_image_prompt is still initial_image_prompt
-        
-            if not refined_image_prompt.strip(): # Safety net
-                refined_image_prompt = initial_image_prompt # Fallback to original if it became empty
-                if not refinement_issues_notes: 
-                    refinement_issues_notes = "(絞り込み処理の結果プロンプトが空になったため、元のプロンプトを使用します。)"
+                        use_initial_prompt_due_to_refinement_issue = True
+
+            if use_initial_prompt_due_to_refinement_issue:
+                refined_image_prompt = initial_image_prompt
+                # The specific reason for using initial_image_prompt should already be in refinement_issues_notes
+
+            # Final safety check: if refined_image_prompt is somehow empty or whitespace, default to initial_image_prompt.
+            if not refined_image_prompt.strip():
+                refined_image_prompt = initial_image_prompt
+                if not refinement_issues_notes: # Only set if no prior issue was noted
+                    refinement_issues_notes = "(最終的な絞り込みプロンプトが空または空白のみだったため、元のプロンプトを使用します。)"
+                elif not refinement_issues_notes.endswith("元のプロンプトを使用します。)"): # Append if note exists but doesn't mention using original
+                    refinement_issues_notes += " (結果として元のプロンプトを使用します。)"
                 print(f"警告: 最終的な絞り込みプロンプトが空または空白のみでした。元のプロンプトを使用します: '{initial_image_prompt}'")
 
             print(f"--- Debug /gazo --- Final refined_image_prompt to be used for generation: '{refined_image_prompt}'")
