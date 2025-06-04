@@ -125,22 +125,21 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, gr.Image, List[Union[str, gr.Image]]]]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, List[Union[str, Tuple[str, str]]]]]]]:
     """
     Converts a list of message dictionaries into Gradio's chatbot history format.
-    User messages are strings. Model messages can be strings (Markdown)
-    or lists of Gradio components (Markdown, Image, HTML) for rich content like
-    displaying generated images and thoughts.
+    User messages are strings. Model messages can be strings (Markdown) or lists
+    containing strings (Markdown) and image tuples (filepath, alt_text).
 
     Args:
         messages (List[Dict[str, str]]): List of message dictionaries.
 
     Returns:
-        List containing (user_message, model_response) tuples, where elements
-        can be strings or Gradio components/lists of components.
+        List containing (user_message, model_response) tuples, where model_response
+        is a string or a list of (strings or image tuples).
     """
-    gradio_history: List[Tuple[Optional[str], Optional[Union[str, gr.Image, List[Union[str, gr.Image]]]]]] = []
-    user_message_accumulator: Optional[str] = None # User messages are still accumulated as strings
+    gradio_history: List[Tuple[Optional[str], Optional[Union[str, List[Union[str, Tuple[str, str]]]]]]] = []
+    user_message_accumulator: Optional[str] = None
 
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
@@ -190,81 +189,67 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             user_message_accumulator = display_text_for_user_turn # Store as string
 
         elif role == "model":
-            model_response_parts: List[Union[str, gr.Image]] = []
+            model_response_parts: List[Union[str, Tuple[str, str]]] = [] # Can contain strings or (filepath, alt_text) tuples
 
+            # 1. 思考ログの処理
             thought_html_block = ""
-            thought_match = thoughts_pattern.search(content)
+            thought_match = thoughts_pattern.search(content) # thoughts_pattern は既に定義済みとする
             if thought_match:
                 thoughts_content = thought_match.group(1).strip()
                 if thoughts_content:
                     thought_html_block = f"<div class='thoughts'><pre><code>{thoughts_content}</code></pre></div>"
+                    model_response_parts.append(thought_html_block)
 
-            content_without_thoughts = thoughts_pattern.sub("", content).strip()
+            # 2. 画像モデルからのテキスト応答/エラーメッセージを抽出
+            #    ログ形式: "[画像モデルからのテキスト]: エラー: ... " または "[ERROR]: 画像の生成に失敗しました。"
+            model_text_response_match = re.search(r"\[画像モデルからのテキスト\]: (.*)", content, re.DOTALL)
+            model_error_match = re.search(r"\[ERROR\]: (.*)", content, re.DOTALL)
 
-            # If there are no image tags, the combined text is simple
-            if not image_tag_pattern.search(content_without_thoughts):
-                final_text_content = thought_html_block
-                if content_without_thoughts:
-                    if final_text_content: # If thoughts exist, add newline before main content
-                        final_text_content += f"\n\n{content_without_thoughts}"
-                    else: # No thoughts, just main content
-                        final_text_content = content_without_thoughts
+            model_text_content = ""
+            if model_text_response_match:
+                raw_model_text = model_text_response_match.group(1).strip()
+                # Simple approach: display raw_model_text. Can be refined later if needed.
+                # e.g. if "Traceback (most recent call last):" in raw_model_text: raw_model_text = "画像生成中にエラーが発生しました。"
+                model_text_content = raw_model_text
+            elif model_error_match: # [ERROR]: パターン
+                model_text_content = model_error_match.group(1).strip()
 
-                # Add if there's any content (either thoughts or text or both)
-                # or if model_response_parts is empty (e.g. this is the first and only part)
-                # This check ensures that if only thoughts exist, they are added.
-                if final_text_content: # Check if final_text_content is not empty
-                     model_response_parts.append(final_text_content)
-            else:
-                # Handle mixed text, thoughts, and images
-                first_text_segment_processed = False
-                accumulated_text = ""
-                segments = image_tag_pattern.split(content_without_thoughts)
+            # 3. 生成された画像の情報を抽出
+            #    ログ形式: "[Generated Image: path/to/image.png]"
+            image_path_match = re.search(r"\[Generated Image: (.*?)\]", content)
 
-                for i, segment in enumerate(segments):
-                    if i % 2 == 0: # This is a text segment
-                        current_segment_text = segment
-                        if not first_text_segment_processed and thought_html_block:
-                            # Prepend thoughts to the very first text part
-                            if current_segment_text:
-                                accumulated_text += thought_html_block + "\n\n" + current_segment_text
-                            else: # Text segment is empty, but thoughts exist
-                                accumulated_text += thought_html_block
-                            first_text_segment_processed = True
-                        else:
-                            accumulated_text += current_segment_text
-                    else: # This is an image path segment
-                        # Add accumulated text before the image, if any
-                        if accumulated_text.strip():
-                            model_response_parts.append(accumulated_text.strip())
-                        accumulated_text = "" # Reset accumulator for text after image
+            if image_path_match:
+                image_path = image_path_match.group(1).strip()
+                if os.path.exists(image_path):
+                    image_filename = os.path.basename(image_path) # Used as alt_text
+                    model_response_parts.append((image_path, image_filename)) # Append tuple
+                    # If image is successfully displayed, model_text_content (which is likely an error from image gen)
+                    # might not be needed, unless it's a non-error text response from the image model.
+                    # For now, if an image is shown, we prioritize it over potentially redundant error text.
+                    # However, if model_text_content is a *caption* or *additional info*, this logic might need adjustment.
+                    # Based on current log format, it's usually an error if image_path also exists.
+                else:
+                    # Image path in log, but file not found
+                    model_response_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path)})]*")
+                    # In this case, showing model_text_content (if any) is useful.
+                    if model_text_content and model_text_content not in model_response_parts:
+                         model_response_parts.append(model_text_content)
 
-                        image_path = segment.strip()
-                        if os.path.exists(image_path):
-                            model_response_parts.append(gr.Image(value=image_path, interactive=False, show_label=False, show_download_button=True))
-                        else:
-                            model_response_parts.append(f"\n*[Image not found: {image_path}]*\n") # Add as a separate string part
+            elif model_text_content: # No image path matched, but there was a text/error from image model
+                # This becomes the primary way to show errors if image generation failed early
+                # or if the image model only returned text.
+                model_response_parts.append(model_text_content)
 
-                # Add any remaining accumulated text (text after the last image)
-                if accumulated_text.strip():
-                    model_response_parts.append(accumulated_text.strip())
-
-                # If model_response_parts is still empty but thoughts existed (e.g. thoughts + image only, image failed, and no other text)
-                # This case is tricky: if thoughts were prepended to an empty first segment, and then an image failed,
-                # accumulated_text might be just the thought_html_block.
-                # The above "if accumulated_text.strip()" should handle adding it.
-                # Let's ensure if ONLY thoughts existed and were not processed with any text segment, they get added.
-                if not model_response_parts and thought_html_block and not first_text_segment_processed:
-                     model_response_parts.append(thought_html_block)
+            # Note: Lines like "[画像生成に使用されたプロンプト]: ..." are intentionally not added to model_response_parts.
 
             # Determine final_model_output
-            final_model_output: Union[str, List[Union[str, gr.Image]]]
+            final_model_output: Union[str, List[Union[str, Tuple[str, str]]]]
             if not model_response_parts:
                 final_model_output = ""
-            elif len(model_response_parts) == 1 and isinstance(model_response_parts[0], str):
-                final_model_output = model_response_parts[0]
+            elif len(model_response_parts) == 1:
+                final_model_output = model_response_parts[0] # This could be a string or a tuple
             else:
-                final_model_output = model_response_parts
+                final_model_output = model_response_parts # This is List[Union[str, Tuple[str,str]]]
 
             user_msg_to_display = user_message_accumulator
             gradio_history.append((user_msg_to_display, final_model_output))

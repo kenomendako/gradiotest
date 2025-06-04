@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import google.genai as genai
 from google.genai import types
-from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part
+from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig # Added GenerateImagesConfig
 from google.ai.generativelanguage import HarmCategory, SafetySetting
 import os
 import json
@@ -11,7 +11,9 @@ import math
 import traceback
 import base64
 from PIL import Image
-import io
+from io import BytesIO # Specific import for BytesIO
+from typing import Optional # Added for type hinting
+import io # Keep original io import if other parts of the file use it directly
 import uuid
 import config_manager
 from utils import load_chat_log
@@ -373,9 +375,9 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
         return f"【アラームエラー】応答処理エラー ({e}) ブロック理由は不明"
 
 
-def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: str):
+def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: str) -> tuple[Optional[str], Optional[str]]:
     """
-    Generates an image using Gemini API and saves it to a local path.
+    Generates an image using an Imagen model and saves it to a local path.
 
     Args:
         prompt (str): The text prompt for image generation.
@@ -383,137 +385,89 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
 
     Returns:
         tuple: (generated_text, image_path)
-               generated_text (str or None): Text response from the model, if any.
+               generated_text (str or None): Text response (usually None or error message for Imagen).
                image_path (str or None): Path to the saved image, or None if generation failed.
     """
     if _gemini_client is None:
         return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
 
-    generated_text = None
-    image_path = None
-    model_name = "gemini-2.0-flash-preview-image-generation" # As per requirements, though this seems like a typo and should be a valid model like gemini-pro-vision or a specific image model
-    # Corrected model name based on common Gemini models for image generation.
-    # If "gemini-2.0-flash-preview-image-generation" is a specific internal or new model, this should be verified.
-    # For now, using a placeholder or a known image-capable model might be safer.
-    # Let's assume "gemini-pro-vision" or similar for now, and adjust if a specific image gen model string is confirmed.
-    # The problem description explicitly states "gemini-2.0-flash-preview-image-generation"
-    # So we will use that.
+    generated_text: Optional[str] = None
+    image_path: Optional[str] = None
+    model_name = 'imagen-3.0-generate-002'
 
     try:
-        print(f"--- 画像生成開始 (model: {model_name}) --- プロンプト: '{prompt[:50]}...'")
+        print(f"--- Imagen 画像生成開始 (model: {model_name}) --- プロンプト: '{prompt[:100]}...'")
 
-        # Constructing the request
-        # The prompt itself is the content for image generation models.
-        contents = [Content(parts=[Part(text=prompt)])]
-
-        # Configuration for the API call
-        # As per requirement: Set response_modalities=['TEXT', 'IMAGE'] in GenerateContentConfig
-        # However, the standard way to request an image is usually by the model type itself.
-        # The `response_modalities` parameter is not standard for `GenerateContentConfig`.
-        # Image generation models typically return image data directly in `response.candidates[0].content.parts`.
-        # Let's proceed with the explicit requirement, but be mindful this might need adjustment
-        # if the SDK/API expects image generation to be implicit by model choice.
-        # For genai SDK, GenerateContentConfig doesn't directly take response_modalities.
-        # This might be an incorrect parameter or specific to a different API version/method.
-        # Image generation is usually implied by the model like 'gemini-pro-vision' when multimodal content is sent,
-        # or a specific image generation model.
-        # Given the model name "gemini-2.0-flash-preview-image-generation", it's likely an image-specific model.
-        # The response will inherently contain an image if successful.
-        # Let's assume the requirement implies we should check for both text and image in response.
-
-        # For image generation, the genai SDK typically does not use GenerateContentConfig for modalities.
-        # It's determined by the model and the content sent.
-        # We will make the call and then parse the response for text and image parts.
-        # The problem statement mentions `response_modalities=['TEXT', 'IMAGE'] in GenerateContentConfig`.
-        # This parameter is not directly available in `google.genai.types.GenerateContentConfig`.
-        # It might be a feature of a newer SDK version or a misunderstanding.
-        # For now, we will proceed without it in `GenerateContentConfig` and parse parts directly.
-        # If an error occurs, this is a point to revisit.
-
-        active_generation_config = GenerateContentConfig(
-            candidate_count=1
-            # No other parameters like temperature, top_p are set for now,
-            # keeping it simple to address the modality support error.
+        img_gen_config = GenerateImagesConfig(
+            number_of_images=1,
         )
 
-        response = _gemini_client.models.generate_content(
+        response = _gemini_client.models.generate_images(
             model=model_name,
-            contents=contents,
-            generation_config=active_generation_config
+            prompt=prompt,
+            config=img_gen_config
         )
 
-        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, 'text') and part.text:
-                    if generated_text is None:
-                        generated_text = part.text
-                    else:
-                        generated_text += "\n" + part.text
-                    print(f"画像生成APIからテキスト部分を取得: {part.text[:100]}...")
+        if response.generated_images:
+            generated_image_data = response.generated_images[0].image.image_bytes
 
-                if hasattr(part, 'inline_data') and part.inline_data.data:
-                    print(f"画像生成APIから画像データ (MIME: {part.inline_data.mime_type}) を取得しました。")
-                    image_data = part.inline_data.data
+            save_dir = "chat_attachments/generated_images/"
+            os.makedirs(save_dir, exist_ok=True)
 
-                    # Create directory if it doesn't exist
-                    save_dir = "chat_attachments/generated_images/"
-                    os.makedirs(save_dir, exist_ok=True)
+            base_name, ext = os.path.splitext(output_image_filename_suggestion)
+            if not ext or ext.lower() not in ['.png', '.jpg', '.jpeg', '.webp']:
+                 ext = ".png"
 
-                    # Construct unique image filename
-                    base_name, ext = os.path.splitext(output_image_filename_suggestion)
-                    if not ext: # if no extension, assume .png
-                        ext = ".png"
-                    # Sanitize base_name to prevent directory traversal or invalid chars
-                    base_name = re.sub(r'[^\w\s-]', '', base_name).strip()
-                    base_name = re.sub(r'[-\s]+', '_', base_name)
-                    if not base_name: # if suggestion was all invalid chars
-                        base_name = "generated_image"
+            base_name = re.sub(r'[^\w\s-]', '', base_name).strip()
+            base_name = re.sub(r'[-\s]+', '_', base_name)
+            if not base_name:
+                base_name = "generated_image"
 
-                    unique_id = uuid.uuid4().hex[:8]
-                    image_filename = f"{base_name}_{unique_id}{ext}"
-                    image_path = os.path.join(save_dir, image_filename)
+            unique_id = uuid.uuid4().hex[:8]
+            image_filename = f"{base_name}_{unique_id}{ext}"
+            image_path = os.path.join(save_dir, image_filename)
 
-                    try:
-                        image = Image.open(io.BytesIO(image_data))
-                        image.save(image_path)
-                        print(f"生成された画像を '{image_path}' に保存しました。")
-                    except Exception as img_e:
-                        print(f"エラー: 画像データの処理または保存中にエラーが発生しました: {img_e}")
-                        image_path = None # Ensure image_path is None if saving fails
-                        if generated_text is None:
-                            generated_text = f"画像処理エラー: {img_e}"
-                        else:
-                            generated_text += f"\n画像処理エラー: {img_e}"
-                    break # Assuming one image per prompt for now
+            try:
+                image_pil = Image.open(BytesIO(generated_image_data))
 
-            if image_path is None and generated_text is None:
-                 generated_text = "モデル応答にテキストまたは画像データが見つかりませんでした。"
+                if ext.lower() in ['.jpg', '.jpeg']:
+                    if image_pil.mode == 'RGBA' or (image_pil.mode == 'P' and 'transparency' in image_pil.info):
+                        image_pil = image_pil.convert('RGB')
+                    image_pil.save(image_path, format='JPEG')
+                elif ext.lower() == '.webp':
+                    image_pil.save(image_path, format='WEBP')
+                else:
+                    image_pil.save(image_path, format='PNG')
 
-        elif hasattr(response, 'prompt_feedback') and response.prompt_feedback.block_reason:
-            error_message = f"画像生成エラー: プロンプトがブロックされました。理由: {response.prompt_feedback.block_reason}"
-            print(error_message)
-            generated_text = error_message
+                print(f"生成された画像を '{image_path}' に保存しました。")
+                generated_text = None
+            except Exception as img_e:
+                error_msg = f"画像データの処理または保存中にエラー: {img_e}"
+                print(f"エラー: {error_msg}")
+                traceback.print_exc()
+                image_path = None
+                generated_text = error_msg
         else:
-            error_message = "画像生成エラー: モデルから有効な応答がありませんでした (候補なし、または空のコンテンツ)。"
-            print(error_message)
-            generated_text = error_message
+            image_path = None
+            generated_text = "画像が生成されませんでした。モデルからの応答に画像が含まれていません。"
+            # Check for more specific error information in the response if available
+            if hasattr(response, 'error') and response.error:
+                 generated_text += f" APIエラー詳細: {str(response.error)}"
+            elif hasattr(response, 'errors') and response.errors:
+                 generated_text += f" APIエラー詳細: {str(response.errors)}"
+            print(f"警告: {generated_text}")
 
     except google.api_core.exceptions.GoogleAPIError as e:
-        error_message = f"エラー: Gemini APIとの通信中にエラーが発生しました (画像生成): {e}"
-        print(error_message)
-        if generated_text is None:
-            generated_text = error_message
-        else:
-            generated_text += f"\n{error_message}"
-        image_path = None # Ensure image_path is None on API error
+        error_msg = f"エラー: Imagen APIとの通信中にエラーが発生しました: {e}"
+        print(error_msg)
+        traceback.print_exc()
+        generated_text = error_msg
+        image_path = None
     except Exception as e:
-        import traceback
-        error_message = f"エラー: 画像生成中に予期しないエラーが発生しました: {traceback.format_exc()}"
-        print(error_message)
-        if generated_text is None:
-            generated_text = error_message
-        else:
-            generated_text += f"\n{error_message}"
-        image_path = None # Ensure image_path is None on general error
+        error_msg = f"エラー: Imagen画像生成中に予期しないエラーが発生しました: {e}"
+        print(error_msg)
+        traceback.print_exc()
+        generated_text = error_msg
+        image_path = None
 
     return generated_text, image_path
