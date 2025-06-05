@@ -645,38 +645,118 @@ def update_ui_on_character_change(
 
 import urllib.parse # Added for URL encoding
 # --- Custom Wrapper for format_history_for_gradio ---
-FILE_CONTENT_HEADER_PATTERN = r"--- 添付ファイル「(.*?)」の内容 ---.*" # Modified pattern
+FILE_CONTENT_HEADER_PATTERN = r"--- 添付ファイル「(.*?)」の内容 ---.*"
 ATTACHED_IMAGE_PATTERN = r"\[ファイル添付: (.*?);(.*?);(image/(?:png|jpeg|gif|webp))\]"
 GENERATED_IMAGE_PATTERN = r"\[Generated Image: (.*?(?:png|jpeg|gif|webp))\]"
+# Define thought log patterns locally for this function's scope
+TH_PAT_LOCAL = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
+HTML_TH_PAT_LOCAL = re.compile(r"<div class='thoughts'>\s*<pre>\s*<code>.*?</code>\s*</pre>\s*</div>\s*", re.DOTALL | re.IGNORECASE)
 
-def format_history_for_gradio_wrapper(chat_log: List[Dict[str, str]]) -> List[List[Optional[str]]]:
+def format_history_for_gradio_wrapper(chat_log_from_utils: List[Dict[str, str]]) -> List[List[Optional[str]]]: # Renamed input
     """
     utils.format_history_for_gradio のラッパー関数。
     メッセージ内容のファイルコンテンツヘッダーを短い形式に置換し、
-    画像添付・生成ログをMarkdown画像表示に変換します。
+    画像添付・生成ログをMarkdown画像表示に変換し、思考ログを除去します。
     """
-    # 元の関数を呼び出して基本的なフォーマット済み履歴を取得
-    # formatted_history is List[List[Optional[str]]]
-    # e.g., [["user message", "ai message"], ["user message 2", "ai message 2"]]
-    original_formatted_pairs = original_format_history_for_gradio(chat_log)
+    # formatted_history_input is List[List[Optional[str]]]
+    # (e.g., [["user_msg1", "ai_msg1"], ["user_msg2", None], [None, "ai_msg3"]])
+    # This is the direct output from original_format_history_for_gradio
+    formatted_history_input = original_format_history_for_gradio(chat_log_from_utils)
+    print(f"DEBUG_FORMAT_WRAPPER: Starting. Input (last 3 pairs): {formatted_history_input[-3:]}")
 
-    processed_history = []
+    processed_history_output = []
     # Each 'pair' is a list like [user_msg_content, assistant_msg_content]
     # where messages can be None or string.
-    for pair in original_formatted_pairs:
-        processed_pair = []
-        for message_content in pair:
-            if isinstance(message_content, str):
-                # 1. テキストファイル内容ヘッダーの置換 (ファイル内容全体を隠す)
-                # "--- 添付ファイル「ファイル名」の内容 ---....file content..." を "添付ファイル: ファイル名" に置換
-                modified_content = re.sub(
-                    FILE_CONTENT_HEADER_PATTERN,
-                    r"添付ファイル: \1", # \1 はキャプチャグループ（ファイル名）
-                    message_content,
-                    flags=re.DOTALL # DOTALLフラグで行跨ぎマッチを許可
-                )
+    for i, message_pair in enumerate(formatted_history_input):
+        user_message = message_pair[0]
+        assistant_message_initial = message_pair[1]
+
+        processed_assistant_message = assistant_message_initial # これを加工していく
+
+        if isinstance(assistant_message_initial, str) and assistant_message_initial.strip():
+            print(f"DEBUG_FORMAT_WRAPPER: Entry {i} - Initial assistant_message: '{assistant_message_initial[:200]}...'")
+
+            # 思考ログ除去 (TH_PAT_LOCAL)
+            temp_message_after_th = TH_PAT_LOCAL.sub("", assistant_message_initial).strip()
+            if assistant_message_initial.strip() and not temp_message_after_th.strip() and "【Thoughts】" in assistant_message_initial:
+                print(f"DEBUG_FORMAT_WRAPPER: WARNING! Entry {i} - Assistant message BECAME EMPTY after TH_PAT_LOCAL removal.")
+            print(f"DEBUG_FORMAT_WRAPPER: Entry {i} - After TH_PAT_LOCAL removal: '{temp_message_after_th[:200]}...'")
+            processed_assistant_message = temp_message_after_th
+
+            # HTML形式の思考ログ除去 (HTML_TH_PAT_LOCAL)
+            # 前のステップの結果 (processed_assistant_message) に対して適用
+            temp_message_after_html_th = HTML_TH_PAT_LOCAL.sub("", processed_assistant_message).strip()
+            if processed_assistant_message.strip() and not temp_message_after_html_th.strip() and "<div class='thoughts'>" in processed_assistant_message:
+                print(f"DEBUG_FORMAT_WRAPPER: WARNING! Entry {i} - Assistant message BECAME EMPTY after HTML_TH_PAT_LOCAL removal.")
+            print(f"DEBUG_FORMAT_WRAPPER: Entry {i} - After HTML_TH_PAT_LOCAL removal: '{temp_message_after_html_th[:200]}...'")
+            processed_assistant_message = temp_message_after_html_th
+
+            # print(f"DEBUG_FORMAT_WRAPPER: Entry {i} - Assistant message after all thought removals: '{processed_assistant_message[:200]}...'")
+
+        # processed_pair_final はユーザーメッセージと、上記で処理されたアシスタントメッセージを含む
+        # この processed_pair_final を最終的な出力ペアとするために、さらに加工する
+        final_pair_for_output = []
+        for j, message_content_segment in enumerate([user_message, processed_assistant_message]): # Iterate over user and (processed) assistant message
+            role_for_debug = "User" if j == 0 else "Assistant"
+
+            if isinstance(message_content_segment, str):
+                original_segment_for_warning_check = message_content_segment
+                current_processing_segment = message_content_segment
+
+                # デバッグ: このセグメントの初期値 (思考ログ除去後のアシスタントメッセージ、または元のユーザーメッセージ)
+                # アシスタントメッセージの場合、思考ログ除去後の値がここに来る。ユーザーメッセージはそのまま。
+                if j == 1: # Only print initial for assistant here, as user message is raw
+                    print(f"DEBUG_FORMAT_WRAPPER: Entry {i} ({role_for_debug}) - Segment initial value (after thought removals for assistant): '{current_processing_segment[:200]}...'")
+
+                # 1. テキストファイル内容ヘッダーの置換
+                modified_segment_step1 = re.sub(FILE_CONTENT_HEADER_PATTERN, r"添付ファイル: \1", current_processing_segment, flags=re.DOTALL)
+                if not (j == 0 and user_message == modified_segment_step1): # Don't flood log if user message unchanged by this
+                    print(f"DEBUG_FORMAT_WRAPPER: Entry {i} ({role_for_debug}) - After FILE_CONTENT_HEADER_PATTERN: '{modified_segment_step1[:200]}...'")
+                if original_segment_for_warning_check.strip() and not modified_segment_step1.strip() and "--- 添付ファイル「" in original_segment_for_warning_check :
+                     print(f"DEBUG_FORMAT_WRAPPER: WARNING! Entry {i} ({role_for_debug}) - Segment became EMPTY after FILE_CONTENT_HEADER_PATTERN.")
+                current_processing_segment = modified_segment_step1
 
                 # 2. 添付画像の置換
+                def replace_attached_image_debug(match):
+                    file_path = match.group(1)
+                    original_filename = match.group(2)
+                    alt_text = re.sub(r"[\[\]()]", "", original_filename)
+                    encoded_file_path = urllib.parse.quote(file_path, safe=' /')
+                    url_path = f"/file={encoded_file_path}"
+                    return f"![{alt_text}]({url_path})"
+                modified_segment_step2 = re.sub(ATTACHED_IMAGE_PATTERN, replace_attached_image_debug, current_processing_segment)
+                if not (j == 0 and current_processing_segment == modified_segment_step2):
+                    print(f"DEBUG_FORMAT_WRAPPER: Entry {i} ({role_for_debug}) - After ATTACHED_IMAGE_PATTERN: '{modified_segment_step2[:200]}...'")
+                if current_processing_segment.strip() and not modified_segment_step2.strip() and "[ファイル添付:" in current_processing_segment :
+                     print(f"DEBUG_FORMAT_WRAPPER: WARNING! Entry {i} ({role_for_debug}) - Segment became EMPTY after ATTACHED_IMAGE_PATTERN.")
+                current_processing_segment = modified_segment_step2
+
+                # 3. 生成画像の置換
+                def replace_generated_image_debug(match):
+                    image_path = match.group(1)
+                    encoded_image_path = urllib.parse.quote(image_path, safe=' /')
+                    url_path = f"/file={encoded_image_path}"
+                    return f"![generated_image]({url_path})"
+                modified_segment_step3 = re.sub(GENERATED_IMAGE_PATTERN, replace_generated_image_debug, current_processing_segment)
+                if not (j == 0 and current_processing_segment == modified_segment_step3):
+                    print(f"DEBUG_FORMAT_WRAPPER: Entry {i} ({role_for_debug}) - After GENERATED_IMAGE_PATTERN: '{modified_segment_step3[:200]}...'")
+                if current_processing_segment.strip() and not modified_segment_step3.strip() and "[Generated Image:" in current_processing_segment:
+                     print(f"DEBUG_FORMAT_WRAPPER: WARNING! Entry {i} ({role_for_debug}) - Segment became EMPTY after GENERATED_IMAGE_PATTERN.")
+                current_processing_segment = modified_segment_step3
+
+                if j == 1: # Only print final for assistant here, as user message is mostly pass-through for these patterns
+                     print(f"DEBUG_FORMAT_WRAPPER: Entry {i} ({role_for_debug}) - Final value for segment: '{current_processing_segment[:200]}...'")
+                final_pair_for_output.append(current_processing_segment)
+            else: # message_content_segment is None
+                final_pair_for_output.append(None)
+
+        processed_history_output.append(final_pair_for_output)
+
+    print(f"Debug: format_history_for_gradio_wrapper processed_history_output (last 3 pairs): {processed_history_output[-3:]}")
+    return processed_history_output
+
+
+def update_model_state(selected_model: Optional[str]) -> Union[Optional[str], Any]:
                 #   入力形式: [ファイル添付: chat_attachments/uuid.png;original_name.png;image/png]
                 #   出力形式: ![original_name.png](/file=chat_attachments/uuid.png)
                 def replace_attached_image(match):
