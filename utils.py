@@ -60,7 +60,10 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
         # ヘッダー行の判定 (例: "## User:", "## MyCharName:", "## システム(アラーム):")
         if stripped_line.startswith("## ") and stripped_line.endswith(":"):
             if current_role and current_text_lines: # 前のブロックを確定
-                messages.append({"role": current_role, "content": "\n".join(current_text_lines).strip()})
+                final_content_before_append = "\n".join(current_text_lines).strip()
+                if current_role == "model" and final_content_before_append:
+                    print(f"DEBUG_LOAD_LOG: Parsed assistant content (in-loop): '{final_content_before_append[:200]}...'")
+                messages.append({"role": current_role, "content": final_content_before_append})
 
             current_text_lines = [] # 新しいブロックのためにリセット
             if stripped_line == ai_header:
@@ -75,7 +78,10 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
 
     # ファイル末尾に残っている最後のブロックを処理
     if current_role and current_text_lines:
-        messages.append({"role": current_role, "content": "\n".join(current_text_lines).strip()})
+        final_content_at_eof = "\n".join(current_text_lines).strip()
+        if current_role == "model" and final_content_at_eof:
+            print(f"DEBUG_LOAD_LOG: Parsed assistant content (at EOF): '{final_content_at_eof[:200]}...'")
+        messages.append({"role": current_role, "content": final_content_at_eof})
 
     return messages
 
@@ -304,9 +310,12 @@ def save_message_to_log(log_file_path: str, header: str, text_content: str) -> N
 
         with open(log_file_path, "a", encoding="utf-8") as f:
             if needs_leading_newline:
-                f.write("\n") # Add a newline only if the file exists, is not empty, and doesn't end with one.
+                f.write("\n")
 
             # Write the header, two newlines, the stripped text, and two newlines for separation.
+            # Debug print before writing
+            if text_content and text_content.strip(): # Ensure content is not just whitespace
+                 print(f"DEBUG_SAVE_LOG: Saving to {log_file_path}, Header: '{header}', Content: '{text_content.strip()[:200]}...'")
             f.write(f"{header}\n\n{text_content.strip()}\n\n")
 
     except IOError as e:

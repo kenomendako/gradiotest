@@ -568,11 +568,13 @@ If the idea is already a good prompt, output it as is.
     # Update Chat History and Return (common for both /gazo and normal messages)
     if not error_message or image_path: # If /gazo was successful (image_path exists), error_message might be a text response
         new_log = load_chat_log(log_f, current_character_name)
+        print(f"DEBUG_UI_HANDLERS: new_log after load_chat_log (last 5 entries): {new_log[-5:]}")
         new_hist = format_history_for_gradio_wrapper(new_log[-(config_manager.HISTORY_LIMIT * 2):]) # Use wrapper
     else: # If there was an error (and for /gazo, image_path is None)
         # If it was a /gazo error, it's already logged. We need to load history.
         if original_user_text_on_entry.startswith("/gazo "):
             new_log = load_chat_log(log_f, current_character_name)
+            print(f"DEBUG_UI_HANDLERS: new_log after load_chat_log (in /gazo error path, last 5 entries): {new_log[-5:]}")
             new_hist = format_history_for_gradio_wrapper(new_log[-(config_manager.HISTORY_LIMIT * 2):]) # Use wrapper
         else: # For non-/gazo errors, keep old history if API call failed.
             new_hist = chatbot_history
