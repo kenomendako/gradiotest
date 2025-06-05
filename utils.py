@@ -131,140 +131,51 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, List[Union[str, Tuple[str, str]]]]]]]:
-    """
-    Converts a list of message dictionaries into Gradio's chatbot history format.
-    User messages are strings. Model messages can be strings (Markdown) or lists
-    containing strings (Markdown) and image tuples (filepath, alt_text).
+def format_history_for_gradio(chat_log: List[Dict[str, str]]) -> List[List[Optional[str]]]:
+    print(f"DEBUG_UTILS_FORMAT_HISTORY: Input chat_log (first 5 entries): {chat_log[:5]}")
+    print(f"DEBUG_UTILS_FORMAT_HISTORY: Input chat_log (last 5 entries): {chat_log[-5:]}")
 
-    Args:
-        messages (List[Dict[str, str]]): List of message dictionaries.
+    history: List[List[Optional[str]]] = []
+    user_buffer: Optional[str] = None
 
-    Returns:
-        List containing (user_message, model_response) tuples, where model_response
-        is a string or a list of (strings or image tuples).
-    """
-    gradio_history: List[Tuple[Optional[str], Optional[Union[str, List[Union[str, Tuple[str, str]]]]]]] = []
-    user_message_accumulator: Optional[str] = None
+    for i, message_entry in enumerate(chat_log):
+        role = message_entry.get("role")
+        content = message_entry.get("content")
 
-    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
-
-    for msg in messages:
-        role = msg.get("role")
-        content = msg.get("content", "").strip()
-
-        if not content:
-            continue
+        print(f"DEBUG_UTILS_FORMAT_HISTORY: Processing entry {i}: Role='{role}', Content='{str(content)[:100] if content else 'None'}...'")
 
         if role == "user":
-            if user_message_accumulator is not None:
-                gradio_history.append((user_message_accumulator, None))
-
-            # Process current user message for display (same logic as before for attachments)
-            display_text_for_user_turn = content
-            file_attach_pattern = r"(\[file_attachment:(.*?);(.*?);(.*?)\])([\s\S]*)"
-            file_attach_match = re.match(file_attach_pattern, content)
-            text_file_pattern = r"(\[添付テキストファイル:(.*?)\])([\s\S]*)"
-            text_file_match = re.match(text_file_pattern, content)
-            timestamp_str = ""
-
-            if file_attach_match:
-                original_filename = file_attach_match.group(3)
-                mime_type = file_attach_match.group(4)
-                timestamp_str = file_attach_match.group(5).strip()
-                prefix = "添付ファイル:"
-                if mime_type.startswith("image/"): prefix = "画像:"
-                elif mime_type == "application/pdf": prefix = "PDF:"
-                elif mime_type.startswith("audio/"): prefix = "音声:"
-                elif mime_type.startswith("video/"): prefix = "動画:"
-                display_text_for_user_turn = f"{prefix} {original_filename}"
-            elif text_file_match:
-                original_filename = text_file_match.group(2)
-                timestamp_str = text_file_match.group(3).strip()
-                display_text_for_user_turn = f"添付テキスト: {original_filename}"
-            
-            if timestamp_str:
-                original_content_for_ts_check = file_attach_match.group(0) if file_attach_match else (text_file_match.group(0) if text_file_match else "")
-                original_timestamp_part = file_attach_match.group(5) if file_attach_match else (text_file_match.group(3) if text_file_match else "")
-                if original_timestamp_part.startswith(('\n', '\r')):
-                    display_text_for_user_turn += f"\n{timestamp_str}"
-                else:
-                    display_text_for_user_turn += f" ({timestamp_str})" if not display_text_for_user_turn.endswith(timestamp_str) else ""
-
-            user_message_accumulator = display_text_for_user_turn # Store as string
-
-        elif role == "model":
-            model_response_parts: List[Union[str, Tuple[str, str]]] = [] # Can contain strings or (filepath, alt_text) tuples
-
-            # 1. 思考ログの処理
-            thought_html_block = ""
-            thought_match = thoughts_pattern.search(content) # thoughts_pattern は既に定義済みとする
-            if thought_match:
-                thoughts_content = thought_match.group(1).strip()
-                if thoughts_content:
-                    thought_html_block = f"<div class='thoughts'><pre><code>{thoughts_content}</code></pre></div>"
-                    model_response_parts.append(thought_html_block)
-
-            # 2. 画像モデルからのテキスト応答/エラーメッセージを抽出
-            #    ログ形式: "[画像モデルからのテキスト]: エラー: ... " または "[ERROR]: 画像の生成に失敗しました。"
-            model_text_response_match = re.search(r"\[画像モデルからのテキスト\]: (.*)", content, re.DOTALL)
-            model_error_match = re.search(r"\[ERROR\]: (.*)", content, re.DOTALL)
-
-            model_text_content = ""
-            if model_text_response_match:
-                raw_model_text = model_text_response_match.group(1).strip()
-                # Simple approach: display raw_model_text. Can be refined later if needed.
-                # e.g. if "Traceback (most recent call last):" in raw_model_text: raw_model_text = "画像生成中にエラーが発生しました。"
-                model_text_content = raw_model_text
-            elif model_error_match: # [ERROR]: パターン
-                model_text_content = model_error_match.group(1).strip()
-
-            # 3. 生成された画像の情報を抽出
-            #    ログ形式: "[Generated Image: path/to/image.png]"
-            image_path_match = re.search(r"\[Generated Image: (.*?)\]", content)
-
-            if image_path_match:
-                image_path = image_path_match.group(1).strip()
-                if os.path.exists(image_path):
-                    image_filename = os.path.basename(image_path) # Used as alt_text
-                    model_response_parts.append((image_path, image_filename)) # Append tuple
-                    # If image is successfully displayed, model_text_content (which is likely an error from image gen)
-                    # might not be needed, unless it's a non-error text response from the image model.
-                    # For now, if an image is shown, we prioritize it over potentially redundant error text.
-                    # However, if model_text_content is a *caption* or *additional info*, this logic might need adjustment.
-                    # Based on current log format, it's usually an error if image_path also exists.
-                else:
-                    # Image path in log, but file not found
-                    model_response_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path)})]*")
-                    # In this case, showing model_text_content (if any) is useful.
-                    if model_text_content and model_text_content not in model_response_parts:
-                         model_response_parts.append(model_text_content)
-
-            elif model_text_content: # No image path matched, but there was a text/error from image model
-                # This becomes the primary way to show errors if image generation failed early
-                # or if the image model only returned text.
-                model_response_parts.append(model_text_content)
-
-            # Note: Lines like "[画像生成に使用されたプロンプト]: ..." are intentionally not added to model_response_parts.
-
-            # Determine final_model_output
-            final_model_output: Union[str, List[Union[str, Tuple[str, str]]]]
-            if not model_response_parts:
-                final_model_output = ""
-            elif len(model_response_parts) == 1:
-                final_model_output = model_response_parts[0] # This could be a string or a tuple
+            if user_buffer is not None:
+                # Previous user_buffer message did not get an assistant response, so add it with None for assistant
+                history.append([user_buffer, None])
+                print(f"DEBUG_UTILS_FORMAT_HISTORY: Appended buffered user message: ['{user_buffer[:50] if user_buffer else 'None'}...', None]")
+            user_buffer = content # Store current user message
+        elif role == "model" or role == "assistant":
+            if user_buffer is not None:
+                # This assistant message corresponds to the user_buffer
+                history.append([user_buffer, content])
+                print(f"DEBUG_UTILS_FORMAT_HISTORY: Appended pair: ['{user_buffer[:50] if user_buffer else 'None'}...', '{str(content)[:50] if content else 'None'}...']")
+                user_buffer = None  # Clear buffer as this pair is complete
             else:
-                final_model_output = model_response_parts # This is List[Union[str, Tuple[str,str]]]
+                # This assistant message has no preceding user message in buffer
+                # (e.g., history starts with assistant, or multiple assistant messages in a row after a pair)
+                history.append([None, content])
+                print(f"DEBUG_UTILS_FORMAT_HISTORY: Appended assistant message with no preceding user in buffer: [None, '{str(content)[:50] if content else 'None'}...']")
 
-            user_msg_to_display = user_message_accumulator
-            gradio_history.append((user_msg_to_display, final_model_output))
-            user_message_accumulator = None
+    # After the loop, if there's a lingering user message in user_buffer (i.e., the last message in chat_log was from user)
+    if user_buffer is not None:
+        history.append([user_buffer, None])
+        print(f"DEBUG_UTILS_FORMAT_HISTORY: Appended final buffered user message: ['{user_buffer[:50]if user_buffer else 'None'}...', None]")
 
-    if user_message_accumulator is not None:
-        gradio_history.append((user_message_accumulator, None))
+    if not history and chat_log:
+        print(f"DEBUG_UTILS_FORMAT_HISTORY: WARNING - Output history is empty but input chat_log was not (Length: {len(chat_log)}).")
+    elif not chat_log:
+        print(f"DEBUG_UTILS_FORMAT_HISTORY: Input chat_log was empty, output history is also empty.")
+    else:
+        print(f"DEBUG_UTILS_FORMAT_HISTORY: Output history (first 5 pairs): {history[:5]}")
+        print(f"DEBUG_UTILS_FORMAT_HISTORY: Output history (last 5 pairs): {history[-5:]}")
 
-    return gradio_history
+    return history
 
 
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
