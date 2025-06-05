@@ -1,3 +1,4 @@
+import re # Ensure re is imported at the very top
 import urllib.parse # Added for URL encoding
 # --- Custom Wrapper for format_history_for_gradio ---
 FILE_CONTENT_HEADER_PATTERN = r"--- 添付ファイル「(.*?)」の内容 ---.*"
