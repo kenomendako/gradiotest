@@ -208,7 +208,19 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             return f"応答取得エラー ({e}) ブロック理由: {response.prompt_feedback.block_reason}"
         return f"応答取得エラー ({e}) ブロック理由は不明"
 
-    return final_text_response.strip() if final_text_response is not None else "応答生成失敗 (空の応答)"
+    if final_text_response is not None:
+        final_text_response = final_text_response.strip()
+        # 再度思考ログ除去を試みる (念のため)
+        # th_pat はこの関数の前半で定義済み: re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
+        final_text_response = th_pat.sub("", final_text_response).strip()
+        # 思考ログ除去後に空になった場合の専用メッセージも考慮
+        if not final_text_response:
+            # このケースは、下の最終returnで処理されるので、ここでは何もしなくても良いか、
+            # より具体的なメッセージを返すこともできる。
+            # 例: return "応答が思考ログのみで構成されていました。本文がありません。"
+            pass # 下の return で処理
+
+    return final_text_response if final_text_response and final_text_response.strip() else "応答生成失敗 (空または思考ログのみの応答)"
 
 def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_model_name, api_key_name, log_file_path, alarm_api_history_turns):
     print(f"--- アラーム応答生成開始 (google-genai SDK, client.models.generate_content) --- キャラ: {character_name}, テーマ: '{theme}'")
