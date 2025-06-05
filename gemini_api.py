@@ -208,19 +208,37 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             return f"応答取得エラー ({e}) ブロック理由: {response.prompt_feedback.block_reason}"
         return f"応答取得エラー ({e}) ブロック理由は不明"
 
-    if final_text_response is not None:
-        final_text_response = final_text_response.strip()
-        # 再度思考ログ除去を試みる (念のため)
-        # th_pat はこの関数の前半で定義済み: re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
-        final_text_response = th_pat.sub("", final_text_response).strip()
-        # 思考ログ除去後に空になった場合の専用メッセージも考慮
-        if not final_text_response:
-            # このケースは、下の最終returnで処理されるので、ここでは何もしなくても良いか、
-            # より具体的なメッセージを返すこともできる。
-            # 例: return "応答が思考ログのみで構成されていました。本文がありません。"
-            pass # 下の return で処理
+    if final_text_response and isinstance(final_text_response, str):
+        print(f"DEBUG_GEMINI_API: Initial final_text_response: '{final_text_response[:500]}'")
 
-    return final_text_response if final_text_response and final_text_response.strip() else "応答生成失敗 (空または思考ログのみの応答)"
+        # 1. 【Thoughts】...【/Thoughts】 の除去
+        # th_pat はこの関数の前半で定義済み
+        processed_text_step1 = th_pat.sub("", final_text_response).strip()
+        print(f"DEBUG_GEMINI_API: After th_pat removal: '{processed_text_step1[:500]}'")
+
+        # 2. HTML形式の思考ログ <div class='thoughts'><pre><code>...</code></pre></div> の除去
+        html_th_pat = re.compile(r"<div class='thoughts'>\s*<pre>\s*<code>.*?</code>\s*</pre>\s*</div>\s*", re.DOTALL | re.IGNORECASE)
+        processed_text_step2 = html_th_pat.sub("", processed_text_step1).strip()
+        print(f"DEBUG_GEMINI_API: After html_th_pat removal: '{processed_text_step2[:500]}'")
+
+        final_text_response = processed_text_step2
+    elif final_text_response is None:
+        print(f"DEBUG_GEMINI_API: final_text_response was initially None.")
+        return "応答取得エラー (詳細はサーバーログ確認)" # None の場合はここでリターン
+    else: # 文字列ではない場合
+        print(f"DEBUG_GEMINI_API: final_text_response was not a string: {type(final_text_response)}, Value: {str(final_text_response)[:200]}")
+        return "応答形式エラー (詳細はサーバーログ確認)" # 文字列でない場合はここでリターン
+
+    # 最終的な返却直前のデバッグprint (これは前回サブタスクで追加済みのものとほぼ同じだが、型チェックを強化)
+    if final_text_response is not None and isinstance(final_text_response, str):
+        print(f"DEBUG_GEMINI_API: final_text_response before returning (stripped): '{final_text_response.strip()[:500]}' (Length: {len(final_text_response.strip())}, Type: {type(final_text_response)})")
+        return final_text_response.strip() # strip() は最後に行う
+    # 思考ログ除去の結果、空文字列になった場合もそのまま返す
+    # None やその他の型の場合は上で既にリターンされているはず
+    else: # このelseは通常通らないはずだが、念のため
+        print(f"DEBUG_GEMINI_API: final_text_response before returning is unexpected: Type {type(final_text_response)}, Value: {str(final_text_response)[:200]}")
+        return "応答処理エラー (詳細はサーバーログ確認)"
+
 
 def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_model_name, api_key_name, log_file_path, alarm_api_history_turns):
     print(f"--- アラーム応答生成開始 (google-genai SDK, client.models.generate_content) --- キャラ: {character_name}, テーマ: '{theme}'")

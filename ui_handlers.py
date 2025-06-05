@@ -537,11 +537,20 @@ If the idea is already a good prompt, output it as is.
                 memory_json_path=mem_p
             )
 
+            if api_response_text is not None:
+                print(f"DEBUG_UI_HANDLERS: api_response_text received: '{api_response_text[:500]}' (Length: {len(api_response_text)}, Type: {type(api_response_text)})")
+            else:
+                print(f"DEBUG_UI_HANDLERS: api_response_text received is None (Type: {type(api_response_text)})")
+
             if api_response_text and isinstance(api_response_text, str) and \
                not (api_response_text.strip().startswith("エラー:") or \
                     api_response_text.strip().startswith("API通信エラー:") or \
                     api_response_text.strip().startswith("応答取得エラー") or \
                     api_response_text.strip().startswith("応答生成失敗")):
+                if api_response_text is not None:
+                    print(f"DEBUG_UI_HANDLERS: api_response_text before saving to log: '{api_response_text[:500]}' (Length: {len(api_response_text)}, Type: {type(api_response_text)})")
+                else:
+                    print(f"DEBUG_UI_HANDLERS: api_response_text before saving to log is None (Type: {type(api_response_text)})")
                 save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
             else:
                 api_err = api_response_text or "APIから有効な応答がありませんでした。"
