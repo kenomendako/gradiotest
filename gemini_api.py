@@ -2,7 +2,6 @@
 import google.genai as genai
 from google.genai import types
 from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig # Added GenerateImagesConfig
-from google.ai.generativelanguage import HarmCategory, SafetySetting
 import os
 import json
 import google.api_core.exceptions
