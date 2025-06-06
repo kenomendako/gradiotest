@@ -127,22 +127,25 @@ def format_response_for_display(response_text: Optional[str]) -> str:
 
 def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, List[Union[str, Tuple[str, str]]]]]]]:
     """
-    Converts a list of message dictionaries into Gradio's chatbot history format.
-    User messages are strings. Model messages can be strings (Markdown) or lists
-    containing strings (Markdown) and image tuples (filepath, alt_text).
-
-    Args:
-        messages (List[Dict[str, str]]): List of message dictionaries.
-
-    Returns:
-        List containing (user_message, model_response) tuples, where model_response
-        is a string or a list of (strings or image tuples).
+    チャットログをGradioのChatbot形式に変換します。
+    - ユーザーのテキストファイル添付をファイル名表示に置換します。
+    - AIの応答を「思考ログ」「本文」「生成画像」に正しく分離・結合します。
+    - Gradioが応答テキストをファイルパスと誤認してOSErrorを起こす問題を回避します。
     """
     gradio_history: List[Tuple[Optional[str], Optional[Union[str, List[Union[str, Tuple[str, str]]]]]]] = []
     user_message_accumulator: Optional[str] = None
 
+    # --- 正規表現パターンの事前コンパイル ---
+    # ユーザーメッセージ内の添付テキストファイルパターン
+    text_file_content_pattern = re.compile(r"--- 添付ファイル「(.*?)」の内容 ---
+.*", re.DOTALL)
+
+    # AI応答内の思考ログパターン
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
+
+    # AI応答内の画像タグパターン
+    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]", re.DOTALL)
+
 
     for msg in messages:
         role = msg.get("role")
@@ -154,111 +157,69 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
         if role == "user":
             if user_message_accumulator is not None:
                 gradio_history.append((user_message_accumulator, None))
+                user_message_accumulator = None
 
-            # Process current user message for display (same logic as before for attachments)
-            # 添付テキストファイルの内容全体を、ファイル名表示に置換する正規表現
-            text_file_content_pattern = re.compile(r"--- 添付ファイル「(.*?)」の内容 ---
-.*", re.DOTALL)
-            content = text_file_content_pattern.sub(r"[添付テキストファイル: ]", content)
-            display_text_for_user_turn = content
-            file_attach_pattern = r"(\[file_attachment:(.*?);(.*?);(.*?)\])([\s\S]*)"
-            file_attach_match = re.match(file_attach_pattern, content)
-            text_file_pattern = r"(\[添付テキストファイル:(.*?)\])([\s\S]*)"
-            text_file_match = re.match(text_file_pattern, content)
-            timestamp_str = ""
-
-            if file_attach_match:
-                original_filename = file_attach_match.group(3)
-                mime_type = file_attach_match.group(4)
-                timestamp_str = file_attach_match.group(5).strip()
-                prefix = "添付ファイル:"
-                if mime_type.startswith("image/"): prefix = "画像:"
-                elif mime_type == "application/pdf": prefix = "PDF:"
-                elif mime_type.startswith("audio/"): prefix = "音声:"
-                elif mime_type.startswith("video/"): prefix = "動画:"
-                display_text_for_user_turn = f"{prefix} {original_filename}"
-            elif text_file_match:
-                original_filename = text_file_match.group(2)
-                timestamp_str = text_file_match.group(3).strip()
-                display_text_for_user_turn = f"添付テキスト: {original_filename}"
-            
-            if timestamp_str:
-                original_content_for_ts_check = file_attach_match.group(0) if file_attach_match else (text_file_match.group(0) if text_file_match else "")
-                original_timestamp_part = file_attach_match.group(5) if file_attach_match else (text_file_match.group(3) if text_file_match else "")
-                if original_timestamp_part.startswith(('\n', '\r')):
-                    display_text_for_user_turn += f"\n{timestamp_str}"
-                else:
-                    display_text_for_user_turn += f" ({timestamp_str})" if not display_text_for_user_turn.endswith(timestamp_str) else ""
-
-            user_message_accumulator = display_text_for_user_turn # Store as string
+            # UI表示用に、添付テキストファイルの内容をファイル名表示に置換する
+            display_text = text_file_content_pattern.sub(r"添付テキスト: ", content)
+            user_message_accumulator = display_text
 
         elif role == "model":
-            model_response_parts: List[Union[str, Tuple[str, str]]] = [] # Can contain strings or (filepath, alt_text) tuples
+            # --- AIの応答を安全にレンダリングする ---
+            remaining_content = content
 
-            # 1. 思考ログの処理
-            thought_html_block = ""
-            thought_match = thoughts_pattern.search(content) # thoughts_pattern は既に定義済みとする
+            # 1. 思考ログを抽出してHTML化
+            thought_html = ""
+            thought_match = thoughts_pattern.search(remaining_content)
             if thought_match:
-                thoughts_content = thought_match.group(1).strip()
-                if thoughts_content:
-                    thought_html_block = f"<div class='thoughts'><pre><code>{thoughts_content}</code></pre></div>"
-                    model_response_parts.append(thought_html_block)
+                thought_text = thought_match.group(1).strip()
+                if thought_text:
+                    # GradioがMarkdownとして解釈できるよう、pre/codeで囲む
+                    thought_html = f"<div class='thoughts'><pre><code>{thought_text}</code></pre></div>"
+                # 元のテキストから思考ログ部分を削除
+                remaining_content = thoughts_pattern.sub("", remaining_content).strip()
 
-            # 2. 画像モデルからのテキスト応答/エラーメッセージを抽出
-            #    ログ形式: "[画像モデルからのテキスト]: エラー: ... " または "[ERROR]: 画像の生成に失敗しました。"
-            model_text_response_match = re.search(r"\[画像モデルからのテキスト\]: (.*)", content, re.DOTALL)
-            model_error_match = re.search(r"\[ERROR\]: (.*)", content, re.DOTALL)
-
-            model_text_content = ""
-            if model_text_response_match:
-                raw_model_text = model_text_response_match.group(1).strip()
-                # Simple approach: display raw_model_text. Can be refined later if needed.
-                # e.g. if "Traceback (most recent call last):" in raw_model_text: raw_model_text = "画像生成中にエラーが発生しました。"
-                model_text_content = raw_model_text
-            elif model_error_match: # [ERROR]: パターン
-                model_text_content = model_error_match.group(1).strip()
-
-            # 3. 生成された画像の情報を抽出
-            #    ログ形式: "[Generated Image: path/to/image.png]"
-            image_path_match = re.search(r"\[Generated Image: (.*?)\]", content)
-
-            if image_path_match:
-                image_path = image_path_match.group(1).strip()
+            # 2. 画像を抽出
+            image_parts = []
+            for match in image_tag_pattern.finditer(remaining_content):
+                image_path = match.group(1).strip()
                 if os.path.exists(image_path):
-                    image_filename = os.path.basename(image_path) # Used as alt_text
-                    model_response_parts.append((image_path, image_filename)) # Append tuple
-                    # If image is successfully displayed, model_text_content (which is likely an error from image gen)
-                    # might not be needed, unless it's a non-error text response from the image model.
-                    # For now, if an image is shown, we prioritize it over potentially redundant error text.
-                    # However, if model_text_content is a *caption* or *additional info*, this logic might need adjustment.
-                    # Based on current log format, it's usually an error if image_path also exists.
-                else:
-                    # Image path in log, but file not found
-                    model_response_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path)})]*")
-                    # In this case, showing model_text_content (if any) is useful.
-                    if model_text_content and model_text_content not in model_response_parts:
-                         model_response_parts.append(model_text_content)
+                    image_parts.append((image_path, os.path.basename(image_path)))
+            # 元のテキストから画像タグを削除
+            remaining_content = image_tag_pattern.sub("", remaining_content).strip()
 
-            elif model_text_content: # No image path matched, but there was a text/error from image model
-                # This becomes the primary way to show errors if image generation failed early
-                # or if the image model only returned text.
-                model_response_parts.append(model_text_content)
+            # 3. 最終的な表示要素を組み立てる
+            final_model_output_parts = []
 
-            # Note: Lines like "[画像生成に使用されたプロンプト]: ..." are intentionally not added to model_response_parts.
+            # 残った本文と思考ログを結合したテキスト部分を作成
+            final_text_part = ""
+            if thought_html:
+                final_text_part += thought_html
+            if remaining_content:
+                # 思考ログと本文の間に改行を入れる
+                if final_text_part:
+                    final_text_part += "\n\n"
+                final_text_part += remaining_content
 
-            # Determine final_model_output
-            final_model_output: Union[str, List[Union[str, Tuple[str, str]]]]
-            if not model_response_parts:
-                final_model_output = ""
-            elif len(model_response_parts) == 1:
-                final_model_output = model_response_parts[0] # This could be a string or a tuple
-            else:
-                final_model_output = model_response_parts # This is List[Union[str, Tuple[str,str]]]
+            # テキスト部分があればリストに追加
+            if final_text_part:
+                final_model_output_parts.append(final_text_part)
 
-            user_msg_to_display = user_message_accumulator
-            gradio_history.append((user_msg_to_display, final_model_output))
+            # 画像部分があればリストに追加
+            if image_parts:
+                final_model_output_parts.extend(image_parts)
+
+            # --- Gradioへの最終的な戻り値を決定 ---
+            final_output_for_gradio = None
+            if len(final_model_output_parts) == 1:
+                final_output_for_gradio = final_model_output_parts[0]
+            elif len(final_model_output_parts) > 1:
+                final_output_for_gradio = final_model_output_parts
+
+            # ユーザーメッセージとAI応答をペアで追加
+            gradio_history.append((user_message_accumulator, final_output_for_gradio))
             user_message_accumulator = None
 
+    # ループ後にまだユーザーメッセージが残っていれば追加
     if user_message_accumulator is not None:
         gradio_history.append((user_message_accumulator, None))
 
