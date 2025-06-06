@@ -125,27 +125,24 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
+#
+# utils.py にこの新しい関数を貼り付けて、古い関数を完全に削除してください
+#
 def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, List[Union[str, Tuple[str, str]]]]]]]:
     """
     チャットログをGradioのChatbot形式に変換します。
     - ユーザーのテキストファイル添付をファイル名表示に置換します。
     - AIの応答を「思考ログ」「本文」「生成画像」に正しく分離・結合します。
-    - Gradioが応答テキストをファイルパスと誤認してOSErrorを起こす問題を回避します。
+    - Gradioが応答をファイルパスと誤認してOSErrorやValidationErrorを起こす問題を回避します。
     """
     gradio_history: List[Tuple[Optional[str], Optional[Union[str, List[Union[str, Tuple[str, str]]]]]]] = []
     user_message_accumulator: Optional[str] = None
 
     # --- 正規表現パターンの事前コンパイル ---
-    # ユーザーメッセージ内の添付テキストファイルパターン
     text_file_content_pattern = re.compile(r"""--- 添付ファイル「(.*?)」の内容 ---
 .*""", re.DOTALL)
-
-    # AI応答内の思考ログパターン
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-
-    # AI応答内の画像タグパターン
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]", re.DOTALL)
-
 
     for msg in messages:
         role = msg.get("role")
@@ -159,23 +156,19 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                 gradio_history.append((user_message_accumulator, None))
                 user_message_accumulator = None
 
-            # UI表示用に、添付テキストファイルの内容をファイル名表示に置換する
             display_text = text_file_content_pattern.sub(r"添付テキスト: ", content)
             user_message_accumulator = display_text
 
         elif role == "model":
-            # --- AIの応答を安全にレンダリングする ---
             remaining_content = content
 
-            # 1. 思考ログを抽出してHTML化
+            # 1. 思考ログを抽出
             thought_html = ""
             thought_match = thoughts_pattern.search(remaining_content)
             if thought_match:
                 thought_text = thought_match.group(1).strip()
                 if thought_text:
-                    # GradioがMarkdownとして解釈できるよう、pre/codeで囲む
                     thought_html = f"<div class='thoughts'><pre><code>{thought_text}</code></pre></div>"
-                # 元のテキストから思考ログ部分を削除
                 remaining_content = thoughts_pattern.sub("", remaining_content).strip()
 
             # 2. 画像を抽出
@@ -184,42 +177,39 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                 image_path = match.group(1).strip()
                 if os.path.exists(image_path):
                     image_parts.append((image_path, os.path.basename(image_path)))
-            # 元のテキストから画像タグを削除
             remaining_content = image_tag_pattern.sub("", remaining_content).strip()
 
-            # 3. 最終的な表示要素を組み立てる
+            # 3. 表示要素を組み立てる
             final_model_output_parts = []
-
-            # 残った本文と思考ログを結合したテキスト部分を作成
             final_text_part = ""
+
             if thought_html:
                 final_text_part += thought_html
             if remaining_content:
-                # 思考ログと本文の間に改行を入れる
                 if final_text_part:
                     final_text_part += "\n\n"
                 final_text_part += remaining_content
 
-            # テキスト部分があればリストに追加
             if final_text_part:
                 final_model_output_parts.append(final_text_part)
 
-            # 画像部分があればリストに追加
             if image_parts:
                 final_model_output_parts.extend(image_parts)
 
-            # --- Gradioへの最終的な戻り値を決定 ---
+            # --- ▼▼▼ ここが最重要修正点 ▼▼▼ ---
             final_output_for_gradio = None
-            if len(final_model_output_parts) == 1:
-                final_output_for_gradio = final_model_output_parts[0]
-            elif len(final_model_output_parts) > 1:
-                final_output_for_gradio = final_model_output_parts
+            if final_model_output_parts: # リストが空でない場合
+                # リストの要素が1つだけで、かつそれが文字列の場合のみ、文字列として直接返す
+                if len(final_model_output_parts) == 1 and isinstance(final_model_output_parts[0], str): # Corrected: check type of element
+                    final_output_for_gradio = final_model_output_parts[0] # Corrected: access element
+                else:
+                    # それ以外の場合（画像のみ、テキストと画像など）は、必ずリストとして返す
+                    final_output_for_gradio = final_model_output_parts
+            # --- ▲▲▲ 修正点ここまで ▲▲▲ ---
 
-            # ユーザーメッセージとAI応答をペアで追加
             gradio_history.append((user_message_accumulator, final_output_for_gradio))
             user_message_accumulator = None
 
-    # ループ後にまだユーザーメッセージが残っていれば追加
     if user_message_accumulator is not None:
         gradio_history.append((user_message_accumulator, None))
 
