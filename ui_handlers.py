@@ -149,6 +149,18 @@ def _process_uploaded_files(
                         break
                 if content_to_add is not None:
                     consolidated_text += f"\n\n--- 添付ファイル「{original_filename}」---"
+                    # Save text file to attachments and add to files_for_api
+                    unique_filename_for_attachment = f"{uuid.uuid4()}{file_extension}"
+                    saved_attachment_path = os.path.join(ATTACHMENTS_DIR, unique_filename_for_attachment)
+                    try:
+                        shutil.copy2(temp_file_path, saved_attachment_path)
+                        files_for_api.append({
+                            'path': saved_attachment_path,
+                            'mime_type': mime_type,
+                            'original_filename': original_filename
+                        })
+                    except Exception as e_copy:
+                        error_messages.append(f"添付テキストファイル保存エラー ({original_filename}): {str(e_copy)}")
                 elif not any(msg.startswith(f"ファイル読込エラー ({original_filename}") for msg in error_messages):
                     error_messages.append(f"ファイルデコード失敗 ({original_filename}): 全てのエンコーディング試行に失敗しました。")
             
@@ -254,6 +266,7 @@ def handle_message_submission(
     error_message = ""
     original_user_text_on_entry = textbox_content.strip() if textbox_content else ""
     image_path = None # Initialize image_path here for broader scope
+    api_response_logged_successfully = False # Initialize here
 
     # 1. Input Validation
     validation_error = _validate_submission_inputs(current_character_name, current_model_name, current_api_key_name_state)
@@ -542,6 +555,7 @@ If the idea is already a good prompt, output it as is.
                     api_response_text.strip().startswith("応答取得エラー") or \
                     api_response_text.strip().startswith("応答生成失敗")):
                 save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
+                api_response_logged_successfully = True
             else:
                 api_err = api_response_text or "APIから有効な応答がありませんでした。"
                 error_message = (error_message + "\n" if error_message else "") + api_err
@@ -556,16 +570,18 @@ If the idea is already a good prompt, output it as is.
         return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message.strip()
 
     # Update Chat History and Return (common for both /gazo and normal messages)
-    if not error_message or image_path: # If /gazo was successful (image_path exists), error_message might be a text response
+    if original_user_text_on_entry.startswith("/gazo "):
+        # For /gazo commands, always reload the log as it always produces some log output (success or error messages).
         new_log = load_chat_log(log_f, current_character_name)
         new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
-    else: # If there was an error (and for /gazo, image_path is None)
-        # If it was a /gazo error, it's already logged. We need to load history.
-        if original_user_text_on_entry.startswith("/gazo "):
-            new_log = load_chat_log(log_f, current_character_name)
-            new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
-        else: # For non-/gazo errors, keep old history if API call failed.
-            new_hist = chatbot_history
+    elif api_response_logged_successfully:
+        # For normal messages, if the AI response was successfully logged.
+        new_log = load_chat_log(log_f, current_character_name)
+        new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
+    else:
+        # No /gazo, and AI response was not successfully logged (due to API error, empty response, or other pre-API critical error).
+        # Or if an exception occurred before/during API call for normal message.
+        new_hist = chatbot_history
 
     return new_hist, gr.update(value=""), gr.update(value=None), error_message.strip()
 
