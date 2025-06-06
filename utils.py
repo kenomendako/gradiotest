@@ -156,6 +156,10 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                 gradio_history.append((user_message_accumulator, None))
 
             # Process current user message for display (same logic as before for attachments)
+            # 添付テキストファイルの内容全体を、ファイル名表示に置換する正規表現
+            text_file_content_pattern = re.compile(r"--- 添付ファイル「(.*?)」の内容 ---
+.*", re.DOTALL)
+            content = text_file_content_pattern.sub(r"[添付テキストファイル: ]", content)
             display_text_for_user_turn = content
             file_attach_pattern = r"(\[file_attachment:(.*?);(.*?);(.*?)\])([\s\S]*)"
             file_attach_match = re.match(file_attach_pattern, content)
