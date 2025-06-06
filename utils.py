@@ -249,11 +249,9 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             # 4. Final Output Assembly for final_model_output
             final_model_output: Union[str, List[Union[str, Tuple[str, str]]]]
             if not model_response_parts:
-                final_model_output = ""  # Should ideally not happen if there was original content
-            elif len(model_response_parts) == 1:
-                final_model_output = model_response_parts[0]
+                final_model_output = ""
             else:
-                final_model_output = model_response_parts
+                final_model_output = model_response_parts # Always assign the list if it's not empty
 
             user_msg_to_display = user_message_accumulator # This should be a string or None
             gradio_history.append((user_msg_to_display, final_model_output))
