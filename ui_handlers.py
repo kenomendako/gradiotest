@@ -148,7 +148,7 @@ def _process_uploaded_files(
                         content_to_add = None
                         break
                 if content_to_add is not None:
-                    consolidated_text += f"\n\n--- 添付ファイル「{original_filename}」の内容 ---\n{content_to_add}"
+                    consolidated_text += f"\n\n--- 添付ファイル「{original_filename}」---"
                 elif not any(msg.startswith(f"ファイル読込エラー ({original_filename}") for msg in error_messages):
                     error_messages.append(f"ファイルデコード失敗 ({original_filename}): 全てのエンコーディング試行に失敗しました。")
             
