@@ -111,7 +111,7 @@ def _process_uploaded_files(
             - files_for_api (List[Dict[str, str]]): API送信用ファイル情報（パス、MIMEタイプなど）のリスト。
             - error_messages (List[str]): ファイル処理中に発生したエラーメッセージのリスト。
     """
-    consolidated_text = ""
+    consolidated_text = "" # This will now primarily collect errors or non-content text, not file contents.
     files_for_api: List[Dict[str, str]] = []
     error_messages: List[str] = []
 
@@ -133,36 +133,33 @@ def _process_uploaded_files(
             mime_type = file_type_info["mime_type"]
             category = file_type_info["category"]
 
+            # Common processing for all file types: copy to attachments and prepare entry for files_for_api
+            unique_filename_for_attachment = f"{uuid.uuid4()}{file_extension}"
+            saved_attachment_path = os.path.join(ATTACHMENTS_DIR, unique_filename_for_attachment)
+            shutil.copy2(temp_file_path, saved_attachment_path)
+
+            file_api_entry = {
+                'path': saved_attachment_path,
+                'mime_type': mime_type,
+                'original_filename': original_filename,
+                'category': category # Store original category
+            }
+
             if category == 'text':
-                content_to_add = None
-                encodings_to_try = ['utf-8', 'shift_jis', 'cp932', 'euc-jp', 'iso2022-jp', 'latin1']
-                for enc in encodings_to_try:
-                    try:
-                        with open(temp_file_path, 'r', encoding=enc) as f_content:
-                            content_to_add = f_content.read()
-                        break
-                    except UnicodeDecodeError:
-                        continue
-                    except Exception as e_file_read:
-                        error_messages.append(f"ファイル読込エラー ({original_filename}, encoding {enc}): {str(e_file_read)}")
-                        content_to_add = None
-                        break
-                if content_to_add is not None:
-                    consolidated_text += f"\n\n--- 添付ファイル「{original_filename}」の内容 ---\n{content_to_add}"
-                elif not any(msg.startswith(f"ファイル読込エラー ({original_filename}") for msg in error_messages):
-                    error_messages.append(f"ファイルデコード失敗 ({original_filename}): 全てのエンコーディング試行に失敗しました。")
+                # For text files, we mark them so _log_user_interaction can create the correct log stub.
+                # The content is NOT read into consolidated_text here.
+                # The API will receive the path and read it itself if needed.
+                file_api_entry['log_as_filename_stub'] = True # Marker for text files
+                # Optionally, could still try to read for basic validation, but not add to consolidated_text
+                try:
+                    with open(temp_file_path, 'r', encoding='utf-8') as f_test_read: # Quick test read
+                        f_test_read.read(1024) # Try reading a small part
+                except Exception as e_read_test:
+                    error_messages.append(f"テキストファイル ({original_filename}) の簡易読み込みテスト失敗: {e_read_test}")
+                    # Decide if this error prevents adding to files_for_api or just note it
+                    # For now, let's assume it's still added for API, but error is noted.
             
-            elif category in ['image', 'pdf', 'audio', 'video']:
-                unique_filename_for_attachment = f"{uuid.uuid4()}{file_extension}"
-                saved_attachment_path = os.path.join(ATTACHMENTS_DIR, unique_filename_for_attachment)
-                shutil.copy2(temp_file_path, saved_attachment_path)
-                files_for_api.append({
-                    'path': saved_attachment_path,
-                    'mime_type': mime_type,
-                    'original_filename': original_filename
-                })
-            else:
-                 error_messages.append(f"未定義カテゴリ '{category}' のファイル: {original_filename}")
+            files_for_api.append(file_api_entry)
 
         except Exception as e_process:
             error_messages.append(f"ファイル処理中エラー ({original_filename}): {str(e_process)}")
@@ -193,30 +190,37 @@ def _log_user_interaction(
     """
     timestamp_applied_for_action = False
 
-    # 1. Log the original user text input (if any) combined with text from files
-    combined_text_for_log = original_user_text
-    if text_from_files:
-        if combined_text_for_log: # If there's original text, add a separator
-            combined_text_for_log += "\n" + text_from_files
-        else: # If no original text, text_from_files is the main message
-            combined_text_for_log = text_from_files
+    # 1. Log the original user text input (if any)
+    # text_from_files (consolidated_text) no longer contains file content, so it's not added here.
+    # It might contain error messages from _process_uploaded_files if that's how it's designed,
+    # but for this change, we assume it's empty or irrelevant for direct logging with user text.
     
-    if combined_text_for_log.strip():
-        if add_timestamp_checkbox:
-            combined_text_for_log += user_action_timestamp_str
-            timestamp_applied_for_action = True
-        save_message_to_log(log_file_path, user_header, combined_text_for_log)
+    log_content_parts = []
+    if original_user_text.strip():
+        log_content_parts.append(original_user_text.strip())
 
-    # 2. Log non-text file attachments
+    # 2. Log file attachments using their respective stub formats
     for i, file_info in enumerate(files_for_api):
-        # Use 'path' which is the key for the saved path in files_for_api
-        log_entry_for_file = f"[ファイル添付: {file_info.get('path')};{file_info.get('original_filename', '不明なファイル')};{file_info.get('mime_type', '不明なMIMEタイプ')}]"
-        if add_timestamp_checkbox and not timestamp_applied_for_action:
-            # If no text message got the timestamp, or if logging files separately is desired,
-            # apply timestamp to the first file (or all, depending on desired granularity not implemented here)
-            log_entry_for_file += user_action_timestamp_str
-            timestamp_applied_for_action = True # Ensure timestamp is added at most once per user action via this function
-        save_message_to_log(log_file_path, user_header, log_entry_for_file)
+        log_entry_for_file = ""
+        if file_info.get('log_as_filename_stub'): # Marker for text files
+            log_entry_for_file = f"[添付テキストファイル:{file_info.get('original_filename', '不明なファイル')}]"
+        else: # For other files (images, pdfs, etc.)
+            log_entry_for_file = f"[ファイル添付:{file_info.get('path')};{file_info.get('original_filename', '不明なファイル')};{file_info.get('mime_type', '不明なMIMEタイプ')}]"
+
+        log_content_parts.append(log_entry_for_file)
+
+    if not log_content_parts: # Nothing to log (no text, no files)
+        return
+
+    # Combine all parts into a single log message for the user's turn
+    final_log_message_for_user_turn = "\n".join(log_content_parts)
+
+    if add_timestamp_checkbox:
+        final_log_message_for_user_turn += user_action_timestamp_str
+        # timestamp_applied_for_action = True # This variable is no longer needed here as we form one message.
+
+    save_message_to_log(log_file_path, user_header, final_log_message_for_user_turn)
+
 
 def handle_message_submission(
     textbox_content: Optional[str], # Renamed from textbox for clarity
@@ -288,13 +292,14 @@ def handle_message_submission(
     if file_processing_errors:
         error_message = (error_message + "\n" if error_message else "") + "\n".join(file_processing_errors)
 
-    # 5. Prepare final text for API (combined original text and text from files)
+    # 5. Prepare final text for API (original text only; file content is now in files_for_gemini_api with paths)
+    # text_from_files (which is consolidated_text) is no longer used to build api_text_arg.
+    # The API will now receive paths to *all* uploaded files, including text files.
     api_text_arg = original_user_text_on_entry
-    if text_from_files:
-        api_text_arg = (api_text_arg + "\n" + text_from_files).strip() if api_text_arg else text_from_files.strip()
+    # No need to add text_from_files to api_text_arg anymore.
 
     # Check if there's anything to send (This check is re-evaluated after /gazo check)
-    # if not api_text_arg.strip() and not files_for_gemini_api:
+    # if not api_text_arg.strip() and not files_for_gemini_api: # files_for_gemini_api now includes text files
     #     pass # Moved this check lower
 
     # --- Main processing block ---
@@ -445,7 +450,8 @@ If the idea is already a good prompt, output it as is.
                         elif len(final_candidate_from_lines) > max_prompt_len:
                             refinement_issues_notes = f"(絞り込み後のプロンプト候補が長すぎるため ({len(final_candidate_from_lines)} > {max_prompt_len}文字)、元のプロンプトを使用します。)"
                         else: # Too many newlines
-                            refinement_issues_notes = f"(絞り込み後のプロンプト候補に改行が多すぎるため ({final_candidate_from_lines.count('\n')} >= {max_newlines})、元のプロンプトを使用します。)"
+                            newline_count_in_candidate = final_candidate_from_lines.count('\n')
+                            refinement_issues_notes = f"(絞り込み後のプロンプト候補に改行が多すぎるため ({newline_count_in_candidate} >= {max_newlines})、元のプロンプトを使用します。)"
                         print(f"警告: {refinement_issues_notes} Candidate was: '{final_candidate_from_lines[:max_prompt_len+50]}...'")
                         use_initial_prompt_due_to_refinement_issue = True
 

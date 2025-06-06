@@ -1,0 +1,2 @@
+This is a test file for upload verification.
+The content should not appear in the user's chat display, only the filename.

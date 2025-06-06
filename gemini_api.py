@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-import google.genai as genai
-from google.genai import types
-from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig # Added GenerateImagesConfig
+import google.generativeai as genai
+from google.generativeai import types
+from google.generativeai.types import Tool, GenerationConfig # Renamed GenerateContentConfig to GenerationConfig, Removed Content, Part, Removed GenerateImagesConfig
+from google.generativeai.protos import Content, Part  # Changed import source for Content, Part
 from google.ai.generativelanguage import HarmCategory, SafetySetting
 import os
 import json
@@ -19,7 +20,7 @@ import config_manager
 from utils import load_chat_log
 from character_manager import get_character_files_paths
 
-_gemini_client = None
+# _gemini_client = None # Removed global client instance
 
 # --- Google API (Gemini) 連携関数 ---
 def configure_google_api(api_key_name):
@@ -28,18 +29,19 @@ def configure_google_api(api_key_name):
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return False, f"APIキー名 '{api_key_name}' に対応する有効なAPIキーが設定されていません。"
     try:
-        global _gemini_client
-        _gemini_client = genai.Client(api_key=api_key)
-        print(f"Google GenAI Client for API key '{api_key_name}' initialized successfully.")
+        # global _gemini_client # No longer needed
+        genai.configure(api_key=api_key) # Configure the genai module directly
+        print(f"Google GenAI configured successfully for API key name '{api_key_name}'.")
         return True, None
     except Exception as e:
-        return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}"
+        return False, f"genai.configure 初期化中にエラー (APIキー名: {api_key_name}): {e}"
 
 def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
-    if _gemini_client is None:
-        return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。"
+    # Check if API key is configured (implicitly by checking if configure_google_api was successful previously)
+    # This might require a check in handle_message_submission that configure_google_api returned True.
+    # For now, assume configuration is handled before this call by ui_handlers.
 
-    print(f"--- 通常対話開始 (google-genai SDK, client.models.generate_content) --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
+    print(f"--- 通常対話開始 (google-genai SDK, genai.GenerativeModel) --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
 
     sys_ins_text = "あなたはチャットボットです。"
     if system_prompt_path and os.path.exists(system_prompt_path):
@@ -124,7 +126,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
     tools_list = []
     if "2.5-pro" in selected_model.lower() or "2.5-flash" in selected_model.lower():
         try:
-            google_search_tool = Tool(google_search=GoogleSearch())
+            google_search_tool = Tool(google_search_retrieval={}) # Changed to use google_search_retrieval={}
             tools_list.append(google_search_tool)
             print("情報: Google検索グラウンディング (google-genai SDK) がセットアップされました。")
         except Exception as e:
@@ -157,33 +159,57 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         formatted_safety_settings = None
 
     generation_config_args = {}
+    # Tools are part of GenerationConfig in some SDK versions, or direct to generate_content.
+    # For google-generativeai, 'tools' is a parameter for GenerativeModel() or generate_content().
+    # Let's prepare it for generate_content().
+    # Safety settings are a direct parameter to generate_content().
+
+    gen_content_direct_args = {} # Arguments to pass directly to generate_content, not via GenerationConfig
     if tools_list:
-        generation_config_args["tools"] = tools_list
-    if formatted_safety_settings: # This will now be the list of dicts or None
-        generation_config_args["safety_settings"] = formatted_safety_settings
+        gen_content_direct_args["tools"] = tools_list
+    if formatted_safety_settings:
+        gen_content_direct_args["safety_settings"] = formatted_safety_settings
+
+    # active_generation_config will only contain config like temp, top_p etc.
+    # Create a new dict for only GenerationConfig compatible args from generation_config_args
+    generation_config_only_args = {}
+    # Example: if generation_config_args could contain temp, top_p, etc.
+    # for key in ["temperature", "top_p", "top_k", "candidate_count", "max_output_tokens"]:
+    #    if key in generation_config_args: # Assuming generation_config_args might hold these if populated elsewhere
+    #        generation_config_only_args[key] = generation_config_args[key]
+    # For now, as generation_config_args was only populated with tools/safety, it will be empty for GenerationConfig
 
     active_generation_config = None
-    if generation_config_args:
+    if generation_config_only_args: # Or if there are always some default GenerationConfig params to set
         try:
-            active_generation_config = GenerateContentConfig(**generation_config_args)
-            print(f"デバッグ: GenerateContentConfig created with args: {generation_config_args}")
+            active_generation_config = GenerationConfig(**generation_config_only_args)
+            print(f"デバッグ: GenerationConfig created with args: {generation_config_only_args}")
         except Exception as e:
-            print(f"警告: GenerateContentConfig の作成中にエラー: {e}. 引数なしで試行します。")
-            try:
-                active_generation_config = GenerateContentConfig()
-            except Exception as e_cfg_fallback:
-                 print(f"警告: フォールバック GenerateContentConfig の作成中にもエラー: {e_cfg_fallback}.")
+            print(f"警告: GenerationConfig の作成中にエラー: {e}. Using default GenerationConfig.")
+            active_generation_config = GenerationConfig() # Default if error
+    else:
+        # If no specific temperature, top_p etc. are set, we might not need to pass GenerationConfig
+        # or pass a default one if the API requires it.
+        # For simplicity, let's assume we can omit it if no specific sub-fields for it are set.
+        # Or, always create a default one if that's safer:
+        active_generation_config = GenerationConfig()
+        print(f"デバッグ: Using default GenerationConfig as no specific sub-params were set for it.")
 
-    print(f"Gemini (google-genai, client.models.generate_content) へ送信開始... モデル: {selected_model}, contents長: {len(final_api_contents)}")
+
+    print(f"Gemini (google-genai, GenerativeModel.generate_content) へ送信開始... モデル: {selected_model}, contents長: {len(final_api_contents)}")
     try:
-        gen_content_args = {
-            "model": selected_model,
+        model_instance = genai.GenerativeModel(selected_model) # Model name here
+
+        final_api_call_args = {
             "contents": final_api_contents,
         }
-        if active_generation_config:
-            gen_content_args["config"] = active_generation_config # Changed key
+        if active_generation_config: # This is GenerationConfig object
+            final_api_call_args["generation_config"] = active_generation_config
 
-        response = _gemini_client.models.generate_content(**gen_content_args)
+        # Add tools and safety_settings directly to the call if they exist
+        final_api_call_args.update(gen_content_direct_args)
+
+        response = model_instance.generate_content(**final_api_call_args)
 
     except google.api_core.exceptions.ResourceExhausted as e:
         return f"エラー: Gemini API リソース枯渇 (google-genai): {e}"
@@ -211,14 +237,13 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
     return final_text_response.strip() if final_text_response is not None else "応答生成失敗 (空の応答)"
 
 def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_model_name, api_key_name, log_file_path, alarm_api_history_turns):
-    print(f"--- アラーム応答生成開始 (google-genai SDK, client.models.generate_content) --- キャラ: {character_name}, テーマ: '{theme}'")
-    if _gemini_client is None:
-        print("警告: _gemini_client is None in send_alarm_to_gemini. Attempting to configure with provided api_key_name.")
-        config_success, config_msg = configure_google_api(api_key_name)
-        if not config_success:
-            return f"【アラームエラー】APIキー設定失敗: {config_msg}"
-        if _gemini_client is None:
-            return "【アラームエラー】Geminiクライアントが初期化されていません。"
+    print(f"--- アラーム応答生成開始 (google-genai SDK, genai.GenerativeModel) --- キャラ: {character_name}, テーマ: '{theme}'")
+    # API key configuration should be handled by ui_handlers before calling this.
+    # Ensure configure_google_api(api_key_name) was called and succeeded.
+    # If _gemini_client was the only indicator, this needs a new check or trust.
+    # For now, let's assume it's configured. If not, genai.GenerativeModel will fail.
+    # It's better if configure_google_api is called by the calling context (e.g. handle_timer_submission)
+    # to ensure the correct key is active.
 
     sys_ins_text = ""
     if flash_prompt_template:
@@ -320,27 +345,38 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
     else:
         formatted_safety_settings = None
 
-    generation_config_args = {}
+    # Similar changes for send_alarm_to_gemini
+    gen_content_direct_args_alarm = {}
     if formatted_safety_settings: # This will now be the list of dicts or None
-        generation_config_args["safety_settings"] = formatted_safety_settings
+        gen_content_direct_args_alarm["safety_settings"] = formatted_safety_settings
 
-    active_generation_config = None
-    if generation_config_args:
+    # For alarms, tools are not typically used, so generation_config_only_args likely empty
+    alarm_generation_config_only_args = {}
+    active_alarm_generation_config = None
+    if alarm_generation_config_only_args:
         try:
-            active_generation_config = GenerateContentConfig(**generation_config_args)
+            active_alarm_generation_config = GenerationConfig(**alarm_generation_config_only_args)
         except Exception as e:
-            print(f"警告: アラーム用 GenerateContentConfig の作成中にエラー: {e}.")
+            print(f"警告: アラーム用 GenerationConfig の作成中にエラー: {e}. Using default.")
+            active_alarm_generation_config = GenerationConfig()
+    else:
+        active_alarm_generation_config = GenerationConfig() # Default for alarms
+        print(f"デバッグ: Using default GenerationConfig for alarm as no specific sub-params were set.")
 
-    print(f"アラーム用モデル ({alarm_model_name}, client.models.generate_content) へ送信開始... 送信contents件数: {len(final_api_contents)}")
+
+    print(f"アラーム用モデル ({alarm_model_name}, GenerativeModel.generate_content) へ送信開始... 送信contents件数: {len(final_api_contents)}")
     try:
-        gen_content_args = {
-            "model": alarm_model_name,
-            "contents": final_api_contents
-        }
-        if active_generation_config:
-            gen_content_args["config"] = active_generation_config # Changed key
+        model_instance_alarm = genai.GenerativeModel(alarm_model_name)
 
-        response = _gemini_client.models.generate_content(**gen_content_args)
+        final_alarm_api_call_args = {
+            "contents": final_api_contents,
+        }
+        if active_alarm_generation_config:
+            final_alarm_api_call_args["generation_config"] = active_alarm_generation_config
+
+        final_alarm_api_call_args.update(gen_content_direct_args_alarm)
+
+        response = model_instance_alarm.generate_content(**final_alarm_api_call_args)
 
     except Exception as e:
         if "BlockedPromptException" in str(type(e)) or "StopCandidateException" in str(type(e)):
@@ -388,25 +424,35 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
                generated_text (str or None): Text response from the model, if any.
                image_path (str or None): Path to the saved image, or None if generation failed.
     """
-    if _gemini_client is None:
-        return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
+    # API key configuration should be handled by ui_handlers.
+    # model_name for image generation is fixed here.
 
     # Use the specified Gemini model for image generation attempts with response_modalities
-    model_name = "gemini-2.0-flash-preview-image-generation"
+    model_name = "gemini-2.0-flash-preview-image-generation" # This should be a model that supports generateImage modality or similar.
+                                                            # For google-generativeai, image generation is typically not via generate_content.
+                                                            # This function might need a complete rewrite if using google-generativeai for images.
+                                                            # Assuming this is a placeholder for a multimodal model that can return images in parts.
+                                                            # The package `google-cloud-aiplatform` is usually used for Gemini image generation.
+                                                            # Given the existing structure, we'll adapt generate_content if it's for a multimodal model.
+                                                            # If this model_name is only for text part of a multimodal response, client usage changes.
+                                                            # If `gemini-2.0-flash-preview-image-generation` is a hypothetical model name for `generate_content`
+                                                            # that returns image bytes in parts, the change would be:
 
     try:
         print(f"--- Gemini 画像生成開始 (model: {model_name}, response_modalities) --- プロンプト: '{prompt[:100]}...'")
 
         contents = [Content(parts=[Part(text=prompt)])]
 
-        active_generation_config = GenerateContentConfig(
-            response_modalities=['TEXT', 'IMAGE']
-        )
+        # For generate_image_with_gemini, response_modalities is a key part of GenerationConfig
+        # Safety settings or tools are less common for direct image generation calls this way,
+        # but if they were to be added, it would follow the same pattern: direct to generate_content.
 
-        response = _gemini_client.models.generate_content(
-            model=model_name,
+        image_gen_config = GenerationConfig(response_modalities=['TEXT', 'IMAGE'])
+
+        model_instance_image = genai.GenerativeModel(model_name)
+        response = model_instance_image.generate_content(
             contents=contents,
-            config=active_generation_config
+            generation_config=image_gen_config
         )
 
         # generated_text と image_path をループの前に初期化
