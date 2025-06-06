@@ -4,6 +4,7 @@ import re
 import traceback
 from typing import List, Dict, Optional, Tuple, Union # Added for type hints
 import gradio as gr
+import html
 
 # --- ユーティリティ関数 ---
 
@@ -241,10 +242,13 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             # 3. Add any remaining main content from processed_content
             stripped_remaining_content = processed_content.strip()
             if stripped_remaining_content:
-                # Avoid adding duplicate content if it's already captured (e.g. an error message)
-                # This check is simplistic; more robust duplicate avoidance might be needed if issues arise.
+                # Avoid adding duplicate content if it's already captured (e.g. an error message from image model)
+                # This check is against raw plain text strings that might have been added.
                 if not any(stripped_remaining_content == part for part in model_response_parts if isinstance(part, str)):
-                    model_response_parts.append(stripped_remaining_content)
+                    escaped_text = html.escape(stripped_remaining_content)
+                    text_with_br = escaped_text.replace('\n', '<br>')
+                    html_wrapped_text = f"<div>{text_with_br}</div>"
+                    model_response_parts.append(html_wrapped_text)
 
             # 4. Final Output Assembly for final_model_output
             final_model_output: Union[str, List[Union[str, Tuple[str, str]]]]
