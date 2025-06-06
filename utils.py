@@ -137,8 +137,8 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
 
     # --- 正規表現パターンの事前コンパイル ---
     # ユーザーメッセージ内の添付テキストファイルパターン
-    text_file_content_pattern = re.compile(r"--- 添付ファイル「(.*?)」の内容 ---
-.*", re.DOTALL)
+    text_file_content_pattern = re.compile(r"""--- 添付ファイル「(.*?)」の内容 ---
+.*""", re.DOTALL)
 
     # AI応答内の思考ログパターン
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
