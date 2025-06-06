@@ -196,17 +196,13 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             if image_parts:
                 final_model_output_parts.extend(image_parts)
 
-            # --- ▼▼▼ ここがバグを修正した最終ロジック ▼▼▼ ---
+            # --- ▼▼▼ ここが最終的で、完全に正しいロジックです ▼▼▼ ---
             final_output_for_gradio = None
-            if not final_model_output_parts:
-                # リストが空なら、AIの応答はNone (空)
-                pass
-            elif len(final_model_output_parts) == 1 and isinstance(final_model_output_parts[0], str):
-                 # リストに要素が1つだけで、かつそれが文字列の場合、文字列そのものを返す
-                 final_output_for_gradio = final_model_output_parts[0]
-            else:
-                 # リストが複数要素、または要素が1つでも画像タプルの場合は、リスト全体を返す
-                 final_output_for_gradio = final_model_output_parts
+            if final_model_output_parts:
+                # 組み立てたパーツ（テキストや画像タプル）が1つ以上あれば、
+                # それをそのままリストとしてGradioに渡す。
+                # これにより、テキスト1つの場合も ['本文'] というリストになり、Gradioの仕様に準拠する。
+                final_output_for_gradio = final_model_output_parts
             # --- ▲▲▲ 修正ロジックここまで ▲▲▲ ---
 
             gradio_history.append((user_message_accumulator, final_output_for_gradio))
