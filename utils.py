@@ -189,72 +189,77 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             user_message_accumulator = display_text_for_user_turn # Store as string
 
         elif role == "model":
-            model_response_parts: List[Union[str, Tuple[str, str]]] = [] # Can contain strings or (filepath, alt_text) tuples
+            model_response_parts: List[Union[str, Tuple[str, str]]] = []
+            processed_content = content # Use a mutable copy for processing
 
-            # 1. 思考ログの処理
-            thought_html_block = ""
-            thought_match = thoughts_pattern.search(content) # thoughts_pattern は既に定義済みとする
+            # 1. Handle Thoughts
+            thought_match = thoughts_pattern.search(processed_content)
             if thought_match:
-                thoughts_content = thought_match.group(1).strip()
-                if thoughts_content:
-                    thought_html_block = f"<div class='thoughts'><pre><code>{thoughts_content}</code></pre></div>"
-                    model_response_parts.append(thought_html_block)
+                thoughts_text = thought_match.group(1).strip()
+                if thoughts_text:
+                    thought_html = f"<div class='thoughts'><pre><code>{thoughts_text}</code></pre></div>"
+                    model_response_parts.append(thought_html)
+                processed_content = thoughts_pattern.sub("", processed_content).strip()
 
-            # 2. 画像モデルからのテキスト応答/エラーメッセージを抽出
-            #    ログ形式: "[画像モデルからのテキスト]: エラー: ... " または "[ERROR]: 画像の生成に失敗しました。"
-            model_text_response_match = re.search(r"\[画像モデルからのテキスト\]: (.*)", content, re.DOTALL)
-            model_error_match = re.search(r"\[ERROR\]: (.*)", content, re.DOTALL)
-
-            model_text_content = ""
-            if model_text_response_match:
-                raw_model_text = model_text_response_match.group(1).strip()
-                # Simple approach: display raw_model_text. Can be refined later if needed.
-                # e.g. if "Traceback (most recent call last):" in raw_model_text: raw_model_text = "画像生成中にエラーが発生しました。"
-                model_text_content = raw_model_text
-            elif model_error_match: # [ERROR]: パターン
-                model_text_content = model_error_match.group(1).strip()
-
-            # 3. 生成された画像の情報を抽出
-            #    ログ形式: "[Generated Image: path/to/image.png]"
-            image_path_match = re.search(r"\[Generated Image: (.*?)\]", content)
-
-            if image_path_match:
-                image_path = image_path_match.group(1).strip()
+            # 2. Handle Image Generation related tags
+            # Handle [Generated Image: ...]
+            img_tag_match = image_tag_pattern.search(processed_content)
+            if img_tag_match:
+                image_path = img_tag_match.group(1).strip()
                 if os.path.exists(image_path):
-                    image_filename = os.path.basename(image_path) # Used as alt_text
-                    model_response_parts.append((image_path, image_filename)) # Append tuple
-                    # If image is successfully displayed, model_text_content (which is likely an error from image gen)
-                    # might not be needed, unless it's a non-error text response from the image model.
-                    # For now, if an image is shown, we prioritize it over potentially redundant error text.
-                    # However, if model_text_content is a *caption* or *additional info*, this logic might need adjustment.
-                    # Based on current log format, it's usually an error if image_path also exists.
+                    model_response_parts.append((image_path, os.path.basename(image_path)))
                 else:
-                    # Image path in log, but file not found
                     model_response_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path)})]*")
-                    # In this case, showing model_text_content (if any) is useful.
-                    if model_text_content and model_text_content not in model_response_parts:
-                         model_response_parts.append(model_text_content)
+                processed_content = image_tag_pattern.sub("", processed_content).strip()
 
-            elif model_text_content: # No image path matched, but there was a text/error from image model
-                # This becomes the primary way to show errors if image generation failed early
-                # or if the image model only returned text.
-                model_response_parts.append(model_text_content)
+            # Handle [画像モデルからのテキスト]: ...
+            # This pattern should be specific enough not to require re.DOTALL if content is single line,
+            # but DOTALL is safer if the text can span lines.
+            img_model_text_pattern = r"\[画像モデルからのテキスト\]: (.*)"
+            img_model_text_match = re.search(img_model_text_pattern, processed_content, re.DOTALL)
+            if img_model_text_match:
+                text_from_img_model = img_model_text_match.group(1).strip()
+                if text_from_img_model:
+                    model_response_parts.append(text_from_img_model)
+                processed_content = re.sub(img_model_text_pattern, "", processed_content, flags=re.DOTALL).strip()
 
-            # Note: Lines like "[画像生成に使用されたプロンプト]: ..." are intentionally not added to model_response_parts.
+            # Handle [ERROR]: (image related)
+            # Making it more specific to image errors to avoid consuming general errors.
+            # This pattern assumes image-related errors will contain "画像" (image) or "生成" (generation/generate).
+            img_model_error_pattern = r"\[ERROR\]: (.*(?:画像|生成).*)"
+            img_model_error_match = re.search(img_model_error_pattern, processed_content, re.DOTALL)
+            if img_model_error_match:
+                error_text_from_img_model = img_model_error_match.group(0).strip() # group(0) for the whole match
+                if error_text_from_img_model:
+                    # Check if this exact error message (or a more generic one if this is too specific)
+                    # is already part of model_response_parts from the "画像モデルからのテキスト" rule.
+                    # This avoids duplicate error messages if they are formatted similarly.
+                    if not any(error_text_from_img_model in part for part in model_response_parts if isinstance(part, str)):
+                        model_response_parts.append(error_text_from_img_model)
+                processed_content = re.sub(img_model_error_pattern, "", processed_content, flags=re.DOTALL).strip()
 
-            # Determine final_model_output
+            # 3. Add any remaining main content from processed_content
+            stripped_remaining_content = processed_content.strip()
+            if stripped_remaining_content:
+                # Avoid adding duplicate content if it's already captured (e.g. an error message)
+                # This check is simplistic; more robust duplicate avoidance might be needed if issues arise.
+                if not any(stripped_remaining_content == part for part in model_response_parts if isinstance(part, str)):
+                    model_response_parts.append(stripped_remaining_content)
+
+            # 4. Final Output Assembly for final_model_output
             final_model_output: Union[str, List[Union[str, Tuple[str, str]]]]
             if not model_response_parts:
-                final_model_output = ""
+                final_model_output = ""  # Should ideally not happen if there was original content
             elif len(model_response_parts) == 1:
-                final_model_output = model_response_parts[0] # This could be a string or a tuple
+                final_model_output = model_response_parts[0]
             else:
-                final_model_output = model_response_parts # This is List[Union[str, Tuple[str,str]]]
+                final_model_output = model_response_parts
 
-            user_msg_to_display = user_message_accumulator
+            user_msg_to_display = user_message_accumulator # This should be a string or None
             gradio_history.append((user_msg_to_display, final_model_output))
             user_message_accumulator = None
 
+    # Handle any remaining user message that wasn't followed by a model message
     if user_message_accumulator is not None:
         gradio_history.append((user_message_accumulator, None))
 
