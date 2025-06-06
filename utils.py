@@ -201,18 +201,12 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             if not final_model_output_parts:
                 # リストが空なら、AIの応答はNone (空)
                 pass
-            elif len(final_model_output_parts) == 1:
-                # リストの要素が1つの場合
-                part = final_model_output_parts[0]
-                if isinstance(part, str):
-                    # それが文字列なら、文字列として直接返す
-                    final_output_for_gradio = part
-                else:
-                    # それが文字列でない場合 (画像タプル)、リストとして返す
-                    final_output_for_gradio = final_model_output_parts
+            elif len(final_model_output_parts) == 1 and isinstance(final_model_output_parts[0], str):
+                 # リストに要素が1つだけで、かつそれが文字列の場合、文字列そのものを返す
+                 final_output_for_gradio = final_model_output_parts[0]
             else:
-                # リストの要素が複数なら (テキストと画像)、リストとして返す
-                final_output_for_gradio = final_model_output_parts
+                 # リストが複数要素、または要素が1つでも画像タプルの場合は、リスト全体を返す
+                 final_output_for_gradio = final_model_output_parts
             # --- ▲▲▲ 修正ロジックここまで ▲▲▲ ---
 
             gradio_history.append((user_message_accumulator, final_output_for_gradio))
