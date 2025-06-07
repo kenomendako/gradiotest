@@ -174,7 +174,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             for match in image_tag_pattern.finditer(remaining_content):
                 image_path = match.group(1).strip()
                 if os.path.exists(image_path):
-                    image_parts.append((image_path, os.path.basename(image_path)))
+                    image_parts.append((image_path, None))
             remaining_content = image_tag_pattern.sub("", remaining_content).strip()
 
             # 3. 表示要素を組み立てる
