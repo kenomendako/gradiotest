@@ -125,20 +125,23 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[Union[str, Tuple[str,str]]], Optional[str]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[Union[str, Tuple[str, str]]], Optional[List[Union[str, Tuple[str, str]]]]]]:
     """
-    Converts chat log to Gradio's history format.
-    This definitive version avoids complex lists for the AI response by building a single,
-    robust Markdown string, which prevents file caching errors in Gradio.
+    Converts chat log to Gradio's history format. This definitive version
+    handles all known cases: user attachments (images and text), AI thoughts,
+    AI-generated images, and AI main text, ensuring correct and stable display.
     """
     gradio_history = []
-    user_message_accumulator: Optional[Union[str, Tuple[str,str]]] = None # Can be a string or a (filepath, alt_text) tuple for user's turn
+    user_message_accumulator: Optional[Union[str, Tuple[str, str]]] = None
 
     # 正規表現パターンの定義
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
-    # ユーザーの添付ファイル表示用のパターン
     user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?);(.*?);(.*?)\]") # filepath;original_filename;mimetype
+    # ユーザー添付テキストの全文表示を抑制するためのパターン
+    # Matches the "--- 添付ファイル「FILENAME」の内容 ---" block including newlines around it.
+    # Corrected to replace literal newlines with \n
+    user_text_content_pattern = re.compile(r"(\n\n--- 添付ファイル「(.*?)」の内容 ---\n[\s\S]*)", re.DOTALL)
 
     for msg in messages:
         role = msg.get("role")
@@ -150,33 +153,43 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
         if role == "user":
             if user_message_accumulator is not None: # If there was a previous user message not yet added
                 gradio_history.append((user_message_accumulator, None))
-                user_message_accumulator = None # Reset for current message
+                # user_message_accumulator = None # Reset for current message - This was in my interpretation, user code is just `user_message_accumulator = new_value`
 
-            # ユーザーメッセージを解析
-            file_match = user_file_attach_pattern.search(content)
-            if file_match:
-                filepath, original_filename, _ = file_match.groups() # Mime type is available if needed later
-                # ユーザーの添付ファイルはタプル形式で表示
-                user_message_accumulator = (filepath, original_filename) if os.path.exists(filepath) else f"添付ファイル: {original_filename} (見つかりません)"
+            # Order of matching matters: check for full text content block first.
+            text_file_match = user_text_content_pattern.search(content)
+            if text_file_match:
+                # Text file content is embedded in the log. Replace with a summary tag.
+                filename = text_file_match.group(2) # Extract filename from the "--- 添付ファイル「FILENAME」の内容 ---" part
+                # Remove the matched full text block from the original content
+                clean_content = user_text_content_pattern.sub("", content).strip()
+                display_tag = f"[添付テキスト: {filename}]"
+                # If there was other text before the block, preserve it.
+                user_message_accumulator = f"{clean_content}\n{display_tag}".strip() if clean_content else display_tag
             else:
-                user_message_accumulator = content
+                # Check for other file attachments (e.g., images)
+                file_match = user_file_attach_pattern.search(content)
+                if file_match:
+                    filepath, original_filename, _ = file_match.groups() # Mime type available
+                    user_message_accumulator = (filepath, original_filename) if os.path.exists(filepath) else f"添付ファイル: {original_filename} (見つかりません)"
+                else:
+                    # Normal text message
+                    user_message_accumulator = content
 
         elif role == "model":
-            # AIの応答の各部分を格納するリスト
-            response_parts = [] # List to hold parts of the AI's response (HTML for thoughts, Markdown for image, plain text)
+            model_response_parts: List[Union[str, Tuple[str, str]]] = []
             main_text = content # Start with full content
 
-            # 1. 思考ログを抽出し、HTMLとしてpartsに追加
+            # 1. Thoughts
             thought_match = thoughts_pattern.search(main_text)
             if thought_match:
                 thoughts_content = thought_match.group(1).strip()
-                if thoughts_content: # Ensure there's actual content within thoughts
+                if thoughts_content:
                     thought_html = f"<div class='thoughts'><pre><code>{thoughts_content}</code></pre></div>"
-                    response_parts.append(thought_html)
-                main_text = thoughts_pattern.sub("", main_text).strip() # Remove thoughts from main_text
+                    model_response_parts.append(thought_html)
+                main_text = thoughts_pattern.sub("", main_text).strip()
 
-            # 2. 生成画像を抽出し、Markdown形式の画像リンクとしてpartsに追加
-            # Need to handle multiple images if they exist
+            # 2. Generated Image(s) - as tuples
+            # Loop to find all image tags, as there might be multiple
             processed_text_for_images = main_text
             temp_image_parts = []
             while True:
@@ -184,54 +197,33 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                 if image_match:
                     image_path = image_match.group(1).strip()
                     if os.path.exists(image_path):
-                        # Gradio uses file= for local files in Markdown
-                        image_markdown = f"![{os.path.basename(image_path)}](file={image_path})"
-                        temp_image_parts.append(image_markdown)
+                        # Add as (filepath, alt_text) tuple
+                        temp_image_parts.append((image_path, os.path.basename(image_path)))
                     else:
                         temp_image_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path)})]*")
-                    # Remove the processed image tag by replacing only the first occurrence
+                    # Remove the processed image tag by replacing only the first occurrence to continue search
                     processed_text_for_images = image_tag_pattern.sub("", processed_text_for_images, 1)
                 else:
-                    break
+                    break # No more image tags found
 
             if temp_image_parts:
-                response_parts.extend(temp_image_parts)
-            main_text = processed_text_for_images.strip() # Update main_text after all images are processed
+                model_response_parts.extend(temp_image_parts)
+            main_text = processed_text_for_images.strip() # Update main_text after all images are processed and removed
 
 
-            # 3. 画像関連の他のログタグ（プロンプト、モデルテキスト、エラー）を本文から削除
-            # This was in previous user versions, but the "final確定版" prompt's code
-            # did not explicitly include gazo_related_pattern or similar for removal from main_text
-            # *after* thoughts and images were extracted.
-            # The user's final code implies these are handled by not being thoughts or images.
-            # Let's re-verify the provided "final確定版" code structure.
-            # The "final確定版" code snippet was:
-            #   main_text = thoughts_pattern.sub("", main_text).strip()
-            #   image_match = image_tag_pattern.search(main_text) ... main_text = image_tag_pattern.sub("", main_text).strip()
-            #   if main_text: response_parts.append(main_text)
-            # This implies that other tags like [画像モデルからのテキスト] will remain in main_text if not caught by thoughts/image.
-            # This is a key difference from some intermediate versions.
-            # For this subtask, I will strictly follow the user's LATEST provided "final確定版" code structure
-            # which does *not* have a separate gazo_related_pattern.sub() call here.
-            # Such tags, if not part of thoughts or image tags, will naturally fall into `main_text`.
-
-            # 4. 本文が残っていればpartsに追加
+            # 3. Add remaining main_text
             if main_text:
-                response_parts.append(main_text)
+                model_response_parts.append(main_text)
 
-            # 5. 全てのpartsを改行2つで連結し、単一のMarkdown文字列を生成
-            # If response_parts is empty (e.g. model sent only an empty message or only tags that were stripped),
-            # final_model_output should be an empty string or None.
-            # The user's code implies join, which would be empty string if parts is empty.
-            final_model_output = "\n\n".join(response_parts) if response_parts else "" # Ensure empty string if no parts
+            # 4. Add to history (AI response is always a list of parts, or None if empty)
+            # user_message_accumulator should have been set by the previous user turn.
+            current_user_msg_to_pass = user_message_accumulator
+            final_model_output = model_response_parts if model_response_parts else None
 
-            # 履歴に追加
-            # user_message_accumulator should be committed here.
-            # It could be None if the very first message is from the model (unlikely in normal chat flow).
-            gradio_history.append((user_message_accumulator, final_model_output))
+            gradio_history.append((current_user_msg_to_pass, final_model_output))
             user_message_accumulator = None # Reset after pairing with a model response
 
-    # ループ後に残っている最後のユーザーメッセージを処理
+    # After the loop, if there's any remaining user message, add it to history
     if user_message_accumulator is not None:
         gradio_history.append((user_message_accumulator, None))
 
