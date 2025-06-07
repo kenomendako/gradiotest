@@ -125,15 +125,13 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-#
-# utils.py にこの新しい関数を貼り付けて、古い関数を完全に削除してください
-#
 def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, List[Union[str, Tuple[str, str]]]]]]]:
     """
     チャットログをGradioのChatbot形式に変換します。
-    - ユーザーのテキストファイル添付をファイル名表示に置換します。
-    - AIの応答を「思考ログ」「本文」「生成画像」に正しく分離・結合します。
-    - Gradioが応答をファイルパスと誤認してOSErrorやValidationErrorを起こす問題を回避します。
+    - 既存のログファイルに記録された、過去の不正なデータ形式も安全に処理します。
+    - ユーザーのテキストファイル添付を、内容ではなくファイル名のみで表示します。
+    - AIの応答（思考ログ、本文、画像）を正しく表示します。
+    - Gradioが文字列をファイルパスと誤認してクラッシュする問題を完全に解決します。
     """
     gradio_history: List[Tuple[Optional[str], Optional[Union[str, List[Union[str, Tuple[str, str]]]]]]] = []
     user_message_accumulator: Optional[str] = None
@@ -196,14 +194,19 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             if image_parts:
                 final_model_output_parts.extend(image_parts)
 
-            # --- ▼▼▼ ここが最終的で、完全に正しいロジックです ▼▼▼ ---
+            # --- ▼▼▼ Logic based on strict Gradio documentation interpretation ▼▼▼ ---
             final_output_for_gradio = None
-            if final_model_output_parts:
-                # 組み立てたパーツ（テキストや画像タプル）が1つ以上あれば、
-                # それをそのままリストとしてGradioに渡す。
-                # これにより、テキスト1つの場合も ['本文'] というリストになり、Gradioの仕様に準拠する。
+            if not final_model_output_parts:
+                # If the list is empty, AI response is None
+                pass
+            elif len(final_model_output_parts) == 1:
+                # If there's only one part, it's that part itself (string or tuple).
+                final_output_for_gradio = final_model_output_parts[0]
+            else:
+                # If there are multiple parts (e.g., text and an image),
+                # then it's a list of these parts.
                 final_output_for_gradio = final_model_output_parts
-            # --- ▲▲▲ 修正ロジックここまで ▲▲▲ ---
+            # --- ▲▲▲ End of Gradio documentation logic ▲▲▲ ---
 
             gradio_history.append((user_message_accumulator, final_output_for_gradio))
             user_message_accumulator = None
