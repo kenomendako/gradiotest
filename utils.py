@@ -125,11 +125,12 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[Union[str, Tuple[str, str]]], Optional[List[Union[str, Tuple[str, str]]]]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[Union[str, Tuple[str, str]]], Optional[str]]]:
     """
-    Converts chat log to Gradio's history format. This definitive version
-    handles all known cases: user attachments (images and text), AI thoughts,
-    AI-generated images, and AI main text, ensuring correct and stable display.
+    (Final Version) Converts chat log to Gradio's history format.
+    This version creates a single, stable Markdown string for the AI response
+    to prevent all crashes, and uses a web-accessible file path for generated images
+    which will be enabled in the main script via allowed_paths.
     """
     gradio_history = []
     user_message_accumulator: Optional[Union[str, Tuple[str, str]]] = None
@@ -138,9 +139,6 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
     user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?);(.*?);(.*?)\]") # filepath;original_filename;mimetype
-    # ユーザー添付テキストの全文表示を抑制するためのパターン
-    # Matches the "--- 添付ファイル「FILENAME」の内容 ---" block including newlines around it.
-    # Corrected to replace literal newlines with \n
     user_text_content_pattern = re.compile(r"(\n\n--- 添付ファイル「(.*?)」の内容 ---\n[\s\S]*)", re.DOTALL)
 
     for msg in messages:
@@ -153,78 +151,72 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
         if role == "user":
             if user_message_accumulator is not None: # If there was a previous user message not yet added
                 gradio_history.append((user_message_accumulator, None))
-                # user_message_accumulator = None # Reset for current message - This was in my interpretation, user code is just `user_message_accumulator = new_value`
+                # user_message_accumulator = None # Reset for current message - per user code, this is set below
 
-            # Order of matching matters: check for full text content block first.
             text_file_match = user_text_content_pattern.search(content)
             if text_file_match:
-                # Text file content is embedded in the log. Replace with a summary tag.
-                filename = text_file_match.group(2) # Extract filename from the "--- 添付ファイル「FILENAME」の内容 ---" part
-                # Remove the matched full text block from the original content
+                filename = text_file_match.group(2)
                 clean_content = user_text_content_pattern.sub("", content).strip()
-                display_tag = f"[添付テキスト: {filename}]"
-                # If there was other text before the block, preserve it.
+                # User's code used f"*[添付テキスト: {filename}]*" - let's ensure formatting consistency
+                display_tag = f"*[添付テキスト: {filename}]*"
                 user_message_accumulator = f"{clean_content}\n{display_tag}".strip() if clean_content else display_tag
             else:
-                # Check for other file attachments (e.g., images)
                 file_match = user_file_attach_pattern.search(content)
                 if file_match:
-                    filepath, original_filename, _ = file_match.groups() # Mime type available
+                    filepath, original_filename, _ = file_match.groups()
                     user_message_accumulator = (filepath, original_filename) if os.path.exists(filepath) else f"添付ファイル: {original_filename} (見つかりません)"
                 else:
-                    # Normal text message
                     user_message_accumulator = content
 
         elif role == "model":
-            model_response_parts: List[Union[str, Tuple[str, str]]] = []
-            main_text = content # Start with full content
+            response_parts = []
+            main_text = content
 
-            # 1. Thoughts
             thought_match = thoughts_pattern.search(main_text)
             if thought_match:
                 thoughts_content = thought_match.group(1).strip()
                 if thoughts_content:
                     thought_html = f"<div class='thoughts'><pre><code>{thoughts_content}</code></pre></div>"
-                    model_response_parts.append(thought_html)
+                    response_parts.append(thought_html)
                 main_text = thoughts_pattern.sub("", main_text).strip()
 
-            # 2. Generated Image(s) - as tuples
-            # Loop to find all image tags, as there might be multiple
+            # Process images to use /file= paths
+            # Loop to handle multiple images if they exist
             processed_text_for_images = main_text
             temp_image_parts = []
             while True:
                 image_match = image_tag_pattern.search(processed_text_for_images)
                 if image_match:
-                    image_path = image_match.group(1).strip()
-                    if os.path.exists(image_path):
-                        # Add as (filepath, alt_text) tuple
-                        temp_image_parts.append((image_path, os.path.basename(image_path)))
+                    image_path_original = image_match.group(1).strip()
+                    # IMPORTANT: Convert to web-friendly path for /file= URL
+                    image_path_for_url = image_path_original.replace('\\', '/') # Ensure forward slashes for URL
+
+                    if os.path.exists(image_path_original):
+                        # Create Markdown link using /file= prefix
+                        image_markdown = f"![{os.path.basename(image_path_original)}](/file={image_path_for_url})"
+                        temp_image_parts.append(image_markdown)
                     else:
-                        temp_image_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path)})]*")
-                    # Remove the processed image tag by replacing only the first occurrence to continue search
-                    processed_text_for_images = image_tag_pattern.sub("", processed_text_for_images, 1)
+                        temp_image_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path_original)})]*")
+                    processed_text_for_images = image_tag_pattern.sub("", processed_text_for_images, 1) # Remove first match
                 else:
-                    break # No more image tags found
+                    break # No more images
 
             if temp_image_parts:
-                model_response_parts.extend(temp_image_parts)
-            main_text = processed_text_for_images.strip() # Update main_text after all images are processed and removed
+                response_parts.extend(temp_image_parts)
+            main_text = processed_text_for_images.strip()
 
 
-            # 3. Add remaining main_text
-            if main_text:
-                model_response_parts.append(main_text)
+            if main_text: # Add any remaining text after thoughts and images
+                response_parts.append(main_text)
 
-            # 4. Add to history (AI response is always a list of parts, or None if empty)
-            # user_message_accumulator should have been set by the previous user turn.
-            current_user_msg_to_pass = user_message_accumulator
-            final_model_output = model_response_parts if model_response_parts else None
+            # Join all parts into a single Markdown string for the AI response
+            final_model_output = "\n\n".join(response_parts) if response_parts else ""
 
+            current_user_msg_to_pass = user_message_accumulator # This should be set from user's turn
             gradio_history.append((current_user_msg_to_pass, final_model_output))
             user_message_accumulator = None # Reset after pairing with a model response
 
-    # After the loop, if there's any remaining user message, add it to history
-    if user_message_accumulator is not None:
+    if user_message_accumulator is not None: # If the last message was from the user
         gradio_history.append((user_message_accumulator, None))
 
     return gradio_history
