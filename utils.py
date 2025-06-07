@@ -137,7 +137,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
 
     gradio_history = []
 
-    # Helper patterns defined inside or outside, ensure they are available
+    # Helper patterns defined here or ensure they are available if defined globally in the module
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
     # This user_file_attach_pattern is from the user's code block.
@@ -188,23 +188,32 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                 # This implies a different logging format than what ui_handlers.py was last set to.
                 # For this subtask, I will strictly implement user's Python code.
                 # If it fails, it's because the log doesn't match this pattern's expectation.
-                filepath, original_filename, _ = match.groups()
-                user_display = (filepath, original_filename) if os.path.exists(filepath) else f"添付ファイル: {original_filename} (見つかりません)"
+                try:
+                    filepath, original_filename, _ = match.groups()
+                    user_display = (filepath, original_filename) if os.path.exists(filepath) else f"添付ファイル: {original_filename} (見つかりません)"
+                except ValueError: # Will occur if groups() doesn't return 3 values
+                    # This means the log format for this user message was not path;name;mime
+                    # Fallback to displaying the content as string.
+                    user_display = user_content
             else:
+                # Handles plain text and also "[添付テキスト: filename]" which is now logged by ui_handlers.py
+                # (because it won't match the user_file_attach_pattern above).
                 user_display = user_content
 
         if not group["model_responses"]: # No AI responses in this group
             # User's code: gradio_history.append((user_display, None))
             # This is added regardless of user_display being potentially empty if original content was empty.
-            gradio_history.append((user_display, None))
+            if user_display or user_display == "": # Add if user_display is set (even if empty string from empty user message)
+                gradio_history.append((user_display, None))
             continue
 
+        # Process all AI responses for this turn
         all_text_parts = []
-        final_image_part = None
+        final_image_part = None # Stores (filepath, basename)
 
         for model_msg_obj in group["model_responses"]:
             main_text = model_msg_obj.get("content", "").strip()
-            if not main_text: # Skip empty AI messages within a turn
+            if not main_text: # Skip empty AI messages within a turn group
                 continue
 
             thought_match = thoughts_pattern.search(main_text)
@@ -216,7 +225,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
 
             image_match = image_tag_pattern.search(main_text)
             if image_match:
-                image_path = image_match.group(1).strip()
+                image_path = image_match.group(1).strip() # Path from [Generated Image: <path>]
                 if os.path.exists(image_path):
                     final_image_part = (image_path, os.path.basename(image_path))
                 else:
@@ -226,17 +235,27 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             if main_text:
                 all_text_parts.append(main_text)
 
-        # Assembling output based on user's final logic:
-        if all_text_parts:
+        # New 3-case logic for appending AI response to Gradio history
+        user_message_for_this_turn = user_display
+
+        if all_text_parts and final_image_part:
             final_text_output = "\n\n".join(all_text_parts)
-            gradio_history.append((user_display, final_text_output))
-            if final_image_part:
-                gradio_history.append(("", final_image_part)) # User part is empty string
-        elif final_image_part: # Only image, no text
-            gradio_history.append((user_display, final_image_part))
-        # If no text and no image (e.g. AI message was empty or only contained stripped thoughts/image tags that didn't resolve)
-        # then nothing is added for this AI turn, user_display was already added with None if this was the first AI msg.
-        # This seems correct; an effectively empty AI response shouldn't create a new bubble.
+            gradio_history.append((user_message_for_this_turn, final_text_output))
+            gradio_history.append((None, final_image_part)) # User part is None for AI image turn
+        elif all_text_parts: # Text only
+            final_text_output = "\n\n".join(all_text_parts)
+            gradio_history.append((user_message_for_this_turn, final_text_output))
+        elif final_image_part: # Image only
+            gradio_history.append((user_message_for_this_turn, final_image_part))
+        # If no text and no image from AI (e.g. empty response, or only empty thoughts)
+        # AND there was a user message for this turn, we should ensure the user message
+        # isn't orphaned if it wasn't handled by the `if not group["model_responses"]:` block.
+        # However, that block handles cases where model_responses list is empty.
+        # If model_responses list is NOT empty, but results in no actual content (all_text_parts is empty AND final_image_part is None),
+        # then the user_message_for_this_turn would be paired with effectively nothing.
+        # The current logic implies that if all_text_parts and final_image_part are both falsey,
+        # then nothing is added for the AI part of this turn. The user_message_for_this_turn would be lost.
+        # This logic is what I'm implementing based on the user's prompt.
 
     return gradio_history
 
