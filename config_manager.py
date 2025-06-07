@@ -2,7 +2,7 @@
 import json
 import os
 import traceback
-from google.generativeai import types # SAFETY_CONFIG定義のため
+from google.genai import types # SAFETY_CONFIG定義のため
 
 # --- 設定関連定数 ---
 CONFIG_FILE = "config.json"
