@@ -90,7 +90,7 @@ print("アラームデータを読み込んでいます...")
 alarm_manager.load_alarms() # alarm_manager の関数を呼び出し
 
 # アプリケーションUI定義開始
-with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, allowed_paths=["chat_attachments"]) as demo:
+with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css) as demo:
     character_list_on_startup = character_manager.get_character_list()
     # 起動に必要な設定のチェックを強化 (config_managerのグローバル変数を参照)
     startup_ready = all([
@@ -401,7 +401,7 @@ if __name__ == "__main__":
     print("-" * 40)
 
     try:
-        demo.queue().launch(server_name="0.0.0.0", server_port=server_port, share=False)
+        demo.queue().launch(server_name="0.0.0.0", server_port=server_port, share=False, allowed_paths=["chat_attachments"])
     except KeyboardInterrupt:
         print("\nCtrl+C を検出しました。シャットダウン処理を開始します...")
     except Exception as e:
