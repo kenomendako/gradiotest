@@ -95,33 +95,38 @@ def _configure_api_key_if_needed(api_key_name: str) -> Tuple[bool, str]:
     return True, ""
 
 def _process_uploaded_files(
-    file_input_list: Optional[List[Any]] # Gradio File objects (e.g., FileData)
-) -> Tuple[str, List[Dict[str, str]], List[str]]:
+    file_input_list: Optional[List[Any]]
+) -> Tuple[str, str, List[Dict[str, str]], List[str]]:
     """
     アップロードされたファイルを処理します。
-    サポートされているテキストファイルからテキストを抽出し、他のファイルはAPI送信用に準備します。
-
-    Args:
-        file_input_list: Gradioのファイル入力コンポーネントからのファイルオブジェクトのリスト。
-                         各要素は 'name' (一時パス) と 'orig_name' (元のファイル名) 属性を持つことを期待します。
-
-    Returns:
-        Tuple[str, List[Dict[str, str]], List[str]]:
-            - consolidated_text (str): 全ての有効なテキストファイルから連結されたテキスト。
-            - files_for_api (List[Dict[str, str]]): API送信用ファイル情報（パス、MIMEタイプなど）のリスト。
-            - error_messages (List[str]): ファイル処理中に発生したエラーメッセージのリスト。
+    - API用の全文テキスト
+    - ログ用の要約テキスト
+    - API送信用ファイル情報
+    - エラーメッセージ
+    の4つを返します。
     """
-    consolidated_text = ""
+    text_for_api = ""
+    text_for_log = ""
     files_for_api: List[Dict[str, str]] = []
     error_messages: List[str] = []
 
     if not file_input_list:
-        return consolidated_text, files_for_api, error_messages
+        return text_for_api, text_for_log, files_for_api, error_messages
+
+    # Ensure ATTACHMENTS_DIR exists
+    if not os.path.exists(ATTACHMENTS_DIR):
+        try:
+            os.makedirs(ATTACHMENTS_DIR)
+        except OSError as e:
+            error_messages.append(f"添付ファイル保存ディレクトリ作成失敗: {ATTACHMENTS_DIR}, Error: {e}")
+            # If directory creation fails, we can't process file-based attachments.
+            # Depending on desired behavior, could return early or just log errors for files.
+            # For now, we'll let it try to process, and individual file ops might fail.
 
     for file_obj in file_input_list:
         original_filename = "unknown_file"
         try:
-            temp_file_path = file_obj.name
+            temp_file_path = file_obj.name # This is a temporary path from Gradio
             original_filename = getattr(file_obj, 'orig_name', os.path.basename(temp_file_path))
             file_extension = os.path.splitext(original_filename)[1].lower()
             file_type_info = SUPPORTED_FILE_MAPPINGS.get(file_extension)
@@ -135,32 +140,40 @@ def _process_uploaded_files(
 
             if category == 'text':
                 content_to_add = None
+                # Define encodings to try for text files
                 encodings_to_try = ['utf-8', 'shift_jis', 'cp932', 'euc-jp', 'iso2022-jp', 'latin1']
                 for enc in encodings_to_try:
                     try:
                         with open(temp_file_path, 'r', encoding=enc) as f_content:
                             content_to_add = f_content.read()
-                        break
+                        break # Successfully read
                     except UnicodeDecodeError:
+                        continue # Try next encoding
+                    except Exception as e_read: # Catch other potential read errors
+                        # error_messages.append(f"ファイル読込エラー ({original_filename}, encoding {enc}): {e_read}")
+                        # Let it try other encodings
                         continue
-                    except Exception as e_file_read:
-                        error_messages.append(f"ファイル読込エラー ({original_filename}, encoding {enc}): {str(e_file_read)}")
-                        content_to_add = None
-                        break
+
                 if content_to_add is not None:
-                    consolidated_text += f"\n\n--- 添付ファイル「{original_filename}」の内容 ---\n{content_to_add}"
-                elif not any(msg.startswith(f"ファイル読込エラー ({original_filename}") for msg in error_messages):
+                    text_for_api += f"\n\n--- 添付ファイル「{original_filename}」の内容 ---\n{content_to_add}"
+                    text_for_log += f"\n[添付テキスト: {original_filename}]" # Log only the tag
+                elif not any(msg.startswith(f"ファイルデコード失敗 ({original_filename}") for msg in error_messages): # Avoid duplicate generic error
                     error_messages.append(f"ファイルデコード失敗 ({original_filename}): 全てのエンコーディング試行に失敗しました。")
-            
+
             elif category in ['image', 'pdf', 'audio', 'video']:
+                # Create a unique filename for storage to avoid collisions
                 unique_filename_for_attachment = f"{uuid.uuid4()}{file_extension}"
                 saved_attachment_path = os.path.join(ATTACHMENTS_DIR, unique_filename_for_attachment)
-                shutil.copy2(temp_file_path, saved_attachment_path)
+
+                shutil.copy2(temp_file_path, saved_attachment_path) # Copy from temp path to persistent storage
+
                 files_for_api.append({
-                    'path': saved_attachment_path,
+                    'path': saved_attachment_path, # This is the path to the copy in ATTACHMENTS_DIR
                     'mime_type': mime_type,
                     'original_filename': original_filename
                 })
+                # For non-text files, log a generic attachment tag
+                text_for_log += f"\n[ファイル添付: {original_filename}]" # Consistent with user's latest utils.py
             else:
                  error_messages.append(f"未定義カテゴリ '{category}' のファイル: {original_filename}")
 
@@ -168,7 +181,7 @@ def _process_uploaded_files(
             error_messages.append(f"ファイル処理中エラー ({original_filename}): {str(e_process)}")
             traceback.print_exc()
 
-    return consolidated_text.strip(), files_for_api, error_messages
+    return text_for_api.strip(), text_for_log.strip(), files_for_api, error_messages
 
 def _log_user_interaction(
     log_file_path: str,
@@ -191,14 +204,39 @@ def _log_user_interaction(
         add_timestamp_checkbox: タイムスタンプを追加するかどうかのフラグ。
         user_action_timestamp_str: フォーマット済みのタイムスタンプ文字列（タイムスタンプ追加時）。
     """
-    timestamp_applied_for_action = False
+    # This function's logic will be replaced by the direct logging within handle_message_submission
+    # based on the user's new provided structure.
+    # For now, to make the diff work, we keep the signature but the body will be effectively unused
+    # if handle_message_submission is changed as per the prompt.
+    # However, the prompt for handle_message_submission *does* call _log_user_interaction.
+    # The prompt for handle_message_submission seems to imply that the _log_user_interaction
+    # will be replaced by direct calls to save_message_to_log.
+    # Let's assume _log_user_interaction is *not* used by the new handle_message_submission logic.
+    # The prompt asks to replace a block *within* handle_message_submission that *calls* _process_uploaded_files,
+    # and another block that *does* the logging and API sending.
+    # So, _log_user_interaction as a helper might become obsolete or needs to be adjusted.
+    # For now, I will leave _log_user_interaction as is, and the changes below will
+    # effectively bypass its old role if the new handle_message_submission code is self-contained for logging.
 
-    # 1. Log the original user text input (if any) combined with text from files
+    # The new handle_message_submission code seems to construct `final_text_for_log`
+    # and then calls `save_message_to_log` directly. This means this helper might not be needed.
+    # However, to ensure the diff applies cleanly without deleting this function if it's still called elsewhere
+    # or if the user's intention was to modify it, I'll keep it for now.
+    # The prompt for Part 2 does not mention removing or altering _log_user_interaction.
+    # It only mentions replacing blocks *within* handle_message_submission.
+
+    # Based on the NEW handle_message_submission code, this function _log_user_interaction
+    # is NOT directly called. The logging logic is now embedded.
+    # To avoid breaking the diff if this function is indeed removed or significantly changed
+    # by a part of the prompt I'm not directly addressing, I will leave its old body.
+    # The prompt is specific about replacing BLOCKS inside handle_message_submission.
+
+    timestamp_applied_for_action = False
     combined_text_for_log = original_user_text
     if text_from_files:
-        if combined_text_for_log: # If there's original text, add a separator
+        if combined_text_for_log:
             combined_text_for_log += "\n" + text_from_files
-        else: # If no original text, text_from_files is the main message
+        else:
             combined_text_for_log = text_from_files
     
     if combined_text_for_log.strip():
@@ -207,19 +245,16 @@ def _log_user_interaction(
             timestamp_applied_for_action = True
         save_message_to_log(log_file_path, user_header, combined_text_for_log)
 
-    # 2. Log non-text file attachments
     for i, file_info in enumerate(files_for_api):
-        # Use 'path' which is the key for the saved path in files_for_api
         log_entry_for_file = f"[ファイル添付: {file_info.get('path')};{file_info.get('original_filename', '不明なファイル')};{file_info.get('mime_type', '不明なMIMEタイプ')}]"
         if add_timestamp_checkbox and not timestamp_applied_for_action:
-            # If no text message got the timestamp, or if logging files separately is desired,
-            # apply timestamp to the first file (or all, depending on desired granularity not implemented here)
             log_entry_for_file += user_action_timestamp_str
-            timestamp_applied_for_action = True # Ensure timestamp is added at most once per user action via this function
+            timestamp_applied_for_action = True
         save_message_to_log(log_file_path, user_header, log_entry_for_file)
 
+
 def handle_message_submission(
-    textbox_content: Optional[str], # Renamed from textbox for clarity
+    textbox_content: Optional[str],
     chatbot_history: List[List[Optional[str]]], # Renamed from chatbot
     current_character_name: Optional[str],
     current_model_name: Optional[str],
@@ -284,18 +319,14 @@ def handle_message_submission(
         user_action_timestamp_str = f"\n{now.strftime('%Y-%m-%d (%a) %H:%M:%S')}"
 
     # 4. Process Uploaded Files
-    text_from_files, files_for_gemini_api, file_processing_errors = _process_uploaded_files(file_input_list)
+    text_for_api_from_files, text_for_log_from_files, files_for_gemini_api, file_processing_errors = _process_uploaded_files(file_input_list)
     if file_processing_errors:
         error_message = (error_message + "\n" if error_message else "") + "\n".join(file_processing_errors)
 
-    # 5. Prepare final text for API (combined original text and text from files)
-    api_text_arg = original_user_text_on_entry
-    if text_from_files:
-        api_text_arg = (api_text_arg + "\n" + text_from_files).strip() if api_text_arg else text_from_files.strip()
-
-    # Check if there's anything to send (This check is re-evaluated after /gazo check)
-    # if not api_text_arg.strip() and not files_for_gemini_api:
-    #     pass # Moved this check lower
+# 5. Prepare final text for API (combined original text and text from files)
+    api_text_arg = original_user_text_on_entry # Start with the text typed by the user
+    if text_for_api_from_files: # Add content from text files (for API context)
+        api_text_arg = (api_text_arg + "\n" + text_for_api_from_files).strip() if api_text_arg else text_for_api_from_files.strip()
 
     # --- Main processing block ---
     try:
@@ -508,31 +539,32 @@ If the idea is already a good prompt, output it as is.
             error_message = ui_error_message_for_return # This sets the red error text in Gradio UI
         # --- END OF JULES' REPLACEMENT BLOCK ---
 
-        else: # Not a /gazo command, proceed with normal message submission
-            if not api_text_arg.strip() and not files_for_gemini_api:
-                error_message = (error_message + "\n" if error_message else "") + "送信するメッセージまたは処理可能なファイルがありません。"
-                return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message.strip()
+        else: # Not a /gazo command
+            # ログに記録するテキストを構築（ユーザーの入力＋ログ用の要約）
+            final_text_for_log = (original_user_text_on_entry + "\n" + text_for_log_from_files).strip() if text_for_log_from_files else original_user_text_on_entry.strip()
 
-            # Log User Interaction for normal messages
-            _log_user_interaction(
-                log_f,
-                user_header,
-                original_user_text_on_entry,
-                text_from_files,
-                files_for_gemini_api,
-                add_timestamp_checkbox,
-                user_action_timestamp_str
-            )
+            if not final_text_for_log.strip() and not files_for_gemini_api: # Check if there's anything to send
+                 error_message = (error_message + "\n" if error_message else "") + "送信するメッセージまたは処理可能なファイルがありません。"
+                 # Return original user text to input if it was only spaces or an empty file was "sent"
+                 # Also return original file_input_list to preserve it in the UI
+                 return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message.strip()
 
+            # ログ記録
+            if final_text_for_log: # Ensure there's something to log
+                if add_timestamp_checkbox:
+                    final_text_for_log += user_action_timestamp_str # Append timestamp if checked
+                save_message_to_log(log_f, user_header, final_text_for_log)
+
+            # APIへの送信（全文コンテキストを使用）
             api_response_text = send_to_gemini(
                 system_prompt_path=sys_p,
                 log_file_path=log_f,
-                user_prompt=api_text_arg,
+                user_prompt=api_text_arg, # <- Use api_text_arg which includes full text from files
                 selected_model=current_model_name,
                 character_name=current_character_name,
                 send_thoughts_to_api=send_thoughts_state,
                 api_history_limit_option=api_history_limit_state,
-                uploaded_file_parts=files_for_gemini_api,
+                uploaded_file_parts=files_for_gemini_api, # Pass processed file info
                 memory_json_path=mem_p
             )
 
@@ -546,8 +578,6 @@ If the idea is already a good prompt, output it as is.
                 api_err = api_response_text or "APIから有効な応答がありませんでした。"
                 error_message = (error_message + "\n" if error_message else "") + api_err
                 print(f"API Error: {api_err}")
-                # Note: For normal messages, if API fails, error is added to UI, but not logged to chat history as AI response.
-                # This behavior is kept here. For /gazo, errors ARE logged as AI response.
 
     except Exception as e:
         traceback.print_exc()

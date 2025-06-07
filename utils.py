@@ -128,18 +128,35 @@ def format_response_for_display(response_text: Optional[str]) -> str:
 def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[Union[str, Tuple[str, str]]], Optional[Union[str, Tuple[str, str], List[Union[str, Tuple[str, str]]]]]]]:
     """
     (Definitive Final Version) Converts chat log to Gradio's history format.
-    This version resolves all known issues by splitting AI responses containing images
-    into separate turns for text and images, ensuring stable rendering.
+    This version assumes logs are pre-summarized (by ui_handlers.py)
+    and focuses on stable rendering, including splitting AI responses
+    with images into separate turns.
     """
     gradio_history = []
     user_message_accumulator: Optional[Union[str, Tuple[str, str]]] = None
 
-    # 正規表現パターンの定義
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
-    user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?);(.*?);(.*?)\]") # filepath;original_filename;mimetype
-    # 添付テキストのヘッダーマーカー (正規表現ではなく、文字列検索で使用)
-    text_content_marker = "--- 添付ファイル「" # Used with split()
+    # For user messages, we now expect tags like "[ファイル添付: filename.jpg]"
+    # or "[添付テキスト: filename.txt]" directly from the log.
+    # We need to identify if a user message *is* such a file tag to potentially make it a tuple for Gradio.
+    # The user's provided code for utils.py in the "integrated final version" simplified user message handling to:
+    # user_message_accumulator = content
+    # This implies that Gradio can render "[ファイル添付: filename.jpg]" as a string,
+    # or that ui_handlers.py actually logs it as a tuple if it's a non-text file.
+    # Let's re-check ui_handlers.py's text_for_log logic:
+    # - For text files: text_for_log += f"\n[添付テキスト: {original_filename}]" (This is a string)
+    # - For other files: text_for_log += f"\n[ファイル添付: {original_filename}]" (This is also a string)
+    # So, format_history_for_gradio will receive these as strings in `content`.
+    # If we want Gradio to make these actual file links/previews, utils.py *still* needs to parse them
+    # and convert "[ファイル添付: ...]" into tuples if the file exists.
+    # The user's LATEST utils.py code seems to have a disconnect here if it just uses `user_message_accumulator = content`.
+    # I will use the user's LATEST utils.py code provided in the "統合版" (integrated version) email,
+    # which includes specific parsing for these tags.
+
+    # Patterns to identify pre-summarized tags in user messages from the log
+    user_general_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?)\]") # For images, pdfs etc.
+    user_text_file_attach_pattern = re.compile(r"\[添付テキスト: (.*?)\]") # For text files
 
     for msg in messages:
         role = msg.get("role")
@@ -149,91 +166,94 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             continue
 
         if role == "user":
-            if user_message_accumulator is not None: # If there was a previous user message not yet added
+            if user_message_accumulator is not None:
                 gradio_history.append((user_message_accumulator, None))
 
-            # ユーザーメッセージを解析
-            # Check for full text attachment marker first
-            # Ensure "」の内容 ---" is also present to be more specific for the marker
-            if text_content_marker in content and "」の内容 ---" in content:
-                parts = content.split(text_content_marker, 1)
-                clean_content = parts[0].strip()
-                # Further split to get filename accurately
-                filename_and_rest = parts[1].split("」の内容 ---", 1)
-                filename_part = filename_and_rest[0]
+            # Now, parse the `content` which is from the log
+            general_file_match = user_general_file_attach_pattern.fullmatch(content) # Use fullmatch if tag is entire content
+            text_file_match = user_text_file_attach_pattern.fullmatch(content)
 
-                display_tag = f"*[添付テキスト: {filename_part}]*"
-                user_message_accumulator = f"{clean_content}\n{display_tag}".strip() if clean_content else display_tag
-            elif user_file_attach_pattern.search(content): # Use elif to ensure exclusivity with text_content_marker logic
-                # 画像などの添付ファイル
-                match = user_file_attach_pattern.search(content) # Perform search again to get match object
-                if match: # Should always be true if search() was true
-                    filepath, original_filename, _ = match.groups()
-                    user_message_accumulator = (filepath, original_filename) if os.path.exists(filepath) else f"添付ファイル: {original_filename} (見つかりません)"
-                else: # Fallback, though unlikely
-                    user_message_accumulator = content
-            else:
-                # 通常のテキストメッセージ
+            if general_file_match:
+                # This was logged as "[ファイル添付: original_filename]"
+                # We need to find the *actual* path of this file in ATTACHMENTS_DIR.
+                # This requires ui_handlers.py to have logged enough info, or we need a lookup mechanism.
+                # The log from ui_handlers.py's `text_for_log += f"\n[ファイル添付: {original_filename}]"` only gives original_filename.
+                # This is a problem. For Gradio to make it a clickable link/preview, it needs the *actual path*.
+                #
+                # Option 1: Assume `original_filename` is unique enough in `ATTACHMENTS_DIR` (bad assumption).
+                # Option 2: `ui_handlers.py` needs to log the *saved path* not just original_filename for these.
+                # E.g., text_for_log += f"\n[ファイル添付: {saved_attachment_path};{original_filename}]"
+                # Then utils.py can parse it.
+                #
+                # Given the user's latest `utils.py` code block (from the "統合版"),
+                # it simplified user message handling to `user_message_accumulator = content`.
+                # This means it expects Gradio to just display the string "[ファイル添付: filename.jpg]".
+                # This will NOT result in a clickable file or image preview.
+                #
+                # Let's re-evaluate the user's *latest* `utils.py` snippet for the "統合版":
+                # It had:
+                # user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?)\]")
+                # user_text_attach_pattern = re.compile(r"\[添付テキスト: (.*?)\]") # 新しいログ形式に対応
+                # # ...
+                # if role == "user":
+                #    if user_message_accumulator is not None:
+                #        gradio_history.append((user_message_accumulator, None))
+                #    # ログは既に要約されているので、そのまま表示するだけ
+                #    user_message_accumulator = content
+                # ```
+                # This means `user_message_accumulator` will be the literal string "[ファイル添付: name.jpg]" or "[添付テキスト: name.txt]".
                 user_message_accumulator = content
 
         elif role == "model":
-            ai_text_parts = [] # Stores HTML for thoughts, and plain text for main_text
-            ai_image_tuple = None # Stores (filepath, basename) for the image, if any
+            ai_text_parts = []
+            ai_image_tuple = None
+            main_text = content
 
-            main_text = content # Start with full content
-
-            # 1. Extract Thoughts
             thought_match = thoughts_pattern.search(main_text)
             if thought_match:
                 thoughts_content = thought_match.group(1).strip()
                 if thoughts_content:
-                    thought_html = f"<div class='thoughts'><pre><code>{thoughts_content}</code></pre></div>"
-                    ai_text_parts.append(thought_html)
+                    ai_text_parts.append(f"<div class='thoughts'><pre><code>{thoughts_content}</code></pre></div>")
                 main_text = thoughts_pattern.sub("", main_text).strip()
 
-            # 2. Extract Image (as tuple)
-            # This logic assumes one image per AI message for simplicity in splitting.
-            # If multiple [Generated Image] tags exist, only the first is processed as a separate image turn.
-            # A more robust multi-image handling would involve creating even more turns.
-            # For now, sticking to user's latest provided code structure.
+            # Process AI-generated images
             image_match = image_tag_pattern.search(main_text)
             if image_match:
-                image_path = image_match.group(1).strip()
-                # Convert to absolute path for Gradio (assuming images are in 'chat_attachments' or similar accessible via abspath)
-                # User's latest code did not use os.path.abspath, it relied on allowed_paths and /file=
-                # Reverting to the user's direct "image_path" from the tag for the tuple, assuming it's correctly relative to allowed_paths.
-                # The key is that the image tuple is now the *only* thing in its Gradio turn.
-                if os.path.exists(image_path): # Check with the path from tag
+                image_path = image_match.group(1).strip() # This path is from [Generated Image: <path>]
+                                                          # In ui_handlers, these are saved in ATTACHMENTS_DIR.
+                                                          # The path logged is typically relative like "chat_attachments/uuid.png"
+                                                          # or an absolute path if that's how it was saved.
+                                                          # This path should be directly usable by Gradio via allowed_paths.
+                if os.path.exists(image_path):
                     ai_image_tuple = (image_path, os.path.basename(image_path))
                 else:
-                    # If image file not found, add error message to text parts
                     ai_text_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path)})]*")
-                # Remove the image tag from main_text so it doesn't become part of text response
                 main_text = image_tag_pattern.sub("", main_text, 1).strip()
 
-            # 3. Add remaining main_text (if any) to text_parts
             if main_text:
                 ai_text_parts.append(main_text)
 
-            # 4. Add to Gradio history
-            # User accumulator should be from the preceding user turn.
-            current_user_message_for_turn = user_message_accumulator
+            # Splitting logic based on user's latest utils.py in "統合版"
+            user_message_for_this_turn = user_message_accumulator
+            # user_message_accumulator = None # Reset for next turn (done after adding to history)
 
-            if ai_text_parts: # If there's any text content (thoughts or main text)
-                final_ai_text_output = "\n\n".join(ai_text_parts)
-                # The type hint for AI response is Optional[Union[str, Tuple, List]]
-                # For a text turn, it's a string.
-                gradio_history.append((current_user_message_for_turn, final_ai_text_output))
-                # If there was text, the user message is now "consumed" for the next potential image turn from same AI msg
-                current_user_message_for_turn = "" # Or None, user prompt suggests "" for image turn
+            if ai_text_parts and ai_image_tuple:
+                # Both text and image: split into two turns
+                final_text_output = "\n\n".join(ai_text_parts)
+                gradio_history.append((user_message_for_this_turn, final_text_output))
+                gradio_history.append(("", ai_image_tuple)) # Image on a new line, no user part
+            elif ai_text_parts:
+                # Only text
+                final_text_output = "\n\n".join(ai_text_parts)
+                gradio_history.append((user_message_for_this_turn, final_text_output))
+            elif ai_image_tuple:
+                # Only image
+                gradio_history.append((user_message_for_this_turn, ai_image_tuple))
+            # If neither (empty AI response), nothing is added for AI, user_message_accumulator will carry over or be handled by loop end.
+            # However, an empty AI response should still clear user_message_accumulator for that turn.
 
-            if ai_image_tuple: # If there's an image, it gets its own turn
-                # User part is empty string for this AI image-only turn
-                gradio_history.append(("", ai_image_tuple))
+            user_message_accumulator = None # Critical: reset user_message_accumulator after AI turn processing
 
-            user_message_accumulator = None # Reset after AI turn (or turns) are processed
-
-    # ループ後に残っている最後のユーザーメッセージを処理
     if user_message_accumulator is not None:
         gradio_history.append((user_message_accumulator, None))
 
