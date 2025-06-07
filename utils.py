@@ -139,6 +139,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
     user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?);(.*?);(.*?)\]") # filepath;original_filename;mimetype
+    # ユーザー添付テキストの全文表示を抑制するための、より堅牢なパターン
     user_text_content_pattern = re.compile(r"(\n\n--- 添付ファイル「(.*?)」の内容 ---\n[\s\S]*)", re.DOTALL)
 
     for msg in messages:
@@ -155,9 +156,9 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
 
             text_file_match = user_text_content_pattern.search(content)
             if text_file_match:
-                filename = text_file_match.group(2)
+                # Text file content is embedded. Replace with a summary tag.
+                filename = text_file_match.group(1) # Group 1 is from 「(.*?)」
                 clean_content = user_text_content_pattern.sub("", content).strip()
-                # User's code used f"*[添付テキスト: {filename}]*" - let's ensure formatting consistency
                 display_tag = f"*[添付テキスト: {filename}]*"
                 user_message_accumulator = f"{clean_content}\n{display_tag}".strip() if clean_content else display_tag
             else:
@@ -180,23 +181,27 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
                     response_parts.append(thought_html)
                 main_text = thoughts_pattern.sub("", main_text).strip()
 
-            # Process images to use /file= paths
+            # Process AI-generated images
             # Loop to handle multiple images if they exist
             processed_text_for_images = main_text
             temp_image_parts = []
             while True:
                 image_match = image_tag_pattern.search(processed_text_for_images)
                 if image_match:
-                    image_path_original = image_match.group(1).strip()
-                    # IMPORTANT: Convert to web-friendly path for /file= URL
-                    image_path_for_url = image_path_original.replace('\\', '/') # Ensure forward slashes for URL
+                    relative_image_path = image_match.group(1).strip()
+                    # Convert relative path (e.g., "chat_attachments/image.png") to absolute path
+                    absolute_image_path = os.path.abspath(relative_image_path)
+                    # Normalize path for URL (forward slashes)
+                    url_path = absolute_image_path.replace('\\', '/')
 
-                    if os.path.exists(image_path_original):
-                        # Create Markdown link using /file= prefix
-                        image_markdown = f"![{os.path.basename(image_path_original)}](/file={image_path_for_url})"
+                    if os.path.exists(absolute_image_path):
+                        image_markdown = f"![{os.path.basename(absolute_image_path)}](/file={url_path})"
                         temp_image_parts.append(image_markdown)
                     else:
-                        temp_image_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path_original)})]*")
+                        # Use relative_image_path for error message if absolute path check fails,
+                        # as that's what was in the log.
+                        response_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(relative_image_path)})]*")
+
                     processed_text_for_images = image_tag_pattern.sub("", processed_text_for_images, 1) # Remove first match
                 else:
                     break # No more images
@@ -206,10 +211,9 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
             main_text = processed_text_for_images.strip()
 
 
-            if main_text: # Add any remaining text after thoughts and images
+            if main_text: # Add any remaining text
                 response_parts.append(main_text)
 
-            # Join all parts into a single Markdown string for the AI response
             final_model_output = "\n\n".join(response_parts) if response_parts else ""
 
             current_user_msg_to_pass = user_message_accumulator # This should be set from user's turn
