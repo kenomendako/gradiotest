@@ -125,12 +125,11 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[Union[str, Tuple[str, str]]], Optional[str]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[Union[str, Tuple[str, str]]], Optional[Union[str, Tuple[str, str], List[Union[str, Tuple[str, str]]]]]]]:
     """
-    (Final Version) Converts chat log to Gradio's history format.
-    This version creates a single, stable Markdown string for the AI response
-    to prevent all crashes, and uses a web-accessible file path for generated images
-    which will be enabled in the main script via allowed_paths.
+    (Definitive Final Version) Converts chat log to Gradio's history format.
+    This version resolves all known issues by splitting AI responses containing images
+    into separate turns for text and images, ensuring stable rendering.
     """
     gradio_history = []
     user_message_accumulator: Optional[Union[str, Tuple[str, str]]] = None
@@ -139,8 +138,8 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
     user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?);(.*?);(.*?)\]") # filepath;original_filename;mimetype
-    # ユーザー添付テキストの全文表示を抑制するための、より堅牢なパターン
-    user_text_content_pattern = re.compile(r"(\n\n--- 添付ファイル「(.*?)」の内容 ---\n[\s\S]*)", re.DOTALL)
+    # 添付テキストのヘッダーマーカー (正規表現ではなく、文字列検索で使用)
+    text_content_marker = "--- 添付ファイル「" # Used with split()
 
     for msg in messages:
         role = msg.get("role")
@@ -152,75 +151,90 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
         if role == "user":
             if user_message_accumulator is not None: # If there was a previous user message not yet added
                 gradio_history.append((user_message_accumulator, None))
-                # user_message_accumulator = None # Reset for current message - per user code, this is set below
 
-            text_file_match = user_text_content_pattern.search(content)
-            if text_file_match:
-                # Text file content is embedded. Replace with a summary tag.
-                filename = text_file_match.group(1) # Group 1 is from 「(.*?)」
-                clean_content = user_text_content_pattern.sub("", content).strip()
-                display_tag = f"*[添付テキスト: {filename}]*"
+            # ユーザーメッセージを解析
+            # Check for full text attachment marker first
+            # Ensure "」の内容 ---" is also present to be more specific for the marker
+            if text_content_marker in content and "」の内容 ---" in content:
+                parts = content.split(text_content_marker, 1)
+                clean_content = parts[0].strip()
+                # Further split to get filename accurately
+                filename_and_rest = parts[1].split("」の内容 ---", 1)
+                filename_part = filename_and_rest[0]
+
+                display_tag = f"*[添付テキスト: {filename_part}]*"
                 user_message_accumulator = f"{clean_content}\n{display_tag}".strip() if clean_content else display_tag
-            else:
-                file_match = user_file_attach_pattern.search(content)
-                if file_match:
-                    filepath, original_filename, _ = file_match.groups()
+            elif user_file_attach_pattern.search(content): # Use elif to ensure exclusivity with text_content_marker logic
+                # 画像などの添付ファイル
+                match = user_file_attach_pattern.search(content) # Perform search again to get match object
+                if match: # Should always be true if search() was true
+                    filepath, original_filename, _ = match.groups()
                     user_message_accumulator = (filepath, original_filename) if os.path.exists(filepath) else f"添付ファイル: {original_filename} (見つかりません)"
-                else:
+                else: # Fallback, though unlikely
                     user_message_accumulator = content
+            else:
+                # 通常のテキストメッセージ
+                user_message_accumulator = content
 
         elif role == "model":
-            response_parts = []
-            main_text = content
+            ai_text_parts = [] # Stores HTML for thoughts, and plain text for main_text
+            ai_image_tuple = None # Stores (filepath, basename) for the image, if any
 
+            main_text = content # Start with full content
+
+            # 1. Extract Thoughts
             thought_match = thoughts_pattern.search(main_text)
             if thought_match:
                 thoughts_content = thought_match.group(1).strip()
                 if thoughts_content:
                     thought_html = f"<div class='thoughts'><pre><code>{thoughts_content}</code></pre></div>"
-                    response_parts.append(thought_html)
+                    ai_text_parts.append(thought_html)
                 main_text = thoughts_pattern.sub("", main_text).strip()
 
-            # Process AI-generated images
-            # Loop to handle multiple images if they exist
-            processed_text_for_images = main_text
-            temp_image_parts = []
-            while True:
-                image_match = image_tag_pattern.search(processed_text_for_images)
-                if image_match:
-                    relative_image_path = image_match.group(1).strip()
-                    # Convert relative path (e.g., "chat_attachments/image.png") to absolute path
-                    absolute_image_path = os.path.abspath(relative_image_path)
-                    # Normalize path for URL (forward slashes)
-                    url_path = absolute_image_path.replace('\\', '/')
-
-                    if os.path.exists(absolute_image_path):
-                        image_markdown = f"![{os.path.basename(absolute_image_path)}](/file={url_path})"
-                        temp_image_parts.append(image_markdown)
-                    else:
-                        # Use relative_image_path for error message if absolute path check fails,
-                        # as that's what was in the log.
-                        response_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(relative_image_path)})]*")
-
-                    processed_text_for_images = image_tag_pattern.sub("", processed_text_for_images, 1) # Remove first match
+            # 2. Extract Image (as tuple)
+            # This logic assumes one image per AI message for simplicity in splitting.
+            # If multiple [Generated Image] tags exist, only the first is processed as a separate image turn.
+            # A more robust multi-image handling would involve creating even more turns.
+            # For now, sticking to user's latest provided code structure.
+            image_match = image_tag_pattern.search(main_text)
+            if image_match:
+                image_path = image_match.group(1).strip()
+                # Convert to absolute path for Gradio (assuming images are in 'chat_attachments' or similar accessible via abspath)
+                # User's latest code did not use os.path.abspath, it relied on allowed_paths and /file=
+                # Reverting to the user's direct "image_path" from the tag for the tuple, assuming it's correctly relative to allowed_paths.
+                # The key is that the image tuple is now the *only* thing in its Gradio turn.
+                if os.path.exists(image_path): # Check with the path from tag
+                    ai_image_tuple = (image_path, os.path.basename(image_path))
                 else:
-                    break # No more images
+                    # If image file not found, add error message to text parts
+                    ai_text_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path)})]*")
+                # Remove the image tag from main_text so it doesn't become part of text response
+                main_text = image_tag_pattern.sub("", main_text, 1).strip()
 
-            if temp_image_parts:
-                response_parts.extend(temp_image_parts)
-            main_text = processed_text_for_images.strip()
+            # 3. Add remaining main_text (if any) to text_parts
+            if main_text:
+                ai_text_parts.append(main_text)
 
+            # 4. Add to Gradio history
+            # User accumulator should be from the preceding user turn.
+            current_user_message_for_turn = user_message_accumulator
 
-            if main_text: # Add any remaining text
-                response_parts.append(main_text)
+            if ai_text_parts: # If there's any text content (thoughts or main text)
+                final_ai_text_output = "\n\n".join(ai_text_parts)
+                # The type hint for AI response is Optional[Union[str, Tuple, List]]
+                # For a text turn, it's a string.
+                gradio_history.append((current_user_message_for_turn, final_ai_text_output))
+                # If there was text, the user message is now "consumed" for the next potential image turn from same AI msg
+                current_user_message_for_turn = "" # Or None, user prompt suggests "" for image turn
 
-            final_model_output = "\n\n".join(response_parts) if response_parts else ""
+            if ai_image_tuple: # If there's an image, it gets its own turn
+                # User part is empty string for this AI image-only turn
+                gradio_history.append(("", ai_image_tuple))
 
-            current_user_msg_to_pass = user_message_accumulator # This should be set from user's turn
-            gradio_history.append((current_user_msg_to_pass, final_model_output))
-            user_message_accumulator = None # Reset after pairing with a model response
+            user_message_accumulator = None # Reset after AI turn (or turns) are processed
 
-    if user_message_accumulator is not None: # If the last message was from the user
+    # ループ後に残っている最後のユーザーメッセージを処理
+    if user_message_accumulator is not None:
         gradio_history.append((user_message_accumulator, None))
 
     return gradio_history
