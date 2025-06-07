@@ -128,31 +128,19 @@ def format_response_for_display(response_text: Optional[str]) -> str:
 def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[str], Optional[Union[str, List[Union[str, Tuple[str, str]]]]]]]:
     """
     Converts a list of message dictionaries into Gradio's chatbot history format.
-    User messages are strings. Model messages can be strings (Markdown) or lists
-    containing strings (Markdown) and image tuples (filepath, alt_text).
-
-    Args:
-        messages (List[Dict[str, str]]): List of message dictionaries.
-
-    Returns:
-        List containing (user_message, model_response) tuples, where model_response
-        is a string or a list of (strings or image tuples).
+    Handles plain text, thoughts, and generated images correctly.
     """
     gradio_history: List[Tuple[Optional[str], Optional[Union[str, List[Union[str, Tuple[str, str]]]]]]] = []
     user_message_accumulator: Optional[str] = None
 
-    # Define all regex patterns
+    # 正規表現パターンの定義
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-    image_tag_pattern = re.compile(r"\[Generated Image: .*?\]") # Matches the whole tag
-    # Patterns for line-based tags. We will match the prefix and then process the rest of the line.
-    model_text_response_line_pattern = re.compile(r"(\[画像モデルからのテキスト\]:)([^\n]*)")
-    model_error_line_pattern = re.compile(r"(\[ERROR\]:)([^\n]*)")
-    image_prompt_line_pattern = re.compile(r"(\[画像生成に使用されたプロンプト\]:)([^\n]*)")
-
-    # General pattern for image tags (used for removal after path extraction)
-    image_tag_pattern = re.compile(r"\[Generated Image: .*?\]") # Matches the whole tag
-    # Pattern to extract image path for use
-    image_path_extract_pattern = re.compile(r"\[Generated Image: (.*?)\]")
+    # Corrected regex patterns to remove literal newlines and use standard non-capturing groups
+    gazo_prompt_pattern = re.compile(r"\[画像生成に使用されたプロンプト\]:.*?(?:\n\n|$)", re.DOTALL)
+    gazo_notes_pattern = re.compile(r"\((プロンプト絞り込み|絞り込み後のプロンプト|絞り込み候補プロンプト|最終的な絞り込みプロンプト).*?\)(?:\n\n|$)", re.DOTALL)
+    gazo_model_text_pattern = re.compile(r"\[画像モデルからのテキスト\]:.*?(?:\n\n|$)", re.DOTALL)
+    gazo_error_pattern = re.compile(r"\[ERROR\]:.*?(?:\n\n|$)", re.DOTALL)
+    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
     for msg in messages:
         role = msg.get("role")
@@ -163,176 +151,64 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
 
         if role == "user":
             if user_message_accumulator is not None:
-                # This case implies consecutive user messages or a leftover user message
-                # before a model message. Gradio expects (user, model) pairs.
-                # So, if there's an accumulator, it means the previous turn was a user message
-                # that didn't get paired with a model response. This shouldn't happen
-                # if logs are structured correctly (user, model, user, model, ...).
-                # However, if it does, we append it with None for the model part.
                 gradio_history.append((user_message_accumulator, None))
-                # user_message_accumulator = None # Reset after appending. This was missing.
 
-            # Process current user message for display (same logic as before for attachments)
-            display_text_for_user_turn = content
-            file_attach_pattern = r"(\[file_attachment:(.*?);(.*?);(.*?)\])([\s\S]*)"
-            file_attach_match = re.match(file_attach_pattern, content)
-            text_file_pattern = r"(\[添付テキストファイル:(.*?)\])([\s\S]*)"
-            text_file_match = re.match(text_file_pattern, content)
-            timestamp_str = ""
-
-            if file_attach_match:
-                original_filename = file_attach_match.group(3)
-                mime_type = file_attach_match.group(4)
-                timestamp_str = file_attach_match.group(5).strip()
-                prefix = "添付ファイル:"
-                if mime_type.startswith("image/"): prefix = "画像:"
-                elif mime_type == "application/pdf": prefix = "PDF:"
-                elif mime_type.startswith("audio/"): prefix = "音声:"
-                elif mime_type.startswith("video/"): prefix = "動画:"
-                display_text_for_user_turn = f"{prefix} {original_filename}"
-            elif text_file_match:
-                original_filename = text_file_match.group(2)
-                timestamp_str = text_file_match.group(3).strip()
-                display_text_for_user_turn = f"添付テキスト: {original_filename}"
-            
-            if timestamp_str:
-                original_content_for_ts_check = file_attach_match.group(0) if file_attach_match else (text_file_match.group(0) if text_file_match else "")
-                original_timestamp_part = file_attach_match.group(5) if file_attach_match else (text_file_match.group(3) if text_file_match else "")
-                if original_timestamp_part.startswith(('\n', '\r')):
-                    display_text_for_user_turn += f"\n{timestamp_str}"
-                else:
-                    display_text_for_user_turn += f" ({timestamp_str})" if not display_text_for_user_turn.endswith(timestamp_str) else ""
-
-            user_message_accumulator = display_text_for_user_turn # Store as string
+            user_message_accumulator = content
 
         elif role == "model":
-            main_text = content # Store original content
+            # AIの応答を格納するパーツリスト
             model_response_parts: List[Union[str, Tuple[str, str]]] = []
 
+            # 本文抽出のため、まず応答内容全体をコピー
+            main_text = content
+
             # 1. 思考ログの処理
-            thought_html_block = ""
             thought_match = thoughts_pattern.search(content)
             if thought_match:
                 thoughts_content = thought_match.group(1).strip()
                 if thoughts_content:
                     thought_html_block = f"<div class='thoughts'><pre><code>{thoughts_content}</code></pre></div>"
                     model_response_parts.append(thought_html_block)
-                main_text = thoughts_pattern.sub("", main_text) # Remove from main_text
+                # 本文から思考ログ部分を削除
+                main_text = thoughts_pattern.sub("", main_text)
 
-            # 2. 画像モデルからのテキスト応答/エラーメッセージを抽出
-            model_text_content = "" # This variable seems to be used for some conditional logic later
-
-            model_text_content = "" # To track content from model text or error for image logic
-
-            # Process model_text_response
-            mtr_match = model_text_response_line_pattern.search(main_text)
-            if mtr_match:
-                prefix = mtr_match.group(1) # e.g., "[画像モデルからのテキスト]:"
-                content_on_line = mtr_match.group(2).strip() # Text after prefix on that line
-
-                # Heuristic: specific message is up to the first ". " if more text follows.
-                parts = content_on_line.split(". ", 1)
-                specific_message = parts[0]
-                remainder_text = ""
-                if len(parts) > 1 and parts[1]: # If there was text after ". "
-                    specific_message += "." # Add period back to specific message
-                    remainder_text = parts[1]
-
-                if specific_message:
-                    model_response_parts.append(specific_message)
-                    model_text_content = specific_message
-
-                # Replace the original full line (prefix + content_on_line) with only the remainder_text
-                main_text = main_text.replace(prefix + mtr_match.group(2), remainder_text, 1)
-
-            # Process model_error (similar logic to model_text_response)
-            err_match = model_error_line_pattern.search(main_text)
-            if err_match:
-                prefix = err_match.group(1) # e.g., "[ERROR]:"
-                content_on_line = err_match.group(2).strip()
-
-                parts = content_on_line.split(". ", 1)
-                specific_message = parts[0]
-                remainder_text = ""
-                if len(parts) > 1 and parts[1]:
-                    specific_message += "."
-                    remainder_text = parts[1]
-
-                if specific_message:
-                    if specific_message not in model_response_parts: # Avoid double if somehow similar
-                        model_response_parts.append(specific_message)
-                    model_text_content = specific_message # For image logic
-
-                main_text = main_text.replace(prefix + err_match.group(2), remainder_text, 1)
-
-
-            # 3. 生成された画像の情報を抽出
-            image_path_match = image_path_extract_pattern.search(content) # Use extract pattern
-
-            if image_path_match:
-                image_path = image_path_match.group(1).strip()
+            # 2. 生成画像の処理
+            image_match = image_tag_pattern.search(content)
+            if image_match:
+                image_path = image_match.group(1).strip()
                 if os.path.exists(image_path):
-                    image_filename = os.path.basename(image_path)
-                    model_response_parts.append((image_path, image_filename))
-                    main_text = image_tag_pattern.sub("", main_text) # Remove from main_text
+                    # Gradioが期待する (ファイルパス, 代替テキスト) のタプル形式で追加
+                    model_response_parts.append((image_path, os.path.basename(image_path)))
                 else:
-                    error_msg = f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path)})]*"
-                    if error_msg not in model_response_parts:
-                        model_response_parts.append(error_msg)
-                    # Also remove the tag from main_text even if image not found, as it's processed
-                    main_text = image_tag_pattern.sub("", main_text)
+                    model_response_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path)})]*")
+                # 本文から画像タグ部分を削除
+                main_text = image_tag_pattern.sub("", main_text)
 
-                    # If image not found, and model_text_content (error from model) exists, ensure it's added.
-                    if model_text_content and model_text_content not in model_response_parts:
-                         model_response_parts.append(model_text_content)
+            # 3. その他の画像関連のログタグを本文から削除
+            main_text = gazo_prompt_pattern.sub("", main_text)
+            main_text = gazo_notes_pattern.sub("", main_text)
+            main_text = gazo_model_text_pattern.sub("", main_text)
+            main_text = gazo_error_pattern.sub("", main_text)
 
-            # If no image path, but there was a text/error from image model (already added above)
-            # and it was removed from main_text.
+            # 4. 残った部分を本文として追加
+            main_text = main_text.strip()
+            if main_text:
+                model_response_parts.append(main_text)
 
-            # Remove image prompt log from main_text (unconditionally)
-            img_prompt_match = image_prompt_line_pattern.search(main_text)
-            if img_prompt_match:
-                prefix = img_prompt_match.group(1)
-                content_on_line = img_prompt_match.group(2) # Keep original spacing for replace
-
-                # Heuristic for prompt text vs remainder
-                prompt_parts = content_on_line.strip().split(". ", 1)
-                # Prompt message itself is not added to model_response_parts
-                remainder_text = ""
-                if len(prompt_parts) > 1 and prompt_parts[1]:
-                     remainder_text = prompt_parts[1]
-
-                # Replace the original line (prefix + content_on_line) with only the remainder
-                main_text = main_text.replace(prefix + content_on_line, remainder_text, 1)
-
-            # Append remaining main_text to model_response_parts
-            processed_main_text = main_text.strip()
-            if processed_main_text:
-                # Avoid adding main_text if it's identical to what's already in thoughts_content
-                # This is a simplified check.
-                is_duplicate_of_thoughts = False
-                if thought_match:
-                    thoughts_content_original = thought_match.group(1).strip()
-                    if processed_main_text == thoughts_content_original:
-                        is_duplicate_of_thoughts = True
-
-                if not is_duplicate_of_thoughts:
-                    model_response_parts.append(processed_main_text)
-
-            # Determine final_model_output
-            final_model_output: Union[str, List[Union[str, Tuple[str, str]]]]
+            # 5. Gradio表示用の最終的なAI応答を組み立てる
+            final_model_output: Optional[Union[str, List[Union[str, Tuple[str, str]]]]] = None
             if not model_response_parts:
-                final_model_output = ""
+                final_model_output = "" # 空の応答
             elif len(model_response_parts) == 1:
-                final_model_output = model_response_parts[0]
+                final_model_output = model_response_parts[0] # リストから要素を取り出す
             else:
-                final_model_output = model_response_parts
+                final_model_output = model_response_parts # 複数の要素を持つリスト
 
-            user_msg_to_display = user_message_accumulator
-            gradio_history.append((user_msg_to_display, final_model_output))
+            # ユーザーメッセージとAI応答のペアを履歴に追加
+            gradio_history.append((user_message_accumulator, final_model_output))
             user_message_accumulator = None
 
-    # If the last message was from the user, append it with None for the model part.
+    # 最後のユーザーメッセージが残っている場合
     if user_message_accumulator is not None:
         gradio_history.append((user_message_accumulator, None))
 
