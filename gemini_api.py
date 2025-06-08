@@ -122,11 +122,18 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
     try:
         while True:
             print(f"Gemini APIへ送信開始... (Tool Use有効) contents長: {len(final_api_contents)}")
+
+            # 設定をGenerateContentConfigオブジェクトにまとめる
+            generation_config = GenerateContentConfig(
+                tools=[image_generation_tool],
+                safety_settings=safety_settings
+            )
+
+            # config引数を使ってAPIを呼び出す
             response = _gemini_client.models.generate_content(
                 model=selected_model,
                 contents=final_api_contents,
-                tools=[image_generation_tool],
-                safety_settings=safety_settings
+                config=generation_config
             )
             candidate = response.candidates[0]
             if not candidate.content.parts or not candidate.content.parts[0].function_call:
