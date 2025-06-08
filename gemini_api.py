@@ -58,7 +58,6 @@ def configure_google_api(api_key_name):
 # gemini_api.py の send_to_gemini 関数を、このブロックで完全に置き換えてください
 
 def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
-    image_path_for_final_return = None # Initialize
     if _gemini_client is None:
         return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
 
@@ -81,13 +80,10 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             if m_api: sys_ins_text += f"\n\n---\n## 参考記憶:\n{json.dumps(m_api, indent=2, ensure_ascii=False)}\n---"
         except Exception as e: print(f"記憶ファイル '{memory_json_path}' 読込/処理エラー: {e}")
 
-    # --- ここから修正 ---
-    # ログを読み込み、最後のユーザーメッセージ（もしあれば）を削除して重複を防ぐ
     msgs = load_chat_log(log_file_path, character_name)
     if msgs and msgs[-1].get("role") == "user":
         print("情報: ログ末尾のユーザーメッセージを履歴から一時的に削除し、引数の内容で上書きします。")
         msgs = msgs[:-1]
-    # --- ここまで修正 ---
 
     api_contents_from_history = []
     th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
@@ -100,8 +96,6 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         elif sdk_role == "model" and not send_thoughts_to_api: processed_text = th_pat.sub("", processed_text).strip()
         if processed_text: api_contents_from_history.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
 
-    # --- ここから復元・修正 ---
-    # 現在のターンのテキストとファイルを処理するロジックを復元
     current_turn_parts = []
     if user_prompt: current_turn_parts.append(Part(text=user_prompt))
     if uploaded_file_parts:
@@ -115,7 +109,6 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                     current_turn_parts.append(Part(inline_data={"mime_type": mime_type, "data": encoded_data}))
                 except Exception as e: print(f"警告: ファイル '{os.path.basename(file_path)}' の処理中にエラー: {e}")
             else: print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。")
-    # --- ここまで復元・修正 ---
 
     final_api_contents = []
     if sys_ins_text:
@@ -150,6 +143,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             })
 
     try:
+        image_path_for_final_return = None
         while True:
             print(f"Gemini APIへ送信開始... (Tool Use有効) contents長: {len(final_api_contents)}")
 
@@ -167,8 +161,9 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             candidate = response.candidates[0]
             if not candidate.content.parts or not candidate.content.parts[0].function_call:
                 print("情報: AIからの応答は通常のテキストです。処理を終了します。")
-                final_text_content = candidate.text.strip() if hasattr(candidate, 'text') and candidate.text else ""
-                return final_text_content, image_path_for_final_return
+                final_text_parts = [part.text for part in candidate.content.parts if hasattr(part, 'text')]
+                final_text = "".join(final_text_parts).strip()
+                return final_text, image_path_for_final_return
 
             function_call = candidate.content.parts[0].function_call
             if function_call.name != "generate_image":
@@ -178,32 +173,27 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             final_api_contents.append(candidate.content)
 
             args = function_call.args
-            image_prompt_arg = args.get("prompt")
-
+            image_prompt = args.get("prompt")
             tool_result_content = ""
-            if not image_prompt_arg:
-                tool_result_content = "エラー: 画像生成のプロンプトが指定されませんでした。この状況をユーザーに伝えてください。" # User-friendly error for AI
+            if not image_prompt:
+                tool_result_content = "エラー: 画像生成のプロンプトが指定されませんでした。この状況をユーザーに伝えてください。"
             else:
-                print(f"画像生成プロンプト: '{image_prompt_arg[:100]}...'")
-                sanitized_base_name = "".join(c for c in image_prompt_arg[:30] if c.isalnum() or c in [' ']).strip().replace(' ', '_')
+                print(f"画像生成プロンプト: '{image_prompt[:100]}...'")
+                sanitized_base_name = "".join(c for c in image_prompt[:30] if c.isalnum() or c in [' ']).strip().replace(' ', '_')
                 filename_suggestion = f"{character_name}_{sanitized_base_name}"
 
                 text_response, image_path = generate_image_with_gemini(
-                    prompt=image_prompt_arg,
+                    prompt=image_prompt,
                     output_image_filename_suggestion=filename_suggestion
                 )
+                if image_path:
+                    image_path_for_final_return = image_path
 
                 if image_path:
-                    image_path_for_final_return = image_path # Store the path
-                    # log_entry = f"[Generated Image: {image_path}]" # Removed
-                    # save_message_to_log(log_file_path, f"## {character_name}:", log_entry) # Removed
-                    # 成功したことを伝え、次の行動を明確に指示する
                     tool_result_content = f"画像生成に成功しました。パス: {image_path}。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"
                 else:
-                    # 失敗したことを伝え、次の行動を指示する
                     tool_result_content = f"画像生成に失敗しました。理由: {text_response}。このエラーメッセージを参考に、ユーザーに応答してください。"
 
-            print("情報: ツールの実行結果をAPIに返し、最終的な応答を待ちます。")
             function_response_part = Part.from_function_response(
                 name="generate_image",
                 response={"result": tool_result_content}
@@ -411,7 +401,7 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
         image_path = None
 
         if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
-            for part_content in response.candidates[0].content.parts: # Renamed part to part_content for clarity
+            for part_content in response.candidates[0].content.parts:
                 if hasattr(part_content, 'text') and part_content.text:
                     current_part_text = part_content.text.strip()
                     if current_part_text:
