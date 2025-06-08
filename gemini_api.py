@@ -58,8 +58,9 @@ def configure_google_api(api_key_name):
 # gemini_api.py の send_to_gemini 関数を、このブロックで完全に置き換えてください
 
 def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
+    image_path_for_final_return = None # Initialize
     if _gemini_client is None:
-        return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。"
+        return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
 
     # --- 1. プロンプトと会話履歴の準備 ---
     print(f"--- 対話処理開始 (Tool Use対応) --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
@@ -129,7 +130,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         ))]),
         Content(role="user", parts=[Part.from_function_response(
             name="generate_image",
-            response={"result": json.dumps({"status": "success", "image_path": "path/to/example_cat_image.png"})}
+            response={"result": "画像生成に成功しました。パス: path/to/example_cat_image.png。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"}
         )]),
         Content(role="model", parts=[Part(text="お任せください！本棚で眠る、ふわふわの猫ちゃんの絵を描いてみました。気に入ってくれると嬉しいな。")]),
     ]
@@ -166,11 +167,12 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             candidate = response.candidates[0]
             if not candidate.content.parts or not candidate.content.parts[0].function_call:
                 print("情報: AIからの応答は通常のテキストです。処理を終了します。")
-                return candidate.text.strip() if hasattr(candidate, 'text') and candidate.text else "応答生成失敗 (空の応答)"
+                final_text_content = candidate.text.strip() if hasattr(candidate, 'text') and candidate.text else ""
+                return final_text_content, image_path_for_final_return
 
             function_call = candidate.content.parts[0].function_call
             if function_call.name != "generate_image":
-                return f"エラー: 不明な関数 '{function_call.name}' が呼び出されました。"
+                return f"エラー: 不明な関数 '{function_call.name}' が呼び出されました。", None
 
             print(f"情報: AIが画像生成ツール '{function_call.name}' の使用を要求しました。")
             final_api_contents.append(candidate.content)
@@ -180,10 +182,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
 
             tool_result_content = ""
             if not image_prompt_arg:
-                tool_result_content = json.dumps({
-                    "status": "error",
-                    "error_message": "エラー: 画像生成のプロンプトが指定されませんでした。"
-                })
+                tool_result_content = "エラー: 画像生成のプロンプトが指定されませんでした。この状況をユーザーに伝えてください。" # User-friendly error for AI
             else:
                 print(f"画像生成プロンプト: '{image_prompt_arg[:100]}...'")
                 sanitized_base_name = "".join(c for c in image_prompt_arg[:30] if c.isalnum() or c in [' ']).strip().replace(' ', '_')
@@ -195,18 +194,14 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 )
 
                 if image_path:
-                    log_entry = f"[Generated Image: {image_path}]"
-                    save_message_to_log(log_file_path, f"## {character_name}:", log_entry)
-                    tool_result_content = json.dumps({
-                        "status": "success",
-                        "image_path": image_path,
-                        "comment": "Image was generated successfully. Now, provide a friendly comment to the user about the generated image."
-                    })
+                    image_path_for_final_return = image_path # Store the path
+                    # log_entry = f"[Generated Image: {image_path}]" # Removed
+                    # save_message_to_log(log_file_path, f"## {character_name}:", log_entry) # Removed
+                    # 成功したことを伝え、次の行動を明確に指示する
+                    tool_result_content = f"画像生成に成功しました。パス: {image_path}。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"
                 else:
-                    tool_result_content = json.dumps({
-                        "status": "error",
-                        "error_message": text_response
-                    })
+                    # 失敗したことを伝え、次の行動を指示する
+                    tool_result_content = f"画像生成に失敗しました。理由: {text_response}。このエラーメッセージを参考に、ユーザーに応答してください。"
 
             print("情報: ツールの実行結果をAPIに返し、最終的な応答を待ちます。")
             function_response_part = Part.from_function_response(
@@ -216,10 +211,10 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             final_api_contents.append(Content(parts=[function_response_part]))
 
     except google.api_core.exceptions.GoogleAPIError as e:
-        return f"エラー: Gemini APIとの通信中にエラーが発生しました: {e}"
+        return f"エラー: Gemini APIとの通信中にエラーが発生しました: {e}", None
     except Exception as e:
         traceback.print_exc()
-        return f"エラー: Gemini APIとの通信中に予期しないエラーが発生しました: {e}"
+        return f"エラー: Gemini APIとの通信中に予期しないエラーが発生しました: {e}", None
 
 def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_model_name, api_key_name, log_file_path, alarm_api_history_turns):
     print(f"--- アラーム応答生成開始 (google-genai SDK, client.models.generate_content) --- キャラ: {character_name}, テーマ: '{theme}'")

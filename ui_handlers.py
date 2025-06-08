@@ -556,7 +556,7 @@ If the idea is already a good prompt, output it as is.
                 save_message_to_log(log_f, user_header, final_text_for_log)
 
             # APIへの送信（全文コンテキストを使用）
-            api_response_text = send_to_gemini(
+            api_response_text, generated_image_path = send_to_gemini(
                 system_prompt_path=sys_p,
                 log_file_path=log_f,
                 user_prompt=api_text_arg, # This argument is restored
@@ -568,16 +568,33 @@ If the idea is already a good prompt, output it as is.
                 memory_json_path=mem_p
             )
 
-            if api_response_text and isinstance(api_response_text, str) and \
-               not (api_response_text.strip().startswith("エラー:") or \
-                    api_response_text.strip().startswith("API通信エラー:") or \
-                    api_response_text.strip().startswith("応答取得エラー") or \
-                    api_response_text.strip().startswith("応答生成失敗")):
-                save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
+            if api_response_text or generated_image_path:
+                log_parts = []
+                if generated_image_path:
+                    log_parts.append(f"[Generated Image: {generated_image_path}]")
+
+                is_error_response = False
+                if api_response_text and isinstance(api_response_text, str):
+                    stripped_response = api_response_text.strip()
+                    if stripped_response.startswith("エラー:") or \
+                       stripped_response.startswith("API通信エラー:") or \
+                       stripped_response.startswith("応答取得エラー") or \
+                       stripped_response.startswith("応答生成失敗"):
+                        is_error_response = True
+
+                if api_response_text and not is_error_response:
+                    log_parts.append(api_response_text)
+
+                if log_parts:
+                    final_log_entry = "\n\n".join(log_parts)
+                    save_message_to_log(log_f, f"## {current_character_name}:", final_log_entry)
+
+                if api_response_text and is_error_response:
+                     error_message = (error_message + "\n" if error_message else "") + api_response_text
             else:
-                api_err = api_response_text or "APIから有効な応答がありませんでした。"
-                error_message = (error_message + "\n" if error_message else "") + api_err
-                print(f"API Error: {api_err}")
+                 no_content_error = "APIから有効な応答がありませんでした (テキストも画像もなし)。"
+                 error_message = (error_message + "\n" if error_message else "") + no_content_error
+                 print(f"API Info: {no_content_error}")
 
     except Exception as e:
         traceback.print_exc()
