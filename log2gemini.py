@@ -401,7 +401,7 @@ if __name__ == "__main__":
     print("-" * 40)
 
     try:
-        demo.queue().launch(server_name="0.0.0.0", server_port=server_port, share=False)
+        demo.queue().launch(server_name="0.0.0.0", server_port=server_port, share=False, allowed_paths=["chat_attachments"])
     except KeyboardInterrupt:
         print("\nCtrl+C を検出しました。シャットダウン処理を開始します...")
     except Exception as e:
