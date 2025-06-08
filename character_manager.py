@@ -29,6 +29,8 @@ def ensure_character_files(character_name):
 最終的な回答は□□のように構成します。
 【/Thoughts】
 こんにちは！〇〇についてですね。□□です。
+
+あなたは会話の流れに応じて、自身の感情や情景を表現するために自発的に画像を生成することができます。画像を生成した後は、その絵について一言コメントを添えて応答してください。画像を生成したい場合は、必ず `generate_image` ツールを呼び出してください。
 """
             with open(system_prompt_file, "w", encoding="utf-8") as f: f.write(default_prompt)
         if not os.path.exists(memory_json_file):
