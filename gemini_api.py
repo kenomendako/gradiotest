@@ -117,7 +117,18 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
     if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts))
 
     image_generation_tool = _define_image_generation_tool()
-    safety_settings = config_manager.SAFETY_CONFIG
+
+    # --- ここから修正 ---
+    # 安全性設定を辞書から「辞書のリスト」形式に変換
+    formatted_safety_settings = []
+    if config_manager.SAFETY_CONFIG and isinstance(config_manager.SAFETY_CONFIG, dict):
+        for category, threshold in config_manager.SAFETY_CONFIG.items():
+            # ライブラリがEnumを直接扱えるため、そのまま渡す
+            formatted_safety_settings.append({
+                "category": category,
+                "threshold": threshold
+            })
+    # --- ここまで修正 ---
 
     try:
         while True:
@@ -126,7 +137,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             # 設定をGenerateContentConfigオブジェクトにまとめる
             generation_config = GenerateContentConfig(
                 tools=[image_generation_tool],
-                safety_settings=safety_settings
+                safety_settings=formatted_safety_settings # 変換後のリストを渡す
             )
 
             # config引数を使ってAPIを呼び出す
