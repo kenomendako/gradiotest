@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import google.genai as genai
 from google.genai import types
-from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig, FunctionDeclaration # Added GenerateImagesConfig and FunctionDeclaration
+from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig, FunctionDeclaration, FunctionCall
 import os
 import json
 import google.api_core.exceptions
@@ -26,7 +26,7 @@ def _define_image_generation_tool():
         function_declarations=[
             FunctionDeclaration(
                 name="generate_image",
-                description="ユーザーとの対話や自身の感情を表現するために、情景やキャラクターのイラストを描画します。このツールは、AIが自発的に何かを視覚的に表現したい場合にのみ使用してください。",
+                description="ユーザーからのリクエストに応えたり、自身の感情や情景を表現したりするために、情景やキャラクターのイラストを描画します。ユーザーが絵を求めている場合や、視覚的な説明が有効だと判断した場合に、このツールを積極的に使用してください。",
                 parameters={
                     "type": "OBJECT",
                     "properties": {
@@ -115,6 +115,38 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         final_api_contents.append(Content(role="model", parts=[Part(text="了解しました。システム指示に従い、対話を開始します。")]))
     final_api_contents.extend(api_contents_from_history)
     if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts))
+
+    # --- ここから修正・追加 ---
+    # AIにツールの使い方を教えるための「お手本」となる会話履歴（Few-shot Example）を追加
+    # このお手本はAPIに送られるだけで、実際のチャットログには保存されない
+    few_shot_example = [
+        Content(role="user", parts=[Part(text="猫の絵を描いてくれる？")]),
+        Content(role="model", parts=[Part(function_call=FunctionCall(
+            name="generate_image",
+            args={"prompt": "A cute fluffy cat sleeping on a bookshelf, warm and cozy atmosphere, detailed illustration"}
+        ))]),
+        Content(role="user", parts=[Part.from_function_response(
+            name="generate_image",
+            response={"result": "画像の生成に成功し、'path/to/image.png'に保存しました。"}
+        )]),
+        Content(role="model", parts=[Part(text="お任せください！本棚で眠る、ふわふわの猫ちゃんの絵を描いてみました。気に入ってくれると嬉しいな。")]),
+    ]
+    # 実際のお手本を、システム指示と実際の会話履歴の間に挿入する
+    # final_api_contents の2番目の要素（システム指示へのAIの返事の後）に挿入するのが効果的
+    if len(final_api_contents) >= 2: # Ensure sys_ins and model ack are present
+        final_api_contents[2:2] = few_shot_example
+    else:
+        # Fallback: if somehow the list is shorter, try to append after sys_ins or just extend
+        # This logic might need refinement based on how final_api_contents is built if sys_ins is optional
+        # For now, if final_api_contents has 1 element (sys_ins only), insert at index 1
+        # If it's empty (should not happen with sys_ins), extend.
+        # Given the current structure, this 'else' might not be strictly necessary if sys_ins and its ack are guaranteed.
+        # However, to be safe:
+        if final_api_contents: # If there's at least a system instruction
+             final_api_contents.extend(few_shot_example) # Add after existing content
+        else: # If final_api_contents is empty (highly unlikely)
+             final_api_contents = few_shot_example # Make it the content
+    # --- ここまで修正・追加 ---
 
     image_generation_tool = _define_image_generation_tool()
 
