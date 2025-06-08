@@ -1,0 +1,89 @@
+# Gemini API Tool-Use実装における実践的知見と教訓
+
+## はじめに
+
+このドキュメントは、AIチャットに「AIが自律的に画像を生成する機能」を実装する過程で遭遇した問題と、その解決を通じて得られた知見をまとめたものです。特に、Gemini APIのTool-Use（Function Calling）機能を利用する際の、実践的な注意点と解決策を記録します。
+
+## 我々が直面した6つの壁と教訓
+
+### 1. API呼び出しの「作法」：設定は`GenerateContentConfig`にまとめる
+
+-   **問題:**
+    `models.generate_content()`呼び出し時に、`tools`や`safety_settings`を直接の引数として渡した結果、`TypeError: got an unexpected keyword argument 'tools'` が発生した。
+
+-   **解決策と教訓:**
+    Gemini APIの追加設定（ツール、安全性設定、応答形式など）は、`GenerateContentConfig`オブジェクトに集約し、`config`引数として渡す必要があります。これはAPIの基本的なルールであり、最初に確認すべき重要事項です。
+
+    ```python
+    # 正しい呼び出し方
+    from google.genai.types import GenerateContentConfig
+
+    generation_config = GenerateContentConfig(
+        tools=[image_generation_tool],
+        safety_settings=formatted_safety_settings
+    )
+
+    response = client.models.generate_content(
+        model=selected_model,
+        contents=final_api_contents,
+        config=generation_config # config引数で渡す
+    )
+    ```
+
+### 2. データ形式の「厳密さ」：辞書（Dict）とリスト（List）の違い
+
+-   **問題:**
+    `safety_settings`に辞書形式のデータを渡した結果、`ValidationError: Input should be a valid list` が発生した。
+
+-   **解決策と教訓:**
+    APIが要求するデータ構造は絶対です。ドキュメントを精読し、要求される型（この場合は`List[Dict]`）を正確に提供する必要があります。自前のデータ構造から、APIが要求する形式への変換処理は頻繁に発生します。
+
+### 3. AIの「性格」：能力は「お手本（Few-shot）」で見せる
+
+-   **問題:**
+    ツールを定義し、システムプロンプトで指示したにも関わらず、AIが画像生成ツールを全く使ってくれなかった。
+
+-   **解決策と教訓:**
+    AIは、抽象的な指示よりも**具体的な会話例**から学習します。APIに渡す会話履歴の中に、こちらが意図する「ユーザーの依頼 → ツールの呼び出し → 結果の報告 → AIのコメント」という完璧な一連の流れを「お手本（Few-shot Example）」として挿入することが、絶大な効果を発揮しました。AIを動かすには、優れたプロンプトエンジニアリングが不可欠です。
+
+### 4. AIとの「対話」：ツール実行結果は「人間への指示」として報告する
+
+-   **問題:**
+    画像生成に成功した後、AIが沈黙し「空の応答」を返すようになった。
+
+-   **解決策と教訓:**
+    ツール実行の結果を、`{"status": "success", ...}`のような機械的なJSONでAIに報告したところ、AIは次に行うべきアクションを理解できませんでした。
+    これを、「**画像生成に成功しました。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。**」という、人間に対するような明確な指示の文章に変更したことで、AIは初めてその後のタスク（コメントの生成）を理解できました。AIは「対話のパートナー」であり、その報告や指示も対話的であるべきです。
+
+### 5. 対話の「文脈」：最新のメッセージの重複は混乱の元
+
+-   **問題:**
+    AIの応答が1ターン遅れる、という奇妙な挙動が発生した。
+
+-   **解決策と教訓:**
+    これは、`log.txt`から読み込んだ過去の履歴と、引数で渡された`user_prompt`（最新の入力）の両方に、同じユーザーメッセージが含まれてしまい、AIが混乱したことが原因でした。
+    解決策として、「ログを読み込んだ後、末尾がユーザー発言であればそれを削除し、必ず引数の`user_prompt`を正とする」というルールを設け、コンテキストの重複と欠損を完全に防ぎました。**対話履歴の管理は、チャットボット開発の根幹をなす最重要課題です。**
+
+### 6. 応答の「多様性」：AIの返答は常に「汚れている」可能性を考慮する
+
+-   **問題:**
+    最終盤で`TypeError: sequence item 1: expected str instance, NoneType found` が発生した。
+
+-   **解決策と教訓:**
+    AIの応答は、常に綺麗なテキストだけで構成されているわけではありません。思考過程やその他のメタデータが含まれる場合、応答の部品（`part`）にテキスト情報が含まれない「`None`」が混入することがあります。
+    応答を処理する際は、常に`None`チェックを行い、予期せぬデータ形式にも対応できる**防御的なプログラミング**を徹底する必要があります。
+
+    ```python
+    # 悪い例: part.textがNoneの場合にクラッシュする
+    # final_text_parts = [part.text for part in candidate.content.parts]
+
+    # 良い例: Noneを安全に除外する
+    final_text_parts = [part.text for part in candidate.content.parts if hasattr(part, 'text') and part.text is not None]
+    final_text = "".join(final_text_parts)
+    ```
+
+## まとめ
+
+高度なAIアプリケーション開発は、精密なコーディング技術と、AIの「性格」や「思考」を理解しようとする対話的なアプローチの両輪が不可欠です。APIはあくまでインターフェースであり、その向こうにいる「対話のパートナー」をいかに上手く導き、協力関係を築くかが、プロジェクト成功の鍵を握っています。
+
+この記録が、未来の開発者たちの助けとなることを願って。
