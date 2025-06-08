@@ -161,9 +161,13 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             candidate = response.candidates[0]
             if not candidate.content.parts or not candidate.content.parts[0].function_call:
                 print("情報: AIからの応答は通常のテキストです。処理を終了します。")
-                final_text_parts = [part.text for part in candidate.content.parts if hasattr(part, 'text')]
+                # --- ここからが【最終確定版の修正】 ---
+                # candidate.text の代わりに、全パーツからテキストを確実に抽出する
+                # part.text が None でないこともチェックし、TypeErrorを完全に防ぐ
+                final_text_parts = [part.text for part in candidate.content.parts if hasattr(part, 'text') and part.text is not None]
                 final_text = "".join(final_text_parts).strip()
                 return final_text, image_path_for_final_return
+                # --- ここまでが【最終確定版の修正】 ---
 
             function_call = candidate.content.parts[0].function_call
             if function_call.name != "generate_image":
