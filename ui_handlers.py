@@ -559,12 +559,12 @@ If the idea is already a good prompt, output it as is.
             api_response_text = send_to_gemini(
                 system_prompt_path=sys_p,
                 log_file_path=log_f,
-                # user_prompt=api_text_arg, # <- This line is removed
+                user_prompt=api_text_arg, # This argument is restored
                 selected_model=current_model_name,
                 character_name=current_character_name,
                 send_thoughts_to_api=send_thoughts_state,
                 api_history_limit_option=api_history_limit_state,
-                uploaded_file_parts=files_for_gemini_api, # Pass processed file info
+                uploaded_file_parts=files_for_gemini_api, # This argument was already there but its usage in send_to_gemini is now restored
                 memory_json_path=mem_p
             )
 
