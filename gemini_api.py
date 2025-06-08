@@ -55,7 +55,7 @@ def configure_google_api(api_key_name):
     except Exception as e:
         return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}"
 
-def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
+def send_to_gemini(system_prompt_path, log_file_path, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
     if _gemini_client is None:
         return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。"
 
@@ -94,27 +94,14 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         elif sdk_role == "model" and not send_thoughts_to_api: processed_text = th_pat.sub("", processed_text).strip()
         if processed_text: api_contents_from_history.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
 
-    current_turn_parts = []
-    if user_prompt: current_turn_parts.append(Part(text=user_prompt))
-    if uploaded_file_parts:
-        for file_detail in uploaded_file_parts:
-            file_path = file_detail['path']
-            mime_type = file_detail['mime_type']
-            if os.path.exists(file_path):
-                try:
-                    with open(file_path, 'rb') as f_bytes: file_bytes = f_bytes.read()
-                    encoded_data = base64.b64encode(file_bytes).decode('utf-8')
-                    current_turn_parts.append(Part(inline_data={"mime_type": mime_type, "data": encoded_data}))
-                    print(f"情報: ファイル '{os.path.basename(file_path)}' ({mime_type}) をAPIリクエストに追加しました。 (Tool Use対応)")
-                except Exception as e: print(f"警告: ファイル '{os.path.basename(file_path)}' の処理中にエラー: {e}. スキップします。 (Tool Use対応)")
-            else: print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。スキップします。 (Tool Use対応)")
+    # current_turn_parts initialization and population logic (user_prompt, uploaded_file_parts) is removed.
 
     final_api_contents = []
     if sys_ins_text:
         final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
         final_api_contents.append(Content(role="model", parts=[Part(text="了解しました。システム指示に従い、対話を開始します。")]))
     final_api_contents.extend(api_contents_from_history)
-    if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts))
+    # The line "if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts))" is removed.
 
     # --- ここから修正・追加 ---
     # AIにツールの使い方を教えるための「お手本」となる会話履歴（Few-shot Example）を追加
@@ -127,7 +114,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         ))]),
         Content(role="user", parts=[Part.from_function_response(
             name="generate_image",
-            response={"result": "画像の生成に成功し、'path/to/image.png'に保存しました。"}
+            response={"result": json.dumps({"status": "success", "image_path": "path/to/example_cat_image.png"})}
         )]),
         Content(role="model", parts=[Part(text="お任せください！本棚で眠る、ふわふわの猫ちゃんの絵を描いてみました。気に入ってくれると嬉しいな。")]),
     ]
@@ -192,21 +179,37 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             args = function_call.args
             image_prompt = args.get("prompt")
             if not image_prompt:
-                tool_result_content = "エラー: 画像生成のプロンプトが指定されませんでした。"
+                # Ensure json is imported. It should be already.
+                tool_result_content = json.dumps({
+                    "status": "error",
+                    "error_message": "エラー: 画像生成のプロンプトが指定されませんでした。"
+                })
             else:
                 print(f"画像生成プロンプト: '{image_prompt[:100]}...'")
                 sanitized_base_name = "".join(c for c in image_prompt[:30] if c.isalnum() or c in [' ']).strip().replace(' ', '_')
                 filename_suggestion = f"{character_name}_{sanitized_base_name}"
+
                 text_response, image_path = generate_image_with_gemini(
                     prompt=image_prompt,
                     output_image_filename_suggestion=filename_suggestion
                 )
+
+                # Ensure json is imported (it is at the top of the file).
                 if image_path:
                     log_entry = f"[Generated Image: {image_path}]"
                     save_message_to_log(log_file_path, f"## {character_name}:", log_entry)
-                    tool_result_content = f"画像の生成に成功し、'{image_path}'に保存しました。ユーザーにはこの画像と、画像に関するあなたのコメントが一緒に表示されます。"
+                    # 成功した結果をJSON形式で報告
+                    tool_result_content = json.dumps({
+                        "status": "success",
+                        "image_path": image_path,
+                        "comment": "Image was generated successfully. Now, provide a friendly comment to the user about the generated image."
+                    })
                 else:
-                    tool_result_content = f"画像の生成に失敗しました。失敗理由: {text_response}"
+                    # 失敗した結果もJSON形式で報告
+                    tool_result_content = json.dumps({
+                        "status": "error",
+                        "error_message": text_response
+                    })
 
             print("情報: ツールの実行結果をAPIに返し、最終的な応答を待ちます。")
             function_response_part = Part.from_function_response(

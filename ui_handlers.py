@@ -559,7 +559,7 @@ If the idea is already a good prompt, output it as is.
             api_response_text = send_to_gemini(
                 system_prompt_path=sys_p,
                 log_file_path=log_f,
-                user_prompt=api_text_arg, # <- Use api_text_arg which includes full text from files
+                # user_prompt=api_text_arg, # <- This line is removed
                 selected_model=current_model_name,
                 character_name=current_character_name,
                 send_thoughts_to_api=send_thoughts_state,
