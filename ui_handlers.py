@@ -179,7 +179,7 @@ def _process_uploaded_files(
                     'original_filename': original_filename
                 })
                 # For non-text files, log a generic attachment tag
-                text_for_log += f"\n[ファイル添付: {original_filename}]" # Consistent with user's latest utils.py
+                text_for_log += f"\n[ファイル添付: {saved_attachment_path}]" # Use the absolute path
             else:
                  error_messages.append(f"未定義カテゴリ '{category}' のファイル: {original_filename}")
 
@@ -546,23 +546,15 @@ If the idea is already a good prompt, output it as is.
         # --- END OF JULES' REPLACEMENT BLOCK ---
 
         else: # Not a /gazo command
-            # ユーザーのテキスト部分をまず記録
-            base_text_for_log = original_user_text_on_entry.strip()
-            if text_for_log_from_files: # 添付テキストファイルの内容タグを追加
-                base_text_for_log = (base_text_for_log + "\n" + text_for_log_from_files).strip()
+            # ユーザーの入力（テキストとファイルのタグ）を結合して一つのログエントリーとして保存
+            final_user_log_entry = original_user_text_on_entry.strip() # Start with the typed text
+            if text_for_log_from_files: # text_for_log_from_files now contains "[ファイル添付:/abs/path]" tags from _process_uploaded_files
+                final_user_log_entry = (final_user_log_entry + "\n" + text_for_log_from_files).strip()
 
-            if add_timestamp_checkbox:
-                if base_text_for_log:
-                    base_text_for_log += user_action_timestamp_str
-
-            if base_text_for_log:
-                save_message_to_log(log_f, user_header, base_text_for_log)
-
-            # 添付ファイル（画像など）のログを一つずつ絶対パスで記録
-            for file_info in files_for_gemini_api:
-                if not file_info['mime_type'].startswith('text/'):
-                    file_log_entry = f"[ファイル添付: {file_info['path']}]"
-                    save_message_to_log(log_f, user_header, file_log_entry)
+            if final_user_log_entry: # Only log if there's something to log (text or file tags)
+                if add_timestamp_checkbox:
+                    final_user_log_entry += user_action_timestamp_str
+                save_message_to_log(log_f, user_header, final_user_log_entry)
 
             # APIへの送信（全文コンテキストを使用）
             # Ensure there's something to send to API (either text or files for API)

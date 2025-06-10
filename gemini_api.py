@@ -127,10 +127,14 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         )]),
         Content(role="model", parts=[Part(text="お任せください！本棚で眠る、ふわふわの猫ちゃんの絵を描いてみました。気に入ってくれると嬉しいな。")]),
     ]
-    final_api_contents.extend(few_shot_example)
+    # final_api_contents.extend(few_shot_example) # REMOVED from here
 
-    final_api_contents.extend(api_contents_from_history)
-    if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts))
+    final_api_contents.extend(api_contents_from_history) # Add history first
+
+    # お手本を、過去の履歴と現在の質問の間に挿入する (Insert example between past history and current question)
+    final_api_contents.extend(few_shot_example) # Add example here
+
+    if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts)) # Then add current turn
 
     image_generation_tool = _define_image_generation_tool()
 
