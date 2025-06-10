@@ -426,9 +426,8 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
                         image_data = part_content.inline_data.data
 
                         _script_dir = os.path.dirname(os.path.abspath(__file__))
-                        # This line assumes 'gemini_api.py' is in a subdirectory of the project root,
-                        # and 'chat_attachments' is in the project root.
-                        save_dir = os.path.join(os.path.dirname(_script_dir), "chat_attachments", "generated_images")
+                        # Now, chat_attachments is directly within _script_dir (e.g. eteruno_app/chat_attachments)
+                        save_dir = os.path.join(_script_dir, "chat_attachments", "generated_images")
                         os.makedirs(save_dir, exist_ok=True)
 
                         base_name_suggestion, _ = os.path.splitext(output_image_filename_suggestion)

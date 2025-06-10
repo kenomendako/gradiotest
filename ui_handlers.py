@@ -163,9 +163,8 @@ def _process_uploaded_files(
             elif category in ['image', 'pdf', 'audio', 'video']:
                 # Ensure os and uuid are imported
                 _script_dir = os.path.dirname(os.path.abspath(__file__))
-                # This assumes ui_handlers.py is in a subdirectory of the project root,
-                # and 'chat_attachments' is in the project root.
-                save_dir = os.path.join(os.path.dirname(_script_dir), "chat_attachments")
+                # Now, chat_attachments is directly within _script_dir (e.g. eteruno_app/chat_attachments)
+                save_dir = os.path.join(_script_dir, "chat_attachments")
                 os.makedirs(save_dir, exist_ok=True) # Ensure absolute path directory exists
 
                 unique_filename_for_attachment = f"{uuid.uuid4()}{file_extension}"
