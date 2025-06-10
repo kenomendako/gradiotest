@@ -149,7 +149,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
     # user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?);(.*?);(.*?)\]")
     # I will use this, and the code needs to be robust if it doesn't match all three groups
     # for some user messages that are just "[ファイル添付: filename]".
-    user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?);(.*?);(.*?)\]")
+    user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?)\]") # Changed as per user instruction
     text_content_marker = "--- 添付ファイル「"
 
     turn_groups = []
@@ -182,22 +182,12 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Opti
         else:
             # This is the part that needs to be careful with user_file_attach_pattern
             # if the log only contains "[ファイル添付: filename]"
-            match = user_file_attach_pattern.search(user_content) # user_file_attach_pattern expects 3 groups
+            match = user_file_attach_pattern.search(user_content) # Uses the new pattern
             if match:
-                # If this pattern (expecting 3 groups) matches, then the log must have path;name;mime
-                # This implies a different logging format than what ui_handlers.py was last set to.
-                # For this subtask, I will strictly implement user's Python code.
-                # If it fails, it's because the log doesn't match this pattern's expectation.
-                try:
-                    filepath, original_filename, _ = match.groups()
-                    user_display = (filepath, original_filename) if os.path.exists(filepath) else f"添付ファイル: {original_filename} (見つかりません)"
-                except ValueError: # Will occur if groups() doesn't return 3 values
-                    # This means the log format for this user message was not path;name;mime
-                    # Fallback to displaying the content as string.
-                    user_display = user_content
-            else:
-                # Handles plain text and also "[添付テキスト: filename]" which is now logged by ui_handlers.py
-                # (because it won't match the user_file_attach_pattern above).
+                filepath = match.group(1).strip() # Group 1 is the full path
+                original_filename = os.path.basename(filepath)
+                user_display = (filepath, original_filename) if os.path.exists(filepath) else f"添付ファイル: {original_filename} (見つかりません)"
+            else: # No "[ファイル添付: ...]" tag found
                 user_display = user_content
 
         if not group["model_responses"]: # No AI responses in this group

@@ -421,7 +421,10 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
                         print(f"画像生成APIから画像データ (MIME: {part_content.inline_data.mime_type}) を取得しました。")
                         image_data = part_content.inline_data.data
 
-                        save_dir = "chat_attachments/generated_images/"
+                        _script_dir = os.path.dirname(os.path.abspath(__file__))
+                        # This line assumes 'gemini_api.py' is in a subdirectory of the project root,
+                        # and 'chat_attachments' is in the project root.
+                        save_dir = os.path.join(os.path.dirname(_script_dir), "chat_attachments", "generated_images")
                         os.makedirs(save_dir, exist_ok=True)
 
                         base_name_suggestion, _ = os.path.splitext(output_image_filename_suggestion)
