@@ -127,10 +127,14 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         )]),
         Content(role="model", parts=[Part(text="お任せください！本棚で眠る、ふわふわの猫ちゃんの絵を描いてみました。気に入ってくれると嬉しいな。")]),
     ]
-    final_api_contents.extend(few_shot_example)
+    # final_api_contents.extend(few_shot_example) # REMOVED from here
 
-    final_api_contents.extend(api_contents_from_history)
-    if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts))
+    final_api_contents.extend(api_contents_from_history) # Add history first
+
+    # お手本を、過去の履歴と現在の質問の間に挿入する (Insert example between past history and current question)
+    final_api_contents.extend(few_shot_example) # Add example here
+
+    if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts)) # Then add current turn
 
     image_generation_tool = _define_image_generation_tool()
 
@@ -421,7 +425,9 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
                         print(f"画像生成APIから画像データ (MIME: {part_content.inline_data.mime_type}) を取得しました。")
                         image_data = part_content.inline_data.data
 
-                        save_dir = "chat_attachments/generated_images/"
+                        _script_dir = os.path.dirname(os.path.abspath(__file__))
+                        # Now, chat_attachments is directly within _script_dir (e.g. eteruno_app/chat_attachments)
+                        save_dir = os.path.join(_script_dir, "chat_attachments", "generated_images")
                         os.makedirs(save_dir, exist_ok=True)
 
                         base_name_suggestion, _ = os.path.splitext(output_image_filename_suggestion)

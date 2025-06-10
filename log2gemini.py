@@ -400,8 +400,12 @@ if __name__ == "__main__":
     print("(Ctrl+C でアプリケーションを停止します)")
     print("-" * 40)
 
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    attachments_path = os.path.join(_script_dir, "chat_attachments")
+    os.makedirs(attachments_path, exist_ok=True)
+
     try:
-        demo.queue().launch(server_name="0.0.0.0", server_port=server_port, share=False, allowed_paths=["chat_attachments"])
+        demo.queue().launch(server_name="0.0.0.0", server_port=server_port, share=False, allowed_paths=[attachments_path])
     except KeyboardInterrupt:
         print("\nCtrl+C を検出しました。シャットダウン処理を開始します...")
     except Exception as e:

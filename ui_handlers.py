@@ -161,9 +161,14 @@ def _process_uploaded_files(
                     error_messages.append(f"ファイルデコード失敗 ({original_filename}): 全てのエンコーディング試行に失敗しました。")
 
             elif category in ['image', 'pdf', 'audio', 'video']:
-                # Create a unique filename for storage to avoid collisions
+                # Ensure os and uuid are imported
+                _script_dir = os.path.dirname(os.path.abspath(__file__))
+                # Now, chat_attachments is directly within _script_dir (e.g. eteruno_app/chat_attachments)
+                save_dir = os.path.join(_script_dir, "chat_attachments")
+                os.makedirs(save_dir, exist_ok=True) # Ensure absolute path directory exists
+
                 unique_filename_for_attachment = f"{uuid.uuid4()}{file_extension}"
-                saved_attachment_path = os.path.join(ATTACHMENTS_DIR, unique_filename_for_attachment)
+                saved_attachment_path = os.path.join(save_dir, unique_filename_for_attachment)
 
                 shutil.copy2(temp_file_path, saved_attachment_path) # Copy from temp path to persistent storage
 
@@ -173,7 +178,7 @@ def _process_uploaded_files(
                     'original_filename': original_filename
                 })
                 # For non-text files, log a generic attachment tag
-                text_for_log += f"\n[ファイル添付: {original_filename}]" # Consistent with user's latest utils.py
+                text_for_log += f"\n[ファイル添付: {saved_attachment_path}]" # Use the absolute path
             else:
                  error_messages.append(f"未定義カテゴリ '{category}' のファイル: {original_filename}")
 
@@ -540,22 +545,22 @@ If the idea is already a good prompt, output it as is.
         # --- END OF JULES' REPLACEMENT BLOCK ---
 
         else: # Not a /gazo command
-            # ログに記録するテキストを構築（ユーザーの入力＋ログ用の要約）
-            final_text_for_log = (original_user_text_on_entry + "\n" + text_for_log_from_files).strip() if text_for_log_from_files else original_user_text_on_entry.strip()
+            # ユーザーの入力（テキストとファイルのタグ）を結合して一つのログエントリーとして保存
+            final_user_log_entry = original_user_text_on_entry.strip() # Start with the typed text
+            if text_for_log_from_files: # text_for_log_from_files now contains "[ファイル添付:/abs/path]" tags from _process_uploaded_files
+                final_user_log_entry = (final_user_log_entry + "\n" + text_for_log_from_files).strip()
 
-            if not final_text_for_log.strip() and not files_for_gemini_api: # Check if there's anything to send
-                 error_message = (error_message + "\n" if error_message else "") + "送信するメッセージまたは処理可能なファイルがありません。"
-                 # Return original user text to input if it was only spaces or an empty file was "sent"
-                 # Also return original file_input_list to preserve it in the UI
-                 return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message.strip()
-
-            # ログ記録
-            if final_text_for_log: # Ensure there's something to log
+            if final_user_log_entry: # Only log if there's something to log (text or file tags)
                 if add_timestamp_checkbox:
-                    final_text_for_log += user_action_timestamp_str # Append timestamp if checked
-                save_message_to_log(log_f, user_header, final_text_for_log)
+                    final_user_log_entry += user_action_timestamp_str
+                save_message_to_log(log_f, user_header, final_user_log_entry)
 
             # APIへの送信（全文コンテキストを使用）
+            # Ensure there's something to send to API (either text or files for API)
+            if not api_text_arg.strip() and not files_for_gemini_api: # files_for_gemini_api now holds non-text files for API
+                 error_message = (error_message + "\n" if error_message else "") + "送信するメッセージまたは処理可能なファイルがありません。"
+                 return chatbot_history, gr.update(value=original_user_text_on_entry), gr.update(value=file_input_list), error_message.strip()
+
             api_response_text, generated_image_path = send_to_gemini(
                 system_prompt_path=sys_p,
                 log_file_path=log_f,
