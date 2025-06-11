@@ -545,15 +545,24 @@ If the idea is already a good prompt, output it as is.
         # --- END OF JULES' REPLACEMENT BLOCK ---
 
         else: # Not a /gazo command
-            # ユーザーの入力（テキストとファイルのタグ）を結合して一つのログエントリーとして保存
-            final_user_log_entry = original_user_text_on_entry.strip() # Start with the typed text
-            if text_for_log_from_files: # text_for_log_from_files now contains "[ファイル添付:/abs/path]" tags from _process_uploaded_files
-                final_user_log_entry = (final_user_log_entry + "\n" + text_for_log_from_files).strip()
+            # --- ここからが【最重要修正点】 ---
+            # 1. まず、テキスト部分だけをログに記録する
+            text_log_entry = original_user_text_on_entry.strip() # User's typed text
+            if text_for_api_from_files: # This is the full content of uploaded text files.
+                 text_log_entry = (text_log_entry + "\n" + text_for_api_from_files).strip() # Log full text file content with user message
 
-            if final_user_log_entry: # Only log if there's something to log (text or file tags)
+            if text_log_entry: # If there's any text (typed or from files)
                 if add_timestamp_checkbox:
-                    final_user_log_entry += user_action_timestamp_str
-                save_message_to_log(log_f, user_header, final_user_log_entry)
+                    text_log_entry += user_action_timestamp_str
+                save_message_to_log(log_f, user_header, text_log_entry)
+
+            # 2. 次に、添付ファイル（画像など）を一つずつ、別のログエントリーとして記録する
+            # files_for_gemini_api is the list of dicts for non-text files
+            for file_info in files_for_gemini_api:
+                # file_info['path'] is absolute path
+                file_log_entry = f"[ファイル添付: {file_info['path']}]"
+                save_message_to_log(log_f, user_header, file_log_entry)
+            # --- ここまでが【最重要修正点】 ---
 
             # APIへの送信（全文コンテキストを使用）
             # Ensure there's something to send to API (either text or files for API)
