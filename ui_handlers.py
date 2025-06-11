@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-from typing import List, Optional, Dict, Any, Tuple, Union # Added Union
+from typing import List, Optional, Dict, Any, Tuple, Union
 import gradio as gr
 import datetime
+import utils
 import json
 import traceback
 import os
@@ -294,6 +295,8 @@ def handle_message_submission(
     error_message = ""
     original_user_text_on_entry = textbox_content.strip() if textbox_content else ""
     image_path = None # Initialize image_path here for broader scope
+    # Ensure os is imported if it's used below and wasn't at the top of the file
+    # import os # This line might be needed if os wasn't imported globally
 
     # 1. Input Validation
     validation_error = _validate_submission_inputs(current_character_name, current_model_name, current_api_key_name_state)
@@ -632,21 +635,22 @@ If the idea is already a good prompt, output it as is.
 
 def update_ui_on_character_change(
     character_name: Optional[str]
-) -> Tuple[Optional[str], Any, Any, Any, Any, Optional[str]]:
+) -> Tuple[Optional[str], Any, Any, Any, Any, Optional[str], str]:
     """
-    キャラクター選択の変更に応じてUIの各要素（チャット履歴、キャラクター名表示など）を更新します。
+    キャラクター選択の変更に応じてUIの各要素（チャット履歴、キャラクター名表示、ログエディタなど）を更新します。
 
     Args:
         character_name: 選択されたキャラクター名。Noneの場合もあります。
 
     Returns:
-        Tuple[Optional[str], Any, Any, Any, Any, Optional[str]]:
+        Tuple[Optional[str], Any, Any, Any, Any, Optional[str], str]:
             - current_character_name_state: 更新後のキャラクター名。
             - chatbot: 更新されたチャット履歴表示 (gr.update)。
             - textbox: テキストボックスの更新 (通常はクリア、gr.update)。
             - character_image: キャラクター画像の更新 (gr.update)。
             - memory_display: 記憶データの表示更新 (gr.update)。
             - timer_character_dropdown: タイマー設定用キャラクタードロップダウンの更新 (gr.update)。
+            - log_editor_content: ログエディタのコンテンツ。
     """
     if not character_name:
         # キャラクターが選択解除されたか、初期状態で選択がない場合
@@ -657,24 +661,40 @@ def update_ui_on_character_change(
             gr.update(value=""),                   # textbox
             gr.update(value=None),                 # character_image
             gr.update(value="{}"),                 # memory_display
-            gr.update(value=None)                  # timer_character_dropdown
+            gr.update(value=None),                 # timer_character_dropdown
+            "キャラクターを選択してください。"       # log_editor_content
         )
-    
+
     print(f"UI更新: キャラクター変更 -> '{character_name}'")
     config_manager.save_config("last_character", character_name)
-    
+
     log_f, _, img_p, mem_p = get_character_files_paths(character_name)
-    
+
     # チャット履歴の読み込みとフォーマット
     chat_history_display = []
+    log_content_for_editor = "" # Initialize log content for editor
+
     if log_f and os.path.exists(log_f):
-        # ログファイルが存在する場合のみ読み込む
+        # ログファイルが存在する場合のみ読み込む (チャットボット用)
         chat_history_for_gradio = format_history_for_gradio(
             load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT * 2):]
         )
         chat_history_display = chat_history_for_gradio
-    else:
+        # ログファイルの内容をそのままエディタ用に読み込む
+        try:
+            with open(log_f, "r", encoding="utf-8") as f:
+                log_content_for_editor = f.read()
+        except Exception as e:
+            print(f"Error reading log file {log_f} for editor: {e}")
+            traceback.print_exc()
+            log_content_for_editor = f"ログファイルの読み込みに失敗しました: {e}"
+    elif log_f and not os.path.exists(log_f):
         gr.Warning(f"キャラクター '{character_name}' のログファイルが見つかりません: {log_f}")
+        log_content_for_editor = "" # ファイルが存在しない場合、エディタは空
+    else: # character_name is None or log_f could not be determined
+        gr.Warning(f"キャラクター '{character_name}' のログファイルパスを取得できませんでした。")
+        log_content_for_editor = "キャラクターのログファイルパスが見つかりません。"
+
 
     # 記憶データの読み込み
     memory_data = load_memory_data_safe(mem_p)
@@ -689,7 +709,8 @@ def update_ui_on_character_change(
         gr.update(value=""),                   # textbox (キャラクター変更時はクリア)
         gr.update(value=img_p if img_p and os.path.exists(img_p) else None), # character_image
         gr.update(value=memory_display_str),   # memory_display
-        gr.update(value=character_name)        # timer_character_dropdown
+        gr.update(value=character_name),       # timer_character_dropdown
+        log_content_for_editor                 # log_editor_content
     )
 
 def update_model_state(selected_model: Optional[str]) -> Union[Optional[str], Any]:
@@ -922,3 +943,45 @@ def handle_timer_submission(
     except Exception as e:
         gr.Error(f"タイマーの開始中にエラーが発生しました: {str(e)}")
         traceback.print_exc()
+
+
+def handle_save_log_button_click(character_name: Optional[str], log_content: str) -> None:
+    """
+    「ログを保存」ボタンのクリックイベントを処理します。
+    指定されたキャラクターのログファイルに、提供された内容を上書き保存します。
+
+    Args:
+        character_name: 現在選択されているキャラクターの名前。
+        log_content: ログエディタの現在の内容。
+
+    Returns:
+        None: この関数はUIコンポーネントを直接更新する値を返さず、
+              gr.Info や gr.Error を介してフィードバックを行います。
+    """
+    if not character_name:
+        gr.Error("キャラクターが選択されていません。ログを保存できません。")
+        return
+
+    if not isinstance(log_content, str):
+        gr.Error("ログ内容が無効です。保存できません。")
+        # Optionally log this unexpected type for debugging
+        print(f"Error: log_content is not a string. Type: {type(log_content)}")
+        return
+
+    try:
+        # utils.save_log_file は character_name と content を受け取り、
+        # character_manager を使ってファイルパスを取得し、書き込む。
+        # 成功時は何も返さず、失敗時は例外を発生させると想定。
+        utils.save_log_file(character_name, log_content)
+        gr.Info(f"キャラクター '{character_name}' のログを保存しました。")
+    except FileNotFoundError as e: # 例: キャラクターのディレクトリやログファイルが何らかの理由で見つからない
+        gr.Error(f"ログ保存エラー: ファイルまたはディレクトリが見つかりません。詳細: {e}")
+        traceback.print_exc()
+    except IOError as e: # 例: 書き込み権限がない、ディスクフルなど
+        gr.Error(f"ログ保存エラー: ファイル書き込み中にIOエラーが発生しました。詳細: {e}")
+        traceback.print_exc()
+    except Exception as e:
+        gr.Error(f"ログの保存中に予期せぬエラーが発生しました: {e}")
+        traceback.print_exc()
+    # この関数はUIコンポーネントを直接更新する値を返さない
+    # チャットログの再読み込みは、log2gemini.py側の .then() で reload_chat_log を呼び出すことで対応

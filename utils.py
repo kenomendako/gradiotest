@@ -4,6 +4,7 @@ import re
 import traceback
 from typing import List, Dict, Optional, Tuple, Union # Added for type hints
 import gradio as gr
+import character_manager
 
 # --- ユーティリティ関数 ---
 
@@ -349,3 +350,34 @@ def _get_user_header_from_log(log_file_path: str, ai_character_name: str) -> str
         print(f"エラー: ユーザーヘッダー取得のためログファイル '{log_file_path}' 読み込み中に予期せぬエラー: {e}")
         traceback.print_exc()
         return default_user_header # Return default on unexpected error
+
+
+def save_log_file(character_name: str, content: str) -> None:
+    """
+    指定されたキャラクターのログファイルに内容を上書き保存します。
+
+    Args:
+        character_name (str): キャラクター名。
+        content (str): 保存する内容。
+    """
+    if not character_name:
+        print("エラー: save_log_file - character_name が指定されていません。")
+        return
+
+    try:
+        log_file_path, _, _, _ = character_manager.get_character_files_paths(character_name)
+
+        if not log_file_path:
+            print(f"エラー: save_log_file - キャラクター '{character_name}' のログファイルパスを取得できませんでした。")
+            return
+
+        with open(log_file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        # print(f"情報: ログファイル '{log_file_path}' を上書き保存しました。") # 必要に応じて有効化
+
+    except IOError as e:
+        print(f"エラー: ログファイル '{log_file_path}' への書き込み中にIOエラーが発生しました: {e}")
+        traceback.print_exc()
+    except Exception as e:
+        print(f"エラー: ログファイル書き込み中に予期せぬエラーが発生しました (キャラクター: {character_name}): {e}")
+        traceback.print_exc()

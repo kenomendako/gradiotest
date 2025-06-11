@@ -157,6 +157,16 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     memory_json_editor = gr.Code(value=get_initial_memory_data_str(config_manager.initial_character_global), label="記憶データ (JSON形式で編集)", language="json", interactive=True, elem_id="memory_json_editor_code")
                     save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
 
+                with gr.Accordion("📗 チャットログ編集 (`log.txt`)", open=False):
+                    log_editor = gr.Code(
+                        label="ログ内容 (直接編集可能)",
+                        value="キャラクターを選択するとログが表示されます。",
+                        language="text",
+                        interactive=True,
+                        elem_id="log_editor_code"
+                    )
+                    save_log_button = gr.Button(value="ログを保存")
+
                 with gr.Accordion(" 🐦アラーム設定", open=False):
                     alarm_checklist = gr.CheckboxGroup(label="設定済みアラーム (削除したい項目を選択)", interactive=True, elem_id="alarm_checklist")
                     delete_selected_alarms_button = gr.Button("✔️ 選択したアラームを削除", variant="stop")
@@ -312,7 +322,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         character_dropdown.change(
             fn=ui_handlers.update_ui_on_character_change,
             inputs=[character_dropdown],
-            outputs=[current_character_name, chatbot, textbox, profile_image_display, memory_json_editor, alarm_char_dropdown]
+            outputs=[current_character_name, chatbot, textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, log_editor]
         )
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name])
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state])
@@ -322,6 +332,17 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
         # 記憶保存 (memory_managerの関数を直接呼び出すか、ui_handlers経由にするか。ここではui_handlers経由の例は無いため直接呼び出す)
         save_memory_button.click(fn=memory_manager.save_memory_data, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor])
+
+        # ログ保存ボタンのイベントリスナー
+        save_log_button.click(
+            fn=ui_handlers.handle_save_log_button_click,
+            inputs=[current_character_name, log_editor],
+            outputs=None  # handle_save_log_button_click は gr.Info/Error を使用
+        ).then(
+            fn=ui_handlers.reload_chat_log,
+            inputs=[current_character_name],
+            outputs=[chatbot]
+        )
 
         # アラーム追加・削除・クリア (alarm_managerの関数を使用)
         alarm_add_button.click(
