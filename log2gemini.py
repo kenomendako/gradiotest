@@ -293,7 +293,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     add_timestamp_checkbox = gr.Checkbox(label="タイムスタンプ付加", value=config_manager.initial_add_timestamp_global, interactive=True, container=False, scale=1)
 
                 textbox = gr.Textbox(
-                    placeholder="メッセージを入力してください (Shift+Enter でも送信できます)",
+                    placeholder="メッセージを入力してください",
                     lines=3,
                     show_label=False,
                     scale=8
@@ -344,7 +344,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         submit_inputs = [textbox, chatbot, current_character_name, current_model_name, current_api_key_name_state, file_input, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state]
         submit_outputs = [chatbot, textbox, file_input, error_box]
         submit_button.click(fn=ui_handlers.handle_message_submission, inputs=submit_inputs, outputs=submit_outputs)
-        textbox.submit(fn=ui_handlers.handle_message_submission, inputs=submit_inputs, outputs=submit_outputs)
 
         # --- error_boxの内容が空でなければ自動的に表示 ---
         def show_error_box(error_message):
