@@ -71,6 +71,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         except Exception as e: print(f"システムプロンプト '{system_prompt_path}' 読込エラー: {e}")
     if memory_json_path and os.path.exists(memory_json_path):
         try:
+            # Ensure json is imported (globally)
             with open(memory_json_path, "r", encoding="utf-8") as f: mem = json.load(f)
             m_api = {k: v for k, v in {
                 "user_profile": mem.get("user_profile"), "self_identity": mem.get("self_identity"),
@@ -80,13 +81,16 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             if m_api: sys_ins_text += f"\n\n---\n## 参考記憶:\n{json.dumps(m_api, indent=2, ensure_ascii=False)}\n---"
         except Exception as e: print(f"記憶ファイル '{memory_json_path}' 読込/処理エラー: {e}")
 
+    # Ensure load_chat_log is available (from utils)
     msgs = load_chat_log(log_file_path, character_name)
     if msgs and msgs[-1].get("role") == "user":
         print("情報: ログ末尾のユーザーメッセージを履歴から一時的に削除し、引数の内容で上書きします。")
         msgs = msgs[:-1]
 
     api_contents_from_history = []
+    # Ensure 're' is imported (globally)
     th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
+    # Ensure 'Content' and 'Part' from google.genai.types are imported (globally)
     for m in msgs:
         sdk_role = "user" if m.get("role") == "user" else "model"
         content_text = m.get("content", "")
@@ -99,6 +103,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
     current_turn_parts = []
     if user_prompt: current_turn_parts.append(Part(text=user_prompt))
     if uploaded_file_parts:
+        # Ensure 'os' and 'base64' are imported (globally)
         for file_detail in uploaded_file_parts:
             file_path = file_detail['path']
             mime_type = file_detail['mime_type']
@@ -115,27 +120,29 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
         final_api_contents.append(Content(role="model", parts=[Part(text="了解しました。システム指示に従い、対話を開始します。")]))
 
+    # --- ここからが【最重要修正点】 ---
+    # 過去の履歴と現在の質問の間に、お手本を挿入する
+    final_api_contents.extend(api_contents_from_history)
+
+    # AIにツールの使い方を教えるための「抽象的なお手本」となる会話履歴
     few_shot_example = [
-        Content(role="user", parts=[Part(text="猫の絵を描いてくれる？")]),
+        Content(role="user", parts=[Part(text="あなたの今の気持ちを、絵で表現してみて。")]),
         Content(role="model", parts=[Part(function_call=FunctionCall(
             name="generate_image",
-            args={"prompt": "A cute fluffy cat sleeping on a bookshelf, warm and cozy atmosphere, detailed illustration"}
+            args={"prompt": "An abstract digital painting representing a complex feeling of quiet joy and deep understanding. Swirls of warm, soft, glowing colors like gold and gentle blue, with a single bright point of light in the center."}
         ))]),
         Content(role="user", parts=[Part.from_function_response(
             name="generate_image",
-            response={"result": "画像生成に成功しました。パス: path/to/example_cat_image.png。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"}
+            response={"result": "画像生成に成功しました。パス: path/to/example_abstract_image.png。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"}
         )]),
-        Content(role="model", parts=[Part(text="お任せください！本棚で眠る、ふわふわの猫ちゃんの絵を描いてみました。気に入ってくれると嬉しいな。")]),
+        Content(role="model", parts=[Part(text="はい、描いてみました。これが、今の私の気持ちです。言葉にするのは難しいですが、温かくて、静かで、そして確かな光を感じる……そんなイメージです。")])
     ]
-    # final_api_contents.extend(few_shot_example) # REMOVED from here
+    final_api_contents.extend(few_shot_example)
 
-    final_api_contents.extend(api_contents_from_history) # Add history first
+    if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts))
+    # --- ここまでが【最重要修正点】 ---
 
-    # お手本を、過去の履歴と現在の質問の間に挿入する (Insert example between past history and current question)
-    final_api_contents.extend(few_shot_example) # Add example here
-
-    if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts)) # Then add current turn
-
+    # (以降のコードは変更なし)
     image_generation_tool = _define_image_generation_tool()
 
     formatted_safety_settings = []
@@ -165,13 +172,9 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             candidate = response.candidates[0]
             if not candidate.content.parts or not candidate.content.parts[0].function_call:
                 print("情報: AIからの応答は通常のテキストです。処理を終了します。")
-                # --- ここからが【最終確定版の修正】 ---
-                # candidate.text の代わりに、全パーツからテキストを確実に抽出する
-                # part.text が None でないこともチェックし、TypeErrorを完全に防ぐ
                 final_text_parts = [part.text for part in candidate.content.parts if hasattr(part, 'text') and part.text is not None]
                 final_text = "".join(final_text_parts).strip()
                 return final_text, image_path_for_final_return
-                # --- ここまでが【最終確定版の修正】 ---
 
             function_call = candidate.content.parts[0].function_call
             if function_call.name != "generate_image":

@@ -545,15 +545,24 @@ If the idea is already a good prompt, output it as is.
         # --- END OF JULES' REPLACEMENT BLOCK ---
 
         else: # Not a /gazo command
-            # ユーザーの入力（テキストとファイルのタグ）を結合して一つのログエントリーとして保存
-            final_user_log_entry = original_user_text_on_entry.strip() # Start with the typed text
-            if text_for_log_from_files: # text_for_log_from_files now contains "[ファイル添付:/abs/path]" tags from _process_uploaded_files
-                final_user_log_entry = (final_user_log_entry + "\n" + text_for_log_from_files).strip()
+            # --- ここからが【最重要修正点】 ---
+            # 1. まず、テキスト部分だけをログに記録する
+            # api_text_arg には、入力テキストと、添付テキストファイルの内容が含まれている
+            text_log_entry = api_text_arg # This is correct as per Kiseki's latest.
 
-            if final_user_log_entry: # Only log if there's something to log (text or file tags)
+            # タイムスタンプは、テキスト部分にのみ適用する
+            if text_log_entry: # Log if there's any text (typed or from text files)
                 if add_timestamp_checkbox:
-                    final_user_log_entry += user_action_timestamp_str
-                save_message_to_log(log_f, user_header, final_user_log_entry)
+                    text_log_entry += user_action_timestamp_str
+                save_message_to_log(log_f, user_header, text_log_entry)
+
+            # 2. 次に、添付ファイル（画像など）を一つずつ、別のログエントリーとして記録する
+            # files_for_gemini_api には、テキスト以外のファイル情報が格納されている
+            for file_info in files_for_gemini_api:
+                # ログに記録するのは、[ファイル添付: <絶対パス>] というタグのみ
+                file_log_entry = f"[ファイル添付: {file_info['path']}]" # file_info['path'] is absolute path
+                save_message_to_log(log_f, user_header, file_log_entry) # No separate timestamp for these file entries
+            # --- ここまでが【最重要修正点】 ---
 
             # APIへの送信（全文コンテキストを使用）
             # Ensure there's something to send to API (either text or files for API)
