@@ -547,10 +547,8 @@ If the idea is already a good prompt, output it as is.
         else: # Not a /gazo command
             # --- ここからが【最重要修正点】 ---
             # 1. まず、テキスト部分だけをログに記録する
-            # text_for_api_from_files にはテキストファイルの内容が入るので、これも含める
-            text_log_entry = original_user_text_on_entry.strip() # User's typed text
-            if text_for_api_from_files: # This is the full content of uploaded text files.
-                 text_log_entry = (text_log_entry + "\n" + text_for_api_from_files).strip()
+            # api_text_arg には、入力テキストと、添付テキストファイルの内容が含まれている
+            text_log_entry = api_text_arg # This is correct as per Kiseki's latest.
 
             # タイムスタンプは、テキスト部分にのみ適用する
             if text_log_entry: # Log if there's any text (typed or from text files)
