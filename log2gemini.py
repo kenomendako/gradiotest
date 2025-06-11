@@ -149,13 +149,39 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     send_thoughts_checkbox = gr.Checkbox(value=config_manager.initial_send_thoughts_to_api_global, label="思考過程をAPIに送信", info="OFFでトークン削減可能 (モデル挙動に影響あり)", interactive=True)
 
                 with gr.Accordion(f"📗 キャラクターの記憶 ({config_manager.MEMORY_FILENAME})", open=False):
-                    def get_initial_memory_data_str(char_name):
+                    def get_initial_memory_data_str(char_name: str) -> str: # Type hint added for clarity
                          if not char_name: return "{}"
                          _, _, _, mem_path = character_manager.get_character_files_paths(char_name)
                          mem_data = memory_manager.load_memory_data_safe(mem_path)
                          return json.dumps(mem_data, indent=2, ensure_ascii=False) if isinstance(mem_data, dict) else json.dumps({"error": "Failed to load"}, indent=2)
                     memory_json_editor = gr.Code(value=get_initial_memory_data_str(config_manager.initial_character_global), label="記憶データ (JSON形式で編集)", language="json", interactive=True, elem_id="memory_json_editor_code")
                     save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
+
+                with gr.Accordion("📗 チャットログ編集 (`log.txt`)", open=False):
+                    def get_initial_log_data_str(char_name: str) -> str: # Type hint added
+                        if not char_name:
+                            return "キャラクターを選択してください。"
+                        log_f, _, _, _ = character_manager.get_character_files_paths(char_name)
+                        if log_f and os.path.exists(log_f):
+                            try:
+                                with open(log_f, "r", encoding="utf-8") as f:
+                                    return f.read()
+                            except Exception as e:
+                                print(f"Error reading log file {log_f} for initial display: {e}")
+                                traceback.print_exc()
+                                return f"ログファイルの読み込みに失敗しました: {e}"
+                        elif log_f and not os.path.exists(log_f):
+                            return "" # Log file doesn't exist, editor starts empty
+                        else:
+                            return "キャラクターのログファイルパスが見つかりません。"
+
+                    log_editor = gr.Code(
+                        label="ログ内容 (直接編集可能)",
+                        value=get_initial_log_data_str(config_manager.initial_character_global),
+                        interactive=True,
+                        elem_id="log_editor_code"
+                    )
+                    save_log_button = gr.Button(value="ログを保存", variant="secondary")
 
                 with gr.Accordion(" 🐦アラーム設定", open=False):
                     alarm_checklist = gr.CheckboxGroup(label="設定済みアラーム (削除したい項目を選択)", interactive=True, elem_id="alarm_checklist")
@@ -312,7 +338,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         character_dropdown.change(
             fn=ui_handlers.update_ui_on_character_change,
             inputs=[character_dropdown],
-            outputs=[current_character_name, chatbot, textbox, profile_image_display, memory_json_editor, alarm_char_dropdown]
+            outputs=[current_character_name, chatbot, textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, log_editor]
         )
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name])
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state])
@@ -322,6 +348,17 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
         # 記憶保存 (memory_managerの関数を直接呼び出すか、ui_handlers経由にするか。ここではui_handlers経由の例は無いため直接呼び出す)
         save_memory_button.click(fn=memory_manager.save_memory_data, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor])
+
+        # ログ保存ボタンのイベントリスナー
+        save_log_button.click(
+            fn=ui_handlers.handle_save_log_button_click,
+            inputs=[current_character_name, log_editor],
+            outputs=None  # handle_save_log_button_click は gr.Info/Error を使用
+        ).then(
+            fn=ui_handlers.reload_chat_log,
+            inputs=[current_character_name],
+            outputs=[chatbot]
+        )
 
         # アラーム追加・削除・クリア (alarm_managerの関数を使用)
         alarm_add_button.click(
