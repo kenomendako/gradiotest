@@ -115,24 +115,9 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
         final_api_contents.append(Content(role="model", parts=[Part(text="了解しました。システム指示に従い、対話を開始します。")]))
 
-    few_shot_example = [
-        Content(role="user", parts=[Part(text="猫の絵を描いてくれる？")]),
-        Content(role="model", parts=[Part(function_call=FunctionCall(
-            name="generate_image",
-            args={"prompt": "A cute fluffy cat sleeping on a bookshelf, warm and cozy atmosphere, detailed illustration"}
-        ))]),
-        Content(role="user", parts=[Part.from_function_response(
-            name="generate_image",
-            response={"result": "画像生成に成功しました。パス: path/to/example_cat_image.png。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"}
-        )]),
-        Content(role="model", parts=[Part(text="お任せください！本棚で眠る、ふわふわの猫ちゃんの絵を描いてみました。気に入ってくれると嬉しいな。")]),
-    ]
-    # final_api_contents.extend(few_shot_example) # REMOVED from here
+    # few_shot_example and its extension are removed.
 
     final_api_contents.extend(api_contents_from_history) # Add history first
-
-    # お手本を、過去の履歴と現在の質問の間に挿入する (Insert example between past history and current question)
-    final_api_contents.extend(few_shot_example) # Add example here
 
     if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts)) # Then add current turn
 
