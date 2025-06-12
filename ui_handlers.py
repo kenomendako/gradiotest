@@ -835,34 +835,49 @@ def update_api_history_limit_state(selected_limit_option_ui_value: Optional[str]
         gr.Error(f"無効なAPI履歴制限オプションが選択されました: '{selected_limit_option_ui_value}'")
         return gr.update() # 現在のStateを維持
 
-def reload_chat_log(character_name: Optional[str]) -> List[List[Optional[str]]]:
+def reload_chat_log(character_name: Optional[str]) -> Tuple[List[List[Optional[str]]], str]:
     """
-    指定されたキャラクターのチャットログを再読み込みしてGradio表示形式で返します。
+    指定されたキャラクターのチャットログを再読み込みし、
+    Gradio表示形式の履歴と生のログテキストを返します。
 
     Args:
         character_name: チャットログを読み込むキャラクターの名前。
 
     Returns:
-        List[List[Optional[str]]]: GradioのChatbotコンポーネント用のチャット履歴。
-                                     エラー時は空リスト。
+        Tuple[List[List[Optional[str]]], str]:
+            - GradioのChatbotコンポーネント用のチャット履歴。
+            - ログエディタ用の生のログテキスト文字列。
     """
     if not character_name:
         gr.Info("ログ再読み込み: キャラクターが選択されていません。")
-        return []
+        return [], "キャラクターを選択してください。"
 
     log_file_path, _, _, _ = get_character_files_paths(character_name)
-    
+
     if not log_file_path or not os.path.exists(log_file_path):
-        gr.Warning(f"ログ再読み込み: キャラクター '{character_name}' のログファイルが見つかりません ({log_file_path})。")
-        return []
-    
-    print(f"UI操作: '{character_name}' のチャットログを再読み込みします。")
-    # HISTORY_LIMIT * 2 はユーザーとAIの発言ペアを考慮していると推測
+        warning_msg = f"キャラクター '{character_name}' のログファイルが見つかりません。"
+        gr.Warning(f"ログ再読み込み: {warning_msg}") # This was gr.Warning in user feedback
+        return [], warning_msg
+
+    print(f"UI操作: '{character_name}' のチャットログとエディタを再読み込みします。")
+
+    # チャットボット用のフォーマット済み履歴を取得
     chat_log_for_display = format_history_for_gradio(
         load_chat_log(log_file_path, character_name)[-(config_manager.HISTORY_LIMIT * 2):]
     )
-    gr.Info(f"'{character_name}' のチャットログを再読み込みしました。")
-    return chat_log_for_display
+
+    # ログエディタ用の生のテキストを取得
+    raw_log_content = ""
+    try:
+        with open(log_file_path, "r", encoding="utf-8") as f:
+            raw_log_content = f.read()
+    except Exception as e:
+        error_msg = f"ログファイルの読み込みに失敗しました: {e}"
+        print(f"エラー: {error_msg}") # For server logs
+        raw_log_content = error_msg # Display error in editor
+
+    gr.Info(f"'{character_name}' のチャットログを再読み込みしました。") # This was gr.Info
+    return chat_log_for_display, raw_log_content
 
 def handle_timer_submission(
     timer_type: str,

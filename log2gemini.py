@@ -51,8 +51,9 @@ custom_css = """
     display: block !important; /* Explicitly make it a block to fill width */
     width: 100% !important;    /* Ensure it uses the container's width */
 }
-#memory_json_editor_code .cm-editor { max-height: 300px !important; overflow-y: auto !important; }
-#memory_json_editor_code { max-height: 310px; overflow: hidden; border: 1px solid #ccc; border-radius: 5px; }
+/* 修正点：#log_editor_code を追加 */
+#memory_json_editor_code .cm-editor, #log_editor_code .cm-editor { max-height: 300px !important; overflow-y: auto !important; }
+#memory_json_editor_code, #log_editor_code { max-height: 310px; overflow: hidden; border: 1px solid #ccc; border-radius: 5px; }
 #alarm_checklist .gr-input-label { margin-bottom: 5px !important; }
 #alarm_checklist .gr-check-radio > label { padding: 4px 0 !important; display: block; }
 #help_accordion code { background-color: #eee; padding: 2px 4px; border-radius: 3px; font-size: 0.9em; }
@@ -394,7 +395,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         reload_button.click(
             fn=ui_handlers.reload_chat_log,
             inputs=[current_character_name],
-            outputs=[chatbot]
+            outputs=[chatbot, log_editor] # 修正点：log_editorを追加
         )
 
 # --- アプリケーション起動 ---
