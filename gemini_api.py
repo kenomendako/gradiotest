@@ -121,24 +121,28 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         final_api_contents.append(Content(role="model", parts=[Part(text="了解しました。システム指示に従い、対話を開始します。")]))
 
     # --- ここからが【最重要修正点】 ---
-    # 過去の履歴と現在の質問の間に、お手本を挿入する
-    final_api_contents.extend(api_contents_from_history)
+    # 履歴とお手本の順番を調整し、お手本が「最近の会話」だと誤認されるのを防ぐ
 
-    # AIにツールの使い方を教えるための「抽象的なお手本」となる会話履歴
+    # AIにツールの使い方を教えるための、文脈に依存しない「機能テスト」のお手本
     few_shot_example = [
-        Content(role="user", parts=[Part(text="あなたの今の気持ちを、絵で表現してみて。")]),
+        Content(role="user", parts=[Part(text="画像生成ツールの動作確認をします。")]),
         Content(role="model", parts=[Part(function_call=FunctionCall(
             name="generate_image",
-            args={"prompt": "An abstract digital painting representing a complex feeling of quiet joy and deep understanding. Swirls of warm, soft, glowing colors like gold and gentle blue, with a single bright point of light in the center."}
+            args={"prompt": "A basic test pattern: a red square, a blue circle, and a green triangle on a plain white background. Clear, simple, vector style."}
         ))]),
         Content(role="user", parts=[Part.from_function_response(
             name="generate_image",
-            response={"result": "画像生成に成功しました。パス: path/to/example_abstract_image.png。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"}
+            response={"result": "画像生成に成功しました。パス: path/to/test_pattern.png。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"}
         )]),
-        Content(role="model", parts=[Part(text="はい、描いてみました。これが、今の私の気持ちです。言葉にするのは難しいですが、温かくて、静かで、そして確かな光を感じる……そんなイメージです。")])
+        Content(role="model", parts=[Part(text="ツールの動作確認用画像を生成しました。指定通り、赤い四角、青い丸、緑の三角形が描画されています。")])
     ]
+    # 最初に、会話の前提知識となる「お手本」を追加する
     final_api_contents.extend(few_shot_example)
 
+    # 次に、実際の過去の会話履歴を追加する
+    final_api_contents.extend(api_contents_from_history)
+
+    # 最後に、現在のユーザー入力を追加する
     if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts))
     # --- ここまでが【最重要修正点】 ---
 
