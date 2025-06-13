@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
-import google.genai as genai
-from google.genai import types
-from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig, FunctionDeclaration, FunctionCall
+import google.generativeai as genai # Updated import path
+from google.generativeai import types # Updated import path
+# Content and Part are likely accessed via genai.Content and genai.Part
+# FunctionCall is likely accessed via genai.FunctionCall
+from google.generativeai.types import Tool, GenerationConfig, FunctionDeclaration # Removed GenerateImagesConfig and FunctionCall
 import os
 import json
 import google.api_core.exceptions
@@ -113,10 +115,10 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         processed_text = content_text
         if sdk_role == "user": processed_text = re.sub(r"\[画像添付:[^\]]+\]", "", processed_text).strip()
         elif sdk_role == "model" and not send_thoughts_to_api: processed_text = th_pat.sub("", processed_text).strip()
-        if processed_text: api_contents_from_history.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
+        if processed_text: api_contents_from_history.append(genai.Content(role=sdk_role, parts=[genai.Part(text=processed_text)])) # Prefixed # Corrected Indent
 
     current_turn_parts = []
-    if user_prompt: current_turn_parts.append(Part(text=user_prompt))
+    if user_prompt: current_turn_parts.append(genai.Part(text=user_prompt)) # Prefixed Part
     if uploaded_file_parts:
         # Ensure 'os' and 'base64' are imported (globally)
         for file_detail in uploaded_file_parts:
@@ -126,30 +128,30 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 try:
                     with open(file_path, 'rb') as f_bytes: file_bytes = f_bytes.read()
                     encoded_data = base64.b64encode(file_bytes).decode('utf-8')
-                    current_turn_parts.append(Part(inline_data={"mime_type": mime_type, "data": encoded_data}))
+                    current_turn_parts.append(genai.Part(inline_data={"mime_type": mime_type, "data": encoded_data})) # Prefixed Part
                 except Exception as e: print(f"警告: ファイル '{os.path.basename(file_path)}' の処理中にエラー: {e}")
             else: print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。")
 
     final_api_contents = []
     if sys_ins_text:
-        final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
-        final_api_contents.append(Content(role="model", parts=[Part(text="了解しました。システム指示に従い、対話を開始します。")]))
+        final_api_contents.append(genai.Content(role="user", parts=[genai.Part(text=sys_ins_text)])) # Prefixed
+        final_api_contents.append(genai.Content(role="model", parts=[genai.Part(text="了解しました。システム指示に従い、対話を開始します。")])) # Prefixed
 
     # --- ここからが【最重要修正点】 ---
     # 履歴とお手本の順番を調整し、お手本が「最近の会話」だと誤認されるのを防ぐ
 
     # AIにツールの使い方を教えるための、文脈に依存しない「機能テスト」のお手本
     few_shot_example = [
-        Content(role="user", parts=[Part(text="画像生成ツールの動作確認をします。")]),
-        Content(role="model", parts=[Part(function_call=FunctionCall(
+        genai.Content(role="user", parts=[genai.Part(text="画像生成ツールの動作確認をします。")]), # Prefixed
+        genai.Content(role="model", parts=[genai.Part(function_call=genai.FunctionCall( # Prefixed FunctionCall
             name="generate_image",
             args={"prompt": "A basic test pattern: a red square, a blue circle, and a green triangle on a plain white background. Clear, simple, vector style."}
         ))]),
-        Content(role="user", parts=[Part.from_function_response(
+        genai.Content(role="user", parts=[genai.Part.from_function_response( # Prefixed
             name="generate_image",
             response={"result": "画像生成に成功しました。パス: path/to/test_pattern.png。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"}
         )]),
-        Content(role="model", parts=[Part(text="ツールの動作確認用画像を生成しました。指定通り、赤い四角、青い丸、緑の三角形が描画されています。")])
+        genai.Content(role="model", parts=[genai.Part(text="ツールの動作確認用画像を生成しました。指定通り、赤い四角、青い丸、緑の三角形が描画されています。")]) # Prefixed
     ]
     # 最初に、会話の前提知識となる「お手本」を追加する
     final_api_contents.extend(few_shot_example)
@@ -158,7 +160,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
     final_api_contents.extend(api_contents_from_history)
 
     # 最後に、現在のユーザー入力を追加する
-    if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts))
+    if current_turn_parts: final_api_contents.append(genai.Content(role="user", parts=current_turn_parts)) # Prefixed
     # --- ここまでが【最重要修正点】 ---
 
     # (以降のコードは変更なし)
@@ -177,7 +179,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         while True:
             print(f"Gemini APIへ送信開始... (Tool Use有効) contents長: {len(final_api_contents)}")
 
-            generation_config = GenerateContentConfig(
+            generation_config = GenerationConfig( # Renamed class
                 tools=[image_generation_tool],
                 safety_settings=formatted_safety_settings
             )
@@ -200,7 +202,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 return f"エラー: 不明な関数 '{function_call.name}' が呼び出されました。", None
 
             print(f"情報: AIが画像生成ツール '{function_call.name}' の使用を要求しました。")
-            final_api_contents.append(candidate.content)
+            final_api_contents.append(candidate.content) # candidate.content is already a Content object from the API
 
             args = function_call.args
             image_prompt = args.get("prompt")
@@ -224,11 +226,11 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 else:
                     tool_result_content = f"画像生成に失敗しました。理由: {text_response}。このエラーメッセージを参考に、ユーザーに応答してください。"
 
-            function_response_part = Part.from_function_response(
+            function_response_part = genai.Part.from_function_response( # Prefixed
                 name="generate_image",
                 response={"result": tool_result_content}
             )
-            final_api_contents.append(Content(parts=[function_response_part]))
+            final_api_contents.append(genai.Content(parts=[function_response_part])) # Prefixed
 
     except google.api_core.exceptions.GoogleAPIError as e:
         return f"エラー: Gemini APIとの通信中にエラーが発生しました: {e}", None
@@ -292,7 +294,7 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
             processed_text = img_pat.sub("", processed_text).strip()
             processed_text = alrm_pat.sub("", processed_text).strip()
             if processed_text:
-                api_contents_from_history.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
+                api_contents_from_history.append(genai.Content(role=sdk_role, parts=[genai.Part(text=processed_text)])) # Prefixed
         print(f"情報: アラーム応答生成のために、直近 {alarm_api_history_turns} 往復 ({len(api_contents_from_history)} 件) の整形済み履歴を参照します。")
     else:
         print("情報: アラーム応答生成では履歴を参照しません。")
@@ -300,7 +302,7 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
     current_alarm_turn_content = api_contents_from_history
     if not current_alarm_turn_content or (current_alarm_turn_content and current_alarm_turn_content[-1].role == "model"):
         placeholder_text = "（時間になりました。アラームメッセージをお願いします。）" if not current_alarm_turn_content else "（続けて）"
-        current_alarm_turn_content.append(Content(role="user", parts=[Part(text=placeholder_text)]))
+        current_alarm_turn_content.append(genai.Content(role="user", parts=[genai.Part(text=placeholder_text)])) # Prefixed
         print(f"情報: API呼び出し用に形式的なユーザー入力 ('{placeholder_text}') を追加しました。")
 
     if not current_alarm_turn_content:
@@ -309,7 +311,7 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
     final_api_contents = []
     if sys_ins_text:
         print(f"デバッグ (alarm): Prepending system instruction to contents.")
-        final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
+        final_api_contents.append(genai.Content(role="user", parts=[genai.Part(text=sys_ins_text)])) # Prefixed
     final_api_contents.extend(current_alarm_turn_content)
 
     if not final_api_contents:
@@ -346,9 +348,9 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
     active_generation_config = None
     if generation_config_args:
         try:
-            active_generation_config = GenerateContentConfig(**generation_config_args)
+            active_generation_config = GenerationConfig(**generation_config_args) # Renamed class
         except Exception as e:
-            print(f"警告: アラーム用 GenerateContentConfig の作成中にエラー: {e}.")
+            print(f"警告: アラーム用 GenerationConfig の作成中にエラー: {e}.") # Updated class name in log
 
     print(f"アラーム用モデル ({alarm_model_name}, client.models.generate_content) へ送信開始... 送信contents件数: {len(final_api_contents)}")
     try:
@@ -415,9 +417,9 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
     try:
         print(f"--- Gemini 画像生成開始 (model: {model_name}, response_modalities) --- プロンプト: '{prompt[:100]}...'")
 
-        contents = [Content(parts=[Part(text=prompt)])]
+        contents = [genai.Content(parts=[genai.Part(text=prompt)])] # Prefixed
 
-        active_generation_config = GenerateContentConfig(
+        active_generation_config = GenerationConfig( # Renamed class
             response_modalities=['TEXT', 'IMAGE']
         )
 

@@ -88,6 +88,90 @@ else:
     print(" !!! UIから利用可能なAPIキーを選択してください。 !!!")
 
 print("アラームデータを読み込んでいます...")
+# Placed before 'with gr.Blocks() as demo:'
+# This global variable will hold the reference to the Gradio UI component for the alarm list.
+alarm_list_display_area_static_ref = None
+
+def render_alarm_list_ui_components(current_char_name_state_trigger, event_source="load"):
+    """Renders the alarm list UI components. Expects character name for context, and event source for logging."""
+    # current_char_name_state_trigger is passed from the UI event that calls this.
+    print(f"render_alarm_list_ui_components triggered by: {event_source} for char: {current_char_name_state_trigger}")
+    alarms_list = alarm_manager.get_all_alarms()
+
+    if not alarms_list:
+        return [gr.Markdown("設定済みのアラームはありません。", elem_id="no_alarms_configured_msg")]
+
+    ui_rows = []
+    # Sort alarms by time for consistent display
+    for alarm_item in sorted(alarms_list, key=lambda x: x.get("time", "")):
+        item_id = alarm_item.get("id")
+        # Using time.time_ns() for highly unique elem_id to help Gradio's diffing/re-rendering
+        elem_suffix = f"{item_id}_{time.time_ns()}"
+
+        with gr.Row(elem_id=f"alarm_row_{elem_suffix}") as r:
+            switch_co = gr.Switch(
+                value=alarm_item.get("enabled", False),
+                label="有効",
+                elem_id=f"alarm_switch_{elem_suffix}",
+                scale=1
+            )
+            details = f"{alarm_item.get('time')} [{', '.join(alarm_item.get('days',[]))}] {alarm_item.get('character')} - \"{alarm_item.get('theme', '')[:30]}\""
+            gr.Markdown(details, elem_id=f"alarm_details_{elem_suffix}", scale=3)
+            delete_btn_co = gr.Button("削除", variant="stop", elem_id=f"alarm_delete_btn_{elem_suffix}", scale=1)
+
+            # Event wiring for dynamically created components:
+            # The crucial part is that 'outputs' for these handlers must be the alarm_list_display_area component.
+            # This is assigned to alarm_list_display_area_static_ref when the UI is built.
+            # current_character_name (gr.State) must be available in the scope where these components are defined,
+            # or passed to the handlers. Here, we assume current_character_name is accessible when this runs.
+            # If not, it needs to be an input to render_alarm_list_ui_components and then used.
+            # For now, this relies on current_character_name being a global-like gr.State within the demo.
+            switch_co.change(
+                fn=handle_alarm_toggle_from_list,
+                inputs=[gr.State(item_id), current_character_name], # Pass alarm_id by value, and the gr.State for char name
+                outputs=[alarm_list_display_area_static_ref]
+            )
+            delete_btn_co.click(
+                fn=handle_alarm_delete_from_list,
+                inputs=[gr.State(item_id), current_character_name], # Pass alarm_id by value, and the gr.State for char name
+                outputs=[alarm_list_display_area_static_ref]
+            )
+        ui_rows.append(r)
+    return ui_rows
+
+def handle_alarm_toggle_from_list(alarm_id_from_event, char_name_state_from_event):
+    """Handles toggle event from a switch in the alarm list."""
+    print(f"UI Event: Toggle alarm '{alarm_id_from_event}' from list for char '{char_name_state_from_event}'.")
+    alarm_manager.toggle_alarm_enabled(alarm_id_from_event)
+    # Return a new list of components to re-render the alarm_list_display_area
+    return render_alarm_list_ui_components(char_name_state_from_event, f"toggle_event_{alarm_id_from_event}")
+
+def handle_alarm_delete_from_list(alarm_id_from_event, char_name_state_from_event):
+    """Handles delete event from a button in the alarm list."""
+    print(f"UI Event: Delete alarm '{alarm_id_from_event}' from list for char '{char_name_state_from_event}'.")
+    alarm_manager.delete_alarm(alarm_id_from_event)
+    # Return a new list of components to re-render the alarm_list_display_area
+    return render_alarm_list_ui_components(char_name_state_from_event, f"delete_event_{alarm_id_from_event}")
+
+def add_alarm_then_refresh_ui(hour, minute, character, theme, flash_prompt, days_ja, current_char_name_state_from_event):
+    """Handles adding an alarm and then returns components to refresh the list and clear form."""
+    print(f"UI Event: Add alarm for char '{current_char_name_state_from_event}'.")
+    add_success = alarm_manager.add_alarm(hour, minute, character, theme, flash_prompt, days_ja)
+    if add_success:
+        gr.Info("アラームが追加されました。")
+    else:
+        gr.Error("アラームの追加に失敗しました。詳細はコンソールを確認してください。")
+
+    # Prepare outputs for the .click() event of the add_alarm_button
+    # Output 1: Refreshed alarm list
+    refreshed_list_components = render_alarm_list_ui_components(current_char_name_state_from_event, "add_alarm_event")
+    # Output 2-7: Cleared values for the input form fields
+    # (hour, minute, character, theme, prompt, days)
+    # Use current_char_name_state_from_event for the character dropdown default after clearing
+    cleared_form_values = ("08", "00", current_char_name_state_from_event, "", "", ["月", "火", "水", "木", "金", "土", "日"])
+
+    return refreshed_list_components, *cleared_form_values
+
 alarm_manager.load_alarms() # alarm_manager の関数を呼び出し
 
 # アプリケーションUI定義開始
@@ -184,15 +268,24 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     )
                     save_log_button = gr.Button(value="ログを保存", variant="secondary")
 
-                with gr.Accordion(" 🐦アラーム設定", open=False):
-                    interactive_alarm_list_area = gr.Column(elem_id="interactive_alarm_list_area")
-                    # Initial population of the alarm list
+                with gr.Accordion(" 🐦アラーム設定", open=False) as alarm_accordion: # Named for clarity
+                    # Static UI structure for displaying the alarm list
+                    alarm_list_display_area = gr.Column(elem_id="alarm_list_display_area_new")
+                    # alarm_list_display_area_static_ref is already a global variable defined earlier.
+                    # We are assigning the created component to it.
+                    alarm_list_display_area_static_ref = alarm_list_display_area
+
+                    # Initial population using a render_alarm_list_ui_components function
+                    # This function is assumed to be defined elsewhere in log2gemini.py (e.g., globally)
+                    # or will be added in a subsequent step.
                     demo.load(
-                        fn=lambda: alarm_manager.render_interactive_alarm_list(interactive_alarm_list_area_component=interactive_alarm_list_area),
-                        outputs=[interactive_alarm_list_area]
+                        fn=render_alarm_list_ui_components,
+                        inputs=[current_character_name, gr.State("initial_load_event")], # Pass state if needed by render function
+                        outputs=[alarm_list_display_area]
                     )
 
-                    gr.Markdown("---") # Separator between list and add form
+                    gr.Markdown("---") # Separator
+                    # Alarm adding form (structure remains the same)
                     with gr.Column(visible=True) as alarm_form_area:
                         gr.Markdown("#### 新規アラーム追加")
                         with gr.Row():
@@ -365,20 +458,29 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             outputs=[chatbot]
         )
 
-        # アラーム追加・削除・クリア (alarm_managerの関数を使用)
+        # アラーム追加 (new handler that also refreshes UI and clears form)
         alarm_add_button.click(
-            fn=alarm_manager.add_alarm, # Backend logic to add alarm
-            inputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup],
-            outputs=[] # add_alarm now returns None, direct UI update handled by .then()
-        ).then(
-            fn=lambda: alarm_manager.render_interactive_alarm_list(interactive_alarm_list_area_component=interactive_alarm_list_area), # Render the updated list
-            inputs=[], # No direct inputs, uses component from outer scope
-            outputs=[interactive_alarm_list_area] # Output the new list to the designated area
-        ).then(
-            fn=lambda char: ("08", "00", char, "", "", ["月", "火", "水", "木", "金", "土", "日"]), # Clear input fields
-            inputs=[current_character_name],
-            outputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup]
+            fn=add_alarm_then_refresh_ui, # New global handler
+            inputs=[
+                alarm_hour_dropdown,
+                alarm_minute_dropdown,
+                alarm_char_dropdown,
+                alarm_theme_input,
+                alarm_prompt_input,
+                alarm_days_checkboxgroup,
+                current_character_name # Pass current character state for context and form clearing
+            ],
+            outputs=[
+                alarm_list_display_area_static_ref, # Target for the refreshed list components - USE THE REF
+                alarm_hour_dropdown,     # Target for clearing input
+                alarm_minute_dropdown,   # Target for clearing input
+                alarm_char_dropdown,     # Target for clearing input (reset to current char)
+                alarm_theme_input,       # Target for clearing input
+                alarm_prompt_input,      # Target for clearing input
+                alarm_days_checkboxgroup # Target for clearing input
+            ]
         )
+        # The old .then() chain for refreshing and clearing is now handled by add_alarm_then_refresh_ui
 
         alarm_clear_button.click(
              lambda char: ("08", "00", char, "", "", ["月", "火", "水", "木", "金", "土", "日"]), # 曜日設定をデフォルトに戻す

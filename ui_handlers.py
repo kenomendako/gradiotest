@@ -484,7 +484,8 @@ If the idea is already a good prompt, output it as is.
                         elif len(final_candidate_from_lines) > max_prompt_len:
                             refinement_issues_notes = f"(絞り込み後のプロンプト候補が長すぎるため ({len(final_candidate_from_lines)} > {max_prompt_len}文字)、元のプロンプトを使用します。)"
                         else: # Too many newlines
-                            refinement_issues_notes = f"(絞り込み後のプロンプト候補に改行が多すぎるため ({final_candidate_from_lines.count('\n')} >= {max_newlines})、元のプロンプトを使用します。)"
+                            newline_count = final_candidate_from_lines.count('\n') # Pre-calculate
+                            refinement_issues_notes = f"(絞り込み後のプロンプト候補に改行が多すぎるため ({newline_count} >= {max_newlines})、元のプロンプトを使用します。)"
                         print(f"警告: {refinement_issues_notes} Candidate was: '{final_candidate_from_lines[:max_prompt_len+50]}...'")
                         use_initial_prompt_due_to_refinement_issue = True
 
