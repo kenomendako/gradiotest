@@ -185,11 +185,14 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     save_log_button = gr.Button(value="ログを保存", variant="secondary")
 
                 with gr.Accordion(" 🐦アラーム設定", open=False):
-                    alarm_checklist = gr.CheckboxGroup(label="設定済みアラーム (削除したい項目を選択)", interactive=True, elem_id="alarm_checklist")
-                    delete_selected_alarms_button = gr.Button("✔️ 選択したアラームを削除", variant="stop")
-                    # アプリ起動時にアラームリストを読み込む (alarm_managerの関数を使用)
-                    demo.load(fn=alarm_manager.render_alarm_list_for_checkboxgroup, outputs=[alarm_checklist])
-                    gr.Markdown("---")
+                    interactive_alarm_list_area = gr.Column(elem_id="interactive_alarm_list_area")
+                    # Initial population of the alarm list
+                    demo.load(
+                        fn=lambda: alarm_manager.render_interactive_alarm_list(interactive_alarm_list_area_component=interactive_alarm_list_area),
+                        outputs=[interactive_alarm_list_area]
+                    )
+
+                    gr.Markdown("---") # Separator between list and add form
                     with gr.Column(visible=True) as alarm_form_area:
                         gr.Markdown("#### 新規アラーム追加")
                         with gr.Row():
@@ -198,8 +201,9 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                             minutes = [f"{m:02}" for m in range(60)]
                             alarm_minute_dropdown = gr.Dropdown(label="分", choices=minutes, value="00", interactive=True, scale=1, elem_classes="time-dropdown-container")
                         alarm_char_dropdown = gr.Dropdown(label="キャラクター", choices=character_list_on_startup, value=config_manager.initial_character_global, interactive=True)
-                        alarm_theme_input = gr.Textbox(label="テーマ", placeholder="例: 今日も一日頑張ろう！", lines=2)
-                        alarm_prompt_input = gr.Textbox(label="カスタムプロンプト (任意)", placeholder="空欄の場合は上記のテーマを使用します。\nプロンプト内で [キャラクター名] と [テーマ内容] が利用可能です。", lines=3)
+                        alarm_theme_input = gr.Textbox(label="ひとことテーマ（必須）", placeholder="例: 今日も一日頑張ろう！", lines=2)
+                        alarm_days_checkboxgroup = gr.CheckboxGroup(label="曜日設定", choices=["月", "火", "水", "木", "金", "土", "日"], value=["月", "火", "水", "木", "金", "土", "日"], interactive=True)
+                        alarm_prompt_input = gr.Textbox(label="応答指示書（上級者向け・任意）", info="空欄の場合は上の『ひとことテーマ』を元にAIが応答を考えます。AIの話し方などを細かく制御したい場合のみ、こちらに指示を書いてください", placeholder="プロンプト内で [キャラクター名] と [テーマ内容] が利用可能です。", lines=3)
                         with gr.Row():
                             alarm_add_button = gr.Button("アラームを追加", variant="primary")
                             alarm_clear_button = gr.Button("入力クリア")
@@ -363,20 +367,25 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
         # アラーム追加・削除・クリア (alarm_managerの関数を使用)
         alarm_add_button.click(
-            fn=alarm_manager.add_alarm,
-            inputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input],
-            outputs=[alarm_checklist]
+            fn=alarm_manager.add_alarm, # Backend logic to add alarm
+            inputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup],
+            outputs=[] # add_alarm now returns None, direct UI update handled by .then()
         ).then(
-            lambda char: ("08", "00", char, "", ""),
-            inputs=[current_character_name], # 現在選択中のキャラ名を渡す
-            outputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input]
+            fn=lambda: alarm_manager.render_interactive_alarm_list(interactive_alarm_list_area_component=interactive_alarm_list_area), # Render the updated list
+            inputs=[], # No direct inputs, uses component from outer scope
+            outputs=[interactive_alarm_list_area] # Output the new list to the designated area
+        ).then(
+            fn=lambda char: ("08", "00", char, "", "", ["月", "火", "水", "木", "金", "土", "日"]), # Clear input fields
+            inputs=[current_character_name],
+            outputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup]
         )
+
         alarm_clear_button.click(
-             lambda char: ("08", "00", char, "", ""),
+             lambda char: ("08", "00", char, "", "", ["月", "火", "水", "木", "金", "土", "日"]), # 曜日設定をデフォルトに戻す
             inputs=[current_character_name], # 現在選択中のキャラ名を渡す
-            outputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input]
+            outputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup]
         )
-        delete_selected_alarms_button.click(fn=alarm_manager.delete_selected_alarms, inputs=[alarm_checklist], outputs=[alarm_checklist])
+        # delete_selected_alarms_button and its event are fully removed.
 
         # メッセージ送信 (ui_handlersの関数を使用)
         submit_inputs = [textbox, chatbot, current_character_name, current_model_name, current_api_key_name_state, file_input, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state]

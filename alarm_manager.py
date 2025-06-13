@@ -35,10 +35,13 @@ def load_alarms():
                 print(f"警告: {config_manager.ALARMS_FILE} の形式が不正です。空のリストで初期化します。")
                 alarms_data_global = []; return alarms_data_global
             valid_alarms = []
+            default_days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
             for alarm in loaded_data:
                 if isinstance(alarm, dict) and \
                    all(k in alarm for k in ["id", "time", "character", "theme", "enabled"]) and \
                    re.match(r"^\d{2}:\d{2}$", alarm.get("time", "")):
+                    if "days" not in alarm:
+                        alarm["days"] = default_days
                     valid_alarms.append(alarm)
                 else: print(f"警告: 不正な形式のアラームデータをスキップしました: {alarm}")
             alarms_data_global = sorted(valid_alarms, key=lambda x: x.get("time", ""))
@@ -59,7 +62,13 @@ def save_alarms():
     except Exception as e:
         print(f"アラーム保存エラー: {e}"); traceback.print_exc()
 
-def add_alarm(hour, minute, character, theme, flash_prompt):
+# Day mapping from Japanese to English short names
+DAY_MAP_JA_TO_EN = {
+    "月": "mon", "火": "tue", "水": "wed", "木": "thu",
+    "金": "fri", "土": "sat", "日": "sun"
+}
+
+def add_alarm(hour, minute, character, theme, flash_prompt, days_ja): # Added days_ja
     global alarms_data_global
     if not character:
         gr.Error("キャラクターを選択してください。")
@@ -71,44 +80,141 @@ def add_alarm(hour, minute, character, theme, flash_prompt):
         gr.Error("「テーマ」または「カスタムプロンプト」のいずれかを入力してください。")
         return render_alarm_list_for_checkboxgroup()
     time_str = f"{hour}:{minute}"
+    # Convert Japanese day names to English short names
+    days_en = [DAY_MAP_JA_TO_EN.get(day_ja, "") for day_ja in days_ja if DAY_MAP_JA_TO_EN.get(day_ja)]
+    if not days_en: # Fallback if conversion results in empty or invalid days
+        days_en = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        gr.Warning("曜日設定が無効だったため、全て選択(デフォルト)として登録します。")
+
+
     new_alarm = {
         "id": str(uuid.uuid4()), "time": time_str, "character": character,
-        "theme": theme_stripped, "enabled": True,
+        "theme": theme_stripped, "enabled": True, "days": days_en, # Added days
         "flash_prompt_template": prompt_stripped if prompt_stripped else None
     }
     alarms_data_global.append(new_alarm)
     save_alarms()
-    print(f"アラーム追加 (有効): {new_alarm['id']} ({time_str}, {character}, Theme: '{theme_stripped}', CustomPrompt: {'あり' if prompt_stripped else 'なし'})")
+    print(f"アラーム追加 (有効): {new_alarm['id']} ({time_str}, {character}, Theme: '{theme_stripped}', Days: {days_en}, CustomPrompt: {'あり' if prompt_stripped else 'なし'})")
     gr.Info("アラームを追加しました。")
-    return render_alarm_list_for_checkboxgroup()
+    # The return value of add_alarm will be handled in log2gemini.py to trigger a refresh
+    # of the interactive_alarm_list_area, likely by returning None or specific UI updates.
+    # For now, let's make it return None as render_alarm_list_for_checkboxgroup is being removed.
+    return None
 
-def delete_selected_alarms(selected_alarm_ids):
+# --- New Interactive Alarm List Handlers & Renderer ---
+
+# These handler functions will be called by Gradio events.
+# They perform the backend action and then return the updated UI components.
+
+def handle_toggle_alarm(alarm_id: str):
+    """Calls toggle_alarm_enabled and returns the updated alarm list UI."""
+    print(f"UI Event: Toggling alarm {alarm_id}") # For easier debugging
+    toggle_alarm_enabled(alarm_id)
+    return render_interactive_alarm_list()
+
+def handle_delete_alarm(alarm_id: str):
+    """Calls delete_alarm_interactive and returns the updated alarm list UI."""
+    print(f"UI Event: Deleting alarm {alarm_id}") # For easier debugging
+    delete_alarm_interactive(alarm_id)
+    return render_interactive_alarm_list()
+
+# Original backend logic functions (no longer directly called from Gradio UI in this new model)
+def toggle_alarm_enabled(alarm_id: str):
+    """Toggles the enabled status of an alarm."""
     global alarms_data_global
-    if not selected_alarm_ids: gr.Warning("削除対象のアラームが選択されていません。"); return render_alarm_list_for_checkboxgroup()
-    original_len = len(alarms_data_global); ids_to_del = set(selected_alarm_ids)
-    alarms_data_global = [a for a in alarms_data_global if a.get("id") not in ids_to_del]
-    deleted_count = original_len - len(alarms_data_global)
-    if deleted_count > 0:
-        save_alarms(); print(f"アラーム削除(選択): {deleted_count}件")
-        gr.Info(f"{deleted_count}件のアラームを削除しました。")
-    else: gr.Warning("選択されたIDに一致するアラームが見つかりませんでした。")
-    return render_alarm_list_for_checkboxgroup()
+    found_alarm = None
+    for alarm in alarms_data_global:
+        if alarm.get("id") == alarm_id:
+            alarm["enabled"] = not alarm.get("enabled", False)
+            found_alarm = alarm
+            break
+    if found_alarm:
+        save_alarms()
+        status = "有効" if found_alarm["enabled"] else "無効"
+        print(f"アラーム状態変更: ID {alarm_id} を{status}にしました。")
+    else:
+        print(f"警告: アラームID {alarm_id} が見つかりませんでした (トグル操作不可)。")
+    # This function itself does not return UI components.
+    # This function is now primarily for backend logic.
 
-def render_alarm_list_for_checkboxgroup():
-    alarms = load_alarms()
-    if not alarms:
-        return gr.update(choices=[], value=[], label="設定済みアラーム (なし)", interactive=False)
-    choices = []
-    for alarm in alarms:
-        status = "✅" if alarm.get("enabled") else "❌"
-        theme_display = alarm.get('theme', '')[:20]
-        if len(alarm.get('theme', '')) > 20:
-            theme_display += '...'
-        # カスタムプロンプトの内容のみを表示
-        prompt_display = f" {alarm.get('flash_prompt_template')}" if alarm.get("flash_prompt_template") else ""
-        label = f"{status} {alarm.get('time')} - {alarm.get('character')} - \"{theme_display}\"{prompt_display}"
-        choices.append((label, alarm.get("id")))
-    return gr.update(choices=choices, value=[], label="設定済みアラーム (削除したい項目を選択)", interactive=True)
+def delete_alarm_interactive(alarm_id: str):
+    """Deletes an alarm interactively (backend logic)."""
+    global alarms_data_global
+    original_len = len(alarms_data_global)
+    alarms_data_global = [alarm for alarm in alarms_data_global if alarm.get("id") != alarm_id]
+    if len(alarms_data_global) < original_len:
+        save_alarms()
+        print(f"アラーム削除(対話的): ID {alarm_id}")
+    else:
+        print(f"警告: アラームID {alarm_id} が見つかりませんでした (対話的削除不可)。")
+    # This function is now primarily for backend logic.
+
+
+def render_interactive_alarm_list(interactive_alarm_list_area_component=None):
+    """Renders the list of alarms with interactive components and wires their events."""
+    # interactive_alarm_list_area_component is the gr.Column in log2gemini.py that will be updated.
+
+    _ = load_alarms() # Ensure alarms_data_global is fresh.
+
+    # Sort alarms by time for consistent display
+    # Make sure to use alarms_data_global after load_alarms() call
+    sorted_alarms = sorted(alarms_data_global, key=lambda x: x.get("time", ""))
+
+    if not sorted_alarms:
+        return [gr.Markdown("設定済みのアラームはありません。")]
+
+    alarm_rows = []
+    for alarm_data in sorted_alarms: # Iterate over the sorted list
+        alarm_id_str = alarm_data.get("id") # Ensure it's a string for lambda capture
+
+        with gr.Row(elem_id=f"alarm_row_{alarm_id_str}") as row:
+            switch = gr.Switch(value=alarm_data.get("enabled", False), label="有効", scale=1, elem_id=f"enable_switch_{alarm_id_str}")
+
+            days_str = ", ".join(alarm_data.get("days", []))
+            theme_str = alarm_data.get("theme", "")
+            theme_display = theme_str[:30] + '...' if len(theme_str) > 30 else theme_str
+            details_md_val = f"{alarm_data.get('time')} [{days_str}] {alarm_data.get('character')} - \"{theme_display}\""
+            gr.Markdown(value=details_md_val, scale=3, elem_id=f"alarm_details_{alarm_id_str}")
+
+            delete_button = gr.Button("削除", variant="stop", scale=1, elem_id=f"delete_button_{alarm_id_str}")
+
+            # Event wiring:
+            # The .then(None, js=...) is a way to trigger updates on other components without a direct Python output from the handler to those specific components.
+            # The actual update mechanism involves these handlers returning the new list,
+            # and log2gemini.py directing that output to the interactive_alarm_list_area.
+            if interactive_alarm_list_area_component: # Check if the target component is provided
+                switch.change(
+                    fn=lambda current_alarm_id=alarm_id_str: handle_toggle_alarm(current_alarm_id),
+                    inputs=[], # No direct inputs from the switch to the handler beyond what lambda captures
+                    outputs=[interactive_alarm_list_area_component] # Target the column for update
+                )
+                delete_button.click(
+                    fn=lambda current_alarm_id=alarm_id_str: handle_delete_alarm(current_alarm_id),
+                    inputs=[], # No direct inputs from the button to the handler
+                    outputs=[interactive_alarm_list_area_component] # Target the column for update
+                )
+            else: # Fallback or initial rendering without direct output wiring here
+                  # This path might be taken if render_interactive_alarm_list is called directly
+                  # without being the result of an event that has interactive_alarm_list_area_component as an output.
+                switch.change(
+                    fn=lambda current_alarm_id=alarm_id_str: handle_toggle_alarm(current_alarm_id),
+                    inputs=[]
+                    # Outputs will be handled by log2gemini.py's demo.load or similar
+                )
+                delete_button.click(
+                    fn=lambda current_alarm_id=alarm_id_str: handle_delete_alarm(current_alarm_id),
+                    inputs=[]
+                    # Outputs will be handled by log2gemini.py
+                )
+
+
+        alarm_rows.append(row)
+
+    return alarm_rows if alarm_rows else [gr.Markdown("設定済みのアラームはありません。")]
+
+# Remove old functions that are no longer needed with the new interactive list
+# def delete_selected_alarms(selected_alarm_ids): ...
+# def render_alarm_list_for_checkboxgroup(): ...
 
 
 # --- Webhook通知関数 ---
@@ -207,6 +313,7 @@ def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
 def check_alarms():
     now_dt = datetime.datetime.now()
     now_t = now_dt.strftime("%H:%M")
+    current_day_short = now_dt.strftime('%a').lower() # Example: "mon", "tue"
     # デバッグ用print削除 (毎分出力されるため)
 
     current_api_key = config_manager.initial_api_key_name_global
@@ -223,8 +330,17 @@ def check_alarms():
         alarm_time = a.get("time")
         is_enabled = a.get("enabled")
         alarm_id_for_log = a.get('id', 'N/A')
+        alarm_days = a.get("days", []) # Get the list of days, default to empty list if missing
 
-        if is_enabled and alarm_time == now_t:
+        # Gracefully handle if alarm_days is None (though load_alarms should prevent this)
+        if alarm_days is None:
+            alarm_days = []
+
+        if not alarm_days:
+            # print(f"情報: アラーム (ID:{alarm_id_for_log}) に曜日設定がないためスキップします。") # Optionally log this
+            continue # Skip if no days are set for the alarm
+
+        if is_enabled and alarm_time == now_t and current_day_short in alarm_days:
             # デバッグ用print削除
             triggered_count += 1
             try:
