@@ -83,6 +83,21 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
 
     # Ensure load_chat_log is available (from utils)
     msgs = load_chat_log(log_file_path, character_name)
+
+    if api_history_limit_option.isdigit():
+        try:
+            limit = int(api_history_limit_option)
+            if limit > 0:
+                # 1往復 = 2メッセージ (user, model)
+                limit_msgs = limit * 2
+                if len(msgs) > limit_msgs:
+                    print(f"情報: 履歴を直近 {limit} 往復 ({limit_msgs} メッセージ) に制限します。")
+                    msgs = msgs[-limit_msgs:]
+        except ValueError:
+            # isdigit()でチェックしているので基本的にはここに来ないはず
+            print(f"警告: api_history_limit_option '{api_history_limit_option}' は不正な数値です。履歴は制限されません。")
+    # "all" の場合は何もしない (全履歴を使用)
+
     if msgs and msgs[-1].get("role") == "user":
         print("情報: ログ末尾のユーザーメッセージを履歴から一時的に削除し、引数の内容で上書きします。")
         msgs = msgs[:-1]
