@@ -16,7 +16,6 @@ from character_manager import get_character_files_paths
 # gemini_api モジュール全体をインポート
 import gemini_api
 from utils import save_message_to_log
-from timers import Timer, PomodoroTimer
 
 # --- アラーム関連グローバル変数 ---
 alarms_data_global = []
@@ -261,28 +260,3 @@ def schedule_thread_function():
         time.sleep(1) # CPU負荷軽減
 
     print("アラームスケジューラスレッドが停止しました。") # スレッド停止ログは残す
-
-def start_alarm_timer(alarm_time, character_name, theme, work_duration=None, break_duration=None, cycles=None):
-    def alarm_callback():
-        print(f"アラームがトリガーされました: キャラクター={character_name}, テーマ={theme}")
-        trigger_alarm({
-            "character": character_name,
-            "theme": theme,
-            "time": "タイマー終了",
-            "id": "タイマー"
-        }, config_manager.initial_api_key_name_global, config_manager.initial_notification_webhook_url_global)
-
-    if work_duration and break_duration and cycles:
-        print("ポモドーロタイマーを開始します。")
-        pomodoro_timer = PomodoroTimer(
-            work_duration=work_duration,
-            break_duration=break_duration,
-            cycles=cycles,
-            work_callback=lambda: print("作業時間終了。休憩を開始します。"),
-            break_callback=lambda: print("休憩時間終了。次の作業を開始します。")
-        )
-        pomodoro_timer.start()
-    else:
-        print("通常のタイマーを開始します。")
-        timer = Timer(duration=alarm_time, callback=alarm_callback)
-        timer.start()
