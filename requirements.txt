@@ -1,1 +1,4 @@
-google-genai
+google-generativeai
+gradio
+schedule
+pandas

@@ -17,6 +17,8 @@ import gemini_api
 import utils
 import ui_handlers
 from ui_handlers import handle_timer_submission
+from ui_handlers import render_alarms_as_dataframe, handle_alarm_dataframe_change, handle_delete_selected_alarms # Added
+import pandas as pd # Added
 
 # --- 定数 (UI関連) ---
 HISTORY_LIMIT = config_manager.HISTORY_LIMIT # config_managerから取得
@@ -269,19 +271,73 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     save_log_button = gr.Button(value="ログを保存", variant="secondary")
 
                 with gr.Accordion(" 🐦アラーム設定", open=False) as alarm_accordion: # Named for clarity
-                    # Static UI structure for displaying the alarm list
-                    alarm_list_display_area = gr.Column(elem_id="alarm_list_display_area_new")
-                    # alarm_list_display_area_static_ref is already a global variable defined earlier.
-                    # We are assigning the created component to it.
-                    alarm_list_display_area_static_ref = alarm_list_display_area
+                    selected_alarm_ids_state = gr.State([])
 
-                    # Initial population using a render_alarm_list_ui_components function
-                    # This function is assumed to be defined elsewhere in log2gemini.py (e.g., globally)
-                    # or will be added in a subsequent step.
-                    demo.load(
-                        fn=render_alarm_list_ui_components,
-                        inputs=[current_character_name, gr.State("initial_load_event")], # Pass state if needed by render function
-                        outputs=[alarm_list_display_area]
+                    alarm_display_headers = ["状態", "時刻", "曜日", "キャラ", "テーマ"] # ID column is in data, hidden from direct display
+                    alarm_dataframe = gr.Dataframe(
+                        headers=alarm_display_headers,
+                        interactive=True, # Allows row selection, implies type="array" for value if not specified
+                        multiselect=True, # Allow multiple rows to be selected
+                        row_count=(1, "dynamic"),
+                        col_count=(len(alarm_display_headers), "fixed"),
+                        wrap=True,
+                        elem_id="alarm_dataframe_display"
+                    )
+                    delete_alarm_button = gr.Button("選択したアラームを削除")
+
+                    # Initial data load for the dataframe
+                    demo.load(fn=render_alarms_as_dataframe, outputs=[alarm_dataframe])
+
+                    # Handle dataframe edits (e.g., ticking the 'enabled' checkbox)
+                    alarm_dataframe.change(
+                        fn=handle_alarm_dataframe_change,
+                        inputs=[alarm_dataframe], # Gradio passes the modified DataFrame object
+                        outputs=[alarm_dataframe]
+                    )
+
+                    # Handle row selection to update the selected_alarm_ids_state
+                    # This helper function will be defined within the gr.Blocks() scope
+                    def handle_df_selection_for_ids(current_df_value: pd.DataFrame, evt: gr.SelectData):
+                        # evt.selected_rows (Gradio 4.x+) is List[Tuple[int, bool]] for multiselect
+                        # current_df_value is the current data of the dataframe component
+                        print(f"DataFrame select event: evt.selected_rows={evt.selected_rows}, evt.index={evt.index}, evt.value={evt.value}") # Debugging
+                        selected_ids = []
+                        # Check if current_df_value is a valid pandas DataFrame and not empty
+                        if current_df_value is None or not isinstance(current_df_value, pd.DataFrame) or current_df_value.empty:
+                            print("Selection handling: DataFrame data is None, empty, or not a DataFrame.")
+                            return []
+
+                        if 'ID' not in current_df_value.columns:
+                             print("Error: 'ID' column missing in DataFrame for selection during handle_df_selection_for_ids.")
+                             return []
+
+                        if evt.selected_rows: # Preferred way for multiselect
+                            for row_index, is_selected_flag in evt.selected_rows:
+                                if is_selected_flag:
+                                    if 0 <= row_index < len(current_df_value):
+                                        selected_ids.append(str(current_df_value.iloc[row_index]['ID']))
+                                    else:
+                                        print(f"Warning: Invalid row index {row_index} in selection event's selected_rows.")
+                        elif evt.index is not None : # Fallback for single cell/row selection if selected_rows is not populated
+                            row_idx = evt.index[0] if isinstance(evt.index, tuple) else evt.index
+                            if 0 <= row_idx < len(current_df_value):
+                                selected_ids.append(str(current_df_value.iloc[row_idx]['ID']))
+
+                        print(f"Selected alarm IDs for state: {selected_ids}")
+                        return selected_ids
+
+                    alarm_dataframe.select(
+                        fn=handle_df_selection_for_ids,
+                        inputs=[alarm_dataframe], # Pass the dataframe data
+                        outputs=[selected_alarm_ids_state],
+                        show_progress="hidden"
+                    )
+
+                    # Handle delete button click
+                    delete_alarm_button.click(
+                        fn=handle_delete_selected_alarms,
+                        inputs=[selected_alarm_ids_state], # Uses the state populated by .select
+                        outputs=[alarm_dataframe, selected_alarm_ids_state] # Refreshes DF, clears selection state
                     )
 
                     gr.Markdown("---") # Separator
@@ -437,6 +493,10 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             fn=ui_handlers.update_ui_on_character_change,
             inputs=[character_dropdown],
             outputs=[current_character_name, chatbot, textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, log_editor]
+        ).then(
+            fn=render_alarms_as_dataframe,
+            inputs=None, # render_alarms_as_dataframe takes no direct inputs here
+            outputs=[alarm_dataframe]
         )
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name])
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state])
@@ -458,29 +518,38 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             outputs=[chatbot]
         )
 
-        # アラーム追加 (new handler that also refreshes UI and clears form)
+        # New alarm_add_button click chain for DataFrame
+        def clear_alarm_form_inputs_fn(current_char_name_state_val):
+            # Helper to provide default/cleared values for the alarm form
+            return ("08", "00", current_char_name_state_val, "", "", ["月", "火", "水", "木", "金", "土", "日"])
+
         alarm_add_button.click(
-            fn=add_alarm_then_refresh_ui, # New global handler
+            fn=alarm_manager.add_alarm,  # Call backend logic; returns True/False
             inputs=[
                 alarm_hour_dropdown,
                 alarm_minute_dropdown,
                 alarm_char_dropdown,
                 alarm_theme_input,
                 alarm_prompt_input,
-                alarm_days_checkboxgroup,
-                current_character_name # Pass current character state for context and form clearing
+                alarm_days_checkboxgroup
             ],
+            outputs=None # Success/failure handled by gr.Info/Error within add_alarm
+        ).then(
+            fn=render_alarms_as_dataframe,  # Then, refresh the dataframe
+            inputs=None, # render_alarms_as_dataframe takes no inputs from here
+            outputs=[alarm_dataframe]
+        ).then(
+            fn=clear_alarm_form_inputs_fn,    # Then, clear the alarm input form
+            inputs=[current_character_name],
             outputs=[
-                alarm_list_display_area_static_ref, # Target for the refreshed list components - USE THE REF
-                alarm_hour_dropdown,     # Target for clearing input
-                alarm_minute_dropdown,   # Target for clearing input
-                alarm_char_dropdown,     # Target for clearing input (reset to current char)
-                alarm_theme_input,       # Target for clearing input
-                alarm_prompt_input,      # Target for clearing input
-                alarm_days_checkboxgroup # Target for clearing input
+                alarm_hour_dropdown,
+                alarm_minute_dropdown,
+                alarm_char_dropdown,
+                alarm_theme_input,
+                alarm_prompt_input,
+                alarm_days_checkboxgroup
             ]
         )
-        # The old .then() chain for refreshing and clearing is now handled by add_alarm_then_refresh_ui
 
         alarm_clear_button.click(
              lambda char: ("08", "00", char, "", "", ["月", "火", "水", "木", "金", "土", "日"]), # 曜日設定をデフォルトに戻す

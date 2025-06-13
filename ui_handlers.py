@@ -9,6 +9,8 @@ import os
 import uuid
 import shutil
 import re # Added for /gazo command refinement
+import pandas as pd # Added for alarm dataframe
+import alarm_manager # Added for alarm functions
 # 分割したモジュールから必要な関数や変数をインポート
 import config_manager
 from timers import UnifiedTimer # Timer, PomodoroTimer はUnifiedTimerに統合されたと仮定し、直接は使わない想定
@@ -1001,3 +1003,124 @@ def handle_save_log_button_click(character_name: Optional[str], log_content: str
         traceback.print_exc()
     # この関数はUIコンポーネントを直接更新する値を返さない
     # チャットログの再読み込みは、log2gemini.py側の .then() で reload_chat_log を呼び出すことで対応
+
+# --- Alarm Dataframe Handlers ---
+
+DAY_MAP_EN_TO_JA = {v: k for k, v in alarm_manager.DAY_MAP_JA_TO_EN.items()}
+
+def render_alarms_as_dataframe():
+    """
+    Fetches all alarms and converts them into a pandas DataFrame suitable for gr.Dataframe.
+    Columns: ["ID", "状態", "時刻", "曜日", "キャラ", "テーマ"]
+    """
+    alarms = alarm_manager.get_all_alarms()
+    if not alarms:
+        return pd.DataFrame(columns=["ID", "状態", "時刻", "曜日", "キャラ", "テーマ"])
+
+    data_for_df = []
+    for alarm in sorted(alarms, key=lambda x: x.get("time", "")):
+        days_ja_str = ",".join([DAY_MAP_EN_TO_JA.get(day_en, day_en) for day_en in alarm.get("days", [])])
+        data_for_df.append({
+            "ID": str(alarm.get("id")),
+            "状態": bool(alarm.get("enabled", False)),
+            "時刻": alarm.get("time", ""),
+            "曜日": days_ja_str,
+            "キャラ": alarm.get("character", ""),
+            "テーマ": alarm.get("theme", "")
+        })
+
+    df = pd.DataFrame(data_for_df)
+    # Ensure correct column order for internal use, Gradio headers can reorder for display
+    df = df[["ID", "状態", "時刻", "曜日", "キャラ", "テーマ"]]
+    return df
+
+def handle_alarm_dataframe_change(modified_df_data: pd.DataFrame): # Type hint assuming Gradio passes DataFrame
+    """
+    Handles changes made to the alarm dataframe in the UI.
+    Compares the modified data with original alarms and toggles 'enabled' status if changed.
+    Gradio typically passes the modified data as a pandas DataFrame if the source is a DataFrame.
+    """
+    print("UI Event: Alarm dataframe content changed by user.")
+    if modified_df_data is None:
+        print("Warning: handle_alarm_dataframe_change received None data.")
+        # If data is None, it might mean the DataFrame was cleared or an error occurred.
+        # Re-rendering the current state from alarm_manager is a safe fallback.
+        return render_alarms_as_dataframe()
+
+    # Ensure it's a DataFrame, as Gradio's .change() for DataFrame should provide one.
+    if not isinstance(modified_df_data, pd.DataFrame):
+        print(f"Warning: handle_alarm_dataframe_change expected pandas.DataFrame, got {type(modified_df_data)}. Attempting conversion.")
+        # Define expected columns based on render_alarms_as_dataframe output
+        expected_columns = ["ID", "状態", "時刻", "曜日", "キャラ", "テーマ"]
+        try:
+            # If modified_df_data is list-of-lists or similar, convert
+            modified_df = pd.DataFrame(modified_df_data, columns=expected_columns)
+        except Exception as e:
+            print(f"Error converting modified_df_data to DataFrame: {e}. Aborting change handling.")
+            return render_alarms_as_dataframe() # Fallback to current state
+    else:
+        modified_df = modified_df_data
+
+    if 'ID' not in modified_df.columns or '状態' not in modified_df.columns:
+        print("Error: DataFrame is missing 'ID' or '状態' column. Cannot process changes.")
+        return render_alarms_as_dataframe() # Fallback
+
+    original_alarms = alarm_manager.get_all_alarms()
+    original_alarms_map = {str(alm['id']): alm for alm in original_alarms}
+
+    changes_detected_and_processed = False
+    for index, row in modified_df.iterrows():
+        try:
+            alarm_id_from_df = str(row["ID"])
+            new_enabled_status_from_df = bool(row["状態"])
+        except KeyError as e:
+            print(f"KeyError accessing row data in DataFrame: {e}. Row: {row}. Columns: {modified_df.columns}")
+            continue # Skip malformed row
+
+        if alarm_id_from_df in original_alarms_map:
+            original_enabled_status = original_alarms_map[alarm_id_from_df]['enabled']
+            if new_enabled_status_from_df != original_enabled_status:
+                print(f"Alarm ID {alarm_id_from_df}: 'enabled' state changed from {original_enabled_status} to {new_enabled_status_from_df}. Toggling.")
+                alarm_manager.toggle_alarm_enabled(alarm_id_from_df) # This saves the change
+                changes_detected_and_processed = True
+        else:
+            # This might happen if rows are added/deleted directly in UI, if allowed,
+            # but current logic only supports toggling existing.
+            print(f"Warning: Alarm ID {alarm_id_from_df} from DataFrame not in original_alarms_map.")
+
+    # if changes_detected_and_processed:
+    #     gr.Info("アラームの状態が更新されました。") # Optional feedback
+
+    # Always re-render from source of truth (alarm_manager) after processing changes.
+    return render_alarms_as_dataframe()
+
+def handle_delete_selected_alarms(selected_alarm_ids: List[str]): # Expects a list of IDs from gr.State
+    """
+    Deletes alarms based on a list of selected alarm IDs.
+    """
+    if selected_alarm_ids is None or not isinstance(selected_alarm_ids, list) or not selected_alarm_ids:
+        gr.Info("削除するアラームが選択されていません。")
+        # Return current dataframe and empty list for selection state
+        return render_alarms_as_dataframe(), []
+
+    ids_to_delete = [str(alarm_id) for alarm_id in selected_alarm_ids] # Ensure all are strings
+
+    if not ids_to_delete:
+        # This case should ideally be caught by the check above, but as a safeguard:
+        gr.Info("削除対象のアラームIDリストが空です。")
+        return render_alarms_as_dataframe(), []
+
+    print(f"UI Event: Deleting selected alarms. IDs: {ids_to_delete}")
+    deleted_count = 0
+    for alarm_id in ids_to_delete:
+        if alarm_manager.delete_alarm(alarm_id): # delete_alarm returns True if deletion happened
+            deleted_count +=1
+
+    if deleted_count > 0:
+        gr.Info(f"{deleted_count}件のアラームを削除しました。")
+    else:
+        gr.Info("削除対象のアラームが見つからなかったか、既に削除されています。")
+
+    new_dataframe = render_alarms_as_dataframe()
+    # Return the updated DataFrame and an empty list to clear the selected_alarm_ids_state
+    return new_dataframe, []
