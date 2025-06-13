@@ -277,7 +277,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     alarm_dataframe = gr.Dataframe(
                         headers=alarm_display_headers,
                         interactive=True, # Allows row selection, implies type="array" for value if not specified
-                        multiselect=True, # Allow multiple rows to be selected
+                        # multiselect=True, # Removed as per request
                         row_count=(1, "dynamic"),
                         col_count=(len(alarm_display_headers), "fixed"),
                         wrap=True,
