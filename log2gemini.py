@@ -3,7 +3,7 @@ import gradio as gr
 import os, sys, json, traceback, threading, time, pandas as pd
 import config_manager, character_manager, memory_manager, alarm_manager, gemini_api, utils, ui_handlers
 
-# --- 起動シーケンス (Kiseki Ver.8 - from feedback Ver.7 label) ---
+# 起動シーケンス (Kiseki Ver.9 - from feedback Ver.8 label)
 config_manager.load_config()
 alarm_manager.load_alarms()
 if config_manager.initial_api_key_name_global and hasattr(gemini_api, 'configure_google_api'):
@@ -20,41 +20,29 @@ custom_css = """
 #alarm_dataframe_display th:nth-child(2), #alarm_dataframe_display td:nth-child(2) { width: 50px !important; text-align: center !important; }
 """
 
-# --- 起動前チェック (Kiseki Ver.8 - from feedback Ver.7 label) ---
-# This block must be OUTSIDE `with gr.Blocks() as demo:` if it's going to sys.exit()
-# However, Kiseki's code structure places it inside. If startup_ready is False,
-# the UI might not be built, and `if __name__ == "__main__":` check handles exit.
-
+# --- 起動前チェック (Kiseki Ver.9 - from feedback Ver.8 label) ---
 character_list_on_startup = character_manager.get_character_list()
 effective_initial_character = config_manager.initial_character_global
 
 if config_manager.initial_character_global not in character_list_on_startup:
     new_initial_char = character_list_on_startup[0] if character_list_on_startup else None
     print(f"警告: 最後に使用したキャラクター '{config_manager.initial_character_global}' が見つかりません。'{new_initial_char if new_initial_char else 'キャラクターなし'}' で起動します。")
-    config_manager.initial_character_global = new_initial_char # Update the global for current session
-    effective_initial_character = new_initial_char # Use this for UI states
-    if new_initial_char: # Only save if a valid fallback was found
+    config_manager.initial_character_global = new_initial_char
+    effective_initial_character = new_initial_char
+    if new_initial_char:
         config_manager.save_config("last_character", new_initial_char)
-    # If new_initial_char is None, initial_character_global will be None. startup_ready will be False.
 
-# Kiseki's Ver.8 (feedback Ver.7 label) implies other checks are omitted for brevity in the snippet.
-# I'll assume the primary check is for a valid character.
 startup_ready = all([
-    character_list_on_startup,      # Need at least one character defined in folders
-    effective_initial_character,    # Need a valid character to start with (either original or fallback)
-    # Other checks Kiseki might have had (e.g., API keys configured if essential for startup)
-    # For now, focusing on the character existence issue.
+    character_list_on_startup,
+    effective_initial_character,
 ])
 
 
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css) as demo:
     if not startup_ready:
-        # Display an error message within the Gradio UI if it even gets this far
         gr.Error("起動に必要なキャラクター設定が見つかりませんでした。charactersフォルダを確認してください。")
-        # The sys.exit() in __main__ will prevent launch if UI isn't built.
     else:
         # --- UI State Variables ---
-        # Use effective_initial_character which has the fallback logic applied.
         current_character_name = gr.State(effective_initial_character)
         current_model_name = gr.State(config_manager.initial_model_global)
         current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -63,12 +51,12 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         alarm_dataframe_original_data = gr.State(pd.DataFrame())
         selected_alarm_ids_state = gr.State([])
 
-        # --- UIレイアウト定義 (Comprehensive layout from Ver.7 attempt, adapted for Kiseki Ver.8) ---
+        # --- UIレイアウト定義 (Comprehensive layout from Ver.8 attempt, adapted for Kiseki Ver.9) ---
         with gr.Row():
             with gr.Column(scale=1, min_width=300): # 左カラム
                 gr.Markdown("### キャラクター")
                 character_dropdown = gr.Dropdown(
-                    choices=character_list_on_startup, # Use list fetched at startup
+                    choices=character_list_on_startup,
                     value=effective_initial_character,
                     label="キャラクターを選択",
                     interactive=True
@@ -160,7 +148,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     gr.Markdown(f"バージョン: {app_version_global}")
 
             with gr.Column(scale=3): # 右カラム
-                # Kiseki Ver.8 (feedback Ver.7 label) - type='messages' fix
+                # Kiseki Ver.9 (feedback Ver.8 label) - type='messages' fix
                 chatbot_display = gr.Chatbot(label="チャット", type="messages", height=600, elem_id="chat_output_area", show_copy_button=True, bubble_full_width=False)
                 with gr.Row():
                     chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", scale=7, elem_id="chat_input_box")
@@ -169,39 +157,46 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                 with gr.Row():
                     clear_chat_button = gr.Button("チャット履歴クリア", variant="stop")
 
-        # --- ここからイベントリスナー定義 (Kiseki Ver.8 - from feedback Ver.7 label) ---
+        # --- ここからイベントリスナー定義 (Kiseki Ver.9 - from feedback Ver.8 label) ---
         # --- 初期化関連 ---
-        def initial_load_v8(char_name_to_load):
-            # char_name_to_load is from current_character_name state, which already has fallback applied
+        def initial_load_v9(char_name_to_load):
+            # Kiseki Ver.9 (feedback Ver.8) initial_load snippet:
+            # df = ui_handlers.render_alarms_as_dataframe()
+            # _, chat_hist, _, profile_img, mem_str, _, log_content = ui_handlers.update_ui_on_character_change(char_name)
+            # return ui_handlers.get_display_df(df), df, ... (ellipsis implies more from the context of 8 outputs)
+
             df_with_ids = ui_handlers.render_alarms_as_dataframe()
             display_df = ui_handlers.get_display_df(df_with_ids)
 
-            # ui_handlers.update_ui_on_character_change (Ver.6) returns 7 items.
-            # We need to map these to 8 outputs for demo.load.
+            # ui_handlers.update_ui_on_character_change (Ver.6 based on Kiseki Ver.5 feedback) returns 7 items.
+            # We map these to 8 outputs for demo.load.
             returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str, alarm_dd_char_val, current_log_content = ui_handlers.update_ui_on_character_change(char_name_to_load)
 
+            # Kiseki Ver.9 (feedback Ver.8) demo.load outputs:
+            # [alarm_dataframe, alarm_dataframe_original_data, chatbot, log_editor, memory_json_editor, profile_image_display, alarm_char_dropdown, timer_char_dropdown]
+            # 'chatbot' is my chatbot_display
             return (
                 display_df, df_with_ids, current_chat_hist, current_log_content,
-                current_mem_str, current_profile_img, alarm_dd_char_val, alarm_dd_char_val # Use alarm_dd_char_val for timer_char_dropdown
+                current_mem_str, current_profile_img, alarm_dd_char_val, alarm_dd_char_val
             )
 
-        # Kiseki Ver.8 (feedback Ver.7 label) uses current_character_name as input to initial_load
         demo.load(
-            fn=initial_load_v8,
-            inputs=[current_character_name], # Pass the state, which has the fallback applied
+            fn=initial_load_v9,
+            inputs=[current_character_name],
             outputs=[
                 alarm_dataframe, alarm_dataframe_original_data, chatbot_display, log_editor,
                 memory_json_editor, profile_image_display, alarm_char_dropdown, timer_char_dropdown
             ]
         )
 
-        # --- アラーム関連リスナー (Kiseki Ver.8 - from feedback Ver.7 label) ---
-        def refresh_alarm_ui_v8():
+        # --- アラーム関連リスナー (Kiseki Ver.9 - from feedback Ver.8 label) ---
+        def refresh_alarm_ui_v9():
             new_df_with_ids = ui_handlers.render_alarms_as_dataframe()
             new_display_df = ui_handlers.get_display_df(new_df_with_ids)
             return new_display_df, new_df_with_ids
 
-        # No alarm_accordion.select() - this was the fix in Kiseki Ver.7 feedback (my Ver.8)
+        # alarm_accordion.select() was removed in Kiseki Ver.7 feedback (my Ver.8) - confirmed correct.
+        # Refresh is handled by initial_load, add_alarm, delete_alarm, character_change.
 
         alarm_dataframe.change(
             fn=ui_handlers.handle_alarm_dataframe_change,
@@ -221,24 +216,26 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         )
 
         delete_alarm_button.click(
-            fn=ui_handlers.handle_delete_selected_alarms,
+            fn=ui_handlers.handle_delete_selected_alarms, # Returns ID-ful DF
             inputs=[selected_alarm_ids_state],
-            outputs=[alarm_dataframe_original_data]
+            outputs=[alarm_dataframe_original_data] # Update state
         ).then(
-            fn=lambda id_df: ui_handlers.get_display_df(id_df),
+            fn=lambda id_df: ui_handlers.get_display_df(id_df), # Get display version for UI
             inputs=[alarm_dataframe_original_data],
             outputs=[alarm_dataframe]
         ).then(
-            fn=lambda: [],
+            fn=lambda: [], # Clear selection
             outputs=[selected_alarm_ids_state]
         )
 
-        def add_alarm_and_refresh_v8(h, m, char, theme, prompt, days):
+        def add_alarm_and_refresh_v9(h, m, char, theme, prompt, days):
             alarm_manager.add_alarm(h, m, char, theme, prompt, days)
-            return refresh_alarm_ui_v8()
+            return refresh_alarm_ui_v9() # Returns (display_df, id_ful_df)
 
+        # Kiseki Ver.9 (feedback Ver.8) alarm_add_button.click had "inputs=[...], outputs=[alarm_dataframe, alarm_dataframe_original_data]).then(...)"
+        # The "..." implies the full list of inputs and the clear inputs .then()
         alarm_add_button.click(
-            fn=add_alarm_and_refresh_v8,
+            fn=add_alarm_and_refresh_v9,
             inputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup],
             outputs=[alarm_dataframe, alarm_dataframe_original_data]
         ).then(
@@ -248,23 +245,22 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         )
 
         # --- Other Event Listeners ---
-        def character_change_wrapper_v8(char_name_from_dd):
-            # This wrapper now also needs to handle refreshing alarms, as the accordion trigger was removed.
+        def character_change_wrapper_v9(char_name_from_dd):
             name_state, hist, _, profile_img, mem_str, alarm_char_val, log_content = ui_handlers.update_ui_on_character_change(char_name_from_dd)
-            display_alarms_df, id_ful_alarms_df = refresh_alarm_ui_v8() # Refresh alarms on char change
+            display_alarms_df, id_ful_alarms_df = refresh_alarm_ui_v9()
             return (
                 name_state, hist, "", profile_img, mem_str, alarm_char_val, alarm_char_val, log_content,
                 display_alarms_df, id_ful_alarms_df
             )
 
         character_dropdown.change(
-            fn=character_change_wrapper_v8,
+            fn=character_change_wrapper_v9,
             inputs=[character_dropdown],
             outputs=[
                 current_character_name, chatbot_display, chat_input_textbox,
                 profile_image_display, memory_json_editor, alarm_char_dropdown,
                 timer_char_dropdown, log_editor,
-                alarm_dataframe, alarm_dataframe_original_data # Ensure alarms refresh on char change
+                alarm_dataframe, alarm_dataframe_original_data
             ]
         )
 
@@ -287,6 +283,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         )
 
         chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, timer_status_display]
+        # Using *args for handle_message_submission as per ui_handlers.py Ver.6/7/8/9
         chat_input_textbox.submit(
             fn=ui_handlers.handle_message_submission,
             inputs=[
@@ -323,17 +320,11 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         )
 
 # --- Application Launch ---
-# Kiseki Ver.8 (feedback Ver.7 label) - main guard
 if __name__ == "__main__":
-    # The startup_ready check should be done *before* demo.launch()
-    # If startup_ready is False (e.g. no characters found, initial_character_global is None after fallback)
-    # then we should not launch.
-    if not startup_ready:
+    if not startup_ready: # Check the flag set before gr.Blocks()
         print("\n!!! Gradio UIの初期化に必要な設定が不足しているため、起動を中止します。!!!")
         print(" - 利用可能なキャラクターが存在するか確認してください。")
-        print(f" - 設定ファイル内の 'last_character' ({config_manager.initial_character_global if not effective_initial_character else effective_initial_character}) が有効か確認してください。")
+        print(f" - 設定ファイル内の 'last_character' ('{config_manager.initial_character_global if not effective_initial_character else effective_initial_character}') が有効か確認してください。")
         sys.exit("初期化エラーまたは設定不足により終了。")
 
-    # Kiseki's Ver.8 (feedback Ver.7 label) implies demo.launch() might be here
-    # or called by an external script. For standalone execution:
     demo.launch()
