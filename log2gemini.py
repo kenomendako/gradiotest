@@ -3,15 +3,12 @@ import gradio as gr
 import os, sys, json, traceback, threading, time, pandas as pd
 import config_manager, character_manager, memory_manager, alarm_manager, gemini_api, utils, ui_handlers
 
-# 起動シーケンス (Kiseki Ver.5)
+# 起動シーケンス (Kiseki Ver.6 - from feedback Ver.5 label)
 config_manager.load_config()
 alarm_manager.load_alarms()
-# utils.ensure_data_directories() # REMOVED in Ver.4
 if config_manager.initial_api_key_name_global and hasattr(gemini_api, 'configure_google_api'):
     gemini_api.configure_google_api(config_manager.initial_api_key_name_global)
-# No call to gemini_api.load_available_models_from_config() as models come from config_manager
 
-# (CSS定義は変更なし - taken from Kiseki's previous full versions)
 custom_css = """
 #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
 #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; }
@@ -24,11 +21,9 @@ custom_css = """
 """
 
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css) as demo:
-    # (起動前チェックは省略 - Kiseki Ver.5)
-
-    # --- UI State Variables (Kiseki Ver.5 - using global variables from config_manager) ---
+    # --- UI State Variables (Kiseki Ver.6 - from feedback Ver.5 label) ---
     current_character_name = gr.State(config_manager.initial_character_global)
-    current_model_name = gr.State(config_manager.initial_model_global)
+    current_model_name = gr.State(config_manager.initial_model_global) # Will be set by dropdown using AVAILABLE_MODELS_GLOBAL
     current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
     send_thoughts_state = gr.State(config_manager.initial_send_thoughts_to_api_global)
     api_history_limit_state = gr.State(config_manager.initial_api_history_limit_option_global)
@@ -36,7 +31,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     alarm_dataframe_original_data = gr.State(pd.DataFrame())
     selected_alarm_ids_state = gr.State([])
 
-    # --- UIレイアウト定義 (Comprehensive layout from previous attempts, adapted for Kiseki Ver.5) ---
+    # --- UIレイアウト定義 (Comprehensive layout from Ver.5 attempt, adapted for Kiseki Ver.6) ---
     with gr.Row():
         with gr.Column(scale=1, min_width=300): # 左カラム
             gr.Markdown("### キャラクター")
@@ -49,13 +44,11 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
 
             with gr.Accordion("⚙️ 基本設定", open=False):
-                # CRITICAL FIX for Ver.5: Use config_manager.AVAILABLE_MODELS_GLOBAL
                 available_models_list = getattr(config_manager, 'AVAILABLE_MODELS_GLOBAL', [])
-                if not isinstance(available_models_list, list): # Ensure it's a list
-                    available_models_list = []
+                if not isinstance(available_models_list, list): available_models_list = []
 
                 model_dropdown = gr.Dropdown(
-                    choices=available_models_list, # Corrected model list source
+                    choices=available_models_list,
                     value=config_manager.initial_model_global,
                     label="モデルを選択",
                     interactive=True
@@ -99,8 +92,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                 save_log_button = gr.Button(value="ログを保存", variant="secondary")
                 reload_log_button = gr.Button(value="ログ再読込", variant="secondary")
 
-            # Alarm UI definition from Kiseki Ver.5
-            with gr.Accordion("🐦 アラーム設定", open=False) as alarm_accordion:
+            # Alarm UI definition from Kiseki Ver.6 (feedback Ver.5 label)
+            with gr.Accordion("🐦 アラーム設定", open=False) as alarm_accordion: # Accordion itself
                 alarm_dataframe = gr.Dataframe(
                     headers=["状態", "時刻", "曜日", "キャラ", "テーマ"],
                     datatype=["bool", "str", "str", "str", "str"],
@@ -108,11 +101,10 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     wrap=True, elem_id="alarm_dataframe_display"
                 )
                 delete_alarm_button = gr.Button("✔️ 選択したアラームを削除", variant="stop")
-                with gr.Column(visible=True): # Kiseki Ver.5 shows this column
+                # Kiseki Ver.6 (feedback Ver.5 label) shows this column structure for new alarm form
+                with gr.Column(visible=True):
                     gr.Markdown("---")
                     gr.Markdown("#### 新規アラーム追加")
-                    # (新規アラーム追加フォームは省略 - Kiseki Ver.5)
-                    # For completeness, adding the form components from previous versions
                     alarm_hour_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(24)], label="時", value="08")
                     alarm_minute_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(60)], label="分", value="00")
                     alarm_char_dropdown = gr.Dropdown(choices=character_manager.get_character_list(), value=config_manager.initial_character_global, label="キャラ")
@@ -140,8 +132,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             with gr.Accordion("ℹ️ ヘルプ & 情報", open=False):
                 gr.Markdown(f"バージョン: {app_version_global}")
 
-        with gr.Column(scale=3): # 右カラム (Kiseki Ver.5 - UI定義は省略)
-            # For completeness, adding Chat UI components from previous versions
+        with gr.Column(scale=3): # 右カラム
             chatbot_display = gr.Chatbot(label="チャット", height=600, elem_id="chat_output_area", show_copy_button=True, bubble_full_width=False) # Name: chatbot in Kiseki's demo.load
             with gr.Row():
                 chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", scale=7, elem_id="chat_input_box")
@@ -150,42 +141,34 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             with gr.Row():
                 clear_chat_button = gr.Button("チャット履歴クリア", variant="stop")
 
-
-    # --- ここからイベントリスナー定義 (Kiseki Ver.5) ---
+    # --- ここからイベントリスナー定義 (Kiseki Ver.6 - from feedback Ver.5 label) ---
 
     # --- 初期化関連 ---
-    def initial_load_v5(): # As per Kiseki Ver.5
-        df_with_ids = ui_handlers.render_alarms_as_dataframe() # ID-ful
-        display_df = ui_handlers.get_display_df(df_with_ids)   # ID-less
-
+    def initial_load_v6(): # As per Kiseki Ver.6 (feedback Ver.5 label)
+        df_with_ids = ui_handlers.render_alarms_as_dataframe()
+        display_df = ui_handlers.get_display_df(df_with_ids)
         char_name = config_manager.initial_character_global
 
-        # Kiseki Ver.5 ui_handlers.update_ui_on_character_change returns 7 items:
-        # char_name, chat_hist, "", profile_img, mem_str, char_name_for_alarm_dd_only, log_content
-        # Kiseki Ver.5 log2gemini demo.load outputs (8 items):
+        # ui_handlers.update_ui_on_character_change (Ver.6) returns 7 items:
+        # char_name, chat_hist, "", profile_img, mem_str, alarm_char_val, log_content
+        # log2gemini demo.load outputs (8 items):
         # [alarm_dataframe, alarm_dataframe_original_data, chatbot, log_editor, memory_json_editor, profile_image_display, alarm_char_dropdown, timer_char_dropdown]
-        # The ui_handlers function needs to provide enough for these.
-        # The 7th item from ui_handler (log_content) goes to log_editor.
-        # The 6th item from ui_handler (char_name for alarm_dd) goes to alarm_char_dropdown.
-        # We need a value for timer_char_dropdown. Let's assume it's also char_name.
-
-        # Call the 7-output version from ui_handlers.py Ver.5
         returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str, alarm_dd_char_val, current_log_content = ui_handlers.update_ui_on_character_change(char_name)
 
         return (
-            display_df,             # For alarm_dataframe
-            df_with_ids,            # For alarm_dataframe_original_data
+            display_df,
+            df_with_ids,
             current_chat_hist,      # For chatbot_display (Kiseki used 'chatbot')
-            current_log_content,    # For log_editor
-            current_mem_str,        # For memory_json_editor
-            current_profile_img,    # For profile_image_display
+            current_log_content,
+            current_mem_str,
+            current_profile_img,
             alarm_dd_char_val,      # For alarm_char_dropdown
-            alarm_dd_char_val       # For timer_char_dropdown (assuming same as alarm)
+            alarm_dd_char_val       # For timer_char_dropdown (using same value)
         )
 
-    # Kiseki Ver.5 demo.load outputs had 'chatbot'. My component is 'chatbot_display'.
+    # Kiseki Ver.6 (feedback Ver.5 label) demo.load outputs had 'chatbot'. My component is 'chatbot_display'.
     demo.load(
-        fn=initial_load_v5,
+        fn=initial_load_v6,
         inputs=None,
         outputs=[
             alarm_dataframe, alarm_dataframe_original_data, chatbot_display, log_editor,
@@ -193,17 +176,19 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         ]
     )
 
-    # --- アラーム関連リスナー (Kiseki Ver.5) ---
-    def refresh_alarm_ui_v5(): # As per Kiseki Ver.5
-        new_df_with_ids = ui_handlers.render_alarms_as_dataframe() # ID-ful
-        new_display_df = ui_handlers.get_display_df(new_df_with_ids) # ID-less
+    # --- アラーム関連リスナー (Kiseki Ver.6 - from feedback Ver.5 label) ---
+    def refresh_alarm_ui_v6(): # As per Kiseki Ver.6 (feedback Ver.5 label)
+        new_df_with_ids = ui_handlers.render_alarms_as_dataframe()
+        new_display_df = ui_handlers.get_display_df(new_df_with_ids)
         return new_display_df, new_df_with_ids
 
-    alarm_accordion.open(fn=refresh_alarm_ui_v5, outputs=[alarm_dataframe, alarm_dataframe_original_data])
+    # CRITICAL FIX for Ver.6: Use .select for accordion "open" trigger, not .open
+    alarm_accordion.select(fn=refresh_alarm_ui_v6, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data])
 
-    # Kiseki Ver.5: inputs=[alarm_dataframe, alarm_dataframe_original_data], outputs=[alarm_dataframe_original_data]
+    # Kiseki Ver.6 (feedback Ver.5 label) for alarm_dataframe.change:
+    # inputs=[alarm_dataframe, alarm_dataframe_original_data], outputs=[alarm_dataframe_original_data]
     # .then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
-    # This is correct. ui_handlers.handle_alarm_dataframe_change (Ver.5) returns ID-ful.
+    # This chain is correct. ui_handlers.handle_alarm_dataframe_change (Ver.6) returns ID-ful.
     alarm_dataframe.change(
         fn=ui_handlers.handle_alarm_dataframe_change,
         inputs=[alarm_dataframe, alarm_dataframe_original_data],
@@ -214,7 +199,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         outputs=[alarm_dataframe]
     )
 
-    # Kiseki Ver.5: inputs=[alarm_dataframe_original_data]
+    # Kiseki Ver.6 (feedback Ver.5 label) for alarm_dataframe.select (for row selection):
+    # inputs=[alarm_dataframe_original_data]
     alarm_dataframe.select(
         fn=ui_handlers.handle_alarm_selection,
         inputs=[alarm_dataframe_original_data],
@@ -222,10 +208,11 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         show_progress='hidden'
     )
 
-    # Kiseki Ver.5: outputs=[alarm_dataframe_original_data]
+    # Kiseki Ver.6 (feedback Ver.5 label) for delete_alarm_button.click:
+    # outputs=[alarm_dataframe_original_data]
     # .then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
     # .then(fn=lambda: [], outputs=[selected_alarm_ids_state])
-    # This is correct. ui_handlers.handle_delete_selected_alarms (Ver.5) returns ID-ful.
+    # This chain is correct. ui_handlers.handle_delete_selected_alarms (Ver.6) returns ID-ful.
     delete_alarm_button.click(
         fn=ui_handlers.handle_delete_selected_alarms,
         inputs=[selected_alarm_ids_state],
@@ -239,14 +226,15 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         outputs=[selected_alarm_ids_state]
     )
 
-    def add_alarm_and_refresh_v5(h, m, char, theme, prompt, days): # Kiseki Ver.5
+    def add_alarm_and_refresh_v6(h, m, char, theme, prompt, days): # Kiseki Ver.6 (feedback Ver.5 label)
         alarm_manager.add_alarm(h, m, char, theme, prompt, days)
-        return refresh_alarm_ui_v5() # Returns (display_df, id_ful_df)
+        return refresh_alarm_ui_v6() # Returns (display_df, id_ful_df)
 
-    # Kiseki Ver.5: inputs=[...] (assuming full list), outputs=[alarm_dataframe, alarm_dataframe_original_data]
-    # .then(fn=lambda char: ("08", "00", char, "", "", ["月", ...]), inputs=[current_character_name], outputs=[...]) (assuming full list)
+    # Kiseki Ver.6 (feedback Ver.5 label) for alarm_add_button.click:
+    # inputs=[...] (full list), outputs=[alarm_dataframe, alarm_dataframe_original_data]
+    # .then(...) (clear inputs)
     alarm_add_button.click(
-        fn=add_alarm_and_refresh_v5,
+        fn=add_alarm_and_refresh_v6,
         inputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup],
         outputs=[alarm_dataframe, alarm_dataframe_original_data]
     ).then(
@@ -255,26 +243,22 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         outputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup]
     )
 
-    # --- Other Event Listeners (Kiseki Ver.5 implies these are largely unchanged from a working state) ---
-    # ui_handlers.update_ui_on_character_change (Ver.5) returns 7 items.
-    # log2gemini.py character_dropdown.change needs to map these to its 8 outputs.
-    # Outputs: current_character_name, chatbot_display, chat_input_textbox, profile_image_display,
-    # memory_json_editor, alarm_char_dropdown, timer_char_dropdown, log_editor
-    def character_change_wrapper(char_name_from_dd):
-        name_state, hist, _, profile_img, mem_str, alarm_char, log_content = ui_handlers.update_ui_on_character_change(char_name_from_dd)
-        # Assuming alarm_char can be used for timer_char_dropdown as well
-        return name_state, hist, "", profile_img, mem_str, alarm_char, alarm_char, log_content
+    # --- Other Event Listeners (Adapted from Ver.5 attempt, ensuring consistency with Ver.6 ui_handlers) ---
+    # ui_handlers.update_ui_on_character_change (Ver.6) returns 7 items.
+    # Wrapper needed to map 7 items to 8 UI component outputs.
+    def character_change_wrapper_v6(char_name_from_dd):
+        name_state, hist, _, profile_img, mem_str, alarm_char_val, log_content = ui_handlers.update_ui_on_character_change(char_name_from_dd)
+        return name_state, hist, "", profile_img, mem_str, alarm_char_val, alarm_char_val, log_content # Use alarm_char_val for timer_char_dropdown
 
     character_dropdown.change(
-        fn=character_change_wrapper,
+        fn=character_change_wrapper_v6,
         inputs=[character_dropdown],
         outputs=[
             current_character_name, chatbot_display, chat_input_textbox,
             profile_image_display, memory_json_editor, alarm_char_dropdown,
             timer_char_dropdown, log_editor
         ]
-    ).then(fn=refresh_alarm_ui_v5, outputs=[alarm_dataframe, alarm_dataframe_original_data])
-
+    ).then(fn=refresh_alarm_ui_v6, outputs=[alarm_dataframe, alarm_dataframe_original_data]) # Refresh alarms on char change
 
     model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name])
     api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state])
@@ -294,7 +278,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         outputs=[chatbot_display, log_editor]
     )
 
-    # Kiseki Ver.5 ui_handlers.handle_message_submission returns 4 items for outputs.
+    # Kiseki Ver.6 (feedback Ver.5 label) ui_handlers.handle_message_submission returns 4 items.
     chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, timer_status_display]
     chat_input_textbox.submit(
         fn=ui_handlers.handle_message_submission,
