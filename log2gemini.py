@@ -382,8 +382,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         ).then(
             fn=ui_handlers.reload_chat_log, # ui_handlersからインポート
             inputs=[current_character_name],
-            outputs=[chatbot] # Kiseki: reload_chat_logの出力はchatbotとlog_editorのタプルなので修正
-            # outputs=[chatbot, log_editor] # Kiseki修正案 (ui_handlers.reload_chat_logの戻り値に合わせる)
+            outputs=[chatbot, log_editor] # Kiseki修正適用: reload_chat_logの出力に合わせて修正
         )
 
         # Kiseki: save_log_button の then().outputs を修正
@@ -462,5 +461,3 @@ if __name__ == "__main__":
             alarm_manager.alarm_thread_stop_event.set()
         print("Gradio アプリケーションを終了します。")
         sys.exit(0)
-
-```
