@@ -194,9 +194,9 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     )
 
     timer_type_radio.change(
-        fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー")),
+        fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""),
         inputs=timer_type_radio,
-        outputs=[normal_timer_ui, pomo_timer_ui]
+        outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output]
     )
 
     model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name])
