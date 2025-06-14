@@ -68,9 +68,17 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
             # --- 新しいアラームUI ---
             with gr.Accordion("🐦 アラーム設定", open=False) as alarm_accordion:
+                gr.Markdown("ℹ️ **操作方法**: リストから操作したいアラームの行をクリックで選択し、下のボタンで操作します。")
                 alarm_dataframe = gr.Dataframe(headers=["状態", "時刻", "曜日", "キャラ", "テーマ"], datatype=["bool", "str", "str", "str", "str"], interactive=True, row_count=(5, "dynamic"), col_count=5, wrap=True, elem_id="alarm_dataframe_display")
-                selection_feedback_markdown = gr.Markdown("アラームを選択してください", elem_id="selection_feedback")
-                delete_alarm_button = gr.Button("✔️ 選択したアラームを削除", variant="stop")
+
+                with gr.Row():
+                    selection_feedback_markdown = gr.Markdown("アラームを選択してください", elem_id="selection_feedback")
+
+                with gr.Row():
+                    enable_button = gr.Button("✔️ 選択を有効化")
+                    disable_button = gr.Button("❌ 選択を無効化")
+                    delete_alarm_button = gr.Button("🗑️ 選択したアラームを削除", variant="stop")
+
                 with gr.Column(visible=True):
                     gr.Markdown("---"); gr.Markdown("#### 新規アラーム追加")
                     alarm_hour_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(24)], label="時", value="08")
@@ -123,16 +131,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     )
 
     # アラーム関連イベント
-    alarm_dataframe.change(
-        fn=ui_handlers.handle_alarm_dataframe_change,
-        inputs=[alarm_dataframe, alarm_dataframe_original_data],
-        outputs=[alarm_dataframe_original_data]
-    ).then(
-        fn=lambda id_df: ui_handlers.get_display_df(id_df),
-        inputs=[alarm_dataframe_original_data],
-        outputs=[alarm_dataframe]
-    )
-
     def handle_alarm_selection_with_feedback(evt: gr.SelectData, df_with_id: pd.DataFrame):
         selected_ids = ui_handlers.handle_alarm_selection(evt, df_with_id)
         count = len(selected_ids)
@@ -150,6 +148,29 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         show_progress='hidden'
     )
 
+    # アラーム有効化ボタンのイベント
+    enable_button.click(
+        fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True),
+        inputs=[selected_alarm_ids_state],
+        outputs=[alarm_dataframe_original_data]
+    ).then(
+        fn=lambda df: ui_handlers.get_display_df(df),
+        inputs=[alarm_dataframe_original_data],
+        outputs=[alarm_dataframe]
+    )
+
+    # アラーム無効化ボタンのイベント
+    disable_button.click(
+        fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False),
+        inputs=[selected_alarm_ids_state],
+        outputs=[alarm_dataframe_original_data]
+    ).then(
+        fn=lambda df: ui_handlers.get_display_df(df),
+        inputs=[alarm_dataframe_original_data],
+        outputs=[alarm_dataframe]
+    )
+
+    # 削除ボタンのイベント（既存のものを置き換え）
     delete_alarm_button.click(
         fn=ui_handlers.handle_delete_selected_alarms,
         inputs=[selected_alarm_ids_state],

@@ -44,27 +44,6 @@ def get_display_df(df_with_id: pd.DataFrame):
     return df_with_id[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
 
 # --- アラームDataframeイベントハンドラ ---
-def handle_alarm_dataframe_change(df_after_change: pd.DataFrame, df_original: pd.DataFrame):
-    if df_after_change is None or df_original is None or df_original.empty:
-        return df_original if df_original is not None else pd.DataFrame()
-
-    try:
-        # 行の順序が維持されていると仮定し、インデックスで比較
-        for index, original_row in df_original.iterrows():
-            if index < len(df_after_change):
-                ui_row = df_after_change.iloc[index]
-                if original_row['状態'] != ui_row['状態']:
-                    alarm_id = original_row['ID']
-                    print(f"UI操作: アラームID '{alarm_id}' の状態を {ui_row['状態']} に変更します。")
-                    alarm_manager.toggle_alarm_enabled(alarm_id)
-                    # 最初の変更を見つけたら、すぐに最新のデータを返して処理を終了
-                    return render_alarms_as_dataframe()
-    except Exception as e:
-        print(f"Dataframe変更処理中にエラー: {e}\n{traceback.format_exc()}")
-        gr.Error("アラーム状態の更新中にエラーが発生しました。")
-    # 変更がなかった場合やループが完了した場合は、更新されたデータを返す
-    return render_alarms_as_dataframe()
-
 def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame):
     """Dataframeの行選択を処理し、選択されたIDのリストを返す。"""
     if evt.index is None or df_with_id is None or df_with_id.empty: return []
@@ -83,6 +62,27 @@ def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame):
         if 0 <= row_index < len(df_with_id):
             selected_ids.append(str(df_with_id.iloc[row_index]['ID']))
     return selected_ids
+
+def toggle_selected_alarms_status(selected_ids: list, target_status: bool):
+    """選択されたアラームの状態を、指定された状態（有効/無効）に一括で変更する。"""
+    if not selected_ids:
+        gr.Warning("状態を変更するアラームが選択されていません。")
+        return render_alarms_as_dataframe() # DataFrameを返す
+
+    changed_count = 0
+    status_text = "有効" if target_status else "無効"
+    for alarm_id in selected_ids:
+        alarm = alarm_manager.get_alarm_by_id(alarm_id)
+        if alarm and alarm.get("enabled") != target_status:
+            if alarm_manager.toggle_alarm_enabled(alarm_id):
+                changed_count += 1
+
+    if changed_count > 0:
+        gr.Info(f"{changed_count}件のアラームを「{status_text}」に変更しました。")
+    else:
+        gr.Info("状態の変更はありませんでした。")
+
+    return render_alarms_as_dataframe() # DataFrameを返す
 
 def handle_delete_selected_alarms(selected_ids: list):
     """「削除」ボタンが押されたときの処理。"""
