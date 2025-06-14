@@ -1,4 +1,27 @@
 # -*- coding: utf-8 -*-
+# ##############################################################################
+# #                                                                            #
+# #  ! ! ! ! ! ! ! ! ! ! !   CRITICAL AI INSTRUCTION   ! ! ! ! ! ! ! ! ! ! ! !  #
+# #                                                                            #
+# #   THIS FILE MUST USE THE `google-genai` SDK.                               #
+# #   DO NOT use the deprecated `google-generativeai` library.                 #
+# #                                                                            #
+# #   Correct Import: `from google import genai`                               #
+# #   Incorrect Import: `import google.generativeai as genai`                  #
+# #                                                                            #
+# #   Refer to `AI_DEVELOPMENT_GUIDELINES.md` for details.                     #
+# #                                                                            #
+# # ! ! ! ! ! ! ! ! ! ! !   AIへの最重要指示   ! ! ! ! ! ! ! ! ! ! ! ! #
+# #                                                                            #
+# #   このファイルは `google-genai` SDK を使用します。                         #
+# #   非推奨の `google-generativeai` ライブラリは使用禁止です。                #
+# #                                                                            #
+# #   正しいImport: `from google import genai`                                 #
+# #   間違いのImport: `import google.generativeai as genai`                    #
+# #                                                                            #
+# #   詳細は `AI_DEVELOPMENT_GUIDELINES.md` を参照してください。               #
+# #                                                                            #
+# ##############################################################################
 import google.genai as genai
 from google.genai import types
 from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig, FunctionDeclaration, FunctionCall
