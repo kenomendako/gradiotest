@@ -41,60 +41,92 @@ def get_display_df(df_with_id: pd.DataFrame):
     """ID列を非表示にした表示用のDataFrameを返す"""
     if df_with_id is None or df_with_id.empty or 'ID' not in df_with_id.columns:
         return pd.DataFrame(columns=["状態", "時刻", "曜日", "キャラ", "テーマ"])
-    return df_with_id[["状態", "時刻", "曜日", "キャラ", "テーマ"]] # Return view with specified columns
+    return df_with_id[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
 
 # --- アラームDataframeイベントハンドラ ---
-def handle_alarm_dataframe_change(df_after_change: pd.DataFrame, df_original_with_id: pd.DataFrame):
-    """「状態」チェックボックスの変更を検知して処理する。"""
-    # df_after_change is the display DataFrame (ID-less) from the UI component.
-    # df_original_with_id is the ID-ful DataFrame from the state (alarm_dataframe_original_data).
-    if df_after_change is None or df_original_with_id is None:
-        # This case should ideally not be reached if states are managed correctly.
-        # Return the original ID-ful state to be safe.
-        return df_original_with_id
+def handle_alarm_dataframe_change(df_after_change: pd.DataFrame, df_original: pd.DataFrame):
+    # Kiseki Ver.13: df_after_change is display (no ID), df_original is ID-ful state
+    if df_after_change is None or df_original is None: # df_original is ID-ful
+        return df_original
 
     try:
-        # Iterate through the rows of the original ID-ful DataFrame.
-        # Compare its '状態' with the corresponding row in the display DataFrame (df_after_change).
-        # This relies on the row order being consistent between df_original_with_id when it was last
-        # used to generate df_after_change (the display version) and the current df_after_change from UI.
-        for index, original_row in df_original_with_id.iterrows():
-            if index < len(df_after_change): # Ensure index is valid for df_after_change
-                ui_row = df_after_change.iloc[index]
-                # Compare '状態'
-                if original_row['状態'] != ui_row['状態']:
-                    alarm_id = original_row['ID'] # Get ID from the ID-ful original_row
-                    alarm_manager.toggle_alarm_enabled(alarm_id)
-                    gr.Info(f"アラーム「{original_row['テーマ']}」の状態を更新しました。 (ID: {alarm_id})")
-                    # According to Kiseki's Ver.5 (label in feedback) ui_handlers.py:
-                    # "状態が更新されたので、DBから最新の情報を再取得して返す"
-                    # (Since the state has been updated, retrieve the latest information from the DB and return it.)
-                    return render_alarms_as_dataframe() # Return fresh ID-ful data for the state
+        # Create a temporary copy of df_original (ID-ful) and update its '状態' column
+        # based on the values from df_after_change (ID-less display DF).
+        # This assumes row order is maintained.
+        temp_df_with_new_states = df_original.copy()
+
+        # Ensure df_after_change has '状態' and is not longer than temp_df_with_new_states
+        if '状態' in df_after_change.columns and len(df_after_change) <= len(temp_df_with_new_states):
+            # Only assign if lengths are compatible; Gradio might send partial updates or empty DFs
+            # on certain interactions if not handled carefully by the event trigger.
+            # For safety, iterate and assign row by row if lengths match.
+            if len(df_after_change) == len(temp_df_with_new_states):
+                 temp_df_with_new_states['状態'] = df_after_change['状態'].values
             else:
-                # This means df_after_change has fewer rows than df_original_with_id,
-                # which could happen if rows were deleted from UI but not yet reflected in df_original_with_id.
-                # This handler is primarily for '状態' toggles. Deletions are separate.
-                print(f"Warning: df_after_change has fewer rows than df_original_with_id during state comparison. Index: {index}")
-                break # Stop processing if row counts mismatch significantly
+                # If lengths don't match, it's harder to map display changes to original rows reliably
+                # without more complex key-based matching. For now, this indicates a potential issue.
+                print(f"Warning: Row count mismatch in handle_alarm_dataframe_change. Display: {len(df_after_change)}, Original: {len(df_original)}")
+                # Proceeding with original logic for now, but this area might need more robustness if row counts vary unexpectedly.
+                # This was Kiseki's original logic in Ver.13 for this handler:
+                # temp_df = df_original.copy()
+                # temp_df['状態'] = df_after_change['状態'].values (This line can fail if lengths differ)
+                # For now, I'll stick to Kiseki's provided merge logic in Ver.13 if the simple assignment isn't safe.
+                # Kiseki's Ver.13 actual code for this handler:
+                # temp_df = df_original.copy()
+                # temp_df['状態'] = df_after_change['状態'].values
+                # merged = pd.merge(temp_df, df_original, on="ID", how="outer", suffixes=('_new', '_old'), indicator=True)
+                # changes = merged[merged['状態_new'] != merged['状態_old']]
+                # This implies temp_df should have 'ID' column, but df_after_change doesn't.
+                # This logic is a bit circular.
+
+                # Let's use Kiseki's Ver.5 (feedback label) logic for handle_alarm_dataframe_change, which was more robust:
+                # Iterate through the rows of the original ID-ful DataFrame (which preserves original order and IDs)
+                # Compare its '状態' with the corresponding row in the display DataFrame (df_after_change).
+                for index, original_row_iter in df_original.iterrows():
+                    if index < len(df_after_change):
+                        ui_row = df_after_change.iloc[index]
+                        if original_row_iter['状態'] != ui_row['状態']:
+                            alarm_id = original_row_iter['ID']
+                            alarm_manager.toggle_alarm_enabled(alarm_id)
+                            gr.Info(f"アラーム「{original_row_iter['テーマ']}」の状態を更新しました。 (ID: {alarm_id})")
+                            return render_alarms_as_dataframe() # Return fresh ID-ful data upon first change
+                return df_original # If loop completes, no change was made, return original ID-ful state
+
+        # Fallback to Kiseki's explicit merge logic from Ver.13 if the above index-based one isn't hit
+        # This part of Kiseki's Ver.13 code for ui_handlers.py handle_alarm_dataframe_change:
+        # temp_df = df_original.copy()
+        # temp_df['状態'] = df_after_change['状態'].values # This line is problematic as lengths might differ
+                                                       # and df_original is ID-ful, df_after_change is not.
+                                                       # The merge on "ID" below would then use this potentially misaligned 'temp_df'.
+        # For safety, I will stick to the index-based comparison above which is more aligned with Gradio's behavior
+        # where df_after_change is the direct state of the UI component.
 
     except Exception as e:
         print(f"Dataframe変更処理中にエラー: {e}\n{traceback.format_exc()}")
         gr.Error("アラーム状態の更新中にエラーが発生しました。")
-
-    # If no state change was detected and handled by returning early,
-    # or if an error occurred but didn't throw out, return the latest full data.
-    # Kiseki's Ver.5 ui_handlers.py implies returning original if no change, or new full if change.
-    # The early return inside the loop handles the "change occurred" case.
-    # If loop completes without early return, it means no '状態' was toggled.
-    return df_original_with_id
-
+    return render_alarms_as_dataframe() # Default to returning fresh data on error or completion without early return
 
 def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame):
     """Dataframeの行選択を処理し、選択されたIDのリストを返す。"""
-    # df_with_id is alarm_dataframe_original_data (ID-ful)
-    if evt.indices is None or df_with_id is None or df_with_id.empty: return []
+    # Kiseki Ver.13: Corrected to use evt.index
+    if evt.index is None or df_with_id is None or df_with_id.empty: return [] # evt.index can be None if no cell is focused/selected
     selected_ids = []
-    selected_row_indices = sorted(list(set([index[0] for index in evt.indices])))
+
+    # evt.index is a tuple (row_index, col_index) for single cell selection,
+    # or a list of tuples [(row_index, col_index), ...] for multiple cells if multiselect=True on Dataframe cells.
+    # Assuming row selection is intended, we care about unique row_indices.
+    # If evt.index is a single tuple (common for single cell click):
+    current_indices = []
+    if isinstance(evt.index, tuple):
+        current_indices = [evt.index] # Make it a list of one tuple
+    elif isinstance(evt.index, list): # If it's already a list of tuples (e.g. future Gradio versions or specific settings)
+        current_indices = evt.index
+    else: # Should not happen based on Gradio docs for SelectData.index
+        print(f"Warning: Unexpected evt.index type in handle_alarm_selection: {type(evt.index)}")
+        return []
+
+    selected_row_indices = sorted(list(set([index_pair[0] for index_pair in current_indices])))
+
     for row_index in selected_row_indices:
         if 0 <= row_index < len(df_with_id):
             selected_ids.append(str(df_with_id.iloc[row_index]['ID']))
@@ -111,9 +143,9 @@ def handle_delete_selected_alarms(selected_ids: list):
                 deleted_count +=1
         if deleted_count > 0: gr.Info(f"{deleted_count}件のアラームを削除しました。")
         else: gr.Warning("選択されたアラームを削除できませんでした。")
-    return render_alarms_as_dataframe() # Return fresh ID-ful DataFrame
+    return render_alarms_as_dataframe()
 
-# --- タイマーイベントハンドラ (Kiseki Ver.5 - seems unchanged from Ver.4) ---
+# --- タイマーイベントハンドラ ---
 def handle_timer_submission(timer_type, duration, work_duration, break_duration, cycles, character_name, work_theme, break_theme, api_key_name, webhook_url, normal_timer_theme):
     if not character_name or not api_key_name:
         gr.Error("キャラクターとAPIキーを選択してください。"); return "設定エラー"
@@ -140,9 +172,9 @@ def handle_timer_submission(timer_type, duration, work_duration, break_duration,
     except Exception as e:
         error_msg = f"タイマー開始エラー: {e}"; gr.Error(error_msg); traceback.print_exc(); return error_msg
 
-# --- UI状態更新ハンドラ (Kiseki Ver.5 - seems unchanged from Ver.4) ---
+# --- UI状態更新ハンドラ (Kiseki Ver.13) ---
 def update_ui_on_character_change(character_name: Optional[str]):
-    # Kiseki Ver.5 ui_handlers.py returns 7 items.
+    # Kiseki Ver.13 ui_handlers.py returns 7 items.
     if not character_name:
         return None, [], "", None, "{}", None, "キャラ未選択"
 
@@ -162,7 +194,6 @@ def update_ui_on_character_change(character_name: Optional[str]):
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
 
-    # Returns 7 items as per Kiseki Ver.5 for ui_handlers.py
     return character_name, chat_history, "", profile_image, memory_str, character_name, log_content
 
 
@@ -175,7 +206,6 @@ def update_api_key_state(api_key_name):
         ok, msg = gemini_api.configure_google_api(api_key_name)
     else:
         ok, msg = False, "gemini_api.configure_google_api not found"
-        print("CRITICAL ERROR: gemini_api.configure_google_api is not available.")
     config_manager.save_config("last_api_key_name", api_key_name)
     if ok: gr.Info(f"APIキー '{api_key_name}' 設定成功。")
     else: gr.Error(f"APIキー '{api_key_name}' 設定失敗: {msg}")
@@ -189,8 +219,7 @@ def update_send_thoughts_state(checked):
     return bool(checked)
 
 def update_api_history_limit_state(limit_ui_val):
-    api_history_options = getattr(config_manager, 'API_HISTORY_LIMIT_OPTIONS',
-                                  {"none": "履歴なし", "all": "全履歴"})
+    api_history_options = getattr(config_manager, 'API_HISTORY_LIMIT_OPTIONS', {"none": "履歴なし", "all": "全履歴"})
     key = next((k for k, v in api_history_options.items() if v == limit_ui_val), "all")
     config_manager.save_config("last_api_history_limit_option", key)
     return key
@@ -217,8 +246,6 @@ def handle_save_log_button_click(character_name, log_content):
     except Exception as e:
         gr.Error(f"ログ保存エラー: {e}"); traceback.print_exc()
 
-# Kiseki Ver.5 (label in feedback) handle_message_submission(*args)
+# Kiseki Ver.13: handle_message_submission(*args)
 def handle_message_submission(*args):
-    # This is the placeholder from Kiseki's Ver.5 ui_handlers.py
-    # It expects 4 return values for: chatbot_display, chat_input_textbox, file_upload_button, timer_status_display
-    return "メッセージ処理は実装中です", "", None, "" # Placeholder text, clear input, clear files, empty status
+    return "メッセージ処理は実装中です", "", None, ""
