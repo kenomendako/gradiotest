@@ -117,7 +117,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             file_upload_button = gr.Files(label="ファイル添付 (複数可)", type="filepath")
 
     # --- イベントリスナー定義 ---
-    demo.on("startup", alarm_manager.start_alarm_scheduler_thread)
     def initial_load(char_name_to_load):
         df_with_ids = ui_handlers.render_alarms_as_dataframe()
         display_df = ui_handlers.get_display_df(df_with_ids)
@@ -262,4 +261,11 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
 # --- Application Launch ---
 if __name__ == "__main__":
-    demo.queue().launch()
+    # Gradioの起動シーケンスにバックグラウンドタスクを登録
+    demo.load(
+        fn=alarm_manager.start_alarm_scheduler_thread,
+        inputs=None,
+        outputs=None,
+    )
+    # 複数ユーザー対応のキューを有効化し、外部からのアクセスを許可して起動
+    demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False)
