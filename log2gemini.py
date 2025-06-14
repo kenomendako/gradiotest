@@ -117,6 +117,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             file_upload_button = gr.Files(label="ファイル添付 (複数可)", type="filepath")
 
     # --- イベントリスナー定義 ---
+    demo.on("startup", alarm_manager.start_alarm_scheduler_thread)
     def initial_load(char_name_to_load):
         df_with_ids = ui_handlers.render_alarms_as_dataframe()
         display_df = ui_handlers.get_display_df(df_with_ids)
@@ -150,6 +151,11 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     ).then(
         fn=ui_handlers.load_alarm_to_form,
         inputs=[selected_alarm_ids_state],
+        outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state]
+    )
+
+    alarm_dataframe.deselect(
+        fn=lambda: ("アラーム追加", "", "", "", [], "08", "00", None),
         outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state]
     )
 
@@ -256,5 +262,4 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
 # --- Application Launch ---
 if __name__ == "__main__":
-    alarm_manager.start_alarm_scheduler_thread()
     demo.queue().launch()

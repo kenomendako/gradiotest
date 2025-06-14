@@ -278,14 +278,13 @@ def handle_add_or_update_alarm(editing_alarm_id, hour, minute, char, theme, prom
     # 更新処理 (編集中のIDが存在する場合)
     if editing_alarm_id:
         try:
-            # 既存のアラームを削除し、新しい情報で追加する（簡易的な更新）
-            if alarm_manager.delete_alarm(editing_alarm_id):
-                if alarm_manager.add_alarm(hour, minute, char, theme, prompt, days):
-                    gr.Info(f"アラーム(ID: {editing_alarm_id[:8]})を更新しました。")
-                else:
-                    gr.Warning("アラームの更新に失敗しました（再追加エラー）。")
+            # 先に新しいアラームが追加可能か試す（add_alarmはデータをメモリに追加するだけ）
+            if alarm_manager.add_alarm(hour, minute, char, theme, prompt, days):
+                # 成功した場合のみ、古いアラームを削除する
+                alarm_manager.delete_alarm(editing_alarm_id)
+                gr.Info(f"アラーム(ID: {editing_alarm_id[:8]})を更新しました。")
             else:
-                gr.Warning("アラームの更新に失敗しました（元のアラーム削除エラー）。")
+                gr.Warning("アラームの更新に失敗しました（データ検証エラー）。")
         except Exception as e:
             gr.Error(f"アラーム更新処理中にエラー: {e}")
     # 追加処理 (編集中のIDが存在しない場合)
