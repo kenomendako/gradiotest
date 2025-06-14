@@ -106,7 +106,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                 timer_submit_button = gr.Button("タイマー開始", variant="primary")
 
         with gr.Column(scale=3):
-            chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, bubble_full_width=False)
+            chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True)
 
             chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
 
@@ -264,4 +264,4 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 # --- Application Launch ---
 if __name__ == "__main__":
     # 複数ユーザー対応のキューを有効化し、外部からのアクセスを許可して起動
-    demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False)
+    demo.queue().launch(server_port=7860, share=False)
