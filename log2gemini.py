@@ -98,10 +98,12 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
         with gr.Column(scale=3):
             chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, bubble_full_width=False)
-            chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
-            submit_button = gr.Button("送信", variant="primary")
+            with gr.Row():
+                chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3, scale=8)
+                submit_button = gr.Button("送信", variant="primary", scale=2)
+                reload_log_button = gr.Button("🔄 更新", scale=1) # リロードボタンを復活させる
+
             file_upload_button = gr.Files(label="ファイル添付 (複数可)", type="filepath")
-            clear_chat_button = gr.Button("チャット履歴クリア", variant="stop")
 
     # --- イベントリスナー定義 ---
     def initial_load(char_name_to_load):
@@ -221,11 +223,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         inputs=[chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state],
         outputs=chat_submit_outputs + [gr.State(None)]
     )
-    clear_chat_button.click(
-        fn=lambda char_name_state: ([], memory_manager.reset_chat_memory(char_name_state) if char_name_state else None),
-        inputs=[current_character_name],
-        outputs=[chatbot_display]
-    ).then(fn=lambda: gr.Info("チャット履歴をクリアしました。"))
 
     timer_submit_button.click(
         fn=ui_handlers.handle_timer_submission,
