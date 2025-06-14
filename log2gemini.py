@@ -57,21 +57,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                 add_timestamp_checkbox = gr.Checkbox(value=config_manager.initial_add_timestamp_global, label="メッセージにタイムスタンプを追加", interactive=True)
                 send_thoughts_checkbox = gr.Checkbox(value=config_manager.initial_send_thoughts_to_api_global, label="思考過程をAPIに送信", interactive=True)
 
-            with gr.Accordion("⏰ タイマー設定", open=False):
-                timer_type_radio = gr.Radio(["通常タイマー", "ポモドーロタイマー"], label="タイマー種別", value="通常タイマー")
-                with gr.Column(visible=True) as normal_timer_ui:
-                    timer_duration_number = gr.Number(label="タイマー時間 (分)", value=10, minimum=1, step=1)
-                    normal_timer_theme_input = gr.Textbox(label="通常タイマーのテーマ", placeholder="例: タイマー終了！")
-                with gr.Column(visible=False) as pomo_timer_ui:
-                    pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1)
-                    pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1)
-                    pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1)
-                    timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！")
-                    timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
-                timer_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="通知キャラ", interactive=True)
-                timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。")
-                timer_submit_button = gr.Button("タイマー開始", variant="primary")
-
             with gr.Accordion(f"📗 キャラクターの記憶 ({config_manager.MEMORY_FILENAME})", open=False) as memory_accordion:
                 memory_json_editor = gr.Code(label="記憶データ (JSON形式で編集)", language="json", interactive=True, elem_id="memory_json_editor_code")
                 save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
@@ -95,6 +80,21 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     alarm_prompt_input = gr.Textbox(label="プロンプト（オプション）", placeholder="例：今日も一日頑張ろう！")
                     alarm_days_checkboxgroup = gr.CheckboxGroup(choices=["月", "火", "水", "木", "金", "土", "日"], label="曜日", value=["月", "火", "水", "木", "金", "土", "日"])
                     alarm_add_button = gr.Button("アラーム追加")
+
+            with gr.Accordion("⏰ タイマー設定", open=False):
+                timer_type_radio = gr.Radio(["通常タイマー", "ポモドーロタイマー"], label="タイマー種別", value="通常タイマー")
+                with gr.Column(visible=True) as normal_timer_ui:
+                    timer_duration_number = gr.Number(label="タイマー時間 (分)", value=10, minimum=1, step=1)
+                    normal_timer_theme_input = gr.Textbox(label="通常タイマーのテーマ", placeholder="例: タイマー終了！")
+                with gr.Column(visible=False) as pomo_timer_ui:
+                    pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1)
+                    pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1)
+                    pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1)
+                    timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！")
+                    timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
+                timer_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="通知キャラ", interactive=True)
+                timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。")
+                timer_submit_button = gr.Button("タイマー開始", variant="primary")
 
         with gr.Column(scale=3):
             chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, bubble_full_width=False)

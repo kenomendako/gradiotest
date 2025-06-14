@@ -70,11 +70,13 @@ def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame):
     if evt.index is None or df_with_id is None or df_with_id.empty: return []
 
     selected_row_indices = []
-    # evt.indexはタプル(row, col)またはタプルのリスト
-    if isinstance(evt.index, tuple):
-        selected_row_indices = [evt.index[0]]
-    elif isinstance(evt.index, list):
-        selected_row_indices = sorted(list(set(index_pair[0] for index_pair in evt.index)))
+    # evt.index が単一の int (単一選択)か、int の list (複数選択)かを判定
+    if isinstance(evt.index, list):
+        # 複数選択の場合、list of int が渡されることを想定
+        selected_row_indices = sorted(list(set(evt.index)))
+    elif isinstance(evt.index, int):
+        # 単一選択の場合、int が渡されることを想定
+        selected_row_indices = [evt.index]
 
     selected_ids = []
     for row_index in selected_row_indices:
