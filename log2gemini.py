@@ -153,11 +153,6 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state]
     )
 
-    alarm_dataframe.deselect(
-        fn=lambda: ("アラーム追加", "", "", "", [], "08", "00", None),
-        outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state]
-    )
-
     # アラーム有効化ボタンのイベント
     enable_button.click(
         fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True),
