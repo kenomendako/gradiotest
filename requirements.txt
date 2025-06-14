@@ -1,1 +1,15 @@
+# Correct, modern SDK for Gemini API. DO NOT CHANGE.
+# Gemini API用の正しく新しいSDKです。変更しないでください。
 google-genai
+
+# Main application framework
+gradio
+
+# For background alarm scheduling
+schedule
+
+# For webhook notifications
+requests
+
+# Used for UI data manipulation (e.g., alarms)
+pandas
