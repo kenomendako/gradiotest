@@ -98,10 +98,12 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
         with gr.Column(scale=3):
             chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, bubble_full_width=False)
+
+            chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
+
             with gr.Row():
-                chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3, scale=8)
-                submit_button = gr.Button("送信", variant="primary", scale=2)
-                reload_log_button = gr.Button("🔄 更新", scale=1) # リロードボタンを復活させる
+                submit_button = gr.Button("送信", variant="primary", scale=4)
+                reload_log_button = gr.Button("🔄 更新", scale=1)
 
             file_upload_button = gr.Files(label="ファイル添付 (複数可)", type="filepath")
 
