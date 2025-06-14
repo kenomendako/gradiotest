@@ -43,6 +43,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     api_history_limit_state = gr.State(config_manager.initial_api_history_limit_option_global)
     alarm_dataframe_original_data = gr.State(pd.DataFrame())
     selected_alarm_ids_state = gr.State([])
+    editing_alarm_id_state = gr.State(None)
 
     with gr.Row():
         with gr.Column(scale=1, min_width=300):
@@ -149,7 +150,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     ).then(
         fn=ui_handlers.load_alarm_to_form,
         inputs=[selected_alarm_ids_state],
-        outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown]
+        outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state]
     )
 
     # アラーム有効化ボタンのイベント
@@ -200,8 +201,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
     alarm_add_button.click(
         fn=ui_handlers.handle_add_or_update_alarm,
-        inputs=[alarm_add_button, alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup],
-        outputs=[alarm_dataframe, alarm_dataframe_original_data, alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown]
+        inputs=[editing_alarm_id_state, alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup],
+        outputs=[alarm_dataframe, alarm_dataframe_original_data, alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state]
     )
 
     # その他のUIイベント

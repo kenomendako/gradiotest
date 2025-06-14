@@ -20,7 +20,6 @@ from utils import load_chat_log, format_history_for_gradio, save_message_to_log,
 
 # --- Dataframe表示用データ整形関数 ---
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
-DAY_MAP_EN_TO_JA_REV = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 def render_alarms_as_dataframe():
     """アラームデータを取得し、GradioのDataframe表示用にID列も含むpandas.DataFrameを生成して返す。"""
@@ -253,43 +252,43 @@ def handle_message_submission(*args):
     return new_hist, gr.update(value=""), gr.update(value=None), error_message
 
 def load_alarm_to_form(selected_ids: list):
-    """選択された最初のアラームIDをフォームに読み込む。"""
+    """選択された最初のアラームIDをフォームに読み込む。編集対象のIDも返す。"""
     if not selected_ids or len(selected_ids) != 1:
-        # 選択されていない、または複数選択されている場合はフォームをリセット
-        return "アラーム追加", "", "", "", [], "08", "00"
+        # 選択解除時や複数選択時はフォームと編集IDをリセット
+        return "アラーム追加", "", "", "", [], "08", "00", None
 
     alarm_id = selected_ids[0]
     alarm = alarm_manager.get_alarm_by_id(alarm_id)
     if not alarm:
-        return "アラーム追加", "", "", "", [], "08", "00"
+        return "アラーム追加", "", "", "", [], "08", "00", None
 
     hour, minute = alarm.get("time", "08:00").split(":")
     theme = alarm.get("theme", "")
     prompt = alarm.get("flash_prompt_template", "")
     character = alarm.get("character", "")
     days_en = alarm.get("days", [])
-    days_ja = [DAY_MAP_EN_TO_JA_REV.get(d) for d in days_en if DAY_MAP_EN_TO_JA_REV.get(d)]
+    # 正しい曜日マップ(DAY_MAP_EN_TO_JA)を使用して日本語に変換
+    days_ja = [DAY_MAP_EN_TO_JA.get(d) for d in days_en if DAY_MAP_EN_TO_JA.get(d)]
 
-    # ボタンのテキストを「更新」にし、フォームに値を設定
-    return f"アラーム更新 (ID: {alarm_id[:8]})", theme, prompt, character, days_ja, hour, minute
+    # ボタンテキストの変更と、フォームへの値設定、そして「編集中のID」を返す
+    return f"アラーム更新 (ID: {alarm_id[:8]})", theme, prompt, character, days_ja, hour, minute, alarm_id
 
-def handle_add_or_update_alarm(button_text, hour, minute, char, theme, prompt, days):
-    """ボタンのテキストに応じてアラームの追加または更新を行う。"""
-    # 更新処理
-    if button_text.startswith("アラーム更新"):
+def handle_add_or_update_alarm(editing_alarm_id, hour, minute, char, theme, prompt, days):
+    """IDの有無に応じてアラームの追加または更新を行う。"""
+    # 更新処理 (編集中のIDが存在する場合)
+    if editing_alarm_id:
         try:
-            alarm_id = button_text.split("(ID: ")[1][:-1]
-            # ここで既存のアラームを削除し、新しい情報で追加する（簡易的な更新）
-            if alarm_manager.delete_alarm(alarm_id):
+            # 既存のアラームを削除し、新しい情報で追加する（簡易的な更新）
+            if alarm_manager.delete_alarm(editing_alarm_id):
                 if alarm_manager.add_alarm(hour, minute, char, theme, prompt, days):
-                    gr.Info(f"アラーム(ID: {alarm_id[:8]})を更新しました。")
+                    gr.Info(f"アラーム(ID: {editing_alarm_id[:8]})を更新しました。")
                 else:
                     gr.Warning("アラームの更新に失敗しました（再追加エラー）。")
             else:
                 gr.Warning("アラームの更新に失敗しました（元のアラーム削除エラー）。")
         except Exception as e:
             gr.Error(f"アラーム更新処理中にエラー: {e}")
-    # 追加処理
+    # 追加処理 (編集中のIDが存在しない場合)
     else:
         if alarm_manager.add_alarm(hour, minute, char, theme, prompt, days):
             gr.Info("アラームを追加しました。")
@@ -300,5 +299,5 @@ def handle_add_or_update_alarm(button_text, hour, minute, char, theme, prompt, d
     new_df_with_ids = render_alarms_as_dataframe()
     new_display_df = get_display_df(new_df_with_ids)
 
-    # ボタンテキストを「アラーム追加」に戻し、フォームを初期値にリセット
-    return new_display_df, new_df_with_ids, "アラーム追加", "", "", char, ["月","火","水","木","金","土","日"], "08", "00"
+    # ボタンテキストを「アラーム追加」に戻し、フォームと編集IDを初期値にリセット
+    return new_display_df, new_df_with_ids, "アラーム追加", "", "", char, ["月","火","水","木","金","土","日"], "08", "00", None
