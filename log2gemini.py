@@ -254,13 +254,14 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         outputs=[timer_status_output]
     )
 
-# --- Application Launch ---
-if __name__ == "__main__":
     # Gradioの起動シーケンスにバックグラウンドタスクを登録
     demo.load(
         fn=alarm_manager.start_alarm_scheduler_thread,
         inputs=None,
         outputs=None,
     )
+
+# --- Application Launch ---
+if __name__ == "__main__":
     # 複数ユーザー対応のキューを有効化し、外部からのアクセスを許可して起動
     demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False)
