@@ -3,13 +3,13 @@ import gradio as gr
 import os, sys, json, traceback, threading, time, pandas as pd
 import config_manager, character_manager, memory_manager, alarm_manager, gemini_api, utils, ui_handlers
 
-# --- 起動シーケンス (Kiseki Ver.11) ---
+# --- 起動シーケンス (Kiseki Ver.12) ---
 config_manager.load_config()
 alarm_manager.load_alarms()
 if config_manager.initial_api_key_name_global and hasattr(gemini_api, 'configure_google_api'):
     gemini_api.configure_google_api(config_manager.initial_api_key_name_global)
 
-# --- CSS定義 (Kiseki Ver.11) ---
+# --- CSS定義 (Kiseki Ver.12) ---
 custom_css = """
 #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
 #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; }
@@ -22,90 +22,52 @@ custom_css = """
 """
 
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css) as demo:
-    # --- 起動前チェックと変数準備 (Kiseki Ver.11) ---
+    # --- 起動前チェックと変数準備 (Kiseki Ver.12) ---
     character_list_on_startup = character_manager.get_character_list()
-    if not character_list_on_startup: # Ensure there's at least a default character
-        # This part might need character_manager.ensure_character_files("Default") or similar if characters can be truly absent
-        # For now, if list is empty, it implies a deeper issue. The startup_ready check below will handle it.
-        print("警告: 利用可能なキャラクターリストが空です。charactersフォルダを確認してください。")
-        # Defaulting to an empty list if no characters are found. The startup_ready check will catch this.
+    if not character_list_on_startup:
+        character_manager.ensure_character_files("Default")
+        character_list_on_startup = ["Default"]
 
     effective_initial_character = config_manager.initial_character_global
     if not effective_initial_character or effective_initial_character not in character_list_on_startup:
-        new_char = character_list_on_startup[0] if character_list_on_startup else None
-        warning_msg = f"警告: 最後に使用したキャラクター '{effective_initial_character}' が見つからないか無効です。"
-        if new_char:
-            warning_msg += f"'{new_char}' で起動します。"
-            effective_initial_character = new_char
-            config_manager.save_config("last_character", new_char)
-        else:
-            warning_msg += "利用可能なキャラクターがないため、起動できません。"
-            effective_initial_character = None # Ensure it's None if no fallback
-        print(warning_msg)
+        new_char = character_list_on_startup[0]
+        print(f"警告: 最後に使用したキャラクター '{effective_initial_character}' が見つからないか無効です。'{new_char}' で起動します。")
+        effective_initial_character = new_char
+        config_manager.save_config("last_character", new_char)
 
-    # This startup_ready logic is from my previous version, Kiseki's v11 snippet omits it but it's crucial.
-    startup_ready = all([ # This check is now less critical if ensure_character_files guarantees a list
+    startup_ready = all([
         character_list_on_startup,
         effective_initial_character,
     ])
 
-    if not startup_ready: # Should ideally not be hit if ensure_character_files works
+    if not startup_ready:
         gr.Error("起動に必要なキャラクター設定が見つかりませんでした。charactersフォルダを確認してください。")
     else:
-        # --- UI State Variables (Kiseki Ver.11) ---
+        # --- UI State Variables (Kiseki Ver.12) ---
         current_character_name = gr.State(effective_initial_character)
         current_model_name = gr.State(config_manager.initial_model_global)
-        current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
+        current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global) # This is the one to use for timer
         send_thoughts_state = gr.State(config_manager.initial_send_thoughts_to_api_global)
         api_history_limit_state = gr.State(config_manager.initial_api_history_limit_option_global)
         alarm_dataframe_original_data = gr.State(pd.DataFrame())
         selected_alarm_ids_state = gr.State([])
 
-        # --- UIレイアウト定義 (Kiseki Ver.11) ---
+        # --- UIレイアウト定義 (Kiseki Ver.12) ---
         with gr.Row():
             with gr.Column(scale=1, min_width=300): # 左カラム
                 gr.Markdown("### キャラクター")
-                character_dropdown = gr.Dropdown(
-                    choices=character_list_on_startup,
-                    value=effective_initial_character,
-                    label="キャラクターを選択",
-                    interactive=True
-                )
+                character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
 
-                # Basic Settings Accordion (Kiseki Ver.11)
                 with gr.Accordion("⚙️ 基本設定", open=False):
-                    model_dropdown = gr.Dropdown(
-                        choices=config_manager.AVAILABLE_MODELS_GLOBAL, # Corrected: Use from config_manager
-                        value=config_manager.initial_model_global,
-                        label="使用するAIモデル",
-                        interactive=True
-                    )
-                    api_key_dropdown = gr.Dropdown(
-                        choices=list(config_manager.API_KEYS.keys()), # Corrected: Use from config_manager
-                        value=config_manager.initial_api_key_name_global,
-                        label="使用するAPIキー",
-                        interactive=True
-                    )
-                    api_history_limit_dropdown = gr.Dropdown(
-                        choices=list(config_manager.API_HISTORY_LIMIT_OPTIONS.values()),
-                        value=config_manager.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"),
-                        label="APIへの履歴送信",
-                        interactive=True
-                    )
-                    add_timestamp_checkbox = gr.Checkbox(
-                        value=config_manager.initial_add_timestamp_global,
-                        label="メッセージにタイムスタンプを追加",
-                        interactive=True
-                    )
-                    send_thoughts_checkbox = gr.Checkbox(
-                        value=config_manager.initial_send_thoughts_to_api_global,
-                        label="Gemini APIに思考プロセスを送信", # Corrected: "(デバッグ用)" removed
-                        interactive=True
-                    )
+                    model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
+                    # This is the main API key dropdown referenced by the timer
+                    api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True)
+                    api_history_limit_dropdown = gr.Dropdown(choices=list(config_manager.API_HISTORY_LIMIT_OPTIONS.values()), value=config_manager.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
+                    add_timestamp_checkbox = gr.Checkbox(value=config_manager.initial_add_timestamp_global, label="メッセージにタイムスタンプを追加", interactive=True)
+                    send_thoughts_checkbox = gr.Checkbox(value=config_manager.initial_send_thoughts_to_api_global, label="Gemini APIに思考プロセスを送信", interactive=True)
 
-                # Timer Settings Accordion (Kiseki Ver.11)
-                with gr.Accordion("⏰ タイマー設定", open=False): # Corrected label spelling from previous
+                with gr.Accordion("⏰ タイマー設定", open=False):
                     timer_type_radio = gr.Radio(["通常タイマー", "ポモドーロタイマー"], label="タイマー種別", value="通常タイマー")
                     with gr.Column(visible=True) as normal_timer_ui:
                         timer_duration_number = gr.Number(label="タイマー時間 (分)", value=10, minimum=1, step=1)
@@ -152,41 +114,33 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     gr.Markdown(f"バージョン: {app_version_global}")
 
             with gr.Column(scale=3): # 右カラム
-                # Kiseki Ver.11: chatbot and textbox/submit_button definition
-                chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True, bubble_full_width=False) # Name used: chatbot_display
-                with gr.Row(): # Ensured Row for correct placement
-                    chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", scale=7, elem_id="chat_input_box") # Name used: chat_input_textbox
-                    submit_button = gr.Button("送信", variant="primary", scale=1) # Name used: submit_button
-
-                # Other chat UI from previous comprehensive version
+                chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True, bubble_full_width=False)
+                with gr.Row():
+                    chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", scale=7, elem_id="chat_input_box")
+                    submit_button = gr.Button("送信", variant="primary", scale=1)
                 file_upload_button = gr.Files(label="ファイル添付 (複数可)", type="filepath", elem_id="file_upload_area")
                 with gr.Row():
                     clear_chat_button = gr.Button("チャット履歴クリア", variant="stop")
 
-        # --- ここからイベントリスナー定義 (Kiseki Ver.11) ---
-        # Kiseki Ver.11: Timer UI toggle logic
-        def toggle_timer_ui_v11(timer_type_selection):
+        # --- ここからイベントリスナー定義 (Kiseki Ver.12) ---
+        def toggle_timer_ui_v12(timer_type_selection): # Renamed for clarity
             is_normal_timer = timer_type_selection == "通常タイマー"
             return gr.update(visible=is_normal_timer), gr.update(visible=not is_normal_timer)
-        timer_type_radio.change(fn=toggle_timer_ui_v11, inputs=timer_type_radio, outputs=[normal_timer_ui, pomo_timer_ui])
+        timer_type_radio.change(fn=toggle_timer_ui_v12, inputs=timer_type_radio, outputs=[normal_timer_ui, pomo_timer_ui])
 
-        # Kiseki Ver.11: initial_load function and demo.load call
-        # (Kiseki Ver.11 initial_load snippet was partial, using full logic from Ver.9 which was stable)
-        def initial_load_v11(char_name_to_load):
+        def initial_load_v12(char_name_to_load):
             df_with_ids = ui_handlers.render_alarms_as_dataframe()
             display_df = ui_handlers.get_display_df(df_with_ids)
             returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str, alarm_dd_char_val, current_log_content = ui_handlers.update_ui_on_character_change(char_name_to_load)
-            # Outputs: [alarm_dataframe, alarm_dataframe_original_data, chatbot, log_editor, memory_json_editor, profile_image_display, alarm_char_dropdown, timer_char_dropdown]
-            # Kiseki's snippet used 'chatbot', my component is 'chatbot_display'.
             return ( display_df, df_with_ids, current_chat_hist, current_log_content, current_mem_str, current_profile_img, alarm_dd_char_val, alarm_dd_char_val )
 
         demo.load(
-            fn=initial_load_v11, inputs=[current_character_name],
+            fn=initial_load_v12, inputs=[current_character_name],
             outputs=[ alarm_dataframe, alarm_dataframe_original_data, chatbot_display, log_editor, memory_json_editor, profile_image_display, alarm_char_dropdown, timer_char_dropdown ]
         )
 
-        # --- Alarm Listeners (Consistent with Ver.9 which was stable for these) ---
-        def refresh_alarm_ui_v11():
+        # --- Alarm Listeners (Consistent with Ver.9/10/11 which were stable for these) ---
+        def refresh_alarm_ui_v12():
             new_df_with_ids = ui_handlers.render_alarms_as_dataframe()
             new_display_df = ui_handlers.get_display_df(new_df_with_ids)
             return new_display_df, new_df_with_ids
@@ -194,18 +148,19 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         alarm_dataframe.change( fn=ui_handlers.handle_alarm_dataframe_change, inputs=[alarm_dataframe, alarm_dataframe_original_data], outputs=[alarm_dataframe_original_data] ).then( fn=lambda id_df: ui_handlers.get_display_df(id_df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe] )
         alarm_dataframe.select( fn=ui_handlers.handle_alarm_selection, inputs=[alarm_dataframe_original_data], outputs=[selected_alarm_ids_state], show_progress='hidden' )
         delete_alarm_button.click( fn=ui_handlers.handle_delete_selected_alarms, inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data] ).then( fn=lambda id_df: ui_handlers.get_display_df(id_df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe] ).then(fn=lambda: [], outputs=[selected_alarm_ids_state])
-        def add_alarm_and_refresh_v11(h, m, char, theme, prompt, days):
+        def add_alarm_and_refresh_v12(h, m, char, theme, prompt, days):
             alarm_manager.add_alarm(h, m, char, theme, prompt, days)
-            return refresh_alarm_ui_v11()
-        alarm_add_button.click( fn=add_alarm_and_refresh_v11, inputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup], outputs=[alarm_dataframe, alarm_dataframe_original_data] ).then( fn=lambda char_val: ("08", "00", char_val if char_val else effective_initial_character, "", "", ["月", "火", "水", "木", "金", "土", "日"]), inputs=[current_character_name], outputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup] )
+            return refresh_alarm_ui_v12()
+        alarm_add_button.click( fn=add_alarm_and_refresh_v12, inputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup], outputs=[alarm_dataframe, alarm_dataframe_original_data] ).then( fn=lambda char_val: ("08", "00", char_val if char_val else effective_initial_character, "", "", ["月", "火", "水", "木", "金", "土", "日"]), inputs=[current_character_name], outputs=[alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup] )
 
-        # --- Other Event Listeners (Consistent with Ver.9 which was stable) ---
-        def character_change_wrapper_v11(char_name_from_dd):
+        # --- Other Event Listeners (Consistent with Ver.9/10/11 which were stable) ---
+        def character_change_wrapper_v12(char_name_from_dd):
             name_state, hist, _, profile_img, mem_str, alarm_char_val, log_content = ui_handlers.update_ui_on_character_change(char_name_from_dd)
-            display_alarms_df, id_ful_alarms_df = refresh_alarm_ui_v11()
+            display_alarms_df, id_ful_alarms_df = refresh_alarm_ui_v12()
             return ( name_state, hist, "", profile_img, mem_str, alarm_char_val, alarm_char_val, log_content, display_alarms_df, id_ful_alarms_df )
-        character_dropdown.change( fn=character_change_wrapper_v11, inputs=[character_dropdown], outputs=[ current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, log_editor, alarm_dataframe, alarm_dataframe_original_data ] )
+        character_dropdown.change( fn=character_change_wrapper_v12, inputs=[character_dropdown], outputs=[ current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, log_editor, alarm_dataframe, alarm_dataframe_original_data ] )
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name])
+        # The current_api_key_name_state is updated by api_key_dropdown.change
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state])
         add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[])
         send_thoughts_checkbox.change(fn=ui_handlers.update_send_thoughts_state, inputs=[send_thoughts_checkbox], outputs=[send_thoughts_state])
@@ -219,7 +174,19 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         submit_button.click( fn=ui_handlers.handle_message_submission, inputs=[ chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state ], outputs=chat_submit_outputs )
         clear_chat_button.click( fn=lambda char_name_state: ([], memory_manager.reset_chat_memory(char_name_state) if char_name_state else None), inputs=[current_character_name], outputs=[chatbot_display] ).then(fn=lambda: gr.Info("チャット履歴をクリアしました。"), outputs=[])
 
-        timer_submit_button.click( fn=ui_handlers.handle_timer_submission, inputs=[ timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, timer_api_key_dropdown, timer_webhook_input, normal_timer_theme_input ], outputs=[timer_status_output] )
+        # Kiseki Ver.12: Corrected timer_submit_button.click inputs
+        timer_submit_button.click(
+            fn=ui_handlers.handle_timer_submission,
+            inputs=[
+                timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number,
+                pomo_cycles_number, timer_char_dropdown, timer_work_theme_input,
+                timer_break_theme_input,
+                api_key_dropdown, # CORRECTED: Use the main api_key_dropdown from Basic Settings
+                gr.State(config_manager.initial_notification_webhook_url_global), # Webhook URL via gr.State
+                normal_timer_theme_input
+            ],
+            outputs=[timer_status_output]
+        )
 
 # --- Application Launch ---
 if __name__ == "__main__":
@@ -228,4 +195,5 @@ if __name__ == "__main__":
         print(" - 利用可能なキャラクターが存在するか確認してください。")
         print(f" - 設定ファイル内の 'last_character' ('{config_manager.initial_character_global if not effective_initial_character else effective_initial_character}') が有効か確認してください。")
         sys.exit("初期化エラーまたは設定不足により終了。")
-    demo.launch()
+    # Kiseki Ver.12: Added .queue() before .launch()
+    demo.queue().launch()
