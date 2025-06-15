@@ -78,14 +78,14 @@ def configure_google_api(api_key_name):
     except Exception as e:
         return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}"
 
-# gemini_api.py の send_to_gemini 関数を、このブロックで完全に置き換えてください
+# gemini_api.py にこの関数を上書きしてください
 
 def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
     if _gemini_client is None:
         return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
 
-    # --- 1. プロンプトと会話履歴の準備 ---
-    print(f"--- 対話処理開始 (Tool Use対応) --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
+    # --- 1. プロンプトと会話履歴の準備 (変更なし) ---
+    print(f"--- 対話処理開始 (Tool Use/メタタグ対応) --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
 
     sys_ins_text = "あなたはチャットボットです。"
     if system_prompt_path and os.path.exists(system_prompt_path):
@@ -94,7 +94,6 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         except Exception as e: print(f"システムプロンプト '{system_prompt_path}' 読込エラー: {e}")
     if memory_json_path and os.path.exists(memory_json_path):
         try:
-            # Ensure json is imported (globally)
             with open(memory_json_path, "r", encoding="utf-8") as f: mem = json.load(f)
             m_api = {k: v for k, v in {
                 "user_profile": mem.get("user_profile"), "self_identity": mem.get("self_identity"),
@@ -104,31 +103,25 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             if m_api: sys_ins_text += f"\n\n---\n## 参考記憶:\n{json.dumps(m_api, indent=2, ensure_ascii=False)}\n---"
         except Exception as e: print(f"記憶ファイル '{memory_json_path}' 読込/処理エラー: {e}")
 
-    # Ensure load_chat_log is available (from utils)
     msgs = load_chat_log(log_file_path, character_name)
 
     if api_history_limit_option.isdigit():
         try:
             limit = int(api_history_limit_option)
             if limit > 0:
-                # 1往復 = 2メッセージ (user, model)
                 limit_msgs = limit * 2
                 if len(msgs) > limit_msgs:
                     print(f"情報: 履歴を直近 {limit} 往復 ({limit_msgs} メッセージ) に制限します。")
                     msgs = msgs[-limit_msgs:]
         except ValueError:
-            # isdigit()でチェックしているので基本的にはここに来ないはず
             print(f"警告: api_history_limit_option '{api_history_limit_option}' は不正な数値です。履歴は制限されません。")
-    # "all" の場合は何もしない (全履歴を使用)
 
     if msgs and msgs[-1].get("role") == "user":
         print("情報: ログ末尾のユーザーメッセージを履歴から一時的に削除し、引数の内容で上書きします。")
         msgs = msgs[:-1]
 
     api_contents_from_history = []
-    # Ensure 're' is imported (globally)
     th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
-    # Ensure 'Content' and 'Part' from google.genai.types are imported (globally)
     for m in msgs:
         sdk_role = "user" if m.get("role") == "user" else "model"
         content_text = m.get("content", "")
@@ -141,7 +134,6 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
     current_turn_parts = []
     if user_prompt: current_turn_parts.append(Part(text=user_prompt))
     if uploaded_file_parts:
-        # Ensure 'os' and 'base64' are imported (globally)
         for file_detail in uploaded_file_parts:
             file_path = file_detail['path']
             mime_type = file_detail['mime_type']
@@ -153,38 +145,46 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 except Exception as e: print(f"警告: ファイル '{os.path.basename(file_path)}' の処理中にエラー: {e}")
             else: print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。")
 
+    # --- ここからが新しい会話履歴の構築ロジック ---
     final_api_contents = []
+    # 1. システムプロンプトを追加
     if sys_ins_text:
         final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
         final_api_contents.append(Content(role="model", parts=[Part(text="了解しました。システム指示に従い、対話を開始します。")]))
 
-    # --- ここからが【最重要修正点】 ---
-    # 履歴とお手本の順番を調整し、お手本が「最近の会話」だと誤認されるのを防ぐ
-
-    # AIにツールの使い方を教えるための、文脈に依存しない「機能テスト」のお手本
-    few_shot_example = [
-        Content(role="user", parts=[Part(text="画像生成ツールの動作確認をします。")]),
-        Content(role="model", parts=[Part(function_call=FunctionCall(
-            name="generate_image",
-            args={"prompt": "A basic test pattern: a red square, a blue circle, and a green triangle on a plain white background. Clear, simple, vector style."}
-        ))]),
-        Content(role="user", parts=[Part.from_function_response(
-            name="generate_image",
-            response={"result": "画像生成に成功しました。パス: path/to/test_pattern.png。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"}
-        )]),
-        Content(role="model", parts=[Part(text="ツールの動作確認用画像を生成しました。指定通り、赤い四角、青い丸、緑の三角形が描画されています。")])
-    ]
-    # 最初に、会話の前提知識となる「お手本」を追加する
-    final_api_contents.extend(few_shot_example)
-
-    # 次に、実際の過去の会話履歴を追加する
+    # 2. 実際の過去の会話履歴を追加
     final_api_contents.extend(api_contents_from_history)
 
-    # 最後に、現在のユーザー入力を追加する
-    if current_turn_parts: final_api_contents.append(Content(role="user", parts=current_turn_parts))
-    # --- ここまでが【最重要修正点】 ---
+    # 3. メタタグで囲んだ「指示書」としてのお手本を、ユーザープロンプトの直前に挿入
+    #    AIに「これは会話ではなく、特別な指示書だ」と明確に認識させる
+    few_shot_instruction = '''<FunctionCallExample>
+# This is an example of how to use the 'generate_image' tool.
+# You must follow this format to respond to user requests for images.
 
-    # (以降のコードは変更なし)
+## User Request:
+"Could you draw a picture of a cute, fluffy cat?"
+
+## Your Action:
+You must call the `generate_image` function with a suitable prompt.
+The function call should look like this:
+(tool_code)
+print(google.genai.tools.render.FunctionCall(
+  name='generate_image',
+  args={'prompt': 'A very cute, fluffy white cat with big blue eyes, sitting on a soft cushion, detailed anime style, warm lighting.'}
+))
+</FunctionCallExample>'''
+
+    # 指示書をユーザーロールとして追加
+    final_api_contents.append(Content(role="user", parts=[Part(text=few_shot_instruction)]))
+    # AIに指示を理解したことを確認させ、会話の区切りとする
+    final_api_contents.append(Content(role="model", parts=[Part(text="Understood. I will use the `generate_image` tool as shown in the example when appropriate.")]))
+
+    # 4. 最後に、現在のユーザー入力を追加する
+    if current_turn_parts:
+        final_api_contents.append(Content(role="user", parts=current_turn_parts))
+    # --- ここまでが新しいロジック ---
+
+    # (以降のコードは変更なし。安定しているためそのまま流用します)
     image_generation_tool = _define_image_generation_tool()
 
     formatted_safety_settings = []
