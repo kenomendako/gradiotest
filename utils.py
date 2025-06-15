@@ -2,6 +2,7 @@
 import os
 import re
 import traceback
+import html
 from typing import List, Dict, Optional, Tuple, Union # Added for type hints
 import gradio as gr
 import character_manager
@@ -84,52 +85,40 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
 def format_response_for_display(response_text: Optional[str]) -> str:
     """
     AIの応答テキストをGradio表示用にフォーマットします。
-    "【Thoughts】...【/Thoughts】"部分を抽出し、HTMLで装飾して本文と分離します。
-
-    Args:
-        response_text (Optional[str]): AIからの応答テキスト。
-
-    Returns:
-        str: Gradioチャットボット表示用にフォーマットされたHTML文字列。
+    "【Thoughts】...【/Thoughts】"部分を抽出し、折り返し表示されるHTMLで装飾します。
     """
     if not response_text:
         return ""
 
-    # Thoughtsの正規表現パターン (大文字・小文字を区別せず、複数行にまたがる内容もキャプチャ)
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     match = thoughts_pattern.search(response_text)
 
     if match:
         thoughts_content = match.group(1).strip()
-        # HTMLエスケープはGradioのMarkdownコンポーネントがある程度行うが、
-        # <pre><code> 内では特殊文字がそのまま表示されることを期待。
-        # thoughts_html = thoughts_content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") # 基本的なエスケープ
 
-        # GradioのチャットボットはMarkdownをサポート。インラインスタイルよりクラスベースが良いが、ここでは既存を踏襲。
-        # CSSはlog2gemini.pyのcustom_cssで定義されていることを前提とする。
-        thought_html_block = (
-            f"<div class='thoughts'>"
-            f"<pre><code>{thoughts_content}</code></pre>" # pre/codeで整形済みテキストとして表示
-            f"</div>"
-        )
+        # --- ここからが新しいロジック ---
+        # 1. 安全のためにHTMLの特殊文字をエスケープする
+        escaped_content = html.escape(thoughts_content)
+        # 2. テキスト内の改行文字をHTMLの<br>タグに変換する
+        content_with_breaks = escaped_content.replace('\n', '<br>')
+        # 3. <pre>や<code>を使わず、シンプルなdivだけで囲む
+        thought_html_block = f"<div class='thoughts'>{content_with_breaks}</div>"
+        # --- ここまでが新しいロジック ---
 
-        # Thoughts部分を応答テキストから除去
         main_response_text = thoughts_pattern.sub("", response_text).strip()
 
-        # Thoughtsブロックと本文を結合して返す (間に空行を挟むことが多い)
         if main_response_text:
             return f"{thought_html_block}\n\n{main_response_text}"
-        else: # Thoughtsのみで本文がない場合
+        else:
             return thought_html_block
     else:
-        # Thoughtsがない場合は、元のテキストをそのまま返す (GradioがMarkdownとして解釈)
         return response_text.strip()
 
 
 def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, Union[str, tuple, None]]]:
     """
     チャットログをGradio Chatbotの新しい `messages` 形式に変換します。
-    戻り値: [{'role': 'user'/'assistant', 'content': str | tuple | None}, ...]
+    AIの応答に含まれる【Thought】タグを適切にHTML装飾します。
     """
     if not messages:
         return []
@@ -138,7 +127,6 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
     # 正規表現パターン
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
     user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?)\]")
-    text_content_marker = "--- 添付ファイル「"
 
     for msg in messages:
         role = "assistant" if msg.get("role") == "model" else "user"
@@ -154,37 +142,44 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
             if file_match:
                 filepath = file_match.group(1).strip()
                 original_filename = os.path.basename(filepath)
-                # ファイルパスが存在すれば画像タプル、なければエラーメッセージ
                 if os.path.exists(filepath):
                     gradio_history.append({"role": role, "content": (filepath, original_filename)})
                 else:
                     gradio_history.append({"role": role, "content": f"*[表示エラー: ファイル '{original_filename}' が見つかりません]*"})
-                # タグ以外のテキストがあれば、それも追加
                 text_part = user_file_attach_pattern.sub("", content).strip()
                 if text_part:
                     gradio_history.append({"role": role, "content": text_part})
-                continue # このメッセージの処理は完了
+                continue
 
-        # AIの生成画像タグを処理
-        image_match = image_tag_pattern.search(content)
-        if image_match:
-            # テキスト部分と画像部分を分離
-            text_before_image = content[:image_match.start()].strip()
-            image_path = image_match.group(1).strip()
-            text_after_image = content[image_match.end():].strip()
+        # AIの応答を処理
+        if role == "assistant":
+            # 【最重要修正点】
+            # AIの応答である場合、まず【Thought】タグの処理を行う
+            # format_response_for_display を呼び出すことで、思考ログが適切にHTML装飾される
+            formatted_content = format_response_for_display(content)
 
-            if text_before_image:
-                gradio_history.append({"role": role, "content": text_before_image})
+            # AIが生成した画像タグを処理
+            image_match = image_tag_pattern.search(formatted_content)
+            if image_match:
+                text_before_image = formatted_content[:image_match.start()].strip()
+                image_path = image_match.group(1).strip()
+                text_after_image = formatted_content[image_match.end():].strip()
 
-            if os.path.exists(image_path):
-                gradio_history.append({"role": role, "content": (image_path, os.path.basename(image_path))})
+                if text_before_image:
+                    gradio_history.append({"role": role, "content": text_before_image})
+
+                if os.path.exists(image_path):
+                    gradio_history.append({"role": role, "content": (image_path, os.path.basename(image_path))})
+                else:
+                    gradio_history.append({"role": role, "content": f"*[表示エラー: 画像 '{os.path.basename(image_path)}' が見つかりません]*"})
+
+                if text_after_image:
+                     gradio_history.append({"role": role, "content": text_after_image})
+                continue
             else:
-                gradio_history.append({"role": role, "content": f"*[表示エラー: 画像 '{os.path.basename(image_path)}' が見つかりません]*"})
-
-            if text_after_image:
-                 gradio_history.append({"role": role, "content": text_after_image})
-
-            continue # このメッセージの処理は完了
+                # 画像がない場合は、装飾済みのテキストをそのまま追加
+                gradio_history.append({"role": role, "content": formatted_content})
+                continue
 
         # 通常のテキストメッセージ
         gradio_history.append({"role": role, "content": content})
