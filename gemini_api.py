@@ -4,6 +4,7 @@
 # #   詳細は `AI_DEVELOPMENT_GUIDELINES.md` を参照してください。
 # ##############################################################################
 from google import genai
+from google.genai import types
 import os
 import json
 import traceback
@@ -38,7 +39,7 @@ def send_to_gemini(
     Gemini APIにリクエストを送信し、テキスト応答と画像パス（要求時）を返す。
     """
     try:
-        model = genai.get_generative_model(
+        model = genai.GenerativeModel(
             model_name=model_name,
             system_instruction=system_prompt,
             safety_settings=config_manager.SAFETY_CONFIG
