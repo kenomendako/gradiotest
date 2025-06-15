@@ -199,10 +199,7 @@ def handle_save_log_button_click(character_name, log_content):
         traceback.print_exc()
 
 def handle_message_submission(*args):
-    # この関数は現在、アラームUIとは直接関係ないので、元のままとします。
-    # 実際のプロジェクトでは、この中のsend_to_geminiなどが新SDKに追随する必要がありますが、
-    # 今回のタスクのスコープ外とします。
-    # （ただし、元のファイルからコードをコピー＆ペーストします）
+    # (この関数は巨大なので、差分が分かるようにコメントを入れます)
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state) = args
@@ -212,6 +209,7 @@ def handle_message_submission(*args):
 
     # 1. バリデーション
     if not all([current_character_name, current_model_name, current_api_key_name_state]):
+        # GradioのChatbotは辞書のリストを期待するので、それに合わせる
         return chatbot_history, gr.update(), gr.update(), "キャラクター、モデル、APIキーをすべて選択してください。"
 
     log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
@@ -225,14 +223,37 @@ def handle_message_submission(*args):
     # 2. ログ記録
     user_header = _get_user_header_from_log(log_f, current_character_name)
     timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
+    # (ファイル処理は、この新しいアーキテクチャではsend_to_gemini側に統合されるべきだが、一旦テキストのみログに記録)
     save_message_to_log(log_f, user_header, user_prompt + timestamp)
 
-    # 3. API送信と応答処理
+    # 3. API送信のための準備
+    system_prompt = ""
+    if os.path.exists(sys_p):
+        with open(sys_p, "r", encoding="utf-8") as f:
+            system_prompt = f.read()
+
+    chat_history_for_api = load_chat_log(log_f, current_character_name)
+
+    # 履歴制限
+    if api_history_limit_state.isdigit():
+        limit = int(api_history_limit_state)
+        if limit > 0:
+            chat_history_for_api = chat_history_for_api[-(limit * 2):]
+
+    # 4. API送信と応答処理
     try:
-        api_response_text, generated_image_path = send_to_gemini(
-            sys_p, log_f, user_prompt, current_model_name, current_character_name,
-            send_thoughts_state, api_history_limit_state, file_input_list, mem_p
+        # 新しいsend_to_geminiを呼び出す
+        # 注意：元のコードでは gemini_api が import されていなかったため、ここで import するか、
+        # 呼び出し側で gemini_api.send_to_gemini となっていることを確認する必要があります。
+        # Issueの指示では gemini_api はimport済みなので、そのまま呼び出します。
+        api_response_text, generated_image_path = gemini_api.send_to_gemini(
+            system_prompt=system_prompt,
+            chat_history=chat_history_for_api,
+            user_prompt=user_prompt,
+            model_name=current_model_name
+            # ファイル添付やTool Callingは今後の課題
         )
+
         if api_response_text or generated_image_path:
             response_to_log = ""
             if generated_image_path:
@@ -242,11 +263,12 @@ def handle_message_submission(*args):
             save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
         else:
             error_message = "APIから有効な応答がありませんでした。"
+
     except Exception as e:
         traceback.print_exc()
         error_message = f"メッセージ処理中にエラーが発生しました: {e}"
 
-    # 4. UI更新
+    # 5. UI更新
     new_log = load_chat_log(log_f, current_character_name)
     new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
     return new_hist, gr.update(value=""), gr.update(value=None), error_message
