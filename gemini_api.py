@@ -23,7 +23,7 @@
 # #                                                                            #
 # ##############################################################################
 from google import genai
-from google.generativeai import types
+from google.ai.generativelanguage import types as glm_types
 import os
 import json
 import traceback
@@ -65,15 +65,15 @@ def _get_model(model_name: str):
     指定されたモデル名のGenerativeModelインスタンスを返すヘルパー関数。
     """
     safety_settings = [
-        types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
-        types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=types.HarmBlockThreshold.BLOCK_NONE),
-        types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
-        types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+        glm_types.SafetySetting(category=glm_types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=glm_types.HarmBlockThreshold.BLOCK_NONE),
+        glm_types.SafetySetting(category=glm_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=glm_types.HarmBlockThreshold.BLOCK_NONE),
+        glm_types.SafetySetting(category=glm_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=glm_types.HarmBlockThreshold.BLOCK_NONE),
+        glm_types.SafetySetting(category=glm_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=glm_types.HarmBlockThreshold.BLOCK_NONE),
     ]
     return genai.GenerativeModel(model_name, safety_settings=safety_settings)
 
 # --- メインのAPI送信関数 ---
-def send_to_gemini(system_prompt: str, chat_history: List[Dict[str, str]], user_prompt: str, model_name: str, generation_config: dict, tools: Optional[List[types.Tool]] = None) -> tuple[Optional[str], Optional[str]]:
+def send_to_gemini(system_prompt: str, chat_history: List[Dict[str, str]], user_prompt: str, model_name: str, generation_config: dict, tools: Optional[List[glm_types.Tool]] = None) -> tuple[Optional[str], Optional[str]]:
     """
     Gemini APIにリクエストを送信し、応答と生成された画像パス（もしあれば）を返します。
     新しいSDKの作法に準拠しています。
@@ -82,18 +82,18 @@ def send_to_gemini(system_prompt: str, chat_history: List[Dict[str, str]], user_
         model = _get_model(model_name)
 
         # 新しいSDKでは、システムプロンプトは`GenerativeModel`の初期化時に渡す
-        model.system_instruction = types.Content(parts=[types.Part(text=system_prompt)])
+        model.system_instruction = glm_types.Content(parts=[glm_types.Part(text=system_prompt)])
 
         # 会話履歴をSDKのContent形式に変換
         history_contents = []
         for msg in chat_history:
             role = "user" if msg["role"] == "user" else "model"
             # TODO: 将来的にはファイル添付などもここで処理する必要がある
-            history_contents.append(types.Content(parts=[types.Part(text=msg["content"])], role=role))
+            history_contents.append(glm_types.Content(parts=[glm_types.Part(text=msg["content"])], role=role))
 
         # API呼び出し
         response = model.generate_content(
-            contents=history_contents + [types.Content(parts=[types.Part(text=user_prompt)])],
+            contents=history_contents + [glm_types.Content(parts=[glm_types.Part(text=user_prompt)])],
             generation_config=generation_config,
             tools=tools
         )
@@ -142,7 +142,7 @@ def send_alarm_to_gemini(character_name: str, theme: str, flash_prompt_template:
                 if self_identity:
                     system_prompt += f"\n\n参考情報: {json.dumps(self_identity, ensure_ascii=False)}"
 
-        model.system_instruction = types.Content(parts=[types.Part(text=system_prompt)])
+        model.system_instruction = glm_types.Content(parts=[glm_types.Part(text=system_prompt)])
 
         # 会話履歴の構築
         chat_history = load_chat_log(log_file_path, character_name)
@@ -154,7 +154,7 @@ def send_alarm_to_gemini(character_name: str, theme: str, flash_prompt_template:
         history_contents = []
         for msg in history_for_api:
             role = "user" if msg["role"] == "user" else "model"
-            history_contents.append(types.Content(parts=[types.Part(text=msg["content"])], role=role))
+            history_contents.append(glm_types.Content(parts=[glm_types.Part(text=msg["content"])], role=role))
 
         # API呼び出し
         response = model.generate_content(contents=history_contents)
