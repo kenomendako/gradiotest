@@ -263,20 +263,5 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
 # --- Application Launch ---
 if __name__ == "__main__":
-    # Gradioの起動シーケンスにバックグラウンドタスクを登録
-    demo.load(
-        fn=alarm_manager.start_alarm_scheduler_thread,
-        inputs=None,
-        outputs=None,
-    )
-
-    # 複数ユーザー対応のキューを有効化し、外部からのアクセスを許可して起動
-    # この設定により、スマホからのアクセスが可能になります
-    app, local_url, share_url = demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False)
-
-    # GradioがPC用のURLを表示しないため、手動で表示する
-    print("\n" + "="*50)
-    print("アプリケーションが起動しました。以下のURLにアクセスしてください。")
-    print(f"  PCからアクセスする場合: http://127.0.0.1:7860")
-    print(f"  スマホからアクセスする場合（同じWi-Fi接続時）: http://<あなたのPCのIPアドレス>:7860")
-    print("="*50 + "\n")
+    # Gradioアプリを起動し、PC用とスマホ用のURLを両方表示させるための正しい設定
+    demo.queue().launch(server_port=7860, share=False)
