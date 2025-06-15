@@ -263,5 +263,25 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
 # --- Application Launch ---
 if __name__ == "__main__":
-    # Gradioアプリを起動し、PC用とスマホ用のURLを両方表示させるための正しい設定
-    demo.queue().launch(server_port=7860, share=False)
+    # --- 起動とURL表示 ---
+    # server_name="0.0.0.0" を指定することで、スマホ等からの外部アクセスが可能になる
+    # この設定が、外部アクセスのためには「必須」である。
+    app, local_url, share_url = demo.queue().launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=False
+    )
+
+    # Gradioが表示するURLは分かりにくいため、我々自身で明確な案内を表示する
+    pc_url = "http://127.0.0.1:7860"
+    print("\n" + "="*60)
+    print("アプリケーションが起動しました。以下のURLをご利用ください。")
+    print("")
+    print(f"  【PCからアクセスする場合】")
+    print(f"  {pc_url}")
+    print("")
+    print("  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】")
+    print(f"  http://<お使いのPCのIPアドレス>:7860")
+    print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで")
+    print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)")
+    print("="*60 + "\n")
