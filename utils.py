@@ -2,6 +2,7 @@
 import os
 import re
 import traceback
+import html
 from typing import List, Dict, Optional, Tuple, Union # Added for type hints
 import gradio as gr
 import character_manager
@@ -84,45 +85,33 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
 def format_response_for_display(response_text: Optional[str]) -> str:
     """
     AIの応答テキストをGradio表示用にフォーマットします。
-    "【Thoughts】...【/Thoughts】"部分を抽出し、HTMLで装飾して本文と分離します。
-
-    Args:
-        response_text (Optional[str]): AIからの応答テキスト。
-
-    Returns:
-        str: Gradioチャットボット表示用にフォーマットされたHTML文字列。
+    "【Thoughts】...【/Thoughts】"部分を抽出し、折り返し表示されるHTMLで装飾します。
     """
     if not response_text:
         return ""
 
-    # Thoughtsの正規表現パターン (大文字・小文字を区別せず、複数行にまたがる内容もキャプチャ)
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     match = thoughts_pattern.search(response_text)
 
     if match:
         thoughts_content = match.group(1).strip()
-        # HTMLエスケープはGradioのMarkdownコンポーネントがある程度行うが、
-        # <pre><code> 内では特殊文字がそのまま表示されることを期待。
-        # thoughts_html = thoughts_content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") # 基本的なエスケープ
 
-        # GradioのチャットボットはMarkdownをサポート。インラインスタイルよりクラスベースが良いが、ここでは既存を踏襲。
-        # CSSはlog2gemini.pyのcustom_cssで定義されていることを前提とする。
-        thought_html_block = (
-            f"<div class='thoughts'>"
-            f"<pre><code>{thoughts_content}</code></pre>" # pre/codeで整形済みテキストとして表示
-            f"</div>"
-        )
+        # --- ここからが新しいロジック ---
+        # 1. 安全のためにHTMLの特殊文字をエスケープする
+        escaped_content = html.escape(thoughts_content)
+        # 2. テキスト内の改行文字をHTMLの<br>タグに変換する
+        content_with_breaks = escaped_content.replace('\n', '<br>')
+        # 3. <pre>や<code>を使わず、シンプルなdivだけで囲む
+        thought_html_block = f"<div class='thoughts'>{content_with_breaks}</div>"
+        # --- ここまでが新しいロジック ---
 
-        # Thoughts部分を応答テキストから除去
         main_response_text = thoughts_pattern.sub("", response_text).strip()
 
-        # Thoughtsブロックと本文を結合して返す (間に空行を挟むことが多い)
         if main_response_text:
             return f"{thought_html_block}\n\n{main_response_text}"
-        else: # Thoughtsのみで本文がない場合
+        else:
             return thought_html_block
     else:
-        # Thoughtsがない場合は、元のテキストをそのまま返す (GradioがMarkdownとして解釈)
         return response_text.strip()
 
 
