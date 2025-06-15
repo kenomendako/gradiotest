@@ -126,127 +126,68 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[Union[str, Tuple[str, str]]], Optional[Union[str, Tuple[str, str], List[Union[str, Tuple[str, str]]]]]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, Union[str, tuple, None]]]:
     """
-    (Definitive Final Architecture) Converts chat log to Gradio's history format.
-    This version correctly handles complex conversational structures, including
-    consecutive AI responses to a single user message, by processing the log
-    in "turn-based" groups. It robustly displays all content types.
+    チャットログをGradio Chatbotの新しい `messages` 形式に変換します。
+    戻り値: [{'role': 'user'/'assistant', 'content': str | tuple | None}, ...]
     """
     if not messages:
         return []
 
     gradio_history = []
-
-    # Helper patterns defined here or ensure they are available if defined globally in the module
-    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
+    # 正規表現パターン
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
-    # This user_file_attach_pattern is from the user's code block.
-    # It expects path;name;mime in the log string for user messages.
-    # However, ui_handlers.py logs "[ファイル添付: original_filename]".
-    # This discrepancy needs to be handled: either the pattern here is made simpler,
-    # or the user's assumption about log format for this specific tag was from an older version.
-    # User's latest description for this pattern was:
-    # user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?);(.*?);(.*?)\]")
-    # I will use this, and the code needs to be robust if it doesn't match all three groups
-    # for some user messages that are just "[ファイル添付: filename]".
-    user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?)\]") # Changed as per user instruction
+    user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?)\]")
     text_content_marker = "--- 添付ファイル「"
 
-    turn_groups = []
-    current_group = None
     for msg in messages:
-        if msg.get("role") == "user":
-            if current_group:
-                turn_groups.append(current_group)
-            # User's code does not filter empty content strings here, it's handled by later logic if user_display is empty.
-            current_group = {"user": msg, "model_responses": []} # User's code uses msg object directly
-        elif msg.get("role") == "model" and current_group:
-            current_group["model_responses"].append(msg) # User's code uses msg object
-    if current_group:
-        turn_groups.append(current_group)
+        role = "assistant" if msg.get("role") == "model" else "user"
+        content = msg.get("content", "").strip()
 
-    for group in turn_groups:
-        user_msg_obj = group["user"] # Get the full message object
-        user_content = user_msg_obj.get("content", "").strip()
-
-        user_display: Optional[Union[str, Tuple[str, str]]] # This is the variable name from user's code
-
-        # User message processing from user's final code block:
-        if text_content_marker in user_content and "」の内容 ---" in user_content: # Ensure full marker
-            parts = user_content.split(text_content_marker, 1)
-            clean_content = parts[0].strip()
-            filename_part_and_rest = parts[1].split("」の内容 ---", 1)
-            filename_part = filename_part_and_rest[0]
-            display_tag = f"*[添付テキスト: {filename_part}]*"
-            user_display = f"{clean_content}\n{display_tag}".strip() if clean_content else display_tag
-        else:
-            # This is the part that needs to be careful with user_file_attach_pattern
-            # if the log only contains "[ファイル添付: filename]"
-            match = user_file_attach_pattern.search(user_content) # Uses the new pattern
-            if match:
-                filepath = match.group(1).strip() # Group 1 is the full path
-                original_filename = os.path.basename(filepath)
-                user_display = (filepath, original_filename) if os.path.exists(filepath) else f"添付ファイル: {original_filename} (見つかりません)"
-            else: # No "[ファイル添付: ...]" tag found
-                user_display = user_content
-
-        if not group["model_responses"]: # No AI responses in this group
-            # User's code: gradio_history.append((user_display, None))
-            # This is added regardless of user_display being potentially empty if original content was empty.
-            if user_display or user_display == "": # Add if user_display is set (even if empty string from empty user message)
-                gradio_history.append((user_display, None))
+        if not content:
+            gradio_history.append({"role": role, "content": None})
             continue
 
-        # Process all AI responses for this turn
-        all_text_parts = []
-        final_image_part = None # Stores (filepath, basename)
-
-        for model_msg_obj in group["model_responses"]:
-            main_text = model_msg_obj.get("content", "").strip()
-            if not main_text: # Skip empty AI messages within a turn group
-                continue
-
-            thought_match = thoughts_pattern.search(main_text)
-            if thought_match:
-                thoughts_content = thought_match.group(1).strip()
-                if thoughts_content:
-                    all_text_parts.append(f"<div class='thoughts'><pre><code>{thoughts_content}</code></pre></div>")
-                main_text = thoughts_pattern.sub("", main_text).strip()
-
-            image_match = image_tag_pattern.search(main_text)
-            if image_match:
-                image_path = image_match.group(1).strip() # Path from [Generated Image: <path>]
-                if os.path.exists(image_path):
-                    final_image_part = (image_path, os.path.basename(image_path))
+        # ユーザーの添付ファイルタグを処理
+        if role == "user":
+            file_match = user_file_attach_pattern.search(content)
+            if file_match:
+                filepath = file_match.group(1).strip()
+                original_filename = os.path.basename(filepath)
+                # ファイルパスが存在すれば画像タプル、なければエラーメッセージ
+                if os.path.exists(filepath):
+                    gradio_history.append({"role": role, "content": (filepath, original_filename)})
                 else:
-                    all_text_parts.append(f"*[表示エラー: 画像ファイルが見つかりません ({os.path.basename(image_path)})]*")
-                main_text = image_tag_pattern.sub("", main_text, 1).strip()
+                    gradio_history.append({"role": role, "content": f"*[表示エラー: ファイル '{original_filename}' が見つかりません]*"})
+                # タグ以外のテキストがあれば、それも追加
+                text_part = user_file_attach_pattern.sub("", content).strip()
+                if text_part:
+                    gradio_history.append({"role": role, "content": text_part})
+                continue # このメッセージの処理は完了
 
-            if main_text:
-                all_text_parts.append(main_text)
+        # AIの生成画像タグを処理
+        image_match = image_tag_pattern.search(content)
+        if image_match:
+            # テキスト部分と画像部分を分離
+            text_before_image = content[:image_match.start()].strip()
+            image_path = image_match.group(1).strip()
+            text_after_image = content[image_match.end():].strip()
 
-        # New 3-case logic for appending AI response to Gradio history
-        user_message_for_this_turn = user_display
+            if text_before_image:
+                gradio_history.append({"role": role, "content": text_before_image})
 
-        if all_text_parts and final_image_part:
-            final_text_output = "\n\n".join(all_text_parts)
-            gradio_history.append((user_message_for_this_turn, final_text_output))
-            gradio_history.append((None, final_image_part)) # User part is None for AI image turn
-        elif all_text_parts: # Text only
-            final_text_output = "\n\n".join(all_text_parts)
-            gradio_history.append((user_message_for_this_turn, final_text_output))
-        elif final_image_part: # Image only
-            gradio_history.append((user_message_for_this_turn, final_image_part))
-        # If no text and no image from AI (e.g. empty response, or only empty thoughts)
-        # AND there was a user message for this turn, we should ensure the user message
-        # isn't orphaned if it wasn't handled by the `if not group["model_responses"]:` block.
-        # However, that block handles cases where model_responses list is empty.
-        # If model_responses list is NOT empty, but results in no actual content (all_text_parts is empty AND final_image_part is None),
-        # then the user_message_for_this_turn would be paired with effectively nothing.
-        # The current logic implies that if all_text_parts and final_image_part are both falsey,
-        # then nothing is added for the AI part of this turn. The user_message_for_this_turn would be lost.
-        # This logic is what I'm implementing based on the user's prompt.
+            if os.path.exists(image_path):
+                gradio_history.append({"role": role, "content": (image_path, os.path.basename(image_path))})
+            else:
+                gradio_history.append({"role": role, "content": f"*[表示エラー: 画像 '{os.path.basename(image_path)}' が見つかりません]*"})
+
+            if text_after_image:
+                 gradio_history.append({"role": role, "content": text_after_image})
+
+            continue # このメッセージの処理は完了
+
+        # 通常のテキストメッセージ
+        gradio_history.append({"role": role, "content": content})
 
     return gradio_history
 
