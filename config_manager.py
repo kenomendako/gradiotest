@@ -2,7 +2,6 @@
 import json
 import os
 import traceback
-from google.generativeai import types # SAFETY_CONFIG定義のため
 
 # --- 設定関連定数 ---
 CONFIG_FILE = "config.json"
@@ -17,7 +16,12 @@ DEFAULT_API_HISTORY_LIMIT_OPTION = "all"
 DEFAULT_ALARM_MODEL = "gemini-1.5-flash-latest"
 DEFAULT_ALARM_API_HISTORY_TURNS = 1
 DEFAULT_NOTIFICATION_WEBHOOK_URL = None # Webhook URLのデフォルトはNone
-SAFETY_CONFIG = {types.HarmCategory.HARM_CATEGORY_HATE_SPEECH: types.HarmBlockThreshold.BLOCK_NONE, types.HarmCategory.HARM_CATEGORY_HARASSMENT: types.HarmBlockThreshold.BLOCK_NONE, types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: types.HarmBlockThreshold.BLOCK_NONE, types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: types.HarmBlockThreshold.BLOCK_NONE}
+SAFETY_CONFIG = {
+    'HARASSMENT': 'block_none',
+    'HATE_SPEECH': 'block_none',
+    'SEXUALLY_EXPLICIT': 'block_none',
+    'DANGEROUS_CONTENT': 'block_none',
+}
 
 # --- 設定関連グローバル変数 (他モジュールから参照される) ---
 initial_character_global = None
