@@ -264,4 +264,4 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 # --- Application Launch ---
 if __name__ == "__main__":
     # 複数ユーザー対応のキューを有効化し、外部からのアクセスを許可して起動
-    demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False)
+    demo.queue().launch(server_port=7860, share=False)
