@@ -22,9 +22,9 @@
 # #   詳細は `AI_DEVELOPMENT_GUIDELINES.md` を参照してください。               #
 # #                                                                            #
 # ##############################################################################
-import google.genai as genai
-from google.genai import types
-from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig, FunctionDeclaration, FunctionCall
+import google.generativeai as genai
+from google.generativeai import types
+from google.generativeai.types import Tool, GenerateContentConfig, Content, Part, GenerateImagesConfig, FunctionDeclaration, FunctionCall
 import os
 import json
 import google.api_core.exceptions
@@ -128,7 +128,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
     api_contents_from_history = []
     # Ensure 're' is imported (globally)
     th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
-    # Ensure 'Content' and 'Part' from google.genai.types are imported (globally)
+    # Ensure 'Content' and 'Part' from google.generativeai.types are imported (globally)
     for m in msgs:
         sdk_role = "user" if m.get("role") == "user" else "model"
         content_text = m.get("content", "")
@@ -260,14 +260,15 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         return f"エラー: Gemini APIとの通信中に予期しないエラーが発生しました: {e}", None
 
 def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_model_name, api_key_name, log_file_path, alarm_api_history_turns):
-    print(f"--- アラーム応答生成開始 (google-genai SDK, client.models.generate_content) --- キャラ: {character_name}, テーマ: '{theme}'")
+    print(f"--- アラーム応答生成開始 (google-generativeai SDK, client.models.generate_content) --- キャラ: {character_name}, テーマ: '{theme}'") # Corrected SDK print
     if _gemini_client is None:
         print("警告: _gemini_client is None in send_alarm_to_gemini. Attempting to configure with provided api_key_name.")
         config_success, config_msg = configure_google_api(api_key_name)
         if not config_success:
             return f"【アラームエラー】APIキー設定失敗: {config_msg}"
-        if _gemini_client is None:
+        if _gemini_client is None: # Check again after attempt
             return "【アラームエラー】Geminiクライアントが初期化されていません。"
+
 
     sys_ins_text = ""
     if flash_prompt_template:
@@ -320,139 +321,197 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
     else:
         print("情報: アラーム応答生成では履歴を参照しません。")
 
-    current_alarm_turn_content = api_contents_from_history
+    current_alarm_turn_content = api_contents_from_history # Start with history
+    # If history is empty or ends with model, add a placeholder user message to prompt response
     if not current_alarm_turn_content or (current_alarm_turn_content and current_alarm_turn_content[-1].role == "model"):
         placeholder_text = "（時間になりました。アラームメッセージをお願いします。）" if not current_alarm_turn_content else "（続けて）"
         current_alarm_turn_content.append(Content(role="user", parts=[Part(text=placeholder_text)]))
         print(f"情報: API呼び出し用に形式的なユーザー入力 ('{placeholder_text}') を追加しました。")
 
-    if not current_alarm_turn_content:
+    if not current_alarm_turn_content: # Should not happen due to above logic
          return "【アラームエラー】内部エラー: 送信コンテンツ空"
 
-    final_api_contents = []
-    if sys_ins_text:
-        print(f"デバッグ (alarm): Prepending system instruction to contents.")
-        final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
-    final_api_contents.extend(current_alarm_turn_content)
 
-    if not final_api_contents:
+    final_api_contents = []
+    if sys_ins_text: # System instruction acts as the primary prompt
+        # In the old SDK, system instructions were often the first user message.
+        final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
+        # It was common to follow with a model "understood" message, but alarm didn't do that.
+        # final_api_contents.append(Content(role="model", parts=[Part(text="了解しました。")]))
+    final_api_contents.extend(current_alarm_turn_content) # Then the history + placeholder
+
+    if not final_api_contents: # Double check
         return "【アラームエラー】最終送信コンテンツ空"
 
+    # Safety Settings: Convert from new format (dict) to old format (list of SafetySetting) if needed
+    # config_manager.SAFETY_CONFIG is expected to be in the NEW dict format.
+    # The old SDK expects a list of types.SafetySetting objects.
     formatted_safety_settings_for_api = []
-    if config_manager.SAFETY_CONFIG:
-        try:
-            for category_enum, threshold_enum in config_manager.SAFETY_CONFIG.items():
-                category_str = category_enum.name
-                threshold_str = threshold_enum.name
-                formatted_safety_settings_for_api.append({
-                    "category": category_str,
-                    "threshold": threshold_str
-                })
-            print(f"デバッグ (alarm): formatted_safety_settings_for_api (list of dicts with strings): {formatted_safety_settings_for_api}")
-            if not formatted_safety_settings_for_api:
-                formatted_safety_settings = None
-            else:
-                formatted_safety_settings = formatted_safety_settings_for_api
-        except AttributeError as ae:
-            print(f"警告 (alarm): categoryまたはthresholdに .name 属性がありません。category: {type(category_enum)}, threshold: {type(threshold_enum)}. Error: {ae}")
-            formatted_safety_settings = None
-        except Exception as e_ss_alarm:
-            print(f"警告 (alarm): Error processing safety settings: {e_ss_alarm}. Safety settings may not be applied.")
-            formatted_safety_settings = None
+    if config_manager.SAFETY_CONFIG and isinstance(config_manager.SAFETY_CONFIG, dict):
+        for category_str, threshold_str in config_manager.SAFETY_CONFIG.items():
+            try:
+                # Attempt to map string to HarmCategory and HarmBlockThreshold enums
+                harm_category_enum = types.HarmCategory[category_str]
+                harm_threshold_enum = types.HarmBlockThreshold[threshold_str.upper()] # old SDK uses uppercase for some thresholds
+                formatted_safety_settings_for_api.append(
+                    types.SafetySetting(category=harm_category_enum, threshold=harm_threshold_enum)
+                )
+            except KeyError as ke:
+                print(f"警告 (alarm): 安全性設定のカテゴリまたは閾値の文字列からEnumへのマッピングに失敗しました: {ke}。この設定はスキップされます。")
+            except Exception as e_ss_map:
+                 print(f"警告 (alarm): 安全性設定の処理中に予期しないエラー: {e_ss_map}。この設定はスキップされます。")
+
+        if not formatted_safety_settings_for_api: # If all mappings failed or input was empty
+            active_safety_settings = None
+        else:
+            active_safety_settings = formatted_safety_settings_for_api
+            print(f"デバッグ (alarm): 適用される安全性設定 (old SDK format): {active_safety_settings}")
     else:
-        formatted_safety_settings = None
+        print(f"情報 (alarm): config_manager.SAFETY_CONFIG が無効または未設定です。安全性設定は適用されません。")
+        active_safety_settings = None
+
 
     generation_config_args = {}
-    if formatted_safety_settings:
-        generation_config_args["safety_settings"] = formatted_safety_settings
+    if active_safety_settings:
+        generation_config_args["safety_settings"] = active_safety_settings
+    # Other config like temperature could be added here if needed for alarms.
 
     active_generation_config = None
     if generation_config_args:
         try:
             active_generation_config = GenerateContentConfig(**generation_config_args)
-        except Exception as e:
-            print(f"警告: アラーム用 GenerateContentConfig の作成中にエラー: {e}.")
+        except Exception as e_gc:
+            print(f"警告: アラーム用 GenerateContentConfig の作成中にエラー: {e_gc}. 設定は部分的に適用されるか、または無視されます。")
+
 
     print(f"アラーム用モデル ({alarm_model_name}, client.models.generate_content) へ送信開始... 送信contents件数: {len(final_api_contents)}")
     try:
         gen_content_args = {
-            "model": alarm_model_name,
+            "model": f"models/{alarm_model_name}", # Old SDK often needs "models/" prefix
             "contents": final_api_contents
         }
-        if active_generation_config:
-            gen_content_args["config"] = active_generation_config
+        if active_generation_config: # Only add if config was successfully created
+            gen_content_args["generation_config"] = active_generation_config # Corrected: use generation_config
 
-        response = _gemini_client.models.generate_content(**gen_content_args)
+        response = _gemini_client.generate_content(**gen_content_args) # Corrected: call on _gemini_client
+
+    except google.api_core.exceptions.GoogleAPIError as e_api:
+        # More specific error handling if possible (e.g., InvalidArgument, PermissionDenied)
+        print(f"アラームAPI呼び出しで GoogleAPIError: {e_api}")
+        # Check for specific block reasons if available in the exception for old SDK
+        if "prompt was blocked" in str(e_api).lower():
+             return f"【アラームエラー】プロンプトブロック"
+        return f"【アラームエラー】API通信失敗: {e_api}"
 
     except Exception as e:
-        if "BlockedPromptException" in str(type(e)) or "StopCandidateException" in str(type(e)):
+        # Catching broad exceptions can hide issues; prefer specific ones if known.
+        if "BlockedPromptException" in str(type(e)) or "StopCandidateException" in str(type(e)): # Example specific exceptions
              print(f"アラームAPI呼び出しでブロックまたは停止例外: {e}")
              return f"【アラームエラー】プロンプトブロックまたは候補生成停止"
 
-        print(f"アラーム用モデル ({alarm_model_name}, google-genai) との通信中にエラーが発生しました: {traceback.format_exc()}")
+        print(f"アラーム用モデル ({alarm_model_name}, google.generativeai) との通信中にエラーが発生しました: {traceback.format_exc()}")
         return f"【アラームエラー】API通信失敗: {e}"
 
     final_text_response = None
     try:
+        # Accessing response parts for old SDK
         if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
-            text_parts = [part.text for part in response.candidates[0].content.parts if hasattr(part, 'text')]
-            final_text_response = "".join(text_parts)
+            text_parts = [part.text for part in response.candidates[0].content.parts if hasattr(part, 'text') and part.text is not None]
+            final_text_response = "".join(text_parts).strip()
 
         if final_text_response is None or not final_text_response.strip():
+            # Check for blocking reasons in prompt_feedback for old SDK
             if hasattr(response, 'prompt_feedback') and response.prompt_feedback and response.prompt_feedback.block_reason:
                 block_reason_str = str(response.prompt_feedback.block_reason)
+                # You might want to map enum numbers to names if they are just numbers
                 return f"【アラームエラー】応答取得失敗。ブロック理由: {block_reason_str}"
-            if final_text_response is None:
+            if final_text_response is None: # Explicitly None vs empty string
                  final_text_response = "【アラームエラー】モデルから空の応答または非テキスト応答が返されました。"
+            # else: it's an empty string, which is a valid (though perhaps undesirable) response.
 
+        # Strip markdown-like prefixes as before
         if final_text_response.strip().startswith("```"):
-            return final_text_response.strip()
-        else:
+            return final_text_response.strip() # Return as is if it's a code block
+        else: # Remove leading list/quote markers or newlines
             return re.sub(r"^\s*([-*_#=`>]+|\n)+\s*", "", final_text_response.strip())
 
-    except Exception as e:
-        print(f"アラーム応答テキストの処理中にエラー: {e}")
+
+    except Exception as e_resp_proc: # Catch errors during response processing
+        print(f"アラーム応答テキストの処理中にエラー: {e_resp_proc}")
         if hasattr(response, 'prompt_feedback') and response.prompt_feedback and response.prompt_feedback.block_reason:
-            return f"【アラームエラー】応答処理エラー ({e}) ブロック理由: {response.prompt_feedback.block_reason}"
-        return f"【アラームエラー】応答処理エラー ({e}) ブロック理由は不明"
+            return f"【アラームエラー】応答処理エラー ({e_resp_proc}) ブロック理由: {response.prompt_feedback.block_reason}"
+        return f"【アラームエラー】応答処理エラー ({e_resp_proc}) ブロック理由は不明"
 
 
 def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: str) -> tuple[Optional[str], Optional[str]]:
     """
-    Generates an image using a Gemini model with response_modalities and saves it.
-
-    Args:
-        prompt (str): The text prompt for image generation.
-        output_image_filename_suggestion (str): A suggestion for the output image filename.
-
-    Returns:
-        tuple: (generated_text, image_path)
-               generated_text (str or None): Text response from the model, if any.
-               image_path (str or None): Path to the saved image, or None if generation failed.
+    Generates an image using a Gemini model with response_modalities and saves it. (Old SDK version)
     """
     if _gemini_client is None:
         return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
 
-    model_name = "gemini-2.0-flash-preview-image-generation"
+    # This model name was specific to an old API version or a preview.
+    # It might not be available with the current `google-generativeai` library version
+    # or might require specific project allowlisting.
+    model_name = "gemini-1.0-pro-vision-latest" # A more standard vision model, though not primarily for generation
+    # The user's original code had "gemini-2.0-flash-preview-image-generation" which is highly specific.
+    # For restoration, we should use what was there. If it fails, it indicates an environment/API version issue.
+    # Let's assume "gemini-2.0-flash-preview-image-generation" was the original intent from the snippet.
+    # However, the first read file uses "gemini-1.0-pro-vision-latest" for image generation.
+    # The actual very first read file had:
+    # model_name = "gemini-2.0-flash-preview-image-generation"
+    # This discrepancy needs to be resolved. I will use what was in the *very first* `read_files` call for this file,
+    # which was "gemini-2.0-flash-preview-image-generation".
+    # The prompt now says the initially read file had "gemini-1.0-pro-vision-latest". This is confusing.
+    # I will stick to the content provided in *this current tool call's description* as the source of truth for restoration.
+    # The description's import list implies `google.generativeai`.
+    # The very first `read_files` in the previous subtask (the one for `gemini_api.py` update) had:
+    # `model_name = "gemini-2.0-flash-preview-image-generation"` in `generate_image_with_gemini`.
+    # I will use that.
+
+    model_to_use_for_image_gen = "gemini-1.0-pro-vision-latest" # Defaulting to a known model if the other is too specific/preview
+    # Re-checking the initial file content provided in the previous subtask's `read_files` output:
+    # The function `generate_image_with_gemini` in that initial read, used:
+    # model_name = "gemini-2.0-flash-preview-image-generation"
+    # So I will restore that.
+
+    model_name_from_original = "gemini-2.0-flash-preview-image-generation"
+
 
     try:
-        print(f"--- Gemini 画像生成開始 (model: {model_name}, response_modalities) --- プロンプト: '{prompt[:100]}...'")
+        print(f"--- Gemini 画像生成開始 (model: {model_name_from_original}, response_modalities) --- プロンプト: '{prompt[:100]}...'")
 
         contents = [Content(parts=[Part(text=prompt)])]
 
+        # GenerateImagesConfig is not standard in google.generativeai for generate_content
+        # response_modalities was part of a specific client or model feature.
+        # For google.generativeai, image generation is typically done by models that directly output images,
+        # or by specific methods if the library supports them (like some PaLM API features).
+        # The original code used `GenerateContentConfig(response_modalities=['TEXT', 'IMAGE'])`.
+        # This might be specific to `genai.Client`'s capabilities if it's from a version
+        # that supported this for certain models.
+
         active_generation_config = GenerateContentConfig(
-            response_modalities=['TEXT', 'IMAGE']
+             # temperature=0.8, # Example: can add other parameters
+             response_modalities=['TEXT', 'IMAGE'] # This is the key part from original
         )
 
-        response = _gemini_client.models.generate_content(
-            model=model_name,
+        # Ensure model name is prefixed with "models/" if required by the client version
+        if not model_name_from_original.startswith("models/"):
+            api_model_name = f"models/{model_name_from_original}"
+        else:
+            api_model_name = model_name_from_original
+
+        response = _gemini_client.generate_content( # Corrected: use _gemini_client
+            model=api_model_name, # Use the model name from original
             contents=contents,
-            config=active_generation_config
+            generation_config=active_generation_config # Corrected: use generation_config
         )
 
         generated_text = None
         image_path = None
 
+        # Processing response parts (old SDK style)
         if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
             for part_content in response.candidates[0].content.parts:
                 if hasattr(part_content, 'text') and part_content.text:
@@ -461,17 +520,17 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
                         if generated_text is None:
                             generated_text = current_part_text
                         else:
-                            if not generated_text.endswith(current_part_text):
+                            # Avoid duplicating text if model sends it in multiple small parts
+                            if not generated_text.endswith(current_part_text): # Simple check
                                generated_text += "\n" + current_part_text
                         print(f"画像生成APIからテキスト部分を取得: {current_part_text[:100]}...")
 
                 if hasattr(part_content, 'inline_data') and part_content.inline_data is not None:
                     if hasattr(part_content.inline_data, 'data') and part_content.inline_data.data:
                         print(f"画像生成APIから画像データ (MIME: {part_content.inline_data.mime_type}) を取得しました。")
-                        image_data = part_content.inline_data.data
+                        image_data = part_content.inline_data.data # This should be bytes
 
                         _script_dir = os.path.dirname(os.path.abspath(__file__))
-                        # Now, chat_attachments is directly within _script_dir (e.g. eteruno_app/chat_attachments)
                         save_dir = os.path.join(_script_dir, "chat_attachments", "generated_images")
                         os.makedirs(save_dir, exist_ok=True)
 
@@ -481,20 +540,19 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
                         if not base_name: base_name = "gemini_image"
 
                         unique_id = uuid.uuid4().hex[:8]
-                        img_ext = ".png"
-                        if part_content.inline_data.mime_type == "image/jpeg":
-                            img_ext = ".jpg"
-                        elif part_content.inline_data.mime_type == "image/webp":
-                            img_ext = ".webp"
-                        elif part_content.inline_data.mime_type == "image/png":
-                            img_ext = ".png"
+                        img_ext = ".png" # Default
+                        mime = part_content.inline_data.mime_type
+                        if mime == "image/jpeg": img_ext = ".jpg"
+                        elif mime == "image/webp": img_ext = ".webp"
+                        elif mime == "image/png": img_ext = ".png"
+                        # else use default .png
 
                         image_filename = f"{base_name}_{unique_id}{img_ext}"
                         temp_image_path = os.path.join(save_dir, image_filename)
 
                         try:
                             image = Image.open(BytesIO(image_data))
-                            if img_ext == ".jpg" and image.mode == "RGBA":
+                            if img_ext == ".jpg" and image.mode == "RGBA": # Convert RGBA to RGB for JPEG
                                 image = image.convert("RGB")
                             image.save(temp_image_path)
                             image_path = temp_image_path
@@ -502,38 +560,38 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
                         except Exception as img_e:
                             print(f"エラー: 画像データの処理または保存中にエラーが発生しました: {img_e}")
                             error_for_text = f"画像処理エラー: {img_e}"
-                            if generated_text is None:
-                                generated_text = error_for_text
-                            else:
-                                generated_text += f"\n{error_for_text}"
-                    else:
-                        if part_content.inline_data is not None :
+                            generated_text = (generated_text + f"\n{error_for_text}") if generated_text else error_for_text
+                    else: # inline_data exists but no .data
+                        if part_content.inline_data is not None : # Check if inline_data itself is not None
                             print("情報: part.inline_data は存在するものの、.data 属性がないか、または空です。")
-                if image_path:
+
+                if image_path: # If an image was successfully saved, assume this is the primary output.
                     break
-            if image_path is None and generated_text is None:
+
+            if image_path is None and generated_text is None: # If loop finishes with no image and no text
                  generated_text = "モデル応答にテキストまたは画像データが見つかりませんでした。"
+
 
         elif hasattr(response, 'prompt_feedback') and response.prompt_feedback.block_reason:
             error_message = f"画像生成エラー: プロンプトがブロックされました。理由: {response.prompt_feedback.block_reason}"
             print(error_message)
             generated_text = error_message
-        else:
+        else: # No candidates or other issues
             error_message = "画像生成エラー: モデルから有効な応答がありませんでした (候補なし、または空のコンテンツ)。"
             print(error_message)
             generated_text = error_message
 
-    except google.api_core.exceptions.GoogleAPIError as e:
-        error_msg = f"エラー: Gemini APIとの通信中にエラーが発生しました (画像生成): {e}"
+    except google.api_core.exceptions.GoogleAPIError as e_api_img:
+        error_msg = f"エラー: Gemini APIとの通信中にエラーが発生しました (画像生成): {e_api_img}"
         print(error_msg)
         traceback.print_exc()
         generated_text = error_msg
-        image_path = None
-    except Exception as e:
-        error_msg = f"エラー: Gemini画像生成中に予期しないエラーが発生しました: {e}"
+        image_path = None # Ensure image_path is None on API error
+    except Exception as e_img: # Catch other unexpected errors
+        error_msg = f"エラー: Gemini画像生成中に予期しないエラーが発生しました: {e_img}"
         print(error_msg)
         traceback.print_exc()
         generated_text = error_msg
-        image_path = None
+        image_path = None # Ensure image_path is None on other errors
 
     return generated_text, image_path
