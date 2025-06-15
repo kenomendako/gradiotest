@@ -12,6 +12,7 @@ import re
 # --- モジュールインポート ---
 import config_manager
 import alarm_manager
+import gemini_api  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<< この一行を追加
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
 from gemini_api import configure_google_api, send_to_gemini, generate_image_with_gemini
