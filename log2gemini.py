@@ -114,7 +114,13 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                 submit_button = gr.Button("送信", variant="primary", scale=4)
                 chat_reload_button = gr.Button("🔄 更新", scale=1) # ← Changed
 
-            file_upload_button = gr.Files(label="ファイル添付 (複数可)", type="filepath")
+            file_upload_button = gr.Files(
+                label="ファイル添付",
+                type="filepath",
+                file_count=5,
+                file_types=['.png', '.jpg', '.jpeg', '.webp', '.gif'],
+                info="最大5つの画像ファイル (png, jpgなど) を添付できます。"
+            )
 
     # --- イベントリスナー定義 ---
     def initial_load(char_name_to_load):
