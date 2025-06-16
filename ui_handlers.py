@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-# 完全に置き換えるための ui_handlers.py の修正版コード
+# ui_handlers.py の修正版コード
 
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Union
@@ -22,28 +21,23 @@ from gemini_api import configure_google_api, send_to_gemini
 from memory_manager import load_memory_data_safe, save_memory_data
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
 
-# --- メインのメッセージ処理関数 (リファクタリング修正版) ---
-
 def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.update, gr.update, str]:
     """
     ユーザーからのメッセージ送信を処理するメインハンドラ。
-    一連の処理をこの関数内で管理し、役割を明確にする。
     """
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state) = args
 
-    print(f"\n--- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
+    print(f"
+--- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
 
-    # --- 1. 変数とパスの準備 ---
     log_f, sys_p, _, mem_p = None, None, None, None
     error_message = ""
 
     try:
-        # --- 2. 入力のバリデーション ---
         if not all([current_character_name, current_model_name, current_api_key_name_state]):
             error_message = "キャラクター、モデル、APIキーをすべて選択してください。"
-            # chatbot_historyは変更しないのでそのまま返す
             return chatbot_history, gr.update(), gr.update(value=None), error_message
 
         log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
@@ -53,38 +47,41 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.upda
 
         user_prompt = textbox_content.strip() if textbox_content else ""
         if not user_prompt and not file_input_list:
-            # 何も入力されていない場合は、UIの状態をリセットせず、単に何もしない
             return chatbot_history, gr.update(), gr.update(value=None), "メッセージまたはファイルを送信してください。"
 
-        # --- 3. ユーザーのメッセージをログに記録 ---
-        user_header = _get_user_header_from_log(log_f, current_character_name)
-        timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
-        # この時点ではファイル名はログに含めず、純粋なテキストプロンプトのみを保存
-        save_message_to_log(log_f, user_header, user_prompt + timestamp)
+        # --- ★★★ 修正点 ★★★ ---
+        # ユーザープロンプトとファイル添付情報を結合して、ログ用の完全なメッセージを作成
+        log_message_content = user_prompt
+        if file_input_list:
+            for file_path in file_input_list:
+                log_message_content += f"
+[ファイル添付: {file_path}]"
 
-        # --- 4. APIに渡す添付ファイルリストを準備 ---
+        user_header = _get_user_header_from_log(log_f, current_character_name)
+        timestamp = f"
+{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
+        save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
+        # --- ★★★ 修正ここまで ★★★ ---
+
         formatted_files_for_api = []
         if file_input_list:
             for file_path in file_input_list:
                 mime_type, _ = mimetypes.guess_type(file_path)
-                if mime_type is None:
-                    mime_type = "application/octet-stream"
+                if mime_type is None: mime_type = "application/octet-stream"
                 formatted_files_for_api.append({"path": file_path, "mime_type": mime_type})
                 print(f"情報: ファイル '{os.path.basename(file_path)}' (MIME: {mime_type}) をAPI送信用に準備しました。")
 
-        # --- 5. Gemini APIを呼び出し、応答を取得 ---
-        # ★重要: send_to_geminiがログを読み込むので、ここではログ保存済みのuser_promptを渡す
         api_response_text, generated_image_path = send_to_gemini(
             sys_p, log_f, user_prompt, current_model_name, current_character_name,
             send_thoughts_state, api_history_limit_state, formatted_files_for_api, mem_p
         )
 
-        # --- 6. AIの応答をログに記録 ---
         if api_response_text or generated_image_path:
             response_to_log = ""
             if generated_image_path:
-                # ユーザーが後から見てもわかるように、画像パスをタグとして記録
-                response_to_log += f"[Generated Image: {generated_image_path}]\n\n"
+                response_to_log += f"[Generated Image: {generated_image_path}]
+
+"
             if api_response_text:
                 response_to_log += api_response_text
             save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
@@ -95,21 +92,15 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.upda
         traceback.print_exc()
         error_message = f"メッセージ処理中に予期せぬエラーが発生しました: {e}"
 
-    # --- 7. UIを更新 ---
-    # 成功時もエラー時も、最終的なログから表示を更新する
     if log_f and os.path.exists(log_f):
         new_log = load_chat_log(log_f, current_character_name)
         new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
     else:
-        # エラーがパス取得前に発生した場合、元の履歴を維持
         new_hist = chatbot_history
 
-    # テキストボックスとファイル入力をクリアし、エラーメッセージ（あれば）を返す
     return new_hist, gr.update(value=""), gr.update(value=None), error_message
 
-
 # --- (以降の関数は変更ありません。元のファイルのままです) ---
-
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 
 def render_alarms_as_dataframe():
