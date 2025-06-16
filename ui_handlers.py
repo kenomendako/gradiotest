@@ -33,8 +33,7 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.upda
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state) = args
 
-    print(f"
---- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
+    print(f"\n--- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
 
     # --- 1. 変数とパスの準備 ---
     log_f, sys_p, _, mem_p = None, None, None, None
@@ -59,8 +58,7 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.upda
 
         # --- 3. ユーザーのメッセージをログに記録 ---
         user_header = _get_user_header_from_log(log_f, current_character_name)
-        timestamp = f"
-{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
+        timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         # この時点ではファイル名はログに含めず、純粋なテキストプロンプトのみを保存
         save_message_to_log(log_f, user_header, user_prompt + timestamp)
 
@@ -86,9 +84,7 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.upda
             response_to_log = ""
             if generated_image_path:
                 # ユーザーが後から見てもわかるように、画像パスをタグとして記録
-                response_to_log += f"[Generated Image: {generated_image_path}]
-
-"
+                response_to_log += f"[Generated Image: {generated_image_path}]\n\n"
             if api_response_text:
                 response_to_log += api_response_text
             save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
