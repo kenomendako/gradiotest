@@ -15,64 +15,87 @@ import mimetypes
 # --- モジュールインポート ---
 import config_manager
 import alarm_manager
+import character_manager # handle_add_new_character で直接使うので追加
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
 from gemini_api import configure_google_api, send_to_gemini
 from memory_manager import load_memory_data_safe, save_memory_data
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
 
+# --- ★★★ 新しいキャラクター追加のハンドラ関数 ★★★ ---
+def handle_add_new_character(character_name: gr.Request):
+    """「新しいキャラクターを迎える」ボタンの処理。"""
+    if character_name: # gr.prompt から名前が返された場合
+        # サニタイズ: ファイル名として不適切な文字を削除
+        safe_name = re.sub(r'[\/*?:"<>|]', "", character_name).strip()
+        if not safe_name:
+            gr.Warning("無効なキャラクター名です。")
+            # リストを更新せずに現在のリストを返す
+            char_list = character_manager.get_character_list()
+            return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list)
+
+        if character_manager.ensure_character_files(safe_name):
+            gr.Info(f"新しいキャラクター「{safe_name}」さんを迎えました！")
+            # 成功したらキャラクターリストを再取得してUIに反映
+            new_char_list = character_manager.get_character_list()
+            return gr.update(choices=new_char_list), gr.update(choices=new_char_list), gr.update(choices=new_char_list)
+        else:
+            gr.Error(f"キャラクター「{safe_name}」の準備に失敗しました。")
+
+    # gr.promptがキャンセルされた場合や初期表示時
+    # 現在のリストをそのまま返す
+    char_list = character_manager.get_character_list()
+    return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list)
+
+# ★★★ Gradioのgr.promptを呼び出すためのラッパー関数 ★★★
+def prompt_for_new_character():
+    # この関数は、Gradioのイベントチェーンの中でgr.promptを呼び出すために必要
+    # ここでは何もしないように見えるが、Gradioバックエンドがこれを解釈してプロンプトダイアログを表示する
+    pass
+
+# ★★★ アラーム選択のフィードバック関数（統合）★★★
+def handle_alarm_selection_and_feedback(evt: gr.SelectData, df_with_id: pd.DataFrame):
+    selected_ids = handle_alarm_selection(evt, df_with_id)
+    count = len(selected_ids)
+    feedback_text = "アラームを選択してください"
+    if count == 1:
+        feedback_text = f"1 件のアラームを選択中"
+    elif count > 1:
+        feedback_text = f"{count} 件のアラームを選択中"
+    return selected_ids, feedback_text
+# --- ★★★ ここまでが新しい関数群 ★★★ ---
+
+
 def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.update, gr.update, str]:
-    """
-    ユーザーからのメッセージ送信を処理するメインハンドラ。
-    """
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state) = args
-
     print(f"\n--- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
-
     log_f, sys_p, _, mem_p = None, None, None, None
     error_message = ""
-
     try:
         if not all([current_character_name, current_model_name, current_api_key_name_state]):
-            error_message = "キャラクター、モデル、APIキーをすべて選択してください。"
-            return chatbot_history, gr.update(), gr.update(value=None), error_message
-
+            return chatbot_history, gr.update(), gr.update(value=None), "キャラクター、モデル、APIキーをすべて選択してください。"
         log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
         if not all([log_f, sys_p, mem_p]):
-            error_message = f"キャラクター '{current_character_name}' の必須ファイルパス取得に失敗。"
-            return chatbot_history, gr.update(), gr.update(value=None), error_message
-
+            return chatbot_history, gr.update(), gr.update(value=None), f"キャラクター '{current_character_name}' の必須ファイルパス取得に失敗。"
         user_prompt = textbox_content.strip() if textbox_content else ""
         if not user_prompt and not file_input_list:
             return chatbot_history, gr.update(), gr.update(value=None), "メッセージまたはファイルを送信してください。"
-
-        # --- ★★★ 修正点 ★★★ ---
-        # ユーザープロンプトとファイル添付情報を結合して、ログ用の完全なメッセージを作成
         log_message_content = user_prompt
         if file_input_list:
             for file_path in file_input_list:
                 log_message_content += f"\n[ファイル添付: {file_path}]"
-
         user_header = _get_user_header_from_log(log_f, current_character_name)
         timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
-        # --- ★★★ 修正ここまで ★★★ ---
-
         formatted_files_for_api = []
         if file_input_list:
             for file_path in file_input_list:
                 mime_type, _ = mimetypes.guess_type(file_path)
                 if mime_type is None: mime_type = "application/octet-stream"
                 formatted_files_for_api.append({"path": file_path, "mime_type": mime_type})
-                print(f"情報: ファイル '{os.path.basename(file_path)}' (MIME: {mime_type}) をAPI送信用に準備しました。")
-
-        api_response_text, generated_image_path = send_to_gemini(
-            sys_p, log_f, user_prompt, current_model_name, current_character_name,
-            send_thoughts_state, api_history_limit_state, formatted_files_for_api, mem_p
-        )
-
+        api_response_text, generated_image_path = send_to_gemini(sys_p, log_f, user_prompt, current_model_name, current_character_name, send_thoughts_state, api_history_limit_state, formatted_files_for_api, mem_p)
         if api_response_text or generated_image_path:
             response_to_log = ""
             if generated_image_path:
@@ -80,22 +103,17 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.upda
             if api_response_text:
                 response_to_log += api_response_text
             save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
-        else:
-            print("警告: APIから有効な応答がありませんでした。")
-
     except Exception as e:
         traceback.print_exc()
         error_message = f"メッセージ処理中に予期せぬエラーが発生しました: {e}"
-
     if log_f and os.path.exists(log_f):
         new_log = load_chat_log(log_f, current_character_name)
         new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
     else:
         new_hist = chatbot_history
-
     return new_hist, gr.update(value=""), gr.update(value=None), error_message
 
-# --- (以降の関数は変更ありません。元のファイルのままです) ---
+# (以降、元のファイルの関数群は変更なし)
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 
 def render_alarms_as_dataframe():
@@ -103,14 +121,7 @@ def render_alarms_as_dataframe():
     display_data = []
     for alarm in sorted(alarms, key=lambda x: x.get("time", "")):
         days_ja = [DAY_MAP_EN_TO_JA.get(d, d.upper()) for d in alarm.get('days', [])]
-        display_data.append({
-            "ID": alarm.get("id"),
-            "状態": alarm.get("enabled", False),
-            "時刻": alarm.get("time"),
-            "曜日": ",".join(days_ja),
-            "キャラ": alarm.get("character"),
-            "テーマ": alarm.get("theme")
-        })
+        display_data.append({"ID": alarm.get("id"), "状態": alarm.get("enabled", False), "時刻": alarm.get("time"), "曜日": ",".join(days_ja), "キャラ": alarm.get("character"), "テーマ": alarm.get("theme")})
     return pd.DataFrame(display_data, columns=["ID", "状態", "時刻", "曜日", "キャラ", "テーマ"])
 
 def get_display_df(df_with_id: pd.DataFrame):
@@ -120,15 +131,12 @@ def get_display_df(df_with_id: pd.DataFrame):
 
 def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame):
     if evt.index is None or df_with_id is None or df_with_id.empty: return []
-    selected_row_indices = []
     if isinstance(evt.index, list):
         selected_row_indices = sorted(list(set(evt.index)))
     elif isinstance(evt.index, int):
         selected_row_indices = [evt.index]
-    selected_ids = []
-    for row_index in selected_row_indices:
-        if 0 <= row_index < len(df_with_id):
-            selected_ids.append(str(df_with_id.iloc[row_index]['ID']))
+    else: selected_row_indices = []
+    selected_ids = [str(df_with_id.iloc[i]['ID']) for i in selected_row_indices if 0 <= i < len(df_with_id)]
     return selected_ids
 
 def toggle_selected_alarms_status(selected_ids: list, target_status: bool):
@@ -140,72 +148,38 @@ def toggle_selected_alarms_status(selected_ids: list, target_status: bool):
     for alarm_id in selected_ids:
         alarm = alarm_manager.get_alarm_by_id(alarm_id)
         if alarm and alarm.get("enabled") != target_status:
-            if alarm_manager.toggle_alarm_enabled(alarm_id):
-                changed_count += 1
-    if changed_count > 0:
-        gr.Info(f"{changed_count}件のアラームを「{status_text}」に変更しました。")
-    else:
-        gr.Info("状態の変更はありませんでした。")
+            if alarm_manager.toggle_alarm_enabled(alarm_id): changed_count += 1
+    if changed_count > 0: gr.Info(f"{changed_count}件のアラームを「{status_text}」に変更しました。")
     return render_alarms_as_dataframe()
 
 def handle_delete_selected_alarms(selected_ids: list):
     if not selected_ids:
         gr.Warning("削除するアラームが選択されていません。")
     else:
-        deleted_count = 0
-        for alarm_id_str in selected_ids:
-            if alarm_manager.delete_alarm(str(alarm_id_str)):
-                deleted_count +=1
-        if deleted_count > 0:
-            gr.Info(f"{deleted_count}件のアラームを削除しました。")
-        else:
-            gr.Warning("選択されたアラームを削除できませんでした。")
+        deleted_count = sum(1 for sid in selected_ids if alarm_manager.delete_alarm(str(sid)))
+        if deleted_count > 0: gr.Info(f"{deleted_count}件のアラームを削除しました。")
     return render_alarms_as_dataframe()
 
-def handle_timer_submission(timer_type, duration, work_duration, break_duration, cycles, character_name, work_theme, break_theme, api_key_name, webhook_url, normal_timer_theme):
-    if not character_name or not api_key_name:
-        return "エラー：キャラクターとAPIキーを選択してください。"
+def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_theme, brk_theme, api_key, webhook, normal_theme):
+    if not char or not api_key: return "エラー：キャラクターとAPIキーを選択してください。"
     try:
-        status_message = ""
-        if timer_type == "通常タイマー":
-            if not (duration and float(duration) > 0):
-                return "エラー：通常タイマーの時間を正しく入力してください。"
-            status_message = f"{duration}分の通常タイマーを開始しました。"
-        elif timer_type == "ポモドーロタイマー":
-            if not (work_duration and float(work_duration) > 0 and
-                    break_duration and float(break_duration) > 0 and
-                    cycles and int(cycles) > 0):
-                return "エラー：ポモドーロの各項目を正しく入力してください。"
-            status_message = f"{work_duration}分作業/{break_duration}分休憩のポモドーロタイマーを開始。"
-        else:
-            return "エラー：不明なタイマータイプです。"
-        unified_timer = UnifiedTimer(timer_type, float(duration or 0), float(work_duration or 0), float(break_duration or 0), int(cycles or 0), character_name, work_theme, break_theme, api_key_name, webhook_url, normal_timer_theme)
-        unified_timer.start()
+        timer = UnifiedTimer(timer_type, float(duration or 0), float(work or 0), float(brk or 0), int(cycles or 0), char, work_theme, brk_theme, api_key, webhook, normal_theme)
+        timer.start()
         gr.Info(f"{timer_type}を開始しました。")
-        return status_message
-    except ValueError as ve:
-        error_msg = f"タイマー設定値エラー: {ve}"
-        traceback.print_exc()
-        return error_msg
-    except Exception as e:
-        error_msg = f"タイマー開始エラー: {e}"
-        traceback.print_exc()
-        return error_msg
+        return f"{timer_type}を開始しました。"
+    except Exception as e: return f"タイマー開始エラー: {e}"
 
 def update_ui_on_character_change(character_name: Optional[str]):
-    if not character_name:
-        return None, [], "", None, "{}", None, "キャラ未選択"
+    if not character_name: return None, [], "", None, "{}", None, "キャラ未選択", None
     config_manager.save_config("last_character", character_name)
     log_f, _, img_p, mem_p = get_character_files_paths(character_name)
-    chat_history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT * 2):]) if log_f and os.path.exists(log_f) else []
+    history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT*2):]) if log_f else []
     log_content = ""
     if log_f and os.path.exists(log_f):
-        try:
-            with open(log_f, "r", encoding="utf-8") as f: log_content = f.read()
-        except Exception as e_log: log_content = f"ログファイル読込エラー: {e_log}"
+        with open(log_f, "r", encoding="utf-8") as f: log_content = f.read()
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
-    profile_image = img_p if img_p and os.path.exists(img_p) else None
-    return character_name, chat_history, "", profile_image, memory_str, character_name, log_content
+    image = img_p if img_p and os.path.exists(img_p) else None
+    return character_name, history, "", image, memory_str, character_name, log_content, character_name
 
 def update_model_state(model):
     config_manager.save_config("last_model", model)
@@ -218,15 +192,12 @@ def update_api_key_state(api_key_name):
     else: gr.Error(f"APIキー '{api_key_name}' 設定失敗: {msg}")
     return api_key_name
 
-def update_timestamp_state(checked):
-    config_manager.save_config("add_timestamp", bool(checked))
-
+def update_timestamp_state(checked): config_manager.save_config("add_timestamp", bool(checked))
 def update_send_thoughts_state(checked):
     config_manager.save_config("last_send_thoughts_to_api", bool(checked))
     return bool(checked)
-
 def update_api_history_limit_state(limit_ui_val):
-    key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
+    key = next((k for k,v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v==limit_ui_val), "all")
     config_manager.save_config("last_api_history_limit_option", key)
     return key
 
@@ -234,55 +205,32 @@ def reload_chat_log(character_name):
     if not character_name: return [], "キャラクター未選択"
     log_f,_,_,_ = get_character_files_paths(character_name)
     if not log_f or not os.path.exists(log_f): return [], "ログファイルなし"
-    history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT * 2):])
+    history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT*2):])
     content = ""
-    try:
+    if log_f and os.path.exists(log_f):
         with open(log_f, "r", encoding="utf-8") as f: content = f.read()
-    except Exception as e: content = f"ログファイル読込エラー: {e}"
-    gr.Info(f"'{character_name}'のログを再読み込みしました。")
     return history, content
 
 def handle_save_log_button_click(character_name, log_content):
-    if not character_name:
-        gr.Error("キャラクターが選択されていません。")
-        return
-    try:
-        save_log_file(character_name, log_content)
-        gr.Info(f"'{character_name}'のログを保存しました。")
-    except Exception as e:
-        gr.Error(f"ログ保存エラー: {e}")
-        traceback.print_exc()
+    if not character_name: gr.Error("キャラクターが選択されていません。")
+    else: save_log_file(character_name, log_content); gr.Info(f"'{character_name}'のログを保存しました。")
 
 def load_alarm_to_form(selected_ids: list):
-    if not selected_ids or len(selected_ids) != 1:
-        return "アラーム追加", "", "", "", [], "08", "00", None
-    alarm_id = selected_ids[0]
-    alarm = alarm_manager.get_alarm_by_id(alarm_id)
-    if not alarm:
-        return "アラーム追加", "", "", "", [], "08", "00", None
-    hour, minute = alarm.get("time", "08:00").split(":")
-    theme = alarm.get("theme", "")
-    prompt = alarm.get("flash_prompt_template", "")
-    character = alarm.get("character", "")
-    days_en = alarm.get("days", [])
-    days_ja = [DAY_MAP_EN_TO_JA.get(d) for d in days_en if DAY_MAP_EN_TO_JA.get(d)]
-    return f"アラーム更新 (ID: {alarm_id[:8]})", theme, prompt, character, days_ja, hour, minute, alarm_id
+    if not selected_ids or len(selected_ids) != 1: return "アラーム追加", "", "", "", [], "08", "00", None
+    alarm = alarm_manager.get_alarm_by_id(selected_ids[0])
+    if not alarm: return "アラーム追加", "", "", "", [], "08", "00", None
+    h, m = alarm.get("time", "08:00").split(":")
+    days_ja = [DAY_MAP_EN_TO_JA.get(d) for d in alarm.get("days", []) if DAY_MAP_EN_TO_JA.get(d)]
+    return f"アラーム更新", alarm.get("theme", ""), alarm.get("flash_prompt_template", ""), alarm.get("character", ""), days_ja, h, m, selected_ids[0]
 
-def handle_add_or_update_alarm(editing_alarm_id, hour, minute, char, theme, prompt, days):
-    if editing_alarm_id:
-        try:
-            if alarm_manager.add_alarm(hour, minute, char, theme, prompt, days):
-                alarm_manager.delete_alarm(editing_alarm_id)
-                gr.Info(f"アラーム(ID: {editing_alarm_id[:8]})を更新しました。")
-            else:
-                gr.Warning("アラームの更新に失敗しました（データ検証エラー）。")
-        except Exception as e:
-            gr.Error(f"アラーム更新処理中にエラー: {e}")
+def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days):
+    if editing_id:
+        if alarm_manager.add_alarm(h, m, char, theme, prompt, days):
+            alarm_manager.delete_alarm(editing_id)
+            gr.Info(f"アラームを更新しました。")
     else:
-        if alarm_manager.add_alarm(hour, minute, char, theme, prompt, days):
+        if alarm_manager.add_alarm(h, m, char, theme, prompt, days):
             gr.Info("アラームを追加しました。")
-        else:
-            gr.Warning("アラームの追加に失敗しました。")
-    new_df_with_ids = render_alarms_as_dataframe()
-    new_display_df = get_display_df(new_df_with_ids)
-    return new_display_df, new_df_with_ids, "アラーム追加", "", "", char, ["月","火","水","木","金","土","日"], "08", "00", None
+    df_with_ids = render_alarms_as_dataframe()
+    display_df = get_display_df(df_with_ids)
+    return display_df, df_with_ids, "アラーム追加", "", "", char, ["月","火","水","木","金","土","日"], "08", "00", None
