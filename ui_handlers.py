@@ -1,4 +1,4 @@
-# ui_handlers.py ファイル全体を、この内容で置き換えてください
+# ui_handlers.py ファイル全体を、この内容で完全に置き換えてください
 
 # -*- coding: utf-8 -*-
 import pandas as pd
@@ -38,13 +38,11 @@ def _prepare_user_turn(
     file_input_list: Optional[List[str]]
 ) -> Tuple[str, List[Dict[str, str]]]:
     """ユーザーのターンを準備し、ログに記録し、API用の添付ファイルリストを返す。"""
-    # ユーザーヘッダーを取得し、メッセージをログに記録
     user_header = _get_user_header_from_log(log_file_path, character_name)
     timestamp = f"
 {datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
     save_message_to_log(log_file_path, user_header, user_prompt + timestamp)
 
-    # 添付ファイルをAPIが期待する形式に変換
     formatted_files_for_api = []
     if file_input_list:
         for file_path in file_input_list:
@@ -98,7 +96,6 @@ def handle_message_submission(*args):
 --- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
 
     try:
-        # 1. バリデーション
         error_msg = _validate_inputs(current_character_name, current_model_name, current_api_key_name_state)
         if error_msg:
             return chatbot_history, gr.update(), gr.update(value=None), error_msg
@@ -111,12 +108,10 @@ def handle_message_submission(*args):
         if not user_prompt_str and not file_input_list:
             return chatbot_history, gr.update(), gr.update(value=None), "メッセージまたはファイルを送信してください。"
 
-        # 2. ユーザーのターンを準備・記録
         user_prompt, formatted_files = _prepare_user_turn(
             log_f, current_character_name, user_prompt_str, add_timestamp_checkbox, file_input_list
         )
 
-        # 3. API呼び出しと応答処理
         _call_gemini_and_handle_response(
             sys_p, log_f, user_prompt, current_model_name, current_character_name,
             send_thoughts_state, api_history_limit_state, formatted_files, mem_p
@@ -124,23 +119,20 @@ def handle_message_submission(*args):
 
     except Exception as e:
         traceback.print_exc()
-        # UIにエラーメッセージを返す
-        new_hist = format_history_for_gradio(load_chat_log(log_f, current_character_name)[-(config_manager.HISTORY_LIMIT * 2):])
+        log_f, _, _, _ = get_character_files_paths(current_character_name)
+        new_hist = format_history_for_gradio(load_chat_log(log_f, current_character_name)[-(config_manager.HISTORY_LIMIT * 2):]) if log_f and os.path.exists(log_f) else chatbot_history
         return new_hist, gr.update(value=""), gr.update(value=None), f"メッセージ処理中に予期せぬエラーが発生しました: {e}"
 
-    # 4. UI更新
     new_log = load_chat_log(log_f, current_character_name)
     new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
     return new_hist, gr.update(value=""), gr.update(value=None), ""
 
 
-# --- (以降の関数は、あなたのファイルにあるものと同じですが、念のため全て含めます) ---
+# --- (以降の関数は、あなたのファイルにあるものと同じなので、変更ありません) ---
 
-# --- Dataframe表示用データ整形関数 ---
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 
 def render_alarms_as_dataframe():
-    """アラームデータを取得し、GradioのDataframe表示用にID列も含むpandas.DataFrameを生成して返す。"""
     alarms = alarm_manager.get_all_alarms()
     display_data = []
     for alarm in sorted(alarms, key=lambda x: x.get("time", "")):
@@ -156,12 +148,10 @@ def render_alarms_as_dataframe():
     return pd.DataFrame(display_data, columns=["ID", "状態", "時刻", "曜日", "キャラ", "テーマ"])
 
 def get_display_df(df_with_id: pd.DataFrame):
-    """ID列を非表示にした表示用のDataFrameを返す"""
     if df_with_id is None or df_with_id.empty or 'ID' not in df_with_id.columns:
         return pd.DataFrame(columns=["状態", "時刻", "曜日", "キャラ", "テーマ"])
     return df_with_id[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
 
-# --- アラームDataframeイベントハンドラ ---
 def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame):
     if evt.index is None or df_with_id is None or df_with_id.empty: return []
     selected_row_indices = []
@@ -206,7 +196,6 @@ def handle_delete_selected_alarms(selected_ids: list):
             gr.Warning("選択されたアラームを削除できませんでした。")
     return render_alarms_as_dataframe()
 
-# --- タイマーイベントハンドラ ---
 def handle_timer_submission(timer_type, duration, work_duration, break_duration, cycles, character_name, work_theme, break_theme, api_key_name, webhook_url, normal_timer_theme):
     if not character_name or not api_key_name:
         return "エラー：キャラクターとAPIキーを選択してください。"
@@ -237,7 +226,6 @@ def handle_timer_submission(timer_type, duration, work_duration, break_duration,
         traceback.print_exc()
         return error_msg
 
-# --- UI状態更新ハンドラ ---
 def update_ui_on_character_change(character_name: Optional[str]):
     if not character_name:
         return None, [], "", None, "{}", None, "キャラ未選択"
