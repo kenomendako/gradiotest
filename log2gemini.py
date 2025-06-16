@@ -1,4 +1,4 @@
-# log2gemini.py の【完全修正版】
+# log2gemini.py の【最終確定版】
 
 import gradio as gr
 import os, sys, json, traceback, threading, time, pandas as pd
@@ -30,11 +30,16 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         character_list_on_startup = ["Default"]
 
     effective_initial_character = config_manager.initial_character_global
+    # ★★★ log2gemini.py の修正点: リストが空でないことを確認 ★★★
     if not effective_initial_character or effective_initial_character not in character_list_on_startup:
-        new_char = character_list_on_startup[0]
+        new_char = character_list_on_startup[0] if character_list_on_startup else "Default"
         print(f"警告: 最後に使用したキャラクター '{effective_initial_character}' が見つからないか無効です。'{new_char}' で起動します。")
         effective_initial_character = new_char
         config_manager.save_config("last_character", new_char)
+        if new_char == "Default" and "Default" not in character_list_on_startup: # Defaultがなければ作る
+             character_manager.ensure_character_files("Default")
+             character_list_on_startup = ["Default"]
+
 
     # --- UI State Variables ---
     current_character_name = gr.State(effective_initial_character)
@@ -51,7 +56,10 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
             gr.Markdown("### キャラクター")
             character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
-            add_character_button = gr.Button("新しいキャラクターを迎える", variant="secondary")
+            # ★★★ log2gemini.py の修正点: テキストボックスとボタンを横並びに ★★★
+            with gr.Row(elem_classes="compact_row"): # elem_classesでCSSクラスを指定可能 (ここでは使わないが例として)
+                new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3)
+                add_character_button = gr.Button("迎える", variant="secondary", scale=1) # ボタン名を短く
 
             with gr.Accordion("⚙️ 基本設定", open=False):
                 model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
@@ -63,12 +71,14 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             with gr.Accordion("📗 記憶とログの編集", open=False):
                 with gr.Tabs():
                     with gr.TabItem("記憶 (memory.json)"):
-                        memory_json_editor = gr.Code(label="記憶データ (JSON形式で編集)", language="json", interactive=True, elem_id="memory_json_editor_code")
+                        memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code") # ラベル修正
                         save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
                     with gr.TabItem("ログ (log.txt)"):
-                        log_editor = gr.Code(label="ログ内容 (直接編集可能)", interactive=True, elem_id="log_editor_code")
-                        save_log_button = gr.Button(value="ログを保存", variant="secondary")
-                        editor_reload_button = gr.Button(value="ログ再読込", variant="secondary")
+                        log_editor = gr.Code(label="ログ内容", interactive=True, elem_id="log_editor_code") # ラベル修正
+                        # ★★★ log2gemini.py の修正点: ボタンを横並びに ★★★
+                        with gr.Row():
+                            save_log_button = gr.Button(value="ログを保存", variant="secondary")
+                            editor_reload_button = gr.Button(value="ログ再読込", variant="secondary")
 
             with gr.Accordion("⏰ 時間管理", open=False):
                 with gr.Tabs():
@@ -115,57 +125,56 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
     # --- イベントリスナー定義 ---
 
-    # ★★★ 修正点: 新しいキャラクター追加のイベントチェーン ★★★
+    # ★★★ log2gemini.py の修正点: 新しいキャラクター追加のイベントをシンプルに ★★★
     add_character_button.click(
-        fn=gr.prompt,
-        inputs=[gr.Textbox(label="新しいキャラクターの名前", placeholder="名前を入力してください")],
-        outputs=[character_dropdown] # 出力先は一時的、実際の処理は.thenで行う
-    ).then(
         fn=ui_handlers.handle_add_new_character,
-        inputs=[character_dropdown], # gr.promptの結果がここに入る
-        outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown]
+        inputs=[new_character_name_textbox], # テキストボックスの値を直接入力とする
+        outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox] # 最後にテキストボックスをクリア
     )
 
-    # ★★★ 修正点: demo.loadの戻り値受け取りを8個に修正 ★★★
     def initial_load(char_name_to_load):
         df_with_ids = ui_handlers.render_alarms_as_dataframe()
         display_df = ui_handlers.get_display_df(df_with_ids)
+        # 戻り値の数と順番をui_handlers.update_ui_on_character_changeに完全に合わせる
         (returned_char_name, current_chat_hist, _, current_profile_img,
-         current_mem_str, alarm_dd_char_val, current_log_content, timer_dd_char_val) = ui_handlers.update_ui_on_character_change(char_name_to_load)
+         current_mem_str, alarm_dd_char_val, current_log_content, timer_dd_char_val # timer_dd_char_val を追加
+        ) = ui_handlers.update_ui_on_character_change(char_name_to_load)
         return (display_df, df_with_ids, current_chat_hist, current_log_content, current_mem_str,
-                current_profile_img, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください")
+                current_profile_img, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください") # timer_dd_char_val を返す
 
     demo.load(
         fn=initial_load, inputs=[current_character_name],
         outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, log_editor, memory_json_editor,
-                 profile_image_display, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown]
+                 profile_image_display, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown] # timer_char_dropdown を追加
     )
 
-    # ★★★ 修正点: alarm_dataframe.selectのlambdaを削除 ★★★
     alarm_dataframe.select(
         fn=ui_handlers.handle_alarm_selection_and_feedback,
         inputs=[alarm_dataframe_original_data],
         outputs=[selected_alarm_ids_state, selection_feedback_markdown],
-        show_progress='hidden'
+        show_progress='hidden' # ちらつき防止のためhidden推奨
     ).then(
         fn=ui_handlers.load_alarm_to_form,
         inputs=[selected_alarm_ids_state],
         outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state]
     )
 
-    # (以降のイベントリスナーは変更なし)
+    # ★★★ log2gemini.py の修正点: イベントハンドラの記述をGradioの標準形に統一 (inputs/outputsをリストで囲む) ★★★
     enable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
     disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
     delete_alarm_button.click(fn=ui_handlers.handle_delete_selected_alarms, inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda id_df: ui_handlers.get_display_df(id_df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe]).then(fn=lambda: ([], "アラームを選択してください"), outputs=[selected_alarm_ids_state, selection_feedback_markdown])
     alarm_add_button.click(fn=ui_handlers.handle_add_or_update_alarm, inputs=[editing_alarm_id_state, alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup], outputs=[alarm_dataframe, alarm_dataframe_original_data, alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
     character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, log_editor, timer_char_dropdown]).then(fn=lambda: (ui_handlers.get_display_df(ui_handlers.render_alarms_as_dataframe()), ui_handlers.render_alarms_as_dataframe()), outputs=[alarm_dataframe, alarm_dataframe_original_data])
-    timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=timer_type_radio, outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
+    timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
     model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name])
     api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state])
-    add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[])
+    add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[]) # outputs=[] はNoneと同じ
     send_thoughts_checkbox.change(fn=ui_handlers.update_send_thoughts_state, inputs=[send_thoughts_checkbox], outputs=[send_thoughts_state])
     api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state, inputs=[api_history_limit_dropdown], outputs=[api_history_limit_state])
-    save_memory_button.click(fn=lambda char, mem_str: ui_handlers.save_memory_data(char, mem_str), inputs=[current_character_name, memory_json_editor], outputs=[]).then(fn=lambda: gr.Info("記憶を保存しました。"))
+
+    # save_memory_button.click(fn=lambda char, mem_str: memory_manager.save_memory_data(char, mem_str), ...) # ui_handlers に移設
+    save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[]) # outputs=Noneでも可
+
     save_log_button.click(fn=ui_handlers.handle_save_log_button_click, inputs=[current_character_name, log_editor], outputs=[])
     editor_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name], outputs=[chatbot_display, log_editor])
     chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name], outputs=[chatbot_display, log_editor])
@@ -173,7 +182,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=[chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state], outputs=chat_submit_outputs)
     submit_button.click(fn=ui_handlers.handle_message_submission, inputs=[chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state], outputs=chat_submit_outputs)
     timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, gr.State(config_manager.initial_notification_webhook_url_global), normal_timer_theme_input], outputs=[timer_status_output])
-    demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
+    demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None) # inputs=None, outputs=None
 
 # --- Application Launch ---
 if __name__ == "__main__":
