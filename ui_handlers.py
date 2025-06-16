@@ -29,8 +29,7 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.upda
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state) = args
 
-    print(f"
---- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
+    print(f"\n--- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
 
     log_f, sys_p, _, mem_p = None, None, None, None
     error_message = ""
@@ -54,12 +53,10 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.upda
         log_message_content = user_prompt
         if file_input_list:
             for file_path in file_input_list:
-                log_message_content += f"
-[ファイル添付: {file_path}]"
+                log_message_content += f"\n[ファイル添付: {file_path}]"
 
         user_header = _get_user_header_from_log(log_f, current_character_name)
-        timestamp = f"
-{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
+        timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
         # --- ★★★ 修正ここまで ★★★ ---
 
@@ -79,9 +76,7 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.upda
         if api_response_text or generated_image_path:
             response_to_log = ""
             if generated_image_path:
-                response_to_log += f"[Generated Image: {generated_image_path}]
-
-"
+                response_to_log += f"[Generated Image: {generated_image_path}]\n\n"
             if api_response_text:
                 response_to_log += api_response_text
             save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
