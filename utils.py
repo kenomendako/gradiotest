@@ -37,8 +37,7 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
         stripped_line = line.strip()
         if stripped_line.startswith("## ") and stripped_line.endswith(":"):
             if current_role and current_text_lines:
-                messages.append({"role": current_role, "content": "
-".join(current_text_lines).strip()})
+                messages.append({"role": current_role, "content": "\n".join(current_text_lines).strip()})
             current_text_lines = []
             if stripped_line == ai_header:
                 current_role = "model"
@@ -47,12 +46,10 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
             else:
                 current_role = "user"
         elif current_role:
-            current_text_lines.append(line.rstrip('
-'))
+            current_text_lines.append(line.rstrip('\n'))
 
     if current_role and current_text_lines:
-        messages.append({"role": current_role, "content": "
-".join(current_text_lines).strip()})
+        messages.append({"role": current_role, "content": "\n".join(current_text_lines).strip()})
 
     return messages
 
@@ -63,13 +60,10 @@ def format_response_for_display(response_text: Optional[str]) -> str:
     if match:
         thoughts_content = match.group(1).strip()
         escaped_content = html.escape(thoughts_content)
-        content_with_breaks = escaped_content.replace('
-', '<br>')
+        content_with_breaks = escaped_content.replace('\n', '<br>')
         thought_html_block = f"<div class='thoughts'>{content_with_breaks}</div>"
         main_response_text = thoughts_pattern.sub("", response_text).strip()
-        return f"{thought_html_block}
-
-{main_response_text}" if main_response_text else thought_html_block
+        return f"{thought_html_block}\n\n{main_response_text}" if main_response_text else thought_html_block
     else:
         return response_text.strip()
 
@@ -161,8 +155,7 @@ def save_message_to_log(log_file_path: str, header: str, text_content: str) -> N
             try:
                 with open(log_file_path, "rb") as f:
                     f.seek(-1, os.SEEK_END)
-                    if f.read(1) != b'
-':
+                    if f.read(1) != b'\n':
                         needs_leading_newline = True
             except IOError:
                 print(f"警告: ログファイル '{log_file_path}' の最終バイト確認中にエラー。")
@@ -170,13 +163,8 @@ def save_message_to_log(log_file_path: str, header: str, text_content: str) -> N
 
         with open(log_file_path, "a", encoding="utf-8") as f:
             if needs_leading_newline:
-                f.write("
-")
-            f.write(f"{header}
-
-{text_content.strip()}
-
-")
+                f.write("\n")
+            f.write(f"{header}\n\n{text_content.strip()}\n\n")
 
     except Exception as e:
         print(f"エラー: ログファイル '{log_file_path}' への書き込み中に予期せぬエラーが発生しました: {e}")
