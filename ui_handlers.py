@@ -1,3 +1,5 @@
+# ui_handlers.py ファイル全体を、この内容で置き換えてください
+
 # -*- coding: utf-8 -*-
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Union
@@ -9,15 +11,130 @@ import traceback
 import os
 import shutil
 import re
-import mimetypes # ← Add this line
+import mimetypes
+
 # --- モジュールインポート ---
 import config_manager
 import alarm_manager
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
-from gemini_api import configure_google_api, send_to_gemini, generate_image_with_gemini
+from gemini_api import configure_google_api, send_to_gemini
 from memory_manager import load_memory_data_safe, save_memory_data
-from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
+from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file, format_response_for_display
+
+# --- プライベートヘルパー関数 (リファクタリングで作成) ---
+
+def _validate_inputs(character_name: Optional[str], model_name: Optional[str], api_key_name: Optional[str]) -> Optional[str]:
+    """入力のバリデーションを行い、問題があればエラーメッセージを返す。"""
+    if not all([character_name, model_name, api_key_name]):
+        return "キャラクター、モデル、APIキーをすべて選択してください。"
+    return None
+
+def _prepare_user_turn(
+    log_file_path: str,
+    character_name: str,
+    user_prompt: str,
+    add_timestamp: bool,
+    file_input_list: Optional[List[str]]
+) -> Tuple[str, List[Dict[str, str]]]:
+    """ユーザーのターンを準備し、ログに記録し、API用の添付ファイルリストを返す。"""
+    # ユーザーヘッダーを取得し、メッセージをログに記録
+    user_header = _get_user_header_from_log(log_file_path, character_name)
+    timestamp = f"
+{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
+    save_message_to_log(log_file_path, user_header, user_prompt + timestamp)
+
+    # 添付ファイルをAPIが期待する形式に変換
+    formatted_files_for_api = []
+    if file_input_list:
+        for file_path in file_input_list:
+            mime_type, _ = mimetypes.guess_type(file_path)
+            if mime_type is None:
+                mime_type = "application/octet-stream"
+            formatted_files_for_api.append({"path": file_path, "mime_type": mime_type})
+            print(f"情報: ファイル '{os.path.basename(file_path)}' (MIME: {mime_type}) をAPI送信用に準備しました。")
+
+    return user_prompt, formatted_files_for_api
+
+def _call_gemini_and_handle_response(
+    system_prompt_path: str,
+    log_file_path: str,
+    user_prompt: str,
+    model_name: str,
+    character_name: str,
+    send_thoughts_state: bool,
+    api_history_limit_state: str,
+    formatted_files: List[Dict[str, str]],
+    memory_json_path: str
+) -> None:
+    """Gemini APIを呼び出し、応答をログに記録する。"""
+    api_response_text, generated_image_path = send_to_gemini(
+        system_prompt_path, log_file_path, user_prompt, model_name, character_name,
+        send_thoughts_state, api_history_limit_state, formatted_files, memory_json_path
+    )
+    if api_response_text or generated_image_path:
+        response_to_log = ""
+        if generated_image_path:
+            response_to_log += f"[Generated Image: {generated_image_path}]
+
+"
+        if api_response_text:
+            response_to_log += api_response_text
+        save_message_to_log(log_file_path, f"## {character_name}:", response_to_log)
+    else:
+        print("警告: APIから有効な応答がありませんでした。")
+
+# --- メインのメッセージ処理関数 (リファクタリング後) ---
+
+def handle_message_submission(*args):
+    """
+    ユーザーからのメッセージ送信を処理するメインハンドラ（監督役）。
+    """
+    (textbox_content, chatbot_history, current_character_name, current_model_name,
+     current_api_key_name_state, file_input_list, add_timestamp_checkbox,
+     send_thoughts_state, api_history_limit_state) = args
+
+    print(f"
+--- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
+
+    try:
+        # 1. バリデーション
+        error_msg = _validate_inputs(current_character_name, current_model_name, current_api_key_name_state)
+        if error_msg:
+            return chatbot_history, gr.update(), gr.update(value=None), error_msg
+
+        log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
+        if not all([log_f, sys_p, mem_p]):
+            return chatbot_history, gr.update(), gr.update(value=None), f"キャラクター '{current_character_name}' の必須ファイルパス取得に失敗。"
+
+        user_prompt_str = textbox_content.strip() if textbox_content else ""
+        if not user_prompt_str and not file_input_list:
+            return chatbot_history, gr.update(), gr.update(value=None), "メッセージまたはファイルを送信してください。"
+
+        # 2. ユーザーのターンを準備・記録
+        user_prompt, formatted_files = _prepare_user_turn(
+            log_f, current_character_name, user_prompt_str, add_timestamp_checkbox, file_input_list
+        )
+
+        # 3. API呼び出しと応答処理
+        _call_gemini_and_handle_response(
+            sys_p, log_f, user_prompt, current_model_name, current_character_name,
+            send_thoughts_state, api_history_limit_state, formatted_files, mem_p
+        )
+
+    except Exception as e:
+        traceback.print_exc()
+        # UIにエラーメッセージを返す
+        new_hist = format_history_for_gradio(load_chat_log(log_f, current_character_name)[-(config_manager.HISTORY_LIMIT * 2):])
+        return new_hist, gr.update(value=""), gr.update(value=None), f"メッセージ処理中に予期せぬエラーが発生しました: {e}"
+
+    # 4. UI更新
+    new_log = load_chat_log(log_f, current_character_name)
+    new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
+    return new_hist, gr.update(value=""), gr.update(value=None), ""
+
+
+# --- (以降の関数は、あなたのファイルにあるものと同じですが、念のため全て含めます) ---
 
 # --- Dataframe表示用データ整形関数 ---
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
@@ -46,18 +163,12 @@ def get_display_df(df_with_id: pd.DataFrame):
 
 # --- アラームDataframeイベントハンドラ ---
 def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame):
-    """Dataframeの行選択を処理し、選択されたIDのリストを返す。"""
     if evt.index is None or df_with_id is None or df_with_id.empty: return []
-
     selected_row_indices = []
-    # evt.index が単一の int (単一選択)か、int の list (複数選択)かを判定
     if isinstance(evt.index, list):
-        # 複数選択の場合、list of int が渡されることを想定
         selected_row_indices = sorted(list(set(evt.index)))
     elif isinstance(evt.index, int):
-        # 単一選択の場合、int が渡されることを想定
         selected_row_indices = [evt.index]
-
     selected_ids = []
     for row_index in selected_row_indices:
         if 0 <= row_index < len(df_with_id):
@@ -65,11 +176,9 @@ def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame):
     return selected_ids
 
 def toggle_selected_alarms_status(selected_ids: list, target_status: bool):
-    """選択されたアラームの状態を、指定された状態（有効/無効）に一括で変更する。"""
     if not selected_ids:
         gr.Warning("状態を変更するアラームが選択されていません。")
-        return render_alarms_as_dataframe() # DataFrameを返す
-
+        return render_alarms_as_dataframe()
     changed_count = 0
     status_text = "有効" if target_status else "無効"
     for alarm_id in selected_ids:
@@ -77,16 +186,13 @@ def toggle_selected_alarms_status(selected_ids: list, target_status: bool):
         if alarm and alarm.get("enabled") != target_status:
             if alarm_manager.toggle_alarm_enabled(alarm_id):
                 changed_count += 1
-
     if changed_count > 0:
         gr.Info(f"{changed_count}件のアラームを「{status_text}」に変更しました。")
     else:
         gr.Info("状態の変更はありませんでした。")
-
-    return render_alarms_as_dataframe() # DataFrameを返す
+    return render_alarms_as_dataframe()
 
 def handle_delete_selected_alarms(selected_ids: list):
-    """「削除」ボタンが押されたときの処理。"""
     if not selected_ids:
         gr.Warning("削除するアラームが選択されていません。")
     else:
@@ -98,7 +204,6 @@ def handle_delete_selected_alarms(selected_ids: list):
             gr.Info(f"{deleted_count}件のアラームを削除しました。")
         else:
             gr.Warning("選択されたアラームを削除できませんでした。")
-    # 処理後に必ず最新のデータを返す
     return render_alarms_as_dataframe()
 
 # --- タイマーイベントハンドラ ---
@@ -119,7 +224,6 @@ def handle_timer_submission(timer_type, duration, work_duration, break_duration,
             status_message = f"{work_duration}分作業/{break_duration}分休憩のポモドーロタイマーを開始。"
         else:
             return "エラー：不明なタイマータイプです。"
-
         unified_timer = UnifiedTimer(timer_type, float(duration or 0), float(work_duration or 0), float(break_duration or 0), int(cycles or 0), character_name, work_theme, break_theme, api_key_name, webhook_url, normal_timer_theme)
         unified_timer.start()
         gr.Info(f"{timer_type}を開始しました。")
@@ -137,20 +241,16 @@ def handle_timer_submission(timer_type, duration, work_duration, break_duration,
 def update_ui_on_character_change(character_name: Optional[str]):
     if not character_name:
         return None, [], "", None, "{}", None, "キャラ未選択"
-
     config_manager.save_config("last_character", character_name)
     log_f, _, img_p, mem_p = get_character_files_paths(character_name)
-
     chat_history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT * 2):]) if log_f and os.path.exists(log_f) else []
     log_content = ""
     if log_f and os.path.exists(log_f):
         try:
             with open(log_f, "r", encoding="utf-8") as f: log_content = f.read()
         except Exception as e_log: log_content = f"ログファイル読込エラー: {e_log}"
-
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
-
     return character_name, chat_history, "", profile_image, memory_str, character_name, log_content
 
 def update_model_state(model):
@@ -199,117 +299,36 @@ def handle_save_log_button_click(character_name, log_content):
         gr.Error(f"ログ保存エラー: {e}")
         traceback.print_exc()
 
-def handle_message_submission(*args):
-    # この関数は現在、アラームUIとは直接関係ないので、元のままとします。
-    # 実際のプロジェクトでは、この中のsend_to_geminiなどが新SDKに追随する必要がありますが、
-    # 今回のタスクのスコープ外とします。
-    # （ただし、元のファイルからコードをコピー＆ペーストします）
-    (textbox_content, chatbot_history, current_character_name, current_model_name,
-     current_api_key_name_state, file_input_list, add_timestamp_checkbox,
-     send_thoughts_state, api_history_limit_state) = args
-
-    print(f"\n--- メッセージ送信処理開始 --- {datetime.datetime.now()} ---")
-    error_message = ""
-
-    # 1. バリデーション
-    if not all([current_character_name, current_model_name, current_api_key_name_state]):
-        return chatbot_history, gr.update(), gr.update(), "キャラクター、モデル、APIキーをすべて選択してください。"
-
-    log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
-    if not all([log_f, sys_p, mem_p]):
-        return chatbot_history, gr.update(), gr.update(), f"キャラクター '{current_character_name}' の必須ファイルパス取得に失敗。"
-
-    user_prompt = textbox_content.strip() if textbox_content else ""
-    if not user_prompt and not file_input_list:
-        return chatbot_history, gr.update(), gr.update(), "メッセージまたはファイルを送信してください。"
-
-    # 2. ログ記録
-    user_header = _get_user_header_from_log(log_f, current_character_name)
-    timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
-    save_message_to_log(log_f, user_header, user_prompt + timestamp)
-
-    # --- ここからが新しい修正 ---
-    # 添付ファイルをAPIが期待する形式に変換する
-    formatted_files_for_api = []
-    if file_input_list: # Check if the list is not None and not empty
-        for file_path in file_input_list:
-            mime_type, _ = mimetypes.guess_type(file_path)
-            if mime_type is None:
-                mime_type = "application/octet-stream" # Default for unknown types
-            formatted_files_for_api.append({"path": file_path, "mime_type": mime_type})
-            print(f"情報: ファイル '{os.path.basename(file_path)}' (MIME: {mime_type}) をAPI送信用に準備しました。")
-    # --- ここまでが新しい修正 ---
-
-    # 3. API送信と応答処理
-    try:
-        api_response_text, generated_image_path = send_to_gemini(
-            sys_p, log_f, user_prompt, current_model_name, current_character_name,
-            send_thoughts_state, api_history_limit_state, formatted_files_for_api, mem_p # ← Use the new list here
-        )
-        if api_response_text or generated_image_path:
-            response_to_log = ""
-            if generated_image_path:
-                response_to_log += f"[Generated Image: {generated_image_path}]\n\n"
-            if api_response_text:
-                response_to_log += api_response_text
-            save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
-        else:
-            error_message = "APIから有効な応答がありませんでした。"
-    except Exception as e:
-        traceback.print_exc()
-        error_message = f"メッセージ処理中にエラーが発生しました: {e}"
-
-    # 4. UI更新
-    new_log = load_chat_log(log_f, current_character_name)
-    new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
-    return new_hist, gr.update(value=""), gr.update(value=None), error_message
-
 def load_alarm_to_form(selected_ids: list):
-    """選択された最初のアラームIDをフォームに読み込む。編集対象のIDも返す。"""
     if not selected_ids or len(selected_ids) != 1:
-        # 選択解除時や複数選択時はフォームと編集IDをリセット
         return "アラーム追加", "", "", "", [], "08", "00", None
-
     alarm_id = selected_ids[0]
     alarm = alarm_manager.get_alarm_by_id(alarm_id)
     if not alarm:
         return "アラーム追加", "", "", "", [], "08", "00", None
-
     hour, minute = alarm.get("time", "08:00").split(":")
     theme = alarm.get("theme", "")
     prompt = alarm.get("flash_prompt_template", "")
     character = alarm.get("character", "")
     days_en = alarm.get("days", [])
-    # 正しい曜日マップ(DAY_MAP_EN_TO_JA)を使用して日本語に変換
     days_ja = [DAY_MAP_EN_TO_JA.get(d) for d in days_en if DAY_MAP_EN_TO_JA.get(d)]
-
-    # ボタンテキストの変更と、フォームへの値設定、そして「編集中のID」を返す
     return f"アラーム更新 (ID: {alarm_id[:8]})", theme, prompt, character, days_ja, hour, minute, alarm_id
 
 def handle_add_or_update_alarm(editing_alarm_id, hour, minute, char, theme, prompt, days):
-    """IDの有無に応じてアラームの追加または更新を行う。"""
-    # 更新処理 (編集中のIDが存在する場合)
     if editing_alarm_id:
         try:
-            # 先に新しいアラームが追加可能か試す（add_alarmはデータをメモリに追加するだけ）
             if alarm_manager.add_alarm(hour, minute, char, theme, prompt, days):
-                # 成功した場合のみ、古いアラームを削除する
                 alarm_manager.delete_alarm(editing_alarm_id)
                 gr.Info(f"アラーム(ID: {editing_alarm_id[:8]})を更新しました。")
             else:
                 gr.Warning("アラームの更新に失敗しました（データ検証エラー）。")
         except Exception as e:
             gr.Error(f"アラーム更新処理中にエラー: {e}")
-    # 追加処理 (編集中のIDが存在しない場合)
     else:
         if alarm_manager.add_alarm(hour, minute, char, theme, prompt, days):
             gr.Info("アラームを追加しました。")
         else:
             gr.Warning("アラームの追加に失敗しました。")
-
-    # 処理後にリストをリフレッシュし、フォームをリセット
     new_df_with_ids = render_alarms_as_dataframe()
     new_display_df = get_display_df(new_df_with_ids)
-
-    # ボタンテキストを「アラーム追加」に戻し、フォームと編集IDを初期値にリセット
     return new_display_df, new_df_with_ids, "アラーム追加", "", "", char, ["月","火","水","木","金","土","日"], "08", "00", None
