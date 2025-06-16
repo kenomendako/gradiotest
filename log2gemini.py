@@ -117,7 +117,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             file_upload_button = gr.Files(
                 label="ファイル添付",
                 type="filepath",
-                file_count=10,  # 本来の最大数に戻す
+                file_count="multiple",  # 数字ではなく、正しい文字列'multiple'に修正
                 file_types=[
                     # 画像
                     '.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif',
@@ -129,8 +129,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                     '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf'
                 ]
             )
-            # 説明文も、本来の仕様を正しく反映したものに更新
-            gr.Markdown("ℹ️ *最大10個のファイル (画像, 音声, 動画, テキスト, PDF等) を添付できます。*")
+            # 説明文も、Gradioの仕様に合わせた、より正確な表現に修正
+            gr.Markdown("ℹ️ *複数のファイル (画像, 音声, 動画, テキスト, PDF等) を添付できます。*")
 
     # --- イベントリスナー定義 ---
     def initial_load(char_name_to_load):
