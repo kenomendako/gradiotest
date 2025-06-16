@@ -9,6 +9,7 @@ import traceback
 import os
 import shutil
 import re
+import mimetypes # ← Add this line
 # --- モジュールインポート ---
 import config_manager
 import alarm_manager
@@ -227,11 +228,23 @@ def handle_message_submission(*args):
     timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
     save_message_to_log(log_f, user_header, user_prompt + timestamp)
 
+    # --- ここからが新しい修正 ---
+    # 添付ファイルをAPIが期待する形式に変換する
+    formatted_files_for_api = []
+    if file_input_list: # Check if the list is not None and not empty
+        for file_path in file_input_list:
+            mime_type, _ = mimetypes.guess_type(file_path)
+            if mime_type is None:
+                mime_type = "application/octet-stream" # Default for unknown types
+            formatted_files_for_api.append({"path": file_path, "mime_type": mime_type})
+            print(f"情報: ファイル '{os.path.basename(file_path)}' (MIME: {mime_type}) をAPI送信用に準備しました。")
+    # --- ここまでが新しい修正 ---
+
     # 3. API送信と応答処理
     try:
         api_response_text, generated_image_path = send_to_gemini(
             sys_p, log_f, user_prompt, current_model_name, current_character_name,
-            send_thoughts_state, api_history_limit_state, file_input_list, mem_p
+            send_thoughts_state, api_history_limit_state, formatted_files_for_api, mem_p # ← Use the new list here
         )
         if api_response_text or generated_image_path:
             response_to_log = ""
