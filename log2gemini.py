@@ -65,7 +65,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             with gr.Accordion("📗 チャットログ編集 (`log.txt`)", open=False) as log_accordion:
                 log_editor = gr.Code(label="ログ内容 (直接編集可能)", interactive=True, elem_id="log_editor_code")
                 save_log_button = gr.Button(value="ログを保存", variant="secondary")
-                reload_log_button = gr.Button(value="ログ再読込", variant="secondary")
+                editor_reload_button = gr.Button(value="ログ再読込", variant="secondary") # ← Changed
 
             # --- 新しいアラームUI ---
             with gr.Accordion("🐦 アラーム設定", open=False) as alarm_accordion:
@@ -112,7 +112,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
             with gr.Row():
                 submit_button = gr.Button("送信", variant="primary", scale=4)
-                reload_log_button = gr.Button("🔄 更新", scale=1)
+                chat_reload_button = gr.Button("🔄 更新", scale=1) # ← Changed
 
             file_upload_button = gr.Files(label="ファイル添付 (複数可)", type="filepath")
 
@@ -234,7 +234,10 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     ).then(fn=lambda: gr.Info("記憶を保存しました。"))
 
     save_log_button.click(fn=ui_handlers.handle_save_log_button_click, inputs=[current_character_name, log_editor], outputs=[])
-    reload_log_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name], outputs=[chatbot_display, log_editor])
+    editor_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name], outputs=[chatbot_display, log_editor])
+
+    # チャット表示の更新ボタンのイベント
+    chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name], outputs=[chatbot_display, log_editor])
 
     chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button]
     chat_input_textbox.submit(
