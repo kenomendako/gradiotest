@@ -112,25 +112,29 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
             with gr.Row():
                 submit_button = gr.Button("送信", variant="primary", scale=4)
-                chat_reload_button = gr.Button("🔄 更新", scale=1) # ← Changed
+                chat_reload_button = gr.Button("🔄 更新", scale=1)
 
+            # 1. 対応するファイルタイプのリストを変数として定義
+            allowed_file_types = [
+                # 画像
+                '.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif',
+                # 音声
+                '.mp3', '.wav', '.flac', '.aac',
+                # 動画
+                '.mp4', '.mov', '.avi', '.webm',
+                # テキスト・ドキュメント
+                '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf'
+            ]
+
+            # 2. gr.Files でその変数を使用
             file_upload_button = gr.Files(
                 label="ファイル添付",
                 type="filepath",
-                file_count="multiple",  # 数字ではなく、正しい文字列'multiple'に修正
-                file_types=[
-                    # 画像
-                    '.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif',
-                    # 音声
-                    '.mp3', '.wav', '.flac', '.aac',
-                    # 動画
-                    '.mp4', '.mov', '.avi', '.webm',
-                    # テキスト・ドキュメント
-                    '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf'
-                ]
+                file_count="multiple",
+                file_types=allowed_file_types
             )
-            # 説明文も、Gradioの仕様に合わせた、より正確な表現に修正
-            gr.Markdown("ℹ️ *複数のファイル (画像, 音声, 動画, テキスト, PDF等) を添付できます。*")
+            # 3. gr.Markdown で変数の内容を動的に表示
+            gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
     # --- イベントリスナー定義 ---
     def initial_load(char_name_to_load):
