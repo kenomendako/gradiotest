@@ -144,18 +144,25 @@ def handle_message_submission(*args: Any) -> Tuple[List, gr.update, gr.update]:
     return new_hist, gr.update(value=""), gr.update(value=None)
 # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
-# --- (以降の関数は変更なし) ---
+# ui_handlers.py のアラーム関連ハンドラ (修正後)
+
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
+DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
+
 def render_alarms_as_dataframe():
-    all_alarms = alarm_manager.get_all_alarms()
+    """アラームリストからDataFrameを生成する。ID列を含む。"""
+    all_alarms = alarm_manager.get_all_alarms() # list of dicts
     df_data = []
-    for alarm_id, alarm_data in all_alarms.items():
-        days_ja = [DAY_MAP_EN_TO_JA[day] for day in alarm_data.get("days", [])]
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★ ここがlistを正しくループする修正箇所です ★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    for alarm_data in all_alarms:
+        days_ja_str = ", ".join([DAY_MAP_EN_TO_JA.get(d, "?") for d in alarm_data.get("days", [])])
         df_data.append({
-            "id": alarm_id,
+            "id": alarm_data.get("id"),
             "状態": alarm_data.get("enabled", False),
             "時刻": alarm_data.get("time", ""),
-            "曜日": ", ".join(days_ja),
+            "曜日": days_ja_str,
             "キャラ": alarm_data.get("character", ""),
             "テーマ": alarm_data.get("theme", "")
         })
@@ -165,92 +172,117 @@ def render_alarms_as_dataframe():
     return df
 
 def get_display_df(df_with_ids: pd.DataFrame) -> pd.DataFrame:
-    if df_with_ids.empty:
+    """表示用のDataFrameからID列を除外する。"""
+    if df_with_ids.empty or "id" not in df_with_ids.columns:
         return pd.DataFrame(columns=["状態", "時刻", "曜日", "キャラ", "テーマ"])
     return df_with_ids[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
 
 def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.SelectData):
-    if evt.index is None or df_with_ids.empty:
+    """Dataframeでの行選択を処理し、選択されたIDとフィードバックメッセージを返す。"""
+    if evt.index is None or df_with_ids.empty or not isinstance(evt.index, tuple):
         return [], "アラームを選択してください"
 
-    selected_row_indices = [idx[0] for idx in evt.index] if isinstance(evt.index, list) else [evt.index[0]]
+    selected_row_index = evt.index[0]
 
-    if not selected_row_indices: # 選択解除された場合
-        return [], "アラームを選択してください"
-
-    selected_ids = df_with_ids.iloc[selected_row_indices]["id"].tolist()
-
-    if not selected_ids:
+    if selected_row_index >= len(df_with_ids):
          return [], "アラームを選択してください"
 
-    feedback_message = ""
-    if len(selected_ids) == 1:
-        selected_alarm = df_with_ids[df_with_ids["id"] == selected_ids[0]].iloc[0]
-        feedback_message = f"選択中: 「{selected_alarm['テーマ']}」 ({selected_alarm['時刻']})"
-    else:
-        feedback_message = f"{len(selected_ids)}件のアラームを選択中"
+    selected_id = df_with_ids.iloc[selected_row_index]["id"]
+    selected_alarm = df_with_ids.iloc[selected_row_index]
+    feedback_message = f"選択中: 「{selected_alarm['テーマ']}」 ({selected_alarm['時刻']})"
 
-    return selected_ids, feedback_message
+    return [selected_id], feedback_message
 
 
-def load_alarm_to_form(selected_ids: List[str]):
-    if not selected_ids or len(selected_ids) != 1: # 単一選択時のみフォームにロード
-        return gr.update(value="アラーム追加"), "", "", character_manager.get_character_list()[0] if character_manager.get_character_list() else "Default", list(DAY_MAP_EN_TO_JA.values()), "08", "00", None
+def load_alarm_to_form(selected_ids: list[str]): # Changed List[str] to list[str] for compatibility
+    """単一のアラームが選択された場合、その情報を編集フォームに読み込む。"""
+    # 選択解除時、または複数選択時はフォームをリセット
+    if not selected_ids or len(selected_ids) != 1:
+        char_list = character_manager.get_character_list()
+        default_char = char_list[0] if char_list else None
+        return gr.update(value="アラーム追加"), "", "", default_char, list(DAY_MAP_JA_TO_EN.values()), "08", "00", None
 
     alarm_id = selected_ids[0]
-    alarm_data = alarm_manager.get_alarm(alarm_id)
+    alarm_data = alarm_manager.get_alarm_by_id(alarm_id) # ★ get_alarm -> get_alarm_by_id に修正
+
     if not alarm_data:
-        return gr.update(value="アラーム追加"), "", "", character_manager.get_character_list()[0] if character_manager.get_character_list() else "Default", list(DAY_MAP_EN_TO_JA.values()), "08", "00", None
+        gr.Warning(f"ID '{alarm_id}'のアラームが見つかりません。")
+        return gr.update(value="アラーム追加"), "", "", None, [], "08", "00", None
 
     hour, minute = alarm_data.get("time", "08:00").split(":")
     days_ja = [DAY_MAP_EN_TO_JA[day] for day in alarm_data.get("days", [])]
 
-    return (gr.update(value="アラーム更新"), alarm_data.get("theme", ""), alarm_data.get("prompt", ""), alarm_data.get("character", ""),
-            days_ja, hour, minute, alarm_id)
+    # ★ prompt -> flash_prompt_template にキーを修正
+    return (gr.update(value="アラーム更新"), alarm_data.get("theme", ""), alarm_data.get("flash_prompt_template", ""),
+            alarm_data.get("character", ""), days_ja, hour, minute, alarm_id)
 
 
-def toggle_selected_alarms_status(selected_ids: List[str], new_status: bool):
+def toggle_selected_alarms_status(selected_ids: list[str], new_status: bool): # Changed List[str] to list[str]
+    """選択されたアラームの有効/無効を切り替える。"""
     if not selected_ids:
         gr.Warning("操作するアラームが選択されていません。")
         return render_alarms_as_dataframe()
+
     for alarm_id in selected_ids:
+        # ★ update_alarm を正しく使用
         alarm_manager.update_alarm(alarm_id, {"enabled": new_status})
+
     status_text = "有効化" if new_status else "無効化"
     gr.Info(f"{len(selected_ids)}件のアラームを{status_text}しました。")
     return render_alarms_as_dataframe()
 
-def handle_delete_selected_alarms(selected_ids: List[str]):
+def handle_delete_selected_alarms(selected_ids: list[str]): # Changed List[str] to list[str]
+    """選択されたアラームを削除する。"""
     if not selected_ids:
         gr.Warning("削除するアラームが選択されていません。")
         return render_alarms_as_dataframe()
+
+    count = 0
     for alarm_id in selected_ids:
-        alarm_manager.delete_alarm(alarm_id)
-    gr.Info(f"{len(selected_ids)}件のアラームを削除しました。")
+        if alarm_manager.delete_alarm(alarm_id):
+            count += 1
+
+    gr.Info(f"{count}件のアラームを削除しました。")
     return render_alarms_as_dataframe()
 
-DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
-def handle_add_or_update_alarm(editing_alarm_id, hour, minute, character, theme, prompt, days_ja):
-    if not all([hour, minute, character, theme, days_ja]):
-        gr.Warning("時刻、キャラ、テーマ、曜日をすべて入力してください。")
-        current_df = render_alarms_as_dataframe()
-        return current_df, current_df, "アラーム追加", theme, prompt, character, days_ja, hour, minute, editing_alarm_id
 
-    time_str = f"{hour}:{minute}"
-    days_en = [DAY_MAP_JA_TO_EN[day] for day in days_ja]
-    alarm_data = {"time": time_str, "character": character, "theme": theme, "prompt": prompt, "days": days_en, "enabled": True}
+def handle_add_or_update_alarm(editing_alarm_id, hour, minute, character, theme, flash_prompt, days_ja):
+    """アラームの追加または更新を行う。"""
+    if not character:
+        gr.Warning("キャラクターを選択してください。")
+        # 戻り値のタプルの要素数をUIのoutputsに合わせる
+        return render_alarms_as_dataframe(), render_alarms_as_dataframe(), "アラーム追加", theme, flash_prompt, character, days_ja, hour, minute, editing_alarm_id
 
-    if editing_alarm_id: # 更新の場合
-        alarm_manager.update_alarm(editing_alarm_id, alarm_data)
+    if not theme or not theme.strip():
+        gr.Warning("テーマを入力してください。")
+        return render_alarms_as_dataframe(), render_alarms_as_dataframe(), "アラーム追加", theme, flash_prompt, character, days_ja, hour, minute, editing_alarm_id
+
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★ ここが追加と更新のロジックを正しく分岐させる修正箇所です ★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+    if editing_alarm_id:  # 更新の場合
+        days_en = [DAY_MAP_JA_TO_EN.get(day) for day in days_ja if DAY_MAP_JA_TO_EN.get(day)]
+        update_data = {
+            "time": f"{hour}:{minute}",
+            "character": character,
+            "theme": theme,
+            "flash_prompt_template": flash_prompt,
+            "days": days_en,
+        }
+        alarm_manager.update_alarm(editing_alarm_id, update_data)
         gr.Info(f"アラーム「{theme}」を更新しました。")
-    else: # 新規追加の場合
-        alarm_manager.add_alarm(alarm_data)
+    else:  # 新規追加の場合
+        alarm_manager.add_alarm(hour, minute, character, theme, flash_prompt, days_ja)
         gr.Info(f"アラーム「{theme}」を追加しました。")
 
+    # フォームをリセットするための値
     new_df = render_alarms_as_dataframe()
-    # フォームをリセット
     all_chars = character_manager.get_character_list()
-    default_char = all_chars[0] if all_chars else "Default"
-    return new_df, new_df, "アラーム追加", "", "", default_char, list(DAY_MAP_EN_TO_JA.values()), "08", "00", None
+    default_char = all_chars[0] if all_chars else None
+
+    return (new_df, new_df, "アラーム追加", "", "", default_char,
+            list(DAY_MAP_JA_TO_EN.values()), "08", "00", None)
 
 
 def update_model_state(new_model_name: str):
