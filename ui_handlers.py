@@ -108,19 +108,19 @@ def handle_message_submission(*args: Any) -> Tuple[List, gr.update, gr.update]:
         timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
 
-        uploaded_files_info = [] # ★変数名を変更
+        uploaded_files_info = []
         if file_input_list:
             for file_path in file_input_list:
                 mime_type, _ = mimetypes.guess_type(file_path)
                 if mime_type is None: mime_type = "application/octet-stream"
-                uploaded_files_info.append({"path": file_path, "mime_type": mime_type}) # ★変数名を変更
+                uploaded_files_info.append({"path": file_path, "mime_type": mime_type})
         # --- ここまでが正しいファイル処理ロジック ---
 
         api_response_text, generated_image_path = send_to_gemini(
             sys_p, log_f, user_prompt, current_model_name,
             current_character_name, send_thoughts_state,
             api_history_limit_state,
-            uploaded_files_info, # ★引数名を変更
+            uploaded_files_info,
             mem_p
         )
 
@@ -333,35 +333,46 @@ def handle_timer_submission(timer_type, duration, work_time, break_time, cycles,
     if not api_key_name:
         return "APIキーを選択してください。"
 
+    # シングルトンインスタンスを取得
     timer = UnifiedTimer.get_instance()
-    timer.stop() # 既存のタイマーがあれば停止
+    # 既存のタイマーが動いていれば停止する
+    timer.stop()
 
-    timer.character_name = char_name
-    timer.api_key_name = api_key_name
-    timer.webhook_url = webhook_url
+    # タイマーの共通プロパティを設定
+    timer.set_properties(
+        character_name=char_name,
+        api_key_name=api_key_name,
+        webhook_url=webhook_url
+    )
 
+    status_message = ""
     if timer_type == "通常タイマー":
         if not duration or duration <= 0:
             return "タイマー時間を正しく設定してください。"
-        timer.set_normal_timer(duration * 60, normal_theme if normal_theme else "タイマー終了！")
-        status_message = f"{char_name}さんによる「{normal_theme if normal_theme else 'タイマー終了！'}」タイマーを{duration}分でセットしました。"
+        theme = normal_theme if normal_theme and normal_theme.strip() else "タイマー終了！"
+        timer.set_normal_timer(duration * 60, theme)
+        status_message = f"{char_name}さんによる「{theme}」タイマーを{duration}分でセットしました。"
+
     elif timer_type == "ポモドーロタイマー":
         if not work_time or work_time <=0 or not break_time or break_time <=0 or not cycles or cycles <=0:
              return "ポモドーロタイマーの各時間を正しく設定してください。"
-        timer.set_pomodoro(work_time * 60, break_time * 60, cycles,
-                           work_theme if work_theme else "作業終了！",
-                           break_theme if break_theme else "休憩終了！")
+        work_t = work_theme if work_theme and work_theme.strip() else "作業終了！"
+        break_t = break_theme if break_theme and break_theme.strip() else "休憩終了！"
+        timer.set_pomodoro(work_time * 60, break_time * 60, cycles, work_t, break_t)
         status_message = f"{char_name}さんによるポモドーロタイマーをセットしました (作業{work_time}分, 休憩{break_time}分, {cycles}サイクル)。"
+
     else:
         return "無効なタイマー種別です。"
 
+    # 設定した内容でタイマーを開始
     timer.start()
     gr.Info(status_message)
     return status_message
 
 # アプリケーション起動時に既存のタイマーインスタンスがあれば停止する
 def stop_existing_timer_on_startup():
-    timer = UnifiedTimer.get_instance(stop_existing=True)
+    # get_instanceは初回呼び出し時にインスタンスを作成するだけ
+    timer = UnifiedTimer.get_instance()
     if timer.is_running():
         timer.stop()
         print("アプリケーション再起動のため、既存のタイマーを停止しました。")
