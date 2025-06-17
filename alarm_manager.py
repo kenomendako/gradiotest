@@ -1,4 +1,4 @@
-# alarm_manager.py (修正後)
+# alarm_manager.py (構文エラー修正版)
 import os
 import json
 import re
@@ -113,12 +113,12 @@ def get_all_alarms() -> list:
 
 def get_alarm_by_id(alarm_id: str):
     global alarms_data_global
+    load_alarms() # 念のため最新の状態を読み込む
     for alarm in alarms_data_global:
         if alarm.get("id") == alarm_id:
             return alarm
     return None
 
-# --- (以降の Webhook, スケジューラ関連のコードは変更なし) ---
 def send_webhook_notification(webhook_url, message_text):
     if not webhook_url or not message_text: return False
     headers = {'Content-Type': 'application/json'}
@@ -148,17 +148,18 @@ def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
         save_message_to_log(log_f, f"## {c}:", response_text)
         print(f"アラームログ記録完了 (ID:{id})")
         if webhook_url:
-            send_webhook_notification(webhook_url, f"⏰  {c}
-
-{response_text}
-")
+            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+            # ★★★ ここが構文エラーの修正箇所です ★★★
+            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+            notification_message = f"⏰  {c}\n\n{response_text}\n" # Corrected f-string
+            send_webhook_notification(webhook_url, notification_message)
 
 def check_alarms():
     now_dt = datetime.datetime.now()
     now_t, current_day_short = now_dt.strftime("%H:%M"), now_dt.strftime('%a').lower()
     current_api_key, webhook_url = config_manager.initial_api_key_name_global, config_manager.initial_notification_webhook_url_global
     if not current_api_key: return
-    current_alarms = get_all_alarms() # 常に最新を読み込む
+    current_alarms = get_all_alarms()
     for a in current_alarms:
         if a.get("enabled") and a.get("time") == now_t and current_day_short in a.get("days", []):
             try:
