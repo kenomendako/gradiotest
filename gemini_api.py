@@ -150,10 +150,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                     # ★★★ これがFile APIの正しい呼び出し方です (path引数ではなくfile引数) ★★★
                     # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
                     with open(file_path, "rb") as f:
-                        uploaded_file = _gemini_client.files.upload(
-                            file=f,
-                            display_name=os.path.basename(file_path)
-                        )
+                        uploaded_file = _gemini_client.files.upload(file=f)
                         current_turn_parts.append(uploaded_file)
                     print(f"情報: ファイル '{uploaded_file.display_name}' のアップロード完了。")
 

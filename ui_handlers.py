@@ -180,36 +180,37 @@ def get_display_df(df_with_ids: pd.DataFrame) -> pd.DataFrame:
 # ui_handlers.py (関数を置き換え)
 
 def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.SelectData):
-    """Dataframeでの行選択を処理し、選択されたIDとフィードバックメッセージを返す。複数選択対応版。"""
+    """Dataframeでの行選択を処理し、選択されたIDとフィードバックメッセージを返す。"""
 
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    # ★★★ ここが複数選択イベントを正しく処理する修正箇所です ★★★
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★ これが単一選択イベント(evt.indexがタプル)を正しく処理する修正箇所です ★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
-    # evt.indexは選択されたセルのインデックスのリスト [(row, col), (row, col), ...]
-    if not evt.index or df_with_ids.empty:
+    if not isinstance(evt.index, tuple) or len(evt.index) != 2:
+        # 選択が解除されたか、不正なイベントデータの場合はリセット
         return [], "アラームを選択してください"
 
-    # 選択された行のインデックスだけを重複なく抽出
-    selected_row_indices = sorted(list(set([idx[0] for idx in evt.index])))
+    # evt.index は (行インデックス, 列インデックス) というタプル
+    selected_row_index = evt.index[0]
 
-    if not selected_row_indices:
+    # DataFrameの範囲外を念のためチェック
+    if df_with_ids.empty or selected_row_index >= len(df_with_ids):
         return [], "アラームを選択してください"
 
-    # 行インデックスを使って、元のDataFrameからIDを取得
-    selected_ids = df_with_ids.iloc[selected_row_indices]["id"].tolist()
-
-    if not selected_ids:
-         return [], "アラームを選択してください"
+    # 行インデックスを使って、元のDataFrameからIDとテーマを取得
+    try:
+        selected_id = df_with_ids.iloc[selected_row_index]["id"]
+        selected_alarm_theme = df_with_ids.iloc[selected_row_index]["テーマ"]
+        selected_alarm_time = df_with_ids.iloc[selected_row_index]["時刻"]
+    except (IndexError, KeyError) as e:
+        print(f"エラー: 選択された行のデータ取得に失敗: {e}")
+        return [], "エラーが発生しました。再度選択してください。"
 
     # フィードバックメッセージを作成
-    if len(selected_ids) == 1:
-        selected_alarm = df_with_ids.iloc[selected_row_indices[0]]
-        feedback_message = f"選択中: 「{selected_alarm['テーマ']}」 ({selected_alarm['時刻']})"
-    else:
-        feedback_message = f"{len(selected_ids)}件のアラームを選択中"
+    feedback_message = f"選択中: 「{selected_alarm_theme}」 ({selected_alarm_time})"
 
-    return selected_ids, feedback_message
+    # IDはリスト形式で返す
+    return [selected_id], feedback_message
 
 
 def load_alarm_to_form(selected_ids: list[str]): # Changed List[str] to list[str] for compatibility
