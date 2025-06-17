@@ -1,4 +1,4 @@
-# character_manager.py の【確定版】
+# character_manager.py の【最終確定版】
 
 import os
 import json
@@ -7,7 +7,8 @@ from config_manager import CHARACTERS_DIR, PROFILE_IMAGE_FILENAME, MEMORY_FILENA
 
 def ensure_character_files(character_name):
     if not character_name or not isinstance(character_name, str) or not character_name.strip(): return False
-    if ".." in character_name or "/" in character_name or "\" in character_name: return False
+    # ★★★ ここが修正箇所 ★★★
+    if ".." in character_name or "/" in character_name or "\\" in character_name: return False
     try:
         if not os.path.exists(CHARACTERS_DIR): os.makedirs(CHARACTERS_DIR)
         elif not os.path.isdir(CHARACTERS_DIR): return False
@@ -18,9 +19,7 @@ def ensure_character_files(character_name):
         if not os.path.exists(base_path): os.makedirs(base_path)
         if not os.path.exists(log_file): open(log_file, "w", encoding="utf-8").close()
 
-        # ★★★ ここからが修正箇所 ★★★
         if not os.path.exists(system_prompt_file):
-            # あなたが推敲した、新しいデフォルトプロンプトに置き換え
             default_prompt = """あなたは、ユーザーとの対話を豊かにするための、いくつかの特別な能力を持つ、心ある対話パートナーです。
 
 ---
@@ -72,7 +71,6 @@ def ensure_character_files(character_name):
 これらの能力を最大限に活用し、あなたらしく、ユーザーとの対話を最高の体験にしてください。
 """
             with open(system_prompt_file, "w", encoding="utf-8") as f: f.write(default_prompt)
-        # ★★★ 修正ここまで ★★★
 
         if not os.path.exists(memory_json_file):
             default_memory_data = {"last_updated": None, "user_profile": {}, "relationship_history": [], "emotional_moments": [], "current_context": {}, "self_identity": {"name": character_name, "values": [], "style": "", "origin": ""}, "shared_language": {}, "memory_summary": []}
