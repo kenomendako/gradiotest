@@ -1,43 +1,45 @@
-# config_manager.py
+# config_manager.py (最終・完全・確定版)
 import json
 import os
 import traceback
-from google.generativeai import types as genai_types # Assuming this is used or was planned
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# ★★★ これがプロジェクト規約に準拠した、唯一の正しいインポート文です ★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+from google.genai import types
 
 # --- 設定関連定数 ---
 CONFIG_FILE = "config.json"
-DEFAULT_API_HISTORY_LIMIT_OPTION = "直近5ターン"
-API_HISTORY_LIMIT_OPTIONS = [DEFAULT_API_HISTORY_LIMIT_OPTION, "直近10ターン", "直近15ターン", "直近20ターン", "制限なし"]
-DEFAULT_ALARM_MODEL = "gemini-1.0-pro" # Default, will be overridden by config if available
-DEFAULT_ALARM_API_HISTORY_TURNS = 5
-DEFAULT_NOTIFICATION_WEBHOOK_URL = None
-ALARMS_FILE = "alarms.json" # Added as per alarm_manager.py usage
+ALARMS_FILE = "alarms.json" # Added from user's final version
+CHARACTERS_DIR = "characters" # Added from user's final version
+PROFILE_IMAGE_FILENAME = "profile.png" # Added from user's final version
+MEMORY_FILENAME = "memory.json" # Added from user's final version
+HISTORY_LIMIT = 20 # Added from user's final version
+MEMORY_SUMMARY_LIMIT_FOR_API = 3 # Added from user's final version
+API_HISTORY_LIMIT_OPTIONS = {"10": "10往復", "20": "20往復", "30": "30往復", "40": "40往復", "50": "50往復", "60": "60往復", "all": "全ログ"} # Added from user's final version
+DEFAULT_API_HISTORY_LIMIT_OPTION = "all" # Added from user's final version
+DEFAULT_ALARM_MODEL = "gemini-1.5-flash-latest" # Added from user's final version
+DEFAULT_ALARM_API_HISTORY_TURNS = 1 # Added from user's final version
+DEFAULT_NOTIFICATION_WEBHOOK_URL = None # Consistent
+SAFETY_CONFIG = {types.HarmCategory.HARM_CATEGORY_HATE_SPEECH: types.HarmBlockThreshold.BLOCK_NONE, types.HarmCategory.HARM_CATEGORY_HARASSMENT: types.HarmBlockThreshold.BLOCK_NONE, types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: types.HarmBlockThreshold.BLOCK_NONE, types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: types.HarmBlockThreshold.BLOCK_NONE} # Added from user's final version
+
 
 # --- 設定関連グローバル変数 (他モジュールから参照される) ---
-API_KEYS = {}
-AVAILABLE_MODELS_GLOBAL = []
-DEFAULT_MODEL_GLOBAL = None
-initial_api_key_name_global = None
-initial_character_global = None
-initial_model_global = None
-initial_add_timestamp_global = False
-initial_send_thoughts_to_api_global = True
-initial_api_history_limit_option_global = DEFAULT_API_HISTORY_LIMIT_OPTION
-initial_alarm_model_global = DEFAULT_ALARM_MODEL
-initial_alarm_api_history_turns_global = DEFAULT_ALARM_API_HISTORY_TURNS
-initial_notification_webhook_url_global = DEFAULT_NOTIFICATION_WEBHOOK_URL
+initial_character_global = None # Consistent
+initial_model_global = None # Consistent
+initial_api_key_name_global = None # Consistent
+initial_add_timestamp_global = False # Consistent
+initial_send_thoughts_to_api_global = True # Consistent
+initial_api_history_limit_option_global = DEFAULT_API_HISTORY_LIMIT_OPTION # Consistent
+initial_alarm_model_global = DEFAULT_ALARM_MODEL # Consistent
+initial_alarm_api_history_turns_global = DEFAULT_ALARM_API_HISTORY_TURNS # Consistent
+initial_notification_webhook_url_global = DEFAULT_NOTIFICATION_WEBHOOK_URL # Consistent
+API_KEYS = {} # Consistent
+AVAILABLE_MODELS_GLOBAL = [] # Consistent
+DEFAULT_MODEL_GLOBAL = None # Consistent
 
 # --- 設定ファイル読み書き関数 ---
-
 def get_character_list():
-    """
-    キャラクターリストを取得します.
-    循環参照を避けるため、この関数の中で character_manager をインポートします.
-    """
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    # ★★★ これが循環参照を解決する、唯一の正しい修正です ★★★
-    # ★★★ インポート文を、それが必要な関数の内部に移動します ★★★
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    """キャラクターリストを取得します。循環参照を避けるため、この関数の中で character_manager をインポートします。""" # Docstring from user's final version
     from character_manager import get_character_list as get_char_list_impl
     return get_char_list_impl()
 
@@ -60,19 +62,16 @@ def load_config():
     }
     config = {}
     if not os.path.exists(CONFIG_FILE):
-        print(f"情報: '{CONFIG_FILE}' なし.デフォルト作成.APIキーとWebhook URL(任意)の編集要."); config = default_config # Corrected period
+        print(f"情報: '{CONFIG_FILE}' なし。デフォルト作成。APIキーとWebhook URL(任意)の編集要."); config = default_config
         try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(config, f, indent=2, ensure_ascii=False); print(f"'{CONFIG_FILE}' 作成完了.") # Corrected period
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(config, f, indent=2, ensure_ascii=False); print(f"'{CONFIG_FILE}' 作成完了.")
         except Exception as e: print(f"設定ファイル作成失敗: {e}")
     else:
         try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                config = json.load(f)
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f: config = json.load(f)
         except json.JSONDecodeError as e:
-            print(f"JSONデコードエラー: {e}")
-            print(f"エラー発生位置: {e.pos} (行: {e.lineno}, 列: {e.colno})")
-            raise
-        except Exception as e: print(f"'{CONFIG_FILE}' 読込エラー: {e}.デフォルト設定使用."); config = default_config # Corrected period
+            print(f"JSONデコードエラー: {e}"); print(f"エラー発生位置: {e.pos} (行: {e.lineno}, 列: {e.colno})"); raise
+        except Exception as e: print(f"'{CONFIG_FILE}' 読込エラー: {e}。デフォルト設定使用."); config = default_config
 
     API_KEYS = config.get("api_keys", {})
     if not isinstance(API_KEYS, dict): API_KEYS = {}
@@ -82,15 +81,12 @@ def load_config():
     if not AVAILABLE_MODELS_GLOBAL: AVAILABLE_MODELS_GLOBAL = default_config["available_models"]
     DEFAULT_MODEL_GLOBAL = config.get("default_model")
     if not DEFAULT_MODEL_GLOBAL or DEFAULT_MODEL_GLOBAL not in AVAILABLE_MODELS_GLOBAL: DEFAULT_MODEL_GLOBAL = AVAILABLE_MODELS_GLOBAL[0] if AVAILABLE_MODELS_GLOBAL else None
-
     config_default_key = config.get("default_api_key_name"); last_key = config.get("last_api_key_name")
     if last_key and isinstance(last_key, str) and last_key in API_KEYS: initial_api_key_name_global = last_key
     elif config_default_key and isinstance(config_default_key, str) and config_default_key in API_KEYS: initial_api_key_name_global = config_default_key
     elif API_KEYS: initial_api_key_name_global = list(API_KEYS.keys())[0]
     else: initial_api_key_name_global = None
-
     character_list = get_character_list()
-
     initial_character_global = config.get("last_character", "Default")
     if not character_list or initial_character_global not in character_list: initial_character_global = character_list[0] if character_list else None
     initial_model_global = config.get("last_model", DEFAULT_MODEL_GLOBAL)
@@ -98,7 +94,9 @@ def load_config():
     initial_add_timestamp_global = config.get("add_timestamp", default_config["add_timestamp"])
     initial_send_thoughts_to_api_global = config.get("last_send_thoughts_to_api", default_config["last_send_thoughts_to_api"])
     initial_api_history_limit_option_global = config.get("last_api_history_limit_option", default_config["last_api_history_limit_option"])
-    if initial_api_history_limit_option_global not in API_HISTORY_LIMIT_OPTIONS: initial_api_history_limit_option_global = default_config["last_api_history_limit_option"]
+    # Corrected line below: initial_api_history_limit_option_global was compared with API_HISTORY_LIMIT_OPTIONS (dict)
+    # It should check if the key exists in the dictionary.
+    if initial_api_history_limit_option_global not in API_HISTORY_LIMIT_OPTIONS.keys(): initial_api_history_limit_option_global = default_config["last_api_history_limit_option"]
     initial_alarm_model_global = config.get("alarm_model", default_config["alarm_model"])
     initial_alarm_api_history_turns_global = config.get("alarm_api_history_turns", default_config["alarm_api_history_turns"])
     if not isinstance(initial_alarm_api_history_turns_global, int) or initial_alarm_api_history_turns_global < 0: initial_alarm_api_history_turns_global = default_config["alarm_api_history_turns"]
@@ -113,7 +111,7 @@ def load_config():
         if key not in config: config[key] = default_value; needs_update = True
     if needs_update:
         try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(config, f, indent=2, ensure_ascii=False); print(f"'{CONFIG_FILE}' 不足キー追記完了.") # Corrected period
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(config, f, indent=2, ensure_ascii=False); print(f"'{CONFIG_FILE}' 不足キー追記完了.")
         except Exception as e: print(f"設定ファイル更新失敗: {e}")
 
 def save_config(key, value):
@@ -123,9 +121,8 @@ def save_config(key, value):
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f: config = json.load(f)
             except Exception as e: print(f"設定読込失敗 ({key}): {e}"); return
-        else: print("設定ファイルなし、保存不可."); return # Corrected period
+        else: print("設定ファイルなし、保存不可."); return
         if config.get(key) == value: return
         config[key] = value
         with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(config, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print(f"設定保存エラー ({key}): {e}"); traceback.print_exc()
+    except Exception as e: print(f"設定保存エラー ({key}): {e}"); traceback.print_exc()
