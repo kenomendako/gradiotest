@@ -101,23 +101,28 @@ def handle_message_submission(*args: Any) -> Tuple[List, gr.update, gr.update]:
         log_message_content = user_prompt
         # file_input_list は ['path/to/file1.txt', 'path/to/file2.jpg'] のような文字列のリスト
         if file_input_list:
-            for file_path in file_input_list: # 変数名を file_path に変更
-                # .name を付けずに、文字列を直接使う
+            for file_path in file_input_list:
                 log_message_content += f"\n[ファイル添付: {file_path}]"
 
         user_header = _get_user_header_from_log(log_f, current_character_name)
         timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
 
-        formatted_files_for_api = []
+        uploaded_files_info = [] # ★変数名を変更
         if file_input_list:
-            for file_path in file_input_list: # 変数名を file_path に変更
-                mime_type, _ = mimetypes.guess_type(file_path) # 文字列を直接使う
+            for file_path in file_input_list:
+                mime_type, _ = mimetypes.guess_type(file_path)
                 if mime_type is None: mime_type = "application/octet-stream"
-                formatted_files_for_api.append({"path": file_path, "mime_type": mime_type})
+                uploaded_files_info.append({"path": file_path, "mime_type": mime_type}) # ★変数名を変更
         # --- ここまでが正しいファイル処理ロジック ---
 
-        api_response_text, generated_image_path = send_to_gemini(sys_p, log_f, user_prompt, current_model_name, current_character_name, send_thoughts_state, api_history_limit_state, formatted_files_for_api, mem_p)
+        api_response_text, generated_image_path = send_to_gemini(
+            sys_p, log_f, user_prompt, current_model_name,
+            current_character_name, send_thoughts_state,
+            api_history_limit_state,
+            uploaded_files_info, # ★引数名を変更
+            mem_p
+        )
 
         if api_response_text or generated_image_path:
             response_to_log = ""

@@ -31,7 +31,7 @@ import google.api_core.exceptions
 import re
 import math
 import traceback
-import base64
+# import base64 # No longer needed for inline file encoding in send_to_gemini
 from PIL import Image
 from io import BytesIO # Specific import for BytesIO
 from typing import Optional # Added for type hinting
@@ -80,7 +80,7 @@ def configure_google_api(api_key_name):
 
 # gemini_api.py にこの関数を上書きしてください
 
-def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
+def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_files_info: list = None, memory_json_path=None):
     if _gemini_client is None:
         return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
 
@@ -127,23 +127,34 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         content_text = m.get("content", "")
         if not content_text: continue
         processed_text = content_text
-        if sdk_role == "user": processed_text = re.sub(r"\[画像添付:[^\]]+\]", "", processed_text).strip()
+        if sdk_role == "user": processed_text = re.sub(r"\[ファイル添付:[^\]]+\]", "", processed_text).strip() # Remove old file placeholder from history
         elif sdk_role == "model" and not send_thoughts_to_api: processed_text = th_pat.sub("", processed_text).strip()
         if processed_text: api_contents_from_history.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
 
     current_turn_parts = []
-    if user_prompt: current_turn_parts.append(Part(text=user_prompt))
-    if uploaded_file_parts:
-        for file_detail in uploaded_file_parts:
-            file_path = file_detail['path']
-            mime_type = file_detail['mime_type']
-            if os.path.exists(file_path):
+    if user_prompt:
+        current_turn_parts.append(Part(text=user_prompt))
+
+    if uploaded_files_info:
+        for file_info in uploaded_files_info:
+            file_path = file_info.get('path')
+            # mime_type = file_info.get('mime_type') # Not directly used for File API upload part, but good for context
+            if file_path and os.path.exists(file_path):
                 try:
-                    with open(file_path, 'rb') as f_bytes: file_bytes = f_bytes.read()
-                    encoded_data = base64.b64encode(file_bytes).decode('utf-8')
-                    current_turn_parts.append(Part(inline_data={"mime_type": mime_type, "data": encoded_data}))
-                except Exception as e: print(f"警告: ファイル '{os.path.basename(file_path)}' の処理中にエラー: {e}")
-            else: print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。")
+                    print(f"情報: ファイル '{os.path.basename(file_path)}' をアップロードしています...")
+                    # Use _gemini_client.files.upload as confirmed
+                    uploaded_file = _gemini_client.files.upload(path=file_path)
+                    current_turn_parts.append(uploaded_file) # Append the File object itself
+                    print(f"情報: ファイル '{uploaded_file.display_name}' (URI: {uploaded_file.uri}) のアップロード完了。")
+                except Exception as e:
+                    print(f"警告: ファイル '{os.path.basename(file_path)}' のアップロード中にエラー: {e}")
+                    # Optionally, inform the user/model about the failure for this specific file
+                    # current_turn_parts.append(Part(text=f"[システム通知: ファイル {os.path.basename(file_path)} のアップロードに失敗しました。メッセージの処理は続行されます。]"))
+            else:
+                print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。")
+                # Optionally, inform the user/model
+                # current_turn_parts.append(Part(text=f"[システム通知: ファイル {file_path} が見つかりませんでした。]"))
+
 
     # --- ここからが新しい会話履歴の構築ロジック ---
     final_api_contents = []
@@ -180,7 +191,7 @@ print(google.genai.tools.render.FunctionCall(
     final_api_contents.append(Content(role="model", parts=[Part(text="Understood. I will use the `generate_image` tool as shown in the example when appropriate.")]))
 
     # 4. 最後に、現在のユーザー入力を追加する
-    if current_turn_parts:
+    if current_turn_parts: # Ensure we only add if there's something (text or successfully uploaded files)
         final_api_contents.append(Content(role="user", parts=current_turn_parts))
     # --- ここまでが新しいロジック ---
 
@@ -205,6 +216,11 @@ print(google.genai.tools.render.FunctionCall(
                 safety_settings=formatted_safety_settings
             )
 
+            # Check if final_api_contents is empty before sending
+            if not final_api_contents:
+                print("警告: 送信するコンテンツが空です。API呼び出しをスキップします。")
+                return "エラー: 送信するコンテンツがありません。", None
+
             response = _gemini_client.models.generate_content(
                 model=selected_model,
                 contents=final_api_contents,
@@ -223,7 +239,7 @@ print(google.genai.tools.render.FunctionCall(
                 return f"エラー: 不明な関数 '{function_call.name}' が呼び出されました。", None
 
             print(f"情報: AIが画像生成ツール '{function_call.name}' の使用を要求しました。")
-            final_api_contents.append(candidate.content)
+            final_api_contents.append(candidate.content) # Add model's request to history
 
             args = function_call.args
             image_prompt = args.get("prompt")
@@ -240,7 +256,7 @@ print(google.genai.tools.render.FunctionCall(
                     output_image_filename_suggestion=filename_suggestion
                 )
                 if image_path:
-                    image_path_for_final_return = image_path
+                    image_path_for_final_return = image_path # Store for final return
 
                 if image_path:
                     tool_result_content = f"画像生成に成功しました。パス: {image_path}。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"
@@ -251,7 +267,7 @@ print(google.genai.tools.render.FunctionCall(
                 name="generate_image",
                 response={"result": tool_result_content}
             )
-            final_api_contents.append(Content(parts=[function_response_part]))
+            final_api_contents.append(Content(parts=[function_response_part])) # Add tool response to history
 
     except google.api_core.exceptions.GoogleAPIError as e:
         return f"エラー: Gemini APIとの通信中にエラーが発生しました: {e}", None
@@ -303,7 +319,7 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
         if len(msgs) > limit_msgs: msgs = msgs[-limit_msgs:]
 
         th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
-        img_pat = re.compile(r"\[画像添付:[^\]]+\]")
+        img_pat = re.compile(r"\[(?:ファイル添付|画像添付):[^\]]+\]") # Updated to match both placeholders
         alrm_pat = re.compile(r"（システムアラーム：.*?）")
 
         for m in msgs:
@@ -382,6 +398,9 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
         if active_generation_config:
             gen_content_args["config"] = active_generation_config
 
+        if not final_api_contents: # Final check before API call
+            return "【アラームエラー】送信前に最終コンテンツが空です。"
+
         response = _gemini_client.models.generate_content(**gen_content_args)
 
     except Exception as e:
@@ -435,21 +454,27 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
         return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
 
     # ユーザー指定の、テキスト・画像同時生成に特化したプレビューモデルを使用
-    model_name = "gemini-2.0-flash-preview-image-generation"
+    model_name = "gemini-2.0-flash-preview-image-generation" # This should be gemini-1.5-flash-latest or similar with image tool
 
     try:
         print(f"--- Gemini 画像生成開始 (model: {model_name}) --- プロンプト: '{prompt[:100]}...'")
 
         # テキストと画像の両方を出力するようモデルに要求
         generation_config = GenerateContentConfig(
-            response_modalities=['TEXT', 'IMAGE']
+            response_modalities=['TEXT', 'IMAGE'] # This is not a standard config for genai.Client
         )
 
         # generate_contentを呼び出し
+        # For image generation with genai.Client, it's usually done via a tool or if the model inherently supports mixed output.
+        # The 'gemini-2.0-flash-preview-image-generation' model name and 'response_modalities' config
+        # suggest a specific (possibly internal or experimental) setup.
+        # Standard approach for 1.5 Flash for image gen would be a tool or ensuring the prompt clearly asks for an image.
+        # Given the function name and context, we assume this model + config is intended to directly output an image part.
+
         response = _gemini_client.models.generate_content(
-            model=model_name,
-            contents=[prompt], # プロンプトはシンプルなリストで渡す
-            config=generation_config
+            model=model_name, # Ensure this model is available and supports this type of generation
+            contents=[prompt],
+            config=generation_config # This config might not be supported by all models or standard client.
         )
 
         generated_text = None
@@ -463,12 +488,10 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
             print(error_message)
             return error_message, None
 
-        # --- 最新のSDK仕様に準拠した、安全な応答解析ロジック ---
         candidate = response.candidates[0]
         image_data = None
         image_mime_type = None
 
-        # 1. 応答の全パートを安全にループして、テキストと画像を抽出
         for part in candidate.content.parts:
             if hasattr(part, 'text') and part.text:
                 current_part_text = part.text.strip()
@@ -480,9 +503,7 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
                 image_data = part.inline_data.data
                 image_mime_type = part.inline_data.mime_type
                 print(f"画像生成APIから画像データ (MIME: {image_mime_type}) を取得しました。")
-                # 画像が見つかっても、他にテキストパートがある可能性があるのでループは継続
 
-        # 2. 画像データが見つかった場合にファイルとして保存
         if image_data:
             _script_dir = os.path.dirname(os.path.abspath(__file__))
             save_dir = os.path.join(_script_dir, "chat_attachments", "generated_images")
@@ -494,7 +515,7 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
             if not base_name: base_name = "gemini_image"
 
             unique_id = uuid.uuid4().hex[:8]
-            img_ext = ".png" # デフォルト
+            img_ext = ".png"
             if image_mime_type == "image/jpeg": img_ext = ".jpg"
             elif image_mime_type == "image/webp": img_ext = ".webp"
 
@@ -514,11 +535,15 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
                 traceback.print_exc()
                 generated_text = f"{generated_text}\n{error_message}" if generated_text else error_message
 
-        # 3. 画像もテキストもなかった場合の最終フォールバック
         if image_path is None and generated_text is None and error_message is None:
-            error_message = "モデル応答にテキストまたは画像データが見つかりませんでした。"
+            # Check for finish_reason if no content was produced
+            if candidate.finish_reason != types.Candidate.FinishReason.STOP:
+                 error_message = f"モデルが予期せず停止しました。理由: {candidate.finish_reason.name}"
+            else:
+                 error_message = "モデル応答にテキストまたは画像データが見つかりませんでした。"
             print(error_message)
             return error_message, None
+
 
     except google.api_core.exceptions.GoogleAPIError as e:
         error_msg = f"エラー: Gemini APIとの通信中にエラーが発生しました (画像生成): {e}"
