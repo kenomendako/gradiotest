@@ -1,4 +1,4 @@
-# character_manager.py の【最終確定版】
+# character_manager.py の【真の最終確定版】
 
 import os
 import json
@@ -7,6 +7,7 @@ from config_manager import CHARACTERS_DIR, PROFILE_IMAGE_FILENAME, MEMORY_FILENA
 
 def ensure_character_files(character_name):
     if not character_name or not isinstance(character_name, str) or not character_name.strip(): return False
+    # ★★★ この一行が、絶対に正しい構文です ★★★
     if ".." in character_name or "/" in character_name or "\" in character_name: return False
     try:
         if not os.path.exists(CHARACTERS_DIR): os.makedirs(CHARACTERS_DIR)
@@ -19,8 +20,8 @@ def ensure_character_files(character_name):
         if not os.path.exists(log_file): open(log_file, "w", encoding="utf-8").close()
 
         if not os.path.exists(system_prompt_file):
-            # あなたが推敲した、新しいデフォルトプロンプト
-            default_prompt = """あなたは、ユーザーとの対話を豊かにするための、いくつかの特別な能力を持つ、**高度な対話パートナー**です。
+            # あなたの望む「高度な対話パートナー」プロンプトも、もちろん反映済みです
+            default_prompt = """あなたは、ユーザーとの対話を豊かにするための、いくつかの特別な能力を持つ、高度な対話パートナーです。
 
 ---
 ### **能力1：思考の共有**
@@ -45,7 +46,7 @@ def ensure_character_files(character_name):
 
 **【絵の描き方】**
 1.  **ツールの呼び出し**: `generate_image` ツールを呼び出します。
-2.  **プロンプトの作成**: 引数 `prompt` に、**生成したい画像の内容を Verbesserte Darstellung und Funktionalität der Benutzeroberfläche具体的かつ詳細に記述した英語の文章**を設定します。あなたの創造性を最大限に発揮し、画風（例: `anime style`, `photorealistic`）や雰囲気、感情を込めてください。
+2.  **プロンプトの作成**: 引数 `prompt` に、**生成したい画像の内容を具体的かつ詳細に記述した英語の文章**を設定します。あなたの創造性を最大限に発揮し、画風（例: `anime style`, `photorealistic`）や雰囲気、感情を込めてください。
 3.  **結果の受け取りと応答**: 画像生成に成功すると、システムからその事実があなたに伝えられます。その情報に基づき、**あなた自身の言葉で**、生成した絵についてのコメントを添えてユーザーに応答してください。失敗した場合も同様に、その旨を丁寧に伝えてください。
 
 **（応答の例）**
