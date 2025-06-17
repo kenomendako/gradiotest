@@ -23,13 +23,14 @@ def render_alarms_as_dataframe():
     import alarm_manager # 遅延インポート
     all_alarms = alarm_manager.get_all_alarms()
     df_data = []
-    # Assuming DAY_MAP_EN_TO_JA is defined in this module or correctly accessed
+    # Assuming DAY_MAP_EN_TO_JA is defined in this module (it was in user's last full ui_handlers.py)
     for alarm in all_alarms:
-        # ★★★ 表示崩れを防ぐため、区切り文字を半角スペースに変更 ★★★
-        days_ja_str = " ".join([DAY_MAP_EN_TO_JA.get(d, "?") for d in alarm.get("days", [])])
+        # ★★★ 表示崩れを防ぐため、曜日を一行で表示するよう修正 ★★★
+        # Sort by a predefined order "月火水木金土日" then join into a single string
+        days_str = "".join(sorted([DAY_MAP_EN_TO_JA.get(d, '') for d in alarm.get("days", [])], key="月火水木金土日".find))
         df_data.append({
             "id": alarm.get("id"), "状態": alarm.get("enabled", False),
-            "時刻": alarm.get("time", ""), "曜日": days_ja_str,
+            "時刻": alarm.get("time", ""), "曜日": days_str, # Use the new days_str
             "キャラ": alarm.get("character", ""), "テーマ": alarm.get("theme", "")
         })
     df = pd.DataFrame(df_data)
@@ -177,37 +178,34 @@ def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.Selec
     if evt.index is None:
         return [], "アラームを選択してください"
 
-    # Normalize evt.index to always be a list of tuples (or a list with one tuple)
+    # Gradioのイベントデータを正規化 (This handles both single tuple and list of tuples)
     indices_list = evt.index if isinstance(evt.index, list) else [evt.index]
 
-    if not indices_list: # Should not happen if evt.index was not None, but good check
+    if not indices_list: # Should not happen if evt.index was not None
         return [], "アラームを選択してください"
 
     try:
-        # Extract unique row indices from the list of (row, col) tuples
+        # 選択された行のインデックスだけを重複なく抽出する
+        # Ensure idx is a tuple and has at least one element before idx[0]
         selected_row_indices = sorted(list(set([idx[0] for idx in indices_list if isinstance(idx, tuple) and len(idx) > 0])))
     except (TypeError, IndexError) as e:
-        # This might happen if an element in indices_list is not a tuple or is too short
         print(f"Error processing event indices in handle_alarm_selection_and_feedback: {evt.index} -> {e}")
-        traceback.print_exc() # Good to have for debugging such issues
+        traceback.print_exc()
         return [], "選択情報の取得に失敗しました。再度お試しください。"
 
     if not selected_row_indices or df_with_ids.empty:
         return [], "アラームを選択してください"
 
     try:
-        # Filter for valid indices that are within the DataFrame's bounds
         valid_indices = [i for i in selected_row_indices if i < len(df_with_ids)]
-        if not valid_indices:
-            return [], "選択した行が見つかりません。" # All selected rows were out of bounds
+        if not valid_indices: return [], "選択した行が見つかりません。"
 
         selected_ids = df_with_ids.iloc[valid_indices]["id"].tolist()
 
         if len(selected_ids) == 1:
-            # For single selection, get data from the first valid selected row
             row = df_with_ids.iloc[valid_indices[0]]
             return selected_ids, f"選択中: 「{row['テーマ']}」 ({row['時刻']})"
-        else: # This handles multiple selected_ids
+        else:
             return selected_ids, f"{len(selected_ids)}件のアラームを選択中"
 
     except (KeyError, IndexError) as e:
