@@ -41,6 +41,7 @@ def render_alarms_as_dataframe():
     return pd.DataFrame(columns=["id", "状態", "時刻", "曜日", "キャラ", "テーマ"])
 
 def get_display_df(df_with_ids: pd.DataFrame) -> pd.DataFrame:
+    """表示用のDataFrameからID列を除外する。"""
     if df_with_ids.empty or "id" not in df_with_ids.columns:
         return pd.DataFrame(columns=["状態", "時刻", "曜日", "キャラ", "テーマ"])
     return df_with_ids[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
@@ -73,11 +74,10 @@ def handle_add_new_character(character_name: str):
 def update_ui_on_character_change(character_name: Optional[str]):
     from memory_manager import load_memory_data_safe # 遅延インポート
 
-    if not character_name: # Should ideally not happen if dropdown has a value
+    if not character_name:
         all_chars = character_manager.get_character_list()
-        # Fallback to first character if list is not empty, else "Default" (which should be created)
         character_name = all_chars[0] if all_chars else "Default"
-        if not all_chars and character_name == "Default": # If Default had to be created
+        if not all_chars and character_name == "Default":
              character_manager.ensure_character_files("Default")
 
 
@@ -92,8 +92,8 @@ def update_ui_on_character_change(character_name: Optional[str]):
     if log_f and os.path.exists(log_f):
         with open(log_f, "r", encoding="utf-8") as f: log_content = f.read()
 
-    memory_str = "{}" # Default empty JSON string
-    if mem_p and os.path.exists(mem_p): # Check if memory path and file exist
+    memory_str = "{}"
+    if mem_p and os.path.exists(mem_p):
         memory_data = load_memory_data_safe(mem_p)
         memory_str = json.dumps(memory_data, indent=2, ensure_ascii=False)
 
@@ -105,14 +105,13 @@ def handle_save_memory_click(character_name, json_string_data):
         gr.Warning("キャラクターが選択されていません。")
         return
     try:
-        save_memory_data(character_name, json_string_data) # Call the correct function
+        save_memory_data(character_name, json_string_data)
         gr.Info(f"{character_name}さんの記憶を更新しました。")
     except json.JSONDecodeError as e:
         gr.Error(f"記憶データの形式（JSON）が正しくありません: {e}")
     except Exception as e:
         gr.Error(f"記憶の保存中に予期せぬエラーが発生しました: {e}")
         traceback.print_exc()
-
 
 def handle_message_submission(*args: Any):
     from gemini_api import send_to_gemini # 遅延インポート
@@ -126,32 +125,30 @@ def handle_message_submission(*args: Any):
         return chatbot_history, gr.update(value=""), gr.update(value=None)
 
     log_f, sys_p, _, mem_p = character_manager.get_character_files_paths(current_character_name)
-    if not log_f: # This implies other paths might also be None
+    if not log_f:
         gr.Warning(f"キャラクター '{current_character_name}' の必須ファイルパス取得に失敗。処理を中断します。")
         return chatbot_history, gr.update(value=""), gr.update(value=None)
 
     user_prompt = textbox_content.strip() if textbox_content else ""
-    if not user_prompt and not file_input_list: # No text and no files
-        return chatbot_history, gr.update(value=""), gr.update(value=None)
 
     log_message_content = user_prompt
-    actual_file_paths_for_api = []
-    if file_input_list: # file_input_list is a list of file paths from Gradio
-        for file_obj in file_input_list: # Gradio file objects have a .name attribute for the path
-            actual_file_path = file_obj.name if hasattr(file_obj, 'name') else str(file_obj) # Robustly get path
-            log_message_content += f"\n[ファイル添付: {os.path.basename(actual_file_path)}]"
-            actual_file_paths_for_api.append(actual_file_path)
+    uploaded_files_info_for_api = [] # Corrected variable name as used in gemini_api.py
+    if file_input_list:
+        for file_obj in file_input_list:
+            file_path = file_obj.name if hasattr(file_obj, 'name') else str(file_obj)
+            log_message_content += f"\n[ファイル添付: {os.path.basename(file_path)}]" # Log only basename
+            mime_type, _ = mimetypes.guess_type(file_path)
+            uploaded_files_info_for_api.append({ # Use corrected variable name
+                "path": file_path,
+                "mime_type": mime_type or "application/octet-stream"
+            })
 
+    if not log_message_content.strip(): # Check after potentially adding file names
+        return chatbot_history, gr.update(value=""), gr.update(value=None)
 
     user_header = _get_user_header_from_log(log_f, current_character_name)
     timestamp = f"\n{datetime.datetime.now():%Y-%m-%d (%a) %H:%M:%S}" if add_timestamp_checkbox else ""
     save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
-
-    uploaded_files_info_for_api = []
-    if actual_file_paths_for_api: # Use the extracted actual paths
-        for path in actual_file_paths_for_api:
-            mime_type, _ = mimetypes.guess_type(path)
-            uploaded_files_info_for_api.append({"path": path, "mime_type": mime_type or "application/octet-stream"})
 
     api_response_text = ""
     generated_image_path = None
@@ -215,64 +212,65 @@ def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.Selec
 
 
 def load_alarm_to_form(selected_ids: list):
-    import alarm_manager # 遅延インポート
-
+    import alarm_manager
     if not selected_ids or len(selected_ids) != 1:
         chars = character_manager.get_character_list()
-        # Use DAY_MAP_JA_TO_EN.keys() as it's JA days for checkbox group
         return "アラーム追加", "", "", chars[0] if chars else None, list(DAY_MAP_JA_TO_EN.keys()), "08", "00", None
 
     alarm = alarm_manager.get_alarm_by_id(selected_ids[0])
-    if not alarm: # Alarm not found
+    if not alarm:
         gr.Warning(f"ID '{selected_ids[0]}'のアラームが見つかりません。")
-        chars = character_manager.get_character_list()
+        chars = character_manager.get_character_list() # Provide char_list for consistency
         return "アラーム追加", "", "", chars[0] if chars else None, list(DAY_MAP_JA_TO_EN.keys()), "08", "00", None
 
     h, m = alarm.get("time", "08:00").split(":")
-    # Ensure days are correctly mapped from EN (stored) to JA (display)
     days_ja = [DAY_MAP_EN_TO_JA.get(d_en, "?") for d_en in alarm.get("days", [])]
     return "アラーム更新", alarm.get("theme", ""), alarm.get("flash_prompt_template", ""), alarm.get("character", ""), days_ja, h, m, alarm.get("id")
 
 def toggle_selected_alarms_status(selected_ids: list, new_status: bool):
-    import alarm_manager # 遅延インポート
-    if not selected_ids:
-        gr.Warning("操作するアラームが選択されていません。")
-    else:
-        for alarm_id_val in selected_ids: # Use different var name
+    import alarm_manager
+    if selected_ids:
+        for alarm_id_val in selected_ids:
             alarm_manager.update_alarm(alarm_id_val, {"enabled": new_status})
         gr.Info(f"{len(selected_ids)}件のアラームを{'有効化' if new_status else '無効化'}しました。")
-    return render_alarms_as_dataframe() # Always re-render
+    else:
+        gr.Warning("操作するアラームが選択されていません。")
+    return render_alarms_as_dataframe()
 
 def handle_delete_selected_alarms(selected_ids: list):
-    import alarm_manager # 遅延インポート
-    if not selected_ids:
-        gr.Warning("削除するアラームが選択されていません。")
-    else:
+    import alarm_manager
+    if selected_ids:
         count = sum(1 for alarm_id_val in selected_ids if alarm_manager.delete_alarm(alarm_id_val))
         gr.Info(f"{count}件のアラームを削除しました。")
-    return render_alarms_as_dataframe() # Always re-render
+    else:
+        gr.Warning("削除するアラームが選択されていません。")
+    return render_alarms_as_dataframe()
 
 def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja):
-    import alarm_manager # 遅延インポート
+    import alarm_manager
     if not char or not theme.strip():
         gr.Warning("キャラクターとテーマは必須です。")
-        # Return current values to keep form populated
-        return render_alarms_as_dataframe(), render_alarms_as_dataframe(), editing_id if editing_id else "アラーム追加", theme, prompt, char, days_ja, h, m, editing_id
+        df = render_alarms_as_dataframe() # Get current dataframe state
+        # Return all values to keep form populated, and ensure correct number of outputs for Gradio
+        return df, get_display_df(df), "アラーム追加" if not editing_id else "アラーム更新", theme, prompt, char, days_ja, h, m, editing_id
 
-    # Convert JA days to EN for storage
     days_en = [DAY_MAP_JA_TO_EN.get(d_ja, d_ja.lower()[:3]) for d_ja in days_ja] # Fallback for safety
 
     if editing_id:
-        data = {"time": f"{h}:{m}", "character": char, "theme": theme.strip(), "flash_prompt_template": prompt.strip() if prompt else None, "days": days_en}
+        data = {"time": f"{h}:{m}", "character": char, "theme": theme.strip(),
+                "flash_prompt_template": prompt.strip() if prompt else None, "days": days_en}
         alarm_manager.update_alarm(editing_id, data)
         gr.Info(f"アラーム「{theme}」を更新しました。")
     else:
         alarm_manager.add_alarm(h, m, char, theme.strip(), prompt.strip() if prompt else None, days_ja) # add_alarm expects days_ja
         gr.Info(f"アラーム「{theme}」を追加しました。")
 
-    new_df = render_alarms_as_dataframe()
+    new_df_orig = render_alarms_as_dataframe()
+    new_df_display = get_display_df(new_df_orig)
     chars = character_manager.get_character_list()
-    return new_df, new_df, "アラーム追加", "", "", chars[0] if chars else None, list(DAY_MAP_JA_TO_EN.keys()), "08", "00", None
+    # Ensure all outputs for this event are returned
+    return new_df_orig, new_df_display, "アラーム追加", "", "", chars[0] if chars else None, list(DAY_MAP_JA_TO_EN.keys()), "08", "00", None
+
 
 def update_model_state(new_model):
     config_manager.save_config("last_model", new_model)
@@ -281,19 +279,23 @@ def update_model_state(new_model):
 def update_api_key_state(new_key_name):
     from gemini_api import configure_google_api # 遅延インポート
     if new_key_name in config_manager.API_KEYS:
-        configure_google_api(new_key_name)
-        config_manager.save_config("last_api_key_name", new_key_name)
-    else: gr.Warning("無効なAPIキー名です。")
+        success, msg = configure_google_api(new_key_name) # Capture return values
+        if success:
+            config_manager.save_config("last_api_key_name", new_key_name)
+        else:
+            gr.Warning(f"APIキーの設定に失敗しました: {msg}") # Show error message
+    else:
+        gr.Warning("無効なAPIキー名です。")
     return new_key_name
 
-def update_timestamp_state(enabled): config_manager.save_config("add_timestamp", enabled) # No return needed
+def update_timestamp_state(enabled): config_manager.save_config("add_timestamp", enabled)
 def update_send_thoughts_state(enabled): config_manager.save_config("last_send_thoughts_to_api", enabled); return enabled
 
-def update_api_history_limit_state(value): # Value is display string e.g. "直近10ターン"
+def update_api_history_limit_state(value_display): # value is display string e.g. "直近10ターン"
     # Convert display value back to key
-    key = next((k for k, v_display in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v_display == value), "all")
-    config_manager.save_config("last_api_history_limit_option", key)
-    return key # Return the key for state
+    key_internal = next((k for k, v_disp in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v_disp == value_display), "all")
+    config_manager.save_config("last_api_history_limit_option", key_internal)
+    return key_internal # Return the key if state expects key
 
 def handle_save_log_button_click(character_name: str, log_content: str):
     if not character_name: gr.Warning("キャラクターが選択されていません。"); return
@@ -307,9 +309,11 @@ def reload_chat_log(character_name: str):
     if not character_name: return [], ""
     log_f, _, _, _ = character_manager.get_character_files_paths(character_name)
     log_content_val = ""
+    chat_hist_val = []
     if log_f and os.path.exists(log_f):
         with open(log_f, 'r', encoding='utf-8') as f: log_content_val = f.read()
-    return format_history_for_gradio(load_chat_log(log_f, character_name)[-config_manager.HISTORY_LIMIT*2:]), log_content_val
+        chat_hist_val = format_history_for_gradio(load_chat_log(log_f, character_name)[-config_manager.HISTORY_LIMIT*2:])
+    return chat_hist_val, log_content_val
 
 
 def handle_timer_submission(timer_type, dur_min, work_min, break_min, cycles, char_name, work_theme_val, break_theme_val, api_key, webhook_url_val, normal_theme_val):
@@ -342,8 +346,8 @@ def handle_timer_submission(timer_type, dur_min, work_min, break_min, cycles, ch
     gr.Info(msg_out)
     return msg_out
 
-def stop_existing_timer_on_startup(): # Called by log2gemini.py
-    from timers import UnifiedTimer # 遅延インポート
+def stop_existing_timer_on_startup():
+    from timers import UnifiedTimer
     timer = UnifiedTimer.get_instance()
     if timer.is_running():
         timer.stop()
