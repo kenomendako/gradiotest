@@ -23,9 +23,10 @@ def render_alarms_as_dataframe():
     import alarm_manager # 遅延インポート
     all_alarms = alarm_manager.get_all_alarms()
     df_data = []
+    # Assuming DAY_MAP_EN_TO_JA is defined in this module or correctly accessed
     for alarm in all_alarms:
-        # ★★★ 表示崩れを防ぐため、区切り文字を「、」に変更 ★★★
-        days_ja_str = "、".join([DAY_MAP_EN_TO_JA.get(d, "?") for d in alarm.get("days", [])])
+        # ★★★ 表示崩れを防ぐため、区切り文字を半角スペースに変更 ★★★
+        days_ja_str = " ".join([DAY_MAP_EN_TO_JA.get(d, "?") for d in alarm.get("days", [])])
         df_data.append({
             "id": alarm.get("id"), "状態": alarm.get("enabled", False),
             "時刻": alarm.get("time", ""), "曜日": days_ja_str,
@@ -33,8 +34,9 @@ def render_alarms_as_dataframe():
         })
     df = pd.DataFrame(df_data)
     if not df.empty:
-        return df.sort_values(by=["時刻", "曜日"]).reset_index(drop=True)
-    # DataFrameが空の場合でも、正しい列構成で返す
+        # Sort by time only, as per user's latest instruction for this function
+        df = df.sort_values(by=["時刻"]).reset_index(drop=True)
+        return df
     return pd.DataFrame(columns=["id", "状態", "時刻", "曜日", "キャラ", "テーマ"])
 
 def get_display_df(df_with_ids: pd.DataFrame) -> pd.DataFrame:
@@ -183,10 +185,10 @@ def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.Selec
 
     try:
         # Extract unique row indices from the list of (row, col) tuples
-        selected_row_indices = sorted(list(set([idx[0] for idx in indices_list if idx and len(idx) > 0])))
+        selected_row_indices = sorted(list(set([idx[0] for idx in indices_list if isinstance(idx, tuple) and len(idx) > 0])))
     except (TypeError, IndexError) as e:
         # This might happen if an element in indices_list is not a tuple or is too short
-        print(f"Error processing event indices: {evt.index} -> {e}")
+        print(f"Error processing event indices in handle_alarm_selection_and_feedback: {evt.index} -> {e}")
         traceback.print_exc() # Good to have for debugging such issues
         return [], "選択情報の取得に失敗しました。再度お試しください。"
 
@@ -205,17 +207,13 @@ def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.Selec
             # For single selection, get data from the first valid selected row
             row = df_with_ids.iloc[valid_indices[0]]
             return selected_ids, f"選択中: 「{row['テーマ']}」 ({row['時刻']})"
-        else:
+        else: # This handles multiple selected_ids
             return selected_ids, f"{len(selected_ids)}件のアラームを選択中"
 
     except (KeyError, IndexError) as e:
         print(f"エラー: データアクセス中にエラー: {e}")
         traceback.print_exc()
         return [], "IDの取得に失敗しました。"
-    except Exception as e: # Catch any other unexpected error
-        print(f"予期せぬエラー: {e}")
-        traceback.print_exc()
-        return [], "予期せぬエラーが発生しました。"
 
 
 def load_alarm_to_form(selected_ids: list):

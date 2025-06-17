@@ -148,7 +148,10 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                     print(f"情報: ファイル '{os.path.basename(file_path)}' をFile APIでアップロードしています (MIME: {mime_type})...")
 
                     with open(file_path, "rb") as f:
-                        uploaded_file = _gemini_client.files.upload(file=f)
+                        uploaded_file = _gemini_client.files.upload(
+                            file=f,
+                            mime_type=mime_type # CRITICAL: Ensure this argument is present and correct
+                        )
                         current_turn_parts.append(uploaded_file)
                     print(f"情報: ファイル '{uploaded_file.display_name}' のアップロード完了。")
 
