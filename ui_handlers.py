@@ -447,4 +447,3 @@ def stop_existing_timer_on_startup():
         timer.stop()
         print("アプリケーション再起動のため、既存のタイマーを停止しました。")
 
-stop_existing_timer_on_startup()
