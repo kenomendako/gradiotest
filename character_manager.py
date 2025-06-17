@@ -1,26 +1,30 @@
-# character_manager.py の【真の最終・確定版】
-
+# character_manager.py (最終・完全・確定版)
 import os
 import json
 import traceback
+# Ensure config_manager is imported if CHARACTERS_DIR etc. are from there.
+# Based on user's previous full config_manager.py, these are defined there.
 from config_manager import CHARACTERS_DIR, PROFILE_IMAGE_FILENAME, MEMORY_FILENAME
 
 def ensure_character_files(character_name):
     if not character_name or not isinstance(character_name, str) or not character_name.strip(): return False
-    # ★★★ この一行が、絶対に正しい構文です ★★★
+    # Simple sanitization, consider more robust path validation if needed
     if ".." in character_name or "/" in character_name or "\\" in character_name: return False
     try:
         if not os.path.exists(CHARACTERS_DIR): os.makedirs(CHARACTERS_DIR)
-        elif not os.path.isdir(CHARACTERS_DIR): return False
+        elif not os.path.isdir(CHARACTERS_DIR): return False # CHARACTERS_DIR exists but is not a directory
+
         base_path = os.path.join(CHARACTERS_DIR, character_name)
         log_file = os.path.join(base_path, "log.txt")
         system_prompt_file = os.path.join(base_path, "SystemPrompt.txt")
         memory_json_file = os.path.join(base_path, MEMORY_FILENAME)
+
         if not os.path.exists(base_path): os.makedirs(base_path)
-        if not os.path.exists(log_file): open(log_file, "w", encoding="utf-8").close()
+
+        if not os.path.exists(log_file):
+            with open(log_file, "w", encoding="utf-8") as f: f.write("") # Ensure it's created
 
         if not os.path.exists(system_prompt_file):
-            # あなたの望む「高度な対話パートナー」プロンプトも、もちろん反映済みです
             default_prompt = """あなたは、ユーザーとの対話を豊かにするための、いくつかの特別な能力を持つ、高度な対話パートナーです。
 
 ---
@@ -75,58 +79,44 @@ def ensure_character_files(character_name):
 
         if not os.path.exists(memory_json_file):
             default_memory_data = {"last_updated": None, "user_profile": {}, "relationship_history": [], "emotional_moments": [], "current_context": {}, "self_identity": {"name": character_name, "values": [], "style": "", "origin": ""}, "shared_language": {}, "memory_summary": []}
-            try:
-                with open(memory_json_file, "w", encoding="utf-8") as f: json.dump(default_memory_data, f, indent=2, ensure_ascii=False)
-            except Exception as e: print(f"エラー: 記憶ファイル '{memory_json_file}' 初期データ書込失敗: {e}"); return False
+            with open(memory_json_file, "w", encoding="utf-8") as f: json.dump(default_memory_data, f, indent=2, ensure_ascii=False)
         return True
-    except Exception as e: print(f"キャラクター '{character_name}' ファイル作成/確認エラー: {e}"); traceback.print_exc(); return False
+    except Exception as e:
+        print(f"キャラクター '{character_name}' ファイル作成/確認エラー: {e}"); traceback.print_exc(); return False
 
 def get_character_list():
     if not os.path.exists(CHARACTERS_DIR):
         try: os.makedirs(CHARACTERS_DIR)
         except Exception as e: print(f"エラー: '{CHARACTERS_DIR}' 作成失敗: {e}"); return []
+
     valid_characters = []
     try:
-        if not os.path.isdir(CHARACTERS_DIR): return []
         character_folders = [d for d in os.listdir(CHARACTERS_DIR) if os.path.isdir(os.path.join(CHARACTERS_DIR, d))]
-        if not character_folders:
-            if ensure_character_files("Default"): return ["Default"]
-            else: return []
-        for char in character_folders:
-             if ensure_character_files(char): valid_characters.append(char)
-        if not valid_characters:
-             if ensure_character_files("Default"): return ["Default"]
-             else: return []
-        return sorted(valid_characters)
-    except Exception as e: print(f"キャラリスト取得エラー: {e}"); traceback.print_exc(); return []
+        if not character_folders: # No characters exist, try to create Default
+            if ensure_character_files("Default"):
+                return ["Default"]
+            else:
+                return [] # Failed to create Default
+
+        for char_name_folder in character_folders: # Renamed variable for clarity
+             if ensure_character_files(char_name_folder): # Ensure files exist for this character
+                 valid_characters.append(char_name_folder)
+        return sorted(valid_characters) if valid_characters else []
+    except Exception as e:
+        print(f"キャラリスト取得エラー: {e}"); traceback.print_exc(); return []
 
 def get_character_files_paths(character_name):
-    if not character_name or not ensure_character_files(character_name): return None, None, None, None
+    if not character_name or not ensure_character_files(character_name): # ensure_character_files also validates name
+        return None, None, None, None
+
     base_path = os.path.join(CHARACTERS_DIR, character_name)
     log_file = os.path.join(base_path, "log.txt")
     system_prompt_file = os.path.join(base_path, "SystemPrompt.txt")
     profile_image_path = os.path.join(base_path, PROFILE_IMAGE_FILENAME)
     memory_json_path = os.path.join(base_path, MEMORY_FILENAME)
-    if not os.path.exists(profile_image_path): profile_image_path = None
+
+    if not os.path.exists(profile_image_path): profile_image_path = None # Handle missing profile image gracefully
     return log_file, system_prompt_file, profile_image_path, memory_json_path
-
-def log_to_character(character_name, message):
-    log_file, _, _, _ = get_character_files_paths(character_name)
-    if not log_file:
-        print(f"エラー: キャラクター '{character_name}' のログファイルが見つかりません。")
-        return False
-    try:
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(message + "\n")
-        return True
-    except Exception as e:
-        print(f"エラー: ログファイルへの書き込みに失敗しました: {e}")
-        return False
-
-# character_manager.py
-
-# (Ensure get_character_files_paths is defined above this or imported if it's from elsewhere within this file)
-# (Ensure os is imported if not already for os.path.exists, though get_character_files_paths likely handles it)
 
 def save_log_file(character_name: str, content: str):
     """
@@ -134,21 +124,15 @@ def save_log_file(character_name: str, content: str):
     UIのログエディタからの保存処理に使われる。
     """
     if not character_name or not isinstance(character_name, str) or not character_name.strip():
-        # Consider raising a more specific error or logging if an empty name is truly problematic
-        # For now, matching user's provided code which might implicitly allow it if not for the strip check.
-        # However, a truly empty/None name would fail get_character_files_paths.
         raise ValueError("無効なキャラクター名が指定されました。")
 
-    # Assuming get_character_files_paths is defined in the same module or correctly imported
-    log_file_path, _, _, _ = get_character_files_paths(character_name)
-    if not log_file_path: # This check might be redundant if get_character_files_paths raises an error for invalid names
+    log_file_path, _, _, _ = get_character_files_paths(character_name) # This will also ensure files if name is valid
+    if not log_file_path: # Should not happen if name is valid due to check in get_character_files_paths
         raise FileNotFoundError(f"キャラクター '{character_name}' のログファイルパスが見つかりません。")
 
     try:
         with open(log_file_path, "w", encoding="utf-8") as f:
             f.write(content)
     except Exception as e:
-        # It's good practice to log the original error message or path for debugging
-        print(f"エラー: ログファイル '{log_file_path}' への書き込み中に予期せぬエラーが発生しました: {e}")
-        # 元のエラーをラップして、より多くの情報と共に再送出する
+        print(f"エラー: ログファイル '{log_file_path}' への書き込み中に予期せぬエラーが発生しました。")
         raise IOError(f"Failed to write to log file for {character_name}") from e
