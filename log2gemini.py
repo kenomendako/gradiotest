@@ -1,4 +1,4 @@
-# log2gemini.py の【最終確定版】
+# log2gemini.py の【最終・完全・確定版】
 
 import gradio as gr
 import os, sys, json, traceback, threading, time, pandas as pd
@@ -30,16 +30,14 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         character_list_on_startup = ["Default"]
 
     effective_initial_character = config_manager.initial_character_global
-    # ★★★ log2gemini.py の修正点: リストが空でないことを確認 ★★★
     if not effective_initial_character or effective_initial_character not in character_list_on_startup:
         new_char = character_list_on_startup[0] if character_list_on_startup else "Default"
         print(f"警告: 最後に使用したキャラクター '{effective_initial_character}' が見つからないか無効です。'{new_char}' で起動します。")
         effective_initial_character = new_char
         config_manager.save_config("last_character", new_char)
-        if new_char == "Default" and "Default" not in character_list_on_startup: # Defaultがなければ作る
+        if new_char == "Default" and "Default" not in character_list_on_startup:
              character_manager.ensure_character_files("Default")
              character_list_on_startup = ["Default"]
-
 
     # --- UI State Variables ---
     current_character_name = gr.State(effective_initial_character)
@@ -51,15 +49,15 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     selected_alarm_ids_state = gr.State([])
     editing_alarm_id_state = gr.State(None)
 
+    # --- UIレイアウト定義 ---
     with gr.Row():
         with gr.Column(scale=1, min_width=300):
             profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
             gr.Markdown("### キャラクター")
             character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
-            # ★★★ log2gemini.py の修正点: テキストボックスとボタンを横並びに ★★★
-            with gr.Row(elem_classes="compact_row"): # elem_classesでCSSクラスを指定可能 (ここでは使わないが例として)
+            with gr.Row():
                 new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3)
-                add_character_button = gr.Button("迎える", variant="secondary", scale=1) # ボタン名を短く
+                add_character_button = gr.Button("迎える", variant="secondary", scale=1)
 
             with gr.Accordion("⚙️ 基本設定", open=False):
                 model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
@@ -71,11 +69,10 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             with gr.Accordion("📗 記憶とログの編集", open=False):
                 with gr.Tabs():
                     with gr.TabItem("記憶 (memory.json)"):
-                        memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code") # ラベル修正
+                        memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code")
                         save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
                     with gr.TabItem("ログ (log.txt)"):
-                        log_editor = gr.Code(label="ログ内容", interactive=True, elem_id="log_editor_code") # ラベル修正
-                        # ★★★ log2gemini.py の修正点: ボタンを横並びに ★★★
+                        log_editor = gr.Code(label="ログ内容", interactive=True, elem_id="log_editor_code")
                         with gr.Row():
                             save_log_button = gr.Button(value="ログを保存", variant="secondary")
                             editor_reload_button = gr.Button(value="ログ再読込", variant="secondary")
@@ -124,42 +121,34 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
     # --- イベントリスナー定義 ---
-
-    # ★★★ log2gemini.py の修正点: 新しいキャラクター追加のイベントをシンプルに ★★★
     add_character_button.click(
         fn=ui_handlers.handle_add_new_character,
-        inputs=[new_character_name_textbox], # テキストボックスの値を直接入力とする
-        outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox] # 最後にテキストボックスをクリア
+        inputs=[new_character_name_textbox],
+        outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox]
     )
-
     def initial_load(char_name_to_load):
         df_with_ids = ui_handlers.render_alarms_as_dataframe()
         display_df = ui_handlers.get_display_df(df_with_ids)
-        # 戻り値の数と順番をui_handlers.update_ui_on_character_changeに完全に合わせる
         (returned_char_name, current_chat_hist, _, current_profile_img,
-         current_mem_str, alarm_dd_char_val, current_log_content, timer_dd_char_val # timer_dd_char_val を追加
+         current_mem_str, alarm_dd_char_val, current_log_content, timer_dd_char_val
         ) = ui_handlers.update_ui_on_character_change(char_name_to_load)
         return (display_df, df_with_ids, current_chat_hist, current_log_content, current_mem_str,
-                current_profile_img, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください") # timer_dd_char_val を返す
-
+                current_profile_img, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください")
     demo.load(
         fn=initial_load, inputs=[current_character_name],
         outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, log_editor, memory_json_editor,
-                 profile_image_display, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown] # timer_char_dropdown を追加
+                 profile_image_display, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown]
     )
-
     alarm_dataframe.select(
         fn=ui_handlers.handle_alarm_selection_and_feedback,
         inputs=[alarm_dataframe_original_data],
         outputs=[selected_alarm_ids_state, selection_feedback_markdown],
-        show_progress='hidden' # ちらつき防止のためhidden推奨
+        show_progress='hidden'
     ).then(
         fn=ui_handlers.load_alarm_to_form,
         inputs=[selected_alarm_ids_state],
         outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state]
     )
-
-    # ★★★ log2gemini.py の修正点: イベントハンドラの記述をGradioの標準形に統一 (inputs/outputsをリストで囲む) ★★★
     enable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
     disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
     delete_alarm_button.click(fn=ui_handlers.handle_delete_selected_alarms, inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda id_df: ui_handlers.get_display_df(id_df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe]).then(fn=lambda: ([], "アラームを選択してください"), outputs=[selected_alarm_ids_state, selection_feedback_markdown])
@@ -168,24 +157,36 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
     model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name])
     api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state])
-    add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[]) # outputs=[] はNoneと同じ
+    add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[])
     send_thoughts_checkbox.change(fn=ui_handlers.update_send_thoughts_state, inputs=[send_thoughts_checkbox], outputs=[send_thoughts_state])
     api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state, inputs=[api_history_limit_dropdown], outputs=[api_history_limit_state])
-
-    # save_memory_button.click(fn=lambda char, mem_str: memory_manager.save_memory_data(char, mem_str), ...) # ui_handlers に移設
-    save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[]) # outputs=Noneでも可
-
-    save_log_button.click(fn=ui_handlers.handle_save_log_button_click, inputs=[current_character_name, log_editor], outputs=[])
+    save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor])
+    save_log_button.click(fn=ui_handlers.handle_save_log_button_click, inputs=[current_character_name, log_editor])
     editor_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name], outputs=[chatbot_display, log_editor])
     chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name], outputs=[chatbot_display, log_editor])
     chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button]
     chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=[chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state], outputs=chat_submit_outputs)
     submit_button.click(fn=ui_handlers.handle_message_submission, inputs=[chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state], outputs=chat_submit_outputs)
     timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, gr.State(config_manager.initial_notification_webhook_url_global), normal_timer_theme_input], outputs=[timer_status_output])
-    demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None) # inputs=None, outputs=None
+    demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 
 # --- Application Launch ---
 if __name__ == "__main__":
-    app, local_url, share_url = demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False)
     pc_url = "http://127.0.0.1:7860"
-    print("\n" + "="*60 + f"\nアプリケーションが起動しました。以下のURLをご利用ください。\n\n  【PCからアクセスする場合】\n  {pc_url}\n\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】\n  http://<お使いのPCのIPアドレス>:7860\n" + "="*60 + "\n")
+    print("\n" + "="*60)
+    print("アプリケーションを起動します...")
+    print(f"起動後、以下のURLでアクセスしてください。")
+    print("")
+    print(f"  【PCからアクセスする場合】")
+    print(f"  {pc_url}")
+    print("")
+    print("  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】")
+    print(f"  http://<お使いのPCのIPアドレス>:7860")
+    print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで")
+    print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)")
+    print("="*60 + "\n")
+    app, local_url, share_url = demo.queue().launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=False
+    )
