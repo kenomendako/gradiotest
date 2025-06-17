@@ -11,8 +11,6 @@ import traceback
 import requests
 import config_manager
 from character_manager import get_character_files_paths
-import gemini_api
-from utils import save_message_to_log
 
 # --- アラーム関連グローバル変数 ---
 alarms_data_global = []
@@ -134,25 +132,69 @@ def send_webhook_notification(webhook_url, message_text):
     return False
 
 def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
-    c, t, tm, fp, id = (alarm_config.get(k) for k in ["character", "theme", "time", "flash_prompt_template", "id"])
-    print(f"⏰ アラーム発火. ID: {id}, 時刻: {tm}, キャラクター: {c}, テーマ: '{t}' (カスタムP: {'あり' if fp else 'なし'})")
-    log_f, _, _, _ = get_character_files_paths(c)
-    if not log_f: return
-    a_mod = config_manager.initial_alarm_model_global
-    a_hist = config_manager.initial_alarm_api_history_turns_global
-    if not a_mod or not current_api_key_name: return
-    dummy_user_message = f"（システムアラーム：{tm} {t or fp or '(テーマ未設定)'}）"
-    response_text = gemini_api.send_alarm_to_gemini(c, t, fp, a_mod, current_api_key_name, log_f, a_hist)
-    if response_text and isinstance(response_text, str) and not response_text.startswith("【アラームエラー】"):
-        save_message_to_log(log_f, "## システム(アラーム):", dummy_user_message)
-        save_message_to_log(log_f, f"## {c}:", response_text)
-        print(f"アラームログ記録完了 (ID:{id})")
-        if webhook_url:
-            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-            # ★★★ ここが構文エラーの修正箇所です ★★★
-            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-            notification_message = f"⏰  {c}\n\n{response_text}\n" # Corrected f-string
-            send_webhook_notification(webhook_url, notification_message)
+        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+        # ★★★ ここで gemini_api を「関数の中」でインポートすることで、起動時の問題を回避します ★★★
+        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+        import gemini_api # Deferred import
+        from utils import save_message_to_log # Deferred import
+
+        # Ensure config_manager is accessible, typically imported at the top of the file
+        # from character_manager import get_character_files_paths # Ensure this is imported (likely at top)
+        # from .utils import save_message_to_log # Or however utils is structured
+        # from . import config_manager # Or however config_manager is structured
+
+        c = alarm_config.get("character")
+        t = alarm_config.get("theme")
+        tm = alarm_config.get("time")
+        fp = alarm_config.get("flash_prompt_template")
+        id_val = alarm_config.get("id") # Renamed from id to id_val to avoid shadowing built-in id
+        print(f"⏰ アラーム発火. ID: {id_val}, 時刻: {tm}, キャラクター: {c}, テーマ: '{t}' (カスタムP: {'あり' if fp else 'なし'})")
+
+        # This import should be at the top of the file
+        # from character_manager import get_character_files_paths
+        log_f, _, _, _ = get_character_files_paths(c) # Assuming get_character_files_paths is correctly imported
+        if not log_f:
+            print(f"エラー: アラーム'{id_val}'のキャラクター'{c}'のログファイルが見つかりません.処理をスキップします.")
+            return
+
+        a_mod = config_manager.initial_alarm_model_global
+        a_hist = config_manager.initial_alarm_api_history_turns_global
+
+        if not a_mod:
+            print(f"エラー: config.jsonでアラーム用モデル('alarm_model')が設定されていません.")
+            return
+        if not current_api_key_name:
+            print(f"エラー: 有効なAPIキー名が設定されていません.")
+            return
+
+        dummy_user_theme = t if t else (fp if fp else "(テーマ未設定)")
+        dummy_user_message = f"（システムアラーム：{tm} {dummy_user_theme}）"
+        system_header = "## システム(アラーム):"
+
+        # Default theme logic from user
+        if not alarm_config.get("theme"):
+            if alarm_config.get("id") == "通常タイマー": alarm_config["theme"] = "時間になりました"
+            elif alarm_config.get("id") == "作業タイマー": alarm_config["theme"] = "作業終了アラーム"
+            elif alarm_config.get("id") == "休憩タイマー": alarm_config["theme"] = "休憩終了アラーム"
+
+        theme = alarm_config.get("theme") # Re-get theme after potential modification
+        flash_prompt = alarm_config.get("flash_prompt_template") # Re-get flash_prompt just in case
+
+        response_text = gemini_api.send_alarm_to_gemini(c, theme, flash_prompt, a_mod, current_api_key_name, log_f, a_hist)
+
+        if response_text and isinstance(response_text, str) and not response_text.startswith("【アラームエラー】"):
+            save_message_to_log(log_f, system_header, dummy_user_message)
+            save_message_to_log(log_f, f"## {c}:", response_text)
+            print(f"アラームログ記録完了 (ID:{id_val})")
+
+            if webhook_url:
+                # Assuming send_webhook_notification is correctly imported (likely at top)
+                notification_message = f"⏰  {c}\n\n{response_text}\n"
+                send_webhook_notification(webhook_url, notification_message)
+            else:
+                print("情報: Webhook URLが設定されていないため、外部通知はスキップします.")
+        else:
+            print(f"警告: アラーム応答の生成に失敗したか、エラーが返されたため、ログ記録と通知をスキップします (ID:{id_val}).応答: {response_text}")
 
 def check_alarms():
     now_dt = datetime.datetime.now()

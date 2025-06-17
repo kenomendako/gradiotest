@@ -74,28 +74,28 @@ class UnifiedTimer:
             print("エラー: タイマー種別が設定されていません。")
 
     def _run_timer(self, duration, theme, timer_id):
-        from alarm_manager import trigger_alarm # Late import to avoid circular dependency issues at module load time
-        print(f"タイマー「{timer_id}」開始: {duration}秒")
+        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+        # ★★★ ここで trigger_alarm を「関数の中」でインポートすることで、起動時の問題を回避します ★★★
+        # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+        from alarm_manager import trigger_alarm # Deferred import
 
-        # stop_event.wait(timeout) は、イベントがセットされるかタイムアウトするまで待機
-        # 停止されればTrue、タイムアウトすればFalseを返す
-        if self._stop_event.wait(duration):
-            print(f"タイマー「{timer_id}」が外部から停止されました。")
-            return
+        start_time = time.time()
+        while time.time() - start_time < duration:
+            if self._stop_event.is_set():
+                print(f"{timer_id}が停止されました。")
+                return
+            time.sleep(0.1) # Use time.sleep for floating point seconds
+        print(f"{timer_id}終了。アラーム処理を実行します。")
 
-        print(f"タイマー「{timer_id}」終了。アラーム処理を実行します。")
-        try:
-            # アラーム処理を呼び出し
-            trigger_alarm({
-                "character": self.character_name,
-                "theme": theme,
-                "time": f"{timer_id}終了",
-                "id": timer_id,
-                "flash_prompt_template": None
-            }, self.api_key_name, self.webhook_url)
-        except Exception as e:
-            print(f"タイマー「{timer_id}」からのアラームトリガー中にエラーが発生しました: {e}")
-            traceback.print_exc()
+        # Ensure all necessary keys are present in the dict for trigger_alarm
+        alarm_config_payload = {
+            "character": self.character_name,
+            "theme": theme,
+            "time": f"{timer_id}終了", # Consistent with user's example
+            "id": timer_id,
+            "flash_prompt_template": None # Add this if trigger_alarm expects it, even if None
+        }
+        trigger_alarm(alarm_config_payload, self.api_key_name, self.webhook_url)
 
     def _run_pomodoro(self):
         print(f"ポモドーロタイマー開始: 作業{self.work_duration}秒, 休憩{self.break_duration}秒, {self.cycles}サイクル")
