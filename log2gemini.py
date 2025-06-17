@@ -4,11 +4,37 @@ import gradio as gr
 import os, sys, json, traceback, threading, time, pandas as pd
 import config_manager, character_manager, memory_manager, alarm_manager, gemini_api, utils, ui_handlers
 
-# --- 起動シーケンス ---
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+# ★★★ ここからが循環参照を解決する、新しい起動シーケンスです ★★★
+# ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+# 1. まず、純粋な設定ファイル読み込みだけを行う
 config_manager.load_config()
-alarm_manager.load_alarms()
+alarm_manager.load_alarms() # Assuming this also has no deep cross-dependencies at load time
+
+# 2. 次に、キャラクターリストを取得する
+character_list_on_startup = character_manager.get_character_list()
+if not character_list_on_startup:
+    character_manager.ensure_character_files("Default") # Ensure default character files exist
+    character_list_on_startup = ["Default"] # Update list after ensuring
+
+# 3. ここで初めて、設定値（最後に使ったキャラ）と、実際のキャラリストを照合・検証する
+effective_initial_character = config_manager.initial_character_global
+if not effective_initial_character or effective_initial_character not in character_list_on_startup:
+    new_char = character_list_on_startup[0] # Fallback to the first available character
+    print(f"警告: 最後に使用したキャラクター '{effective_initial_character}' が見つかりません。'{new_char}' で起動します。")
+    effective_initial_character = new_char
+    config_manager.save_config("last_character", new_char) # Save the corrected character
+
+# Update the global in config_manager if it was changed, so UI defaults to the correct one
+config_manager.initial_character_global = effective_initial_character
+
+
+# 4. 最後に、有効なAPIキーでクライアントを初期化する
 if config_manager.initial_api_key_name_global:
     gemini_api.configure_google_api(config_manager.initial_api_key_name_global)
+else:
+    print("警告: 有効なAPIキーが設定されていません。")
 
 # --- CSS定義 ---
 custom_css = """
