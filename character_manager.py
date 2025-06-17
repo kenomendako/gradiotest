@@ -122,3 +122,33 @@ def log_to_character(character_name, message):
     except Exception as e:
         print(f"エラー: ログファイルへの書き込みに失敗しました: {e}")
         return False
+
+# character_manager.py
+
+# (Ensure get_character_files_paths is defined above this or imported if it's from elsewhere within this file)
+# (Ensure os is imported if not already for os.path.exists, though get_character_files_paths likely handles it)
+
+def save_log_file(character_name: str, content: str):
+    """
+    指定されたキャラクターのログファイル全体を、新しい内容で上書き保存する。
+    UIのログエディタからの保存処理に使われる。
+    """
+    if not character_name or not isinstance(character_name, str) or not character_name.strip():
+        # Consider raising a more specific error or logging if an empty name is truly problematic
+        # For now, matching user's provided code which might implicitly allow it if not for the strip check.
+        # However, a truly empty/None name would fail get_character_files_paths.
+        raise ValueError("無効なキャラクター名が指定されました。")
+
+    # Assuming get_character_files_paths is defined in the same module or correctly imported
+    log_file_path, _, _, _ = get_character_files_paths(character_name)
+    if not log_file_path: # This check might be redundant if get_character_files_paths raises an error for invalid names
+        raise FileNotFoundError(f"キャラクター '{character_name}' のログファイルパスが見つかりません。")
+
+    try:
+        with open(log_file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception as e:
+        # It's good practice to log the original error message or path for debugging
+        print(f"エラー: ログファイル '{log_file_path}' への書き込み中に予期せぬエラーが発生しました: {e}")
+        # 元のエラーをラップして、より多くの情報と共に再送出する
+        raise IOError(f"Failed to write to log file for {character_name}") from e
