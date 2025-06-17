@@ -1,6 +1,6 @@
 # ui_handlers.py (最終・完全・確定版)
 import pandas as pd
-from typing import List, Optional, Dict, Any, Tuple, Union # Keep existing typing imports
+from typing import List, Optional, Dict, Any, Tuple, Union
 import gradio as gr
 import datetime
 import json
@@ -8,84 +8,111 @@ import traceback
 import os
 import mimetypes
 
-# --- プロジェクト内モジュールのインポートを整理 ---
-import config_manager # Needed for HISTORY_LIMIT, save_config, API_HISTORY_LIMIT_OPTIONS
-import character_manager # Now directly used for log saving and char list
+# --- プロジェクト内モジュールのインポート ---
+import config_manager
+import character_manager
+# utils functions are used directly, ensure they are correctly defined in utils.py
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log
 # alarm_manager, gemini_api, memory_manager, timers will be imported deferred
+
+# --- アラーム関連の表示ヘルパー関数をここに再定義 ---
+DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
+DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
+
+def render_alarms_as_dataframe():
+    import alarm_manager # 遅延インポート
+    all_alarms = alarm_manager.get_all_alarms()
+    df_data = []
+    for alarm in all_alarms:
+        # ★★★ 表示崩れを防ぐため、区切り文字を「、」に変更 ★★★
+        days_ja_str = "、".join([DAY_MAP_EN_TO_JA.get(d, "?") for d in alarm.get("days", [])])
+        df_data.append({
+            "id": alarm.get("id"), "状態": alarm.get("enabled", False),
+            "時刻": alarm.get("time", ""), "曜日": days_ja_str,
+            "キャラ": alarm.get("character", ""), "テーマ": alarm.get("theme", "")
+        })
+    df = pd.DataFrame(df_data)
+    if not df.empty:
+        return df.sort_values(by=["時刻", "曜日"]).reset_index(drop=True)
+    # DataFrameが空の場合でも、正しい列構成で返す
+    return pd.DataFrame(columns=["id", "状態", "時刻", "曜日", "キャラ", "テーマ"])
+
+def get_display_df(df_with_ids: pd.DataFrame) -> pd.DataFrame:
+    if df_with_ids.empty or "id" not in df_with_ids.columns:
+        return pd.DataFrame(columns=["状態", "時刻", "曜日", "キャラ", "テーマ"])
+    return df_with_ids[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
+
+# --- (以降、既存のハンドラを修正) ---
 
 def handle_add_new_character(character_name: str):
     if not character_name or not character_name.strip():
         gr.Warning("キャラクター名が入力されていません。")
         char_list = character_manager.get_character_list()
         # Ensure all dropdowns are updated
-        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value="")
+        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value="") # Clear textbox
 
-
-    # Basic sanitization, consider more robust validation if needed
     safe_name = "".join(c for c in character_name if c.isalnum() or c in (' ', '_', '-')).strip()
     if not safe_name:
-        gr.Warning("無効なキャラクター名です。半角英数字、スペース、アンダースコア、ハイフンのみ使用可能です。")
+        gr.Warning("無効なキャラクター名です。")
         char_list = character_manager.get_character_list()
+        # Keep original name in textbox for user to edit
         return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value=character_name)
-
 
     if character_manager.ensure_character_files(safe_name):
         gr.Info(f"新しいキャラクター「{safe_name}」さんを迎えました！")
         new_char_list = character_manager.get_character_list()
-        # Update all relevant dropdowns and clear the input textbox
         return gr.update(choices=new_char_list, value=safe_name), gr.update(choices=new_char_list, value=safe_name), gr.update(choices=new_char_list, value=safe_name), gr.update(value="")
     else:
         gr.Error(f"キャラクター「{safe_name}」の準備に失敗しました。")
         char_list = character_manager.get_character_list()
-        # Keep current input in textbox for user to edit
         return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value=character_name)
 
-
 def update_ui_on_character_change(character_name: Optional[str]):
-    # Deferred import for memory_manager
-    from memory_manager import load_memory_data_safe
+    from memory_manager import load_memory_data_safe # 遅延インポート
 
-    if not character_name: # Fallback if no character is selected (e.g., on initial load if list was empty)
+    if not character_name: # Should ideally not happen if dropdown has a value
         all_chars = character_manager.get_character_list()
-        character_name = all_chars[0] if all_chars else "Default" # Should not be "Default" if list is truly empty
+        # Fallback to first character if list is not empty, else "Default" (which should be created)
+        character_name = all_chars[0] if all_chars else "Default"
+        if not all_chars and character_name == "Default": # If Default had to be created
+             character_manager.ensure_character_files("Default")
+
 
     config_manager.save_config("last_character", character_name)
     log_f, _, img_p, mem_p = character_manager.get_character_files_paths(character_name)
 
     chat_history = []
     if log_f and os.path.exists(log_f):
-         # Ensure HISTORY_LIMIT is accessed via config_manager
-        chat_history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT * 2):])
+        chat_history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT*2):])
 
     log_content = ""
     if log_f and os.path.exists(log_f):
-        try:
-            with open(log_f, "r", encoding="utf-8") as f: log_content = f.read()
-        except Exception as e:
-            print(f"Error reading log file {log_f}: {e}")
-            log_content = f"Error reading log file: {e}"
+        with open(log_f, "r", encoding="utf-8") as f: log_content = f.read()
 
     memory_str = "{}" # Default empty JSON string
-    if mem_p and os.path.exists(mem_p):
-        memory_data = load_memory_data_safe(mem_p) # Use safe load
+    if mem_p and os.path.exists(mem_p): # Check if memory path and file exist
+        memory_data = load_memory_data_safe(mem_p)
         memory_str = json.dumps(memory_data, indent=2, ensure_ascii=False)
 
-    # Ensure all outputs are correctly mapped in log2gemini.py
     return character_name, chat_history, "", img_p, memory_str, character_name, log_content, character_name
 
-
 def handle_save_memory_click(character_name, json_string_data):
-    # Deferred import for memory_manager
-    from memory_manager import save_memory_data
+    from memory_manager import save_memory_data # 遅延インポート
     if not character_name:
         gr.Warning("キャラクターが選択されていません。")
         return
-    save_memory_data(character_name, json_string_data) # Call the correct function
+    try:
+        save_memory_data(character_name, json_string_data) # Call the correct function
+        gr.Info(f"{character_name}さんの記憶を更新しました。")
+    except json.JSONDecodeError as e:
+        gr.Error(f"記憶データの形式（JSON）が正しくありません: {e}")
+    except Exception as e:
+        gr.Error(f"記憶の保存中に予期せぬエラーが発生しました: {e}")
+        traceback.print_exc()
+
 
 def handle_message_submission(*args: Any):
-    # Deferred import for gemini_api
-    from gemini_api import send_to_gemini
+    from gemini_api import send_to_gemini # 遅延インポート
 
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
@@ -93,11 +120,11 @@ def handle_message_submission(*args: Any):
 
     if not all([current_character_name, current_model_name, current_api_key_name_state]):
         gr.Warning("キャラクター、モデル、APIキーをすべて選択してください。")
-        return chatbot_history, gr.update(value=""), gr.update(value=None) # Ensure correct number of outputs
+        return chatbot_history, gr.update(value=""), gr.update(value=None)
 
     log_f, sys_p, _, mem_p = character_manager.get_character_files_paths(current_character_name)
-    if not log_f: # This implies sys_p, mem_p might also be None
-        gr.Warning(f"キャラクター '{current_character_name}' の必須ファイルパス取得に失敗。")
+    if not log_f: # This implies other paths might also be None
+        gr.Warning(f"キャラクター '{current_character_name}' の必須ファイルパス取得に失敗。処理を中断します。")
         return chatbot_history, gr.update(value=""), gr.update(value=None)
 
     user_prompt = textbox_content.strip() if textbox_content else ""
@@ -105,314 +132,222 @@ def handle_message_submission(*args: Any):
         return chatbot_history, gr.update(value=""), gr.update(value=None)
 
     log_message_content = user_prompt
-    if file_input_list: # file_input_list is a list of file paths
-        for file_path_obj in file_input_list: # Gradio might pass temp file objects
-            actual_file_path = file_path_obj.name if hasattr(file_path_obj, 'name') else str(file_path_obj)
+    actual_file_paths_for_api = []
+    if file_input_list: # file_input_list is a list of file paths from Gradio
+        for file_obj in file_input_list: # Gradio file objects have a .name attribute for the path
+            actual_file_path = file_obj.name if hasattr(file_obj, 'name') else str(file_obj) # Robustly get path
             log_message_content += f"\n[ファイル添付: {os.path.basename(actual_file_path)}]"
+            actual_file_paths_for_api.append(actual_file_path)
 
 
-    user_header = _get_user_header_from_log(log_f, current_character_name) # from utils
+    user_header = _get_user_header_from_log(log_f, current_character_name)
     timestamp = f"\n{datetime.datetime.now():%Y-%m-%d (%a) %H:%M:%S}" if add_timestamp_checkbox else ""
-    save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp) # from utils
+    save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
 
-    uploaded_files_info = []
-    if file_input_list:
-        for file_path_obj in file_input_list:
-            actual_file_path = file_path_obj.name if hasattr(file_path_obj, 'name') else str(file_path_obj)
-            mime_type, _ = mimetypes.guess_type(actual_file_path)
-            uploaded_files_info.append({"path": actual_file_path, "mime_type": mime_type or "application/octet-stream"})
+    uploaded_files_info_for_api = []
+    if actual_file_paths_for_api: # Use the extracted actual paths
+        for path in actual_file_paths_for_api:
+            mime_type, _ = mimetypes.guess_type(path)
+            uploaded_files_info_for_api.append({"path": path, "mime_type": mime_type or "application/octet-stream"})
 
     api_response_text = ""
     generated_image_path = None
     try:
-        # Ensure mem_p is passed if send_to_gemini expects it
         api_response_text, generated_image_path = send_to_gemini(
             sys_p, log_f, user_prompt, current_model_name, current_character_name,
-            send_thoughts_state, api_history_limit_state, uploaded_files_info, mem_p
+            send_thoughts_state, api_history_limit_state, uploaded_files_info_for_api, mem_p # Pass correct var
         )
 
         if api_response_text or generated_image_path:
             response_to_log = (f"[Generated Image: {generated_image_path}]\n\n" if generated_image_path else "") + (api_response_text or "")
-            save_message_to_log(log_f, f"## {current_character_name}:", response_to_log) # from utils
+            save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
     except Exception as e:
         traceback.print_exc()
         gr.Error(f"メッセージ処理中に予期せぬエラー: {e}")
 
-    # Reload log and format for display
-    new_log = load_chat_log(log_f, current_character_name) # from utils
-    # Ensure HISTORY_LIMIT is accessed via config_manager
+    new_log = load_chat_log(log_f, current_character_name)
     new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
-    return new_hist, gr.update(value=""), gr.update(value=None) # Clear textbox, clear file upload
-
-    # ui_handlers.py
-    # (Ensure pandas as pd and alarm_manager are imported, likely deferred for alarm_manager)
-    import pandas as pd # Keep at top if already there
-
-    def render_alarms_as_dataframe():
-        """アラームリストからDataFrameを生成する。ID列を含む。"""
-        import alarm_manager # Deferred import
-        all_alarms = alarm_manager.get_all_alarms()
-        df_data = []
-        DAY_MAP_EN_TO_JA = getattr(alarm_manager, 'DAY_MAP_EN_TO_JA', {}) # Safely get map
-        for alarm in all_alarms: # Iterate through each alarm dictionary
-            # ★★★ 表示崩れを防ぐため、区切り文字を「、」に変更 ★★★
-            days_ja_str = "、".join([DAY_MAP_EN_TO_JA.get(d, "?") for d in alarm.get("days", [])])
-            df_data.append({
-                "id": alarm.get("id"), "状態": alarm.get("enabled", False),
-                "時刻": alarm.get("time", ""), "曜日": days_ja_str,
-                "キャラ": alarm.get("character", ""), "テーマ": alarm.get("theme", "")
-            })
-        df = pd.DataFrame(df_data) # Create DataFrame from list of dicts
-        if not df.empty:
-            df = df.sort_values(by=["時刻", "曜日"]).reset_index(drop=True)
-            return df
-        # DataFrameが空の場合でも、正しい列構成で返す
-        return pd.DataFrame(columns=["id", "状態", "時刻", "曜日", "キャラ", "テーマ"])
-
-
-def get_display_df(df_with_ids: pd.DataFrame): # This is a utility for the UI, keep as is
-    if df_with_ids.empty or "id" not in df_with_ids.columns:
-        return pd.DataFrame(columns=["状態", "時刻", "曜日", "キャラ", "テーマ"]) # Ensure consistent columns
-    return df_with_ids[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
-
+    return new_hist, gr.update(value=""), gr.update(value=None)
 
 def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.SelectData):
-    """Dataframeでの行選択を処理し、選択されたIDとフィードバックメッセージを返す。単一選択・複数選択の両方に対応した堅牢な実装。"""
+    """Dataframeでの行選択を処理し、選択されたIDとフィードバックメッセージを返す。単一選択・複数選択の両方に対応。"""
+
     if evt.index is None:
         return [], "アラームを選択してください"
 
+    # Normalize evt.index to always be a list of tuples (or a list with one tuple)
     indices_list = evt.index if isinstance(evt.index, list) else [evt.index]
 
-    if not indices_list:
+    if not indices_list: # Should not happen if evt.index was not None, but good check
         return [], "アラームを選択してください"
-    try:
-        # Ensure indices are valid before trying to access them
-        selected_row_indices = sorted(list(set(idx[0] for idx in indices_list if idx and len(idx) > 0)))
 
+    try:
+        # Extract unique row indices from the list of (row, col) tuples
+        selected_row_indices = sorted(list(set([idx[0] for idx in indices_list if idx and len(idx) > 0])))
+    except (TypeError, IndexError) as e:
+        # This might happen if an element in indices_list is not a tuple or is too short
+        print(f"Error processing event indices: {evt.index} -> {e}")
+        traceback.print_exc() # Good to have for debugging such issues
+        return [], "選択情報の取得に失敗しました。再度お試しください。"
+
+    if not selected_row_indices or df_with_ids.empty:
+        return [], "アラームを選択してください"
+
+    try:
+        # Filter for valid indices that are within the DataFrame's bounds
         valid_indices = [i for i in selected_row_indices if i < len(df_with_ids)]
-        if not valid_indices: return [], "選択した行が見つかりません。"
+        if not valid_indices:
+            return [], "選択した行が見つかりません。" # All selected rows were out of bounds
 
         selected_ids = df_with_ids.iloc[valid_indices]["id"].tolist()
 
         if len(selected_ids) == 1:
-            selected_alarm_row = df_with_ids.iloc[valid_indices[0]]
-            return selected_ids, f"選択中: 「{selected_alarm_row['テーマ']}」 ({selected_alarm_row['時刻']})"
+            # For single selection, get data from the first valid selected row
+            row = df_with_ids.iloc[valid_indices[0]]
+            return selected_ids, f"選択中: 「{row['テーマ']}」 ({row['時刻']})"
         else:
             return selected_ids, f"{len(selected_ids)}件のアラームを選択中"
-    except (TypeError, IndexError, KeyError) as e: # Catch potential errors during iloc or dict access
+
+    except (KeyError, IndexError) as e:
+        print(f"エラー: データアクセス中にエラー: {e}")
         traceback.print_exc()
-        return [], "選択情報の取得に失敗しました。"
+        return [], "IDの取得に失敗しました。"
+    except Exception as e: # Catch any other unexpected error
+        print(f"予期せぬエラー: {e}")
+        traceback.print_exc()
+        return [], "予期せぬエラーが発生しました。"
 
 
-def load_alarm_to_form(selected_ids: list): # Keep list for type hint for now
-    # Deferred import for alarm_manager
-    import alarm_manager
-    DAY_MAP_JA_TO_EN = getattr(alarm_manager, 'DAY_MAP_JA_TO_EN', {})
-    DAY_MAP_EN_TO_JA = getattr(alarm_manager, 'DAY_MAP_EN_TO_JA', {})
+def load_alarm_to_form(selected_ids: list):
+    import alarm_manager # 遅延インポート
 
     if not selected_ids or len(selected_ids) != 1:
-        char_list = character_manager.get_character_list()
-        default_char = char_list[0] if char_list else None
-        # Ensure DAY_MAP_JA_TO_EN.keys() is used, not .values() if it's JA to EN
-        return "アラーム追加", "", "", default_char, list(DAY_MAP_JA_TO_EN.keys()), "08", "00", None
+        chars = character_manager.get_character_list()
+        # Use DAY_MAP_JA_TO_EN.keys() as it's JA days for checkbox group
+        return "アラーム追加", "", "", chars[0] if chars else None, list(DAY_MAP_JA_TO_EN.keys()), "08", "00", None
 
-    alarm_id = selected_ids[0]
-    alarm_data = alarm_manager.get_alarm_by_id(alarm_id)
+    alarm = alarm_manager.get_alarm_by_id(selected_ids[0])
+    if not alarm: # Alarm not found
+        gr.Warning(f"ID '{selected_ids[0]}'のアラームが見つかりません。")
+        chars = character_manager.get_character_list()
+        return "アラーム追加", "", "", chars[0] if chars else None, list(DAY_MAP_JA_TO_EN.keys()), "08", "00", None
 
-    if not alarm_data:
-        gr.Warning(f"ID '{alarm_id}'のアラームが見つかりません。")
-        char_list = character_manager.get_character_list() # Provide char_list for consistency
-        default_char = char_list[0] if char_list else None
-        return "アラーム追加", "", "", default_char, list(DAY_MAP_JA_TO_EN.keys()), "08", "00", None
-
-    hour, minute = alarm_data.get("time", "08:00").split(":")
-    days_ja = [DAY_MAP_EN_TO_JA.get(day_en, "?") for day_en in alarm_data.get("days", [])]
-
-    return ("アラーム更新", alarm_data.get("theme", ""), alarm_data.get("flash_prompt_template", ""),
-            alarm_data.get("character", ""), days_ja, hour, minute, alarm_id)
-
+    h, m = alarm.get("time", "08:00").split(":")
+    # Ensure days are correctly mapped from EN (stored) to JA (display)
+    days_ja = [DAY_MAP_EN_TO_JA.get(d_en, "?") for d_en in alarm.get("days", [])]
+    return "アラーム更新", alarm.get("theme", ""), alarm.get("flash_prompt_template", ""), alarm.get("character", ""), days_ja, h, m, alarm.get("id")
 
 def toggle_selected_alarms_status(selected_ids: list, new_status: bool):
-    # Deferred import for alarm_manager
-    import alarm_manager
+    import alarm_manager # 遅延インポート
     if not selected_ids:
         gr.Warning("操作するアラームが選択されていません。")
-        # Return the current state of the dataframe, not re-render if no selection
-        # This requires the dataframe to be an input to this function or handled differently
-        return render_alarms_as_dataframe() # Re-render for now
-
-    for alarm_id in selected_ids:
-        alarm_manager.update_alarm(alarm_id, {"enabled": new_status})
-
-    status_text = "有効化" if new_status else "無効化"
-    gr.Info(f"{len(selected_ids)}件のアラームを{status_text}しました。")
-    return render_alarms_as_dataframe()
-
+    else:
+        for alarm_id_val in selected_ids: # Use different var name
+            alarm_manager.update_alarm(alarm_id_val, {"enabled": new_status})
+        gr.Info(f"{len(selected_ids)}件のアラームを{'有効化' if new_status else '無効化'}しました。")
+    return render_alarms_as_dataframe() # Always re-render
 
 def handle_delete_selected_alarms(selected_ids: list):
-    # Deferred import for alarm_manager
-    import alarm_manager
+    import alarm_manager # 遅延インポート
     if not selected_ids:
         gr.Warning("削除するアラームが選択されていません。")
-        return render_alarms_as_dataframe() # Re-render for now
+    else:
+        count = sum(1 for alarm_id_val in selected_ids if alarm_manager.delete_alarm(alarm_id_val))
+        gr.Info(f"{count}件のアラームを削除しました。")
+    return render_alarms_as_dataframe() # Always re-render
 
-    count = 0
-    for alarm_id in selected_ids:
-        if alarm_manager.delete_alarm(alarm_id):
-            count += 1
+def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja):
+    import alarm_manager # 遅延インポート
+    if not char or not theme.strip():
+        gr.Warning("キャラクターとテーマは必須です。")
+        # Return current values to keep form populated
+        return render_alarms_as_dataframe(), render_alarms_as_dataframe(), editing_id if editing_id else "アラーム追加", theme, prompt, char, days_ja, h, m, editing_id
 
-    gr.Info(f"{count}件のアラームを削除しました。")
-    return render_alarms_as_dataframe()
+    # Convert JA days to EN for storage
+    days_en = [DAY_MAP_JA_TO_EN.get(d_ja, d_ja.lower()[:3]) for d_ja in days_ja] # Fallback for safety
 
-
-def handle_add_or_update_alarm(editing_alarm_id, hour, minute, character, theme, flash_prompt, days_ja):
-    # Deferred import for alarm_manager
-    import alarm_manager
-    DAY_MAP_JA_TO_EN = getattr(alarm_manager, 'DAY_MAP_JA_TO_EN', {})
-
-    if not character:
-        gr.Warning("キャラクターを選択してください。")
-        return render_alarms_as_dataframe(), render_alarms_as_dataframe(), "アラーム追加", theme, flash_prompt, character, days_ja, hour, minute, editing_alarm_id
-
-    if not theme or not theme.strip():
-        gr.Warning("テーマを入力してください。")
-        return render_alarms_as_dataframe(), render_alarms_as_dataframe(), "アラーム追加", theme, flash_prompt, character, days_ja, hour, minute, editing_alarm_id
-
-    days_en = [DAY_MAP_JA_TO_EN.get(day_ja, day_ja.lower()[:3]) for day_ja in days_ja] # Fallback for safety
-
-    if editing_alarm_id:
-        update_data = {
-            "time": f"{hour}:{minute}", "character": character, "theme": theme.strip(),
-            "flash_prompt_template": flash_prompt.strip() if flash_prompt else None, "days": days_en,
-        }
-        alarm_manager.update_alarm(editing_alarm_id, update_data)
+    if editing_id:
+        data = {"time": f"{h}:{m}", "character": char, "theme": theme.strip(), "flash_prompt_template": prompt.strip() if prompt else None, "days": days_en}
+        alarm_manager.update_alarm(editing_id, data)
         gr.Info(f"アラーム「{theme}」を更新しました。")
     else:
-        alarm_manager.add_alarm(hour, minute, character, theme.strip(), flash_prompt.strip() if flash_prompt else None, days_ja) # Pass days_ja
+        alarm_manager.add_alarm(h, m, char, theme.strip(), prompt.strip() if prompt else None, days_ja) # add_alarm expects days_ja
         gr.Info(f"アラーム「{theme}」を追加しました。")
 
     new_df = render_alarms_as_dataframe()
-    all_chars = character_manager.get_character_list()
-    default_char = all_chars[0] if all_chars else None
+    chars = character_manager.get_character_list()
+    return new_df, new_df, "アラーム追加", "", "", chars[0] if chars else None, list(DAY_MAP_JA_TO_EN.keys()), "08", "00", None
 
-    return (new_df, new_df, "アラーム追加", "", "", default_char,
-            list(DAY_MAP_JA_TO_EN.keys()), "08", "00", None)
+def update_model_state(new_model):
+    config_manager.save_config("last_model", new_model)
+    return new_model
 
-def update_model_state(new_model_name: str): # Add type hint
-    config_manager.save_config("last_model", new_model_name)
-    return new_model_name # Return the name to update state if Gradio component expects it
+def update_api_key_state(new_key_name):
+    from gemini_api import configure_google_api # 遅延インポート
+    if new_key_name in config_manager.API_KEYS:
+        configure_google_api(new_key_name)
+        config_manager.save_config("last_api_key_name", new_key_name)
+    else: gr.Warning("無効なAPIキー名です。")
+    return new_key_name
 
-def update_api_key_state(new_api_key_name: str): # Add type hint
-    # Deferred import for gemini_api
-    from gemini_api import configure_google_api
-    if new_api_key_name in config_manager.API_KEYS:
-        configure_google_api(new_api_key_name)
-        config_manager.save_config("last_api_key_name", new_api_key_name)
-    else:
-        gr.Warning(f"無効なAPIキー名です: {new_api_key_name}") # More informative
-    return new_api_key_name # Return the name
+def update_timestamp_state(enabled): config_manager.save_config("add_timestamp", enabled) # No return needed
+def update_send_thoughts_state(enabled): config_manager.save_config("last_send_thoughts_to_api", enabled); return enabled
 
-def update_timestamp_state(add_timestamp_enabled: bool): # Add type hint
-    config_manager.save_config("add_timestamp", add_timestamp_enabled)
-    # No return needed if this just updates config and doesn't directly set a gr.State
-
-def update_send_thoughts_state(send_thoughts_enabled: bool): # Add type hint
-    config_manager.save_config("last_send_thoughts_to_api", send_thoughts_enabled)
-    return send_thoughts_enabled # Return the state
-
-def update_api_history_limit_state(limit_option_display_value: str): # Add type hint
-    # Convert display value back to key if necessary, assuming API_HISTORY_LIMIT_OPTIONS is available
-    limit_option_key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_option_display_value), "all")
-    config_manager.save_config("last_api_history_limit_option", limit_option_key)
-    return limit_option_key # Return the key
-
+def update_api_history_limit_state(value): # Value is display string e.g. "直近10ターン"
+    # Convert display value back to key
+    key = next((k for k, v_display in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v_display == value), "all")
+    config_manager.save_config("last_api_history_limit_option", key)
+    return key # Return the key for state
 
 def handle_save_log_button_click(character_name: str, log_content: str):
-    """ログエディタの内容を保存する。character_manager.save_log_fileを正しく呼び出す。"""
-    if not character_name:
-        gr.Warning("キャラクターが選択されていません。")
-        return
-
+    if not character_name: gr.Warning("キャラクターが選択されていません。"); return
     try:
-        # No longer need function-scoped import from utils
         character_manager.save_log_file(character_name, log_content)
         gr.Info(f"{character_name}さんのログを保存しました。")
-    except Exception as e:
-        gr.Error(f"ログの保存中にエラーが発生しました: {e}")
-        traceback.print_exc() # Ensure traceback is imported
+    except Exception as e: gr.Error(f"ログの保存中にエラー: {e}"); traceback.print_exc()
 
 
 def reload_chat_log(character_name: str):
-    if not character_name: return [], "" # Return empty list for history and empty string for log content
-
+    if not character_name: return [], ""
     log_f, _, _, _ = character_manager.get_character_files_paths(character_name)
-
-    chat_history_display = []
-    log_file_content = ""
-
+    log_content_val = ""
     if log_f and os.path.exists(log_f):
-        try:
-            # Ensure HISTORY_LIMIT is accessed via config_manager
-            chat_history_display = format_history_for_gradio(load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT*2):])
-            with open(log_f, 'r', encoding='utf-8') as f:
-                log_file_content = f.read()
-        except Exception as e:
-            print(f"Error processing log file for reload {log_f}: {e}")
-            log_file_content = f"Error loading log: {e}"
-
-    return chat_history_display, log_file_content
+        with open(log_f, 'r', encoding='utf-8') as f: log_content_val = f.read()
+    return format_history_for_gradio(load_chat_log(log_f, character_name)[-config_manager.HISTORY_LIMIT*2:]), log_content_val
 
 
-def handle_timer_submission(timer_type, duration_minutes, pomo_work_minutes, pomo_break_minutes, pomo_cycles,
-                            character_name, work_theme, break_theme, api_key_name, webhook_url,
-                            normal_timer_theme):
-    # Deferred import for timers
-    from timers import UnifiedTimer
-
-    if not character_name or not api_key_name:
-        # gr.Info("キャラクターとAPIキーを選択してください。") # This does not show error, use Warning
+def handle_timer_submission(timer_type, dur_min, work_min, break_min, cycles, char_name, work_theme_val, break_theme_val, api_key, webhook_url_val, normal_theme_val):
+    from timers import UnifiedTimer # 遅延インポート
+    if not char_name or not api_key:
         gr.Warning("キャラクターとAPIキーを選択してください。")
-        return "キャラクターとAPIキーを選択してください。"
+        return "キャラクターとAPIキーを選択してください。" # Return message to status output
 
     timer = UnifiedTimer.get_instance()
-    if timer.is_running(): # Stop any existing timer first
-        timer.stop()
-        print("既存のタイマーを停止しました。")
+    if timer.is_running(): timer.stop(); print("既存のタイマーを停止しました。")
 
-    timer.set_properties(character_name, api_key_name, webhook_url) # Use actual webhook_url from config or UI
+    timer.set_properties(char_name, api_key, webhook_url_val)
 
-    message = ""
+    msg_out = ""
     if timer_type == "通常タイマー":
-        if not (duration_minutes and duration_minutes > 0):
-            gr.Warning("通常タイマーの時間を正しく設定してください。")
-            return "タイマー時間を正しく設定してください。"
-        actual_theme = normal_timer_theme or "タイマー終了！"
-        timer.set_normal_timer(duration_minutes * 60, actual_theme)
-        message = f"{character_name}さんによる「{actual_theme}」タイマーを{duration_minutes}分でセットしました。"
+        if not (dur_min and dur_min > 0): gr.Warning("タイマー時間を正しく設定してください。"); return "タイマー時間を正しく設定してください。"
+        theme_to_use = normal_theme_val or "タイマー終了！"
+        timer.set_normal_timer(dur_min * 60, theme_to_use)
+        msg_out = f"{char_name}さんによる「{theme_to_use}」タイマーを{dur_min}分でセットしました。"
     elif timer_type == "ポモドーロタイマー":
-        if not (pomo_work_minutes and pomo_work_minutes > 0 and \
-                pomo_break_minutes and pomo_break_minutes > 0 and \
-                pomo_cycles and pomo_cycles > 0):
-            gr.Warning("ポモドーロタイマーの各時間を正しく設定してください。")
-            return "ポモドーロの各時間を正しく設定してください。"
-
-        actual_work_theme = work_theme or "作業終了！"
-        actual_break_theme = break_theme or "休憩終了！"
-        timer.set_pomodoro(pomo_work_minutes * 60, pomo_break_minutes * 60, pomo_cycles,
-                           actual_work_theme, actual_break_theme)
-        message = f"{character_name}さんによるポモドーロタイマーをセット (作業{pomo_work_minutes}分, 休憩{pomo_break_minutes}分, {pomo_cycles}サイクル)。"
+        if not (work_min and work_min > 0 and break_min and break_min > 0 and cycles and cycles > 0):
+            gr.Warning("ポモドーロの各時間を正しく設定してください。"); return "ポモドーロの各時間を正しく設定してください。"
+        work_th = work_theme_val or "作業終了！"; break_th = break_theme_val or "休憩終了！"
+        timer.set_pomodoro(work_min * 60, break_min * 60, cycles, work_th, break_th)
+        msg_out = f"{char_name}さんによるポモドーロタイマーをセット (作業{work_min}分, 休憩{break_min}分, {cycles}サイクル)。"
     else:
-        gr.Warning("無効なタイマータイプです。")
-        return "無効なタイマータイプです。"
+        gr.Warning("無効なタイマータイプです。"); return "無効なタイマータイプです。"
 
     timer.start()
-    gr.Info(message) # Show success message to user via Gradio
-    return message # Return message to update UI status component
+    gr.Info(msg_out)
+    return msg_out
 
-
-def stop_existing_timer_on_startup(): # This function is called by log2gemini.py via demo.load
-    # Deferred import for timers
-    from timers import UnifiedTimer
+def stop_existing_timer_on_startup(): # Called by log2gemini.py
+    from timers import UnifiedTimer # 遅延インポート
     timer = UnifiedTimer.get_instance()
     if timer.is_running():
         timer.stop()
