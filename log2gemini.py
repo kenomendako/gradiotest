@@ -39,7 +39,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
              character_manager.ensure_character_files("Default")
              character_list_on_startup = ["Default"]
 
-    # --- UI State Variables ---
+    # (UI State Variables は変更なし)
     current_character_name = gr.State(effective_initial_character)
     current_model_name = gr.State(config_manager.initial_model_global)
     current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -116,42 +116,37 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             with gr.Row():
                 submit_button = gr.Button("送信", variant="primary", scale=4)
                 chat_reload_button = gr.Button("🔄 更新", scale=1)
-            # ★★★ ここからが、公式ドキュメントに準拠した完全なリスト ★★★
+
+            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+            # ★★★ これが、ファイル添付機能の、唯一の正しい実装です ★★★
+            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+            # 1. Geminiが対応する全てのファイル形式をリストとして定義
             allowed_file_types = [
-                # 1. 画像形式 (Image Formats)
+                # 画像
                 '.png', '.jpeg', '.jpg', '.webp', '.heic', '.heif',
-
-                # 2. 音声形式 (Audio Formats)
+                # 音声
                 '.wav', '.mp3', '.aiff', '.aac', '.ogg', '.flac',
-
-                # 3. 動画形式 (Video Formats)
+                # 動画
                 '.mp4', '.mov', '.avi', '.flv', '.mpeg', '.webm', '.wmv', '.3gpp',
-
-                # 4. テキストとコード (Text & Code)
-                '.txt', '.css', '.html', '.java', '.js', '.json', '.md',
-                '.py', '.ts', '.tsx', '.c', '.cpp', '.cs', '.go', '.php',
-                '.rb', '.rs', '.swift', '.xml', '.yaml',
-
-                # 5. ドキュメント (Documents)
-                '.pdf',
-                '.doc', '.docx',  # Microsoft Word
-                '.ppt', '.pptx',  # Microsoft PowerPoint
-                '.xls', '.xlsx',  # Microsoft Excel
-                '.rtf', '.tsv', '.csv'
+                # ドキュメント
+                '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.rtf', '.tsv', '.csv',
+                # テキスト & コード
+                '.txt', '.md', '.json', '.xml', '.html', '.css', '.js', '.ts', '.tsx',
+                '.py', '.java', '.c', '.cpp', '.cs', '.go', '.rb', '.rs', '.php', '.swift', '.yaml'
             ]
-            # ★★★ ここまでが新しいリスト ★★★
-            # --- ファイル添付セクション ---
+
+            # 2. gr.Filesコンポーネントに、必ず`file_types`引数を渡す
             file_upload_button = gr.Files(
                 label="ファイル添付 (複数可)",
                 type="filepath",
-                file_count="multiple"
-                # file_typesはアコーディオンで案内するため、ここでは指定しない方が柔軟
+                file_count="multiple",
+                file_types=allowed_file_types  # この引数が、ファイルの処理に必須
             )
 
-            # ★★★ ここからが新しいアコーディオン ★★★
+            # 3. アコーディオンで、定義したリストを元に全対応形式を案内する
             with gr.Accordion("📎 対応ファイル形式一覧", open=False):
-                # 対応形式をカテゴリ分けして、Markdownで分かりやすく表示
-                gr.Markdown("""
+                gr.Markdown(f"""
                 **【画像】** `.png`, `.jpeg`, `.jpg`, `.webp`, `.heic`, `.heif`
 
                 **【音声】** `.wav`, `.mp3`, `.aiff`, `.aac`, `.ogg`, `.flac`
@@ -160,11 +155,9 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
 
                 **【ドキュメント】** `.pdf`, `.doc`, `.docx`, `.ppt`, `.pptx`, `.xls`, `.xlsx`, `.rtf`, `.tsv`, `.csv`
 
-                **【テキスト & コード】**
-                `.txt`, `.md`, `.json`, `.xml`, `.html`, `.css`, `.js`, `.ts`, `.tsx`,
-                `.py`, `.java`, `.c`, `.cpp`, `.cs`, `.go`, `.rb`, `.rs`, `.php`, `.swift`, `.yaml`
+                **【テキスト & コード】** `.txt`, `.md`, `.json`, `.xml`, `.html`, `.css`, `.js`, `.ts`, `.tsx`, `.py`, `.java`, `.c`, `.cpp`, `.cs`, `.go`, `.rb`, `.rs`, `.php`, `.swift`, `.yaml`
                 """)
-            # ★★★ アコーディオンここまで ★★★
+            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
     # --- イベントリスナー定義 ---
     add_character_button.click(
