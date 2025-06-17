@@ -116,9 +116,55 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             with gr.Row():
                 submit_button = gr.Button("送信", variant="primary", scale=4)
                 chat_reload_button = gr.Button("🔄 更新", scale=1)
-            allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf']
-            file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
-            gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
+            # ★★★ ここからが、公式ドキュメントに準拠した完全なリスト ★★★
+            allowed_file_types = [
+                # 1. 画像形式 (Image Formats)
+                '.png', '.jpeg', '.jpg', '.webp', '.heic', '.heif',
+
+                # 2. 音声形式 (Audio Formats)
+                '.wav', '.mp3', '.aiff', '.aac', '.ogg', '.flac',
+
+                # 3. 動画形式 (Video Formats)
+                '.mp4', '.mov', '.avi', '.flv', '.mpeg', '.webm', '.wmv', '.3gpp',
+
+                # 4. テキストとコード (Text & Code)
+                '.txt', '.css', '.html', '.java', '.js', '.json', '.md',
+                '.py', '.ts', '.tsx', '.c', '.cpp', '.cs', '.go', '.php',
+                '.rb', '.rs', '.swift', '.xml', '.yaml',
+
+                # 5. ドキュメント (Documents)
+                '.pdf',
+                '.doc', '.docx',  # Microsoft Word
+                '.ppt', '.pptx',  # Microsoft PowerPoint
+                '.xls', '.xlsx',  # Microsoft Excel
+                '.rtf', '.tsv', '.csv'
+            ]
+            # ★★★ ここまでが新しいリスト ★★★
+            # --- ファイル添付セクション ---
+            file_upload_button = gr.Files(
+                label="ファイル添付 (複数可)",
+                type="filepath",
+                file_count="multiple"
+                # file_typesはアコーディオンで案内するため、ここでは指定しない方が柔軟
+            )
+
+            # ★★★ ここからが新しいアコーディオン ★★★
+            with gr.Accordion("📎 対応ファイル形式一覧", open=False):
+                # 対応形式をカテゴリ分けして、Markdownで分かりやすく表示
+                gr.Markdown("""
+                **【画像】** `.png`, `.jpeg`, `.jpg`, `.webp`, `.heic`, `.heif`
+
+                **【音声】** `.wav`, `.mp3`, `.aiff`, `.aac`, `.ogg`, `.flac`
+
+                **【動画】** `.mp4`, `.mov`, `.avi`, `.flv`, `.mpeg`, `.webm`, `.wmv`, `.3gpp`
+
+                **【ドキュメント】** `.pdf`, `.doc`, `.docx`, `.ppt`, `.pptx`, `.xls`, `.xlsx`, `.rtf`, `.tsv`, `.csv`
+
+                **【テキスト & コード】**
+                `.txt`, `.md`, `.json`, `.xml`, `.html`, `.css`, `.js`, `.ts`, `.tsx`,
+                `.py`, `.java`, `.c`, `.cpp`, `.cs`, `.go`, `.rb`, `.rs`, `.php`, `.swift`, `.yaml`
+                """)
+            # ★★★ アコーディオンここまで ★★★
 
     # --- イベントリスナー定義 ---
     add_character_button.click(
