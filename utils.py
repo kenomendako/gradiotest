@@ -194,26 +194,30 @@ def _get_user_header_from_log(log_file_path: str, ai_character_name: str) -> str
 
     # utils.py
 
-    # (Ensure character_manager is imported if not already)
-    # import character_manager
-
-    def save_log_file(character_name: str, content: str) -> None:
-        """キャラクター名からパスを取得してログを安全に保存する。"""
+    def save_log_file(character_name: str, content: str):
+        """
+        キャラクター名からパスを取得してログを安全に保存する。
+        ui_handlers.py から直接呼び出される、唯一の公式なログ保存関数。
+        """
         if not character_name:
             print("エラー: save_log_file - character_name が指定されていません。")
             raise ValueError("キャラクター名が指定されていません。")
         try:
-            # Assuming character_manager.get_character_files_paths is available
-            # and correctly imported. If it's in the global scope or part of a class,
-            # adjust the call accordingly.
+            # character_manager をインポートしてパスを取得
+            import character_manager # Local import
             log_file_path, _, _, _ = character_manager.get_character_files_paths(character_name)
+
             if not log_file_path:
                 print(f"エラー: save_log_file - キャラクター '{character_name}' のログファイルパスを取得できませんでした。")
                 raise ValueError(f"キャラクター '{character_name}' のログファイルパスを取得できませんでした。")
 
             with open(log_file_path, "w", encoding="utf-8") as f:
                 f.write(content)
+
         except Exception as e:
+            # tracebackをインポートして詳細なエラーを出力
+            import traceback # Local import
             print(f"エラー: ログファイル保存中に予期せぬエラー (キャラクター: {character_name}): {e}")
             traceback.print_exc()
+            # エラーを再度送出して、呼び出し元に問題を通知する
             raise e

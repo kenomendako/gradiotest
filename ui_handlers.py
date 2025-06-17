@@ -358,22 +358,23 @@ def update_api_history_limit_state(new_limit_option_value: str):
 
     # ui_handlers.py
 
-    # (Ensure utils and traceback are imported)
-    # import traceback
-    # from utils import save_log_file
+    # (Ensure gradio as gr is imported at the top of the file if not already)
     # import gradio as gr
+    # (Ensure traceback is imported at the top if other functions use it,
+    # otherwise it's not strictly needed here as the exception is passed)
 
     def handle_save_log_button_click(character_name: str, log_content: str):
-        """ログエディタの内容を保存する。キャラクター名を正しく使う。"""
+        """ログエディタの内容を保存する。utils.save_log_fileを正しく呼び出す。"""
         if not character_name:
             gr.Warning("キャラクターが選択されていません。")
             return
+
         try:
-            save_log_file(character_name, log_content) # Calls the updated utils.save_log_file
+            from utils import save_log_file # Function-scoped import
+            save_log_file(character_name, log_content)
             gr.Info(f"{character_name}さんのログを保存しました。")
         except Exception as e:
-            gr.Error(f"ログの保存中にエラー: {e}")
-            traceback.print_exc()
+            gr.Error(f"ログの保存中にエラーが発生しました: {e}")
 
 def reload_chat_log(character_name: str):
     if not character_name:
