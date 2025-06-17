@@ -66,77 +66,87 @@ def format_response_for_display(response_text: Optional[str]) -> str:
     else:
         return response_text.strip()
 
-# --- ★★★ ここからが修正箇所 ★★★ ---
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, Union[str, tuple, None]]]:
-    """
-    チャットログをGradio Chatbotの `messages` 形式に変換します。
-    【Thought】タグ、AI生成画像、ユーザー添付ファイル（複数対応）を適切に処理します。
-    """
-    if not messages:
-        return []
+    # utils.py
+    # (Ensure os and re are imported)
+    import os
+    import re
+    from typing import List, Dict, Union # Keep existing typing imports
 
-    gradio_history = []
-    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
-    user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?)\]")
+    # Assume format_response_for_display is defined elsewhere in utils.py or imported
+    # For context, here's a placeholder if it's simple:
+    # def format_response_for_display(text: str) -> str:
+    #     # This is just an example; use the actual function if it exists
+    #     return text.replace("【Thoughts】", "<details><summary>思考</summary><p>") \
+    #                .replace("【/Thoughts】", "</p></details>")
 
-    for msg in messages:
-        role = "assistant" if msg.get("role") == "model" else "user"
-        content = msg.get("content", "").strip()
+    def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, Union[str, tuple, None]]]:
+        """チャットログをGradio Chatbotの `messages` 形式に変換する（ファイル表示エラー修正版）。"""
+        if not messages: return []
+        gradio_history = []
+        # Corrected regex to be more robust for paths that might contain spaces or special chars
+        # This regex assumes the path is the last part of the tag.
+        image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
+        user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?)\]")
 
-        if not content:
-            gradio_history.append({"role": role, "content": None})
-            continue
+        for msg in messages:
+            role = "assistant" if msg.get("role") == "model" else "user"
+            content = msg.get("content", "").strip()
+            if not content: continue
 
-        # ユーザーのメッセージを処理
-        if role == "user":
-            # 添付ファイルタグをすべて探し、テキスト部分と分離する
-            file_matches = list(user_file_attach_pattern.finditer(content))
-            text_part = user_file_attach_pattern.sub("", content).strip()
+            if role == "user":
+                # Process all file attachments first
+                file_matches = list(user_file_attach_pattern.finditer(content))
+                text_part = user_file_attach_pattern.sub("", content).strip() # Remove all file tags
 
-            # 最初にテキスト部分を追加
-            if text_part:
-                gradio_history.append({"role": role, "content": text_part})
+                # Append text part first if it exists
+                if text_part:
+                    gradio_history.append({"role": role, "content": text_part})
 
-            # 次にファイル部分をループして追加
-            if file_matches:
-                for match in file_matches:
-                    filepath = match.group(1).strip()
-                    original_filename = os.path.basename(filepath)
-                    if os.path.exists(filepath):
-                        gradio_history.append({"role": role, "content": (filepath, original_filename)})
+                # Then append file attachment info as separate text messages
+                if file_matches:
+                    for match in file_matches:
+                        # Strip potential leading/trailing whitespace from the matched path
+                        file_path_in_log = match.group(1).strip()
+                        file_name = os.path.basename(file_path_in_log)
+                        file_info_text = f"📎 **添付ファイル:** {file_name}"
+                        # Add as a new user message to ensure it appears on a new line
+                        gradio_history.append({"role": role, "content": file_info_text})
+                continue # Finished processing user message
+
+            if role == "assistant":
+                # Use the existing format_response_for_display function
+                formatted_content = format_response_for_display(content)
+
+                # Handle potential image tag
+                image_match = image_tag_pattern.search(formatted_content)
+                if image_match:
+                    text_before_image = formatted_content[:image_match.start()].strip()
+
+                    # Strip potential leading/trailing whitespace from the matched path
+                    image_path_in_log = image_match.group(1).strip()
+                    image_filename = os.path.basename(image_path_in_log) # Get just the filename
+
+                    text_after_image = formatted_content[image_match.end():].strip()
+
+                    if text_before_image:
+                        gradio_history.append({"role": role, "content": text_before_image})
+
+                    # Check if the image file actually exists at the path specified in the log
+                    if os.path.exists(image_path_in_log):
+                        # Gradio expects (filepath, alt_text) for images
+                        gradio_history.append({"role": role, "content": (image_path_in_log, image_filename)})
                     else:
-                        gradio_history.append({"role": role, "content": f"*[表示エラー: ファイル '{original_filename}' が見つかりません]*"})
-            continue
+                        # Display an error message if the image path from the log is not found
+                        gradio_history.append({"role": role, "content": f"*[表示エラー: 画像 '{image_filename}' が見つかりません (パス: {image_path_in_log})]*"})
 
-        # AIの応答を処理 (ここは変更なし)
-        if role == "assistant":
-            formatted_content = format_response_for_display(content)
-            image_match = image_tag_pattern.search(formatted_content)
-            if image_match:
-                text_before_image = formatted_content[:image_match.start()].strip()
-                image_path = image_match.group(1).strip()
-                text_after_image = formatted_content[image_match.end():].strip()
-
-                if text_before_image:
-                    gradio_history.append({"role": role, "content": text_before_image})
-
-                if os.path.exists(image_path):
-                    gradio_history.append({"role": role, "content": (image_path, os.path.basename(image_path))})
+                    if text_after_image:
+                         gradio_history.append({"role": role, "content": text_after_image})
                 else:
-                    gradio_history.append({"role": role, "content": f"*[表示エラー: 画像 '{os.path.basename(image_path)}' が見つかりません]*"})
+                    # No image tag, just add the formatted text content
+                    gradio_history.append({"role": role, "content": formatted_content})
+                continue # Finished processing assistant message
 
-                if text_after_image:
-                     gradio_history.append({"role": role, "content": text_after_image})
-                continue
-            else:
-                gradio_history.append({"role": role, "content": formatted_content})
-                continue
-
-        # 通常のテキストメッセージ (上記でcontinueされなかった場合)
-        gradio_history.append({"role": role, "content": content})
-
-    return gradio_history
-# --- ★★★ 修正ここまで ★★★ ---
+        return gradio_history
 
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
     if not log_file_path:

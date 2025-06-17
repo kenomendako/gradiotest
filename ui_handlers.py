@@ -144,28 +144,30 @@ def handle_message_submission(*args: Any):
     new_hist = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
     return new_hist, gr.update(value=""), gr.update(value=None) # Clear textbox, clear file upload
 
-def render_alarms_as_dataframe():
-    # Deferred import for alarm_manager
-    import alarm_manager
-    all_alarms = alarm_manager.get_all_alarms()
-    df_data = []
-    DAY_MAP_EN_TO_JA = getattr(alarm_manager, 'DAY_MAP_EN_TO_JA', {}) # Safely get map
-    for alarm_data in all_alarms: # Corrected variable name from alarm to alarm_data
-        days_ja_str = ", ".join([DAY_MAP_EN_TO_JA.get(d, "?") for d in alarm_data.get("days", [])])
-        df_data.append({
-            "id": alarm_data.get("id"),
-            "状態": alarm_data.get("enabled", False),
-            "時刻": alarm_data.get("time", ""),
-            "曜日": days_ja_str,
-            "キャラ": alarm_data.get("character", ""),
-            "テーマ": alarm_data.get("theme", "")
-        })
-    # Ensure columns exist even if df_data is empty
-    columns = ["id", "状態", "時刻", "曜日", "キャラ", "テーマ"]
-    df = pd.DataFrame(df_data, columns=columns)
-    if not df.empty:
-        df = df.sort_values(by=["時刻", "曜日"]).reset_index(drop=True)
-    return df
+    # ui_handlers.py
+    # (Ensure pandas as pd and alarm_manager are imported, likely deferred for alarm_manager)
+    import pandas as pd # Keep at top if already there
+
+    def render_alarms_as_dataframe():
+        """アラームリストからDataFrameを生成する。ID列を含む。"""
+        import alarm_manager # Deferred import
+        all_alarms = alarm_manager.get_all_alarms()
+        df_data = []
+        DAY_MAP_EN_TO_JA = getattr(alarm_manager, 'DAY_MAP_EN_TO_JA', {}) # Safely get map
+        for alarm in all_alarms: # Iterate through each alarm dictionary
+            # ★★★ 表示崩れを防ぐため、区切り文字を「、」に変更 ★★★
+            days_ja_str = "、".join([DAY_MAP_EN_TO_JA.get(d, "?") for d in alarm.get("days", [])])
+            df_data.append({
+                "id": alarm.get("id"), "状態": alarm.get("enabled", False),
+                "時刻": alarm.get("time", ""), "曜日": days_ja_str,
+                "キャラ": alarm.get("character", ""), "テーマ": alarm.get("theme", "")
+            })
+        df = pd.DataFrame(df_data) # Create DataFrame from list of dicts
+        if not df.empty:
+            df = df.sort_values(by=["時刻", "曜日"]).reset_index(drop=True)
+            return df
+        # DataFrameが空の場合でも、正しい列構成で返す
+        return pd.DataFrame(columns=["id", "状態", "時刻", "曜日", "キャラ", "テーマ"])
 
 
 def get_display_df(df_with_ids: pd.DataFrame): # This is a utility for the UI, keep as is
