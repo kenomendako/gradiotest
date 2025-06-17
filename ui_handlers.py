@@ -177,21 +177,39 @@ def get_display_df(df_with_ids: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["状態", "時刻", "曜日", "キャラ", "テーマ"])
     return df_with_ids[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
 
+# ui_handlers.py (関数を置き換え)
+
 def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.SelectData):
-    """Dataframeでの行選択を処理し、選択されたIDとフィードバックメッセージを返す。"""
-    if evt.index is None or df_with_ids.empty or not isinstance(evt.index, tuple):
+    """Dataframeでの行選択を処理し、選択されたIDとフィードバックメッセージを返す。複数選択対応版。"""
+
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★ ここが複数選択イベントを正しく処理する修正箇所です ★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+    # evt.indexは選択されたセルのインデックスのリスト [(row, col), (row, col), ...]
+    if not evt.index or df_with_ids.empty:
         return [], "アラームを選択してください"
 
-    selected_row_index = evt.index[0]
+    # 選択された行のインデックスだけを重複なく抽出
+    selected_row_indices = sorted(list(set([idx[0] for idx in evt.index])))
 
-    if selected_row_index >= len(df_with_ids):
+    if not selected_row_indices:
+        return [], "アラームを選択してください"
+
+    # 行インデックスを使って、元のDataFrameからIDを取得
+    selected_ids = df_with_ids.iloc[selected_row_indices]["id"].tolist()
+
+    if not selected_ids:
          return [], "アラームを選択してください"
 
-    selected_id = df_with_ids.iloc[selected_row_index]["id"]
-    selected_alarm = df_with_ids.iloc[selected_row_index]
-    feedback_message = f"選択中: 「{selected_alarm['テーマ']}」 ({selected_alarm['時刻']})"
+    # フィードバックメッセージを作成
+    if len(selected_ids) == 1:
+        selected_alarm = df_with_ids.iloc[selected_row_indices[0]]
+        feedback_message = f"選択中: 「{selected_alarm['テーマ']}」 ({selected_alarm['時刻']})"
+    else:
+        feedback_message = f"{len(selected_ids)}件のアラームを選択中"
 
-    return [selected_id], feedback_message
+    return selected_ids, feedback_message
 
 
 def load_alarm_to_form(selected_ids: list[str]): # Changed List[str] to list[str] for compatibility

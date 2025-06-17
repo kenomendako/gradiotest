@@ -131,30 +131,37 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         elif sdk_role == "model" and not send_thoughts_to_api: processed_text = th_pat.sub("", processed_text).strip()
         if processed_text: api_contents_from_history.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
 
+    # ユーザーの現在の入力（テキスト＋ファイル）を構築するための'Part'オブジェクトリスト
     current_turn_parts = []
+
+    # 1. ユーザーのテキストプロンプトをPartとして追加
     if user_prompt:
         current_turn_parts.append(Part(text=user_prompt))
 
-    if uploaded_files_info:
+    # 2. 添付ファイルをFile APIでアップロードし、返されたFileオブジェクトをPartとして追加
+    if uploaded_files_info: # 引数名は uploaded_files_info のままUIハンドラと合わせます
         for file_info in uploaded_files_info:
             file_path = file_info.get('path')
-            # mime_type = file_info.get('mime_type') # Not directly used for File API upload part, but good for context
             if file_path and os.path.exists(file_path):
                 try:
-                    print(f"情報: ファイル '{os.path.basename(file_path)}' をアップロードしています...")
-                    # Use _gemini_client.files.upload as confirmed
-                    uploaded_file = _gemini_client.files.upload(path=file_path)
-                    current_turn_parts.append(uploaded_file) # Append the File object itself
-                    print(f"情報: ファイル '{uploaded_file.display_name}' (URI: {uploaded_file.uri}) のアップロード完了。")
+                    print(f"情報: ファイル '{os.path.basename(file_path)}' をFile APIでアップロードしています...")
+
+                    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+                    # ★★★ これがFile APIの正しい呼び出し方です (path引数ではなくfile引数) ★★★
+                    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+                    with open(file_path, "rb") as f:
+                        uploaded_file = _gemini_client.files.upload(
+                            file=f,
+                            display_name=os.path.basename(file_path)
+                        )
+                        current_turn_parts.append(uploaded_file)
+                    print(f"情報: ファイル '{uploaded_file.display_name}' のアップロード完了。")
+
                 except Exception as e:
                     print(f"警告: ファイル '{os.path.basename(file_path)}' のアップロード中にエラー: {e}")
-                    # Optionally, inform the user/model about the failure for this specific file
-                    # current_turn_parts.append(Part(text=f"[システム通知: ファイル {os.path.basename(file_path)} のアップロードに失敗しました。メッセージの処理は続行されます。]"))
+                    traceback.print_exc()
             else:
                 print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。")
-                # Optionally, inform the user/model
-                # current_turn_parts.append(Part(text=f"[システム通知: ファイル {file_path} が見つかりませんでした。]"))
-
 
     # --- ここからが新しい会話履歴の構築ロジック ---
     final_api_contents = []
@@ -190,8 +197,8 @@ print(google.genai.tools.render.FunctionCall(
     # AIに指示を理解したことを確認させ、会話の区切りとする
     final_api_contents.append(Content(role="model", parts=[Part(text="Understood. I will use the `generate_image` tool as shown in the example when appropriate.")]))
 
-    # 4. 最後に、現在のユーザー入力を追加する
-    if current_turn_parts: # Ensure we only add if there's something (text or successfully uploaded files)
+    # 最後に、現在のユーザー入力（テキスト＋ファイル）を会話履歴に追加
+    if current_turn_parts:
         final_api_contents.append(Content(role="user", parts=current_turn_parts))
     # --- ここまでが新しいロジック ---
 
