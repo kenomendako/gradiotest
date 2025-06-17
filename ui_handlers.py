@@ -20,7 +20,7 @@ from timers import UnifiedTimer
 from character_manager import get_character_files_paths
 from gemini_api import configure_google_api, send_to_gemini
 from memory_manager import load_memory_data_safe, save_memory_data
-from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
+from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log
 
 
 def handle_add_new_character(character_name: str):
