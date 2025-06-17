@@ -177,40 +177,51 @@ def get_display_df(df_with_ids: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["状態", "時刻", "曜日", "キャラ", "テーマ"])
     return df_with_ids[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
 
-# ui_handlers.py (関数を置き換え)
+# ui_handlers.py (関数を置き換え・最終確定版)
 
 def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.SelectData):
-    """Dataframeでの行選択を処理し、選択されたIDとフィードバックメッセージを返す。"""
+    """Dataframeでの行選択を処理し、選択されたIDとフィードバックメッセージを返す。単一選択・複数選択の両方に対応した堅牢な実装。"""
 
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    # ★★★ これが単一選択イベント(evt.indexがタプル)を正しく処理する修正箇所です ★★★
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★ これが単一選択(タプル)と複数選択(リスト)の両データ形式に対応する【最終・完全・確定版】のロジックです ★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
-    if not isinstance(evt.index, tuple) or len(evt.index) != 2:
-        # 選択が解除されたか、不正なイベントデータの場合はリセット
+    if evt.index is None:
         return [], "アラームを選択してください"
 
-    # evt.index は (行インデックス, 列インデックス) というタプル
-    selected_row_index = evt.index[0]
+    # どんな場合でも処理できるよう、常にタプルのリスト形式に正規化する
+    indices_list = evt.index if isinstance(evt.index, list) else [evt.index]
 
-    # DataFrameの範囲外を念のためチェック
-    if df_with_ids.empty or selected_row_index >= len(df_with_ids):
+    if not indices_list:
         return [], "アラームを選択してください"
 
-    # 行インデックスを使って、元のDataFrameからIDとテーマを取得
+    # 選択された行のインデックスだけを重複なく抽出
     try:
-        selected_id = df_with_ids.iloc[selected_row_index]["id"]
-        selected_alarm_theme = df_with_ids.iloc[selected_row_index]["テーマ"]
-        selected_alarm_time = df_with_ids.iloc[selected_row_index]["時刻"]
-    except (IndexError, KeyError) as e:
-        print(f"エラー: 選択された行のデータ取得に失敗: {e}")
-        return [], "エラーが発生しました。再度選択してください。"
+        selected_row_indices = sorted(list(set([idx[0] for idx in indices_list])))
+    except (TypeError, IndexError):
+        # 不正なイベントデータの場合
+        return [], "選択情報の取得に失敗しました。再度お試しください。"
+
+    if not selected_row_indices or df_with_ids.empty:
+        return [], "アラームを選択してください"
+
+    # 行インデックスを使って、元のDataFrameからIDを取得
+    try:
+        valid_indices = [i for i in selected_row_indices if i < len(df_with_ids)]
+        if not valid_indices:
+            return [], "選択した行が見つかりません。"
+        selected_ids = df_with_ids.iloc[valid_indices]["id"].tolist()
+    except (KeyError, IndexError):
+        return [], "IDの取得に失敗しました。"
 
     # フィードバックメッセージを作成
-    feedback_message = f"選択中: 「{selected_alarm_theme}」 ({selected_alarm_time})"
+    if len(selected_ids) == 1:
+        selected_alarm_row = df_with_ids.iloc[valid_indices[0]]
+        feedback_message = f"選択中: 「{selected_alarm_row['テーマ']}」 ({selected_alarm_row['時刻']})"
+    else:
+        feedback_message = f"{len(selected_ids)}件のアラームを選択中"
 
-    # IDはリスト形式で返す
-    return [selected_id], feedback_message
+    return selected_ids, feedback_message
 
 
 def load_alarm_to_form(selected_ids: list[str]): # Changed List[str] to list[str] for compatibility

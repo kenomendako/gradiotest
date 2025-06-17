@@ -139,18 +139,19 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         current_turn_parts.append(Part(text=user_prompt))
 
     # 2. 添付ファイルをFile APIでアップロードし、返されたFileオブジェクトをPartとして追加
-    if uploaded_files_info: # 引数名は uploaded_files_info のままUIハンドラと合わせます
+    if uploaded_files_info:
         for file_info in uploaded_files_info:
             file_path = file_info.get('path')
+            mime_type = file_info.get('mime_type') # Get mime_type from file_info
             if file_path and os.path.exists(file_path):
                 try:
-                    print(f"情報: ファイル '{os.path.basename(file_path)}' をFile APIでアップロードしています...")
+                    print(f"情報: ファイル '{os.path.basename(file_path)}' をFile APIでアップロードしています (MIME: {mime_type})...")
 
-                    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-                    # ★★★ これがFile APIの正しい呼び出し方です (path引数ではなくfile引数) ★★★
-                    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
                     with open(file_path, "rb") as f:
-                        uploaded_file = _gemini_client.files.upload(file=f)
+                        uploaded_file = _gemini_client.files.upload(
+                            file=f,
+                            mime_type=mime_type # Pass mime_type here
+                        )
                         current_turn_parts.append(uploaded_file)
                     print(f"情報: ファイル '{uploaded_file.display_name}' のアップロード完了。")
 
