@@ -1,4 +1,4 @@
-# character_manager.py の【真の最終確定版】
+# character_manager.py の【真の最終・確定版】
 
 import os
 import json
@@ -8,7 +8,7 @@ from config_manager import CHARACTERS_DIR, PROFILE_IMAGE_FILENAME, MEMORY_FILENA
 def ensure_character_files(character_name):
     if not character_name or not isinstance(character_name, str) or not character_name.strip(): return False
     # ★★★ この一行が、絶対に正しい構文です ★★★
-    if ".." in character_name or "/" in character_name or "\" in character_name: return False
+    if ".." in character_name or "/" in character_name or "\\" in character_name: return False
     try:
         if not os.path.exists(CHARACTERS_DIR): os.makedirs(CHARACTERS_DIR)
         elif not os.path.isdir(CHARACTERS_DIR): return False
