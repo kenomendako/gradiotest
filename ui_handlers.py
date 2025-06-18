@@ -35,9 +35,9 @@ def render_alarms_as_dataframe():
         })
     df = pd.DataFrame(df_data)
     if not df.empty:
-        # Sort by time only, as per user's latest instruction for this function
-        df = df.sort_values(by=["時刻"]).reset_index(drop=True)
-        return df
+        # Sort by time only
+        return df.sort_values(by=["時刻"]).reset_index(drop=True)
+    # DataFrameが空の場合でも、正しい列構成で返す
     return pd.DataFrame(columns=["id", "状態", "時刻", "曜日", "キャラ", "テーマ"])
 
 def get_display_df(df_with_ids: pd.DataFrame) -> pd.DataFrame:
@@ -46,14 +46,12 @@ def get_display_df(df_with_ids: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["状態", "時刻", "曜日", "キャラ", "テーマ"])
     return df_with_ids[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
 
-# --- (以降、既存のハンドラを修正) ---
-
 def handle_add_new_character(character_name: str):
     if not character_name or not character_name.strip():
         gr.Warning("キャラクター名が入力されていません。")
         char_list = character_manager.get_character_list()
         # Ensure all dropdowns are updated
-        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value="") # Clear textbox
+        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value="")
 
     safe_name = "".join(c for c in character_name if c.isalnum() or c in (' ', '_', '-')).strip()
     if not safe_name:
@@ -79,7 +77,6 @@ def update_ui_on_character_change(character_name: Optional[str]):
         character_name = all_chars[0] if all_chars else "Default"
         if not all_chars and character_name == "Default":
              character_manager.ensure_character_files("Default")
-
 
     config_manager.save_config("last_character", character_name)
     log_f, _, img_p, mem_p = character_manager.get_character_files_paths(character_name)
@@ -132,18 +129,28 @@ def handle_message_submission(*args: Any):
     user_prompt = textbox_content.strip() if textbox_content else ""
 
     log_message_content = user_prompt
-    uploaded_files_info_for_api = [] # Corrected variable name as used in gemini_api.py
+    uploaded_files_info_for_api = []
     if file_input_list:
         for file_obj in file_input_list:
             file_path = file_obj.name if hasattr(file_obj, 'name') else str(file_obj)
-            log_message_content += f"\n[ファイル添付: {os.path.basename(file_path)}]" # Log only basename
+            original_filename = os.path.basename(file_path)
+            log_message_content += f"\n[ファイル添付: {original_filename}]"
             mime_type, _ = mimetypes.guess_type(file_path)
-            uploaded_files_info_for_api.append({ # Use corrected variable name
+            file_bytes = b""
+            try:
+                with open(file_path, "rb") as f_bytes:
+                    file_bytes = f_bytes.read()
+            except Exception as e_read:
+                print(f"Error reading file bytes for {file_path}: {e_read}")
+
+            uploaded_files_info_for_api.append({
                 "path": file_path,
-                "mime_type": mime_type or "application/octet-stream"
+                "mime_type": mime_type or "application/octet-stream",
+                "bytes": file_bytes,
+                "original_filename": original_filename
             })
 
-    if not log_message_content.strip(): # Check after potentially adding file names
+    if not log_message_content.strip() and not uploaded_files_info_for_api:
         return chatbot_history, gr.update(value=""), gr.update(value=None)
 
     user_header = _get_user_header_from_log(log_f, current_character_name)
@@ -155,7 +162,7 @@ def handle_message_submission(*args: Any):
     try:
         api_response_text, generated_image_path = send_to_gemini(
             sys_p, log_f, user_prompt, current_model_name, current_character_name,
-            send_thoughts_state, api_history_limit_state, uploaded_files_info_for_api, mem_p # Pass correct var
+            send_thoughts_state, api_history_limit_state, uploaded_files_info_for_api, mem_p
         )
 
         if api_response_text or generated_image_path:
@@ -171,19 +178,14 @@ def handle_message_submission(*args: Any):
 
 def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.SelectData):
     """Dataframeでの行選択を処理し、選択されたIDとフィードバックメッセージを返す。単一選択・複数選択の両方に対応。"""
-
     if evt.index is None:
         return [], "アラームを選択してください"
 
-    # Gradioのイベントデータを正規化 (This handles both single tuple and list of tuples)
     indices_list = evt.index if isinstance(evt.index, list) else [evt.index]
 
-    if not indices_list: # Should not happen if evt.index was not None
+    if not indices_list:
         return [], "アラームを選択してください"
-
     try:
-        # 選択された行のインデックスだけを重複なく抽出する
-        # Ensure idx is a tuple and has at least one element before idx[0]
         selected_row_indices = sorted(list(set([idx[0] for idx in indices_list if isinstance(idx, tuple) and len(idx) > 0])))
     except (TypeError, IndexError) as e:
         print(f"Error processing event indices in handle_alarm_selection_and_feedback: {evt.index} -> {e}")
@@ -192,7 +194,6 @@ def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.Selec
 
     if not selected_row_indices or df_with_ids.empty:
         return [], "アラームを選択してください"
-
     try:
         valid_indices = [i for i in selected_row_indices if i < len(df_with_ids)]
         if not valid_indices: return [], "選択した行が見つかりません。"
@@ -202,13 +203,9 @@ def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.Selec
         if len(selected_ids) == 1:
             row = df_with_ids.iloc[valid_indices[0]]
             return selected_ids, f"選択中: 「{row['テーマ']}」 ({row['時刻']})"
-        else:
-            return selected_ids, f"{len(selected_ids)}件のアラームを選択中"
-
+        return selected_ids, f"{len(selected_ids)}件のアラームを選択中"
     except (KeyError, IndexError) as e:
-        print(f"エラー: データアクセス中にエラー: {e}")
-        traceback.print_exc()
-        return [], "IDの取得に失敗しました。"
+        print(f"エラー: データアクセス中にエラー: {e}"); traceback.print_exc(); return [], "IDの取得に失敗しました。"
 
 
 def load_alarm_to_form(selected_ids: list):
@@ -251,7 +248,6 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja):
     if not char or not theme.strip():
         gr.Warning("キャラクターとテーマは必須です。")
         df = render_alarms_as_dataframe() # Get current dataframe state
-        # Return all values to keep form populated, and ensure correct number of outputs for Gradio
         return df, get_display_df(df), "アラーム追加" if not editing_id else "アラーム更新", theme, prompt, char, days_ja, h, m, editing_id
 
     days_en = [DAY_MAP_JA_TO_EN.get(d_ja, d_ja.lower()[:3]) for d_ja in days_ja] # Fallback for safety
@@ -268,7 +264,6 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja):
     new_df_orig = render_alarms_as_dataframe()
     new_df_display = get_display_df(new_df_orig)
     chars = character_manager.get_character_list()
-    # Ensure all outputs for this event are returned
     return new_df_orig, new_df_display, "アラーム追加", "", "", chars[0] if chars else None, list(DAY_MAP_JA_TO_EN.keys()), "08", "00", None
 
 
@@ -292,7 +287,6 @@ def update_timestamp_state(enabled): config_manager.save_config("add_timestamp",
 def update_send_thoughts_state(enabled): config_manager.save_config("last_send_thoughts_to_api", enabled); return enabled
 
 def update_api_history_limit_state(value_display): # value is display string e.g. "直近10ターン"
-    # Convert display value back to key
     key_internal = next((k for k, v_disp in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v_disp == value_display), "all")
     config_manager.save_config("last_api_history_limit_option", key_internal)
     return key_internal # Return the key if state expects key
