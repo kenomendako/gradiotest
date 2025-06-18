@@ -87,7 +87,7 @@ def configure_google_api(api_key_name: str) -> Tuple[bool, str]:
 
 def send_to_gemini(system_prompt_path: str, log_file_path: str, user_prompt: str,
                    selected_model: str, character_name: str, send_thoughts_to_api: bool,
-                   api_history_limit_option: str, uploaded_files_info: Optional[List[Dict[str, Any]]] = None, # Allow 'bytes' key
+                   api_history_limit_option: str, uploaded_file_paths: Optional[List[str]] = None, # Changed argument
                    memory_json_path: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
     if _gemini_client is None:
         return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
@@ -148,35 +148,30 @@ def send_to_gemini(system_prompt_path: str, log_file_path: str, user_prompt: str
         if processed_text:
             api_contents_from_history.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
 
-    current_turn_parts = []
-    if user_prompt:
-        current_turn_parts.append(Part(text=user_prompt))
+    current_turn_parts = [] # This will hold all parts for the current user turn (files and text)
 
-    # ★★★★★★★★★★★★★★★★★★★★★★★★ ファイル処理の根本的変更 ★★★★★★★★★★★★★★★★★★★★★★★★
-    # files.upload を使わず、ファイルデータを直接Partとして構築します。
-    # これにより、MIMEタイプ推定エラーやTypeErrorを完全に回避します。
-    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    if uploaded_files_info: # This now expects a list of dicts with 'bytes' and 'mime_type'
-        for file_info in uploaded_files_info:
-            file_bytes = file_info.get('bytes')
-            mime_type = file_info.get('mime_type')
-            # file_path = file_info.get('path') # Path is not used for upload here, only for logging in ui_handlers
+    # New file processing logic using files.upload
+    if uploaded_file_paths:
+        instructional_text = f"重要: {len(uploaded_file_paths)}個のファイル({', '.join([os.path.basename(p) for p in uploaded_file_paths])})が添付されています。これらのファイルの内容を完全に理解し、その情報を基にして以下のプロンプトに応答してください。\n\n"
+        effective_user_prompt = instructional_text + (user_prompt if user_prompt else "")
 
-            if file_bytes and mime_type: # Ensure both bytes and mime_type are present
-                try:
-                    # Extract original filename for display if available, otherwise use generic
-                    original_filename = file_info.get('original_filename', 'uploaded_file') # Assuming ui_handlers adds this
-                    print(f"情報: ファイル '{original_filename}' (MIME: {mime_type}) をインラインデータとして追加します...")
-                    current_turn_parts.append(Part(inline_data=types.Blob(mime_type=mime_type, data=file_bytes)))
-                    print(f"情報: ファイル '{original_filename}' のインラインデータ準備完了。")
-                except Exception as e:
-                    print(f"警告: ファイル '{original_filename if 'original_filename' in locals() else 'unknown'}' のインラインデータ作成中にエラー: {e}")
-                    traceback.print_exc()
-            else:
-                original_filename = file_info.get('original_filename', 'unknown_file')
-                print(f"警告: ファイル '{original_filename}' のバイトデータまたはMIMEタイプが不足しています。スキップします。")
-    # ★★★★★★★★★★★★★★★★★★★★★★★★ ファイル処理の変更ここまで ★★★★★★★★★★★★★★★★★★★★★★★★
+        for file_path_str in uploaded_file_paths:
+            try:
+                print(f"情報: ファイル '{os.path.basename(file_path_str)}' を `files.upload` でアップロードします...")
+                # Call files.upload as specified, without mime_type
+                uploaded_file_object = _gemini_client.files.upload(file_path=file_path_str)
+                current_turn_parts.append(uploaded_file_object) # Append the File object
+                print(f"情報: ファイル '{uploaded_file_object.display_name}' ({uploaded_file_object.name}) のアップロード成功。")
+            except Exception as e:
+                print(f"警告: ファイル '{os.path.basename(file_path_str)}' のアップロード中にエラー: {e}")
+                traceback.print_exc()
+                # Optionally, inform the user/model about the failure for this specific file
+                # current_turn_parts.append(Part(text=f"[システム通知: ファイル {os.path.basename(file_path_str)} の処理に失敗しました。]"))
+    else:
+        effective_user_prompt = user_prompt if user_prompt else ""
 
+    if effective_user_prompt: # Add the (potentially modified) user prompt text
+        current_turn_parts.append(Part(text=effective_user_prompt))
 
     final_api_contents = []
     if sys_ins_text:
