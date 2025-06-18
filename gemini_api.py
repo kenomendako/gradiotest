@@ -126,8 +126,12 @@ def send_to_gemini(system_prompt_path: str, log_file_path: str, user_prompt: str
         except ValueError:
             print(f"警告: api_history_limit_option '{api_history_limit_option}' は不正な数値です。履歴は制限されません。")
 
-    if msgs and msgs[-1].get("role") == "user" and user_prompt:
-        print("情報: ログ末尾のユーザーメッセージを履歴から一時的に削除し、引数の内容で上書きします。")
+    # 新しいユーザー入力（テキストまたはファイル）が存在するかどうかを判定
+    new_user_input_exists = bool(user_prompt or (uploaded_file_paths and len(uploaded_file_paths) > 0))
+
+    # 履歴の末尾が 'user' で、かつ新しいユーザー入力がある場合に、末尾を削除する
+    if msgs and msgs[-1].get("role") == "user" and new_user_input_exists:
+        print("情報: 新しいユーザー入力があるため、ログ末尾の重複する可能性のあるユーザーメッセージを履歴から一時的に削除します。")
         msgs = msgs[:-1]
 
     api_contents_from_history = []
