@@ -170,7 +170,7 @@ def send_to_gemini(system_prompt_path: str, log_file_path: str, user_prompt: str
 
                 # 修正点2: Fileオブジェクトから、URIとMIMEタイプを使ってPartオブジェクトを生成する
                 file_part = Part.from_uri(
-                    uri=uploaded_file_object.uri,
+                    file_uri=uploaded_file_object.uri,
                     mime_type=uploaded_file_object.mime_type
                 )
                 current_turn_parts.append(file_part) # 正しいPartオブジェクトを追加
