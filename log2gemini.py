@@ -210,7 +210,11 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         inputs=[alarm_dataframe_original_data], # Use original data (with IDs) for logic
         outputs=[selected_alarm_ids_state, selection_feedback_markdown],
         show_progress='hidden'
-    ).then(
+    )
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    # ★★★ アラームフォーム更新は、選択されたIDのState変数が変更された時にトリガー ★★★
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+    selected_alarm_ids_state.change( # Trigger form update when selected_alarm_ids_state changes
         fn=ui_handlers.load_alarm_to_form,
         inputs=[selected_alarm_ids_state],
         outputs=[
@@ -219,6 +223,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
             alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state
         ]
     )
+
 
     enable_button.click(
         fn=ui_handlers.toggle_selected_alarms_status,
