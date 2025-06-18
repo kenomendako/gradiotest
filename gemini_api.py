@@ -161,10 +161,19 @@ def send_to_gemini(system_prompt_path: str, log_file_path: str, user_prompt: str
 
         for file_path_str in uploaded_file_paths:
             try:
-                print(f"情報: ファイル '{os.path.basename(file_path_str)}' を `files.upload` でアップロードします...")
-                # Call files.upload as specified, without mime_type
-                uploaded_file_object = _gemini_client.files.upload(file=file_path_str)
-                current_turn_parts.append(uploaded_file_object) # Append the File object
+                file_basename = os.path.basename(file_path_str)
+                print(f"情報: ファイル '{file_basename}' を `files.upload` でアップロードします...")
+                
+                # 修正点1: display_name を指定してアップロード
+                uploaded_file_object = _gemini_client.files.upload(
+                    file=file_path_str,
+                    display_name=file_basename
+                )
+                
+                # 修正点2: FileオブジェクトからPartオブジェクトを作成して追加
+                file_part = Part.from_uri(uploaded_file_object.uri, uploaded_file_object.mime_type)
+                current_turn_parts.append(file_part)
+                
                 print(f"情報: ファイル '{uploaded_file_object.display_name}' ({uploaded_file_object.name}) のアップロード成功。")
             except Exception as e:
                 print(f"警告: ファイル '{os.path.basename(file_path_str)}' のアップロード中にエラー: {e}")
