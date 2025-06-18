@@ -155,17 +155,16 @@ def send_to_gemini(system_prompt_path: str, log_file_path: str, user_prompt: str
     if uploaded_files_info:
         for file_info in uploaded_files_info:
             file_path = file_info.get('path')
-            mime_type = file_info.get('mime_type')
+            mime_type = file_info.get('mime_type') # This is retrieved but not used in the target code block by user
             if file_path and os.path.exists(file_path):
                 try:
-                    print(f"情報: ファイル '{os.path.basename(file_path)}' をFile APIでアップロードしています (MIME: {mime_type})...")
+                    # The print statement in the user's target code block does not include MIME type.
+                    print(f"情報: ファイル '{os.path.basename(file_path)}' をFile APIでアップロードしています...")
                     with open(file_path, "rb") as f:
-                        uploaded_file = _gemini_client.files.upload(
-                            file=f,
-                            mime_type=mime_type # CRITICAL: Ensure this argument is present and correct
-                        )
+                        uploaded_file = _gemini_client.files.upload(file=f) # NO OTHER ARGUMENTS
                         current_turn_parts.append(uploaded_file)
-                    print(f"情報: ファイル '{uploaded_file.display_name}' のアップロード完了 (ID: {uploaded_file.name})。")
+                    # The print statement in the user's target code block does not include (ID: {uploaded_file.name})
+                    print(f"情報: ファイル '{uploaded_file.display_name}' のアップロード完了。")
                 except Exception as e:
                     print(f"警告: ファイル '{os.path.basename(file_path)}' のアップロード中にエラー: {e}")
                     traceback.print_exc()
@@ -270,7 +269,7 @@ print(google.genai.tools.render.FunctionCall(
                 name="generate_image",
                 response={"result": tool_result_content}
             )
-            final_api_contents.append(Content(parts=[function_response_part]))
+            final_api_contents.append(Content(parts=[function_response_part], role="tool"))
 
     except google.api_core.exceptions.GoogleAPIError as e:
         print(f"エラー: Gemini APIとの通信中にエラーが発生しました: {e}")
@@ -296,7 +295,6 @@ def send_alarm_to_gemini(character_name: str, theme: str, flash_prompt_template:
         sys_ins_text = flash_prompt_template.replace("[キャラクター名]", character_name).replace("[テーマ内容]", theme)
         sys_ins_text += "\n\n**重要:** あなたの思考過程、応答の候補、メタテキスト（例: ---）などは一切出力せず、ユーザーに送る最終的な短いメッセージ本文のみを生成してください。"
     elif theme:
-        # Corrected Japanese quotes to standard quotes
         sys_ins_text = f"あなたはキャラクター「{character_name}」です。\n以下のテーマについて、ユーザーに送る短いメッセージを生成してください。\n過去の会話履歴があれば参考にし、自然な応答を心がけてください。\n\nテーマ: {theme}\n\n重要: あなたの思考過程、応答の候補リスト、自己対話、マーカー（例: `---`）などは一切含めず、ユーザーに送る最終的な短いメッセージ本文のみを出力してください。"
     else:
         sys_ins_text = f"あなたは「{character_name}」です。時間になりました。何か一言お願いします。\n\n重要: 最終的な短いメッセージ本文のみを出力してください。"
@@ -346,7 +344,6 @@ def send_alarm_to_gemini(character_name: str, theme: str, flash_prompt_template:
     final_api_contents_for_alarm.extend(api_contents_from_history)
 
     if not final_api_contents_for_alarm or (final_api_contents_for_alarm and final_api_contents_for_alarm[-1].role == "model"):
-        # Corrected Japanese quotes to standard quotes
         placeholder_text = "（時間になりました。アラームメッセージをお願いします。）" if not theme and not flash_prompt_template else \
                            (f"（テーマ「{theme}」についてメッセージをお願いします。）" if theme else "（フラッシュプロンプトに従ってメッセージをお願いします。）")
         final_api_contents_for_alarm.append(Content(role="user", parts=[Part(text=placeholder_text)]))
