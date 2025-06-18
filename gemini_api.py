@@ -161,20 +161,22 @@ def send_to_gemini(system_prompt_path: str, log_file_path: str, user_prompt: str
 
         for file_path_str in uploaded_file_paths:
             try:
+                # 修正点1: ログ表示のために、ファイル名を事前に取得しておく
                 file_basename = os.path.basename(file_path_str)
                 print(f"情報: ファイル '{file_basename}' を `files.upload` でアップロードします...")
-                
-                # 修正点1: display_name を指定してアップロード
-                uploaded_file_object = _gemini_client.files.upload(
-                    file=file_path_str,
-                    display_name=file_basename
+
+                # ファイルをアップロード
+                uploaded_file_object = _gemini_client.files.upload(file=file_path_str)
+
+                # 修正点2: Fileオブジェクトから、URIとMIMEタイプを使ってPartオブジェクトを生成する
+                file_part = Part.from_uri(
+                    uri=uploaded_file_object.uri,
+                    mime_type=uploaded_file_object.mime_type
                 )
-                
-                # 修正点2: FileオブジェクトからPartオブジェクトを作成して追加
-                file_part = Part.from_uri(uploaded_file_object.uri, uploaded_file_object.mime_type)
-                current_turn_parts.append(file_part)
-                
-                print(f"情報: ファイル '{uploaded_file_object.display_name}' ({uploaded_file_object.name}) のアップロード成功。")
+                current_turn_parts.append(file_part) # 正しいPartオブジェクトを追加
+
+                # 修正点3: ログには事前に取得したファイル名を使う
+                print(f"情報: ファイル '{file_basename}' ({uploaded_file_object.name}) のアップロード成功。")
             except Exception as e:
                 print(f"警告: ファイル '{os.path.basename(file_path_str)}' のアップロード中にエラー: {e}")
                 traceback.print_exc()
