@@ -23,14 +23,12 @@ def render_alarms_as_dataframe():
     import alarm_manager # 遅延インポート
     all_alarms = alarm_manager.get_all_alarms()
     df_data = []
-    # Assuming DAY_MAP_EN_TO_JA is defined in this module (it was in user's last full ui_handlers.py)
     for alarm in all_alarms:
         # ★★★ 表示崩れを防ぐため、曜日を一行で表示するよう修正 ★★★
-        # Sort by a predefined order "月火水木金土日" then join into a single string
         days_str = "".join(sorted([DAY_MAP_EN_TO_JA.get(d, '') for d in alarm.get("days", [])], key="月火水木金土日".find))
         df_data.append({
             "id": alarm.get("id"), "状態": alarm.get("enabled", False),
-            "時刻": alarm.get("time", ""), "曜日": days_str, # Use the new days_str
+            "時刻": alarm.get("time", ""), "曜日": days_str,
             "キャラ": alarm.get("character", ""), "テーマ": alarm.get("theme", "")
         })
     df = pd.DataFrame(df_data)
@@ -129,28 +127,15 @@ def handle_message_submission(*args: Any):
     user_prompt = textbox_content.strip() if textbox_content else ""
 
     log_message_content = user_prompt
-    uploaded_files_info_for_api = []
+    # This version prepares a list of file paths for gemini_api.py
+    actual_file_paths_for_api = []
     if file_input_list:
         for file_obj in file_input_list:
             file_path = file_obj.name if hasattr(file_obj, 'name') else str(file_obj)
-            original_filename = os.path.basename(file_path)
-            log_message_content += f"\n[ファイル添付: {original_filename}]"
-            mime_type, _ = mimetypes.guess_type(file_path)
-            file_bytes = b""
-            try:
-                with open(file_path, "rb") as f_bytes:
-                    file_bytes = f_bytes.read()
-            except Exception as e_read:
-                print(f"Error reading file bytes for {file_path}: {e_read}")
+            log_message_content += f"\n[ファイル添付: {os.path.basename(file_path)}]"
+            actual_file_paths_for_api.append(file_path) # Pass the path
 
-            uploaded_files_info_for_api.append({
-                "path": file_path,
-                "mime_type": mime_type or "application/octet-stream",
-                "bytes": file_bytes,
-                "original_filename": original_filename
-            })
-
-    if not log_message_content.strip() and not uploaded_files_info_for_api:
+    if not log_message_content.strip() and not actual_file_paths_for_api: # Check if there's anything to send
         return chatbot_history, gr.update(value=""), gr.update(value=None)
 
     user_header = _get_user_header_from_log(log_f, current_character_name)
@@ -160,9 +145,10 @@ def handle_message_submission(*args: Any):
     api_response_text = ""
     generated_image_path = None
     try:
+        # Pass actual_file_paths_for_api instead of uploaded_files_info_for_api
         api_response_text, generated_image_path = send_to_gemini(
             sys_p, log_f, user_prompt, current_model_name, current_character_name,
-            send_thoughts_state, api_history_limit_state, uploaded_files_info_for_api, mem_p
+            send_thoughts_state, api_history_limit_state, actual_file_paths_for_api, mem_p
         )
 
         if api_response_text or generated_image_path:
@@ -178,14 +164,19 @@ def handle_message_submission(*args: Any):
 
 def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.SelectData):
     """Dataframeでの行選択を処理し、選択されたIDとフィードバックメッセージを返す。単一選択・複数選択の両方に対応。"""
+
     if evt.index is None:
         return [], "アラームを選択してください"
 
+    # Gradioのイベントデータを正規化 (This handles both single tuple and list of tuples)
     indices_list = evt.index if isinstance(evt.index, list) else [evt.index]
 
-    if not indices_list:
+    if not indices_list: # Should not happen if evt.index was not None
         return [], "アラームを選択してください"
+
     try:
+        # 選択された行のインデックスだけを重複なく抽出する
+        # Ensure idx is a tuple and has at least one element before idx[0]
         selected_row_indices = sorted(list(set([idx[0] for idx in indices_list if isinstance(idx, tuple) and len(idx) > 0])))
     except (TypeError, IndexError) as e:
         print(f"Error processing event indices in handle_alarm_selection_and_feedback: {evt.index} -> {e}")
@@ -194,6 +185,7 @@ def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.Selec
 
     if not selected_row_indices or df_with_ids.empty:
         return [], "アラームを選択してください"
+
     try:
         valid_indices = [i for i in selected_row_indices if i < len(df_with_ids)]
         if not valid_indices: return [], "選択した行が見つかりません。"
@@ -203,9 +195,13 @@ def handle_alarm_selection_and_feedback(df_with_ids: pd.DataFrame, evt: gr.Selec
         if len(selected_ids) == 1:
             row = df_with_ids.iloc[valid_indices[0]]
             return selected_ids, f"選択中: 「{row['テーマ']}」 ({row['時刻']})"
-        return selected_ids, f"{len(selected_ids)}件のアラームを選択中"
+        else:
+            return selected_ids, f"{len(selected_ids)}件のアラームを選択中"
+
     except (KeyError, IndexError) as e:
-        print(f"エラー: データアクセス中にエラー: {e}"); traceback.print_exc(); return [], "IDの取得に失敗しました。"
+        print(f"エラー: データアクセス中にエラー: {e}")
+        traceback.print_exc()
+        return [], "IDの取得に失敗しました。"
 
 
 def load_alarm_to_form(selected_ids: list):
