@@ -11,6 +11,7 @@ import os
 import shutil
 import re
 import mimetypes
+import rag_manager # 追加
 
 # --- モジュールインポート ---
 import config_manager
@@ -74,14 +75,19 @@ def handle_save_memory_click(character_name, json_string_data):
     except Exception as e:
         gr.Error(f"記憶の保存中にエラーが発生しました: {e}")
 
-def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.update, gr.update]: # ★★★ ui_handlers.py 修正: 戻り値型ヒント修正 ★★★
+def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]], gr.update, gr.update]: # 戻り値型ヒントをより正確に
+    # 引数のアンパックの順番を nexus_ark.py の呼び出しに合わせる (current_api_key_name_state は不要になったので削除)
     (textbox_content, chatbot_history, current_character_name, current_model_name,
-     current_api_key_name_state, file_input_list, add_timestamp_checkbox,
+     # current_api_key_name_state, # 不要になったので削除
+     file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state) = args
+
     log_f, sys_p, _, mem_p = None, None, None, None
     try:
-        if not all([current_character_name, current_model_name, current_api_key_name_state]):
-            gr.Warning("キャラクター、モデル、APIキーをすべて選択してください。")
+        # current_api_key_name_state のチェックを削除 (gemini_api._gemini_client を使うため不要)
+        # ただし、gemini_api.send_to_gemini内で _gemini_client が None でないかのチェックは行われる
+        if not all([current_character_name, current_model_name]): # APIキー名は直接チェックしない
+            gr.Warning("キャラクターとモデルを選択してください。APIキーは設定画面で確認してください。")
             return chatbot_history, gr.update(), gr.update(value=None)
         log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
         if not all([log_f, sys_p, mem_p]):
@@ -112,8 +118,15 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Any]], gr.upda
                 if mime_type is None: mime_type = "application/octet-stream"
                 formatted_files_for_api.append({"path": actual_file_path, "mime_type": mime_type})
 
-
-        api_response_text, generated_image_path = send_to_gemini(sys_p, log_f, user_prompt, current_model_name, current_character_name, send_thoughts_state, api_history_limit_state, formatted_files_for_api, mem_p)
+        # ★★★ send_to_geminiから current_api_key_name_state を削除 ★★★
+        # 引数の順番: system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts, memory_json_path
+        api_response_text, generated_image_path = send_to_gemini(
+            sys_p, log_f, user_prompt, current_model_name,
+            current_character_name, send_thoughts_state,
+            api_history_limit_state,
+            # current_api_key_name_state, # 不要なので削除
+            formatted_files_for_api, mem_p
+        )
 
         if api_response_text or generated_image_path:
             response_to_log = ""
@@ -304,3 +317,23 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days):
         return display_df, df_with_ids, "アラーム追加", "", "", default_char_for_form, ["月","火","水","木","金","土","日"], "08", "00", None
     else:
         return display_df, df_with_ids, alarm_add_button_text, theme, prompt, char, days, h, m, editing_id
+
+def handle_rag_update_button_click(character_name: str): # api_key_name 引数を削除
+    """【RAG索引を更新】ボタンのクリックイベントを処理する"""
+    if not character_name: # api_key_name のチェックを削除 (gemini_api._gemini_client を使うため不要)
+        gr.Warning("索引を更新するキャラクターが選択されていません。")
+        return
+
+    # APIキーが選択・設定されているかのチェックは rag_manager 側で行う (gemini_api._gemini_client の存在確認)
+    gr.Info(f"キャラクター「{character_name}」のRAG索引の更新を開始します...（ターミナルのログを確認してください）")
+
+    import threading
+    def run_update():
+        # ★★★ api_key_name を渡さない ★★★
+        success = rag_manager.create_or_update_index(character_name)
+        if success:
+            print(f"INFO: RAG索引の更新が正常に完了しました ({character_name})")
+        else:
+            print(f"ERROR: RAG索引の更新に失敗しました ({character_name})")
+
+    threading.Thread(target=run_update).start()

@@ -23,10 +23,11 @@
 # #                                                                            #
 # ##############################################################################
 import google.genai as genai
-from google.genai import types
-from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig, FunctionDeclaration, FunctionCall
+# from google.genai import types # types は Content, Part で直接指定するため不要に
+from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig, FunctionDeclaration, FunctionCall # Content, Part を明示的にインポート
 import os
 import json
+import rag_manager # 追加
 import google.api_core.exceptions
 import re
 import math
@@ -80,9 +81,12 @@ def configure_google_api(api_key_name):
 
 # gemini_api.py にこの関数を上書きしてください
 
-def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
+def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None): # current_api_key_name 引数を削除
     if _gemini_client is None:
-        return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
+        # この関数が呼ばれる時点で _gemini_client は初期化されているはず (UI側のAPIキー設定時に configure_google_api が呼ばれるため)
+        # もし初期化されていなければ、RAGもチャットも画像生成も動作しないため、エラーを返す。
+        print("エラー: send_to_gemini が呼び出されましたが、_gemini_client が初期化されていません。これは予期しない状況です。UIでAPIキーが正しく選択・設定されているか確認してください。")
+        return "エラー: Geminiクライアントが初期化されていません。UIでAPIキーを再設定してみてください。", None
 
     # --- 1. プロンプトと会話履歴の準備 (変更なし) ---
     print(f"--- 対話処理開始 (Tool Use/メタタグ対応) --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
@@ -146,16 +150,32 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             else: print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。")
 
     # --- ここからが新しい会話履歴の構築ロジック ---
+    ### プロンプト構築順の修正 ###
     final_api_contents = []
-    # 1. システムプロンプトを追加
+
+    # 1. システムプロンプト (憲法)
     if sys_ins_text:
         final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
         final_api_contents.append(Content(role="model", parts=[Part(text="了解しました。システム指示に従い、対話を開始します。")]))
 
-    # 2. 実際の過去の会話履歴を追加
+    # 2. RAG検索結果 (参考資料)
+    if user_prompt: # user_prompt がある場合のみRAG検索を実行
+        # ★★★ search_relevant_chunks の呼び出しを修正（api_key_name と top_k は rag_manager側で処理） ★★★
+        relevant_chunks = rag_manager.search_relevant_chunks(
+            character_name,
+            user_prompt
+            # top_k は rag_manager.search_relevant_chunks のデフォルト値を使用
+        )
+        if relevant_chunks:
+            rag_context = "## 関連性の高い参考情報\n\n" + "\n\n---\n\n".join(relevant_chunks)
+            print(f"RAGコンテキストをプロンプトに追加: {len(relevant_chunks)}件のチャンク") # RAG結果をログに出力
+            final_api_contents.append(Content(role="user", parts=[Part(text=rag_context)]))
+            final_api_contents.append(Content(role="model", parts=[Part(text="記憶とログから関連情報を参照しました。")]))
+
+    # 3. 実際の会話履歴
     final_api_contents.extend(api_contents_from_history)
 
-    # 3. メタタグで囲んだ「指示書」としてのお手本を、ユーザープロンプトの直前に挿入
+    # 4. ツール使用のお手本 (Few-shot example)
     #    AIに「これは会話ではなく、特別な指示書だ」と明確に認識させる
     few_shot_instruction = '''<FunctionCallExample>
 # This is an example of how to use the 'generate_image' tool.
@@ -179,7 +199,7 @@ print(google.genai.tools.render.FunctionCall(
     # AIに指示を理解したことを確認させ、会話の区切りとする
     final_api_contents.append(Content(role="model", parts=[Part(text="Understood. I will use the `generate_image` tool as shown in the example when appropriate.")]))
 
-    # 4. 最後に、現在のユーザー入力を追加する
+    # 5. 現在のユーザー入力
     if current_turn_parts:
         final_api_contents.append(Content(role="user", parts=current_turn_parts))
     # --- ここまでが新しいロジック ---

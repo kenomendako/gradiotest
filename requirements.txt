@@ -13,3 +13,7 @@ requests
 
 # Used for UI data manipulation (e.g., alarms)
 pandas
+
+# For RAG implementation
+faiss-cpu
+numpy
