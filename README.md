@@ -34,6 +34,7 @@
 
 *   **マルチキャラクター対応**: 複数のAIキャラクターを自由に切り替え、それぞれと独立した対話を楽しめます。
 *   **会話の永続化**: キャラクターごとの会話ログ、プロファイル、記憶を`characters`フォルダに自動で保存します。
+*   **🧠 RAGによる記憶想起**: AIが自身の膨大な記憶（メモリ、プロンプト）の中から、会話の文脈に最も関連する情報を的確に検索・参照し、応答を生成します。
 *   **AIによる画像生成**: 会話の流れに応じて、AIが自律的に画像を生成し、チャットに表示します。
 *   **ファイル添付**: 画像やテキストファイルなどをチャットに添付し、AIと共有できます。
 *   **アラーム & タイマー機能**: 指定した時間に、お気に入りのキャラクターがテーマに沿ったメッセージを通知してくれます。ポモドーロタイマーも搭載。
@@ -127,18 +128,24 @@ python nexus_ark.py
 
 ```
 .
-├── characters/         # キャラクターごとのデータ（ログ、プロンプト、記憶）が保存される場所
+├── characters/         # キャラクターごとのデータ（ログ、プロンプト、記憶、RAG索引）が保存される場所
 │   └── Default/
 │       ├── log.txt
 │       ├── memory.json
-│       └── SystemPrompt.txt
+│       ├── SystemPrompt.txt
+│       └── rag_data/
+│           ├── rag_chunks.json
+│           └── rag_index.faiss
 ├── AI_DEVELOPMENT_GUIDELINES.md # AI開発者向けの重要指示書
+├── GEMINI_API_TOOL_USE_LESSONS.md # ツール使用機能の実装経緯
+├── RAG_IMPLEMENTATION_LESSONS.md # RAG機能の実装経緯 ★★★ 追加 ★★★
 ├── alarm_manager.py    # アラームとスケジューリングの管理
 ├── character_manager.py # キャラクターファイルの管理
 ├── config_manager.py   # config.json の読み書きと設定管理
 ├── gemini_api.py       # Google Gemini APIとの通信ロジック
-├── log2gemini.py       # Gradio UIの定義とアプリケーションのエントリーポイント
+├── nexus_ark.py        # Gradio UIの定義とアプリケーションのエントリーポイント
 ├── memory_manager.py   # memory.json の管理
+├── rag_manager.py      # RAG機能の索引作成と検索ロジック ★★★ 追加 ★★★
 ├── requirements.txt    # 必要なPythonライブラリ
 ├── timers.py           # タイマー機能の実装
 ├── ui_handlers.py      # UIのイベント処理とコールバック関数
