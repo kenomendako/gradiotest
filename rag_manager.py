@@ -40,18 +40,22 @@ def create_or_update_index(character_name: str) -> bool:
         print("エラー: Geminiクライアントが初期化されていません。")
         return False
 
-    log_f, sys_p, _, mem_p = character_manager.get_character_files_paths(character_name)
+    # ★★★ system_prompt.txt (sys_p) のパス取得は不要になる ★★★
+    # log_f, sys_p, _, mem_p = character_manager.get_character_files_paths(character_name) # 元の行
+    log_f, _, _, mem_p = character_manager.get_character_files_paths(character_name) # sys_p を受け取らないように変更
     rag_path = _get_rag_data_path(character_name)
-    # RAGパスが取得できない、または知識源となるファイルがどちらも存在しない場合はエラー
+
+    # ★★★ RAGの知識源は memory.json のみになったので、その存在だけをチェック ★★★
     if not rag_path:
         print(f"エラー: {character_name} のRAGデータパスが取得できません。")
         return False
-    if not os.path.exists(mem_p) and not os.path.exists(sys_p):
-        print(f"エラー: {character_name} の記憶ファイル (memory.json) またはシステムプロンプト (system_prompt.txt) が見つかりません。RAGの知識源がありません。")
+    if not os.path.exists(mem_p):
+        print(f"エラー: {character_name} の記憶ファイル (memory.json) が見つかりません。RAGの知識源がありません。")
         return False
 
     all_chunks = []
     try:
+        # ★★★ memory.json の読み込みは残す ★★★
         if os.path.exists(mem_p):
             with open(mem_p, "r", encoding="utf-8") as f:
                 mem_data = json.load(f)
@@ -59,11 +63,14 @@ def create_or_update_index(character_name: str) -> bool:
                     if value:
                         text = f"記憶（{key}）: {json.dumps(value, ensure_ascii=False)}"
                         all_chunks.extend(_chunk_text(text))
-        if os.path.exists(sys_p):
-            with open(sys_p, "r", encoding="utf-8") as f:
-                prompt_text = f.read().strip()
-                if prompt_text:
-                    all_chunks.extend(_chunk_text(f"システム指示: {prompt_text}"))
+
+        # ★★★ SystemPrompt.txt の読み込み処理を、ここから完全に削除します ★★★
+        # if os.path.exists(sys_p): # 削除対象
+        #     with open(sys_p, "r", encoding="utf-8") as f: # 削除対象
+        #         prompt_text = f.read().strip() # 削除対象
+        #         if prompt_text: # 削除対象
+        #             all_chunks.extend(_chunk_text(f"システム指示: {prompt_text}")) # 削除対象
+
     except Exception as e:
         print(f"知識源の読み込みとチャンク化でエラー: {e}"); traceback.print_exc()
         return False
