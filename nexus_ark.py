@@ -128,16 +128,16 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         inputs=[new_character_name_textbox],
         outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox]
     )
-    def initial_load(char_name_to_load):
+    def initial_load(char_name_to_load, api_history_limit): # api_history_limit_state を追加
         df_with_ids = ui_handlers.render_alarms_as_dataframe()
         display_df = ui_handlers.get_display_df(df_with_ids)
         (returned_char_name, current_chat_hist, _, current_profile_img,
          current_mem_str, alarm_dd_char_val, current_log_content, timer_dd_char_val
-        ) = ui_handlers.update_ui_on_character_change(char_name_to_load)
+        ) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit) # 引数に追加
         return (display_df, df_with_ids, current_chat_hist, current_log_content, current_mem_str,
                 current_profile_img, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください")
     demo.load(
-        fn=initial_load, inputs=[current_character_name],
+        fn=initial_load, inputs=[current_character_name, api_history_limit_state], # inputs に追加
         outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, log_editor, memory_json_editor,
                  profile_image_display, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown]
     )
@@ -155,17 +155,25 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
     delete_alarm_button.click(fn=ui_handlers.handle_delete_selected_alarms, inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda id_df: ui_handlers.get_display_df(id_df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe]).then(fn=lambda: ([], "アラームを選択してください"), outputs=[selected_alarm_ids_state, selection_feedback_markdown])
     alarm_add_button.click(fn=ui_handlers.handle_add_or_update_alarm, inputs=[editing_alarm_id_state, alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup], outputs=[alarm_dataframe, alarm_dataframe_original_data, alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
-    character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, log_editor, timer_char_dropdown]).then(fn=lambda: (ui_handlers.get_display_df(ui_handlers.render_alarms_as_dataframe()), ui_handlers.render_alarms_as_dataframe()), outputs=[alarm_dataframe, alarm_dataframe_original_data])
+    character_dropdown.change(
+        fn=ui_handlers.update_ui_on_character_change,
+        inputs=[character_dropdown, api_history_limit_state], # api_history_limit_state を追加
+        outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, log_editor, timer_char_dropdown]
+    ).then(fn=lambda: (ui_handlers.get_display_df(ui_handlers.render_alarms_as_dataframe()), ui_handlers.render_alarms_as_dataframe()), outputs=[alarm_dataframe, alarm_dataframe_original_data])
     timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
     model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name])
     api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state])
     add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[])
     send_thoughts_checkbox.change(fn=ui_handlers.update_send_thoughts_state, inputs=[send_thoughts_checkbox], outputs=[send_thoughts_state])
-    api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state, inputs=[api_history_limit_dropdown], outputs=[api_history_limit_state])
+    api_history_limit_dropdown.change(
+        fn=ui_handlers.update_api_history_limit_state_and_reload_chat, # 新しいハンドラに変更
+        inputs=[api_history_limit_dropdown, current_character_name], # current_character_name を追加
+        outputs=[api_history_limit_state, chatbot_display, log_editor] # chatbot_display, log_editor を追加
+    )
     save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor])
     save_log_button.click(fn=ui_handlers.handle_save_log_button_click, inputs=[current_character_name, log_editor])
-    editor_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name], outputs=[chatbot_display, log_editor])
-    chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name], outputs=[chatbot_display, log_editor])
+    editor_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, log_editor]) # api_history_limit_state を追加
+    chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, log_editor]) # api_history_limit_state を追加
     chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button]
     # handle_message_submission に渡す inputs のリストを修正 (current_api_key_name_state を削除)
     chat_inputs = [
