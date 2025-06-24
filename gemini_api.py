@@ -79,15 +79,15 @@ def configure_google_api(api_key_name):
     except Exception as e:
         return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}"
 
-# gemini_api.py の send_to_gemini 関数を以下に置き換えてください
+# gemini_api.py の send_to_gemini 関数を、以下のコードで完全に置き換えてください。
 
 def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
     if _gemini_client is None:
-        print("エラー: send_to_gemini が呼び出されましたが、_gemini_client が初期化されていません。...")
+        print("エラー: send_to_gemini が呼び出されましたが、_gemini_client が初期化されていません。")
         return "エラー: Geminiクライアントが初期化されていません。UIでAPIキーを再設定してみてください。", None
 
-    # (プロンプトと会話履歴の準備：既存のコードは変更なしのため、ここでは省略します)
-    # ... (既存の sys_ins_text, msgs, api_contents_from_history, current_turn_parts の準備処理) ...
+    # (関数の前半、プロンプトや履歴の読み込み部分は変更がないため、既存のコードを流用してください)
+    # ... (sys_ins_text, msgs, api_contents_from_history, current_turn_parts の準備処理は変更なし) ...
     print(f"--- 対話処理開始 (Tool Use/メタタグ対応) --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
     sys_ins_text = "あなたはチャットボットです。"
     if system_prompt_path and os.path.exists(system_prompt_path):
@@ -142,16 +142,25 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 except Exception as e: print(f"警告: ファイル '{os.path.basename(file_path)}' の処理中にエラー: {e}")
             else: print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。")
 
-
-    # --- プロンプト構築ロジック ---
+    # --- ★★★ ここからが、新しいプロンプト構築ロジックです ★★★ ---
     final_api_contents = []
 
-    # 1. システムプロンプト
+    # 1. システムプロンプト (人格と能力の定義)
     if sys_ins_text:
         final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
-        final_api_contents.append(Content(role="model", parts=[Part(text="了解しました。システム指示に従い、対話を開始します。")]))
+        final_api_contents.append(Content(role="model", parts=[Part(text="はい、承知いたしました。私はあなたとの対話を豊かにするため、状況に応じて自律的に情報を検索したり、絵を描いたりすることができます。")]))
 
-    # 2. RAG検索結果
+    # 2. ツール使用の正しいお手本 (ルール学習)
+    #    シンプルでクリーンな会話例を一度だけ示す
+    final_api_contents.extend([
+        Content(role="user", parts=[Part(text="夕焼けが綺麗だね。この感動を絵にしてくれない？")]),
+        Content(role="model", parts=[Part(function_call=FunctionCall(
+            name='generate_image',
+            args={'prompt': 'A beautiful sunset over the ocean, sky filled with orange and purple clouds, anime style.'}
+        ))])
+    ])
+
+    # 3. RAG検索結果 (長期記憶の参照)
     if user_prompt:
         relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
         if relevant_chunks:
@@ -160,35 +169,15 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             final_api_contents.append(Content(role="user", parts=[Part(text=rag_context)]))
             final_api_contents.append(Content(role="model", parts=[Part(text="記憶とログから関連情報を参照しました。")]))
 
-    # 3. 実際の会話履歴
+    # 4. 実際の会話履歴 (短期記憶の参照)
     final_api_contents.extend(api_contents_from_history)
 
-    # 4. ★★★ ツール使用のお手本 (位置は維持し、内容を修正) ★★★
-    # メタタグで囲み、自然な会話形式で正しいツール呼び出しを示す
-    few_shot_user_part = Part(text="""<FunctionCallExample>
-# This is an example of how to use the 'generate_image' tool.
-# You must follow this format to respond to user requests for images.
-
-## User Request:
-"なんだか、すごく穏やかな気持ち。海辺にいるみたいな…。もしよかったら、この気持ちを絵にしてくれないかな？"
-
-## Your Action:
-You must call the `generate_image` function with a suitable prompt.
-</FunctionCallExample>""")
-
-    # AIの応答は、実際にAPIが返す FunctionCall オブジェクトそのものにする
-    few_shot_model_part = Part(function_call=FunctionCall(
-        name='generate_image',
-        args={'prompt': 'A tranquil beach at sunset, with gentle waves lapping at the shore. The sky is painted in warm colors of orange and pink. A lone seagull flies in the distance. Serene and peaceful anime style.'}
-    ))
-
-    final_api_contents.append(Content(role="user", parts=[few_shot_user_part]))
-    final_api_contents.append(Content(role="model", parts=[few_shot_model_part]))
-
-    # 5. 現在のユーザー入力
+    # 5. 現在のユーザー入力 (今、ここでの対話)
     if current_turn_parts:
         final_api_contents.append(Content(role="user", parts=current_turn_parts))
+    # --- プロンプト構築ロジックここまで ---
 
+    # (以降の関数呼び出し部分は変更なし)
     image_generation_tool = _define_image_generation_tool()
     formatted_safety_settings = []
     if config_manager.SAFETY_CONFIG and isinstance(config_manager.SAFETY_CONFIG, dict):
@@ -209,7 +198,7 @@ You must call the `generate_image` function with a suitable prompt.
 
             candidate = response.candidates[0]
 
-            # ★★★ クラッシュ防止：空の応答(None)を安全に処理 ★★★
+            # クラッシュ防止：空の応答(None)を安全に処理
             if not candidate.content or not candidate.content.parts or not candidate.content.parts[0].function_call:
                 print("情報: AIからの応答は通常のテキストまたは空です。処理を終了します。")
                 final_text_parts = []
@@ -225,7 +214,6 @@ You must call the `generate_image` function with a suitable prompt.
             print(f"情報: AIが画像生成ツール '{function_call.name}' の使用を要求しました。")
             final_api_contents.append(candidate.content)
 
-            # (以降のツール実行部分は変更なし)
             args = function_call.args
             image_prompt = args.get("prompt")
             tool_result_content = ""
