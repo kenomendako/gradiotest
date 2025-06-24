@@ -11,7 +11,7 @@ import os
 import shutil
 import re
 import mimetypes
-import rag_manager # 追加
+import rag_manager
 
 # --- モジュールインポート ---
 import config_manager
@@ -68,64 +68,96 @@ def handle_save_memory_click(character_name, json_string_data):
         gr.Warning("キャラクターが選択されていません。")
         return
     try:
-        save_memory_data(character_name, json_string_data) # memory_managerの関数を直接呼ぶ
-        gr.Info("記憶を保存しました。") # ★★★ ui_handlers.py 修正: 保存成功メッセージをハンドラ側で表示 ★★★
+        save_memory_data(character_name, json_string_data)
+        gr.Info("記憶を保存しました。")
     except json.JSONDecodeError:
         gr.Error("記憶データのJSON形式が正しくありません。")
     except Exception as e:
         gr.Error(f"記憶の保存中にエラーが発生しました: {e}")
 
-def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]], gr.update, gr.update]: # 戻り値型ヒントをより正確に
-    # 引数のアンパックの順番を nexus_ark.py の呼び出しに合わせる (current_api_key_name_state は不要になったので削除)
+def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]], gr.update, gr.update]:
     (textbox_content, chatbot_history, current_character_name, current_model_name,
-     # current_api_key_name_state, # 不要になったので削除
      file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state) = args
 
     log_f, sys_p, _, mem_p = None, None, None, None
     try:
-        # current_api_key_name_state のチェックを削除 (gemini_api._gemini_client を使うため不要)
-        # ただし、gemini_api.send_to_gemini内で _gemini_client が None でないかのチェックは行われる
-        if not all([current_character_name, current_model_name]): # APIキー名は直接チェックしない
+        if not all([current_character_name, current_model_name]):
             gr.Warning("キャラクターとモデルを選択してください。APIキーは設定画面で確認してください。")
             return chatbot_history, gr.update(), gr.update(value=None)
+
         log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
         if not all([log_f, sys_p, mem_p]):
             gr.Warning(f"キャラクター '{current_character_name}' の必須ファイルパス取得に失敗。")
             return chatbot_history, gr.update(), gr.update(value=None)
-        user_prompt = textbox_content.strip() if textbox_content else ""
-        # ★★★ ui_handlers.py 修正: メッセージ空でもファイルあれば送信 ★★★
-        if not user_prompt and not file_input_list:
-            # gr.Info("メッセージまたはファイルを送信してください。") # 頻繁なのでコメントアウト
-            return chatbot_history, gr.update(), gr.update(value=None) # ファイルリストもクリア
 
-        log_message_content = user_prompt
-        if file_input_list: # file_input_list は List[tempfile._TemporaryFileWrapper]
-            for file_wrapper in file_input_list:
-                log_message_content += f"\n[ファイル添付: {file_wrapper.name}]" # .name でパスを取得
-        user_header = _get_user_header_from_log(log_f, current_character_name)
-        timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
-        save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
+        user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
 
-        formatted_files_for_api = []
+        # ★★★ ここからがファイル処理の新しいロジックです ★★★
+
+        # テキストファイルの内容を追記するための変数
+        text_files_content = ""
+        # メディアファイル（画像、音声など）をAPIに渡すためのリスト
+        media_files_for_api = []
+        # ログに記録するためのファイル名リスト
+        attached_filenames_for_log = []
+
         if file_input_list:
             for file_wrapper in file_input_list:
-                # file_wrapper.name はフルパスの場合があるので、ファイル名だけを使うか、
-                # もしくは gemini_api 側でパスを処理する必要がある。ここではそのまま渡す。
-                # mimetypes.guess_type にはファイルパス文字列が必要。
                 actual_file_path = file_wrapper.name
-                mime_type, _ = mimetypes.guess_type(actual_file_path)
-                if mime_type is None: mime_type = "application/octet-stream"
-                formatted_files_for_api.append({"path": actual_file_path, "mime_type": mime_type})
+                original_filename = os.path.basename(actual_file_path)
+                attached_filenames_for_log.append(original_filename)
 
-        # ★★★ send_to_geminiから current_api_key_name_state を削除 ★★★
-        # 引数の順番: system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts, memory_json_path
+                mime_type, _ = mimetypes.guess_type(actual_file_path)
+                if mime_type is None:
+                    mime_type = "application/octet-stream" # 不明な場合はバイナリとして扱う
+
+                # MIMEタイプに基づいて、テキストファイルかメディアファイルかを判断
+                # application/octet-stream もテキストではないと判断する
+                if mime_type.startswith('text/') or \
+                   mime_type in ['application/json', 'application/javascript', 'application/xml', 'application/x-python', 'text/markdown', 'text/x-markdown', 'text/plain'] or \
+                   any(original_filename.endswith(ext) for ext in ['.py', '.md', '.js', '.ts', '.html', '.css', '.xml', '.json', '.txt', '.log']): # 拡張子でも判定
+                    # テキストベースのファイルの場合
+                    try:
+                        with open(actual_file_path, 'r', encoding='utf-8') as f:
+                            file_content = f.read()
+                        text_files_content += f"\n\n--- 添付ファイル: {original_filename} ---\n\n"
+                        text_files_content += file_content
+                        text_files_content += f"\n\n--- {original_filename} ここまで ---"
+                    except Exception as e:
+                        print(f"警告: テキストファイル '{original_filename}' の読み込み中にエラー: {e}")
+                        # エラー時もファイル名とエラーの旨をプロンプトに含める
+                        text_files_content += f"\n\n[エラー: ファイル '{original_filename}' の読み込みに失敗しました。理由: {e}]"
+                else:
+                    # メディアベースのファイルの場合 (またはMIMEタイプからテキストと判断できなかったもの)
+                    media_files_for_api.append({"path": actual_file_path, "mime_type": mime_type})
+
+        # 最終的なユーザープロンプトを構築
+        final_user_prompt = user_prompt_from_textbox + text_files_content
+
+        if not final_user_prompt.strip() and not media_files_for_api:
+            # gr.Info("メッセージまたはファイルを送信してください。") # 頻繁なのでコメントアウト
+            return chatbot_history, gr.update(), gr.update(value=None)
+
+        # ログに記録するメッセージを作成
+        log_message_content = user_prompt_from_textbox # ユーザーがテキストボックスに書いた内容のみを基本とする
+        if attached_filenames_for_log: # 添付ファイルがある場合のみファイル名を追記
+            log_message_content += "\n[ファイル添付: " + ", ".join(attached_filenames_for_log) + "]"
+
+        user_header = _get_user_header_from_log(log_f, current_character_name)
+        timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
+        # ログには、テキストボックスの入力とファイル名のみを記録（ファイル内容は記録しない）
+        save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
+
+        # ★★★ ここまでがファイル処理の新しいロジックです ★★★
+
+        # APIに渡すプロンプトは final_user_prompt (テキストファイル内容含む)、
+        # ファイルは media_files_for_api (メディアファイルのみ)
         api_response_text, generated_image_path = send_to_gemini(
-            sys_p, log_f, user_prompt, current_model_name,
+            sys_p, log_f, final_user_prompt.strip(), current_model_name,
             current_character_name, send_thoughts_state,
             api_history_limit_state,
-            # current_api_key_name_state, # 不要なので削除
-            formatted_files_for_api, mem_p
+            media_files_for_api, mem_p # uploaded_file_parts を media_files_for_api に変更
         )
 
         if api_response_text or generated_image_path:
@@ -141,12 +173,11 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
 
     if log_f and os.path.exists(log_f):
         new_log = load_chat_log(log_f, current_character_name)
-        # ★★★ ui_handlers.py 修正: GradioのChatbot型ヒントに合わせる ★★★
         new_hist: List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]] = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
     else:
         new_hist = chatbot_history
 
-    return new_hist, gr.update(value=""), gr.update(value=None)
+    return new_hist, gr.update(value=""), gr.update(value=None) # file_input_list もクリア
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 
@@ -163,43 +194,31 @@ def get_display_df(df_with_id: pd.DataFrame):
         return pd.DataFrame(columns=["状態", "時刻", "曜日", "キャラ", "テーマ"])
     return df_with_id[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
 
-# ★★★ ここからが修正箇所 (ui_handlers.py) ★★★
 def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame) -> List[str]:
-    """
-    Dataframeの選択イベントを処理する。
-    Gradioの'SelectData'オブジェクトの正しい属性 'index' を使用する。
-    """
-    # evt.index は None (選択解除), int (単一選択), または list[int] (複数行選択の場合だが通常Dataframeでは単一)
     if evt.index is None or df_with_id is None or df_with_id.empty:
         return []
-
     indices_to_process: list[int]
-    if isinstance(evt.index, int): # 単一行選択の場合
+    if isinstance(evt.index, int):
         indices_to_process = [evt.index]
-    elif isinstance(evt.index, list): # 複数行選択の場合 (Dataframeでは通常発生しないが一応)
+    elif isinstance(evt.index, list):
         indices_to_process = evt.index
-    else: # 予期しない型の場合
+    else:
         return []
-
     selected_ids = []
     for i in indices_to_process:
-        if 0 <= i < len(df_with_id): # 範囲チェック
+        if 0 <= i < len(df_with_id):
             selected_ids.append(str(df_with_id.iloc[i]['ID']))
     return selected_ids
 
 def handle_alarm_selection_and_feedback(evt: gr.SelectData, df_with_id: pd.DataFrame):
-    """選択イベントとフィードバック表示をまとめたハンドラ。"""
-    selected_ids = handle_alarm_selection(evt, df_with_id) # 修正された関数を呼び出す
+    selected_ids = handle_alarm_selection(evt, df_with_id)
     count = len(selected_ids)
     feedback_text = "アラームを選択してください"
     if count == 1:
         feedback_text = f"1 件のアラームを選択中"
     elif count > 1:
-        # Dataframeのinteractive=Trueでは通常複数選択はUIからできないはずだが、
-        # プログラム的に複数IDが渡ってきた場合も考慮
         feedback_text = f"{count} 件のアラームを選択中"
     return selected_ids, feedback_text
-# ★★★ 修正ここまで (ui_handlers.py) ★★★
 
 def toggle_selected_alarms_status(selected_ids: list, target_status: bool):
     if not selected_ids:
@@ -267,13 +286,13 @@ def handle_save_log_button_click(character_name, log_content):
         save_log_file(character_name, log_content)
         gr.Info(f"'{character_name}'のログを保存しました。")
 
-def load_alarm_to_form(selected_ids: list): # selected_ids は List[str]
+def load_alarm_to_form(selected_ids: list):
     default_char = character_manager.get_character_list()[0] if character_manager.get_character_list() else "Default"
     if not selected_ids or len(selected_ids) != 1:
         return "アラーム追加", "", "", default_char, ["月","火","水","木","金","土","日"], "08", "00", None
 
     alarm_id_str = selected_ids[0]
-    alarm = alarm_manager.get_alarm_by_id(alarm_id_str) # IDは文字列
+    alarm = alarm_manager.get_alarm_by_id(alarm_id_str)
     if not alarm:
         gr.Warning(f"アラームID '{alarm_id_str}' が見つかりません。")
         return "アラーム追加", "", "", default_char, ["月","火","水","木","金","土","日"], "08", "00", None
@@ -287,7 +306,7 @@ def load_alarm_to_form(selected_ids: list): # selected_ids は List[str]
 
 def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days):
     default_char_for_form = character_manager.get_character_list()[0] if character_manager.get_character_list() else "Default"
-    alarm_add_button_text = "アラーム更新" if editing_id else "アラーム追加" # ボタンテキストの初期値
+    alarm_add_button_text = "アラーム更新" if editing_id else "アラーム追加"
 
     if not char:
         gr.Warning("キャラクターが選択されていません。")
@@ -297,7 +316,7 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days):
 
     success = False
     if editing_id:
-        if alarm_manager.update_alarm(editing_id, h, m, char, theme, prompt, days): # update_alarm を使用
+        if alarm_manager.update_alarm(editing_id, h, m, char, theme, prompt, days):
             gr.Info(f"アラームID '{editing_id}' を更新しました。")
             success = True
         else:
@@ -318,18 +337,15 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days):
     else:
         return display_df, df_with_ids, alarm_add_button_text, theme, prompt, char, days, h, m, editing_id
 
-def handle_rag_update_button_click(character_name: str): # api_key_name 引数を削除
-    """【RAG索引を更新】ボタンのクリックイベントを処理する"""
-    if not character_name: # api_key_name のチェックを削除 (gemini_api._gemini_client を使うため不要)
+def handle_rag_update_button_click(character_name: str):
+    if not character_name:
         gr.Warning("索引を更新するキャラクターが選択されていません。")
         return
 
-    # APIキーが選択・設定されているかのチェックは rag_manager 側で行う (gemini_api._gemini_client の存在確認)
     gr.Info(f"キャラクター「{character_name}」のRAG索引の更新を開始します...（ターミナルのログを確認してください）")
 
     import threading
     def run_update():
-        # ★★★ api_key_name を渡さない ★★★
         success = rag_manager.create_or_update_index(character_name)
         if success:
             print(f"INFO: RAG索引の更新が正常に完了しました ({character_name})")
