@@ -44,7 +44,7 @@
 ## 🛠️ 技術スタック
 
 *   **バックエンド**: Python
-*   **AIモデル**: Google Gemini (1.5 Pro, 1.5 Flash, etc.)
+*   **AIモデル**: Google Gemini (2.5 Pro, 2.5 Flash, etc.)
 *   **UIフレームワーク**: Gradio
 *   **主要ライブラリ**: `google-genai`, `pandas`, `schedule`, `requests`
 
