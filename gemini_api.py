@@ -44,22 +44,31 @@ from character_manager import get_character_files_paths
 
 _gemini_client = None
 
+# ★★★ 1. ツールの定義を、進化させる ★★★
 def _define_image_generation_tool():
-    """Gemini APIに渡すための画像生成ツールの定義を作成します。"""
+    """
+    AIに「次に何をすべきか」を判断させるための、新しいツールセットを定義します。
+    """
     return Tool(
         function_declarations=[
+            # 行動計画を立てさせるための、新しい関数
             FunctionDeclaration(
-                name="generate_image",
-                description="ユーザーからのリクエストに応えたり、自身の感情や情景を表現したりするために、情景やキャラクターのイラストを描画します。ユーザーが絵を求めている場合や、視覚的な説明が有効だと判断した場合に、このツールを積極的に使用してください。",
+                name="plan_next_action",
+                description="ユーザーのリクエストに応じて、次に取るべき行動を計画します。返答するだけか、画像を生成するかを決定します。",
                 parameters={
                     "type": "OBJECT",
                     "properties": {
-                        "prompt": {
+                        "action_type": {
                             "type": "STRING",
-                            "description": "生成したい画像の内容を詳細に記述した、英語のプロンプト。例: 'A beautiful girl with a gentle smile, anime style, peaceful landscape background, warm sunlight.'"
+                            "description": "実行するアクションの種類。'TALK' または 'GENERATE_IMAGE' のいずれか。",
+                            "enum": ["TALK", "GENERATE_IMAGE"]
+                        },
+                        "details": {
+                            "type": "STRING",
+                            "description": "アクションの詳細。action_typeが'TALK'の場合は応答テキスト、'GENERATE_IMAGE'の場合は画像生成用の英語プロンプト。"
                         }
                     },
-                    "required": ["prompt"]
+                    "required": ["action_type", "details"]
                 }
             )
         ]
@@ -79,19 +88,17 @@ def configure_google_api(api_key_name):
     except Exception as e:
         return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}"
 
-# gemini_api.py にこの関数を上書きしてください
-
-def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None): # current_api_key_name 引数を削除
+# ★★★ 2. APIとの対話方法を、根本的に、変更する ★★★
+def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
     if _gemini_client is None:
-        # この関数が呼ばれる時点で _gemini_client は初期化されているはず (UI側のAPIキー設定時に configure_google_api が呼ばれるため)
-        # もし初期化されていなければ、RAGもチャットも画像生成も動作しないため、エラーを返す。
-        print("エラー: send_to_gemini が呼び出されましたが、_gemini_client が初期化されていません。これは予期しない状況です。UIでAPIキーが正しく選択・設定されているか確認してください。")
-        return "エラー: Geminiクライアントが初期化されていません。UIでAPIキーを再設定してみてください。", None
+        return "エラー: Geminiクライアントが初期化されていません。", None
 
-    # --- 1. プロンプトと会話履歴の準備 (変更なし) ---
-    print(f"--- 対話処理開始 (Tool Use/メタタグ対応) --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
+    # --- ステップ1: AIの「意思」を確認する ---
+    print(f"--- 対話処理開始 (意思決定フェーズ) ---")
 
+    # (プロンプトと履歴の準備：既存のロジックを流用)
     sys_ins_text = "あなたはチャットボットです。"
+    # ... (この部分は既存のコードと同じなので省略) ...
     if system_prompt_path and os.path.exists(system_prompt_path):
         try:
             with open(system_prompt_path, "r", encoding="utf-8") as f: sys_ins_text = f.read().strip() or sys_ins_text
@@ -106,24 +113,15 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             }.items() if v}
             if m_api: sys_ins_text += f"\n\n---\n## 参考記憶:\n{json.dumps(m_api, indent=2, ensure_ascii=False)}\n---"
         except Exception as e: print(f"記憶ファイル '{memory_json_path}' 読込/処理エラー: {e}")
-
     msgs = load_chat_log(log_file_path, character_name)
-
     if api_history_limit_option.isdigit():
         try:
             limit = int(api_history_limit_option)
             if limit > 0:
                 limit_msgs = limit * 2
-                if len(msgs) > limit_msgs:
-                    print(f"情報: 履歴を直近 {limit} 往復 ({limit_msgs} メッセージ) に制限します。")
-                    msgs = msgs[-limit_msgs:]
-        except ValueError:
-            print(f"警告: api_history_limit_option '{api_history_limit_option}' は不正な数値です。履歴は制限されません。")
-
-    if msgs and msgs[-1].get("role") == "user":
-        print("情報: ログ末尾のユーザーメッセージを履歴から一時的に削除し、引数の内容で上書きします。")
-        msgs = msgs[:-1]
-
+                if len(msgs) > limit_msgs: msgs = msgs[-limit_msgs:]
+        except ValueError: print(f"警告: api_history_limit_option '{api_history_limit_option}' は不正な数値です。")
+    if msgs and msgs[-1].get("role") == "user": msgs = msgs[:-1]
     api_contents_from_history = []
     th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
     for m in msgs:
@@ -134,7 +132,6 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         if sdk_role == "user": processed_text = re.sub(r"\[画像添付:[^\]]+\]", "", processed_text).strip()
         elif sdk_role == "model" and not send_thoughts_to_api: processed_text = th_pat.sub("", processed_text).strip()
         if processed_text: api_contents_from_history.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
-
     current_turn_parts = []
     if user_prompt: current_turn_parts.append(Part(text=user_prompt))
     if uploaded_file_parts:
@@ -149,129 +146,99 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 except Exception as e: print(f"警告: ファイル '{os.path.basename(file_path)}' の処理中にエラー: {e}")
             else: print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。")
 
-    # --- ここからが新しい会話履歴の構築ロジック ---
-    ### プロンプト構築順の修正 ###
+    # (プロンプト構築：既存のロジックを流用)
     final_api_contents = []
-
-    # 1. システムプロンプト (憲法)
     if sys_ins_text:
         final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
-        final_api_contents.append(Content(role="model", parts=[Part(text="了解しました。システム指示に従い、対話を開始します。")]))
-
-    # 2. RAG検索結果 (参考資料)
-    if user_prompt: # user_prompt がある場合のみRAG検索を実行
-        # ★★★ search_relevant_chunks の呼び出しを修正（api_key_name と top_k は rag_manager側で処理） ★★★
-        relevant_chunks = rag_manager.search_relevant_chunks(
-            character_name,
-            user_prompt
-            # top_k は rag_manager.search_relevant_chunks のデフォルト値を使用
-        )
+        final_api_contents.append(Content(role="model", parts=[Part(text="はい、承知いたしました。指示に従い、対話を開始します。")]))
+    if user_prompt:
+        relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
         if relevant_chunks:
             rag_context = "## 関連性の高い参考情報\n\n" + "\n\n---\n\n".join(relevant_chunks)
-            print(f"RAGコンテキストをプロンプトに追加: {len(relevant_chunks)}件のチャンク") # RAG結果をログに出力
             final_api_contents.append(Content(role="user", parts=[Part(text=rag_context)]))
             final_api_contents.append(Content(role="model", parts=[Part(text="記憶とログから関連情報を参照しました。")]))
-
-    # 3. 実際の会話履歴
     final_api_contents.extend(api_contents_from_history)
-
-    # 4. ツール使用のお手本 (Few-shot example)
-    #    AIに「これは会話ではなく、特別な指示書だ」と明確に認識させる
-    few_shot_instruction = '''<FunctionCallExample>
-# This is an example of how to use the 'generate_image' tool.
-# You must follow this format to respond to user requests for images.
-
-## User Request:
-"Could you draw a picture of a cute, fluffy cat?"
-
-## Your Action:
-You must call the `generate_image` function with a suitable prompt.
-The function call should look like this:
-(tool_code)
-print(google.genai.tools.render.FunctionCall(
-  name='generate_image',
-  args={'prompt': 'A very cute, fluffy white cat with big blue eyes, sitting on a soft cushion, detailed anime style, warm lighting.'}
-))
-</FunctionCallExample>'''
-
-    # 指示書をユーザーロールとして追加
-    final_api_contents.append(Content(role="user", parts=[Part(text=few_shot_instruction)]))
-    # AIに指示を理解したことを確認させ、会話の区切りとする
-    final_api_contents.append(Content(role="model", parts=[Part(text="Understood. I will use the `generate_image` tool as shown in the example when appropriate.")]))
-
-    # 5. 現在のユーザー入力
     if current_turn_parts:
         final_api_contents.append(Content(role="user", parts=current_turn_parts))
-    # --- ここまでが新しいロジック ---
 
-    # (以降のコードは変更なし。安定しているためそのまま流用します)
-    image_generation_tool = _define_image_generation_tool()
-
+    # (API呼び出し設定：既存のロジックを流用)
+    action_planning_tool = _define_image_generation_tool() # 新しいツールセット
     formatted_safety_settings = []
     if config_manager.SAFETY_CONFIG and isinstance(config_manager.SAFETY_CONFIG, dict):
         for category, threshold in config_manager.SAFETY_CONFIG.items():
-            formatted_safety_settings.append({
-                "category": category,
-                "threshold": threshold
-            })
+            formatted_safety_settings.append({"category": category, "threshold": threshold})
 
     try:
-        image_path_for_final_return = None
-        while True:
-            print(f"Gemini APIへ送信開始... (Tool Use有効) contents長: {len(final_api_contents)}")
+        generation_config = GenerateContentConfig(tools=[action_planning_tool], safety_settings=formatted_safety_settings)
+        response = _gemini_client.models.generate_content(
+            model=selected_model,
+            contents=final_api_contents,
+            config=generation_config
+        )
+        candidate = response.candidates[0]
 
-            generation_config = GenerateContentConfig(
-                tools=[image_generation_tool],
-                safety_settings=formatted_safety_settings
-            )
+        # AIがツールを使わずに、ただテキストを返してきた場合
+        if not candidate.content or not candidate.content.parts or not candidate.content.parts[0].function_call:
+            print("情報: AIの意思は 'TALK' です。")
+            final_text_parts = [part.text for part in candidate.content.parts if hasattr(part, 'text') and part.text is not None]
+            final_text = "".join(final_text_parts).strip()
+            return final_text, None
 
-            response = _gemini_client.models.generate_content(
-                model=selected_model,
-                contents=final_api_contents,
-                config=generation_config
-            )
-
-            candidate = response.candidates[0]
-            if not candidate.content.parts or not candidate.content.parts[0].function_call:
-                print("情報: AIからの応答は通常のテキストです。処理を終了します。")
-                final_text_parts = [part.text for part in candidate.content.parts if hasattr(part, 'text') and part.text is not None]
-                final_text = "".join(final_text_parts).strip()
-                return final_text, image_path_for_final_return
-
-            function_call = candidate.content.parts[0].function_call
-            if function_call.name != "generate_image":
-                return f"エラー: 不明な関数 '{function_call.name}' が呼び出されました。", None
-
-            print(f"情報: AIが画像生成ツール '{function_call.name}' の使用を要求しました。")
-            final_api_contents.append(candidate.content)
-
+        # AIが行動計画ツールを呼び出した場合
+        function_call = candidate.content.parts[0].function_call
+        if function_call.name == "plan_next_action":
             args = function_call.args
-            image_prompt = args.get("prompt")
-            tool_result_content = ""
-            if not image_prompt:
-                tool_result_content = "エラー: 画像生成のプロンプトが指定されませんでした。この状況をユーザーに伝えてください。"
-            else:
-                print(f"画像生成プロンプト: '{image_prompt[:100]}...'")
-                sanitized_base_name = "".join(c for c in image_prompt[:30] if c.isalnum() or c in [' ']).strip().replace(' ', '_')
-                filename_suggestion = f"{character_name}_{sanitized_base_name}"
+            action_type = args.get("action_type")
+            details = args.get("details", "")
 
+            # --- ステップ2: AIの「意思」に基づき、コードが「実行」する ---
+
+            if action_type == "GENERATE_IMAGE":
+                print(f"情報: AIの意思は 'GENERATE_IMAGE' です。プロンプト: '{details[:100]}...'")
+
+                # 画像生成を実行
+                sanitized_base_name = "".join(c for c in details[:30] if c.isalnum() or c in [' ']).strip().replace(' ', '_')
+                filename_suggestion = f"{character_name}_{sanitized_base_name}"
                 text_response, image_path = generate_image_with_gemini(
-                    prompt=image_prompt,
+                    prompt=details,
                     output_image_filename_suggestion=filename_suggestion
                 )
-                if image_path:
-                    image_path_for_final_return = image_path
 
-                if image_path:
-                    tool_result_content = f"画像生成に成功しました。パス: {image_path}。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"
-                else:
-                    tool_result_content = f"画像生成に失敗しました。理由: {text_response}。このエラーメッセージを参考に、ユーザーに応答してください。"
+                if not image_path:
+                    return f"画像生成に失敗しました。理由: {text_response}", None
 
-            function_response_part = Part.from_function_response(
-                name="generate_image",
-                response={"result": tool_result_content}
-            )
-            final_api_contents.append(Content(parts=[function_response_part]))
+                # --- ステップ3: 実行結果を元に、AIに「コメント」を生成させる ---
+                print("情報: 画像生成成功。AIにコメント生成を依頼します。")
+
+                # 非常にシンプルな、新しいプロンプトを作成
+                comment_request_prompt = [
+                    # AIに、以前の会話の文脈を思い出させる
+                    *final_api_contents,
+                    # そして、今しがた起きたことを報告する
+                    Content(role="user", parts=[
+                        Part(text=f"（システム情報：画像生成に成功しました。画像パスは '{image_path}' です。この事実に基づき、ユーザーへの応答メッセージだけを、あなたの言葉で生成してください。）")
+                    ])
+                ]
+
+                # ツールを使わない、シンプルなテキスト生成を依頼
+                comment_response = _gemini_client.models.generate_content(
+                    model=selected_model,
+                    contents=comment_request_prompt,
+                    config=GenerateContentConfig(safety_settings=formatted_safety_settings) # 安全性設定は維持
+                )
+
+                comment_candidate = comment_response.candidates[0]
+                comment_text_parts = [part.text for part in comment_candidate.content.parts if hasattr(part, 'text') and part.text is not None]
+                final_comment = "".join(comment_text_parts).strip()
+
+                return final_comment, image_path
+
+            else: # action_type == "TALK"
+                print("情報: AIの意思は 'TALK' (ツール経由) です。")
+                return details, None
+
+        else:
+            return f"エラー: 不明な関数 '{function_call.name}' が呼び出されました。", None
 
     except google.api_core.exceptions.GoogleAPIError as e:
         return f"エラー: Gemini APIとの通信中にエラーが発生しました: {e}", None

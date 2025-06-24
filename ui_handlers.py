@@ -173,12 +173,33 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
         )
 
         if api_response_text or generated_image_path:
+            cleaned_api_response = api_response_text
+
+            # AIが親切心で追加する可能性のある、あらゆる重複タグを除去する
+            if generated_image_path and api_response_text:
+                # 1. 我々のシステムが付与した[Generated Image: ...]と全く同じ形式のタグを除去
+                tag_to_remove = f"[Generated Image: {generated_image_path}]"
+                cleaned_api_response = cleaned_api_response.replace(tag_to_remove, "").strip()
+
+                # 2. AIが生成するMarkdown形式の画像リンクを除去
+                #    ファイル名さえ一致すれば、パスの形式（/や\、file:///）が違っても除去できるよう、
+                #    正規表現を使って堅牢に対応します。
+                # (関数の先頭に import re を追加してください)
+                image_filename = os.path.basename(generated_image_path)
+                # 例: ![...](.../image_name.png) というパターンに一致
+                markdown_pattern = re.compile(r"!\[.*?\]\(.*?" + re.escape(image_filename) + r".*?\)\s*", re.IGNORECASE)
+                cleaned_api_response = markdown_pattern.sub("", cleaned_api_response).strip()
+
+            # クリーンアップされた応答を元に、ログに保存するメッセージを構築する
             response_to_log = ""
             if generated_image_path:
                 response_to_log += f"[Generated Image: {generated_image_path}]\n\n"
-            if api_response_text:
-                response_to_log += api_response_text
-            save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
+            if cleaned_api_response:
+                response_to_log += cleaned_api_response
+
+            # 最終的に何も残らなかった場合を除き、ログに保存する
+            if response_to_log.strip():
+                 save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
     except Exception as e:
         traceback.print_exc()
         gr.Error(f"メッセージ処理中に予期せぬエラーが発生しました: {e}")
