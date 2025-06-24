@@ -44,7 +44,16 @@ def handle_add_new_character(character_name: str):
         char_list = character_manager.get_character_list()
         return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value=character_name)
 
-def update_ui_on_character_change(character_name: Optional[str]):
+def _get_display_history_count(api_history_limit_value: str) -> int:
+    """API履歴送信設定値からUI表示件数を決定する"""
+    if api_history_limit_value == "all":
+        return config_manager.UI_HISTORY_MAX_LIMIT
+    try:
+        return int(api_history_limit_value)
+    except ValueError:
+        return config_manager.UI_HISTORY_MAX_LIMIT # デフォルトまたは不正値の場合
+
+def update_ui_on_character_change(character_name: Optional[str], api_history_limit_value: str):
     if not character_name:
         all_chars = character_manager.get_character_list()
         character_name = all_chars[0] if all_chars else "Default"
@@ -53,7 +62,10 @@ def update_ui_on_character_change(character_name: Optional[str]):
 
     config_manager.save_config("last_character", character_name)
     log_f, _, img_p, mem_p = get_character_files_paths(character_name)
-    chat_history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT * 2):]) if log_f and os.path.exists(log_f) else []
+
+    display_turns = _get_display_history_count(api_history_limit_value)
+    chat_history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(display_turns * 2):]) if log_f and os.path.exists(log_f) else []
+
     log_content = ""
     if log_f and os.path.exists(log_f):
         try:
@@ -173,7 +185,8 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
 
     if log_f and os.path.exists(log_f):
         new_log = load_chat_log(log_f, current_character_name)
-        new_hist: List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]] = format_history_for_gradio(new_log[-(config_manager.HISTORY_LIMIT * 2):])
+        display_turns = _get_display_history_count(api_history_limit_state) # api_history_limit_state を使用
+        new_hist: List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]] = format_history_for_gradio(new_log[-(display_turns * 2):])
     else:
         new_hist = chatbot_history
 
@@ -265,16 +278,27 @@ def update_timestamp_state(checked): config_manager.save_config("add_timestamp",
 def update_send_thoughts_state(checked):
     config_manager.save_config("last_send_thoughts_to_api", bool(checked))
     return bool(checked)
-def update_api_history_limit_state(limit_ui_val):
-    key = next((k for k,v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v==limit_ui_val), "all")
-    config_manager.save_config("last_api_history_limit_option", key)
-    return key
 
-def reload_chat_log(character_name):
+def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
+    """API履歴制限設定を更新し、チャットログも再読み込みする"""
+    # API履歴制限設定のキーを取得・保存
+    key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
+    config_manager.save_config("last_api_history_limit_option", key)
+
+    # チャットログの再読み込み
+    # reload_chat_log 関数は (history, content) を返す
+    # ここでは key (例: "10", "all") を api_history_limit_value として渡す
+    chat_history, log_content = reload_chat_log(character_name, key)
+
+    return key, chat_history, log_content
+
+def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
     if not character_name: return [], "キャラクター未選択"
     log_f,_,_,_ = get_character_files_paths(character_name)
     if not log_f or not os.path.exists(log_f): return [], "ログファイルなし"
-    history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(config_manager.HISTORY_LIMIT*2):])
+
+    display_turns = _get_display_history_count(api_history_limit_value)
+    history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(display_turns*2):])
     content = ""
     if log_f and os.path.exists(log_f):
         with open(log_f, "r", encoding="utf-8") as f: content = f.read()
