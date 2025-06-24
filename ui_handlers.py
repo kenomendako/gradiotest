@@ -173,12 +173,22 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
         )
 
         if api_response_text or generated_image_path:
+            # AIの応答から、重複する可能性のある画像タグを先に除去する
+            cleaned_api_response = api_response_text
+            if generated_image_path and api_response_text:
+                tag_to_remove = f"[Generated Image: {generated_image_path}]"
+                cleaned_api_response = api_response_text.replace(tag_to_remove, "").strip()
+
+            # クリーンアップされた応答を元に、ログに保存するメッセージを構築する
             response_to_log = ""
             if generated_image_path:
                 response_to_log += f"[Generated Image: {generated_image_path}]\n\n"
-            if api_response_text:
-                response_to_log += api_response_text
-            save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
+            if cleaned_api_response:
+                response_to_log += cleaned_api_response
+
+            # 最終的に何も残らなかった場合を除き、ログに保存する
+            if response_to_log.strip():
+                 save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
     except Exception as e:
         traceback.print_exc()
         gr.Error(f"メッセージ処理中に予期せぬエラーが発生しました: {e}")
