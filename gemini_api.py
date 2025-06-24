@@ -86,7 +86,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
         print("エラー: send_to_gemini が呼び出されましたが、_gemini_client が初期化されていません。")
         return "エラー: Geminiクライアントが初期化されていません。UIでAPIキーを再設定してみてください。", None
 
-    # (関数の前半、プロンプトや履歴の読み込み部分は変更がないため、既存のコードを流用してください)
+    # (関数の前半部分は変更がありません。既存のコードをそのまま流用してください)
     # ... (sys_ins_text, msgs, api_contents_from_history, current_turn_parts の準備処理は変更なし) ...
     print(f"--- 対話処理開始 (Tool Use/メタタグ対応) --- Thoughts API送信: {send_thoughts_to_api}, 履歴制限: {api_history_limit_option}")
     sys_ins_text = "あなたはチャットボットです。"
@@ -142,25 +142,16 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 except Exception as e: print(f"警告: ファイル '{os.path.basename(file_path)}' の処理中にエラー: {e}")
             else: print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。")
 
+
     # --- ★★★ ここからが、新しいプロンプト構築ロジックです ★★★ ---
     final_api_contents = []
 
     # 1. システムプロンプト (人格と能力の定義)
     if sys_ins_text:
         final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
-        final_api_contents.append(Content(role="model", parts=[Part(text="はい、承知いたしました。私はあなたとの対話を豊かにするため、状況に応じて自律的に情報を検索したり、絵を描いたりすることができます。")]))
+        final_api_contents.append(Content(role="model", parts=[Part(text="はい、承知いたしました。指示に従い、対話を開始します。")]))
 
-    # 2. ツール使用の正しいお手本 (ルール学習)
-    #    シンプルでクリーンな会話例を一度だけ示す
-    final_api_contents.extend([
-        Content(role="user", parts=[Part(text="夕焼けが綺麗だね。この感動を絵にしてくれない？")]),
-        Content(role="model", parts=[Part(function_call=FunctionCall(
-            name='generate_image',
-            args={'prompt': 'A beautiful sunset over the ocean, sky filled with orange and purple clouds, anime style.'}
-        ))])
-    ])
-
-    # 3. RAG検索結果 (長期記憶の参照)
+    # 2. RAG検索結果 (長期記憶の参照)
     if user_prompt:
         relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
         if relevant_chunks:
@@ -169,10 +160,12 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             final_api_contents.append(Content(role="user", parts=[Part(text=rag_context)]))
             final_api_contents.append(Content(role="model", parts=[Part(text="記憶とログから関連情報を参照しました。")]))
 
-    # 4. 実際の会話履歴 (短期記憶の参照)
+    # 3. 実際の会話履歴 (短期記憶の参照)
     final_api_contents.extend(api_contents_from_history)
 
-    # 5. 現在のユーザー入力 (今、ここでの対話)
+    # ★★★ お手本(few-shot)の挿入ロジックは、ここから完全に削除されました ★★★
+
+    # 4. 現在のユーザー入力 (今、ここでの対話)
     if current_turn_parts:
         final_api_contents.append(Content(role="user", parts=current_turn_parts))
     # --- プロンプト構築ロジックここまで ---
@@ -195,10 +188,7 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                 contents=final_api_contents,
                 config=generation_config
             )
-
             candidate = response.candidates[0]
-
-            # クラッシュ防止：空の応答(None)を安全に処理
             if not candidate.content or not candidate.content.parts or not candidate.content.parts[0].function_call:
                 print("情報: AIからの応答は通常のテキストまたは空です。処理を終了します。")
                 final_text_parts = []
@@ -206,14 +196,11 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                     final_text_parts = [part.text for part in candidate.content.parts if hasattr(part, 'text') and part.text is not None]
                 final_text = "".join(final_text_parts).strip()
                 return final_text, image_path_for_final_return
-
             function_call = candidate.content.parts[0].function_call
             if function_call.name != "generate_image":
                 return f"エラー: 不明な関数 '{function_call.name}' が呼び出されました。", None
-
             print(f"情報: AIが画像生成ツール '{function_call.name}' の使用を要求しました。")
             final_api_contents.append(candidate.content)
-
             args = function_call.args
             image_prompt = args.get("prompt")
             tool_result_content = ""
@@ -233,13 +220,11 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
                     tool_result_content = f"画像生成に成功しました。パス: {image_path}。この事実に基づき、ユーザーへの応答メッセージだけを生成してください。"
                 else:
                     tool_result_content = f"画像生成に失敗しました。理由: {text_response}。このエラーメッセージを参考に、ユーザーに応答してください。"
-
             function_response_part = Part.from_function_response(
                 name="generate_image",
                 response={"result": tool_result_content}
             )
             final_api_contents.append(Content(parts=[function_response_part]))
-
     except google.api_core.exceptions.GoogleAPIError as e:
         return f"エラー: Gemini APIとの通信中にエラーが発生しました: {e}", None
     except Exception as e:
