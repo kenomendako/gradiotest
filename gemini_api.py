@@ -75,18 +75,26 @@ def _define_image_generation_tool():
     )
 
 # --- Google API (Gemini) 連携関数 ---
-def configure_google_api(api_key_name):
-    if not api_key_name: return False, "APIキー名が指定されていません。"
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    if not api_key or api_key.startswith("YOUR_API_KEY"):
-        return False, f"APIキー名 '{api_key_name}' に対応する有効なAPIキーが設定されていません。"
+def configure_google_api(api_key_name=None): # api_key_name はオプションに
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key or api_key == "YOUR_API_KEY_HERE":
+        # .envファイルから取得できなかった場合、config.jsonの古いキーを参照する（互換性のため）
+        # ただし、将来的にはこのフォールバックは削除するべき
+        if api_key_name and config_manager.API_KEYS.get(api_key_name):
+            api_key = config_manager.API_KEYS.get(api_key_name)
+            print(f"警告: GEMINI_API_KEYが.envファイルに設定されていません。古いconfig.jsonのキー '{api_key_name}' を使用します。")
+        else:
+            return False, "有効なGEMINI_API_KEYが.envファイルに設定されていません。"
+
     try:
         global _gemini_client
         _gemini_client = genai.Client(api_key=api_key)
-        print(f"Google GenAI Client for API key '{api_key_name}' initialized successfully.")
+        # APIキー名をログに出力しないように変更
+        print(f"Google GenAI Client initialized successfully using API key from environment variable.")
         return True, None
     except Exception as e:
-        return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}"
+        # APIキー名をログに出力しないように変更
+        return False, f"genai.Client 初期化中にエラー: {e}"
 
 # ★★★ 2. APIとの対話方法を、根本的に、変更する ★★★
 def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):

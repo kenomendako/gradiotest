@@ -17,3 +17,8 @@ pandas
 # For RAG implementation
 faiss-cpu
 numpy
+
+langchain-google-genai
+langgraph
+python-dotenv
+langchain

@@ -2,6 +2,7 @@
 import json
 import os
 import traceback
+from dotenv import load_dotenv # .envファイルから環境変数を読み込む
 from google.genai import types # SAFETY_CONFIG定義のため
 
 # --- 設定関連定数 ---
@@ -42,9 +43,10 @@ def get_character_list():
     return get_char_list_impl()
 
 def load_config():
+    load_dotenv() # .envファイルから環境変数を読み込む
     global API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global, initial_add_timestamp_global, initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_model_global, initial_alarm_api_history_turns_global, AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, initial_notification_webhook_url_global
     default_config = {
-        "api_keys": {"your_key_name_1": "YOUR_API_KEY_HERE"},
+        "api_keys": {"your_key_name_1": "YOUR_API_KEY_HERE"}, # この行は後で削除される可能性があります
         "available_models": ["gemini-1.5-pro-latest"],
         "default_model": "gemini-1.5-pro-latest",
         "default_api_key_name": "your_key_name_1",
