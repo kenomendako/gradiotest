@@ -175,8 +175,25 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             contents=final_api_contents,
             config=generation_config
         )
+
+        # ★★★ ここが、最後の、防波堤です ★★★
+        # 応答候補が、そもそも、存在しない場合
+        if not response.candidates:
+            # 応答がブロックされた理由を確認する
+            if hasattr(response, 'prompt_feedback') and response.prompt_feedback.block_reason:
+                reason = response.prompt_feedback.block_reason.name
+                error_message = f"エラー: 応答がブロックされました。理由: {reason}"
+                print(f"警告: {error_message}")
+                return error_message, None
+            else:
+                # その他の理由で応答がない場合
+                error_message = "エラー: モデルから有効な応答がありませんでした。（モデルの内部的な問題か、安全フィルター以外の理由でブロックされた可能性があります）"
+                print(f"警告: {error_message}")
+                return error_message, None
+
         candidate = response.candidates[0]
 
+        # (以降の処理は、変更ありません)
         # AIがツールを使わずに、ただテキストを返してきた場合
         if not candidate.content or not candidate.content.parts or not candidate.content.parts[0].function_call:
             print("情報: AIの意思は 'TALK' です。")
@@ -192,51 +209,26 @@ def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_mode
             details = args.get("details", "")
 
             # --- ステップ2: AIの「意思」に基づき、コードが「実行」する ---
-
             if action_type == "GENERATE_IMAGE":
+                # (この部分は変更ありません)
+                # ...
                 print(f"情報: AIの意思は 'GENERATE_IMAGE' です。プロンプト: '{details[:100]}...'")
-
-                # 画像生成を実行
                 sanitized_base_name = "".join(c for c in details[:30] if c.isalnum() or c in [' ']).strip().replace(' ', '_')
                 filename_suggestion = f"{character_name}_{sanitized_base_name}"
-                text_response, image_path = generate_image_with_gemini(
-                    prompt=details,
-                    output_image_filename_suggestion=filename_suggestion
-                )
-
+                text_response, image_path = generate_image_with_gemini(prompt=details, output_image_filename_suggestion=filename_suggestion)
                 if not image_path:
                     return f"画像生成に失敗しました。理由: {text_response}", None
-
-                # --- ステップ3: 実行結果を元に、AIに「コメント」を生成させる ---
                 print("情報: 画像生成成功。AIにコメント生成を依頼します。")
-
-                # 非常にシンプルな、新しいプロンプトを作成
-                comment_request_prompt = [
-                    # AIに、以前の会話の文脈を思い出させる
-                    *final_api_contents,
-                    # そして、今しがた起きたことを報告する
-                    Content(role="user", parts=[
-                        Part(text=f"（システム情報：画像生成に成功しました。画像パスは '{image_path}' です。この事実に基づき、ユーザーへの応答メッセージだけを、あなたの言葉で生成してください。）")
-                    ])
-                ]
-
-                # ツールを使わない、シンプルなテキスト生成を依頼
-                comment_response = _gemini_client.models.generate_content(
-                    model=selected_model,
-                    contents=comment_request_prompt,
-                    config=GenerateContentConfig(safety_settings=formatted_safety_settings) # 安全性設定は維持
-                )
-
+                comment_request_prompt = [*final_api_contents, Content(role="user", parts=[Part(text=f"（システム情報：画像生成に成功しました。画像パスは '{image_path}' です。この事実に基づき、ユーザーへの応答メッセージだけを、あなたの言葉で生成してください。）")])]
+                comment_response = _gemini_client.models.generate_content(model=selected_model, contents=comment_request_prompt, config=GenerateContentConfig(safety_settings=formatted_safety_settings))
                 comment_candidate = comment_response.candidates[0]
                 comment_text_parts = [part.text for part in comment_candidate.content.parts if hasattr(part, 'text') and part.text is not None]
                 final_comment = "".join(comment_text_parts).strip()
-
                 return final_comment, image_path
 
             else: # action_type == "TALK"
                 print("情報: AIの意思は 'TALK' (ツール経由) です。")
                 return details, None
-
         else:
             return f"エラー: 不明な関数 '{function_call.name}' が呼び出されました。", None
 
