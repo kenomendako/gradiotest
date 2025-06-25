@@ -98,8 +98,21 @@ def get_character_files_paths(character_name):
     if not os.path.exists(profile_image_path): profile_image_path = None
     return log_file, system_prompt_file, profile_image_path, memory_json_path
 
+def get_character_log_path(character_name: str) -> Optional[str]:
+    """指定されたキャラクターのログファイルパスを取得する。"""
+    if not character_name or not ensure_character_files(character_name):
+        return None
+    return os.path.join(CHARACTERS_DIR, character_name, "log.txt")
+
+def get_character_system_prompt_path(character_name: str) -> Optional[str]:
+    """指定されたキャラクターのシステムプロンプトファイルパスを取得する。"""
+    if not character_name or not ensure_character_files(character_name):
+        return None
+    return os.path.join(CHARACTERS_DIR, character_name, "SystemPrompt.txt")
+
+
 def log_to_character(character_name, message):
-    log_file, _, _, _ = get_character_files_paths(character_name)
+    log_file = get_character_log_path(character_name) # 変更
     if not log_file:
         print(f"エラー: キャラクター '{character_name}' のログファイルが見つかりません。")
         return False

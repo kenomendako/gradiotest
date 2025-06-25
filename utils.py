@@ -206,3 +206,20 @@ def save_log_file(character_name: str, content: str) -> None:
     except Exception as e:
         print(f"エラー: ログファイル書き込み中に予期せぬエラーが発生しました (キャラクター: {character_name}): {e}")
         traceback.print_exc()
+
+def convert_chat_log_to_langchain_format(chat_log: List[Dict[str, str]]) -> List[Union['HumanMessage', 'AIMessage']]:
+    """
+    Nexus Ark形式のチャットログリストをLangChainのMessageオブジェクトのリストに変換する。
+    """
+    from langchain_core.messages import HumanMessage, AIMessage # 関数内インポートで循環参照を避ける
+
+    langchain_messages = []
+    for message_data in chat_log:
+        role = message_data.get("role")
+        content = message_data.get("content", "")
+        if role == "user":
+            langchain_messages.append(HumanMessage(content=content))
+        elif role == "model" or role == "assistant": # assistantもmodelとして扱う
+            langchain_messages.append(AIMessage(content=content))
+        # 他のロールは無視するか、エラー処理を追加するか検討
+    return langchain_messages

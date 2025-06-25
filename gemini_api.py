@@ -39,10 +39,13 @@ from typing import Optional # Added for type hinting
 import io # Keep original io import if other parts of the file use it directly
 import uuid
 import config_manager
-from utils import load_chat_log, save_message_to_log
-from character_manager import get_character_files_paths
+from utils import load_chat_log, save_message_to_log, convert_chat_log_to_langchain_format
+from character_manager import get_character_files_paths, get_character_log_path # get_character_log_path を追加
+import rag_graph # rag_graph.py をインポート
+from langchain_core.messages import HumanMessage, AIMessage # LangChainのメッセージ型
 
 _gemini_client = None
+_rag_graph_instance = None # グローバルなRAGグラフインスタンス
 
 # ★★★ 1. ツールの定義を、進化させる ★★★
 def _define_image_generation_tool():
@@ -519,3 +522,110 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
         return error_msg, None
 
     return generated_text, image_path
+
+# --- RAG Graph Invocation ---
+async def invoke_rag_graph(
+    user_prompt: str,
+    character_name: str,
+    selected_model: str, # rag_graph.pyのcurrent_model_nameに渡す
+    # log_file_path: str, # utils.load_chat_log と rag_manager.search_relevant_chunks で使用
+    # memory_json_path: str, # 現在rag_graphでは直接使用していないが、将来的に渡す可能性
+    api_history_limit_option: str # 履歴の長さを制御
+    # uploaded_file_parts: list = None # rag_graphでは現在未対応
+) -> str:
+    """
+    RAGベースのLangGraphを実行し、AIの応答を取得する非同期関数。
+    """
+    global _rag_graph_instance
+    if _rag_graph_instance is None:
+        print("情報: RAGグラフインスタンスを初回ビルドします。")
+        _rag_graph_instance = rag_graph.build_rag_graph()
+        if _rag_graph_instance is None:
+            return "エラー: RAGグラフのビルドに失敗しました。"
+
+    if _gemini_client is None:
+        # configure_google_api は同期的だが、アプリケーション起動時に呼ばれる想定
+        # ここで呼ばれるのはフォールバックに近い
+        print("警告: Geminiクライアントが初期化されていません。configure_google_apiを試みます。")
+        # api_key_name は configure_google_api の引数だが、.env優先なのでNoneでも動作するはず
+        success, msg = configure_google_api()
+        if not success:
+            return f"エラー: Geminiクライアントの初期化に失敗しました: {msg}"
+        if _gemini_client is None: # 再度確認
+             return "エラー: Geminiクライアントの初期化に致命的に失敗しました。"
+
+
+    # 1. RAG検索の実行
+    # log_file_path は character_name から取得できる
+    log_file_path = get_character_log_path(character_name) # character_managerから取得
+    relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt, log_file_path)
+
+    # 2. 会話履歴の読み込みと変換
+    # utils.load_chat_log は {"role": "user/assistant", "content": "..."} のリストを返す
+    # これをLangChainのBaseMessage形式に変換する必要がある
+    raw_history = load_chat_log(log_file_path, character_name) # log_file_pathを渡す
+
+    # api_history_limit_option に基づいて履歴を制限
+    if api_history_limit_option.isdigit():
+        try:
+            limit = int(api_history_limit_option)
+            if limit > 0:
+                # ユーザーとAIの発言ペアで1往復なので、limit * 2 がメッセージ数
+                # さらに、ユーザーの現在の入力が追加されるので、それより1つ少なく取得
+                num_messages_to_keep = max(0, limit * 2 -1) # 負にならないように
+                if len(raw_history) > num_messages_to_keep:
+                    raw_history = raw_history[-num_messages_to_keep:]
+        except ValueError:
+            print(f"警告: api_history_limit_option '{api_history_limit_option}' は不正な数値です。履歴制限は適用されません。")
+
+
+    # LangChain形式のメッセージリストに変換
+    # convert_chat_log_to_langchain_format は utils.py に追加する必要がある
+    langchain_messages = convert_chat_log_to_langchain_format(raw_history)
+
+    # 現在のユーザープロンプトを履歴に追加
+    current_user_message = HumanMessage(content=user_prompt)
+    # langchain_messages.append(current_user_message) # GraphStateのmessagesへの追加はAnnotatedで行う
+
+    # 3. GraphStateの初期化
+    initial_graph_state = rag_graph.GraphState(
+        messages=[current_user_message], # 最初の入力として現在のユーザーメッセージのみを渡す
+                                         # 履歴はGraph内で別途ロード・マージするか、ここで結合するか検討
+                                         # -> GraphStateのAnnotatedが `x + y` なので、履歴もここで結合して渡す
+        character_name=character_name,
+        rag_chunks=relevant_chunks if relevant_chunks else [], # Noneでなく空リストを渡す
+        reflection="", # 初期値
+        current_model_name=selected_model
+    )
+    # 履歴を結合する場合 (GraphStateのmessagesのAnnotatedが x+y のため)
+    initial_graph_state["messages"] = langchain_messages + [current_user_message]
+
+
+    # 4. グラフの非同期実行
+    # 一意のスレッドIDを生成または取得する（会話の永続化のため）
+    # ここでは単純な例として固定のIDを使用するが、実際にはユーザーやセッションごとに管理する
+    thread_id = f"thread-rag-{character_name.replace(' ', '_')}" # キャラクターごとにスレッドを分ける例
+    config = {"configurable": {"thread_id": thread_id}}
+
+    print(f"情報: RAGグラフ({thread_id})を実行します。入力ユーザープロンプト: '{user_prompt[:100]}...'")
+    try:
+        # .ainvoke() を使用して非同期実行
+        final_state = await _rag_graph_instance.ainvoke(initial_graph_state, config=config)
+    except Exception as e:
+        print(f"エラー: RAGグラフの実行中に例外が発生しました: {e}")
+        traceback.print_exc()
+        return f"エラー: 思考処理中に問題が発生しました ({e})"
+
+    # 5. 結果の返却
+    if final_state and final_state.get("messages"):
+        # 最後のメッセージがAIの応答であると期待
+        ai_final_response_message = final_state["messages"][-1]
+        if isinstance(ai_final_response_message, AIMessage):
+            print(f"情報: RAGグラフからAI応答を取得しました: '{ai_final_response_message.content[:100]}...'")
+            return ai_final_response_message.content
+        else:
+            print(f"警告: RAGグラフの最後のメッセージがAIMessageではありません: {type(ai_final_response_message)}")
+            return "エラー: AIからの応答形式が正しくありません。"
+    else:
+        print("警告: RAGグラフの実行結果からメッセージを取得できませんでした。")
+        return "エラー: AIからの応答がありませんでした。"
