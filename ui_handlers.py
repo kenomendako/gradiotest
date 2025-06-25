@@ -98,12 +98,15 @@ async def handle_message_submission(*args: Any): # -> AsyncGenerator[Tuple[List[
     try:
         if not all([current_character_name, current_model_name]):
             gr.Warning("キャラクターとモデルを選択してください。APIキーは設定画面で確認してください。")
-            return chatbot_history, gr.update(), gr.update(value=None)
+            # 非同期ジェネレータなのでyieldで返し、その後値なしreturn
+            yield chatbot_history_state, gr.update(), gr.update(value=None), gr.update()
+            return
 
         log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
-        if not all([log_f, sys_p, mem_p]):
+        if not all([log_f, sys_p, mem_p]): # sys_pは直接使わないが、パス取得の成功判定として残す
             gr.Warning(f"キャラクター '{current_character_name}' の必須ファイルパス取得に失敗。")
-            return chatbot_history, gr.update(), gr.update(value=None)
+            yield chatbot_history_state, gr.update(), gr.update(value=None), gr.update()
+            return
 
         user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
 
@@ -151,7 +154,20 @@ async def handle_message_submission(*args: Any): # -> AsyncGenerator[Tuple[List[
 
         if not final_user_prompt.strip() and not media_files_for_api:
             # gr.Info("メッセージまたはファイルを送信してください。") # 頻繁なのでコメントアウト
-            return chatbot_history, gr.update(), gr.update(value=None)
+            # UIの状態は変更しないので、現在のchatbot_history_stateをそのまま返す
+            # ボタンなどの状態も変更しない想定なので、gr.update()ではなく元の値を返すか、gr.update(interactive=True)などにする
+            # ここでは、何もせずに終了するのが適切か、あるいは元のUI要素の値を返すか。
+            # Gradioの非同期ジェネレータでは、何もyieldしないと更新がないとみなされる。
+            # ユーザーにフィードバックなしで単に処理が進まないのは不親切なので、
+            # ボタンなどを操作可能状態のままにするのが良い。
+            # ただし、この関数は4つの値をyieldすることを期待されている。
+            yield (
+                chatbot_history_state, # chatbot_display
+                gr.update(interactive=True),  # chat_input_textbox
+                gr.update(value="送信", interactive=True), # submit_button
+                gr.update(value=file_input_list if file_input_list else None) # file_upload_button (元の値を維持)
+            )
+            return
 
         # ログに記録するメッセージを作成
         log_message_content = user_prompt_from_textbox # ユーザーがテキストボックスに書いた内容のみを基本とする
