@@ -164,8 +164,8 @@ async def handle_message_submission(*args: Any): # -> AsyncGenerator[Tuple[List[
             yield (
                 chatbot_history_state, # chatbot_display
                 gr.update(interactive=True),  # chat_input_textbox
-                gr.update(value="送信", interactive=True), # submit_button
-                gr.update(value=file_input_list if file_input_list else None) # file_upload_button (元の値を維持)
+                gr.update(value=file_input_list if file_input_list else None), # file_upload_button
+                gr.update(value="送信", interactive=True) # submit_button
             )
             return
 
@@ -263,10 +263,10 @@ async def handle_message_submission(*args: Any): # -> AsyncGenerator[Tuple[List[
         # エラー発生時もUIを操作可能に戻す
         current_display_history = chatbot_history_state or [] # エラー前の履歴
         yield (
-            current_display_history,
+            current_display_history, # chatbot_display
             gr.update(interactive=True), # chat_input_textbox
-            gr.update(value="送信", interactive=True), # submit_button
-            gr.update(value=None) # file_upload_button
+            gr.update(value=None), # file_upload_button
+            gr.update(value="送信", interactive=True) # submit_button
         )
         return # エラー時はここで終了
 
@@ -278,13 +278,19 @@ async def handle_message_submission(*args: Any): # -> AsyncGenerator[Tuple[List[
     else:
         final_hist = chatbot_history_state or [] # ログがなければ元の履歴
 
-    yield (
-        final_hist,
-        gr.update(interactive=True), # chat_input_textbox
-        gr.update(value="送信", interactive=True), # submit_button
-        gr.update(value=None) # file_upload_button
-    )
+    # ★★★★★ ここからが追加するデバッグコード ★★★★★
+    print("--- DEBUG: Yielding final history to Gradio ---")
+    import pprint
+    pprint.pprint(final_hist)
+    print("---------------------------------------------")
+    # ★★★★★ ここまで ★★★★★
 
+    yield (
+        final_hist, # chatbot_display
+        gr.update(interactive=True), # chat_input_textbox
+        gr.update(value=None), # file_upload_button (3番目)
+        gr.update(value="送信", interactive=True) # submit_button (4番目)
+    )
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 
