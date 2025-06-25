@@ -3,6 +3,7 @@
 import os
 import json
 import traceback
+from typing import Optional # Optionalをインポート
 from config_manager import CHARACTERS_DIR, PROFILE_IMAGE_FILENAME, MEMORY_FILENAME
 
 def ensure_character_files(character_name):
