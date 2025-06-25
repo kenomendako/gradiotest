@@ -174,8 +174,10 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     save_log_button.click(fn=ui_handlers.handle_save_log_button_click, inputs=[current_character_name, log_editor])
     editor_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, log_editor]) # api_history_limit_state を追加
     chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, log_editor]) # api_history_limit_state を追加
-    chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button]
+    # submit_button を chat_submit_outputs に追加
+    chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, submit_button]
     # handle_message_submission に渡す inputs のリストを修正 (current_api_key_name_state を削除)
+    # chatbot_display (chatbot_history_state) は2番目の引数として渡す
     chat_inputs = [
         chat_input_textbox, chatbot_display, current_character_name, current_model_name,
         # current_api_key_name_state, # 不要なので削除

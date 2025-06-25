@@ -18,8 +18,8 @@ import config_manager
 import alarm_manager
 import character_manager
 from timers import UnifiedTimer
-from character_manager import get_character_files_paths
-from gemini_api import configure_google_api, send_to_gemini
+from character_manager import get_character_files_paths, get_character_log_path # get_character_log_path を追加
+from gemini_api import configure_google_api, send_to_gemini, invoke_rag_graph # invoke_rag_graph を追加
 from memory_manager import load_memory_data_safe, save_memory_data
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
 
@@ -87,12 +87,14 @@ def handle_save_memory_click(character_name, json_string_data):
     except Exception as e:
         gr.Error(f"記憶の保存中にエラーが発生しました: {e}")
 
-def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]], gr.update, gr.update]:
-    (textbox_content, chatbot_history, current_character_name, current_model_name,
+async def handle_message_submission(*args: Any): # -> AsyncGenerator[Tuple[List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]], gr.update, gr.update, gr.update], None, None]:
+    # 関数のシグネチャを非同期に変更
+    # 戻り値の型アノテーションは複雑になるため、一旦省略または簡略化も検討
+    (textbox_content, chatbot_history_state, current_character_name, current_model_name,
      file_input_list, add_timestamp_checkbox,
-     send_thoughts_state, api_history_limit_state) = args
+     send_thoughts_state, api_history_limit_state) = args # chatbot_history_state は現在のUIの状態
 
-    log_f, sys_p, _, mem_p = None, None, None, None
+    log_f, sys_p, _, mem_p = None, None, None, None # sys_p は invoke_rag_graph では直接使わない
     try:
         if not all([current_character_name, current_model_name]):
             gr.Warning("キャラクターとモデルを選択してください。APIキーは設定画面で確認してください。")
@@ -163,55 +165,110 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
 
         # ★★★ ここまでがファイル処理の新しいロジックです ★★★
 
-        # APIに渡すプロンプトは final_user_prompt (テキストファイル内容含む)、
-        # ファイルは media_files_for_api (メディアファイルのみ)
-        api_response_text, generated_image_path = send_to_gemini(
-            sys_p, log_f, final_user_prompt.strip(), current_model_name,
-            current_character_name, send_thoughts_state,
-            api_history_limit_state,
-            media_files_for_api, mem_p # uploaded_file_parts を media_files_for_api に変更
+        # APIに渡すプロンプトは final_user_prompt (テキストファイル内容含む)
+        # invoke_rag_graph はメディアファイルを直接扱わないため、media_files_for_api はここでは使用しない
+        # ただし、ユーザープロンプトにファイル名が含まれる形にはなっている
+
+        # ステップA: UIを「思考中」状態にする (ストリーミングの最初のyield)
+        # chatbot_history_state は現在のGradioのchatbotコンポーネントのメッセージリスト
+        # これにユーザーの入力を追加して即座にUIに反映する
+        current_display_history = chatbot_history_state or []
+        user_display_entry = {"role": "user", "content": final_user_prompt.strip()} # ユーザープロンプト全体を表示
+        # ファイル添付がある場合は、その情報もGradioの形式に合わせて表示に追加する必要があるが、
+        # final_user_prompt にテキストファイルの内容とファイル名が含まれているので、それをそのまま表示。
+        # メディアファイルは現状 invoke_rag_graph では直接扱えないので、テキストプロンプトのみ。
+
+        # Gradioのchatbotコンポーネントが受け付ける形式に変換
+        # ユーザーのメッセージ部分だけを format_history_for_gradio に渡すのは適切ではない。
+        # format_history_for_gradio はログ全体のリストを期待する。
+        # ここでは、現在のUI表示用履歴に手動で追加する。
+
+        # ユーザー入力部分を chatbot_history_state に追加
+        # chatbot_history_state は [(user_msg, None), (None, ai_msg)] のような形式のリスト
+        # ここでは [(user_msg_text_or_tuple, ai_msg_text_or_tuple)]
+
+        # ユーザーの入力をGradioのチャット履歴形式に追加
+        # final_user_promptにはテキストファイルの内容が含まれているため、そのまま表示
+        # 添付ファイルがある場合、その表示も考慮する必要がある
+
+        # ログ保存のために使用した log_message_content を表示用にも使う
+        # ただし、format_history_for_gradio は内部でファイルパスをタプルに変換するので、
+        # ここではテキストベースのプロンプトと、ファイル添付情報を適切にGradioの形式で構築する。
+
+        temp_user_gradio_message_parts = []
+        if user_prompt_from_textbox.strip():
+            temp_user_gradio_message_parts.append(user_prompt_from_textbox.strip())
+        if attached_filenames_for_log:
+            for orig_filename in attached_filenames_for_log:
+                 # media_files_for_api から実際のパスを探す (もし必要なら)
+                 # ここではファイル名だけを表示する簡易版
+                 # 実際には、file_input_list からパスを取得してタプル (filepath, filename) にするべき
+                found_file_path = None
+                if file_input_list:
+                    for fw in file_input_list:
+                        if os.path.basename(fw.name) == orig_filename:
+                            found_file_path = fw.name
+                            break
+                if found_file_path and os.path.exists(found_file_path):
+                     temp_user_gradio_message_parts.append((found_file_path, orig_filename))
+                else:
+                     temp_user_gradio_message_parts.append(f"[ファイル: {orig_filename}]")
+
+        # ユーザーの入力を chatbot_display に追加
+        if temp_user_gradio_message_parts:
+             # 複数のパートがある場合は、それぞれを別のタプルとして履歴に追加する
+             for part in temp_user_gradio_message_parts:
+                 current_display_history.append((part, None)) # ユーザー入力として表示
+
+        yield (
+            current_display_history, # 更新されたチャット表示
+            gr.update(value="", interactive=False),  # chat_input_textbox
+            gr.update(value="思考中...", interactive=False), # submit_button
+            gr.update(value=None) # file_upload_button (クリアする)
         )
 
-        if api_response_text or generated_image_path:
-            cleaned_api_response = api_response_text
+        # ステップB: LangGraphの処理を実行
+        api_response_text = await invoke_rag_graph(
+            user_prompt=final_user_prompt.strip(), # テキストファイル内容も含むプロンプト
+            character_name=current_character_name,
+            selected_model=current_model_name,
+            api_history_limit_option=api_history_limit_state
+            # uploaded_file_parts は invoke_rag_graph が現状直接受け取らない
+        )
 
-            # AIが親切心で追加する可能性のある、あらゆる重複タグを除去する
-            if generated_image_path and api_response_text:
-                # 1. 我々のシステムが付与した[Generated Image: ...]と全く同じ形式のタグを除去
-                tag_to_remove = f"[Generated Image: {generated_image_path}]"
-                cleaned_api_response = cleaned_api_response.replace(tag_to_remove, "").strip()
+        # ステップC: 処理完了後、最終的なUIを返す
+        if api_response_text:
+            # invoke_rag_graph は画像パスを返さないので、画像関連の処理は不要
+            save_message_to_log(log_f, f"## {current_character_name}:", api_response_text) # 思考タグなどは含まれない想定
 
-                # 2. AIが生成するMarkdown形式の画像リンクを除去
-                #    ファイル名さえ一致すれば、パスの形式（/や\、file:///）が違っても除去できるよう、
-                #    正規表現を使って堅牢に対応します。
-                # (関数の先頭に import re を追加してください)
-                image_filename = os.path.basename(generated_image_path)
-                # 例: ![...](.../image_name.png) というパターンに一致
-                markdown_pattern = re.compile(r"!\[.*?\]\(.*?" + re.escape(image_filename) + r".*?\)\s*", re.IGNORECASE)
-                cleaned_api_response = markdown_pattern.sub("", cleaned_api_response).strip()
-
-            # クリーンアップされた応答を元に、ログに保存するメッセージを構築する
-            response_to_log = ""
-            if generated_image_path:
-                response_to_log += f"[Generated Image: {generated_image_path}]\n\n"
-            if cleaned_api_response:
-                response_to_log += cleaned_api_response
-
-            # 最終的に何も残らなかった場合を除き、ログに保存する
-            if response_to_log.strip():
-                 save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
     except Exception as e:
         traceback.print_exc()
         gr.Error(f"メッセージ処理中に予期せぬエラーが発生しました: {e}")
+        # エラー発生時もUIを操作可能に戻す
+        current_display_history = chatbot_history_state or [] # エラー前の履歴
+        yield (
+            current_display_history,
+            gr.update(interactive=True), # chat_input_textbox
+            gr.update(value="送信", interactive=True), # submit_button
+            gr.update(value=None) # file_upload_button
+        )
+        return # エラー時はここで終了
 
+    # 正常終了時の最終的なUI更新
     if log_f and os.path.exists(log_f):
         new_log = load_chat_log(log_f, current_character_name)
-        display_turns = _get_display_history_count(api_history_limit_state) # api_history_limit_state を使用
-        new_hist: List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]] = format_history_for_gradio(new_log[-(display_turns * 2):])
+        display_turns = _get_display_history_count(api_history_limit_state)
+        final_hist = format_history_for_gradio(new_log[-(display_turns * 2):])
     else:
-        new_hist = chatbot_history
+        final_hist = chatbot_history_state or [] # ログがなければ元の履歴
 
-    return new_hist, gr.update(value=""), gr.update(value=None) # file_input_list もクリア
+    yield (
+        final_hist,
+        gr.update(interactive=True), # chat_input_textbox
+        gr.update(value="送信", interactive=True), # submit_button
+        gr.update(value=None) # file_upload_button
+    )
+
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 
