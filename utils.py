@@ -67,7 +67,8 @@ def format_response_for_display(response_text: Optional[str]) -> str:
     else:
         return response_text.strip()
 
-# --- ★★★ ここからが修正箇所 ★★★ ---
+# utils.py に記載する、完全に新しい format_history_for_gradio 関数
+
 def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, Union[str, tuple, None]]]:
     """
     チャットログをGradio Chatbotの `messages` 形式に変換します。
@@ -81,7 +82,8 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
     user_file_attach_pattern = re.compile(r"\[ファイル添付: (.*?)\]")
 
     for msg in messages:
-        role = "assistant" if msg.get("role") == "model" else "user"
+        # LangGraphの'human'/'ai'とGradioの'user'/'assistant'をマッピング
+        role = "assistant" if msg.get("role") in ["model", "ai"] else "user"
         content = msg.get("content", "").strip()
 
         if not content:
@@ -90,30 +92,34 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
 
         # ユーザーのメッセージを処理
         if role == "user":
-            # 添付ファイルタグをすべて探し、テキスト部分と分離する
             file_matches = list(user_file_attach_pattern.finditer(content))
             text_part = user_file_attach_pattern.sub("", content).strip()
 
-            # 最初にテキスト部分を追加
             if text_part:
                 gradio_history.append({"role": role, "content": text_part})
 
-            # 次にファイル部分をループして追加
             if file_matches:
-                for match in file_matches:
-                    filepath = match.group(1).strip()
+                filepath_str = file_matches[0].group(1).strip()
+                # 複数のファイルパスがカンマ区切りで含まれている可能性があるため分割
+                filepaths = [p.strip() for p in filepath_str.split(',')]
+                for filepath in filepaths:
                     original_filename = os.path.basename(filepath)
                     if os.path.exists(filepath):
+                        # GradioのFileコンポーネントの戻り値はタプルではないため、絶対パスをそのまま渡す
                         gradio_history.append({"role": role, "content": (filepath, original_filename)})
                     else:
                         gradio_history.append({"role": role, "content": f"*[表示エラー: ファイル '{original_filename}' が見つかりません]*"})
             continue
 
-        # AIの応答を処理 (ここは変更なし)
+        # AIの応答を処理
         if role == "assistant":
+            # 思考ログを先に処理
             formatted_content = format_response_for_display(content)
+
+            # 画像タグを処理
             image_match = image_tag_pattern.search(formatted_content)
             if image_match:
+                # テキストと画像を分離して、それぞれ別のメッセージとして追加
                 text_before_image = formatted_content[:image_match.start()].strip()
                 image_path = image_match.group(1).strip()
                 text_after_image = formatted_content[image_match.end():].strip()
@@ -133,11 +139,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
                 gradio_history.append({"role": role, "content": formatted_content})
                 continue
 
-        # 通常のテキストメッセージ (上記でcontinueされなかった場合)
-        gradio_history.append({"role": role, "content": content})
-
     return gradio_history
-# --- ★★★ 修正ここまで ★★★ ---
 
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
     if not log_file_path:
