@@ -524,11 +524,11 @@ def send_to_google_cli(
     log_file_path: str,
     user_prompt: str,
     api_history_limit_option: str,
-    send_thoughts_to_api: bool # この引数は将来の拡張用ですが、受け取るようにしておきます
+    send_thoughts_to_api: bool
 ) -> tuple[str, str | None]:
     """
     Google CLIを呼び出して対話応答を取得する。
-    システムプロンプト、RAG、会話履歴をプロンプトに含める。
+    会話履歴をJSON形式の文字列として構築し、プロンプトとして渡す。
 
     Args:
         (引数の説明は省略)
@@ -536,8 +536,8 @@ def send_to_google_cli(
     Returns:
         (応答テキスト, エラーメッセージ) のタプル。成功時はエラーメッセージがNoneになる。
     """
-    # --- ステップ1: プロンプトの構築 (send_to_geminiからロジックを移植) ---
-    full_prompt = ""
+    # --- ステップ1: JSON形式のプロンプトを構築 ---
+    prompt_data = []
 
     # 1-1. システムプロンプト
     sys_ins_text = "あなたはチャットボットです。"
@@ -547,17 +547,18 @@ def send_to_google_cli(
                 sys_ins_text = f.read().strip() or sys_ins_text
         except Exception as e:
             print(f"CLIモード: システムプロンプト読込エラー: {e}")
-    full_prompt += f"## system:\n{sys_ins_text}\n\n" # ヘッダーを'system'に統一
-    full_prompt += f"## model:\nはい、承知いたしました。指示に従い、対話を開始します。\n\n"
+
+    # システムプロンプトをJSONの最初の要素として追加
+    prompt_data.append({'role': 'system', 'content': sys_ins_text})
+    prompt_data.append({'role': 'model', 'content': 'はい、承知いたしました。指示に従い、対話を開始します。'})
 
     # 1-2. RAG
     if user_prompt:
         relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
         if relevant_chunks:
             rag_context = "## 関連性の高い参考情報\n\n" + "\n\n---\n\n".join(relevant_chunks)
-            # RAG情報をuserロールとして追加
-            full_prompt += f"## user:\n{rag_context}\n\n"
-            full_prompt += f"## model:\n記憶とログから関連情報を参照しました。\n\n"
+            prompt_data.append({'role': 'user', 'content': rag_context})
+            prompt_data.append({'role': 'model', 'content': '記憶とログから関連情報を参照しました。'})
 
     # 1-3. 会話履歴
     history_contents = load_chat_log(log_file_path, character_name)
@@ -575,7 +576,7 @@ def send_to_google_cli(
         role = item.get('role', 'user')
         content = item.get('content', '')
 
-        # 思考ログや画像タグを除去する（CLIはテキストのみのため）
+        # 思考ログや画像タグを除去
         th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
         img_pat = re.compile(r"\[Generated Image:[^\]]+\]\s*")
         content = th_pat.sub("", content).strip()
@@ -584,18 +585,30 @@ def send_to_google_cli(
         if content:
             # モデルの応答の場合、ヘッダーはキャラクター名に
             if role == 'model':
-                full_prompt += f"## {character_name}:\n{content}\n\n"
+                prompt_data.append({'role': character_name, 'content': content})
             else:
-                full_prompt += f"## {role}:\n{content}\n\n"
+                prompt_data.append({'role': role, 'content': content})
 
     # 1-4. ユーザーの最新プロンプト
-    full_prompt += f"## user:\n{user_prompt}"
+    prompt_data.append({'role': 'user', 'content': user_prompt})
+
+    # 1-5. 最後に、AIに対してJSONを解釈して応答するように指示を追加
+    final_instruction = (
+        "上記のJSONは、これまでの会話履歴とコンテキストです。"
+        "最後の'user'の発言に対して、あなたはキャラクター「" + character_name + "」として応答してください。"
+        "応答は、会話の文脈に沿った自然なテキストのみを出力してください。"
+    )
+    prompt_data.append({'role': 'system', 'content': final_instruction})
+
+    # Pythonのリスト/辞書をJSON文字列に変換
+    final_prompt_string = json.dumps(prompt_data, indent=2, ensure_ascii=False)
+
 
     # --- ステップ2: Google CLIの実行 ---
     try:
         result = subprocess.run(
             ['gemini'],
-            input=full_prompt,
+            input=final_prompt_string, # JSON文字列を標準入力として渡す
             capture_output=True,
             text=True,
             check=True,
