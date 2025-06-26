@@ -617,15 +617,30 @@ async def invoke_rag_graph(
         return f"エラー: 思考処理中に問題が発生しました ({e})"
 
     # 5. 結果の返却
+    ai_message_object = None
     if final_state and final_state.get("messages"):
         # 最後のメッセージがAIの応答であると期待
-        ai_final_response_message = final_state["messages"][-1]
-        if isinstance(ai_final_response_message, AIMessage):
-            print(f"情報: RAGグラフからAI応答を取得しました: '{ai_final_response_message.content[:100]}...'")
-            return ai_final_response_message.content
+        # final_state['messages'] が空でないことを確認
+        if final_state["messages"]:
+            ai_message_object = final_state["messages"][-1]
         else:
-            print(f"警告: RAGグラフの最後のメッセージがAIMessageではありません: {type(ai_final_response_message)}")
-            return "エラー: AIからの応答形式が正しくありません。"
+            print("警告: RAGグラフの実行結果のmessagesリストが空でした。")
+            return "エラー: AIからの応答がありませんでした。（履歴空）"
     else:
-        print("警告: RAGグラフの実行結果からメッセージを取得できませんでした。")
-        return "エラー: AIからの応答がありませんでした。"
+        print("警告: RAGグラフの実行結果からmessagesキーを取得できませんでした、またはfinal_stateがNoneです。")
+        return "エラー: AIからの応答がありませんでした。（状態不正）"
+
+    # ★★★ ここからが修正・追加箇所 ★★★
+
+    # content属性を安全に取り出し、なければ空文字列にする
+    final_content = getattr(ai_message_object, 'content', '')
+
+    # デバッグコードを追加
+    print("--- DEBUG: invoke_rag_graph is returning ---")
+    print(f"Type of final_content: {type(final_content)}")
+    print(f"Value of final_content: {str(final_content)[:500]}...") # 長すぎる場合に備えて一部表示
+    print("------------------------------------------")
+
+    # 必ず文字列を返すようにする
+    return str(final_content)
+    # ★★★ ここまで ★★★

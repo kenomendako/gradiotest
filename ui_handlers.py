@@ -252,10 +252,33 @@ async def handle_message_submission(*args: Any): # -> AsyncGenerator[Tuple[List[
             # uploaded_file_parts は invoke_rag_graph が現状直接受け取らない
         )
 
+        # ステップB: LangGraphの処理を実行
+        api_response_text = await invoke_rag_graph(
+            user_prompt=final_user_prompt.strip(), # テキストファイル内容も含むプロンプト
+            character_name=current_character_name,
+            selected_model=current_model_name,
+            api_history_limit_option=api_history_limit_state
+            # uploaded_file_parts は invoke_rag_graph が現状直接受け取らない
+        )
+
+        # ★★★★★ ここからが新しいデバッグコード ★★★★★
+        print("--- DEBUG: Received from invoke_rag_graph ---")
+        print(f"Type of api_response_text: {type(api_response_text)}")
+        print(f"Value of api_response_text: {str(api_response_text)[:500]}...") # 長すぎる場合に備えて一部表示
+        print("---------------------------------------------")
+        # ★★★★★ ここまで ★★★★★
+
         # ステップC: 処理完了後、最終的なUIを返す
-        if api_response_text:
+        if api_response_text: # api_response_textがNoneや空文字列でないことを確認
             # invoke_rag_graph は画像パスを返さないので、画像関連の処理は不要
-            save_message_to_log(log_f, f"## {current_character_name}:", api_response_text) # 思考タグなどは含まれない想定
+            save_message_to_log(log_f, f"## {current_character_name}:", str(api_response_text)) # 明示的にstrに変換
+        elif api_response_text == "": # 空文字列が返ってきた場合
+            print("情報: invoke_rag_graphから空文字列が返されました。ログには記録しません。")
+        else: # Noneなどが返ってきた場合
+            print(f"警告: invoke_rag_graphから予期しない値 (None等) が返されました: {api_response_text}")
+            # エラーとして扱うか、空の応答として扱うか検討。ここではログに記録しない。
+            # 必要であれば、ここでデフォルトのエラーメッセージをapi_response_textに設定することも可能。
+            # api_response_text = "AIからの応答がありませんでした。" # 例
 
     except Exception as e:
         traceback.print_exc()
@@ -278,12 +301,7 @@ async def handle_message_submission(*args: Any): # -> AsyncGenerator[Tuple[List[
     else:
         final_hist = chatbot_history_state or [] # ログがなければ元の履歴
 
-    # ★★★★★ ここからが追加するデバッグコード ★★★★★
-    print("--- DEBUG: Yielding final history to Gradio ---")
-    import pprint
-    pprint.pprint(final_hist)
-    print("---------------------------------------------")
-    # ★★★★★ ここまで ★★★★★
+    # 以前のデバッグコードは削除 (ここにあったpprint(final_hist))
 
     yield (
         final_hist, # chatbot_display
