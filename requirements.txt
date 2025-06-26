@@ -17,3 +17,5 @@ pandas
 # For RAG implementation
 faiss-cpu
 numpy
+fastapi
+uvicorn[standard]
