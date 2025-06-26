@@ -148,13 +148,15 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
                 media_files_for_api, mem_p
             )
         elif communication_method == "Google CLI":
-            system_prompt_text = "あなたはチャットボットです。"
-            if sys_p and os.path.exists(sys_p):
-                with open(sys_p, "r", encoding="utf-8") as f:
-                    system_prompt_text = f.read().strip() or system_prompt_text
-
-            history_contents = load_chat_log(log_f, current_character_name)
-            response, error = send_to_google_cli(system_prompt_text, history_contents, final_user_prompt.strip())
+            # --- 新しいGoogle CLI呼び出しロジック ---
+            response, error = send_to_google_cli(
+                character_name=current_character_name,
+                system_prompt_path=sys_p,
+                log_file_path=log_f,
+                user_prompt=final_user_prompt.strip(),
+                api_history_limit_option=api_history_limit_state,
+                send_thoughts_to_api=send_thoughts_state
+            )
 
             if error:
                 api_response_text = error

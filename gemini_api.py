@@ -516,38 +516,83 @@ import subprocess # subprocessをインポート
 
 # (既存のsend_to_gemini関数などはそのまま)
 
-def send_to_google_cli(system_prompt_text: str, history_content: list, user_prompt: str) -> tuple[str, str | None]:
+# gemini_api.py の `send_to_google_cli` を以下で置き換える
+
+def send_to_google_cli(
+    character_name: str,
+    system_prompt_path: str,
+    log_file_path: str,
+    user_prompt: str,
+    api_history_limit_option: str,
+    send_thoughts_to_api: bool # この引数は将来の拡張用ですが、受け取るようにしておきます
+) -> tuple[str, str | None]:
     """
     Google CLIを呼び出して対話応答を取得する。
+    システムプロンプト、RAG、会話履歴をプロンプトに含める。
 
     Args:
-        system_prompt_text: システムプロンプトの文字列。
-        history_content: これまでの会話履歴のリスト (Contentオブジェクト形式)。
-        user_prompt: ユーザーからの最新のプロンプト。
+        (引数の説明は省略)
 
     Returns:
         (応答テキスト, エラーメッセージ) のタプル。成功時はエラーメッセージがNoneになる。
     """
-    # 履歴をCLIが受け取れるシンプルなテキスト形式に変換する
-    full_prompt = system_prompt_text + "\n\n"
-    for item in history_content:
-        # roleとpartsが辞書形式であることを確認
+    # --- ステップ1: プロンプトの構築 (send_to_geminiからロジックを移植) ---
+    full_prompt = ""
+
+    # 1-1. システムプロンプト
+    sys_ins_text = "あなたはチャットボットです。"
+    if system_prompt_path and os.path.exists(system_prompt_path):
+        try:
+            with open(system_prompt_path, "r", encoding="utf-8") as f:
+                sys_ins_text = f.read().strip() or sys_ins_text
+        except Exception as e:
+            print(f"CLIモード: システムプロンプト読込エラー: {e}")
+    full_prompt += f"## system:\n{sys_ins_text}\n\n" # ヘッダーを'system'に統一
+    full_prompt += f"## model:\nはい、承知いたしました。指示に従い、対話を開始します。\n\n"
+
+    # 1-2. RAG
+    if user_prompt:
+        relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
+        if relevant_chunks:
+            rag_context = "## 関連性の高い参考情報\n\n" + "\n\n---\n\n".join(relevant_chunks)
+            # RAG情報をuserロールとして追加
+            full_prompt += f"## user:\n{rag_context}\n\n"
+            full_prompt += f"## model:\n記憶とログから関連情報を参照しました。\n\n"
+
+    # 1-3. 会話履歴
+    history_contents = load_chat_log(log_file_path, character_name)
+    if api_history_limit_option.isdigit():
+        try:
+            limit = int(api_history_limit_option)
+            if limit > 0:
+                limit_msgs = limit * 2
+                if len(history_contents) > limit_msgs:
+                    history_contents = history_contents[-limit_msgs:]
+        except ValueError:
+            pass
+
+    for item in history_contents:
         role = item.get('role', 'user')
-        parts = item.get('parts', [])
+        content = item.get('content', '')
 
-        # partsがリストであることを確認し、textキーを持つ要素を抽出
-        text_parts = []
-        if isinstance(parts, list):
-            for part in parts:
-                if isinstance(part, dict) and 'text' in part:
-                    text_parts.append(part['text'])
+        # 思考ログや画像タグを除去する（CLIはテキストのみのため）
+        th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
+        img_pat = re.compile(r"\[Generated Image:[^\]]+\]\s*")
+        content = th_pat.sub("", content).strip()
+        content = img_pat.sub("", content).strip()
 
-        full_prompt += f"## {role}:\n{ ''.join(text_parts) }\n\n"
+        if content:
+            # モデルの応答の場合、ヘッダーはキャラクター名に
+            if role == 'model':
+                full_prompt += f"## {character_name}:\n{content}\n\n"
+            else:
+                full_prompt += f"## {role}:\n{content}\n\n"
 
+    # 1-4. ユーザーの最新プロンプト
     full_prompt += f"## user:\n{user_prompt}"
 
+    # --- ステップ2: Google CLIの実行 ---
     try:
-        # shell=Trueでコマンドを実行
         result = subprocess.run(
             ['gemini'],
             input=full_prompt,
@@ -557,7 +602,6 @@ def send_to_google_cli(system_prompt_text: str, history_content: list, user_prom
             encoding='utf-8',
             shell=True
         )
-        # 成功した場合
         return result.stdout.strip(), None
 
     except FileNotFoundError:
