@@ -19,7 +19,7 @@ import alarm_manager
 import character_manager
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
-from gemini_api import configure_google_api, send_to_gemini
+from gemini_api import configure_google_api, send_to_gemini, send_to_google_cli
 from memory_manager import load_memory_data_safe, save_memory_data
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
 
@@ -90,7 +90,7 @@ def handle_save_memory_click(character_name, json_string_data):
 def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]], gr.update, gr.update]:
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      file_input_list, add_timestamp_checkbox,
-     send_thoughts_state, api_history_limit_state) = args
+     send_thoughts_state, api_history_limit_state, communication_method) = args
 
     log_f, sys_p, _, mem_p = None, None, None, None
     try:
@@ -104,14 +104,8 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
             return chatbot_history, gr.update(), gr.update(value=None)
 
         user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
-
-        # ★★★ ここからがファイル処理の新しいロジックです ★★★
-
-        # テキストファイルの内容を追記するための変数
         text_files_content = ""
-        # メディアファイル（画像、音声など）をAPIに渡すためのリスト
         media_files_for_api = []
-        # ログに記録するためのファイル名リスト
         attached_filenames_for_log = []
 
         if file_input_list:
@@ -119,99 +113,84 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
                 actual_file_path = file_wrapper.name
                 original_filename = os.path.basename(actual_file_path)
                 attached_filenames_for_log.append(original_filename)
-
                 mime_type, _ = mimetypes.guess_type(actual_file_path)
                 if mime_type is None:
-                    mime_type = "application/octet-stream" # 不明な場合はバイナリとして扱う
-
-                # MIMEタイプに基づいて、テキストファイルかメディアファイルかを判断
-                # application/octet-stream もテキストではないと判断する
-                if mime_type.startswith('text/') or \
-                   mime_type in ['application/json', 'application/javascript', 'application/xml', 'application/x-python', 'text/markdown', 'text/x-markdown', 'text/plain'] or \
-                   any(original_filename.endswith(ext) for ext in ['.py', '.md', '.js', '.ts', '.html', '.css', '.xml', '.json', '.txt', '.log']): # 拡張子でも判定
-                    # テキストベースのファイルの場合
+                    mime_type = "application/octet-stream"
+                if mime_type.startswith('text/') or any(original_filename.endswith(ext) for ext in ['.py', '.md', '.js', '.ts', '.html', '.css', '.xml', '.json', '.txt', '.log']):
                     try:
                         with open(actual_file_path, 'r', encoding='utf-8') as f:
                             file_content = f.read()
-                        text_files_content += f"\n\n--- 添付ファイル: {original_filename} ---\n\n"
-                        text_files_content += file_content
-                        text_files_content += f"\n\n--- {original_filename} ここまで ---"
+                        text_files_content += f"\n\n--- 添付ファイル: {original_filename} ---\n\n{file_content}\n\n--- {original_filename} ここまで ---"
                     except Exception as e:
-                        print(f"警告: テキストファイル '{original_filename}' の読み込み中にエラー: {e}")
-                        # エラー時もファイル名とエラーの旨をプロンプトに含める
                         text_files_content += f"\n\n[エラー: ファイル '{original_filename}' の読み込みに失敗しました。理由: {e}]"
                 else:
-                    # メディアベースのファイルの場合 (またはMIMEタイプからテキストと判断できなかったもの)
                     media_files_for_api.append({"path": actual_file_path, "mime_type": mime_type})
 
-        # 最終的なユーザープロンプトを構築
         final_user_prompt = user_prompt_from_textbox + text_files_content
-
         if not final_user_prompt.strip() and not media_files_for_api:
-            # gr.Info("メッセージまたはファイルを送信してください。") # 頻繁なのでコメントアウト
             return chatbot_history, gr.update(), gr.update(value=None)
 
-        # ログに記録するメッセージを作成
-        log_message_content = user_prompt_from_textbox # ユーザーがテキストボックスに書いた内容のみを基本とする
-        if attached_filenames_for_log: # 添付ファイルがある場合のみファイル名を追記
+        log_message_content = user_prompt_from_textbox
+        if attached_filenames_for_log:
             log_message_content += "\n[ファイル添付: " + ", ".join(attached_filenames_for_log) + "]"
-
         user_header = _get_user_header_from_log(log_f, current_character_name)
         timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
-        # ログには、テキストボックスの入力とファイル名のみを記録（ファイル内容は記録しない）
         save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
 
-        # ★★★ ここまでがファイル処理の新しいロジックです ★★★
+        api_response_text = ""
+        generated_image_path = None
 
-        # APIに渡すプロンプトは final_user_prompt (テキストファイル内容含む)、
-        # ファイルは media_files_for_api (メディアファイルのみ)
-        api_response_text, generated_image_path = send_to_gemini(
-            sys_p, log_f, final_user_prompt.strip(), current_model_name,
-            current_character_name, send_thoughts_state,
-            api_history_limit_state,
-            media_files_for_api, mem_p # uploaded_file_parts を media_files_for_api に変更
-        )
+        if communication_method == "SDK":
+            api_response_text, generated_image_path = send_to_gemini(
+                sys_p, log_f, final_user_prompt.strip(), current_model_name,
+                current_character_name, send_thoughts_state,
+                api_history_limit_state,
+                media_files_for_api, mem_p
+            )
+        elif communication_method == "Google CLI":
+            system_prompt_text = "あなたはチャットボットです。"
+            if sys_p and os.path.exists(sys_p):
+                with open(sys_p, "r", encoding="utf-8") as f:
+                    system_prompt_text = f.read().strip() or system_prompt_text
+
+            history_contents = load_chat_log(log_f, current_character_name)
+            response, error = send_to_google_cli(system_prompt_text, history_contents, final_user_prompt.strip())
+
+            if error:
+                api_response_text = error
+            else:
+                api_response_text = response
 
         if api_response_text or generated_image_path:
             cleaned_api_response = api_response_text
-
-            # AIが親切心で追加する可能性のある、あらゆる重複タグを除去する
             if generated_image_path and api_response_text:
-                # 1. 我々のシステムが付与した[Generated Image: ...]と全く同じ形式のタグを除去
                 tag_to_remove = f"[Generated Image: {generated_image_path}]"
                 cleaned_api_response = cleaned_api_response.replace(tag_to_remove, "").strip()
-
-                # 2. AIが生成するMarkdown形式の画像リンクを除去
-                #    ファイル名さえ一致すれば、パスの形式（/や\、file:///）が違っても除去できるよう、
-                #    正規表現を使って堅牢に対応します。
-                # (関数の先頭に import re を追加してください)
                 image_filename = os.path.basename(generated_image_path)
-                # 例: ![...](.../image_name.png) というパターンに一致
                 markdown_pattern = re.compile(r"!\[.*?\]\(.*?" + re.escape(image_filename) + r".*?\)\s*", re.IGNORECASE)
                 cleaned_api_response = markdown_pattern.sub("", cleaned_api_response).strip()
 
-            # クリーンアップされた応答を元に、ログに保存するメッセージを構築する
             response_to_log = ""
             if generated_image_path:
                 response_to_log += f"[Generated Image: {generated_image_path}]\n\n"
             if cleaned_api_response:
                 response_to_log += cleaned_api_response
 
-            # 最終的に何も残らなかった場合を除き、ログに保存する
             if response_to_log.strip():
                  save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
+
     except Exception as e:
         traceback.print_exc()
         gr.Error(f"メッセージ処理中に予期せぬエラーが発生しました: {e}")
 
     if log_f and os.path.exists(log_f):
         new_log = load_chat_log(log_f, current_character_name)
-        display_turns = _get_display_history_count(api_history_limit_state) # api_history_limit_state を使用
+        display_turns = _get_display_history_count(api_history_limit_state)
         new_hist: List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]] = format_history_for_gradio(new_log[-(display_turns * 2):])
     else:
         new_hist = chatbot_history
 
-    return new_hist, gr.update(value=""), gr.update(value=None) # file_input_list もクリア
+    return new_hist, gr.update(value=""), gr.update(value=None)
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 

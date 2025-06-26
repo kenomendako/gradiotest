@@ -43,6 +43,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     current_character_name = gr.State(effective_initial_character)
     current_model_name = gr.State(config_manager.initial_model_global)
     current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
+    # A. Stateを追加
+    communication_method_state = gr.State("SDK") # デフォルトはSDK
     send_thoughts_state = gr.State(config_manager.initial_send_thoughts_to_api_global)
     api_history_limit_state = gr.State(config_manager.initial_api_history_limit_option_global)
     alarm_dataframe_original_data = gr.State(pd.DataFrame())
@@ -60,6 +62,13 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                 add_character_button = gr.Button("迎える", variant="secondary", scale=1)
 
             with gr.Accordion("⚙️ 基本設定", open=False):
+                # B. ラジオボタンを追加
+                communication_method_radio = gr.Radio(
+                    ["SDK", "Google CLI"],
+                    value="SDK",
+                    label="対話に使用するAPI",
+                    info="Google CLIは実験的機能です。認証やPATH設定が別途必要です。"
+                )
                 model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
                 api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True)
                 api_history_limit_dropdown = gr.Dropdown(choices=list(config_manager.API_HISTORY_LIMIT_OPTIONS.values()), value=config_manager.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
@@ -173,13 +182,22 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor])
     save_log_button.click(fn=ui_handlers.handle_save_log_button_click, inputs=[current_character_name, log_editor])
     editor_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, log_editor]) # api_history_limit_state を追加
+
+    # C. イベントリスナーを追加
+    communication_method_radio.change(
+        fn=lambda value: value,
+        inputs=[communication_method_radio],
+        outputs=[communication_method_state]
+    )
+
     chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, log_editor]) # api_history_limit_state を追加
+
+    # D. `chat_inputs` リストを修正
     chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button]
-    # handle_message_submission に渡す inputs のリストを修正 (current_api_key_name_state を削除)
     chat_inputs = [
         chat_input_textbox, chatbot_display, current_character_name, current_model_name,
-        # current_api_key_name_state, # 不要なので削除
-        file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state
+        file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state,
+        communication_method_state  # ここに追加
     ]
     chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
     submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)

@@ -511,3 +511,60 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
         return error_msg, None
 
     return generated_text, image_path
+
+import subprocess # subprocessをインポート
+
+# (既存のsend_to_gemini関数などはそのまま)
+
+def send_to_google_cli(system_prompt_text: str, history_content: list, user_prompt: str) -> tuple[str, str | None]:
+    """
+    Google CLIを呼び出して対話応答を取得する。
+
+    Args:
+        system_prompt_text: システムプロンプトの文字列。
+        history_content: これまでの会話履歴のリスト (Contentオブジェクト形式)。
+        user_prompt: ユーザーからの最新のプロンプト。
+
+    Returns:
+        (応答テキスト, エラーメッセージ) のタプル。成功時はエラーメッセージがNoneになる。
+    """
+    # 履歴をCLIが受け取れるシンプルなテキスト形式に変換する
+    full_prompt = system_prompt_text + "\n\n"
+    for item in history_content:
+        # roleとpartsが辞書形式であることを確認
+        role = item.get('role', 'user')
+        parts = item.get('parts', [])
+
+        # partsがリストであることを確認し、textキーを持つ要素を抽出
+        text_parts = []
+        if isinstance(parts, list):
+            for part in parts:
+                if isinstance(part, dict) and 'text' in part:
+                    text_parts.append(part['text'])
+
+        full_prompt += f"## {role}:\n{ ''.join(text_parts) }\n\n"
+
+    full_prompt += f"## user:\n{user_prompt}"
+
+    try:
+        # shell=Trueでコマンドを実行
+        result = subprocess.run(
+            ['gemini'],
+            input=full_prompt,
+            capture_output=True,
+            text=True,
+            check=True,
+            encoding='utf-8',
+            shell=True
+        )
+        # 成功した場合
+        return result.stdout.strip(), None
+
+    except FileNotFoundError:
+        return "", "エラー: 'gemini'コマンドが見つかりません。Google CLIのインストールとPATH設定を確認してください。"
+    except subprocess.CalledProcessError as e:
+        error_message = f"エラー: Google CLIの実行中にエラーが発生しました (コード: {e.returncode})\n"
+        error_message += f"エラー出力:\n{e.stderr.strip()}"
+        return "", error_message
+    except Exception as e:
+        return "", f"予期せぬエラーが発生しました: {e}"
