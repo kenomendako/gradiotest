@@ -95,11 +95,11 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
     log_f, sys_p, _, mem_p = None, None, None, None
     try:
         if not all([current_character_name, current_model_name]):
-            gr.Warning("キャラクターとモデルを選択してください。APIキーは設定画面で確認してください。")
+            gr.Warning("キャラクターとモデルを選択してください。")
             return chatbot_history, gr.update(), gr.update(value=None)
 
         log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
-        if not all([log_f, sys_p, mem_p]):
+        if not all([log_f, sys_p]):
             gr.Warning(f"キャラクター '{current_character_name}' の必須ファイルパス取得に失敗。")
             return chatbot_history, gr.update(), gr.update(value=None)
 
@@ -114,9 +114,9 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
                 original_filename = os.path.basename(actual_file_path)
                 attached_filenames_for_log.append(original_filename)
                 mime_type, _ = mimetypes.guess_type(actual_file_path)
-                if mime_type is None:
-                    mime_type = "application/octet-stream"
-                if mime_type.startswith('text/') or any(original_filename.endswith(ext) for ext in ['.py', '.md', '.js', '.ts', '.html', '.css', '.xml', '.json', '.txt', '.log']):
+                if mime_type is None: mime_type = "application/octet-stream"
+                is_text_file = mime_type.startswith('text/') or any(original_filename.endswith(ext) for ext in ['.py', '.md', '.js', '.ts', '.html', '.css', '.xml', '.json', '.txt', '.log'])
+                if is_text_file:
                     try:
                         with open(actual_file_path, 'r', encoding='utf-8') as f:
                             file_content = f.read()
@@ -148,20 +148,16 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
                 media_files_for_api, mem_p
             )
         elif communication_method == "Google CLI":
-            # --- 新しいGoogle CLI呼び出しロジック ---
-            response, error = send_to_google_cli(
+            # CLIモードでは画像添付は未サポートのため、media_files_for_apiは渡さない
+            api_response_text, error = send_to_google_cli(
                 character_name=current_character_name,
                 system_prompt_path=sys_p,
                 log_file_path=log_f,
                 user_prompt=final_user_prompt.strip(),
-                api_history_limit_option=api_history_limit_state,
-                send_thoughts_to_api=send_thoughts_state
+                api_history_limit_option=api_history_limit_state
             )
-
             if error:
                 api_response_text = error
-            else:
-                api_response_text = response
 
         if api_response_text or generated_image_path:
             cleaned_api_response = api_response_text
@@ -374,6 +370,38 @@ def handle_rag_update_button_click(character_name: str):
     def run_update():
         success = rag_manager.create_or_update_index(character_name)
         if success:
+            print(f"INFO: RAG索引の更新が正常に完了しました ({character_name})")
+        else:
+            print(f"ERROR: RAG索引の更新に失敗しました ({character_name})")
+
+    threading.Thread(target=run_update).start()
+
+def handle_rag_update_button_click(character_name: str):
+    if not character_name:
+        gr.Warning("索引を更新するキャラクターが選択されていません。")
+        return
+
+    gr.Info(f"キャラクター「{character_name}」のRAG索引の強制更新を開始します...（ターミナルのログを確認してください）")
+
+    # 既存のインデックスファイルを削除して、再作成を促す
+    rag_path = rag_manager._get_rag_data_path(character_name)
+    if rag_path:
+        index_file = os.path.join(rag_path, rag_manager.RAG_INDEX_FILENAME)
+        chunks_file = os.path.join(rag_path, rag_manager.RAG_CHUNKS_FILENAME)
+        if os.path.exists(index_file):
+            os.remove(index_file)
+            print(f"情報: 既存のRAG索引ファイル {index_file} を削除しました。")
+        if os.path.exists(chunks_file):
+            os.remove(chunks_file)
+            print(f"情報: 既存のRAGチャンクファイル {chunks_file} を削除しました。")
+
+    # インデックス作成処理を非同期で実行
+    import threading
+    def run_update():
+        success = rag_manager.create_or_update_index(character_name)
+        if success:
+            # Gradioは別スレッドからの直接のUI更新をサポートしていないため、
+            # コンソールログでの通知に留める
             print(f"INFO: RAG索引の更新が正常に完了しました ({character_name})")
         else:
             print(f"ERROR: RAG索引の更新に失敗しました ({character_name})")

@@ -10,7 +10,7 @@ import shutil
 
 # モジュールインポート
 import character_manager
-import gemini_api
+import gemini_api # ← gemini_apiのインポートは必要なので残す
 from utils import load_chat_log
 
 # 定数定義
@@ -35,24 +35,30 @@ def _chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> Li
     return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size - chunk_overlap)]
 
 def create_or_update_index(character_name: str) -> bool:
-    print(f"--- RAG索引作成開始: {character_name} ---")
+    print(f"--- RAG索引作成/更新開始: {character_name} ---")
     if not gemini_api._gemini_client:
         print("エラー: Geminiクライアントが初期化されていません。")
         return False
 
-    # ★★★ system_prompt.txt (sys_p) のパス取得は不要になる ★★★
-    # log_f, sys_p, _, mem_p = character_manager.get_character_files_paths(character_name) # 元の行
-    log_f, _, _, mem_p = character_manager.get_character_files_paths(character_name) # sys_p を受け取らないように変更
     rag_path = _get_rag_data_path(character_name)
-
-    # ★★★ RAGの知識源は memory.json のみになったので、その存在だけをチェック ★★★
     if not rag_path:
         print(f"エラー: {character_name} のRAGデータパスが取得できません。")
         return False
+
+    # ★★★ ここからが修正箇所 ★★★
+    index_file_path = os.path.join(rag_path, RAG_INDEX_FILENAME)
+    # 既存のインデックスファイルがある場合は、処理をスキップする
+    if os.path.exists(index_file_path):
+        print(f"情報: 既存のRAG索引 ({index_file_path}) が見つかりました。API呼び出しをスキップします。")
+        print(f"--- RAG索引処理完了: {character_name} (既存インデックス使用) ---")
+        return True
+    # ★★★ 修正ここまで ★★★
+
+    log_f, _, _, mem_p = character_manager.get_character_files_paths(character_name)
     if not os.path.exists(mem_p):
         print(f"エラー: {character_name} の記憶ファイル (memory.json) が見つかりません。RAGの知識源がありません。")
         return False
-
+    # ... (以降のチャンク作成、ベクトル化、保存のロジックは変更なし)
     all_chunks = []
     try:
         # ★★★ memory.json の読み込みは残す ★★★
@@ -134,6 +140,7 @@ def create_or_update_index(character_name: str) -> bool:
             os.remove(tmp_index_path)
 
 def search_relevant_chunks(character_name: str, query_text: str, top_k: int = 5) -> List[str]:
+    # configure呼び出しは完全に削除する
     if not gemini_api._gemini_client:
         print("エラー: Geminiクライアントが初期化されていません。")
         return []

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "nexus-ark-rag-server": {
+      "command": "python",
+      "args": [
+        "mcp_server.py"
+      ],
+      "timeout": 10000
+    }
+  }
+}

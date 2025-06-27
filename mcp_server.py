@@ -4,10 +4,10 @@ import uvicorn
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
 import json
-import rag_manager # Nexus ArkのRAGマネージャーをインポート
-import character_manager # キャラクターリスト取得のため
-import config_manager # APIキー設定確認のため
-import gemini_api # Gemini APIクライアント初期化のため
+import rag_manager
+import character_manager
+import config_manager
+import gemini_api
 
 # --- データモデル定義 ---
 
@@ -58,7 +58,6 @@ async def startup_event():
             return
 
         print("[MCP Server] Initializing RAG indices for all characters...")
-        # 全てのキャラクターのRAGインデックスを（必要であれば）作成
         for char in character_manager.get_character_list():
             print(f"[MCP Server]  - Checking/Updating index for {char}...")
             rag_manager.create_or_update_index(char)
@@ -115,13 +114,11 @@ async def call_tool(request: McpCallToolRequest):
 
         print(f"[MCP Server] Executing RAG search for '{char_name}' with query: '{query[:30]}...'")
 
-        # rag_managerを使って実際に検索
         relevant_chunks = rag_manager.search_relevant_chunks(char_name, query, top_k)
 
         if not relevant_chunks:
             output_text = "関連情報は見つかりませんでした。"
         else:
-            # 検索結果を整形して単一の文字列にする
             output_text = "以下に関連性の高い情報が見つかりました。\n\n" + "\n\n---\n\n".join(relevant_chunks)
 
         print(f"[MCP Server] RAG search complete. Returning {len(relevant_chunks)} chunk(s).")
@@ -138,5 +135,4 @@ async def call_tool(request: McpCallToolRequest):
 # --- サーバーを直接実行するためのコード ---
 if __name__ == "__main__":
     print("Starting Nexus Ark MCP Server...")
-    # uvicorn.run(app, host="127.0.0.1", port=8001) # デバッグ用にポート8001を使用
     uvicorn.run(f"{__name__}:app", host="127.0.0.1", port=8001)

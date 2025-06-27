@@ -42,36 +42,43 @@ import config_manager
 from utils import load_chat_log, save_message_to_log
 from character_manager import get_character_files_paths
 
+import subprocess # importがなければ追加
+import json       # importがなければ追加
+# re は既存のimportに含まれているため、ここでは追加しない
+
 _gemini_client = None
 
 # ★★★ 1. ツールの定義を、進化させる ★★★
 def _define_image_generation_tool():
     """
-    AIに「次に何をすべきか」を判断させるための、新しいツールセットを定義します。
+    AIに「次に何をすべきか」を判断させるための行動計画ツールと、
+    標準のGoogle検索ツールを定義します。
     """
-    return Tool(
-        function_declarations=[
-            # 行動計画を立てさせるための、新しい関数
-            FunctionDeclaration(
-                name="plan_next_action",
-                description="ユーザーのリクエストに応じて、次に取るべき行動を計画します。返答するだけか、画像を生成するかを決定します。",
-                parameters={
-                    "type": "OBJECT",
-                    "properties": {
-                        "action_type": {
-                            "type": "STRING",
-                            "description": "実行するアクションの種類。'TALK' または 'GENERATE_IMAGE' のいずれか。",
-                            "enum": ["TALK", "GENERATE_IMAGE"]
-                        },
-                        "details": {
-                            "type": "STRING",
-                            "description": "アクションの詳細。action_typeが'TALK'の場合は応答テキスト、'GENERATE_IMAGE'の場合は画像生成用の英語プロンプト。"
-                        }
-                    },
-                    "required": ["action_type", "details"]
+    # 既存の画像生成を含む行動計画ツール
+    plan_next_action_tool = FunctionDeclaration(
+        name="plan_next_action",
+        description="ユーザーのリクエストに応じて、次に取るべき行動を計画します。返答するだけか、画像を生成するかを決定します。",
+        parameters={
+            "type": "OBJECT",
+            "properties": {
+                "action_type": {
+                    "type": "STRING",
+                    "description": "実行するアクションの種類。'TALK' または 'GENERATE_IMAGE' のいずれか。",
+                    "enum": ["TALK", "GENERATE_IMAGE"]
+                },
+                "details": {
+                    "type": "STRING",
+                    "description": "アクションの詳細。action_typeが'TALK'の場合は応答テキスト、'GENERATE_IMAGE'の場合は画像生成用の英語プロンプト。"
                 }
-            )
-        ]
+            },
+            "required": ["action_type", "details"]
+        }
+    )
+
+    # SDKとCLIで共通して利用できるツールセットを返す
+    return Tool(
+        function_declarations=[plan_next_action_tool], # 行動計画ツール
+        google_search=GoogleSearch()                   # Google検索ツール
     )
 
 # --- Google API (Gemini) 連携関数 ---
@@ -82,8 +89,9 @@ def configure_google_api(api_key_name):
         return False, f"APIキー名 '{api_key_name}' に対応する有効なAPIキーが設定されていません。"
     try:
         global _gemini_client
-        _gemini_client = genai.Client(api_key=api_key)
-        print(f"Google GenAI Client for API key '{api_key_name}' initialized successfully.")
+        # ★★★ ここに transport="rest" を追加 ★★★
+        _gemini_client = genai.Client(api_key=api_key, transport="rest")
+        print(f"Google GenAI Client for API key '{api_key_name}' initialized successfully (transport: rest).")
         return True, None
     except Exception as e:
         return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}"
@@ -463,9 +471,12 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
 
         # 2. 画像データが見つかった場合にファイルとして保存
         if image_data:
+            # ★★★ この部分を修正 ★★★
+            # スクリプトの設置場所を基準に、絶対パスで保存先を決定する
             _script_dir = os.path.dirname(os.path.abspath(__file__))
             save_dir = os.path.join(_script_dir, "chat_attachments", "generated_images")
             os.makedirs(save_dir, exist_ok=True)
+            # ★★★ 修正ここまで ★★★
 
             base_name_suggestion, _ = os.path.splitext(output_image_filename_suggestion)
             base_name = re.sub(r'[^\w\s-]', '', base_name_suggestion).strip()
@@ -512,34 +523,16 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
 
     return generated_text, image_path
 
-import subprocess # subprocessをインポート
+import subprocess # importがなければ追加
+import json       # importがなければ追加
+import re         # importがなければ追加
 
-# (既存のsend_to_gemini関数などはそのまま)
-
-# gemini_api.py の `send_to_google_cli` を以下で置き換える
-
-def send_to_google_cli(
-    character_name: str,
-    system_prompt_path: str,
-    log_file_path: str,
-    user_prompt: str,
-    api_history_limit_option: str,
-    send_thoughts_to_api: bool
-) -> tuple[str, str | None]:
+def send_to_google_cli(character_name: str, system_prompt_path: str, log_file_path: str, user_prompt: str, api_history_limit_option: str) -> tuple[str, str | None]:
     """
     Google CLIを呼び出して対話応答を取得する。
     会話履歴をJSON形式の文字列として構築し、プロンプトとして渡す。
-
-    Args:
-        (引数の説明は省略)
-
-    Returns:
-        (応答テキスト, エラーメッセージ) のタプル。成功時はエラーメッセージがNoneになる。
     """
-    # --- ステップ1: JSON形式のプロンプトを構築 ---
     prompt_data = []
-
-    # 1-1. システムプロンプト
     sys_ins_text = "あなたはチャットボットです。"
     if system_prompt_path and os.path.exists(system_prompt_path):
         try:
@@ -548,75 +541,51 @@ def send_to_google_cli(
         except Exception as e:
             print(f"CLIモード: システムプロンプト読込エラー: {e}")
 
-    # システムプロンプトをJSONの最初の要素として追加
     prompt_data.append({'role': 'system', 'content': sys_ins_text})
     prompt_data.append({'role': 'model', 'content': 'はい、承知いたしました。指示に従い、対話を開始します。'})
 
-    # 1-2. RAG
-    if user_prompt:
-        relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
-        if relevant_chunks:
-            rag_context = "## 関連性の高い参考情報\n\n" + "\n\n---\n\n".join(relevant_chunks)
-            prompt_data.append({'role': 'user', 'content': rag_context})
-            prompt_data.append({'role': 'model', 'content': '記憶とログから関連情報を参照しました。'})
+    # CLIモードではRAGはMCP経由でAIが自律的に使うため、ここではプロンプトに含めない
 
-    # 1-3. 会話履歴
     history_contents = load_chat_log(log_file_path, character_name)
     if api_history_limit_option.isdigit():
         try:
             limit = int(api_history_limit_option)
-            if limit > 0:
-                limit_msgs = limit * 2
-                if len(history_contents) > limit_msgs:
-                    history_contents = history_contents[-limit_msgs:]
+            if limit > 0 and len(history_contents) > (limit * 2):
+                history_contents = history_contents[-(limit * 2):]
         except ValueError:
             pass
 
     for item in history_contents:
         role = item.get('role', 'user')
         content = item.get('content', '')
-
-        # 思考ログや画像タグを除去
         th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
         img_pat = re.compile(r"\[Generated Image:[^\]]+\]\s*")
         content = th_pat.sub("", content).strip()
         content = img_pat.sub("", content).strip()
-
         if content:
-            # モデルの応答の場合、ヘッダーはキャラクター名に
             if role == 'model':
                 prompt_data.append({'role': character_name, 'content': content})
             else:
                 prompt_data.append({'role': role, 'content': content})
 
-    # 1-4. ユーザーの最新プロンプト
     prompt_data.append({'role': 'user', 'content': user_prompt})
 
-    # 1-5. 最後に、AIに対してJSONを解釈して応答するように指示を追加
     final_instruction = (
         "上記のJSONは、これまでの会話履歴とコンテキストです。"
         "最後の'user'の発言に対して、あなたはキャラクター「" + character_name + "」として応答してください。"
         "応答は、会話の文脈に沿った自然なテキストのみを出力してください。"
+        "必要であれば、利用可能なツール（get_rag_contextやgoogle_search）を自律的に使用してください。"
     )
     prompt_data.append({'role': 'system', 'content': final_instruction})
-
-    # Pythonのリスト/辞書をJSON文字列に変換
     final_prompt_string = json.dumps(prompt_data, indent=2, ensure_ascii=False)
 
-
-    # --- ステップ2: Google CLIの実行 ---
     try:
         result = subprocess.run(
             ['gemini'],
-            input=final_prompt_string, # JSON文字列を標準入力として渡す
-            capture_output=True,
-            text=True,
-            check=True,
-            encoding='utf-8',
-            shell=True
+            input=final_prompt_string,
+            capture_output=True, text=True, check=True, encoding='utf-8', shell=True
         )
         return result.stdout.strip(), None
-
     except FileNotFoundError:
         return "", "エラー: 'gemini'コマンドが見つかりません。Google CLIのインストールとPATH設定を確認してください。"
     except subprocess.CalledProcessError as e:

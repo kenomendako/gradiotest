@@ -81,7 +81,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                         memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code")
                         with gr.Row():
                             save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
-                            rag_update_button = gr.Button(value="RAG索引を更新", variant="primary") # 新しいボタン
+                            # ★★★ ここに新しいボタンを追加 ★★★
+                            rag_update_button = gr.Button(value="RAG索引を更新", variant="primary")
                     with gr.TabItem("ログ (log.txt)"):
                         log_editor = gr.Code(label="ログ内容", interactive=True, elem_id="log_editor_code")
                         with gr.Row():
@@ -209,7 +210,26 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
         inputs=[current_character_name], # current_api_key_name_state を削除
         outputs=None
     )
+    # ★★★ 新しいボタンのイベントリスナーを追加 ★★★
+    rag_update_button.click(
+        fn=ui_handlers.handle_rag_update_button_click,
+        inputs=[current_character_name],
+        outputs=None  # UIへの直接的な出力はない
+    )
     demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
+
+# Application Launch の直前に追加
+# --- 許可するパスの設定 ---
+# AIが生成した画像が保存されるディレクトリの絶対パスを取得
+try:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    allowed_image_path = os.path.join(script_dir, "chat_attachments")
+    # フォルダが存在しない場合に作成
+    if not os.path.exists(allowed_image_path):
+        os.makedirs(os.path.join(allowed_image_path, "generated_images"), exist_ok=True)
+except Exception as e:
+    print(f"警告: allowed_pathsの生成に失敗しました: {e}")
+    allowed_image_path = None # エラーの場合はNoneにしておく
 
 # --- Application Launch ---
 if __name__ == "__main__":
@@ -226,8 +246,17 @@ if __name__ == "__main__":
     print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで")
     print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)")
     print("="*60 + "\n")
-    app, local_url, share_url = demo.queue().launch(
-        server_name="0.0.0.0",
-        server_port=7860,
-        share=False
-    )
+
+    # ★★★ ここからが修正箇所 ★★★
+    launch_kwargs = {
+        "server_name": "0.0.0.0",
+        "server_port": 7860,
+        "share": False
+    }
+    # allowed_image_pathが正常に取得できた場合のみ、launchの引数に追加
+    if allowed_image_path:
+        launch_kwargs["allowed_paths"] = [allowed_image_path]
+        print(f"Gradio allowed_paths: {allowed_image_path}")
+
+    app, local_url, share_url = demo.queue().launch(**launch_kwargs)
+    # ★★★ 修正ここまで ★★★
