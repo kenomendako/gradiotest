@@ -41,8 +41,8 @@ import uuid
 import config_manager
 from utils import load_chat_log, save_message_to_log
 from character_manager import get_character_files_paths
+import subprocess # ★★★ この行をこの位置に追加してください ★★★
 
-# subprocess is now imported at the top
 # json is already imported at the top
 # re は既存のimportに含まれているため、ここでは追加しない
 
