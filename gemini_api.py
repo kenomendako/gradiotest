@@ -592,15 +592,19 @@ def send_to_google_cli(character_name: str, system_prompt_path: str, log_file_pa
     final_prompt_string = json.dumps(prompt_data, indent=2, ensure_ascii=False)
 
     try:
-        # `shell=True` はセキュリティリスクがあるため、コマンドと引数をリストで渡すのが安全です。
-        # 'gemini' コマンドがPATHにあれば直接実行できます。
+        # ★★★ ここからが修正箇所です ★★★
+        # config_manager から設定値を読み込む
+        gemini_executable_path = config_manager.initial_google_cli_path_global
+
         result = subprocess.run(
-            ['gemini', '-p', final_prompt_string], # プロンプトを引数として渡す
+            [gemini_executable_path, '-p', final_prompt_string], # 'gemini'をフルパスに置き換え
             capture_output=True, text=True, check=True, encoding='utf-8'
         )
+        # ★★★ 修正ここまで ★★★
         return result.stdout.strip(), None
     except FileNotFoundError:
-        return "", "エラー: 'gemini'コマンドが見つかりません。Google CLIのインストールとPATH設定を確認してください。"
+        # ★★★ エラーメッセージをより親切に修正 ★★★
+        return "", f"エラー: '{config_manager.initial_google_cli_path_global}'コマンドが見つかりません。Google CLIがインストールされているか、config.jsonの'google_cli_path'設定が正しいか確認してください。"
     except subprocess.CalledProcessError as e:
         error_message = f"エラー: Google CLIの実行中にエラーが発生しました (コード: {e.returncode})\n"
         error_message += f"エラー出力:\n{e.stderr.strip()}"

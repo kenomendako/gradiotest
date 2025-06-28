@@ -17,6 +17,7 @@ DEFAULT_API_HISTORY_LIMIT_OPTION = "all"
 DEFAULT_ALARM_MODEL = "gemini-1.5-flash-latest"
 DEFAULT_ALARM_API_HISTORY_TURNS = 1
 DEFAULT_NOTIFICATION_WEBHOOK_URL = None # Webhook URLのデフォルトはNone
+DEFAULT_GOOGLE_CLI_PATH = "gemini" # ★★★ 1. 定数を追加 ★★★
 SAFETY_CONFIG = {types.HarmCategory.HARM_CATEGORY_HATE_SPEECH: types.HarmBlockThreshold.BLOCK_NONE, types.HarmCategory.HARM_CATEGORY_HARASSMENT: types.HarmBlockThreshold.BLOCK_NONE, types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: types.HarmBlockThreshold.BLOCK_NONE, types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: types.HarmBlockThreshold.BLOCK_NONE}
 
 # --- 設定関連グローバル変数 (他モジュールから参照される) ---
@@ -29,6 +30,7 @@ initial_api_history_limit_option_global = DEFAULT_API_HISTORY_LIMIT_OPTION
 initial_alarm_model_global = DEFAULT_ALARM_MODEL
 initial_alarm_api_history_turns_global = DEFAULT_ALARM_API_HISTORY_TURNS
 initial_notification_webhook_url_global = DEFAULT_NOTIFICATION_WEBHOOK_URL
+initial_google_cli_path_global = DEFAULT_GOOGLE_CLI_PATH # ★★★ 2. グローバル変数を追加 ★★★
 API_KEYS = {}
 AVAILABLE_MODELS_GLOBAL = []
 DEFAULT_MODEL_GLOBAL = None
@@ -42,7 +44,7 @@ def get_character_list():
     return get_char_list_impl()
 
 def load_config():
-    global API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global, initial_add_timestamp_global, initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_model_global, initial_alarm_api_history_turns_global, AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, initial_notification_webhook_url_global
+    global API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global, initial_add_timestamp_global, initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_model_global, initial_alarm_api_history_turns_global, AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, initial_notification_webhook_url_global, initial_google_cli_path_global # global宣言に追加
     default_config = {
         "api_keys": {"your_key_name_1": "YOUR_API_KEY_HERE"},
         "available_models": ["gemini-1.5-pro-latest"],
@@ -56,7 +58,8 @@ def load_config():
         "last_api_history_limit_option": DEFAULT_API_HISTORY_LIMIT_OPTION,
         "alarm_model": DEFAULT_ALARM_MODEL,
         "alarm_api_history_turns": DEFAULT_ALARM_API_HISTORY_TURNS,
-        "notification_webhook_url": DEFAULT_NOTIFICATION_WEBHOOK_URL # デフォルト値を追加
+        "notification_webhook_url": DEFAULT_NOTIFICATION_WEBHOOK_URL, # デフォルト値を追加
+        "google_cli_path": DEFAULT_GOOGLE_CLI_PATH # ★★★ 3. default_config に追加 ★★★
     }
     config = {}
     if not os.path.exists(CONFIG_FILE):
@@ -107,6 +110,12 @@ def load_config():
         initial_notification_webhook_url_global = None
     elif initial_notification_webhook_url_global == "": # 空文字列もNone扱い
         initial_notification_webhook_url_global = None
+
+    # ★★★ 4. google_cli_path の読み込みロジックを追加 ★★★
+    initial_google_cli_path_global = config.get("google_cli_path", default_config["google_cli_path"])
+    if not initial_google_cli_path_global or not isinstance(initial_google_cli_path_global, str):
+        initial_google_cli_path_global = default_config["google_cli_path"]
+
 
     needs_update = False
     for key, default_value in default_config.items():
