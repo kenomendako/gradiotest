@@ -8,6 +8,7 @@ from google.genai import types # SAFETY_CONFIG定義のため
 CONFIG_FILE = "config.json"
 ALARMS_FILE = "alarms.json"
 CHARACTERS_DIR = "characters"
+# TEMP_DIR = "temp" # No longer needed
 PROFILE_IMAGE_FILENAME = "profile.png"
 MEMORY_FILENAME = "memory.json"
 MEMORY_SUMMARY_LIMIT_FOR_API = 3
