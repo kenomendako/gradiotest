@@ -26,7 +26,7 @@ import google.genai as genai
 # from google.genai import types # types は Content, Part で直接指定するため不要に
 from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig, FunctionDeclaration, FunctionCall # Content, Part を明示的にインポート
 import os
-import json
+import json # Moved from below
 import rag_manager # 追加
 import google.api_core.exceptions
 import re
@@ -42,8 +42,8 @@ import config_manager
 from utils import load_chat_log, save_message_to_log
 from character_manager import get_character_files_paths
 
-import subprocess # importがなければ追加
-import json       # importがなければ追加
+# subprocess is now imported at the top
+# json is already imported at the top
 # re は既存のimportに含まれているため、ここでは追加しない
 
 _gemini_client = None
@@ -523,9 +523,7 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
 
     return generated_text, image_path
 
-import subprocess # importがなければ追加
-import json       # importがなければ追加
-import re         # importがなければ追加
+# subprocess, json, re are already imported at the top
 
 def send_to_google_cli(character_name: str, system_prompt_path: str, log_file_path: str, user_prompt: str, api_history_limit_option: str) -> tuple[str, str | None]:
     """
@@ -544,7 +542,18 @@ def send_to_google_cli(character_name: str, system_prompt_path: str, log_file_pa
     prompt_data.append({'role': 'system', 'content': sys_ins_text})
     prompt_data.append({'role': 'model', 'content': 'はい、承知いたしました。指示に従い、対話を開始します。'})
 
-    # CLIモードではRAGはMCP経由でAIが自律的に使うため、ここではプロンプトに含めない
+    # ★★★ ここからが修正箇所です ★★★
+    # RAG検索を実行してプロンプトに追加
+    if user_prompt:
+        # ユーザーのプロンプトから関連情報を検索
+        relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
+        if relevant_chunks:
+            # 検索結果を整形してプロンプトに追加
+            rag_context = "## 関連性の高い参考情報\n\n" + "\n\n---\n\n".join(relevant_chunks)
+            prompt_data.append({'role': 'user', 'content': rag_context})
+            # AIに情報を参照したことを伝える
+            prompt_data.append({'role': 'model', 'content': '記憶とログから関連情報を参照しました。'})
+    # ★★★ 修正ここまで ★★★
 
     history_contents = load_chat_log(log_file_path, character_name)
     if api_history_limit_option.isdigit():
@@ -574,16 +583,18 @@ def send_to_google_cli(character_name: str, system_prompt_path: str, log_file_pa
         "上記のJSONは、これまでの会話履歴とコンテキストです。"
         "最後の'user'の発言に対して、あなたはキャラクター「" + character_name + "」として応答してください。"
         "応答は、会話の文脈に沿った自然なテキストのみを出力してください。"
-        "必要であれば、利用可能なツール（get_rag_contextやgoogle_search）を自律的に使用してください。"
+        # MCP経由のツール使用は一旦不要になるため、指示をシンプルにします
+        # "必要であれば、利用可能なツール（get_rag_contextやgoogle_search）を自律的に使用してください。"
     )
     prompt_data.append({'role': 'system', 'content': final_instruction})
     final_prompt_string = json.dumps(prompt_data, indent=2, ensure_ascii=False)
 
     try:
+        # `shell=True` はセキュリティリスクがあるため、コマンドと引数をリストで渡すのが安全です。
+        # 'gemini' コマンドがPATHにあれば直接実行できます。
         result = subprocess.run(
-            ['gemini'],
-            input=final_prompt_string,
-            capture_output=True, text=True, check=True, encoding='utf-8', shell=True
+            ['gemini', '-p', final_prompt_string], # プロンプトを引数として渡す
+            capture_output=True, text=True, check=True, encoding='utf-8'
         )
         return result.stdout.strip(), None
     except FileNotFoundError:
