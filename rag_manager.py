@@ -34,25 +34,34 @@ def _chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> Li
     if not text: return []
     return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size - chunk_overlap)]
 
-def create_or_update_index(character_name: str) -> bool:
+def create_or_update_index(character_name: str, api_key_name: str) -> bool:
+    """
+    キャラクターのRAG索引を作成または更新します。
+    APIクライアントが未初期化の場合、与えられたAPIキー名で初期化を試みます。
+    """
     print(f"--- RAG索引作成/更新開始: {character_name} ---")
+
+    # --- ▼▼▼ 修正箇所 ▼▼▼ ---
     if not gemini_api._gemini_client:
-        print("エラー: Geminiクライアントが初期化されていません。")
-        return False
+        print("情報: RAGマネージャー内でGeminiクライアントが未初期化です。再設定を試みます...")
+        if not api_key_name:
+            print("エラー: APIキー名が指定されていないため、RAG索引を更新できません。")
+            return False
+        success, msg = gemini_api.configure_google_api(api_key_name)
+        if not success:
+            print(f"エラー: RAG索引の更新中にAPIクライアントの設定に失敗しました: {msg}")
+            return False
+    # --- ▲▲▲ 修正箇所 ▲▲▲ ---
 
     rag_path = _get_rag_data_path(character_name)
     if not rag_path:
         print(f"エラー: {character_name} のRAGデータパスが取得できません。")
         return False
-
-    # ★★★ ここからが修正箇所 ★★★
     index_file_path = os.path.join(rag_path, RAG_INDEX_FILENAME)
-    # 既存のインデックスファイルがある場合は、処理をスキップする
     if os.path.exists(index_file_path):
         print(f"情報: 既存のRAG索引 ({index_file_path}) が見つかりました。API呼び出しをスキップします。")
         print(f"--- RAG索引処理完了: {character_name} (既存インデックス使用) ---")
         return True
-    # ★★★ 修正ここまで ★★★
 
     log_f, _, _, mem_p = character_manager.get_character_files_paths(character_name)
     if not os.path.exists(mem_p):

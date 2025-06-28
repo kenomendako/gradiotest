@@ -60,7 +60,9 @@ async def startup_event():
         print("[MCP Server] Initializing RAG indices for all characters...")
         for char in character_manager.get_character_list():
             print(f"[MCP Server]  - Checking/Updating index for {char}...")
-            rag_manager.create_or_update_index(char)
+            # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+            rag_manager.create_or_update_index(char, api_key_name) # 引数に api_key_name を渡す
+            # --- ▲▲▲ 修正箇所 ▲▲▲ ---
         print("[MCP Server] RAG indices initialization complete.")
 
     except Exception as e:

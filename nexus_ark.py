@@ -207,15 +207,16 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     # ファイルの末尾近くに、新しいボタンのイベントリスナーを追加
     rag_update_button.click(
         fn=ui_handlers.handle_rag_update_button_click,
-        inputs=[current_character_name], # current_api_key_name_state を削除
+        inputs=[current_character_name, current_api_key_name_state], # 修正: current_api_key_name_state を追加
         outputs=None
     )
     # ★★★ 新しいボタンのイベントリスナーを追加 ★★★
-    rag_update_button.click(
-        fn=ui_handlers.handle_rag_update_button_click,
-        inputs=[current_character_name],
-        outputs=None  # UIへの直接的な出力はない
-    )
+    # 上記で修正済みのため、こちらは削除またはコメントアウト。今回は同一のボタンに対する重複したリスナー登録と思われるため、片方を修正し、もう片方は削除します。
+    # rag_update_button.click(
+    #     fn=ui_handlers.handle_rag_update_button_click,
+    #     inputs=[current_character_name, current_api_key_name_state], # 修正: current_api_key_name_state を追加
+    #     outputs=None  # UIへの直接的な出力はない
+    # )
     demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 
 # Application Launch の直前に追加

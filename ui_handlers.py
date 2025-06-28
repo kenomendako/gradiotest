@@ -376,10 +376,15 @@ def handle_rag_update_button_click(character_name: str):
 
     threading.Thread(target=run_update).start()
 
-def handle_rag_update_button_click(character_name: str):
+def handle_rag_update_button_click(character_name: str, api_key_name: str): # 引数に api_key_name を追加
     if not character_name:
         gr.Warning("索引を更新するキャラクターが選択されていません。")
         return
+    # --- ▼▼▼ 追加箇所 ▼▼▼ ---
+    if not api_key_name:
+        gr.Warning("APIキーが選択されていません。")
+        return
+    # --- ▲▲▲ 追加箇所 ▲▲▲ ---
 
     gr.Info(f"キャラクター「{character_name}」のRAG索引の強制更新を開始します...（ターミナルのログを確認してください）")
 
@@ -398,7 +403,9 @@ def handle_rag_update_button_click(character_name: str):
     # インデックス作成処理を非同期で実行
     import threading
     def run_update():
-        success = rag_manager.create_or_update_index(character_name)
+        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+        success = rag_manager.create_or_update_index(character_name, api_key_name) # 引数に api_key_name を渡す
+        # --- ▲▲▲ 修正箇所 ▲▲▲ ---
         if success:
             # Gradioは別スレッドからの直接のUI更新をサポートしていないため、
             # コンソールログでの通知に留める
