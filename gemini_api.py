@@ -89,9 +89,11 @@ def configure_google_api(api_key_name):
         return False, f"APIキー名 '{api_key_name}' に対応する有効なAPIキーが設定されていません。"
     try:
         global _gemini_client
-        # ★★★ ここに transport="rest" を追加 ★★★
-        _gemini_client = genai.Client(api_key=api_key, transport="rest")
-        print(f"Google GenAI Client for API key '{api_key_name}' initialized successfully (transport: rest).")
+        # --- ▼▼▼ 修正箇所 ▼▼▼ ---
+        # transport="rest" 引数を削除します。これがエラーの原因です。
+        _gemini_client = genai.Client(api_key=api_key)
+        # --- ▲▲▲ 修正箇所 ▲▲▲ ---
+        print(f"Google GenAI Client for API key '{api_key_name}' initialized successfully.")
         return True, None
     except Exception as e:
         return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}"
