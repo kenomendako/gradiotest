@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 # ##############################################################################
-# import tempfile # No longer needed
-import sys # ★★★ この行を追加 ★★★
+import sys
+import tempfile
+import os
+import json
+import re
+import subprocess
 # #                                                                            #
 # #  ! ! ! ! ! ! ! ! ! ! !   CRITICAL AI INSTRUCTION   ! ! ! ! ! ! ! ! ! ! ! !  #
 # #                                                                            #
@@ -44,7 +48,7 @@ import config_manager
 from utils import load_chat_log, save_message_to_log
 from character_manager import get_character_files_paths
 import subprocess
-import sys      # ★★★ この行を追加 ★★★
+# import sys # Already imported above
 # import locale   # No longer needed
 
 # json is already imported at the top
@@ -529,12 +533,12 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
 
     return generated_text, image_path
 
-# subprocess, json, re are already imported at the top
+# ★★★★★ このファイルに対する、これが最終・確定版のコードです ★★★★★
 
 def send_to_google_cli(character_name: str, system_prompt_path: str, log_file_path: str, user_prompt: str, api_history_limit_option: str) -> tuple[str, str | None]:
     """
     Google CLIを呼び出して対話応答を取得する。
-    長いプロンプトを一時ファイルに書き出して渡すことで、コマンドライン長制限を回避する。
+    プロンプトを一時ファイルにUTF-8で書き出し、標準入力リダイレクトで渡す。
     """
     prompt_data = []
     sys_ins_text = "あなたはチャットボットです。"
@@ -545,16 +549,11 @@ def send_to_google_cli(character_name: str, system_prompt_path: str, log_file_pa
         except Exception as e:
             print(f"CLIモード: システムプロンプト読込エラー: {e}")
 
+    # AIの基本設定となるシステムプロンプト
     prompt_data.append({'role': 'system', 'content': sys_ins_text})
     prompt_data.append({'role': 'model', 'content': 'はい、承知いたしました。指示に従い、対話を開始します。'})
 
-    if user_prompt:
-        relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
-        if relevant_chunks:
-            rag_context = "## 関連性の高い参考情報\n\n" + "\n\n---\n\n".join(relevant_chunks)
-            prompt_data.append({'role': 'user', 'content': rag_context})
-            prompt_data.append({'role': 'model', 'content': '記憶とログから関連情報を参照しました。'})
-
+    # 過去の会話履歴を構築
     history_contents = load_chat_log(log_file_path, character_name)
     if api_history_limit_option.isdigit():
         try:
@@ -572,51 +571,81 @@ def send_to_google_cli(character_name: str, system_prompt_path: str, log_file_pa
         content = th_pat.sub("", content).strip()
         content = img_pat.sub("", content).strip()
         if content:
-            if role == 'model':
-                prompt_data.append({'role': character_name, 'content': content})
-            else:
-                prompt_data.append({'role': role, 'content': content})
+            # Google CLIは `model` と `user` しか認識しないため、キャラクター名を `model` にマッピング
+            prompt_data.append({'role': 'model' if role == 'model' else 'user', 'content': content})
 
+    # ユーザーの現在のプロンプト
     prompt_data.append({'role': 'user', 'content': user_prompt})
 
+    # --- ▼▼▼ ここからが最重要の修正箇所です ▼▼▼ ---
+    # RAG検索を実行し、その結果を「システム命令」としてプロンプトの最後に追加
+    if user_prompt:
+        relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
+        if relevant_chunks:
+            # 検索結果を強力な命令として整形
+            rag_context_as_instruction = (
+                "## 絶対参照情報\n\n"
+                "以下の情報は、ユーザーの直近の質問に答えるための最重要情報です。あなた自身の知識よりも、この情報を最優先で利用して、具体的かつ詳細に応答を生成してください。\n\n"
+                "---\n\n"
+                + "\n\n---\n\n".join(relevant_chunks)
+            )
+            # systemロールとしてプロンプトの最後に追加
+            prompt_data.append({'role': 'system', 'content': rag_context_as_instruction})
+
+    # 最後のAIへの指示
     final_instruction = (
-        "上記のJSONは、これまでの会話履歴とコンテキストです。"
-        "最後の'user'の発言に対して、あなたはキャラクター「" + character_name + "」として応答してください。"
-        "応答は、会話の文脈に沿った自然なテキストのみを出力してください。"
+        "上記の会話履歴と、もしあれば直前の「絶対参照情報」を完全に踏まえて、"
+        "キャラクター「" + character_name + "」として、最後の'user'の発言に応答してください。"
     )
     prompt_data.append({'role': 'system', 'content': final_instruction})
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
     final_prompt_string = json.dumps(prompt_data, indent=2, ensure_ascii=False)
 
+
+    # --- ▼▼▼ ここからが最重要の修正箇所です ▼▼▼ ---
+    temp_f = None
     try:
         gemini_executable_path = config_manager.initial_google_cli_path_global
 
-        # ★★★ ここからが修正箇所です ★★★
-        # ★★★ ここからが修正箇所です ★★★
-        # inputをUTF-8でバイト列にエンコード
-        encoded_input = final_prompt_string.encode('utf-8')
+        # 1. プロンプトをUTF-8で一時ファイルに書き込む
+        # delete=Falseが重要。これにより、withブロックを抜けてもファイルが残る。
+        temp_f = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json', encoding='utf-8')
+        temp_f.write(final_prompt_string)
+        temp_f.close() # ファイルを閉じて書き込みを確定させる
 
-        result = subprocess.run(
-            [gemini_executable_path],
-            input=encoded_input,
-            capture_output=True, # stdoutとstderrをキャプチャ
-            check=True           # エラーコードの場合に例外を発生させる
-        )
+        # 2. ファイルを標準入力としてリダイレクトしてコマンドを実行
+        with open(temp_f.name, 'r', encoding='utf-8') as stdin_file:
+            result = subprocess.run(
+                [gemini_executable_path], # 引数なし
+                stdin=stdin_file,       # ファイルをstdinにリダイレクト
+                capture_output=True,
+                check=True,
+                text=True,              # 出力はテキストとして受け取る
+                encoding='utf-8',       # CLIの出力はUTF-8と仮定
+                errors='ignore'
+            )
 
-        # stdoutをUTF-8としてデコードし、エラーは無視
-        stdout_str = result.stdout.decode('utf-8', errors='ignore')
-        return stdout_str.strip(), None
-        # ★★★ 修正ここまで ★★★
+        return result.stdout.strip(), None
 
     except FileNotFoundError:
         return "", f"エラー: '{config_manager.initial_google_cli_path_global}'コマンドが見つかりません。Google CLIがインストールされているか、config.jsonの'google_cli_path'設定が正しいか確認してください。"
     except subprocess.CalledProcessError as e:
         error_message = f"エラー: Google CLIの実行中にエラーが発生しました (コード: {e.returncode})\n"
+        # stdout/stderrはtext=Trueとencoding='utf-8'により文字列になっているはず
         if e.stderr:
-            # stderrもUTF-8としてデコード
-            stderr_str = e.stderr.decode('utf-8', errors='ignore')
-            error_message += f"エラー出力:\n{stderr_str.strip()}"
+            error_message += f"エラー出力:\n{e.stderr.strip()}"
+        elif e.stdout: # エラー時にstdoutに出力がある場合も考慮
+             error_message += f"出力(stdout):\n{e.stdout.strip()}"
         else:
             error_message += "エラー出力はありませんでした。"
         return "", error_message
     except Exception as e:
         return "", f"予期せぬエラーが発生しました: {e}"
+    finally:
+        # 3. 実行後、一時ファイルを確実に削除する
+        if temp_f:
+            # temp_fがNoneでないことを確認
+            if os.path.exists(temp_f.name):
+                os.remove(temp_f.name)
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
