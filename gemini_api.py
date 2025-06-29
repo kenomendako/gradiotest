@@ -577,27 +577,27 @@ def send_to_google_cli(character_name: str, system_prompt_path: str, log_file_pa
     # ユーザーの現在のプロンプト
     prompt_data.append({'role': 'user', 'content': user_prompt})
 
-    # --- ▼▼▼ ここからが最重要の修正箇所です ▼▼▼ ---
+    # --- ▼▼▼ ここからが最終・確定版の修正です ▼▼▼ ---
+
+    final_user_prompt_to_cli = user_prompt # 元のユーザープロンプト
 
     # RAG検索を実行
     relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
     if relevant_chunks:
-        # RAGの結果を「AI自身の内省的な記憶」として整形
-        # 【Thoughts】タグで囲むことで、ユーザーに直接見せるための発言ではないことを示す
-        rag_context_as_memory = "【Thoughts】\n（ユーザーの質問に関連する記憶を思い返している...）\n" + "\n".join(relevant_chunks) + "\n【/Thoughts】"
+        # 参考資料として、元のユーザープロンプトの「前」に情報を連結する
+        rag_context = (
+            "## 参考資料\n---\n"
+            + "\n\n---\n\n".join(relevant_chunks) +
+            "\n---\n上記の資料を**必ず**参考にして、次の質問に具体的に答えてください。\n\n"
+        )
+        final_user_prompt_to_cli = rag_context + user_prompt
 
-        # ユーザープロンプトの「直前」に、modelロールとして記憶を挿入する
-        prompt_data.append({'role': 'model', 'content': rag_context_as_memory})
+    # 構築した最終的なプロンプトをprompt_dataに追加
+    prompt_data.append({'role': 'user', 'content': final_user_prompt_to_cli})
 
-    # ユーザーの現在のプロンプト
-    prompt_data.append({'role': 'user', 'content': user_prompt})
-
-    # AIへのシステム命令はシンプルに保つ
-    final_instruction = (
-        "上記の会話履歴と内省的な思考（Thoughts）を完全に踏まえ、"
-        "キャラクター「" + character_name + "」として、最後の'user'の発言に応答してください。"
-    )
-    prompt_data.append({'role': 'system', 'content': final_instruction})
+    # AIへのシステム命令は、もはや不要なので削除します。
+    # final_instruction = ( ... )
+    # prompt_data.append({'role': 'system', 'content': final_instruction})
 
     # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
