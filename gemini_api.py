@@ -588,7 +588,7 @@ def send_to_google_cli(character_name: str, system_prompt_path: str, log_file_pa
         rag_context = (
             "## 参考資料\n---\n"
             + "\n\n---\n\n".join(relevant_chunks) +
-            "\n---\n上記の資料を**必ず**参考にして、次の質問に具体的に答えてください。\n\n"
+            "\n---\n上記の資料を参考にして、次の質問に答えてください。\n\n"
         )
         final_user_prompt_to_cli = rag_context + user_prompt
 
