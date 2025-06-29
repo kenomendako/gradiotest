@@ -553,51 +553,51 @@ def send_to_google_cli(character_name: str, system_prompt_path: str, log_file_pa
     prompt_data.append({'role': 'system', 'content': sys_ins_text})
     prompt_data.append({'role': 'model', 'content': 'はい、承知いたしました。指示に従い、対話を開始します。'})
 
-    # 過去の会話履歴を構築
-    history_contents = load_chat_log(log_file_path, character_name)
-    if api_history_limit_option.isdigit():
-        try:
-            limit = int(api_history_limit_option)
-            if limit > 0 and len(history_contents) > (limit * 2):
-                history_contents = history_contents[-(limit * 2):]
-        except ValueError:
-            pass
+    # --- ▼▼▼ ここからが一時的な修正箇所です ▼▼▼ ---
+    # RAG検索と会話履歴の読み込みを、このテストでは一旦すべてコメントアウトします。
 
-    for item in history_contents:
-        role = item.get('role', 'user')
-        content = item.get('content', '')
-        th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
-        img_pat = re.compile(r"\[Generated Image:[^\]]+\]\s*")
-        content = th_pat.sub("", content).strip()
-        content = img_pat.sub("", content).strip()
-        if content:
-            # Google CLIは `model` と `user` しか認識しないため、キャラクター名を `model` にマッピング
-            prompt_data.append({'role': 'model' if role == 'model' else 'user', 'content': content})
+    # # 過去の会話履歴を構築
+    # history_contents = load_chat_log(log_file_path, character_name)
+    # if api_history_limit_option.isdigit():
+    #     try:
+    #         limit = int(api_history_limit_option)
+    #         if limit > 0 and len(history_contents) > (limit * 2):
+    #             history_contents = history_contents[-(limit * 2):]
+    #     except ValueError:
+    #         pass
+    #
+    # for item in history_contents:
+    #     # role = item.get('role', 'user')
+    #     # content = item.get('content', '')
+    #     # th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
+    #     # img_pat = re.compile(r"\[Generated Image:[^\]]+\]\s*")
+    #     # content = th_pat.sub("", content).strip()
+    #     # content = img_pat.sub("", content).strip()
+    #     # if content:
+    #     #     # Google CLIは `model` と `user` しか認識しないため、キャラクター名を `model` にマッピング
+    #     #     prompt_data.append({'role': 'model' if role == 'model' else 'user', 'content': content})
+    #
+    # final_user_prompt_to_cli = user_prompt
+    # relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
+    # if relevant_chunks:
+    #     rag_context = (
+    #         "## 絶対参照情報\n\n"
+    #         "以下の情報は、ユーザーの直近の質問に答えるための最重要情報です。あなた自身の知識よりも、この情報を最優先で利用して、具体的かつ詳細に応答を生成してください。\n\n"
+    #         "---\n\n"
+    #         + "\n\n---\n\n".join(relevant_chunks)
+    #     )
+    #     final_user_prompt_to_cli = rag_context + user_prompt
 
-    # ユーザーの現在のプロンプト
+    # ユーザーの現在のプロンプトのみを追加
     prompt_data.append({'role': 'user', 'content': user_prompt})
 
-    # --- ▼▼▼ ここからが最重要の修正箇所です ▼▼▼ ---
-    # RAG検索を実行し、その結果を「システム命令」としてプロンプトの最後に追加
-    if user_prompt:
-        relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
-        if relevant_chunks:
-            # 検索結果を強力な命令として整形
-            rag_context_as_instruction = (
-                "## 絶対参照情報\n\n"
-                "以下の情報は、ユーザーの直近の質問に答えるための最重要情報です。あなた自身の知識よりも、この情報を最優先で利用して、具体的かつ詳細に応答を生成してください。\n\n"
-                "---\n\n"
-                + "\n\n---\n\n".join(relevant_chunks)
-            )
-            # systemロールとしてプロンプトの最後に追加
-            prompt_data.append({'role': 'system', 'content': rag_context_as_instruction})
-
-    # 最後のAIへの指示
+    # AIへのシステム命令はシンプルにする
     final_instruction = (
-        "上記の会話履歴と、もしあれば直前の「絶対参照情報」を完全に踏まえて、"
-        "キャラクター「" + character_name + "」として、最後の'user'の発言に応答してください。"
+        "上記の最後の'user'の発言に対して、"
+        "キャラクター「" + character_name + "」として、ごく自然に、短い挨拶を返してください。"
     )
     prompt_data.append({'role': 'system', 'content': final_instruction})
+
     # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
     final_prompt_string = json.dumps(prompt_data, indent=2, ensure_ascii=False)
