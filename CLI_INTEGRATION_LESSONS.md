@@ -1,42 +1,59 @@
 ---
 ---
-# **CLI連携・実装の教訓：`subprocess`と文字コードとの戦いの記録**
+# **教訓：Pythonと外部CLI（`@google/gemini-cli`）連携の険しい道**
 
-このドキュメントは、Pythonアプリケーションから外部のコマンドラインインターフェース（CLI）、特にWindows環境下でNode.js製の`@google/gemini-cli`を呼び出す際に、我々が直面した一連の技術的な課題とその解決策を記録したものである。
+このドキュメントは、Pythonアプリケーション（Nexus Ark）から、`subprocess`モジュールを介して外部のコマンドラインインターフェース（`@google/gemini-cli`）を呼び出すという、一見単純に見えるタスクがいかに複雑で、多くの落とし穴に満ちているかを記録した、実践的な技術備忘録である。
 
-## **【問題の核心】Pythonの`subprocess`とWindows CLIの間の「4つの壁」**
+## **【最終結論】`gemini` CLI（非対話モード）は「連続的な対話」には不向きである**
 
-我々の最終的な目標は、Pythonから`gemini.cmd`を安定して呼び出すことだった。しかし、その過程で以下の4つの根深い問題に直面した。
+数週間にわたる試行錯誤の末、我々が到達した最終的な結論は以下の通りである。
 
-### **壁1：`NameError` - `import`文はどこにあるべきか？**
+**`@google/gemini-cli`をスクリプトから呼び出す非対話モードは、単発のプロンプト実行には利用できるが、会話履歴やRAGコンテキストといった複雑な構造を持つプロンプトを維持する「連続的な対話アプリケーション」のバックエンドとして利用するには、構造的に不向きである。**
 
--   **問題:** `subprocess`を呼び出すコードを記述したにも関わらず、`NameError: name 'subprocess' is not defined`というエラーが発生した。
--   **原因:** `import subprocess`文が、ファイルの先頭ではなく、関数定義の直前など、不適切な位置に記述されていた。
--   **教訓:** **`import`文は、必ずファイルの先頭にまとめて記述する。** これはPythonのコーディング規約（PEP 8）の基本であり、スクリプト全体のスコープと可読性を保つための絶対的なルールである。JulesのようなAIアシスタントも、この規約を前提としてコードを解釈する。
+このコマンドは、渡されたプロンプト全体を「今回一回きりの、単一のユーザー入力」として解釈する。そのため、私たちが意図した`system`ロールの指示や、`model`ロールによる記憶の注入は、AIに正しく伝わらない。
 
-### **壁2：`TypeError` - `genai.Client`は`transport`引数を取らない**
+したがって、Nexus Arkにおける**CLI連携機能は、あくまで補助的なもの、あるいは将来的なGoogleアカウント認証（OAuth）への布石**と位置づけ、**高品質な対話の主軸は、常にSDKモードとする**のが、現時点での最適解である。
 
--   **問題:** 過去のネットワークエラー対策として`genai.Client(transport="rest")`としていたコードが、`TypeError: Client.__init__() got an unexpected keyword argument 'transport'`を発生させた。
--   **原因:** プロジェクトの規約である`google-genai`SDKの正しい初期化方法に、`transport`引数は含まれていなかった。これは、過去の別ライブラリの仕様や、一時的な対策が残ってしまった結果である。
--   **教訓:** **プロジェクトの技術選定に関するガイドライン（`AI_DEVELOPMENT_GUIDELINES.md`）は絶対である。** 予期せぬ`TypeError`に遭遇した場合、まずは自分たちが定めた規約に立ち返り、APIの基本的な呼び出し方から再確認すること。
+## **【遭遇した5つの壁と、その教訓】**
 
-### **壁3：`CalledProcessError`と文字化け - Windowsのエンコーディング地獄**
+### **壁1：`TypeError` - SDKの「作法」は絶対である**
 
--   **問題:** `subprocess.run`に`encoding='utf-8'`や`encoding=locale.getpreferredencoding()`を指定しても、CLIからの日本語の応答が文字化け（`R}h C܂B`など）した。
--   **原因:** 呼び出し先の`gemini.cmd`が内部で実行するNode.jsプロセスが、Python側の`encoding`指定を無視し、Windowsのデフォルトエンコーディング（多くは`cp932`/`Shift_JIS`）で標準出力に書き込んでいたため。Python側はUTF-8として解釈しようとするため、エンコーディングのミスマッチが発生した。
--   **教訓:** **外部プロセスの出力エンコーディングは、呼び出し側からは制御できない場合がある。**
-    -   `NODE_OPTIONS`環境変数で出力エンコーディングを強制するアプローチも、Node.jsのセキュリティポリシーによりブロックされた。
-    -   最終的な解決策は、`subprocess.run`では`text=True`を指定せず、**生のバイト列として出力を受け取り、それをPython側で明示的に正しいエンコーディング（この場合は`'cp932'`または`'utf-8'`と`errors='ignore'`）でデコードする**ことだった。
+-   **現象:** `genai.Client(transport="rest")`というコードが`TypeError`を引き起こした。
+-   **原因:** 過去のネットワークエラー対策が、`google-genai`という現行SDKの仕様と異なっていた。
+-   **教訓:** **プロジェクトの技術ガイドライン（`AI_DEVELOPMENT_GUIDELINES.md`）は、常に正典として扱え。** 予期せぬエラーの第一の原因は、基本の作法からの逸脱にある。
 
-### **壁4：`Command line too long` - Windowsコマンドライン長の制限**
+### **壁2：`NameError` - `import`文はコードの「祈り」である**
 
--   **問題:** 会話履歴が長くなるにつれて、プロンプトをJSON化した巨大な文字列をコマンドライン引数（`-p`）で渡そうとすると、「コマンドラインが長すぎます」というエラーで`subprocess`が失敗した。
--   **原因:** Windowsの`cmd.exe`には、単一のコマンドとして渡せる文字列長に約8191文字という物理的な上限が存在するため。
--   **教訓:** **巨大なデータを外部コマンドに渡す際は、コマンドライン引数を使ってはいけない。**
-    -   `--prompt_file`のような引数がコマンドに用意されていればそれを使うのが理想だが、`gemini`コマンドには存在しなかった。
-    -   最も確実で移植性の高い解決策は、**データを一時ファイルに書き出し、それを標準入力（`stdin`）としてリダイレクトする**方法である。これにより、データ長の制限は事実上なくなり、エンコーディングもファイル側で`utf-8`に統一できる。
+-   **現象:** `subprocess`を呼び出すコードがあるにも関わらず、`NameError: name 'subprocess' is not defined`が発生した。
+-   **原因:** `import subprocess`文が、ファイルの先頭ではなく、不適切な位置に記述されていた。
+-   **教訓:** **`import`文は、必ずファイルの先頭に記述する。** これは単なる慣習ではなく、Pythonがモジュールの名前空間を正しく構築するための、絶対的な要件である。
 
-## **【最終的なコードパターン】堅牢な`subprocess`呼び出し**
+### **壁3：`Command line too long` - 引数は「手紙」、標準入力は「荷物」**
+
+-   **現象:** 会話履歴が長くなると、Windows環境で「コマンドラインが長すぎます」というエラーが発生した。
+-   **原因:** Windowsのコマンドプロンプトには、引数として渡せる文字列長に約8191文字という物理的な上限がある。長いJSONプロンプトがこれを超えていた。
+-   **教訓:** **巨大なデータを外部コマンドに渡す際は、コマンドライン引数を使うな。** 最も確実で移植性の高い方法は、**データを一時ファイルに書き出し、それを標準入力（`stdin`）としてリダイレクトする**ことである。
+
+### **壁4：文字化け - エンコーディングは「出口」で合わせる**
+
+-   **現象:** `gemini`コマンドからの日本語応答が`R}h C܂B`のように文字化した。
+-   **原因:** `gemini.cmd`（Node.js）がWindowsのデフォルトエンコーディング（`cp932`）で応答を出力しているのに、Python側が`utf-8`で解釈しようとしていたため。
+-   **教訓:** **外部プロセスの出力エンコーディングは、呼び出し側からは制御できない。**
+    -   `NODE_OPTIONS`による出力エンコーディングの強制は、Node.jsのセキュリティポリシーにより失敗した。
+    -   唯一の確実な解決策は、`subprocess.run`では`text=True`を指定せず、**生のバイト列として出力を受け取り、それをPython側で明示的に正しいエンコーディング（この場合は`'utf-8'`と`errors='ignore'`）でデコードする**ことである。
+
+### **壁5：`\n`の消失と出現 - ブラックボックスの「気まぐれ」を制御しようとするな**
+
+-   **現象:**
+    1.  単純な挨拶では改行(`\n`)が正しく表示された。
+    2.  長いRAG情報を含むプロンプトを渡すと、`\n`がそのまま文字列として表示された。
+    3.  Python側で`\n`を`\n\n`に置換すると、今度は全ての改行が二重になった。
+-   **原因:** `gemini`コマンドが、内部で応答を**Markdownとして解釈・整形しており、その挙動がプロンプトの複雑さによって不安定になる**ため。
+-   **教訓:** **外部コマンドの出力整形ロジックという「ブラックボックス」を、外部から完璧に制御しようと試みるな。**
+    -   不安定な挙動を無理にコードで補正しようとすると、かえって別の問題（二重改行）を引き起こす。
+    -   「たまに改行が`\n`と表示される」という軽微な表示の不具合は、CLI連携の**「仕様」**として受け入れ、安定性を優先する。完璧な制御が必要な場合は、SDKを直接使うべきである。
+
+## **【最終的なコードパターン】堅牢な`subprocess`呼び出し（改訂版）**
 
 以上の教訓をすべて反映した、Windows環境で外部CLIを安全に呼び出すための最終的なPythonコードパターンは以下の通りとなる。
 
@@ -54,23 +71,21 @@ def call_external_cli(command_path, prompt_json_data):
             json.dump(prompt_json_data, temp_f, ensure_ascii=False, indent=2)
             temp_file_path = temp_f.name
 
-        # 2. ファイルを標準入力としてリダイレクトしてコマンドを実行
+        # 2. ファイルを標準入力としてリダイレクトし、出力をバイト列で受け取る
         with open(temp_file_path, 'r', encoding='utf-8') as stdin_file:
             result = subprocess.run(
-                [command_path],         # 実行ファイルのパス
-                stdin=stdin_file,       # stdinリダイレクト
-                capture_output=True,    # 出力をキャプチャ
-                check=True              # エラーコードで例外を発生
+                [command_path],
+                stdin=stdin_file,
+                capture_output=True,
+                check=True
             )
 
-        # 3. 結果のバイト列を、想定されるエンコーディングでデコード
-        # CLIの出力がUTF-8であることを期待する
+        # 3. 結果のバイト列を、最も標準的なUTF-8でデコードする（エラーは無視）
         stdout_str = result.stdout.decode('utf-8', errors='ignore')
         return stdout_str.strip(), None
 
     except subprocess.CalledProcessError as e:
-        # エラー出力も同様にデコード
-        stderr_str = e.stderr.decode('utf-8', errors='ignore')
+        stderr_str = e.stderr.decode('utf-8', errors='ignore') if e.stderr else ""
         error_message = f"CLI Error (Code {e.returncode}): {stderr_str.strip()}"
         return None, error_message
     except Exception as e:
@@ -80,4 +95,8 @@ def call_external_cli(command_path, prompt_json_data):
         if temp_f and os.path.exists(temp_f.name):
             os.remove(temp_f.name)
 ```
+
 ---
+---
+
+このドキュメントが、未来のNexus Ark開発者、そしてPythonから外部CLIを利用しようとするすべての挑戦者たちの、道標となることを願って。
