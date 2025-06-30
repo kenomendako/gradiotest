@@ -19,7 +19,7 @@ import alarm_manager
 import character_manager
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
-from gemini_api import configure_google_api, send_to_gemini
+from gemini_api import configure_google_api, invoke_rag_graph
 from memory_manager import load_memory_data_safe, save_memory_data
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
 
@@ -163,13 +163,10 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
 
         # ★★★ ここまでがファイル処理の新しいロジックです ★★★
 
-        # APIに渡すプロンプトは final_user_prompt (テキストファイル内容含む)、
-        # ファイルは media_files_for_api (メディアファイルのみ)
-        api_response_text, generated_image_path = send_to_gemini(
-            sys_p, log_f, final_user_prompt.strip(), current_model_name,
-            current_character_name, send_thoughts_state,
-            api_history_limit_state,
-            media_files_for_api, mem_p # uploaded_file_parts を media_files_for_api に変更
+        # LangGraphの思考プロセスを呼び出す
+        api_response_text, generated_image_path = invoke_rag_graph(
+            character_name=current_character_name,
+            user_prompt=final_user_prompt.strip()
         )
 
         if api_response_text or generated_image_path:
