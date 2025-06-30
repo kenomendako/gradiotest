@@ -2,23 +2,29 @@ import google.genai as genai
 from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig, FunctionDeclaration, FunctionCall
 import os
 import json
-import rag_manager
-import google.api_core.exceptions
-import re
 import traceback
 from typing import Optional
 from langchain_core.messages import HumanMessage
+from PIL import Image
+from io import BytesIO
+import uuid
 
 import config_manager
-from utils import save_message_to_log # load_chat_log は不要になる
+from utils import save_message_to_log
 from character_manager import get_character_files_paths
-# from agent.graph import graph # 新しく作成したグラフをインポート <- 循環参照のためコメントアウト
+from agent.graph import graph # グラフオブジェクトを直接インポート
+
+# rag_manager のインポートは循環参照を避けるため、関数内ローカルインポートに移動させるか、
+# DI (Dependency Injection) を検討する必要がありますが、一旦現状のまま進めます。
+# TODO: rag_manager のインポート方法を再検討
+import rag_manager
+
 
 _gemini_client = None
 
 def configure_google_api(api_key_name):
     """
-    APIキーを元にGoogle GenAI Clientを初期化する関数。（変更なし）
+    APIキーを元にGoogle GenAI Clientを初期化する関数。
     """
     if not api_key_name: return False, "APIキー名が指定されていません。"
     api_key = config_manager.API_KEYS.get(api_key_name)
@@ -34,13 +40,11 @@ def configure_google_api(api_key_name):
     except Exception as e:
         return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}"
 
-def invoke_rag_graph(graph_obj, character_name: str, user_prompt: str): # graph_obj を引数に追加
+def invoke_rag_graph(character_name: str, user_prompt: str, api_history_limit_option: str):
     """
     ユーザープロンプトを受け取り、RAG + 思考プロセスを実行するLangGraphを呼び出す。
     これが今後のAIとの対話の唯一の窓口となる。
     """
-    if not graph_obj:
-        return "エラー: LangGraphオブジェクトが提供されていません。", None
     if not user_prompt.strip():
         return "エラー: メッセージが空です。", None
 
@@ -49,11 +53,15 @@ def invoke_rag_graph(graph_obj, character_name: str, user_prompt: str): # graph_
         inputs = {
             "messages": [HumanMessage(content=user_prompt)],
             "character_name": character_name,
+            "api_history_limit_option": api_history_limit_option
         }
 
-        # グラフを実行し、最終的な結果を取得
-        # .invoke()は、すべてのノードの処理が終わった後の最終状態を返す
-        final_state = graph_obj.invoke(inputs) # graph を graph_obj に変更
+        # スレッドIDとしてキャラクター名を指定して、グラフを呼び出す
+        # これにより、キャラクターごとに会話の状態が正しく保存・管理される
+        final_state = graph.invoke(
+            inputs,
+            config={"configurable": {"thread_id": character_name}}
+        )
 
         # 最終状態のmessagesリストから、最後のメッセージ（AIの応答）を取得
         ai_response_message = final_state["messages"][-1]
@@ -69,10 +77,6 @@ def invoke_rag_graph(graph_obj, character_name: str, user_prompt: str): # graph_
     except Exception as e:
         traceback.print_exc()
         return f"エラー: グラフの実行中に予期しないエラーが発生しました: {e}", None
-
-# --- send_alarm_to_gemini と generate_image_with_gemini は変更なし ---
-# (既存のコードをここに維持してください)
-# (ただし、古いsend_to_geminiは削除されていることを確認してください)
 
 def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_model_name, api_key_name, log_file_path, alarm_api_history_turns):
     # (この関数の実装は変更ありません)
@@ -229,26 +233,28 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
             return f"【アラームエラー】応答処理エラー ({e}) ブロック理由: {response.prompt_feedback.block_reason}"
         return f"【アラームエラー】応答処理エラー ({e}) ブロック理由は不明"
 
-from PIL import Image
-from io import BytesIO
-import uuid
-
 def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: str, character_name: str) -> tuple[Optional[str], Optional[str]]:
     # (この関数の実装は変更ありません)
     if _gemini_client is None:
         return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
-    model_name = "gemini-1.0-pro" # Note: Update to a model that supports image generation if needed.
+    model_name = "gemini-1.5-pro-latest"
     try:
         print(f"--- Gemini 画像生成開始 (model: {model_name}) --- プロンプト: '{prompt[:100]}...'")
-        generation_config = GenerateImagesConfig(prompt=prompt)
-        response = _gemini_client.generate_images(model=model_name, config=generation_config)
+        response = _gemini_client.models.generate_content(
+            model=model_name,
+            contents=[prompt],
+        )
 
-        # This part needs to be adapted based on the actual response structure for image generation
-        # The following is a placeholder based on common patterns.
-        if response.images:
-            image_data = response.images[0].data # Assuming the first image's data
-            # ★★★ ここからが修正箇所 ★★★
-            # キャラクターごとの画像保存ディレクトリを決定
+        image_data = None
+        generated_text = None
+        if response.candidates and response.candidates[0].content:
+            for part in response.candidates[0].content.parts:
+                if "image" in part.mime_type: # Simple check, might need to be more robust
+                    image_data = part.data
+                if "text" in part.mime_type: # Simple check
+                    generated_text = part.text
+
+        if image_data:
             char_base_path = os.path.join("characters", character_name)
             save_dir = os.path.join(char_base_path, "images")
             os.makedirs(save_dir, exist_ok=True)
@@ -256,44 +262,21 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
             base_name = re.sub(r'[^\w\s-]', '', os.path.splitext(output_image_filename_suggestion)[0]).strip().replace(' ', '_')
             if not base_name: base_name = "gemini_image"
             unique_id = uuid.uuid4().hex[:8]
-            # MIMEタイプに基づいて拡張子を決定する仮定（実際のAPI応答構造に依存）
-            # ここでは .png をデフォルトとしますが、実際のAPI応答からMIMEタイプを取得して適切な拡張子を設定すべきです。
-            # 例えば、response.images[0].mime_type などで取得できるかもしれません。
-            # この例では image_mime_type 変数がないため、一旦 .png に固定します。
-            # img_ext = ".png"
-            # if image_mime_type == "image/jpeg": img_ext = ".jpg"
-            # elif image_mime_type == "image/webp": img_ext = ".webp"
-            # image_filename = f"{base_name}_{unique_id}{img_ext}"
-            image_filename = f"{base_name}_{unique_id}.png" # 仮にpngに固定
+            image_filename = f"{base_name}_{unique_id}.png"
 
-            # image_pathは、Gradioが表示するための「絶対パス」
-            image_path_absolute = os.path.abspath(os.path.join(save_dir, image_filename))
+            absolute_image_path = os.path.abspath(os.path.join(save_dir, image_filename))
+            relative_image_path = os.path.join(save_dir, image_filename).replace("\\", "/")
 
-            # log_pathは、ログに記録し、将来どこでも使えるようにするための「相対パス」
-            image_path_relative = os.path.join(save_dir, image_filename).replace("\\", "/")
-            image_path_for_log = None # 初期化
+            image = Image.open(BytesIO(image_data))
+            image.save(absolute_image_path)
 
-            try:
-                image = Image.open(BytesIO(image_data))
-                # if img_ext == ".jpg" and image.mode == 'RGBA': # img_extが固定なので不要
-                #     image = image.convert('RGB')
-                if image_filename.endswith(".jpg") and image.mode == 'RGBA': # 拡張子で判定
-                    image = image.convert('RGB')
-                # 絶対パスで画像を保存
-                image.save(image_path_absolute)
-                print(f"生成された画像を '{image_path_absolute}' に保存しました。")
-                # ログ記録用に相対パスを返す
-                image_path_for_log = image_path_relative
-
-            except Exception as img_e:
-                error_message = f"エラー: 画像データの処理または保存中にエラーが発生しました: {img_e}"
-                print(error_message)
-                traceback.print_exc()
-                return error_message, None # エラー時はNoneを返す
-
-            return "画像を生成しました。", image_path_for_log
+            print(f"生成された画像を '{absolute_image_path}' に保存しました。")
+            return generated_text or "画像を生成しました。", relative_image_path
         else:
-            return "画像生成に失敗しました。応答に画像データが含まれていません。", None
+            # If no image data, but text was generated, return the text.
+            if generated_text:
+                return generated_text, None
+            return "画像生成に失敗しました。", None # Default if neither image nor text
 
     except Exception as e:
         error_msg = f"エラー: Gemini画像生成中に予期しないエラーが発生しました: {e}"

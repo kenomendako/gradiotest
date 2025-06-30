@@ -166,7 +166,8 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
         # LangGraphの思考プロセスを呼び出す
         api_response_text, generated_image_path = invoke_rag_graph(
             character_name=current_character_name,
-            user_prompt=final_user_prompt.strip()
+            user_prompt=final_user_prompt.strip(),
+            api_history_limit_option=api_history_limit_state
         )
 
         if api_response_text or generated_image_path:
