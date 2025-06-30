@@ -33,8 +33,8 @@ def reflection_node(state: AgentState):
     # プロンプトを組み立て
     prompt = REFLECTION_PROMPT_TEMPLATE.format(user_prompt=user_prompt, rag_chunks=rag_chunks_str)
 
-    # 応答の骨子を考えるのは、最も高速・効率的なliteモデルで
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", temperature=0.7, google_api_key=os.environ.get("GOOGLE_API_KEY"))
+    # 応答の骨子を考えるのは、高速で安定したモデルで
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7, google_api_key=os.environ.get("GOOGLE_API_KEY"))
 
     # 応答の骨子を生成
     reflection_result = llm.invoke(prompt)
