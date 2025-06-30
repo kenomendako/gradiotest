@@ -1,4 +1,4 @@
-import os # GOOGLE_API_KEY を環境変数から取得するために必要
+import os
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
@@ -33,7 +33,7 @@ def reflection_node(state: AgentState):
     # プロンプトを組み立て
     prompt = REFLECTION_PROMPT_TEMPLATE.format(user_prompt=user_prompt, rag_chunks=rag_chunks_str)
 
-    # Geminiモデルを初期化
+    # Geminiモデルを初期化 (APIキーを明示的に指定)
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0.7, google_api_key=os.environ.get("GOOGLE_API_KEY"))
 
     # 応答の骨子を生成
@@ -60,7 +60,7 @@ def answer_generation_node(state: AgentState):
         chat_history=history_str
     )
 
-    # Geminiモデルを初期化 (キャラクターの個性を出すため、少し創造的に)
+    # Geminiモデルを初期化 (キャラクターの個性を出すため、少し創造的に、APIキーを明示的に指定)
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.9, google_api_key=os.environ.get("GOOGLE_API_KEY"))
 
     final_response = llm.invoke(prompt)
