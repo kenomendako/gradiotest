@@ -33,8 +33,8 @@ def reflection_node(state: AgentState):
     # プロンプトを組み立て
     prompt = REFLECTION_PROMPT_TEMPLATE.format(user_prompt=user_prompt, rag_chunks=rag_chunks_str)
 
-    # Geminiモデルを初期化 (APIキーを明示的に指定)
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0.7, google_api_key=os.environ.get("GOOGLE_API_KEY"))
+    # 応答の骨子を考えるのは高速な最新モデルで
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7, google_api_key=os.environ.get("GOOGLE_API_KEY"))
 
     # 応答の骨子を生成
     reflection_result = llm.invoke(prompt)
@@ -60,8 +60,8 @@ def answer_generation_node(state: AgentState):
         chat_history=history_str
     )
 
-    # Geminiモデルを初期化 (キャラクターの個性を出すため、少し創造的に、APIキーを明示的に指定)
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0.9, google_api_key=os.environ.get("GOOGLE_API_KEY"))
+    # 最終的な応答は、最新の高性能モデルで生成
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0.9, google_api_key=os.environ.get("GOOGLE_API_KEY"))
 
     final_response = llm.invoke(prompt)
     print(f"最終生成応答: {final_response.content}")
