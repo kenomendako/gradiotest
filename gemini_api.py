@@ -627,10 +627,7 @@ def send_to_google_cli(character_name: str, system_prompt_path: str, log_file_pa
                 errors='ignore'
             )
 
-        stdout_str = result.stdout
-        # 改行コード \n を \n\n に置換して、Markdownでの表示崩れを防ぐ
-        formatted_stdout = stdout_str.replace('\n', '\n\n')
-        return formatted_stdout.strip(), None
+        return result.stdout.strip(), None
 
     except FileNotFoundError:
         return "", f"エラー: '{config_manager.initial_google_cli_path_global}'コマンドが見つかりません。Google CLIがインストールされているか、config.jsonの'google_cli_path'設定が正しいか確認してください。"
