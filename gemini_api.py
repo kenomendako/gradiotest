@@ -233,7 +233,7 @@ from PIL import Image
 from io import BytesIO
 import uuid
 
-def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: str) -> tuple[Optional[str], Optional[str]]:
+def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: str, character_name: str) -> tuple[Optional[str], Optional[str]]:
     # (この関数の実装は変更ありません)
     if _gemini_client is None:
         return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
@@ -247,20 +247,51 @@ def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: st
         # The following is a placeholder based on common patterns.
         if response.images:
             image_data = response.images[0].data # Assuming the first image's data
-            _script_dir = os.path.dirname(os.path.abspath(__file__))
-            save_dir = os.path.join(_script_dir, "chat_attachments", "generated_images")
+            # ★★★ ここからが修正箇所 ★★★
+            # キャラクターごとの画像保存ディレクトリを決定
+            char_base_path = os.path.join("characters", character_name)
+            save_dir = os.path.join(char_base_path, "images")
             os.makedirs(save_dir, exist_ok=True)
 
             base_name = re.sub(r'[^\w\s-]', '', os.path.splitext(output_image_filename_suggestion)[0]).strip().replace(' ', '_')
             if not base_name: base_name = "gemini_image"
             unique_id = uuid.uuid4().hex[:8]
-            image_filename = f"{base_name}_{unique_id}.png"
-            image_path = os.path.join(save_dir, image_filename)
+            # MIMEタイプに基づいて拡張子を決定する仮定（実際のAPI応答構造に依存）
+            # ここでは .png をデフォルトとしますが、実際のAPI応答からMIMEタイプを取得して適切な拡張子を設定すべきです。
+            # 例えば、response.images[0].mime_type などで取得できるかもしれません。
+            # この例では image_mime_type 変数がないため、一旦 .png に固定します。
+            # img_ext = ".png"
+            # if image_mime_type == "image/jpeg": img_ext = ".jpg"
+            # elif image_mime_type == "image/webp": img_ext = ".webp"
+            # image_filename = f"{base_name}_{unique_id}{img_ext}"
+            image_filename = f"{base_name}_{unique_id}.png" # 仮にpngに固定
 
-            image = Image.open(BytesIO(image_data))
-            image.save(image_path)
+            # image_pathは、Gradioが表示するための「絶対パス」
+            image_path_absolute = os.path.abspath(os.path.join(save_dir, image_filename))
 
-            return "画像を生成しました。", image_path
+            # log_pathは、ログに記録し、将来どこでも使えるようにするための「相対パス」
+            image_path_relative = os.path.join(save_dir, image_filename).replace("\\", "/")
+            image_path_for_log = None # 初期化
+
+            try:
+                image = Image.open(BytesIO(image_data))
+                # if img_ext == ".jpg" and image.mode == 'RGBA': # img_extが固定なので不要
+                #     image = image.convert('RGB')
+                if image_filename.endswith(".jpg") and image.mode == 'RGBA': # 拡張子で判定
+                    image = image.convert('RGB')
+                # 絶対パスで画像を保存
+                image.save(image_path_absolute)
+                print(f"生成された画像を '{image_path_absolute}' に保存しました。")
+                # ログ記録用に相対パスを返す
+                image_path_for_log = image_path_relative
+
+            except Exception as img_e:
+                error_message = f"エラー: 画像データの処理または保存中にエラーが発生しました: {img_e}"
+                print(error_message)
+                traceback.print_exc()
+                return error_message, None # エラー時はNoneを返す
+
+            return "画像を生成しました。", image_path_for_log
         else:
             return "画像生成に失敗しました。応答に画像データが含まれていません。", None
 

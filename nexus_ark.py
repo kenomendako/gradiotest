@@ -22,6 +22,8 @@ custom_css = """
 #alarm_dataframe_display th:nth-child(1), #alarm_dataframe_display td:nth-child(1) { width: 50px !important; text-align: center !important; }
 #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
 """
+# allowed_characters_path の定義は demo.launch() の allowed_paths=["."] 設定により不要になったため削除
+# allowed_characters_path = os.path.abspath(config_manager.CHARACTERS_DIR)
 
 with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css) as demo:
     character_list_on_startup = character_manager.get_character_list()
@@ -211,5 +213,6 @@ if __name__ == "__main__":
     app, local_url, share_url = demo.queue().launch(
         server_name="0.0.0.0",
         server_port=7860,
-        share=False
+        share=False,
+        allowed_paths=["."] # このように変更
     )
