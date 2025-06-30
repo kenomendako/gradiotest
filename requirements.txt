@@ -1,7 +1,3 @@
-# Correct, modern SDK for Gemini API. DO NOT CHANGE.
-# Gemini API用の正しく新しいSDKです。変更しないでください。
-google-genai
-
 # Main application framework
 gradio
 
@@ -17,3 +13,21 @@ pandas
 # For RAG implementation
 faiss-cpu
 numpy
+
+# --- LangGraph and LangChain libraries ---
+# Core LangGraph library
+langgraph
+
+# Core LangChain libraries
+langchain
+langchain_core
+
+# Google Gemini integration for LangChain
+langchain_google_genai
+
+# Potentially needed for some LangChain/LangGraph features
+python-dotenv
+
+# Correct, modern SDK for Gemini API. DO NOT CHANGE.
+# Gemini API用の正しく新しいSDKです。変更しないでください。
+google-genai
