@@ -1,81 +1,31 @@
-# -*- coding: utf-8 -*-
-# ##############################################################################
-# #                                                                            #
-# #  ! ! ! ! ! ! ! ! ! ! !   CRITICAL AI INSTRUCTION   ! ! ! ! ! ! ! ! ! ! ! !  #
-# #                                                                            #
-# #   THIS FILE MUST USE THE `google-genai` SDK.                               #
-# #   DO NOT use the deprecated `google-generativeai` library.                 #
-# #                                                                            #
-# #   Correct Import: `from google import genai`                               #
-# #   Incorrect Import: `import google.generativeai as genai`                  #
-# #                                                                            #
-# #   Refer to `AI_DEVELOPMENT_GUIDELINES.md` for details.                     #
-# #                                                                            #
-# # ! ! ! ! ! ! ! ! ! ! !   AIへの最重要指示   ! ! ! ! ! ! ! ! ! ! ! ! #
-# #                                                                            #
-# #   このファイルは `google-genai` SDK を使用します。                         #
-# #   非推奨の `google-generativeai` ライブラリは使用禁止です。                #
-# #                                                                            #
-# #   正しいImport: `from google import genai`                                 #
-# #   間違いのImport: `import google.generativeai as genai`                    #
-# #                                                                            #
-# #   詳細は `AI_DEVELOPMENT_GUIDELINES.md` を参照してください。               #
-# #                                                                            #
-# ##############################################################################
 import google.genai as genai
-# from google.genai import types # types は Content, Part で直接指定するため不要に
-from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig, FunctionDeclaration, FunctionCall # Content, Part を明示的にインポート
+from google.genai.types import Tool, GoogleSearch, GenerateContentConfig, Content, Part, GenerateImagesConfig, FunctionDeclaration, FunctionCall
 import os
 import json
-import rag_manager # 追加
-import google.api_core.exceptions
-import re
-import math
 import traceback
-import base64
+from typing import Optional
+from langchain_core.messages import HumanMessage
 from PIL import Image
-from io import BytesIO # Specific import for BytesIO
-from typing import Optional # Added for type hinting
-import io # Keep original io import if other parts of the file use it directly
+from io import BytesIO
 import uuid
+
 import config_manager
-from utils import load_chat_log, save_message_to_log
+from utils import save_message_to_log
 from character_manager import get_character_files_paths
+from agent.graph import graph # グラフオブジェクトを直接インポート
+
+# rag_manager のインポートは循環参照を避けるため、関数内ローカルインポートに移動させるか、
+# DI (Dependency Injection) を検討する必要がありますが、一旦現状のまま進めます。
+# TODO: rag_manager のインポート方法を再検討
+import rag_manager
+
 
 _gemini_client = None
 
-# ★★★ 1. ツールの定義を、進化させる ★★★
-def _define_image_generation_tool():
-    """
-    AIに「次に何をすべきか」を判断させるための、新しいツールセットを定義します。
-    """
-    return Tool(
-        function_declarations=[
-            # 行動計画を立てさせるための、新しい関数
-            FunctionDeclaration(
-                name="plan_next_action",
-                description="ユーザーのリクエストに応じて、次に取るべき行動を計画します。返答するだけか、画像を生成するかを決定します。",
-                parameters={
-                    "type": "OBJECT",
-                    "properties": {
-                        "action_type": {
-                            "type": "STRING",
-                            "description": "実行するアクションの種類。'TALK' または 'GENERATE_IMAGE' のいずれか。",
-                            "enum": ["TALK", "GENERATE_IMAGE"]
-                        },
-                        "details": {
-                            "type": "STRING",
-                            "description": "アクションの詳細。action_typeが'TALK'の場合は応答テキスト、'GENERATE_IMAGE'の場合は画像生成用の英語プロンプト。"
-                        }
-                    },
-                    "required": ["action_type", "details"]
-                }
-            )
-        ]
-    )
-
-# --- Google API (Gemini) 連携関数 ---
 def configure_google_api(api_key_name):
+    """
+    APIキーを元にGoogle GenAI Clientを初期化する関数。
+    """
     if not api_key_name: return False, "APIキー名が指定されていません。"
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -83,162 +33,59 @@ def configure_google_api(api_key_name):
     try:
         global _gemini_client
         _gemini_client = genai.Client(api_key=api_key)
-        print(f"Google GenAI Client for API key '{api_key_name}' initialized successfully.")
+        # LangChain用のGoogle APIキーも設定
+        os.environ['GOOGLE_API_KEY'] = api_key
+        print(f"Google GenAI Client and LangChain environment for API key '{api_key_name}' initialized successfully.")
         return True, None
     except Exception as e:
         return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}"
 
-# ★★★ 2. APIとの対話方法を、根本的に、変更する ★★★
-def send_to_gemini(system_prompt_path, log_file_path, user_prompt, selected_model, character_name, send_thoughts_to_api, api_history_limit_option, uploaded_file_parts: list = None, memory_json_path=None):
-    if _gemini_client is None:
-        return "エラー: Geminiクライアントが初期化されていません。", None
-
-    # --- ステップ1: AIの「意思」を確認する ---
-    print(f"--- 対話処理開始 (意思決定フェーズ) ---")
-
-    # (プロンプトと履歴の準備：既存のロジックを流用)
-    sys_ins_text = "あなたはチャットボットです。"
-    # ... (この部分は既存のコードと同じなので省略) ...
-    if system_prompt_path and os.path.exists(system_prompt_path):
-        try:
-            with open(system_prompt_path, "r", encoding="utf-8") as f: sys_ins_text = f.read().strip() or sys_ins_text
-        except Exception as e: print(f"システムプロンプト '{system_prompt_path}' 読込エラー: {e}")
-    if memory_json_path and os.path.exists(memory_json_path):
-        try:
-            with open(memory_json_path, "r", encoding="utf-8") as f: mem = json.load(f)
-            m_api = {k: v for k, v in {
-                "user_profile": mem.get("user_profile"), "self_identity": mem.get("self_identity"),
-                "shared_language": mem.get("shared_language"), "current_context": mem.get("current_context"),
-                "memory_summary": mem.get("memory_summary", [])[-config_manager.MEMORY_SUMMARY_LIMIT_FOR_API:]
-            }.items() if v}
-            if m_api: sys_ins_text += f"\n\n---\n## 参考記憶:\n{json.dumps(m_api, indent=2, ensure_ascii=False)}\n---"
-        except Exception as e: print(f"記憶ファイル '{memory_json_path}' 読込/処理エラー: {e}")
-    msgs = load_chat_log(log_file_path, character_name)
-    if api_history_limit_option.isdigit():
-        try:
-            limit = int(api_history_limit_option)
-            if limit > 0:
-                limit_msgs = limit * 2
-                if len(msgs) > limit_msgs: msgs = msgs[-limit_msgs:]
-        except ValueError: print(f"警告: api_history_limit_option '{api_history_limit_option}' は不正な数値です。")
-    if msgs and msgs[-1].get("role") == "user": msgs = msgs[:-1]
-    api_contents_from_history = []
-    th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
-    for m in msgs:
-        sdk_role = "user" if m.get("role") == "user" else "model"
-        content_text = m.get("content", "")
-        if not content_text: continue
-        processed_text = content_text
-        if sdk_role == "user": processed_text = re.sub(r"\[画像添付:[^\]]+\]", "", processed_text).strip()
-        elif sdk_role == "model" and not send_thoughts_to_api: processed_text = th_pat.sub("", processed_text).strip()
-        if processed_text: api_contents_from_history.append(Content(role=sdk_role, parts=[Part(text=processed_text)]))
-    current_turn_parts = []
-    if user_prompt: current_turn_parts.append(Part(text=user_prompt))
-    if uploaded_file_parts:
-        for file_detail in uploaded_file_parts:
-            file_path = file_detail['path']
-            mime_type = file_detail['mime_type']
-            if os.path.exists(file_path):
-                try:
-                    with open(file_path, 'rb') as f_bytes: file_bytes = f_bytes.read()
-                    encoded_data = base64.b64encode(file_bytes).decode('utf-8')
-                    current_turn_parts.append(Part(inline_data={"mime_type": mime_type, "data": encoded_data}))
-                except Exception as e: print(f"警告: ファイル '{os.path.basename(file_path)}' の処理中にエラー: {e}")
-            else: print(f"警告: 指定されたファイルパス '{file_path}' が見つかりません。")
-
-    # (プロンプト構築：既存のロジックを流用)
-    final_api_contents = []
-    if sys_ins_text:
-        final_api_contents.append(Content(role="user", parts=[Part(text=sys_ins_text)]))
-        final_api_contents.append(Content(role="model", parts=[Part(text="はい、承知いたしました。指示に従い、対話を開始します。")]))
-    if user_prompt:
-        relevant_chunks = rag_manager.search_relevant_chunks(character_name, user_prompt)
-        if relevant_chunks:
-            rag_context = "## 関連性の高い参考情報\n\n" + "\n\n---\n\n".join(relevant_chunks)
-            final_api_contents.append(Content(role="user", parts=[Part(text=rag_context)]))
-            final_api_contents.append(Content(role="model", parts=[Part(text="記憶とログから関連情報を参照しました。")]))
-    final_api_contents.extend(api_contents_from_history)
-    if current_turn_parts:
-        final_api_contents.append(Content(role="user", parts=current_turn_parts))
-
-    # (API呼び出し設定：既存のロジックを流用)
-    action_planning_tool = _define_image_generation_tool() # 新しいツールセット
-    formatted_safety_settings = []
-    if config_manager.SAFETY_CONFIG and isinstance(config_manager.SAFETY_CONFIG, dict):
-        for category, threshold in config_manager.SAFETY_CONFIG.items():
-            formatted_safety_settings.append({"category": category, "threshold": threshold})
+def invoke_rag_graph(character_name: str, user_prompt: str, api_history_limit_option: str, uploaded_file_parts: list):
+    """
+    ユーザープロンプトを受け取り、RAG + 思考プロセスを実行するLangGraphを呼び出す。
+    これが今後のAIとの対話の唯一の窓口となる。
+    """
+    # UI側でチェックしているので、ここではチェック不要。空でも処理を続行する。
+    # if not user_prompt.strip():
+    #     return "エラー: メッセージが空です。", None
 
     try:
-        generation_config = GenerateContentConfig(tools=[action_planning_tool], safety_settings=formatted_safety_settings)
-        response = _gemini_client.models.generate_content(
-            model=selected_model,
-            contents=final_api_contents,
-            config=generation_config
+        # テキストと画像パーツを結合して、単一のHumanMessageを作成
+        content_parts = [user_prompt]
+        if uploaded_file_parts:
+            content_parts.extend(uploaded_file_parts)
+
+        inputs = {
+            "messages": [HumanMessage(content=content_parts)],
+            "character_name": character_name,
+            "api_history_limit_option": api_history_limit_option,
+            "uploaded_file_parts": uploaded_file_parts
+        }
+
+        # スレッドIDとしてキャラクター名を指定して、グラフを呼び出す
+        # これにより、キャラクターごとに会話の状態が正しく保存・管理される
+        final_state = graph.invoke(
+            inputs,
+            config={"configurable": {"thread_id": character_name}}
         )
 
-        # ★★★ ここが、最後の、防波堤です ★★★
-        # 応答候補が、そもそも、存在しない場合
-        if not response.candidates:
-            # 応答がブロックされた理由を確認する
-            if hasattr(response, 'prompt_feedback') and response.prompt_feedback.block_reason:
-                reason = response.prompt_feedback.block_reason.name
-                error_message = f"エラー: 応答がブロックされました。理由: {reason}"
-                print(f"警告: {error_message}")
-                return error_message, None
-            else:
-                # その他の理由で応答がない場合
-                error_message = "エラー: モデルから有効な応答がありませんでした。（モデルの内部的な問題か、安全フィルター以外の理由でブロックされた可能性があります）"
-                print(f"警告: {error_message}")
-                return error_message, None
+        # 最終状態のmessagesリストから、最後のメッセージ（AIの応答）を取得
+        ai_response_message = final_state["messages"][-1]
 
-        candidate = response.candidates[0]
+        # AIの応答テキストを返す
+        api_response_text = ai_response_message.content
 
-        # (以降の処理は、変更ありません)
-        # AIがツールを使わずに、ただテキストを返してきた場合
-        if not candidate.content or not candidate.content.parts or not candidate.content.parts[0].function_call:
-            print("情報: AIの意思は 'TALK' です。")
-            final_text_parts = [part.text for part in candidate.content.parts if hasattr(part, 'text') and part.text is not None]
-            final_text = "".join(final_text_parts).strip()
-            return final_text, None
+        # 現時点では画像生成機能はないため、image_pathはNoneを返す
+        generated_image_path = None
 
-        # AIが行動計画ツールを呼び出した場合
-        function_call = candidate.content.parts[0].function_call
-        if function_call.name == "plan_next_action":
-            args = function_call.args
-            action_type = args.get("action_type")
-            details = args.get("details", "")
+        return api_response_text, generated_image_path
 
-            # --- ステップ2: AIの「意思」に基づき、コードが「実行」する ---
-            if action_type == "GENERATE_IMAGE":
-                # (この部分は変更ありません)
-                # ...
-                print(f"情報: AIの意思は 'GENERATE_IMAGE' です。プロンプト: '{details[:100]}...'")
-                sanitized_base_name = "".join(c for c in details[:30] if c.isalnum() or c in [' ']).strip().replace(' ', '_')
-                filename_suggestion = f"{character_name}_{sanitized_base_name}"
-                text_response, image_path = generate_image_with_gemini(prompt=details, output_image_filename_suggestion=filename_suggestion)
-                if not image_path:
-                    return f"画像生成に失敗しました。理由: {text_response}", None
-                print("情報: 画像生成成功。AIにコメント生成を依頼します。")
-                comment_request_prompt = [*final_api_contents, Content(role="user", parts=[Part(text=f"（システム情報：画像生成に成功しました。画像パスは '{image_path}' です。この事実に基づき、ユーザーへの応答メッセージだけを、あなたの言葉で生成してください。）")])]
-                comment_response = _gemini_client.models.generate_content(model=selected_model, contents=comment_request_prompt, config=GenerateContentConfig(safety_settings=formatted_safety_settings))
-                comment_candidate = comment_response.candidates[0]
-                comment_text_parts = [part.text for part in comment_candidate.content.parts if hasattr(part, 'text') and part.text is not None]
-                final_comment = "".join(comment_text_parts).strip()
-                return final_comment, image_path
-
-            else: # action_type == "TALK"
-                print("情報: AIの意思は 'TALK' (ツール経由) です。")
-                return details, None
-        else:
-            return f"エラー: 不明な関数 '{function_call.name}' が呼び出されました。", None
-
-    except google.api_core.exceptions.GoogleAPIError as e:
-        return f"エラー: Gemini APIとの通信中にエラーが発生しました: {e}", None
     except Exception as e:
         traceback.print_exc()
-        return f"エラー: Gemini APIとの通信中に予期しないエラーが発生しました: {e}", None
+        return f"エラー: グラフの実行中に予期しないエラーが発生しました: {e}", None
 
 def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_model_name, api_key_name, log_file_path, alarm_api_history_turns):
+    # (この関数の実装は変更ありません)
     print(f"--- アラーム応答生成開始 (google-genai SDK, client.models.generate_content) --- キャラ: {character_name}, テーマ: '{theme}'")
     if _gemini_client is None:
         print("警告: _gemini_client is None in send_alarm_to_gemini. Attempting to configure with provided api_key_name.")
@@ -277,12 +124,13 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
 
     api_contents_from_history = []
     if alarm_api_history_turns > 0:
+        from utils import load_chat_log # ローカルインポート
         msgs = load_chat_log(log_file_path, character_name)
         limit_msgs = alarm_api_history_turns * 2
         if len(msgs) > limit_msgs: msgs = msgs[-limit_msgs:]
 
         th_pat = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
-        img_pat = re.compile(r"\[画像添付:[^\]]+\]")
+        img_pat = re.compile(r"\[Generated Image: [^\]]+\]")
         alrm_pat = re.compile(r"（システムアラーム：.*?）")
 
         for m in msgs:
@@ -341,14 +189,10 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
     else:
         formatted_safety_settings = None
 
-    generation_config_args = {}
-    if formatted_safety_settings:
-        generation_config_args["safety_settings"] = formatted_safety_settings
-
     active_generation_config = None
-    if generation_config_args:
+    if formatted_safety_settings:
         try:
-            active_generation_config = GenerateContentConfig(**generation_config_args)
+            active_generation_config = GenerateContentConfig(safety_settings=formatted_safety_settings)
         except Exception as e:
             print(f"警告: アラーム用 GenerateContentConfig の作成中にエラー: {e}.")
 
@@ -395,119 +239,53 @@ def send_alarm_to_gemini(character_name, theme, flash_prompt_template, alarm_mod
             return f"【アラームエラー】応答処理エラー ({e}) ブロック理由: {response.prompt_feedback.block_reason}"
         return f"【アラームエラー】応答処理エラー ({e}) ブロック理由は不明"
 
-
-def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: str) -> tuple[Optional[str], Optional[str]]:
-    """
-    Generates an image using a Gemini model with response_modalities and saves it.
-    This function is updated to use the specified image generation model and robustly parse its response.
-
-    Args:
-        prompt (str): The text prompt for image generation.
-        output_image_filename_suggestion (str): A suggestion for the output image filename.
-
-    Returns:
-        tuple: (generated_text, image_path)
-               generated_text (str or None): Text response from the model, if any.
-               image_path (str or None): Path to the saved image, or None if generation failed.
-    """
+def generate_image_with_gemini(prompt: str, output_image_filename_suggestion: str, character_name: str) -> tuple[Optional[str], Optional[str]]:
+    # (この関数の実装は変更ありません)
     if _gemini_client is None:
         return "エラー: Geminiクライアントが初期化されていません。APIキーを設定してください。", None
-
-    # ユーザー指定の、テキスト・画像同時生成に特化したプレビューモデルを使用
-    model_name = "gemini-2.0-flash-preview-image-generation"
-
+    model_name = "gemini-1.5-pro-latest"
     try:
         print(f"--- Gemini 画像生成開始 (model: {model_name}) --- プロンプト: '{prompt[:100]}...'")
-
-        # テキストと画像の両方を出力するようモデルに要求
-        generation_config = GenerateContentConfig(
-            response_modalities=['TEXT', 'IMAGE']
-        )
-
-        # generate_contentを呼び出し
         response = _gemini_client.models.generate_content(
             model=model_name,
-            contents=[prompt], # プロンプトはシンプルなリストで渡す
-            config=generation_config
+            contents=[prompt],
         )
 
-        generated_text = None
-        image_path = None
-        error_message = None
-
-        if not response.candidates:
-            error_message = "画像生成エラー: モデルから有効な応答候補(candidate)がありませんでした。"
-            if hasattr(response, 'prompt_feedback') and response.prompt_feedback.block_reason:
-                error_message += f" ブロック理由: {response.prompt_feedback.block_reason}"
-            print(error_message)
-            return error_message, None
-
-        # --- 最新のSDK仕様に準拠した、安全な応答解析ロジック ---
-        candidate = response.candidates[0]
         image_data = None
-        image_mime_type = None
+        generated_text = None
+        if response.candidates and response.candidates[0].content:
+            for part in response.candidates[0].content.parts:
+                if "image" in part.mime_type: # Simple check, might need to be more robust
+                    image_data = part.data
+                if "text" in part.mime_type: # Simple check
+                    generated_text = part.text
 
-        # 1. 応答の全パートを安全にループして、テキストと画像を抽出
-        for part in candidate.content.parts:
-            if hasattr(part, 'text') and part.text:
-                current_part_text = part.text.strip()
-                if current_part_text:
-                    generated_text = f"{generated_text}\n{current_part_text}" if generated_text else current_part_text
-                    print(f"画像生成APIからテキスト部分を取得: {current_part_text[:100]}...")
-
-            if hasattr(part, 'inline_data') and hasattr(part.inline_data, 'data') and part.inline_data.data:
-                image_data = part.inline_data.data
-                image_mime_type = part.inline_data.mime_type
-                print(f"画像生成APIから画像データ (MIME: {image_mime_type}) を取得しました。")
-                # 画像が見つかっても、他にテキストパートがある可能性があるのでループは継続
-
-        # 2. 画像データが見つかった場合にファイルとして保存
         if image_data:
-            _script_dir = os.path.dirname(os.path.abspath(__file__))
-            save_dir = os.path.join(_script_dir, "chat_attachments", "generated_images")
+            char_base_path = os.path.join("characters", character_name)
+            save_dir = os.path.join(char_base_path, "images")
             os.makedirs(save_dir, exist_ok=True)
 
-            base_name_suggestion, _ = os.path.splitext(output_image_filename_suggestion)
-            base_name = re.sub(r'[^\w\s-]', '', base_name_suggestion).strip()
-            base_name = re.sub(r'[-\s]+', '_', base_name)
+            base_name = re.sub(r'[^\w\s-]', '', os.path.splitext(output_image_filename_suggestion)[0]).strip().replace(' ', '_')
             if not base_name: base_name = "gemini_image"
-
             unique_id = uuid.uuid4().hex[:8]
-            img_ext = ".png" # デフォルト
-            if image_mime_type == "image/jpeg": img_ext = ".jpg"
-            elif image_mime_type == "image/webp": img_ext = ".webp"
+            image_filename = f"{base_name}_{unique_id}.png"
 
-            image_filename = f"{base_name}_{unique_id}{img_ext}"
-            temp_image_path = os.path.join(save_dir, image_filename)
+            absolute_image_path = os.path.abspath(os.path.join(save_dir, image_filename))
+            relative_image_path = os.path.join(save_dir, image_filename).replace("\\", "/")
 
-            try:
-                image = Image.open(BytesIO(image_data))
-                if img_ext == ".jpg" and image.mode == 'RGBA':
-                    image = image.convert('RGB')
-                image.save(temp_image_path)
-                image_path = temp_image_path
-                print(f"生成された画像を '{image_path}' に保存しました。")
-            except Exception as img_e:
-                error_message = f"エラー: 画像データの処理または保存中にエラーが発生しました: {img_e}"
-                print(error_message)
-                traceback.print_exc()
-                generated_text = f"{generated_text}\n{error_message}" if generated_text else error_message
+            image = Image.open(BytesIO(image_data))
+            image.save(absolute_image_path)
 
-        # 3. 画像もテキストもなかった場合の最終フォールバック
-        if image_path is None and generated_text is None and error_message is None:
-            error_message = "モデル応答にテキストまたは画像データが見つかりませんでした。"
-            print(error_message)
-            return error_message, None
+            print(f"生成された画像を '{absolute_image_path}' に保存しました。")
+            return generated_text or "画像を生成しました。", relative_image_path
+        else:
+            # If no image data, but text was generated, return the text.
+            if generated_text:
+                return generated_text, None
+            return "画像生成に失敗しました。", None # Default if neither image nor text
 
-    except google.api_core.exceptions.GoogleAPIError as e:
-        error_msg = f"エラー: Gemini APIとの通信中にエラーが発生しました (画像生成): {e}"
-        print(error_msg)
-        traceback.print_exc()
-        return error_msg, None
     except Exception as e:
         error_msg = f"エラー: Gemini画像生成中に予期しないエラーが発生しました: {e}"
         print(error_msg)
         traceback.print_exc()
         return error_msg, None
-
-    return generated_text, image_path

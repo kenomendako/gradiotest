@@ -12,6 +12,7 @@ import shutil
 import character_manager
 import gemini_api
 from utils import load_chat_log
+import config_manager # 追加
 
 # 定数定義
 RAG_DIR = "rag_data"
@@ -37,8 +38,18 @@ def _chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> Li
 def create_or_update_index(character_name: str) -> bool:
     print(f"--- RAG索引作成開始: {character_name} ---")
     if not gemini_api._gemini_client:
-        print("エラー: Geminiクライアントが初期化されていません。")
-        return False
+        print("情報: rag_manager.create_or_update_index - Geminiクライアントが未初期化のため、初期化を試みます。")
+        if hasattr(config_manager, 'initial_api_key_name_global') and config_manager.initial_api_key_name_global:
+            success, msg = gemini_api.configure_google_api(config_manager.initial_api_key_name_global)
+            if not success:
+                print(f"エラー: Geminiクライアントの初期化に失敗しました: {msg}")
+                return False
+        else:
+            print("エラー: 設定ファイルに initial_api_key_name_global が見つかりません。")
+            return False
+        if not gemini_api._gemini_client: # 再度チェック
+            print("エラー: Geminiクライアントの初期化に失敗しました（再チェック）。")
+            return False
 
     # ★★★ system_prompt.txt (sys_p) のパス取得は不要になる ★★★
     # log_f, sys_p, _, mem_p = character_manager.get_character_files_paths(character_name) # 元の行
@@ -135,8 +146,18 @@ def create_or_update_index(character_name: str) -> bool:
 
 def search_relevant_chunks(character_name: str, query_text: str, top_k: int = 5) -> List[str]:
     if not gemini_api._gemini_client:
-        print("エラー: Geminiクライアントが初期化されていません。")
-        return []
+        print("情報: rag_manager.search_relevant_chunks - Geminiクライアントが未初期化のため、初期化を試みます。")
+        if hasattr(config_manager, 'initial_api_key_name_global') and config_manager.initial_api_key_name_global:
+            success, msg = gemini_api.configure_google_api(config_manager.initial_api_key_name_global)
+            if not success:
+                print(f"エラー: Geminiクライアントの初期化に失敗しました: {msg}")
+                return []
+        else:
+            print("エラー: 設定ファイルに initial_api_key_name_global が見つかりません。")
+            return []
+        if not gemini_api._gemini_client: # 再度チェック
+            print("エラー: Geminiクライアントの初期化に失敗しました（再チェック）。")
+            return []
 
     rag_path = _get_rag_data_path(character_name)
     if not rag_path: return []

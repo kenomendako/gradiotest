@@ -19,7 +19,7 @@ import alarm_manager
 import character_manager
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
-from gemini_api import configure_google_api, send_to_gemini
+from gemini_api import configure_google_api, invoke_rag_graph
 from memory_manager import load_memory_data_safe, save_memory_data
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
 
@@ -147,8 +147,9 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
         # 最終的なユーザープロンプトを構築
         final_user_prompt = user_prompt_from_textbox + text_files_content
 
+        # ★★★ ここからが修正箇所 ★★★
         if not final_user_prompt.strip() and not media_files_for_api:
-            # gr.Info("メッセージまたはファイルを送信してください。") # 頻繁なのでコメントアウト
+            # テキストもファイルも、両方ない場合は何もしない
             return chatbot_history, gr.update(), gr.update(value=None)
 
         # ログに記録するメッセージを作成
@@ -156,20 +157,33 @@ def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[s
         if attached_filenames_for_log: # 添付ファイルがある場合のみファイル名を追記
             log_message_content += "\n[ファイル添付: " + ", ".join(attached_filenames_for_log) + "]"
 
+        # もしテキスト入力がなく、ファイル添付のみの場合は、
+        # ログ記録はファイル名のみで行い、APIにはダミーテキストを渡す
+        if not user_prompt_from_textbox.strip() and media_files_for_api:
+            final_user_prompt_for_api = "（画像が添付されました）"
+        else:
+            final_user_prompt_for_api = final_user_prompt.strip()
+        # ★★★ 修正ここまで ★★★
+
         user_header = _get_user_header_from_log(log_f, current_character_name)
         timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         # ログには、テキストボックスの入力とファイル名のみを記録（ファイル内容は記録しない）
         save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
 
-        # ★★★ ここまでがファイル処理の新しいロジックです ★★★
+        # LangChainのMessage形式に合うように画像パーツを準備
+        # (この時点ではgemini_api.pyへの受け渡しのみで、グラフ内では未使用)
+        lc_image_parts = []
+        if media_files_for_api:
+            for file_info in media_files_for_api:
+                # ここではMIMEタイプとパスのみを渡す（実際のデータ読み込みは不要）
+                # 将来、グラフ内で画像認識を行う際に利用
+                lc_image_parts.append({"type": "image_url", "image_url": {"url": f"file://{file_info['path']}"}})
 
-        # APIに渡すプロンプトは final_user_prompt (テキストファイル内容含む)、
-        # ファイルは media_files_for_api (メディアファイルのみ)
-        api_response_text, generated_image_path = send_to_gemini(
-            sys_p, log_f, final_user_prompt.strip(), current_model_name,
-            current_character_name, send_thoughts_state,
-            api_history_limit_state,
-            media_files_for_api, mem_p # uploaded_file_parts を media_files_for_api に変更
+        api_response_text, generated_image_path = invoke_rag_graph(
+            character_name=current_character_name,
+            user_prompt=final_user_prompt_for_api, # 修正：新しい変数を使う
+            api_history_limit_option=api_history_limit_state,
+            uploaded_file_parts=lc_image_parts
         )
 
         if api_response_text or generated_image_path:

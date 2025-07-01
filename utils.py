@@ -103,8 +103,9 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
                 for match in file_matches:
                     filepath = match.group(1).strip()
                     original_filename = os.path.basename(filepath)
-                    if os.path.exists(filepath):
-                        gradio_history.append({"role": role, "content": (filepath, original_filename)})
+                    absolute_filepath = os.path.abspath(filepath)
+                    if os.path.exists(absolute_filepath):
+                        gradio_history.append({"role": role, "content": (absolute_filepath, original_filename)})
                     else:
                         gradio_history.append({"role": role, "content": f"*[表示エラー: ファイル '{original_filename}' が見つかりません]*"})
             continue
@@ -121,10 +122,12 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
                 if text_before_image:
                     gradio_history.append({"role": role, "content": text_before_image})
 
-                if os.path.exists(image_path):
-                    gradio_history.append({"role": role, "content": (image_path, os.path.basename(image_path))})
+                # 相対パスを絶対パスに変換
+                absolute_image_path = os.path.abspath(image_path)
+                if os.path.exists(absolute_image_path):
+                    gradio_history.append({"role": role, "content": (absolute_image_path, os.path.basename(image_path))})
                 else:
-                    gradio_history.append({"role": role, "content": f"*[表示エラー: 画像 '{os.path.basename(image_path)}' が見つかりません]*"})
+                    gradio_history.append({"role": role, "content": f"*[表示エラー: 画像 '{os.path.basename(image_path)}' が見つかりません（パス: {image_path}）]*"})
 
                 if text_after_image:
                      gradio_history.append({"role": role, "content": text_after_image})
