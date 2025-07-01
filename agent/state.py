@@ -11,3 +11,5 @@ class AgentState(TypedDict):
     chat_history: str
     system_prompt: str
     api_history_limit_option: str
+    # ユーザーによってアップロードされたファイル情報
+    uploaded_file_parts: list

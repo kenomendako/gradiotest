@@ -40,20 +40,26 @@ def configure_google_api(api_key_name):
     except Exception as e:
         return False, f"APIキー '{api_key_name}' での genai.Client 初期化中にエラー: {e}"
 
-def invoke_rag_graph(character_name: str, user_prompt: str, api_history_limit_option: str):
+def invoke_rag_graph(character_name: str, user_prompt: str, api_history_limit_option: str, uploaded_file_parts: list):
     """
     ユーザープロンプトを受け取り、RAG + 思考プロセスを実行するLangGraphを呼び出す。
     これが今後のAIとの対話の唯一の窓口となる。
     """
-    if not user_prompt.strip():
-        return "エラー: メッセージが空です。", None
+    # UI側でチェックしているので、ここではチェック不要。空でも処理を続行する。
+    # if not user_prompt.strip():
+    #     return "エラー: メッセージが空です。", None
 
     try:
-        # LangGraphの入力形式を作成
+        # テキストと画像パーツを結合して、単一のHumanMessageを作成
+        content_parts = [user_prompt]
+        if uploaded_file_parts:
+            content_parts.extend(uploaded_file_parts)
+
         inputs = {
-            "messages": [HumanMessage(content=user_prompt)],
+            "messages": [HumanMessage(content=content_parts)],
             "character_name": character_name,
-            "api_history_limit_option": api_history_limit_option
+            "api_history_limit_option": api_history_limit_option,
+            "uploaded_file_parts": uploaded_file_parts
         }
 
         # スレッドIDとしてキャラクター名を指定して、グラフを呼び出す

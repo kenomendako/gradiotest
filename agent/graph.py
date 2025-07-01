@@ -12,12 +12,12 @@ from .prompts import REFLECTION_PROMPT_TEMPLATE, ANSWER_GENERATION_PROMPT_TEMPLA
 
 # --- ノードの定義 ---
 
-def get_initial_state(inputs: dict):
+def get_initial_state(state: dict):
     """
-    グラフ実行の最初に呼ばれ、キャラクター名とシステムプロンプトを読み込む。
+    グラフ実行の最初に呼ばれ、キャラクター名、システムプロンプト、ファイル情報を読み込む。
     """
     print("--- グラフ実行: get_initial_state ---")
-    character_name = inputs["character_name"]
+    character_name = state["character_name"]
 
     system_prompt = "あなたは対話パートナーです。" # デフォルト値
     try:
@@ -29,10 +29,11 @@ def get_initial_state(inputs: dict):
         print(f"警告: {character_name}のシステムプロンプト読み込みに失敗: {e}")
 
     return {
-        "messages": inputs["messages"],
+        "messages": state["messages"],
         "character_name": character_name,
         "system_prompt": system_prompt,
-        "api_history_limit_option": inputs["api_history_limit_option"]
+        "api_history_limit_option": state["api_history_limit_option"],
+        "uploaded_file_parts": state["uploaded_file_parts"] # ファイル情報も状態に含める
     }
 
 def prepare_history_node(state: AgentState):
@@ -59,11 +60,34 @@ def rag_search_node(state: AgentState):
     ユーザーの最新のメッセージに基づいてRAG検索を実行するノード。
     """
     print("--- グラフ実行: rag_search_node ---")
-    user_prompt = state["messages"][-1].content
+
+    # ★★★ ここからが修正箇所 ★★★
+    last_message_content = state["messages"][-1].content
+
+    # RAG検索用のクエリを、テキスト情報のみから作成する
+    search_query = ""
+    if isinstance(last_message_content, list):
+        # コンテンツがリストの場合（テキストと画像が混在）
+        for part in last_message_content:
+            if isinstance(part, str):
+                search_query += part + " "
+            elif isinstance(part, dict) and part.get("type") == "text":
+                 search_query += part.get("text", "") + " "
+    elif isinstance(last_message_content, str):
+        # コンテンツが文字列の場合
+        search_query = last_message_content
+
+    search_query = search_query.strip()
+    # ★★★ 修正ここまで ★★★
+
     character_name = state["character_name"]
 
-    relevant_chunks = search_relevant_chunks(character_name, user_prompt)
-    print(f"RAG検索結果: {len(relevant_chunks)}件のチャンクを発見")
+    if search_query: # テキスト部分がある場合のみ検索を実行
+        relevant_chunks = search_relevant_chunks(character_name, search_query)
+        print(f"RAG検索結果: {len(relevant_chunks)}件のチャンクを発見")
+    else: # テキスト部分がない（画像のみ添付など）場合は検索をスキップ
+        print("RAG検索スキップ: テキスト情報がありません。")
+        relevant_chunks = []
 
     return {"rag_chunks": relevant_chunks}
 
@@ -104,6 +128,19 @@ def answer_generation_node(state: AgentState):
 
 # --- グラフの構築 ---
 
+# ▼▼▼ 将来の拡張に関する重要メモ (ルシアン監査対応) ▼▼▼
+#
+# 現在のグラフは一本道の「直列処理」だが、将来「思考の結果、情報が足りない場合は、
+# 再度RAG検索に戻る」といった条件分岐を追加する場合、意図せぬ無限ループに陥る危険性がある。
+#
+# 【対策計画】
+# ループを導入する際は、必ず以下の対策を講じること。
+# 1. AgentStateに「ループカウンター(loop_count: int)」を追加する。
+# 2. 条件分岐ノードで、ループカウンターが上限（例：3回）に達したら、
+#    強制的に次のノード（answer_generationなど）に進むか、エラー処理を行うロジックを実装する。
+#
+# ▲▲▲ ここまで ▲▲▲
+
 memory = MemorySaver()
 builder = StateGraph(AgentState, checkpointer=memory)
 
@@ -114,22 +151,11 @@ builder.add_node("rag_search", rag_search_node)
 builder.add_node("reflection", reflection_node)
 builder.add_node("answer_generation", answer_generation_node)
 
-# エッジ（ノード間の繋がり）を定義
+# ★★★ エッジ（ノード間の繋がり）を直列に変更 ★★★
 builder.add_edge(START, "get_initial_state")
 builder.add_edge("get_initial_state", "prepare_history")
-builder.add_edge("get_initial_state", "rag_search")
-
-builder.add_conditional_edges(
-    "prepare_history",
-    lambda x: "reflection",
-    {"reflection": "reflection"}
-)
-builder.add_conditional_edges(
-    "rag_search",
-    lambda x: "reflection",
-    {"reflection": "reflection"}
-)
-
+builder.add_edge("prepare_history", "rag_search")
+builder.add_edge("rag_search", "reflection")
 builder.add_edge("reflection", "answer_generation")
 builder.add_edge("answer_generation", END)
 
