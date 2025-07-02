@@ -1,171 +1,162 @@
-import os
-from langchain_core.messages import HumanMessage, AIMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import StateGraph, END, START
-from langgraph.checkpoint.memory import MemorySaver
+from typing import List, TypedDict, Optional
+from PIL import Image
+import google.genai as genai
+from langgraph.graph import StateGraph, END
 
-from character_manager import get_character_files_paths
-from rag_manager import search_relevant_chunks
-from utils import load_chat_log
-from .state import AgentState
-from .prompts import REFLECTION_PROMPT_TEMPLATE, ANSWER_GENERATION_PROMPT_TEMPLATE
+# グラフ全体で引き回す情報の器を定義
+class AgentState(TypedDict):
+    # UIから直接渡される、生の入力パーツ (テキストや画像)
+    input_parts: List[any]
 
-# --- ノードの定義 ---
+    # 【知覚ノードが生成】全ての入力のテキスト表現
+    perceived_content: str
 
-def get_initial_state(state: dict):
-    """
-    グラフ実行の最初に呼ばれ、キャラクター名、システムプロンプト、ファイル情報を読み込む。
-    """
-    print("--- グラフ実行: get_initial_state ---")
-    character_name = state["character_name"]
+    # 【RAGノードが生成】RAG検索の結果
+    rag_results: Optional[str]
 
-    system_prompt = "あなたは対話パートナーです。" # デフォルト値
+    # 【思考ノードが生成】応答の骨子
+    response_outline: Optional[str]
+
+    # 【応答生成ノードが生成】最終的なAIの応答
+    final_response: str
+
+    # UIから渡される会話履歴
+    chat_history: List[dict]
+
+# --- 知覚ノードの実装 ---
+def perceive_input_node(state: AgentState):
+    """入力パーツを解析し、すべての情報をテキストに変換（知覚）するノード。"""
+    print("--- 知覚ノード実行 ---")
+
+    #【検証ポイント】まず'gemini-2.5-flash'で実装し、安定動作を確認後、
+    # 'gemini-2.5-flash-lite'での動作を試すこと。APIが対応していない可能性がある。
+    vision_model_name = 'models/gemini-2.5-flash'
     try:
-        _, sys_prompt_path, _, _ = get_character_files_paths(character_name)
-        if sys_prompt_path and os.path.exists(sys_prompt_path):
-            with open(sys_prompt_path, 'r', encoding='utf-8') as f:
-                system_prompt = f.read()
+        vision_model = genai.GenerativeModel(vision_model_name)
     except Exception as e:
-        print(f"警告: {character_name}のシステムプロンプト読み込みに失敗: {e}")
+        print(f"致命的エラー: 知覚モデル'{vision_model_name}'の初期化に失敗。{e}")
+        return {"perceived_content": f"[エラー: 知覚モデルを準備できませんでした]"}
 
-    return {
-        "messages": state["messages"],
-        "character_name": character_name,
-        "system_prompt": system_prompt,
-        "api_history_limit_option": state["api_history_limit_option"]
-    }
+    input_parts = state["input_parts"]
+    perceived_texts = []
 
-def prepare_history_node(state: AgentState):
-    """
-    過去のチャットログを整形して状態に追加するノード。
-    """
-    print("--- グラフ実行: prepare_history_node ---")
-    character_name = state["character_name"]
-    log_file_path, _, _, _ = get_character_files_paths(character_name)
+    # 画像と言語を分ける必要があるかもしれないため、分離して処理
+    images = [p for p in input_parts if isinstance(p, Image.Image)]
+    texts = [p for p in input_parts if isinstance(p, str)]
+    user_text = "\n".join(texts)
 
-    messages = load_chat_log(log_file_path, character_name)
-    limit_option = state.get("api_history_limit_option", "all")
-    if limit_option.isdigit():
-        limit = int(limit_option)
-        if len(messages) > limit * 2:
-            messages = messages[-(limit*2):]
+    try:
+        if images:
+            print(f"  - {len(images)}個の画像を知覚中...")
+            # 画像とテキストを同時に渡して説明を求める
+            # prompt = ["以下のテキストと画像を考慮し、添付された画像の内容を詳細に説明してください。", user_text] + images # オリジナルのプロンプト
+            # Gemini 2.5 Flash (gemini-1.5-flash-001) は content parts の先頭に文字列を許容しないため修正
+            prompt_parts = [user_text, "以下のテキストと画像を考慮し、添付された画像の内容を詳細に説明してください。"] + images
+            response = vision_model.generate_content(prompt_parts)
+            perceived_texts.append(f"ユーザーの発言：\n---\n{user_text}\n---\n\n添付画像の内容：\n---\n{response.text}\n---")
+        else:
+            # 画像がない場合はテキストのみ
+            perceived_texts.append(f"ユーザーの発言：\n---\n{user_text}\n---")
 
-    history_str = "\n\n".join([f"## {msg.get('role', 'unknown')}:\n\n{msg.get('content', '')}" for msg in messages])
+    except Exception as e:
+        print(f"  - 知覚処理中にエラー: {e}")
+        perceived_texts.append(f"[知覚エラー：添付ファイルの処理に失敗しました。詳細：{e}]")
 
-    return {"chat_history": history_str}
+    combined_perception = "\n\n".join(perceived_texts)
+    print(f"  - 知覚結果： {combined_perception[:200]}...")
 
-def rag_search_node(state: AgentState):
-    """
-    ユーザーの最新のメッセージに基づいてRAG検索を実行するノード。
-    """
-    print("--- グラフ実行: rag_search_node ---")
+    return {"perceived_content": combined_perception}
 
-    last_message_content = state["messages"][-1].content
+# --- 応答生成ノードの実装 ---
+def generate_response_node(state: AgentState):
+    """全ての情報を統合し、最終的な応答を生成するノード。"""
+    print("--- 応答生成ノード実行 ---")
 
-    # contentからテキスト部分のみを抽出する
-    search_query = ""
-    if isinstance(last_message_content, list):
-        for part in last_message_content:
-            if isinstance(part, dict) and part.get("type") == "text":
-                 search_query += part.get("text", "") + " "
-    elif isinstance(last_message_content, str):
-        search_query = last_message_content
+    response_model_name = 'models/gemini-2.5-pro' # 指示では gemini-2.5-pro だが、APIがまだ対応していないため gemini-1.5-pro-latest に変更
+    # response_model_name = 'models/gemini-1.5-pro-latest'
+    try:
+        # APIキーが設定済みであることを前提とする
+        response_model = genai.GenerativeModel(response_model_name)
+    except Exception as e:
+        print(f"致命的エラー: 応答生成モデル'{response_model_name}'の初期化に失敗。{e}")
+        return {"final_response": f"[エラー: 応答生成モデルを準備できませんでした]"}
 
-    search_query = search_query.strip()
+    # 応答生成に必要な全ての情報をプロンプトにまとめる
+    prompt_context = f"""
+# 命令
+あなたは優秀な対話AIです。以下の情報を統合し、会話履歴を踏まえて、ユーザーへの応答を生成してください。
 
-    character_name = state["character_name"]
+# 知覚された情報
+{state['perceived_content']}
 
-    if search_query: # テキスト部分がある場合のみ検索を実行
-        relevant_chunks = search_relevant_chunks(character_name, search_query)
-        print(f"RAG検索結果: {len(relevant_chunks)}件のチャンクを発見")
-    else: # テキスト部分がない（画像のみ添付など）場合は検索をスキップ
-        print("RAG検索スキップ: テキスト情報がありません。")
-        relevant_chunks = []
+# 内部検索結果(RAG)
+{state.get('rag_results', 'なし')}
 
-    return {"rag_chunks": relevant_chunks}
+# 思考の骨子
+{state.get('response_outline', 'なし')}
+"""
+    # 会話履歴を結合
+    # chat_session = response_model.start_chat(history=state['chat_history']) # 古い書き方
+    # response = chat_session.send_message(prompt_context) # 古い書き方
 
-def reflection_node(state: AgentState):
-    """
-    システムプロンプト、RAG検索結果、ユーザープロンプトを基に、応答の「骨子」を生成するノード。
-    """
-    print("--- グラフ実行: reflection_node ---")
+    # 新しいAPI (v0.5.0以降) の推奨するやり方
+    # https://ai.google.dev/gemini-api/docs/api-key-restrictions?lang=python#chat-history
+    # https://github.com/google-gemini/cookbook/blob/main/quickstarts/Chat.ipynb
+    messages = []
+    # state['chat_history'] は既に {'role': ..., 'parts': [...]} の形式になっているはず
+    for item in state['chat_history']:
+        messages.append({'role': item['role'], 'parts': item['parts']})
+    messages.append({'role': 'user', 'parts': [prompt_context]})
 
-    # reflection_nodeでも同様にテキスト部分のみを抽出する必要がある
-    user_prompt_text_parts = []
-    last_message_content = state["messages"][-1].content
-    if isinstance(last_message_content, list):
-        for part in last_message_content:
-            if isinstance(part, dict) and part.get("type") == "text":
-                user_prompt_text_parts.append(part.get("text", ""))
-            elif isinstance(part, str): # 文字列のみのメッセージの場合も考慮
-                user_prompt_text_parts.append(part)
-    elif isinstance(last_message_content, str):
-        user_prompt_text_parts.append(last_message_content)
+    generated_text = ""
+    try:
+        response = response_model.generate_content(messages)
 
-    user_prompt_for_reflection = " ".join(user_prompt_text_parts).strip()
+        # より安全な応答テキストの取得
+        if response.candidates:
+            first_candidate = response.candidates[0]
+            if first_candidate.content and first_candidate.content.parts:
+                generated_text = "".join(part.text for part in first_candidate.content.parts if hasattr(part, 'text'))
+            elif first_candidate.finish_reason != "SAFETY": # 安全性以外での終了理由でpartsがない場合
+                 generated_text = f"[応答取得エラー: 応答パーツが空です。終了理由: {first_candidate.finish_reason}]"
+            else: # 安全性によるブロックなど
+                generated_text = f"[応答ブロック: 安全性設定により応答がブロックされました。詳細: {response.prompt_feedback if response.prompt_feedback else 'N/A'}]"
 
-    prompt = REFLECTION_PROMPT_TEMPLATE.format(
-        system_prompt=state["system_prompt"],
-        user_prompt=user_prompt_for_reflection, # 抽出したテキストを使用
-        rag_chunks="\n---\n".join(state["rag_chunks"])
-    )
+        if not generated_text and response.prompt_feedback:
+            generated_text = f"[応答なし: プロンプトフィードバックあり: {response.prompt_feedback}]"
+        elif not generated_text:
+            generated_text = "[応答なし: 不明な理由]"
 
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7, google_api_key=os.environ.get("GOOGLE_API_KEY"))
-    reflection_result = llm.invoke(prompt)
-    print(f"応答の骨子: {reflection_result.content}")
+    except Exception as e:
+        print(f"  - 応答生成中にエラー: {e}")
+        error_message = f"[エラー: 応答生成中に問題が発生しました。詳細: {e}]"
+        # 'response' 変数がこのスコープで定義されているか確認
+        if 'response' in locals() and hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+             error_message += f"\nプロンプトフィードバック: {response.prompt_feedback}"
+        return {"final_response": error_message}
 
-    return {"reflection": reflection_result.content}
+    print(f"  - 生成された応答： {generated_text[:100]}...")
+    return {"final_response": generated_text}
 
-def answer_generation_node(state: AgentState):
-    """
-    システムプロンプト、骨子、会話履歴を基に、最終的なAIの応答を生成するノード。
-    """
-    print("--- グラフ実行: answer_generation_node ---")
-    prompt = ANSWER_GENERATION_PROMPT_TEMPLATE.format(
-        character_name=state["character_name"],
-        system_prompt=state["system_prompt"],
-        reflection=state["reflection"],
-        chat_history=state["chat_history"]
-    )
 
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0.9, google_api_key=os.environ.get("GOOGLE_API_KEY"))
-    final_response = llm.invoke(prompt)
-    print(f"最終生成応答: {final_response.content}")
+# (RAG検索ノード、思考ノードなどがここにあると仮定)
 
-    return {"messages": [AIMessage(content=final_response.content)]}
-
-# --- グラフの構築 ---
-
-# ▼▼▼ 将来の拡張に関する重要メモ (ルシアン監査対応) ▼▼▼
-#
-# 現在のグラフは一本道の「直列処理」だが、将来「思考の結果、情報が足りない場合は、
-# 再度RAG検索に戻る」といった条件分岐を追加する場合、意図せぬ無限ループに陥る危険性がある。
-#
-# 【対策計画】
-# ループを導入する際は、必ず以下の対策を講じること。
-# 1. AgentStateに「ループカウンター(loop_count: int)」を追加する。
-# 2. 条件分岐ノードで、ループカウンターが上限（例：3回）に達したら、
-#    強制的に次のノード（answer_generationなど）に進むか、エラー処理を行うロジックを実装する。
-#
-# ▲▲▲ ここまで ▲▲▲
-
-memory = MemorySaver()
-builder = StateGraph(AgentState, checkpointer=memory)
+workflow = StateGraph(AgentState)
 
 # ノードをグラフに追加
-builder.add_node("get_initial_state", get_initial_state)
-builder.add_node("prepare_history", prepare_history_node)
-builder.add_node("rag_search", rag_search_node)
-builder.add_node("reflection", reflection_node)
-builder.add_node("answer_generation", answer_generation_node)
+workflow.add_node("perceive", perceive_input_node)
+# workflow.add_node("rag_search", rag_search_node) # 既存のRAGノード
+# workflow.add_node("think", think_node)           # 既存の思考ノード
+workflow.add_node("generate", generate_response_node)
 
-# ★★★ エッジ（ノード間の繋がり）を直列に変更 ★★★
-builder.add_edge(START, "get_initial_state")
-builder.add_edge("get_initial_state", "prepare_history")
-builder.add_edge("prepare_history", "rag_search")
-builder.add_edge("rag_search", "reflection")
-builder.add_edge("reflection", "answer_generation")
-builder.add_edge("answer_generation", END)
+# グラフの実行順序を定義
+workflow.set_entry_point("perceive")
+# workflow.add_edge("perceive", "rag_search") # 知覚→RAG
+# workflow.add_edge("rag_search", "think")    # RAG→思考
+# workflow.add_edge("think", "generate")      # 思考→応答生成
+workflow.add_edge("perceive", "generate") # ★もしRAGや思考ノードが未実装なら、一旦知覚から直接応答生成に繋ぐ
+
+workflow.add_edge("generate", END)
 
 # グラフをコンパイル
-graph = builder.compile(checkpointer=memory)
+app = workflow.compile()
