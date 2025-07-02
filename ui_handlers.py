@@ -13,6 +13,7 @@ import base64
 import mimetypes
 import rag_manager # 追加
 import google.genai as genai # 追加
+import gemini_api # 追加
 
 # --- モジュールインポート ---
 import config_manager
@@ -142,8 +143,7 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
 
     user_header = _get_user_header_from_log(log_f, current_character_name)
     timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
-    if log_message_content.strip():
-        save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
+    # ★ユーザーメッセージのログ保存はAPI呼び出し後に移動
 
     # --- Gemini APIの呼び出し ---
     try:
@@ -161,9 +161,15 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
             character_name=current_character_name,
             model_name=current_model_name,
             parts=parts_for_api,
-            api_history_limit_option=api_history_limit_state
+            api_history_limit_option=api_history_limit_state,
+            api_key_name=current_api_key_name_state  # この引数を維持する
         )
-        if api_response_text: # 画像生成は一旦考えない
+
+        # --- ログ保存処理をここにまとめる ---
+        if log_message_content.strip(): # ユーザーの入力があった場合のみログ保存
+            save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
+
+        if api_response_text:
             save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
 
     except Exception as e:
@@ -257,9 +263,10 @@ def update_model_state(model):
     return model
 
 def update_api_key_state(api_key_name):
-    # configure_google_api の呼び出しは send_multimodal_to_gemini 内で行われるため削除
+    ok, msg = gemini_api.configure_google_api(api_key_name)
     config_manager.save_config("last_api_key_name", api_key_name)
-    gr.Info(f"APIキーを '{api_key_name}' に設定しました。次回送信時に適用されます。")
+    if ok: gr.Info(f"APIキー '{api_key_name}' 設定成功。")
+    else: gr.Error(f"APIキー '{api_key_name}' 設定失敗: {msg}")
     return api_key_name
 
 def update_timestamp_state(checked): config_manager.save_config("add_timestamp", bool(checked))

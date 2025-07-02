@@ -7,6 +7,8 @@ import config_manager, character_manager, memory_manager, alarm_manager, gemini_
 # --- 起動シーケンス ---
 config_manager.load_config()
 alarm_manager.load_alarms()
+if config_manager.initial_api_key_name_global:
+    gemini_api.configure_google_api(config_manager.initial_api_key_name_global)
 
 # --- CSS定義 ---
 custom_css = """
