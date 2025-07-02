@@ -1,5 +1,3 @@
-# ui_handlers.py の【確定版】
-
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Union
 import gradio as gr
@@ -10,11 +8,11 @@ import traceback
 import os
 import shutil
 import re
+from PIL import Image
+import base64
 import mimetypes
-import base64 # 追加
-import rag_manager
-import google.genai as genai
-import gemini_api
+import rag_manager # 追加
+import google.genai as genai # 追加
 
 # --- モジュールインポート ---
 import config_manager
@@ -22,7 +20,8 @@ import alarm_manager
 import character_manager
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
-from gemini_api import configure_google_api, invoke_rag_graph
+# gemini_apiモジュールからsend_multimodal_to_geminiのみをインポート
+from gemini_api import send_multimodal_to_gemini
 from memory_manager import load_memory_data_safe, save_memory_data
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
 
@@ -92,6 +91,7 @@ def handle_save_memory_click(character_name, json_string_data):
 
 def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tuple, None]]], gr.update, gr.update]:
     (textbox_content, chatbot_history, current_character_name, current_model_name,
+     current_api_key_name_state, # この行を追加
      file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state) = args
 
@@ -99,13 +99,13 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
     log_f, _, _, _ = get_character_files_paths(current_character_name)
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
 
-    # LangChainのHumanMessageに渡すパーツリストを準備
-    content_parts = []
+    # Gemini APIに渡すパーツリストを準備
+    parts_for_api = []
     attached_filenames_for_log = []
 
     # 1. テキスト部分をリストに追加
     if user_prompt_from_textbox:
-        content_parts.append({"type": "text", "text": user_prompt_from_textbox})
+        parts_for_api.append(user_prompt_from_textbox)
 
     # 2. ファイル部分をリストに追加
     if file_input_list:
@@ -115,43 +115,25 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
             original_filename = os.path.basename(actual_file_path)
             attached_filenames_for_log.append(original_filename)
             try:
-                # MIMEタイプを取得して、テキストファイルかどうかを判定
-                mime_type, _ = mimetypes.guess_type(actual_file_path)
-                if mime_type and mime_type.startswith('text/'):
-                    # --- テキストファイルの処理 ---
-                    print(f"  - '{original_filename}' をテキストとして処理中...")
+                # PIL Imageオブジェクトとして画像を開く
+                img = Image.open(actual_file_path)
+                parts_for_api.append(img)
+                print(f"  - '{original_filename}' を画像として正常に処理。")
+            except Exception as e:
+                # 画像として開けなかった場合はテキストとして試す
+                try:
                     with open(actual_file_path, 'r', encoding='utf-8') as f:
                         file_content = f.read()
-                    # LangChainが要求する辞書形式で、テキストパーツを作成
-                    content_parts.append({
-                        "type": "text",
-                        "text": f"\n--- 添付ファイル: {original_filename} ---\n{file_content}\n--- {original_filename} ここまで ---"
-                    })
-                    print(f"  - '{original_filename}' のテキスト読み込み成功。")
-                else:
-                    # --- 画像など、非テキストファイルの処理 ---
-                    print(f"  - '{original_filename}' をバイナリ(画像等)として処理中...")
-                    with open(actual_file_path, "rb") as f:
-                        file_bytes = f.read()
+                    text_part = f"\n--- 添付ファイル: {original_filename} ---\n{file_content}\n--- {original_filename} ここまで ---"
+                    parts_for_api.append(text_part)
+                    print(f"  - '{original_filename}' をテキストとして正常に処理。")
+                except Exception as e2:
+                    print(f"警告: ファイル '{original_filename}' の処理中にエラー: {e2}")
+                    traceback.print_exc()
 
-                    encoded_data = base64.b64encode(file_bytes).decode('utf-8')
-
-                    if mime_type is None:
-                        mime_type = "application/octet-stream"
-
-                    # LangChainが要求する辞書形式で、画像パーツを作成
-                    content_parts.append({
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{mime_type};base64,{encoded_data}"}
-                    })
-                    print(f"  - '{original_filename}' のBase64エンコード成功。")
-
-            except Exception as e:
-                print(f"警告: ファイル '{original_filename}' の処理中にエラー: {e}")
-                traceback.print_exc()
 
     # --- 入力チェックとログ記録 ---
-    if not content_parts: # パーツが何もなければ処理終了
+    if not parts_for_api:
         return chatbot_history, gr.update(), gr.update(value=None)
 
     log_message_content = user_prompt_from_textbox
@@ -160,25 +142,29 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
 
     user_header = _get_user_header_from_log(log_f, current_character_name)
     timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
-    if log_message_content.strip(): # ログに記録する内容がある場合のみ
+    if log_message_content.strip():
         save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
 
-    # --- LangGraphの呼び出し ---
+    # --- Gemini APIの呼び出し ---
     try:
-        # HumanMessageのcontentに、直接パーツのリストを渡す
-        api_response_text, generated_image_path = invoke_rag_graph(
-            character_name=current_character_name,
-            content_parts_for_api=content_parts, # 修正：新しい引数名でパーツリストを渡す
-            api_history_limit_option=api_history_limit_state,
-        )
-        if api_response_text or generated_image_path: # generated_image_path は現状常にNoneだが将来のために残す
-            # APIからの応答テキストに、もしAIが画像タグを含めてきた場合（通常はないはずだが念のため）
-            # または、将来的に画像生成をグラフに組み込んだ場合への対応として残す
-            response_to_log = api_response_text
-            if generated_image_path: # このパスはgemini_api.pyからは現在返されない
-                 response_to_log = f"[Generated Image: {generated_image_path}]\n\n{api_response_text}"
+        # --- APIキーを環境変数に設定 ---
+        # これが最も確実なAPIキーの渡し方
+        api_key = config_manager.API_KEYS.get(current_api_key_name_state)
+        if not api_key or api_key.startswith("YOUR_API_KEY"):
+            gr.Warning(f"APIキー '{current_api_key_name_state}' が有効ではありません。")
+            # この後、空の履歴などを返して処理を中断する
+            return chatbot_history, gr.update(), gr.update(value=None)
 
-            save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
+        os.environ['GOOGLE_API_KEY'] = api_key
+
+        api_response_text, generated_image_path = send_multimodal_to_gemini(
+            character_name=current_character_name,
+            model_name=current_model_name,
+            parts=parts_for_api,
+            api_history_limit_option=api_history_limit_state
+        )
+        if api_response_text: # 画像生成は一旦考えない
+            save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
 
     except Exception as e:
         traceback.print_exc()
@@ -271,10 +257,9 @@ def update_model_state(model):
     return model
 
 def update_api_key_state(api_key_name):
-    ok, msg = configure_google_api(api_key_name)
+    # configure_google_api の呼び出しは send_multimodal_to_gemini 内で行われるため削除
     config_manager.save_config("last_api_key_name", api_key_name)
-    if ok: gr.Info(f"APIキー '{api_key_name}' 設定成功。")
-    else: gr.Error(f"APIキー '{api_key_name}' 設定失敗: {msg}")
+    gr.Info(f"APIキーを '{api_key_name}' に設定しました。次回送信時に適用されます。")
     return api_key_name
 
 def update_timestamp_state(checked): config_manager.save_config("add_timestamp", bool(checked))
