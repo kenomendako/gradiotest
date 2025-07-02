@@ -11,7 +11,10 @@ import os
 import shutil
 import re
 import mimetypes
+import base64 # 追加
 import rag_manager
+import google.genai as genai
+import gemini_api
 
 # --- モジュールインポート ---
 import config_manager
@@ -87,145 +90,110 @@ def handle_save_memory_click(character_name, json_string_data):
     except Exception as e:
         gr.Error(f"記憶の保存中にエラーが発生しました: {e}")
 
-def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]], gr.update, gr.update]:
+def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tuple, None]]], gr.update, gr.update]:
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state) = args
 
-    log_f, sys_p, _, mem_p = None, None, None, None
-    try:
-        if not all([current_character_name, current_model_name]):
-            gr.Warning("キャラクターとモデルを選択してください。APIキーは設定画面で確認してください。")
-            return chatbot_history, gr.update(), gr.update(value=None)
+    # UIから基本的な情報を取得
+    log_f, _, _, _ = get_character_files_paths(current_character_name)
+    user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
 
-        log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
-        if not all([log_f, sys_p, mem_p]):
-            gr.Warning(f"キャラクター '{current_character_name}' の必須ファイルパス取得に失敗。")
-            return chatbot_history, gr.update(), gr.update(value=None)
+    # LangChainのHumanMessageに渡すパーツリストを準備
+    content_parts = []
+    attached_filenames_for_log = []
 
-        user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
+    # 1. テキスト部分をリストに追加
+    if user_prompt_from_textbox:
+        content_parts.append({"type": "text", "text": user_prompt_from_textbox})
 
-        # ★★★ ここからがファイル処理の新しいロジックです ★★★
-
-        # テキストファイルの内容を追記するための変数
-        text_files_content = ""
-        # メディアファイル（画像、音声など）をAPIに渡すためのリスト
-        media_files_for_api = []
-        # ログに記録するためのファイル名リスト
-        attached_filenames_for_log = []
-
-        if file_input_list:
-            for file_wrapper in file_input_list:
-                actual_file_path = file_wrapper.name
-                original_filename = os.path.basename(actual_file_path)
-                attached_filenames_for_log.append(original_filename)
-
+    # 2. ファイル部分をリストに追加
+    if file_input_list:
+        print(f"--- {len(file_input_list)}個のファイルを処理開始 ---")
+        for file_wrapper in file_input_list:
+            actual_file_path = file_wrapper.name
+            original_filename = os.path.basename(actual_file_path)
+            attached_filenames_for_log.append(original_filename)
+            try:
+                # MIMEタイプを取得して、テキストファイルかどうかを判定
                 mime_type, _ = mimetypes.guess_type(actual_file_path)
-                if mime_type is None:
-                    mime_type = "application/octet-stream" # 不明な場合はバイナリとして扱う
-
-                # MIMEタイプに基づいて、テキストファイルかメディアファイルかを判断
-                # application/octet-stream もテキストではないと判断する
-                if mime_type.startswith('text/') or \
-                   mime_type in ['application/json', 'application/javascript', 'application/xml', 'application/x-python', 'text/markdown', 'text/x-markdown', 'text/plain'] or \
-                   any(original_filename.endswith(ext) for ext in ['.py', '.md', '.js', '.ts', '.html', '.css', '.xml', '.json', '.txt', '.log']): # 拡張子でも判定
-                    # テキストベースのファイルの場合
-                    try:
-                        with open(actual_file_path, 'r', encoding='utf-8') as f:
-                            file_content = f.read()
-                        text_files_content += f"\n\n--- 添付ファイル: {original_filename} ---\n\n"
-                        text_files_content += file_content
-                        text_files_content += f"\n\n--- {original_filename} ここまで ---"
-                    except Exception as e:
-                        print(f"警告: テキストファイル '{original_filename}' の読み込み中にエラー: {e}")
-                        # エラー時もファイル名とエラーの旨をプロンプトに含める
-                        text_files_content += f"\n\n[エラー: ファイル '{original_filename}' の読み込みに失敗しました。理由: {e}]"
+                if mime_type and mime_type.startswith('text/'):
+                    # --- テキストファイルの処理 ---
+                    print(f"  - '{original_filename}' をテキストとして処理中...")
+                    with open(actual_file_path, 'r', encoding='utf-8') as f:
+                        file_content = f.read()
+                    # LangChainが要求する辞書形式で、テキストパーツを作成
+                    content_parts.append({
+                        "type": "text",
+                        "text": f"\n--- 添付ファイル: {original_filename} ---\n{file_content}\n--- {original_filename} ここまで ---"
+                    })
+                    print(f"  - '{original_filename}' のテキスト読み込み成功。")
                 else:
-                    # メディアベースのファイルの場合 (またはMIMEタイプからテキストと判断できなかったもの)
-                    media_files_for_api.append({"path": actual_file_path, "mime_type": mime_type})
+                    # --- 画像など、非テキストファイルの処理 ---
+                    print(f"  - '{original_filename}' をバイナリ(画像等)として処理中...")
+                    with open(actual_file_path, "rb") as f:
+                        file_bytes = f.read()
 
-        # 最終的なユーザープロンプトを構築
-        final_user_prompt = user_prompt_from_textbox + text_files_content
+                    encoded_data = base64.b64encode(file_bytes).decode('utf-8')
 
-        # ★★★ ここからが修正箇所 ★★★
-        if not final_user_prompt.strip() and not media_files_for_api:
-            # テキストもファイルも、両方ない場合は何もしない
-            return chatbot_history, gr.update(), gr.update(value=None)
+                    if mime_type is None:
+                        mime_type = "application/octet-stream"
 
-        # ログに記録するメッセージを作成
-        log_message_content = user_prompt_from_textbox # ユーザーがテキストボックスに書いた内容のみを基本とする
-        if attached_filenames_for_log: # 添付ファイルがある場合のみファイル名を追記
-            log_message_content += "\n[ファイル添付: " + ", ".join(attached_filenames_for_log) + "]"
+                    # LangChainが要求する辞書形式で、画像パーツを作成
+                    content_parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{encoded_data}"}
+                    })
+                    print(f"  - '{original_filename}' のBase64エンコード成功。")
 
-        # もしテキスト入力がなく、ファイル添付のみの場合は、
-        # ログ記録はファイル名のみで行い、APIにはダミーテキストを渡す
-        if not user_prompt_from_textbox.strip() and media_files_for_api:
-            final_user_prompt_for_api = "（画像が添付されました）"
-        else:
-            final_user_prompt_for_api = final_user_prompt.strip()
-        # ★★★ 修正ここまで ★★★
+            except Exception as e:
+                print(f"警告: ファイル '{original_filename}' の処理中にエラー: {e}")
+                traceback.print_exc()
 
-        user_header = _get_user_header_from_log(log_f, current_character_name)
-        timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
-        # ログには、テキストボックスの入力とファイル名のみを記録（ファイル内容は記録しない）
+    # --- 入力チェックとログ記録 ---
+    if not content_parts: # パーツが何もなければ処理終了
+        return chatbot_history, gr.update(), gr.update(value=None)
+
+    log_message_content = user_prompt_from_textbox
+    if attached_filenames_for_log:
+        log_message_content += "\n[ファイル添付: " + ", ".join(attached_filenames_for_log) + "]"
+
+    user_header = _get_user_header_from_log(log_f, current_character_name)
+    timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
+    if log_message_content.strip(): # ログに記録する内容がある場合のみ
         save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
 
-        # LangChainのMessage形式に合うように画像パーツを準備
-        # (この時点ではgemini_api.pyへの受け渡しのみで、グラフ内では未使用)
-        lc_image_parts = []
-        if media_files_for_api:
-            for file_info in media_files_for_api:
-                # ここではMIMEタイプとパスのみを渡す（実際のデータ読み込みは不要）
-                # 将来、グラフ内で画像認識を行う際に利用
-                lc_image_parts.append({"type": "image_url", "image_url": {"url": f"file://{file_info['path']}"}})
-
+    # --- LangGraphの呼び出し ---
+    try:
+        # HumanMessageのcontentに、直接パーツのリストを渡す
         api_response_text, generated_image_path = invoke_rag_graph(
             character_name=current_character_name,
-            user_prompt=final_user_prompt_for_api, # 修正：新しい変数を使う
+            content_parts_for_api=content_parts, # 修正：新しい引数名でパーツリストを渡す
             api_history_limit_option=api_history_limit_state,
-            uploaded_file_parts=lc_image_parts
         )
+        if api_response_text or generated_image_path: # generated_image_path は現状常にNoneだが将来のために残す
+            # APIからの応答テキストに、もしAIが画像タグを含めてきた場合（通常はないはずだが念のため）
+            # または、将来的に画像生成をグラフに組み込んだ場合への対応として残す
+            response_to_log = api_response_text
+            if generated_image_path: # このパスはgemini_api.pyからは現在返されない
+                 response_to_log = f"[Generated Image: {generated_image_path}]\n\n{api_response_text}"
 
-        if api_response_text or generated_image_path:
-            cleaned_api_response = api_response_text
+            save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
 
-            # AIが親切心で追加する可能性のある、あらゆる重複タグを除去する
-            if generated_image_path and api_response_text:
-                # 1. 我々のシステムが付与した[Generated Image: ...]と全く同じ形式のタグを除去
-                tag_to_remove = f"[Generated Image: {generated_image_path}]"
-                cleaned_api_response = cleaned_api_response.replace(tag_to_remove, "").strip()
-
-                # 2. AIが生成するMarkdown形式の画像リンクを除去
-                #    ファイル名さえ一致すれば、パスの形式（/や\、file:///）が違っても除去できるよう、
-                #    正規表現を使って堅牢に対応します。
-                # (関数の先頭に import re を追加してください)
-                image_filename = os.path.basename(generated_image_path)
-                # 例: ![...](.../image_name.png) というパターンに一致
-                markdown_pattern = re.compile(r"!\[.*?\]\(.*?" + re.escape(image_filename) + r".*?\)\s*", re.IGNORECASE)
-                cleaned_api_response = markdown_pattern.sub("", cleaned_api_response).strip()
-
-            # クリーンアップされた応答を元に、ログに保存するメッセージを構築する
-            response_to_log = ""
-            if generated_image_path:
-                response_to_log += f"[Generated Image: {generated_image_path}]\n\n"
-            if cleaned_api_response:
-                response_to_log += cleaned_api_response
-
-            # 最終的に何も残らなかった場合を除き、ログに保存する
-            if response_to_log.strip():
-                 save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
     except Exception as e:
         traceback.print_exc()
         gr.Error(f"メッセージ処理中に予期せぬエラーが発生しました: {e}")
 
+    # --- UIの更新 ---
     if log_f and os.path.exists(log_f):
         new_log = load_chat_log(log_f, current_character_name)
-        display_turns = _get_display_history_count(api_history_limit_state) # api_history_limit_state を使用
-        new_hist: List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]] = format_history_for_gradio(new_log[-(display_turns * 2):])
+        display_turns = _get_display_history_count(api_history_limit_state)
+        new_hist = format_history_for_gradio(new_log[-(display_turns * 2):])
     else:
         new_hist = chatbot_history
 
-    return new_hist, gr.update(value=""), gr.update(value=None) # file_input_list もクリア
+    return new_hist, gr.update(value=""), gr.update(value=None)
+
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 
