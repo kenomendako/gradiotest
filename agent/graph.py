@@ -32,8 +32,7 @@ def get_initial_state(state: dict):
         "messages": state["messages"],
         "character_name": character_name,
         "system_prompt": system_prompt,
-        "api_history_limit_option": state["api_history_limit_option"],
-        "uploaded_file_parts": state["uploaded_file_parts"] # ファイル情報も状態に含める
+        "api_history_limit_option": state["api_history_limit_option"]
     }
 
 def prepare_history_node(state: AgentState):
@@ -61,24 +60,18 @@ def rag_search_node(state: AgentState):
     """
     print("--- グラフ実行: rag_search_node ---")
 
-    # ★★★ ここからが修正箇所 ★★★
     last_message_content = state["messages"][-1].content
 
-    # RAG検索用のクエリを、テキスト情報のみから作成する
+    # contentからテキスト部分のみを抽出する
     search_query = ""
     if isinstance(last_message_content, list):
-        # コンテンツがリストの場合（テキストと画像が混在）
         for part in last_message_content:
-            if isinstance(part, str):
-                search_query += part + " "
-            elif isinstance(part, dict) and part.get("type") == "text":
+            if isinstance(part, dict) and part.get("type") == "text":
                  search_query += part.get("text", "") + " "
     elif isinstance(last_message_content, str):
-        # コンテンツが文字列の場合
         search_query = last_message_content
 
     search_query = search_query.strip()
-    # ★★★ 修正ここまで ★★★
 
     character_name = state["character_name"]
 
@@ -96,9 +89,24 @@ def reflection_node(state: AgentState):
     システムプロンプト、RAG検索結果、ユーザープロンプトを基に、応答の「骨子」を生成するノード。
     """
     print("--- グラフ実行: reflection_node ---")
+
+    # reflection_nodeでも同様にテキスト部分のみを抽出する必要がある
+    user_prompt_text_parts = []
+    last_message_content = state["messages"][-1].content
+    if isinstance(last_message_content, list):
+        for part in last_message_content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                user_prompt_text_parts.append(part.get("text", ""))
+            elif isinstance(part, str): # 文字列のみのメッセージの場合も考慮
+                user_prompt_text_parts.append(part)
+    elif isinstance(last_message_content, str):
+        user_prompt_text_parts.append(last_message_content)
+
+    user_prompt_for_reflection = " ".join(user_prompt_text_parts).strip()
+
     prompt = REFLECTION_PROMPT_TEMPLATE.format(
         system_prompt=state["system_prompt"],
-        user_prompt=state["messages"][-1].content,
+        user_prompt=user_prompt_for_reflection, # 抽出したテキストを使用
         rag_chunks="\n---\n".join(state["rag_chunks"])
     )
 

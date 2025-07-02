@@ -1,5 +1,3 @@
-# ui_handlers.py の【確定版】
-
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Union
 import gradio as gr
@@ -10,8 +8,12 @@ import traceback
 import os
 import shutil
 import re
+from PIL import Image
+import base64
 import mimetypes
-import rag_manager
+import rag_manager # 追加
+import google.genai as genai # 追加
+import gemini_api # 追加
 
 # --- モジュールインポート ---
 import config_manager
@@ -19,7 +21,8 @@ import alarm_manager
 import character_manager
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
-from gemini_api import configure_google_api, invoke_rag_graph
+# gemini_apiモジュールからsend_multimodal_to_geminiのみをインポート
+from gemini_api import send_multimodal_to_gemini
 from memory_manager import load_memory_data_safe, save_memory_data
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
 
@@ -87,145 +90,102 @@ def handle_save_memory_click(character_name, json_string_data):
     except Exception as e:
         gr.Error(f"記憶の保存中にエラーが発生しました: {e}")
 
-def handle_message_submission(*args: Any) -> Tuple[List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]], gr.update, gr.update]:
+def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tuple, None]]], gr.update, gr.update]:
     (textbox_content, chatbot_history, current_character_name, current_model_name,
+     current_api_key_name_state, # この行を追加
      file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state) = args
 
-    log_f, sys_p, _, mem_p = None, None, None, None
+    # UIから基本的な情報を取得
+    log_f, _, _, _ = get_character_files_paths(current_character_name)
+    user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
+
+    # Gemini APIに渡すパーツリストを準備
+    parts_for_api = []
+    attached_filenames_for_log = []
+
+    # 1. テキスト部分をリストに追加
+    if user_prompt_from_textbox:
+        parts_for_api.append(user_prompt_from_textbox)
+
+    # 2. ファイル部分をリストに追加
+    if file_input_list:
+        print(f"--- {len(file_input_list)}個のファイルを処理開始 ---")
+        for file_wrapper in file_input_list:
+            actual_file_path = file_wrapper.name
+            original_filename = os.path.basename(actual_file_path)
+            attached_filenames_for_log.append(original_filename)
+            try:
+                # PIL Imageオブジェクトとして画像を開く
+                img = Image.open(actual_file_path)
+                parts_for_api.append(img)
+                print(f"  - '{original_filename}' を画像として正常に処理。")
+            except Exception as e:
+                # 画像として開けなかった場合はテキストとして試す
+                try:
+                    with open(actual_file_path, 'r', encoding='utf-8') as f:
+                        file_content = f.read()
+                    text_part = f"\n--- 添付ファイル: {original_filename} ---\n{file_content}\n--- {original_filename} ここまで ---"
+                    parts_for_api.append(text_part)
+                    print(f"  - '{original_filename}' をテキストとして正常に処理。")
+                except Exception as e2:
+                    print(f"警告: ファイル '{original_filename}' の処理中にエラー: {e2}")
+                    traceback.print_exc()
+
+
+    # --- 入力チェックとログ記録 ---
+    if not parts_for_api:
+        return chatbot_history, gr.update(), gr.update(value=None)
+
+    log_message_content = user_prompt_from_textbox
+    if attached_filenames_for_log:
+        log_message_content += "\n[ファイル添付: " + ", ".join(attached_filenames_for_log) + "]"
+
+    user_header = _get_user_header_from_log(log_f, current_character_name)
+    timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
+    # ★ユーザーメッセージのログ保存はAPI呼び出し後に移動
+
+    # --- Gemini APIの呼び出し ---
     try:
-        if not all([current_character_name, current_model_name]):
-            gr.Warning("キャラクターとモデルを選択してください。APIキーは設定画面で確認してください。")
+        # --- APIキーを環境変数に設定 ---
+        # これが最も確実なAPIキーの渡し方
+        api_key = config_manager.API_KEYS.get(current_api_key_name_state)
+        if not api_key or api_key.startswith("YOUR_API_KEY"):
+            gr.Warning(f"APIキー '{current_api_key_name_state}' が有効ではありません。")
+            # この後、空の履歴などを返して処理を中断する
             return chatbot_history, gr.update(), gr.update(value=None)
 
-        log_f, sys_p, _, mem_p = get_character_files_paths(current_character_name)
-        if not all([log_f, sys_p, mem_p]):
-            gr.Warning(f"キャラクター '{current_character_name}' の必須ファイルパス取得に失敗。")
-            return chatbot_history, gr.update(), gr.update(value=None)
+        os.environ['GOOGLE_API_KEY'] = api_key
 
-        user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
-
-        # ★★★ ここからがファイル処理の新しいロジックです ★★★
-
-        # テキストファイルの内容を追記するための変数
-        text_files_content = ""
-        # メディアファイル（画像、音声など）をAPIに渡すためのリスト
-        media_files_for_api = []
-        # ログに記録するためのファイル名リスト
-        attached_filenames_for_log = []
-
-        if file_input_list:
-            for file_wrapper in file_input_list:
-                actual_file_path = file_wrapper.name
-                original_filename = os.path.basename(actual_file_path)
-                attached_filenames_for_log.append(original_filename)
-
-                mime_type, _ = mimetypes.guess_type(actual_file_path)
-                if mime_type is None:
-                    mime_type = "application/octet-stream" # 不明な場合はバイナリとして扱う
-
-                # MIMEタイプに基づいて、テキストファイルかメディアファイルかを判断
-                # application/octet-stream もテキストではないと判断する
-                if mime_type.startswith('text/') or \
-                   mime_type in ['application/json', 'application/javascript', 'application/xml', 'application/x-python', 'text/markdown', 'text/x-markdown', 'text/plain'] or \
-                   any(original_filename.endswith(ext) for ext in ['.py', '.md', '.js', '.ts', '.html', '.css', '.xml', '.json', '.txt', '.log']): # 拡張子でも判定
-                    # テキストベースのファイルの場合
-                    try:
-                        with open(actual_file_path, 'r', encoding='utf-8') as f:
-                            file_content = f.read()
-                        text_files_content += f"\n\n--- 添付ファイル: {original_filename} ---\n\n"
-                        text_files_content += file_content
-                        text_files_content += f"\n\n--- {original_filename} ここまで ---"
-                    except Exception as e:
-                        print(f"警告: テキストファイル '{original_filename}' の読み込み中にエラー: {e}")
-                        # エラー時もファイル名とエラーの旨をプロンプトに含める
-                        text_files_content += f"\n\n[エラー: ファイル '{original_filename}' の読み込みに失敗しました。理由: {e}]"
-                else:
-                    # メディアベースのファイルの場合 (またはMIMEタイプからテキストと判断できなかったもの)
-                    media_files_for_api.append({"path": actual_file_path, "mime_type": mime_type})
-
-        # 最終的なユーザープロンプトを構築
-        final_user_prompt = user_prompt_from_textbox + text_files_content
-
-        # ★★★ ここからが修正箇所 ★★★
-        if not final_user_prompt.strip() and not media_files_for_api:
-            # テキストもファイルも、両方ない場合は何もしない
-            return chatbot_history, gr.update(), gr.update(value=None)
-
-        # ログに記録するメッセージを作成
-        log_message_content = user_prompt_from_textbox # ユーザーがテキストボックスに書いた内容のみを基本とする
-        if attached_filenames_for_log: # 添付ファイルがある場合のみファイル名を追記
-            log_message_content += "\n[ファイル添付: " + ", ".join(attached_filenames_for_log) + "]"
-
-        # もしテキスト入力がなく、ファイル添付のみの場合は、
-        # ログ記録はファイル名のみで行い、APIにはダミーテキストを渡す
-        if not user_prompt_from_textbox.strip() and media_files_for_api:
-            final_user_prompt_for_api = "（画像が添付されました）"
-        else:
-            final_user_prompt_for_api = final_user_prompt.strip()
-        # ★★★ 修正ここまで ★★★
-
-        user_header = _get_user_header_from_log(log_f, current_character_name)
-        timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
-        # ログには、テキストボックスの入力とファイル名のみを記録（ファイル内容は記録しない）
-        save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
-
-        # LangChainのMessage形式に合うように画像パーツを準備
-        # (この時点ではgemini_api.pyへの受け渡しのみで、グラフ内では未使用)
-        lc_image_parts = []
-        if media_files_for_api:
-            for file_info in media_files_for_api:
-                # ここではMIMEタイプとパスのみを渡す（実際のデータ読み込みは不要）
-                # 将来、グラフ内で画像認識を行う際に利用
-                lc_image_parts.append({"type": "image_url", "image_url": {"url": f"file://{file_info['path']}"}})
-
-        api_response_text, generated_image_path = invoke_rag_graph(
+        api_response_text, generated_image_path = send_multimodal_to_gemini(
             character_name=current_character_name,
-            user_prompt=final_user_prompt_for_api, # 修正：新しい変数を使う
+            model_name=current_model_name,
+            parts=parts_for_api,
             api_history_limit_option=api_history_limit_state,
-            uploaded_file_parts=lc_image_parts
+            api_key_name=current_api_key_name_state  # この引数を維持する
         )
 
-        if api_response_text or generated_image_path:
-            cleaned_api_response = api_response_text
+        # --- ログ保存処理をここにまとめる ---
+        if log_message_content.strip(): # ユーザーの入力があった場合のみログ保存
+            save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
 
-            # AIが親切心で追加する可能性のある、あらゆる重複タグを除去する
-            if generated_image_path and api_response_text:
-                # 1. 我々のシステムが付与した[Generated Image: ...]と全く同じ形式のタグを除去
-                tag_to_remove = f"[Generated Image: {generated_image_path}]"
-                cleaned_api_response = cleaned_api_response.replace(tag_to_remove, "").strip()
+        if api_response_text:
+            save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
 
-                # 2. AIが生成するMarkdown形式の画像リンクを除去
-                #    ファイル名さえ一致すれば、パスの形式（/や\、file:///）が違っても除去できるよう、
-                #    正規表現を使って堅牢に対応します。
-                # (関数の先頭に import re を追加してください)
-                image_filename = os.path.basename(generated_image_path)
-                # 例: ![...](.../image_name.png) というパターンに一致
-                markdown_pattern = re.compile(r"!\[.*?\]\(.*?" + re.escape(image_filename) + r".*?\)\s*", re.IGNORECASE)
-                cleaned_api_response = markdown_pattern.sub("", cleaned_api_response).strip()
-
-            # クリーンアップされた応答を元に、ログに保存するメッセージを構築する
-            response_to_log = ""
-            if generated_image_path:
-                response_to_log += f"[Generated Image: {generated_image_path}]\n\n"
-            if cleaned_api_response:
-                response_to_log += cleaned_api_response
-
-            # 最終的に何も残らなかった場合を除き、ログに保存する
-            if response_to_log.strip():
-                 save_message_to_log(log_f, f"## {current_character_name}:", response_to_log)
     except Exception as e:
         traceback.print_exc()
         gr.Error(f"メッセージ処理中に予期せぬエラーが発生しました: {e}")
 
+    # --- UIの更新 ---
     if log_f and os.path.exists(log_f):
         new_log = load_chat_log(log_f, current_character_name)
-        display_turns = _get_display_history_count(api_history_limit_state) # api_history_limit_state を使用
-        new_hist: List[Tuple[Union[str, Tuple[str, str], None], Union[str, Tuple[str, str], None]]] = format_history_for_gradio(new_log[-(display_turns * 2):])
+        display_turns = _get_display_history_count(api_history_limit_state)
+        new_hist = format_history_for_gradio(new_log[-(display_turns * 2):])
     else:
         new_hist = chatbot_history
 
-    return new_hist, gr.update(value=""), gr.update(value=None) # file_input_list もクリア
+    return new_hist, gr.update(value=""), gr.update(value=None)
+
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 
@@ -303,7 +263,7 @@ def update_model_state(model):
     return model
 
 def update_api_key_state(api_key_name):
-    ok, msg = configure_google_api(api_key_name)
+    ok, msg = gemini_api.configure_google_api(api_key_name)
     config_manager.save_config("last_api_key_name", api_key_name)
     if ok: gr.Info(f"APIキー '{api_key_name}' 設定成功。")
     else: gr.Error(f"APIキー '{api_key_name}' 設定失敗: {msg}")

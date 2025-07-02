@@ -180,7 +180,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     # handle_message_submission に渡す inputs のリストを修正 (current_api_key_name_state を削除)
     chat_inputs = [
         chat_input_textbox, chatbot_display, current_character_name, current_model_name,
-        # current_api_key_name_state, # 不要なので削除
+        current_api_key_name_state, # この行が再度必要
         file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state
     ]
     chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
