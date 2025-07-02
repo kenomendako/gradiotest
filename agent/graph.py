@@ -1,71 +1,90 @@
+import google.genai as genai
 from typing import List, TypedDict, Optional
 from PIL import Image
-import google.genai as genai
-from langgraph.graph import StateGraph, END
+import io # ヘルパー関数用にインポート
 
 # グラフ全体で引き回す情報の器を定義
 class AgentState(TypedDict):
-    # UIから直接渡される、生の入力パーツ (テキストや画像)
     input_parts: List[any]
-
-    # 【知覚ノードが生成】全ての入力のテキスト表現
     perceived_content: str
-
-    # 【RAGノードが生成】RAG検索の結果
     rag_results: Optional[str]
-
-    # 【思考ノードが生成】応答の骨子
     response_outline: Optional[str]
-
-    # 【応答生成ノードが生成】最終的なAIの応答
     final_response: str
-
-    # UIから渡される会話履歴
     chat_history: List[dict]
-
-    # ★追加：APIキーをグラフ内で引き回す
     api_key: str
+
+# --- ヘルパー関数 ---
+def _pil_to_bytes(img: Image.Image) -> bytes:
+    """PIL ImageをJPEGバイトに変換する"""
+    img_byte_arr = io.BytesIO()
+    save_image = img.convert('RGB') if img.mode in ('RGBA', 'P') else img
+    save_image.save(img_byte_arr, format='JPEG')
+    return img_byte_arr.getvalue()
 
 # --- 知覚ノードの実装 ---
 def perceive_input_node(state: AgentState):
-    """入力パーツを解析し、すべての情報をテキストに変換（知覚）するノード。"""
+    """【聖典作法準拠】入力パーツを知覚し、テキストに変換するノード。"""
     print("--- 知覚ノード実行 ---")
 
-    # ★修正：StateからAPIキーを取得してモデルを初期化
-    vision_model_name = 'models/gemini-2.5-flash'
+    # 1. APIキーを使ってクライアントを生成
     try:
-        # transport="rest"を追加すると、より安定する場合があります
-        vision_model = genai.GenerativeModel(
-            model_name=vision_model_name,
-            client=genai.Client(api_key=state['api_key'])
-        )
+        client = genai.Client(api_key=state['api_key'])
     except Exception as e:
-        print(f"致命的エラー: 知覚モデル'{vision_model_name}'の初期化に失敗。APIキー関連の問題の可能性あり。詳細: {e}")
-        return {"perceived_content": f"[エラー: 知覚モデル '{vision_model_name}' を準備できませんでした。APIキーまたはモデル名を確認してください。]"}
+        print(f"致命的エラー: genai.Client の初期化に失敗。APIキーを確認してください。詳細: {e}")
+        return {"perceived_content": f"[エラー: APIクライアントを準備できませんでした。APIキーを確認してください。]"}
+
+    vision_model_name = 'models/gemini-2.5-flash' # 指示通り（旧 gemini-1.5-flash相当）
 
     input_parts = state["input_parts"]
     perceived_texts = []
 
-    # 画像と言語を分ける必要があるかもしれないため、分離して処理
     images = [p for p in input_parts if isinstance(p, Image.Image)]
     texts = [p for p in input_parts if isinstance(p, str)]
     user_text = "\n".join(texts)
 
     try:
+        # 2. generate_contentに渡すためのペイロード（辞書のリスト）を作成
         if images:
             print(f"  - {len(images)}個の画像を知覚中...")
-            # 画像とテキストを同時に渡して説明を求める
-            # prompt = ["以下のテキストと画像を考慮し、添付された画像の内容を詳細に説明してください。", user_text] + images # オリジナルのプロンプト
-            # Gemini 2.5 Flash (gemini-1.5-flash-001) は content parts の先頭に文字列を許容しないため修正
-            prompt_parts = [user_text, "以下のテキストと画像を考慮し、添付された画像の内容を詳細に説明してください。"] + images
-            response = vision_model.generate_content(prompt_parts)
-            perceived_texts.append(f"ユーザーの発言：\n---\n{user_text}\n---\n\n添付画像の内容：\n---\n{response.text}\n---")
-        else:
-            # 画像がない場合はテキストのみ
-            perceived_texts.append(f"ユーザーの発言：\n---\n{user_text}\n---")
+            # 画像とテキストを辞書形式でまとめる
+            # ユーザーテキストと指示文をpartsの先頭に持ってくる方が自然か検討
+            # visionモデルへの指示は明確に
+            current_parts = [{'text': "以下のユーザー発言と添付画像を総合的に理解し、画像の内容を詳細に説明してください。"}]
+            if user_text:
+                current_parts.append({'text': f"ユーザーの発言:\n{user_text}"})
+
+            for img in images:
+                 # _pil_to_bytes がバイト列を返すので、それをそのまま 'data' に渡す
+                 current_parts.append({'inline_data': {'mime_type': 'image/jpeg', 'data': _pil_to_bytes(img)}})
+
+            contents_for_perception = [{'role': 'user', 'parts': current_parts}]
+
+            # 3. client.models.generate_content を呼び出す
+            response = client.models.generate_content(
+                model=vision_model_name,
+                contents=contents_for_perception
+            )
+            # response.text が利用可能か確認
+            generated_description = response.text if hasattr(response, 'text') else "[画像内容の取得に失敗しました]"
+            if response.prompt_feedback and response.prompt_feedback.block_reason:
+                generated_description = f"[知覚ブロック: 安全性設定により画像内容の取得がブロックされました。理由: {response.prompt_feedback.block_reason}]"
+
+            # ユーザーテキストがない場合の出力を調整
+            if user_text:
+                perceived_texts.append(f"ユーザーの発言：\n---\n{user_text}\n---\n\n添付画像の内容：\n---\n{generated_description}\n---")
+            else:
+                perceived_texts.append(f"添付画像の内容：\n---\n{generated_description}\n---")
+
+        else: # 画像がない場合
+            if user_text:
+                perceived_texts.append(f"ユーザーの発言：\n---\n{user_text}\n---")
+            else:
+                # テキストも画像もない場合は、その旨を伝えるか、あるいはこのノードをスキップする条件分岐が上位であるべき
+                perceived_texts.append("[ユーザーからの入力が空でした]")
 
     except Exception as e:
         print(f"  - 知覚処理中にエラー: {e}")
+        # traceback.print_exc() # デバッグ用にトレースバック出力も有効
         perceived_texts.append(f"[知覚エラー：添付ファイルの処理に失敗しました。詳細：{e}]")
 
     combined_perception = "\n\n".join(perceived_texts)
@@ -73,80 +92,86 @@ def perceive_input_node(state: AgentState):
 
     return {"perceived_content": combined_perception}
 
+
 # --- 応答生成ノードの実装 ---
 def generate_response_node(state: AgentState):
-    """全ての情報を統合し、最終的な応答を生成するノード。"""
+    """【聖典作法準拠】全ての情報を統合し、最終的な応答を生成するノード。"""
     print("--- 応答生成ノード実行 ---")
 
-    # ★修正：StateからAPIキーを取得してモデルを初期化
-    response_model_name = 'models/gemini-2.5-pro'
-    # response_model_name = 'models/gemini-1.5-pro-latest' # API利用可能性に応じてこちらを使用
+    # 1. APIキーを使ってクライアントを生成
     try:
-        response_model = genai.GenerativeModel(
-            model_name=response_model_name,
-            client=genai.Client(api_key=state['api_key'])
-        )
+        client = genai.Client(api_key=state['api_key'])
     except Exception as e:
-        print(f"致命的エラー: 応答生成モデル'{response_model_name}'の初期化に失敗。APIキー関連の問題の可能性あり。詳細: {e}")
-        return {"final_response": f"[エラー: 応答生成モデル '{response_model_name}' を準備できませんでした。APIキーまたはモデル名を確認してください。]"}
+        print(f"致命的エラー: genai.Client の初期化に失敗。APIキーを確認してください。詳細: {e}")
+        return {"final_response": f"[エラー: APIクライアントを準備できませんでした。APIキーを確認してください。]"}
 
-    # 応答生成に必要な全ての情報をプロンプトにまとめる
-    prompt_context = f"""
-# 命令
-あなたは優秀な対話AIです。以下の情報を統合し、会話履歴を踏まえて、ユーザーへの応答を生成してください。
+    response_model_name = 'models/gemini-2.5-pro' # 指示通り (旧 gemini-1.5-pro 相当)
 
-# 知覚された情報
-{state['perceived_content']}
+    # 2. generate_contentに渡すためのペイロード（辞書のリスト）を作成
+    #    google-generativeai v0.5.0以降、履歴は {'role': ..., 'parts': [...]} のリスト
+    contents_for_generation = []
 
-# 内部検索結果(RAG)
-{state.get('rag_results', 'なし')}
+    # システムプロンプト (もしあれば)
+    # ここでは、AgentStateにsystem_promptフィールドがないため、直接記述するか、別途渡す仕組みが必要
+    # 例: contents_for_generation.append({'role': 'user', 'parts': [{'text': "あなたは猫です。猫になりきって回答してください。"}]})
+    #     contents_for_generation.append({'role': 'model', 'parts': [{'text': "ニャンだ、わかったニャン！"}]})
 
-# 思考の骨子
-{state.get('response_outline', 'なし')}
-"""
-    # 会話履歴を結合
-    # chat_session = response_model.start_chat(history=state['chat_history']) # 古い書き方
-    # response = chat_session.send_message(prompt_context) # 古い書き方
+    # 会話履歴を追加 (state['chat_history'] が正しい形式であることを期待)
+    # state['chat_history'] は [{'role': 'user', 'parts': ['こんにちは']}, {'role': 'model', 'parts': ['はい、こんにちは！']}] のような形式
+    for history_item in state['chat_history']:
+        contents_for_generation.append(history_item)
 
-    # 新しいAPI (v0.5.0以降) の推奨するやり方
-    # https://ai.google.dev/gemini-api/docs/api-key-restrictions?lang=python#chat-history
-    # https://github.com/google-gemini/cookbook/blob/main/quickstarts/Chat.ipynb
-    messages = []
-    # state['chat_history'] は既に {'role': ..., 'parts': [...]} の形式になっているはず
-    for item in state['chat_history']:
-        messages.append({'role': item['role'], 'parts': item['parts']})
-    messages.append({'role': 'user', 'parts': [prompt_context]})
 
-    generated_text = ""
+    # 思考プロセスやRAGの結果をプロンプトに組み込む (指示書の形式を踏襲)
+    # これらは perceived_content とは別に、ユーザーに見せない内部情報として扱うことが多い
+    prompt_context_parts = []
+    prompt_context_parts.append("# 知覚された情報")
+    prompt_context_parts.append(state['perceived_content'])
+
+    if state.get('rag_results'):
+        prompt_context_parts.append("\n# 内部検索結果(RAG)")
+        prompt_context_parts.append(state['rag_results'])
+
+    if state.get('response_outline'):
+        prompt_context_parts.append("\n# 思考の骨子")
+        prompt_context_parts.append(state['response_outline'])
+
+    # 最後のユーザー入力として、統合されたコンテキストを追加
+    final_user_prompt = "\n".join(prompt_context_parts)
+    contents_for_generation.append({'role': 'user', 'parts': [{'text': final_user_prompt}]})
+
+    generated_text = "[応答生成エラー：不明な問題]"
     try:
-        response = response_model.generate_content(messages)
+        # 3. client.models.generate_content を呼び出す
+        response = client.models.generate_content(
+            model=response_model_name,
+            contents=contents_for_generation
+            # generation_config={"temperature": 0.7} # 必要に応じて設定
+            # safety_settings={...} # 必要に応じて設定
+        )
 
-        # より安全な応答テキストの取得
-        if response.candidates:
-            first_candidate = response.candidates[0]
-            if first_candidate.content and first_candidate.content.parts:
-                generated_text = "".join(part.text for part in first_candidate.content.parts if hasattr(part, 'text'))
-            elif first_candidate.finish_reason != "SAFETY": # 安全性以外での終了理由でpartsがない場合
-                 generated_text = f"[応答取得エラー: 応答パーツが空です。終了理由: {first_candidate.finish_reason}]"
-            else: # 安全性によるブロックなど
-                generated_text = f"[応答ブロック: 安全性設定により応答がブロックされました。詳細: {response.prompt_feedback if response.prompt_feedback else 'N/A'}]"
+        # response.text が最も簡単な方法だが、より詳細な制御が必要な場合は candidates を見る
+        if hasattr(response, 'text') and response.text:
+            generated_text = response.text
+        elif response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+            generated_text = "".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
 
-        if not generated_text and response.prompt_feedback:
-            generated_text = f"[応答なし: プロンプトフィードバックあり: {response.prompt_feedback}]"
-        elif not generated_text:
-            generated_text = "[応答なし: 不明な理由]"
+        if response.prompt_feedback and response.prompt_feedback.block_reason:
+            generated_text = f"[応答ブロック: 安全性設定により応答がブロックされました。理由: {response.prompt_feedback.block_reason}]"
 
+        print(f"  - 生成された応答： {generated_text[:100]}...")
+        return {"final_response": generated_text}
     except Exception as e:
         print(f"  - 応答生成中にエラー: {e}")
-        error_message = f"[エラー: 応答生成中に問題が発生しました。詳細: {e}]"
-        # 'response' 変数がこのスコープで定義されているか確認
+        # traceback.print_exc() # デバッグ用
+        # エラーレスポンスにprompt_feedbackが含まれているか確認
+        error_detail = f"詳細: {e}"
         if 'response' in locals() and hasattr(response, 'prompt_feedback') and response.prompt_feedback:
-             error_message += f"\nプロンプトフィードバック: {response.prompt_feedback}"
-        return {"final_response": error_message}
+            error_detail += f" プロンプトフィードバック: {response.prompt_feedback}"
+        return {"final_response": f"[エラー：応答生成に失敗しました。{error_detail}]"}
 
-    print(f"  - 生成された応答： {generated_text[:100]}...")
-    return {"final_response": generated_text}
 
+from langgraph.graph import StateGraph, END
 
 # (RAG検索ノード、思考ノードなどがここにあると仮定)
 
