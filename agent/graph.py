@@ -23,19 +23,25 @@ class AgentState(TypedDict):
     # UIから渡される会話履歴
     chat_history: List[dict]
 
+    # ★追加：APIキーをグラフ内で引き回す
+    api_key: str
+
 # --- 知覚ノードの実装 ---
 def perceive_input_node(state: AgentState):
     """入力パーツを解析し、すべての情報をテキストに変換（知覚）するノード。"""
     print("--- 知覚ノード実行 ---")
 
-    #【検証ポイント】まず'gemini-2.5-flash'で実装し、安定動作を確認後、
-    # 'gemini-2.5-flash-lite'での動作を試すこと。APIが対応していない可能性がある。
+    # ★修正：StateからAPIキーを取得してモデルを初期化
     vision_model_name = 'models/gemini-2.5-flash'
     try:
-        vision_model = genai.GenerativeModel(vision_model_name)
+        # transport="rest"を追加すると、より安定する場合があります
+        vision_model = genai.GenerativeModel(
+            model_name=vision_model_name,
+            client=genai.Client(api_key=state['api_key'])
+        )
     except Exception as e:
-        print(f"致命的エラー: 知覚モデル'{vision_model_name}'の初期化に失敗。{e}")
-        return {"perceived_content": f"[エラー: 知覚モデルを準備できませんでした]"}
+        print(f"致命的エラー: 知覚モデル'{vision_model_name}'の初期化に失敗。APIキー関連の問題の可能性あり。詳細: {e}")
+        return {"perceived_content": f"[エラー: 知覚モデル '{vision_model_name}' を準備できませんでした。APIキーまたはモデル名を確認してください。]"}
 
     input_parts = state["input_parts"]
     perceived_texts = []
@@ -72,14 +78,17 @@ def generate_response_node(state: AgentState):
     """全ての情報を統合し、最終的な応答を生成するノード。"""
     print("--- 応答生成ノード実行 ---")
 
-    response_model_name = 'models/gemini-2.5-pro' # 指示では gemini-2.5-pro だが、APIがまだ対応していないため gemini-1.5-pro-latest に変更
-    # response_model_name = 'models/gemini-1.5-pro-latest'
+    # ★修正：StateからAPIキーを取得してモデルを初期化
+    response_model_name = 'models/gemini-2.5-pro'
+    # response_model_name = 'models/gemini-1.5-pro-latest' # API利用可能性に応じてこちらを使用
     try:
-        # APIキーが設定済みであることを前提とする
-        response_model = genai.GenerativeModel(response_model_name)
+        response_model = genai.GenerativeModel(
+            model_name=response_model_name,
+            client=genai.Client(api_key=state['api_key'])
+        )
     except Exception as e:
-        print(f"致命的エラー: 応答生成モデル'{response_model_name}'の初期化に失敗。{e}")
-        return {"final_response": f"[エラー: 応答生成モデルを準備できませんでした]"}
+        print(f"致命的エラー: 応答生成モデル'{response_model_name}'の初期化に失敗。APIキー関連の問題の可能性あり。詳細: {e}")
+        return {"final_response": f"[エラー: 応答生成モデル '{response_model_name}' を準備できませんでした。APIキーまたはモデル名を確認してください。]"}
 
     # 応答生成に必要な全ての情報をプロンプトにまとめる
     prompt_context = f"""
