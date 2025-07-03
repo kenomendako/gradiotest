@@ -107,19 +107,36 @@ def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list,
             return "エラー: 送信するコンテンツがありません。", None
 
         model_to_call_name = f"models/{model_name}"
-        client_for_direct_call = genai.Client(api_key=api_key) # ★Clientを初期化
+        client_for_direct_call = genai.Client(api_key=api_key)
+
+        # messages_for_api_direct_call を構築
+        messages_for_api_direct_call = []
+        if system_instruction_text:
+            # システムプロンプトを会話の先頭に追加 (ユーザーロールとして)
+            messages_for_api_direct_call.append({'role': 'user', 'parts': [{'text': system_instruction_text}]})
+            # モデルからの応答を仮定して追加 (オプション、モデルの挙動による)
+            messages_for_api_direct_call.append({'role': 'model', 'parts': [{'text': "承知いたしました。"}]}) # もしくは "OK." など
+
+        messages_for_api_direct_call.extend(model_history_for_direct_call)
+        messages_for_api_direct_call.append({'role': 'user', 'parts': user_message_parts_for_direct_call})
+
         try:
-            gen_model = genai.GenerativeModel(
-                model_name=model_to_call_name,
-                system_instruction=system_instruction_text if system_instruction_text else None,
-                client=client_for_direct_call # ★Clientを渡す
+            # client.models.generate_content を直接呼び出す
+            response = client_for_direct_call.models.generate_content(
+                model=model_to_call_name,
+                contents=messages_for_api_direct_call
             )
         except Exception as e:
-            return f"エラー: モデル '{model_to_call_name}' の初期化に失敗しました: {e}", None
+            # エラーメッセージにモデル名を含める
+            traceback.print_exc()
+            return f"エラー: モデル '{model_to_call_name}' でのコンテンツ生成中にエラーが発生しました: {e}", None
 
-        messages_for_api_direct_call = model_history_for_direct_call + [{'role': 'user', 'parts': user_message_parts_for_direct_call}]
-
-        response = gen_model.generate_content(messages_for_api_direct_call)
+        # response.text が存在するか確認
+        generated_text = "[応答なし]"
+        if hasattr(response, 'text') and response.text:
+            generated_text = response.text
+        elif response.prompt_feedback and response.prompt_feedback.block_reason:
+            generated_text = f"[応答ブロック: 安全性設定により応答がブロックされました。理由: {response.prompt_feedback.block_reason}]"
 
         user_input_text = ""
         for p in parts:
