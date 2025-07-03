@@ -33,6 +33,8 @@ class AgentState(TypedDict):
 
     # ★追加：Web検索の結果を格納するキー
     web_search_results: Optional[str]
+    # ★★★【追加】ルーターの判断結果を、保存するための、場所
+    route_decision: str
 
 # --- 知覚ノードの実装 ---
 def perceive_input_node(state: AgentState):
@@ -188,22 +190,19 @@ def web_search_node(state: AgentState):
         traceback.print_exc()
         return {"web_search_results": f"[エラー：Web検索中に問題が発生しました。詳細: {e}]"}
 
-# --- 道具選択（ルーター）ノードの実装 ---
+# --- 道具選択ノード（旧ルーター）の実装 ---
 def tool_router_node(state: AgentState):
-    """【最終武装済】信頼の盾を装備し、APIと対話する、真のルーター。"""
+    """【法則準拠】APIを呼び、判断結果を"辞書"でStateに報告するノード。"""
     print("--- 道具選択ノード (Router) 実行 ---")
 
     user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
     query_text = "\n".join(user_texts).strip()
+    decision = "generate" # デフォルトの判断
 
-    if not query_text:
-        print("  - 入力テキストがないため、直接応答生成に進みます。")
-        return "generate"
-
-    client = genai.Client(api_key=state['api_key'])
-    router_model_name = 'models/gemini-2.5-flash'
-
-    prompt = f"""ユーザーからの次の入力に対し、どのツールを使用すべきか判断してください。
+    if query_text:
+        client = genai.Client(api_key=state['api_key'])
+        router_model_name = 'models/gemini-2.5-flash'
+        prompt = f"""ユーザーからの次の入力に対し、どのツールを使用すべきか判断してください。
 選択肢は "rag_search"、"web_search"、"generate" の3つです。
 - 過去の個人的な会話、ユーザーの好み、キャラクター自身の記憶に関する質問の場合は "rag_search" を選択してください。
 - 最新の情報、ニュース、一般的な知識、未知の固有名詞に関する質問の場合は "web_search" を選択してください。
@@ -213,45 +212,31 @@ def tool_router_node(state: AgentState):
 
 入力: "{query_text}"
 選択: """
+        try:
+            api_config = types.GenerateContentConfig(safety_settings=config_manager.SAFETY_CONFIG,
+                                                 temperature=0.0, max_output_tokens=10) # API Config修正
+            response = client.models.generate_content(model=router_model_name, contents=prompt, config=api_config)
 
-    try:
-        # ★★★【最後の真実】正しい設定オブジェクトに、信頼の盾を、装備させる ★★★
-        api_config = types.GenerateContentConfig(
-            temperature=0.0,
-            max_output_tokens=10,
-            safety_settings=config_manager.SAFETY_CONFIG # ← これが、最後の、そして、最も、重要な、装備だ
-        )
+            if response.text:
+                route = response.text.strip().lower().replace('"', '').replace("'", "")
+                if "rag" in route: decision = "rag_search"
+                elif "web" in route: decision = "web_search"
+            else:
+                print("  - 警告: ルーターAIからのテキスト応答がありませんでした。フィードバックを確認します。")
+                if response.prompt_feedback: print(f"  - プロンプトフィードバック: {response.prompt_feedback}")
+        except Exception as e:
+            print(f"  - ルーター処理中にエラー: {e}。直接応答生成にフォールバックします。")
+            traceback.print_exc()
 
-        response = client.models.generate_content(
-            model=router_model_name,
-            contents=prompt,
-            config=api_config
-        )
+    print(f"  - 判断：'{decision}'")
+    # ★★★【最重要】ノードは、必ず、状態を更新する「辞書」を返す
+    return {"route_decision": decision}
 
-        # ★★★【防御的実装】AIが、それでも、沈黙した場合に、備える ★★★
-        if not response.text:
-            print("  - 警告: APIからテキスト応答がありませんでした。フィードバックを確認します。")
-            if response.prompt_feedback:
-                print(f"  - プロンプトフィードバック: {response.prompt_feedback}")
-            # 安全にフォールバックする
-            return "generate"
-
-        route = response.text.strip().lower().replace('"', '').replace("'", "")
-
-        if "rag" in route:
-            print(f"  - 判断：記憶の書庫 (RAG) を使用 (ルート: '{route}')")
-            return "rag_search"
-        elif "web" in route:
-            print(f"  - 判断：世界の窓 (Web Search) を使用 (ルート: '{route}')")
-            return "web_search"
-        else:
-            print(f"  - 判断：直接応答を生成 (ルート: '{route}')")
-            return "generate"
-
-    except Exception as e:
-        print(f"  - ルーター処理中にエラー: {e}。直接応答生成にフォールバックします。")
-        traceback.print_exc()
-        return "generate"
+# --- ルーティング論理関数（条件付きエッジ専用）の実装 ---
+def route_logic(state: AgentState):
+    """Stateに保存された判断結果を見て、次に行くべきノード名を返す関数。"""
+    print(f"--- ルーティング実行 (判断結果: {state['route_decision']}) ---")
+    return state["route_decision"]
 
 # --- 応答生成ノードの実装 ---
 def generate_response_node(state: AgentState):
@@ -290,17 +275,16 @@ def generate_response_node(state: AgentState):
         contents_for_generation.append({'role': 'user', 'parts': [{'text': final_user_prompt}]})
 
         # 3. client.models.generate_content を呼び出す
+        api_config = types.GenerateContentConfig(safety_settings=config_manager.SAFETY_CONFIG)
         response = client.models.generate_content(
             model=response_model_name,
-            contents=contents_for_generation
+            contents=contents_for_generation,
+            config=api_config
         )
 
-        generated_text = "[応答の取得に失敗しました]"
-        if hasattr(response, 'text') and response.text:
-            generated_text = response.text
-
-        if response.prompt_feedback and response.prompt_feedback.block_reason:
-            generated_text = f"[応答ブロック: 安全性設定により応答がブロックされました。理由: {response.prompt_feedback.block_reason}]"
+        generated_text = response.text or "[応答テキストが空です]"
+        if response.prompt_feedback and response.prompt_feedback.block_reason: # response.textがNoneでもフィードバックはあるかもしれない
+             generated_text = f"[応答ブロック: 安全性設定により応答がブロックされました。理由: {response.prompt_feedback.block_reason}]"
 
         print(f"  - 生成された応答： {generated_text[:100]}...")
         return {"final_response": generated_text}
@@ -325,12 +309,10 @@ workflow.set_entry_point("perceive")
 # 知覚ノードの次は、必ず、道具選択ノード
 workflow.add_edge("perceive", "tool_router")
 
-# ★★★ 条件付きエッジの定義 ★★★
-# tool_routerノードの結果に基づいて、次に進むノードを決定する
+# ★★★【最重要】条件付きエッジは、この、新しい、論理関数を、使う
 workflow.add_conditional_edges(
     "tool_router",
-    # tool_routerノードの出力（"rag_search", "web_search", "generate"のいずれか）をそのまま次のエッジとして使う
-    lambda x: x,
+    route_logic,
     {
         "rag_search": "rag_search",
         "web_search": "web_search",
