@@ -189,15 +189,15 @@ def web_search_node(state: AgentState):
 
 # --- 道具選択（ルーター）ノードの実装 ---
 def tool_router_node(state: AgentState):
-    """【作法修正済】ユーザー入力に基づき、次に進むべきノード名を返すルーター。"""
+    """【作法再修正済】ユーザー入力に基づき、次に進むべきノード名を返すルーター。"""
     print("--- 道具選択ノード (Router) 実行 ---")
 
     user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
     query_text = "\n".join(user_texts).strip()
 
-    if not query_text: # 入力テキストがない場合は早期リターン
+    if not query_text:
         print("  - 入力テキストがないため、直接応答生成に進みます。")
-        return "generate" # ★★★ 次のノード名を直接返す
+        return "generate"
 
     client = genai.Client(api_key=state['api_key'])
     router_model_name = 'models/gemini-2.5-flash'
@@ -214,16 +214,21 @@ def tool_router_node(state: AgentState):
 選択: """
 
     try:
-        # ★★★【作法修正】generation_configではなく、configを使い、types.GenerationConfigオブジェクトを渡す ★★★
-        generation_config = types.GenerationConfig(
-            max_output_tokens=10,
-            temperature=0.0
+        # ★★★【作法修正】GenerationConfigではなく、GenerateContentConfig を使用する ★★★
+        # これが、生成設定と、ツール設定の両方を、含めることができる、正しい、オブジェクトです。
+        # このノードではツールを使わないので、tools=[] は空で渡します。
+        api_config = types.GenerateContentConfig(
+            generation_config=types.GenerationConfig(
+                max_output_tokens=10,
+                temperature=0.0
+            ),
+            tools=[]
         )
 
         response = client.models.generate_content(
             model=router_model_name,
             contents=prompt,
-            config=generation_config
+            config=api_config # ★ 修正した設定オブジェクトを渡す
         )
 
         route = response.text.strip().lower().replace('"', '').replace("'", "")
@@ -241,7 +246,7 @@ def tool_router_node(state: AgentState):
     except Exception as e:
         print(f"  - ルーター処理中にエラー: {e}。直接応答生成にフォールバックします。")
         traceback.print_exc()
-        return "generate" # ★★★ エラー時も、次のノード名を返す
+        return "generate"
 
 # --- 応答生成ノードの実装 ---
 def generate_response_node(state: AgentState):
