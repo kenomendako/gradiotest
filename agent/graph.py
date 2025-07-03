@@ -128,7 +128,7 @@ def rag_search_node(state: AgentState):
             character_name=character_name,
             query_text=query_text,
             api_key=api_key,
-            top_k=5 # 件数は5件に戻しておく
+            top_k=3 # ← 安定性を重視し、3に戻す
         )
 
         if relevant_chunks:
