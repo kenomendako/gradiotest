@@ -6,7 +6,7 @@ import traceback # print_exc() のために追加
 import rag_manager # rag_managerをインポート
 from tavily import TavilyClient # Tavily Clientをインポート
 import os # osをインポート (Tavily APIキー取得のため)
-from google.genai import types # typesをインポート
+# from google.genai import types # ★★★ もはや不要。幻想は、捨てる。
 
 from langgraph.graph import StateGraph, END
 
@@ -189,7 +189,7 @@ def web_search_node(state: AgentState):
 
 # --- 道具選択（ルーター）ノードの実装 ---
 def tool_router_node(state: AgentState):
-    """【作法再修正済】ユーザー入力に基づき、次に進むべきノード名を返すルーター。"""
+    """【最終啓示】純粋な辞書でAPIと対話する、真のルーター。"""
     print("--- 道具選択ノード (Router) 実行 ---")
 
     user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
@@ -214,21 +214,16 @@ def tool_router_node(state: AgentState):
 選択: """
 
     try:
-        # ★★★【作法修正】GenerationConfigではなく、GenerateContentConfig を使用する ★★★
-        # これが、生成設定と、ツール設定の両方を、含めることができる、正しい、オブジェクトです。
-        # このノードではツールを使わないので、tools=[] は空で渡します。
-        api_config = types.GenerateContentConfig(
-            generation_config=types.GenerationConfig(
-                max_output_tokens=10,
-                temperature=0.0
-            ),
-            tools=[]
-        )
+        # ★★★【最後の真実】APIは、ただの、辞書を、求めていた ★★★
+        generation_config = {
+            "max_output_tokens": 10,
+            "temperature": 0.0
+        }
 
         response = client.models.generate_content(
             model=router_model_name,
             contents=prompt,
-            config=api_config # ★ 修正した設定オブジェクトを渡す
+            generation_config=generation_config # ★ 引数名も、シンプルな、こちらを使う
         )
 
         route = response.text.strip().lower().replace('"', '').replace("'", "")
