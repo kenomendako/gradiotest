@@ -31,3 +31,6 @@ python-dotenv
 # Correct, modern SDK for Gemini API. DO NOT CHANGE.
 # Gemini API用の正しく新しいSDKです。変更しないでください。
 google-genai
+
+# For Web Search with Tavily AI
+tavily-python

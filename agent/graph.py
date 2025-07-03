@@ -4,6 +4,8 @@ from PIL import Image
 import io
 import traceback # print_exc() のために追加
 import rag_manager # rag_managerをインポート
+from tavily import TavilyClient # Tavily Clientをインポート
+import os # osをインポート (Tavily APIキー取得のため)
 
 from langgraph.graph import StateGraph, END
 
@@ -26,6 +28,9 @@ class AgentState(TypedDict):
     chat_history: List[dict]
     api_key: str
     character_name: Optional[str] # RAGのためにキャラクター名を追加
+
+    # ★追加：Web検索の結果を格納するキー
+    web_search_results: Optional[str]
 
 # --- 知覚ノードの実装 ---
 def perceive_input_node(state: AgentState):
@@ -144,6 +149,101 @@ def rag_search_node(state: AgentState):
         traceback.print_exc()
         return {"rag_results": "[エラー：記憶の検索中に問題が発生しました]"}
 
+# --- Web検索ノードの実装 ---
+def web_search_node(state: AgentState):
+    """ユーザーのクエリに基づき、Tavilyを使ってWeb検索を実行するノード。"""
+    print("--- 世界の窓 (Web Search) 実行 ---")
+
+    tavily_api_key = os.environ.get("TAVILY_API_KEY")
+    if not tavily_api_key:
+        return {"web_search_results": "[エラー：Tavily APIキーが環境変数に設定されていません]"}
+
+    user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
+    query_text = "\n".join(user_texts).strip()
+
+    if not query_text:
+        print("  - Web検索クエリが空のためスキップしました。")
+        return {"web_search_results": None} # クエリが空ならNoneを返す
+
+    print(f"  - Web検索クエリ: \"{query_text[:100]}...\"")
+    try:
+        client = TavilyClient(api_key=tavily_api_key)
+        # searchメソッドは、検索結果を要約し、辞書のリストとして返す
+        response = client.search(query=query_text, search_depth="advanced", max_results=5)
+
+        # 応答生成モデルが使いやすいように、結果をテキストにフォーマットする
+        if response and response.get('results'):
+            formatted_results = "\n\n".join([f"URL: {res['url']}\n内容: {res['content']}" for res in response['results']])
+            print(f"  - Web検索成功。{len(response['results'])}件の結果を取得。")
+            return {"web_search_results": formatted_results}
+        else:
+            print(f"  - Web検索で有効な結果が得られませんでした。")
+            return {"web_search_results": None}
+
+
+    except Exception as e:
+        print(f"  - Web検索中にエラー: {e}")
+        traceback.print_exc()
+        return {"web_search_results": f"[エラー：Web検索中に問題が発生しました。詳細: {e}]"}
+
+# --- 道具選択（ルーター）ノードの実装 ---
+def tool_router_node(state: AgentState):
+    """ユーザーの入力に基づき、次に進むべきノードを決定するルーター。"""
+    print("--- 道具選択ノード (Router) 実行 ---")
+
+    # ユーザーの生のテキスト入力を取得
+    user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
+    query_text = "\n".join(user_texts).strip()
+
+    # 判断を下すための、高速なモデルを、使用する
+    client = genai.Client(api_key=state['api_key'])
+    router_model_name = 'models/gemini-2.5-flash'
+
+    # クエリが空か、非常に短い場合は、ツールを使わずに直接応答生成へ
+    if not query_text or len(query_text) < 5: # 例えば5文字未満は挨拶や単純応答とみなす
+        print("  - 入力が短いか空のため、直接応答を生成")
+        return "generate"
+
+    prompt = f"""ユーザーからの次の入力に対し、どのツールを使用すべきか判断してください。
+選択肢は "rag_search"、"web_search"、"generate" の3つです。
+- 過去の個人的な会話やユーザーの好みに関する質問、キャラクター自身の記憶や設定に関する質問の場合は "rag_search" を選択してください。
+- 最新の情報、ニュース、一般的な知識、特定の事柄に関する外部情報が必要な質問の場合は "web_search" を選択してください。
+- 単純な挨拶、短い相槌、感情表現、または上記二つのツールが不要と判断される会話の場合は "generate" を選択してください。
+
+あなたの応答は、選択したツールの名前（例: "rag_search"）のみでなければなりません。余計な説明は一切不要です。
+
+入力: "{query_text}"
+選択: """
+
+    try:
+        response = client.models.generate_content(
+            model=router_model_name,
+            contents=prompt,
+            # 余計な出力を防ぐため、短く設定
+            generation_config={"max_output_tokens": 10, "temperature": 0.0} # temperatureを0にして決定性を高める
+        )
+
+        route = response.text.strip().lower()
+        # より厳密な判定のため、キーワードが含まれるかでなく、完全一致に近い形で判定
+        if route == "rag_search":
+            print("  - 判断：記憶の書庫 (RAG) を使用")
+            return "rag_search"
+        elif route == "web_search":
+            print("  - 判断：世界の窓 (Web Search) を使用")
+            return "web_search"
+        elif route == "generate":
+            print("  - 判断：直接応答を生成")
+            return "generate"
+        else:
+            # 予期しない応答の場合は、安全策として直接生成
+            print(f"  - ルーターが予期しない応答 ({route}) を返したため、直接応答生成にフォールバックします。")
+            return "generate"
+
+    except Exception as e:
+        print(f"  - ルーター処理中にエラー: {e}。直接応答生成にフォールバックします。")
+        traceback.print_exc()
+        return "generate"
+
 # --- 応答生成ノードの実装 ---
 def generate_response_node(state: AgentState):
     """【聖典作法準拠】全ての情報を統合し、最終的な応答を生成するノード。"""
@@ -170,10 +270,13 @@ def generate_response_node(state: AgentState):
         if not final_user_prompt.strip(): # 知覚結果が空やスペースのみの場合
             final_user_prompt = "[ユーザーは何も入力しませんでした]"
 
-        rag_info = state.get('rag_results') # StateからRAG結果を取得
+        rag_info = state.get('rag_results')
         if rag_info:
-            # RAG結果が存在する場合、プロンプトに情報を追加
-            final_user_prompt += f"\n\n# 参照した記憶の断片:\n---\n{rag_info}\n---"
+            final_user_prompt += f"\n\n# 参照した記憶の断片(RAG):\n---\n{rag_info}\n---"
+
+        web_info = state.get('web_search_results')
+        if web_info:
+            final_user_prompt += f"\n\n# Web検索結果:\n---\n{web_info}\n---"
 
         contents_for_generation.append({'role': 'user', 'parts': [{'text': final_user_prompt}]})
 
@@ -202,13 +305,34 @@ workflow = StateGraph(AgentState)
 
 # ノードをグラフに追加
 workflow.add_node("perceive", perceive_input_node)
-workflow.add_node("rag_search", rag_search_node) # ★新しいRAGノードを追加
+workflow.add_node("tool_router", tool_router_node) # ★新しいルーターノード
+workflow.add_node("rag_search", rag_search_node)
+workflow.add_node("web_search", web_search_node) # ★新しいWeb検索ノード
 workflow.add_node("generate", generate_response_node)
 
 # グラフの実行順序を定義
 workflow.set_entry_point("perceive")
-workflow.add_edge("perceive", "rag_search")   # 知覚 → RAG検索
-workflow.add_edge("rag_search", "generate") # RAG検索 → 応答生成
+
+# 知覚ノードの次は、必ず、道具選択ノード
+workflow.add_edge("perceive", "tool_router")
+
+# ★★★ 条件付きエッジの定義 ★★★
+# tool_routerノードの結果に基づいて、次に進むノードを決定する
+workflow.add_conditional_edges(
+    "tool_router",
+    # tool_routerノードの出力（"rag_search", "web_search", "generate"のいずれか）をそのまま次のエッジとして使う
+    lambda x: x,
+    {
+        "rag_search": "rag_search",
+        "web_search": "web_search",
+        "generate": "generate"
+    }
+)
+
+# ツールを使った後は、必ず、応答生成ノードに進む
+workflow.add_edge("rag_search", "generate")
+workflow.add_edge("web_search", "generate")
+# 応答生成が終わったら、グラフを終了
 workflow.add_edge("generate", END)
 
 # グラフをコンパイル
