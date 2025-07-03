@@ -6,7 +6,7 @@ import traceback # print_exc() のために追加
 import rag_manager # rag_managerをインポート
 from tavily import TavilyClient # Tavily Clientをインポート
 import os # osをインポート (Tavily APIキー取得のため)
-# from google.genai import types # ★★★ もはや不要。幻想は、捨てる。
+from google.genai import types # ★ types をインポート
 
 from langgraph.graph import StateGraph, END
 
@@ -189,7 +189,7 @@ def web_search_node(state: AgentState):
 
 # --- 道具選択（ルーター）ノードの実装 ---
 def tool_router_node(state: AgentState):
-    """【最終啓示】純粋な辞書でAPIと対話する、真のルーター。"""
+    """【三位一体の真実】正しい作法でAPIと対話する、真のルーター。"""
     print("--- 道具選択ノード (Router) 実行 ---")
 
     user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
@@ -214,16 +214,17 @@ def tool_router_node(state: AgentState):
 選択: """
 
     try:
-        # ★★★【最後の真実】APIは、ただの、辞書を、求めていた ★★★
-        generation_config = {
-            "max_output_tokens": 10,
-            "temperature": 0.0
-        }
+        # ★ 真実2 & 3: 正しいクラス(GenerateContentConfig)を、正しい作り方で、作成する
+        api_config = types.GenerateContentConfig(
+            temperature=0.0,
+            max_output_tokens=10
+        )
 
+        # ★ 真実1: 正しい引数名(config)で、APIを、呼び出す
         response = client.models.generate_content(
             model=router_model_name,
             contents=prompt,
-            generation_config=generation_config # ★ 引数名も、シンプルな、こちらを使う
+            config=api_config
         )
 
         route = response.text.strip().lower().replace('"', '').replace("'", "")
