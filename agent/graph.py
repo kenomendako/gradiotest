@@ -156,23 +156,17 @@ def call_tool_node(state: AgentState):
                 }
 
             observation = tool_to_call.invoke(final_tool_args)
-            # ★★★【最後の真実】ToolMessageのcontentは、AIが、解釈できる、文字列でなければならない ★★★
+            # ★★★【最後の真実】過剰な装飾をやめ、ツールの生の出力を、そのまま、contentとして、渡す ★★★
             tool_messages.append(
                 ToolMessage(
-                    content=f"道具「{tool_name}」の実行結果:\n---\n{str(observation)}\n---",
-                    tool_call_id=tool_call['id'] # tool_call_id を正しく参照
+                    content=str(observation),
+                    tool_call_id=tool_call['id']
                 )
             )
         except Exception as e:
             print(f"  - 道具 '{tool_name}' の実行中にエラー: {e}")
             traceback.print_exc()
-            # エラー時も同様の形式でToolMessageを作成
-            tool_messages.append(
-                ToolMessage(
-                    content=f"道具「{tool_name}」の実行中にエラーが発生しました:\n---\n{str(e)}\n---",
-                    tool_call_id=tool_call['id'] # tool_call_id を正しく参照
-                )
-            )
+            tool_messages.append(ToolMessage(content=f"[エラー：道具'{tool_name}'の実行に失敗しました。詳細: {e}]", tool_call_id=tool_call['id']))
 
     return {"messages": tool_messages}
 
