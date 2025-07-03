@@ -1,12 +1,13 @@
 import os
 import traceback
 from typing import TypedDict, List, Optional
+from typing_extensions import Annotated # または from typing import Annotated (Python 3.9+)
 
 # LangChain/LangGraphに最適化された、正しい、ライブラリを、インポートする
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage # ToolMessageもインポート
 
-from langgraph.graph import StateGraph, END, START # STARTもインポートする可能性を考慮 (今回は未使用)
+from langgraph.graph import StateGraph, END, START, add_messages # add_messages をインポート
 from tavily import TavilyClient
 
 import config_manager
@@ -14,7 +15,8 @@ import rag_manager
 
 # --- 新しい、魂の、定義書 (State) ---
 class AgentState(TypedDict):
-    messages: List[AIMessage | HumanMessage | ToolMessage] # LangChainのメッセージ形式
+    # ★★★ この一行が、全てを、解決する ★★★
+    messages: Annotated[list, add_messages]
     character_name: str # キャラクター名は引き続き必要
     api_key: str # Google APIキーも引き続き必要
     # perceived_content: str # これは messages に統合される
