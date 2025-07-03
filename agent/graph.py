@@ -192,12 +192,12 @@ def web_search_node(state: AgentState):
 
 # --- 道具選択ノード（旧ルーター）の実装 ---
 def tool_router_node(state: AgentState):
-    """【法則準拠】APIを呼び、判断結果を"辞書"でStateに報告するノード。"""
+    """【最終形態】完全な設定オブジェクトでAPIと対話する、真のルーター。"""
     print("--- 道具選択ノード (Router) 実行 ---")
 
     user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
     query_text = "\n".join(user_texts).strip()
-    decision = "generate" # デフォルトの判断
+    decision = "generate"
 
     if query_text:
         client = genai.Client(api_key=state['api_key'])
@@ -213,8 +213,14 @@ def tool_router_node(state: AgentState):
 入力: "{query_text}"
 選択: """
         try:
-            api_config = types.GenerateContentConfig(safety_settings=config_manager.SAFETY_CONFIG,
-                                                 temperature=0.0, max_output_tokens=10) # API Config修正
+            # ★★★【最後の真実】全ての、設定を、一つの、GenerateContentConfigに、統合する ★★★
+            api_config = types.GenerateContentConfig(
+                generation_config=types.GenerationConfig(
+                    temperature=0.0,
+                    max_output_tokens=10
+                ),
+                safety_settings=config_manager.SAFETY_CONFIG
+            )
             response = client.models.generate_content(model=router_model_name, contents=prompt, config=api_config)
 
             if response.text:
@@ -229,7 +235,6 @@ def tool_router_node(state: AgentState):
             traceback.print_exc()
 
     print(f"  - 判断：'{decision}'")
-    # ★★★【最重要】ノードは、必ず、状態を更新する「辞書」を返す
     return {"route_decision": decision}
 
 # --- ルーティング論理関数（条件付きエッジ専用）の実装 ---
