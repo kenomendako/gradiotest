@@ -7,6 +7,7 @@ import rag_manager # rag_managerをインポート
 from tavily import TavilyClient # Tavily Clientをインポート
 import os # osをインポート (Tavily APIキー取得のため)
 from google.genai import types # ★ types をインポート
+import config_manager # ★★★ 我々の、盾を、インポートする ★★★
 
 from langgraph.graph import StateGraph, END
 
@@ -189,7 +190,7 @@ def web_search_node(state: AgentState):
 
 # --- 道具選択（ルーター）ノードの実装 ---
 def tool_router_node(state: AgentState):
-    """【三位一体の真実】正しい作法でAPIと対話する、真のルーター。"""
+    """【最終武装済】信頼の盾を装備し、APIと対話する、真のルーター。"""
     print("--- 道具選択ノード (Router) 実行 ---")
 
     user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
@@ -214,18 +215,26 @@ def tool_router_node(state: AgentState):
 選択: """
 
     try:
-        # ★ 真実2 & 3: 正しいクラス(GenerateContentConfig)を、正しい作り方で、作成する
+        # ★★★【最後の真実】正しい設定オブジェクトに、信頼の盾を、装備させる ★★★
         api_config = types.GenerateContentConfig(
             temperature=0.0,
-            max_output_tokens=10
+            max_output_tokens=10,
+            safety_settings=config_manager.SAFETY_CONFIG # ← これが、最後の、そして、最も、重要な、装備だ
         )
 
-        # ★ 真実1: 正しい引数名(config)で、APIを、呼び出す
         response = client.models.generate_content(
             model=router_model_name,
             contents=prompt,
             config=api_config
         )
+
+        # ★★★【防御的実装】AIが、それでも、沈黙した場合に、備える ★★★
+        if not response.text:
+            print("  - 警告: APIからテキスト応答がありませんでした。フィードバックを確認します。")
+            if response.prompt_feedback:
+                print(f"  - プロンプトフィードバック: {response.prompt_feedback}")
+            # 安全にフォールバックする
+            return "generate"
 
         route = response.text.strip().lower().replace('"', '').replace("'", "")
 
