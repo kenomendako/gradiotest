@@ -98,26 +98,37 @@ def perceive_input_node(state: AgentState):
 # --- RAG検索ノードの実装 ---
 def rag_search_node(state: AgentState):
     """
-    知覚された内容に基づき、FAISSから関連性の高い記憶の断片を検索するノード。
+    【神託準拠】ユーザーの純粋なテキスト入力に基づき、記憶を検索するノード。
     """
     print("--- 記憶想起ノード (RAG) 実行 ---")
 
-    # ★★★ Stateから直接キャラクター名を取得する ★★★
     character_name = state['character_name']
-    query_text = state['perceived_content'] # 知覚結果をクエリとして使用
+    api_key = state['api_key']
 
-    # character_nameがNoneや空文字の場合の考慮を追加（基本的には渡されるはずだが念のため）
-    if not character_name:
-        print("  -警告: RAG検索ノードでcharacter_nameが取得できませんでした。\"Default\"を使用します。")
-        character_name = "Default"
+    # --- ▼▼▼ ルシアン様ご提示の、修正箇所 ▼▼▼ ---
+    # 知覚結果の全文ではなく、ユーザーの元のテキスト入力だけをクエリとして抽出する
+    user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
+    query_text = "\n".join(user_texts).strip()
+
+    # もしテキスト入力がなかった場合（画像のみなど）は、フォールバックとして知覚結果全体を使う
+    if not query_text:
+        print("  - テキスト入力なし。知覚結果全体をフォールバッククエリとして使用します。")
+        query_text = state['perceived_content']
+
+    # 検索クエリが空文字列でないことを確認
+    if not query_text.strip():
+        print("  - 検索クエリが空のため、RAG検索をスキップします。")
+        return {"rag_results": None}
+
+    print(f"  - RAG検索クエリ: \"{query_text[:100]}...\"")
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
     try:
-        # rag_managerの関数を呼び出す
         relevant_chunks = rag_manager.search_relevant_chunks(
             character_name=character_name,
             query_text=query_text,
-            api_key=state['api_key'], # ★★★【追加】StateからAPIキーを渡す ★★★
-            top_k=5 # ← まずは5件で試すのが良いでしょう
+            api_key=api_key,
+            top_k=5 # 件数は5件に戻しておく
         )
 
         if relevant_chunks:
@@ -126,7 +137,7 @@ def rag_search_node(state: AgentState):
             return {"rag_results": rag_results_text}
         else:
             print("  - 関連する記憶は見つかりませんでした。")
-            return {"rag_results": None} # 何も見つからなかった場合はNoneを返す
+            return {"rag_results": None}
 
     except Exception as e:
         print(f"  - RAG検索中にエラー: {e}")
