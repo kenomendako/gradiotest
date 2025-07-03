@@ -11,6 +11,7 @@ import config_manager
 import utils # 変更点: utils全体をインポート
 from character_manager import get_character_files_paths
 from agent.graph import app # LangGraphアプリケーションをインポート
+from langchain_core.messages import HumanMessage, AIMessage # LangChainメッセージ形式をインポート
 
 # LangGraphエージェント呼び出し関数
 def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str):
@@ -19,64 +20,76 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
         return f"エラー: APIキー名 '{api_key_name}' に有効なキーが設定されていません。", None
     try:
         log_file, _, _, _ = get_character_files_paths(character_name)
-        # raw_history は utils.load_chat_log を使う
-        raw_history = utils.load_chat_log(log_file, character_name)
+        raw_history = utils.load_chat_log(log_file, character_name) # utils.load_chat_log は [{'role': 'user', 'content': '...'}, ...] の形式を想定
 
-
-        formatted_history = []
+        # ★ LangChain形式の、メッセージリストを、作成
+        messages: list[HumanMessage | AIMessage] = [] # 型ヒント
         for h_item in raw_history:
-            formatted_history.append({
-                "role": h_item["role"],
-                "parts": [{'text': h_item["content"]}]
-            })
+            if h_item.get('role') == 'model' or h_item.get('role') == 'assistant' or h_item.get('role') == character_name: # 'assistant' やキャラ名もモデル側とみなす
+                messages.append(AIMessage(content=h_item['content']))
+            else: # 'user' or 'human' or その他はユーザーとみなす
+                messages.append(HumanMessage(content=h_item['content']))
 
+        # API履歴制限の適用 (メッセージオブジェクトのリストに対して行う)
         limit = 0
         if api_history_limit_option and api_history_limit_option.isdigit():
             limit = int(api_history_limit_option)
-        # 以前のコメントに基づき、limit*2 は適用しない形を維持
-        if limit > 0 and len(formatted_history) > limit:
-            formatted_history = formatted_history[-limit:]
+
+        if limit > 0: # 0の場合は制限なし（全履歴）と解釈
+            # ユーザーとAIの発話ペアで1往復なので、limit * 2 の件数を残すのが一般的だが、
+            # LangChainのメッセージリストでは単純に末尾からlimit件数で良い場合もある。
+            # ここでは、user/aiのペアではなく、単純にメッセージ数で制限する。
+            # もし往復で制限したいなら、raw_historyの段階で処理が必要。
+            # 今回のAgentStateはmessagesのリストなので、単純にメッセージ数で制限。
+            if len(messages) > limit: # limit はメッセージ数そのものとする
+                 messages = messages[-limit:]
+
+
+        # ユーザーの、最新の、入力を、追加
+        # (この、部分は、テキストと、画像が、混在する場合の、処理が、必要になるが、一旦、テキストのみで)
+        # parts は Gradio から渡される [text, Image, text, ...] のようなリスト
+        # これを適切に HumanMessage の content に変換する
+        # LangChain HumanMessage content は文字列かリスト[dict] (text or image)
+
+        # まずは指示書通りテキストのみを連結
+        user_input_text_parts = [p for p in parts if isinstance(p, str)]
+        user_input_text = "\n".join(user_input_text_parts).strip()
+
+        # TODO: 画像も parts に含まれる場合、HumanMessageのcontentをリスト形式にする必要がある
+        # 例: HumanMessage(content=[{"type": "text", "text": "見て"}, {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}])
+        # 今回はテキストのみを扱う
+        if user_input_text: # テキスト入力がある場合のみメッセージ追加
+            messages.append(HumanMessage(content=user_input_text))
+        elif any(isinstance(p, Image.Image) for p in parts): # 画像のみの場合 (テキストなし)
+            # 画像のみの場合の処理は現状のAgentStateとcall_model_nodeでは直接扱えない
+            # perceive_input_nodeのような前処理が別途必要になるか、
+            # HumanMessageに画像を含める対応が必要。
+            # ここでは、テキストがない場合は空のHumanMessageを追加しないようにする。
+            # あるいは、何らかのプレースホルダテキストを追加することも考えられる。
+            # 今回は、テキストがなければメッセージを追加しない方針とする。
+            # ただし、partsが空でない限り、何らかのユーザー入力があったとみなすため、
+            # ログ保存のためにはuser_input_textを別途作成する必要がある。
+            pass
+
 
         initial_state = {
-            "input_parts": parts,
-            "chat_history": formatted_history,
+            "messages": messages,
+            "character_name": character_name,
             "api_key": api_key,
-            "character_name": character_name, # ★★★ この一行を追加 ★★★
         }
-        print(f"--- LangGraphエージェント呼び出し (Character: {character_name}, UI Model: {model_name}) ---")
+
+        print(f"--- LangGraphエージェント呼び出し (Character: {character_name}, Model in UI: {model_name}) ---") # model_nameはLangGraph内では直接使われない
         final_state = app.invoke(initial_state)
         print("--- LangGraphエージェント実行完了 ---")
-        response_text = final_state.get("final_response", "[エージェントからの応答がありませんでした]")
 
-        # --- ログ保存ロジック修正 ---
-        user_input_text = ""
-        for p in parts:
-            if isinstance(p, str):
-                user_input_text += p + "\n"
-        user_input_text = user_input_text.strip()
+        # 最後の、AIメッセージを、応答として、取得
+        response_text = "[エージェントからの応答がありませんでした]" # デフォルト
+        if final_state and final_state.get('messages') and isinstance(final_state['messages'][-1], AIMessage):
+            response_text = final_state['messages'][-1].content
+        elif final_state and final_state.get('messages') and final_state['messages'][-1]: # AIMessageでない場合もcontentを試みる
+             response_text = str(final_state['messages'][-1].content if hasattr(final_state['messages'][-1], 'content') else final_state['messages'][-1])
 
-        # 添付ファイル情報もログに追加 (ファイル名を取得)
-        attached_file_names = []
-        for p in parts:
-            if not isinstance(p, str):
-                if hasattr(p, 'name'): # gradio の FileData オブジェクトなど
-                    attached_file_names.append(os.path.basename(p.name))
-                elif isinstance(p, Image.Image) and hasattr(p, 'filename') and p.filename:
-                     attached_file_names.append(os.path.basename(p.filename))
-                # Image.Imageでファイル名がない場合はログに含めない（以前は"[インライン画像]"としていたが、ユーザー入力テキストとの区別のため）
-
-        if attached_file_names:
-            user_input_text += "\n[ファイル添付: " + ", ".join(attached_file_names) + "]"
-
-        # ユーザー入力が空でない場合のみログ保存
-        if user_input_text.strip() or attached_file_names: # 添付ファイルだけでもログるように変更
-            user_header = utils._get_user_header_from_log(log_file, character_name)
-            # 1. ユーザーの発言を保存
-            utils.save_message_to_log(log_file, user_header, user_input_text.strip())
-            # 2. AIの応答を保存
-            utils.save_message_to_log(log_file, f"## {character_name}:", response_text)
-        # --- 修正ここまで ---
-
+        # ★★★【最後の真実】この、ブロック全体を、完全に、削除する ★★★
         return response_text, None
 
     except Exception as e:

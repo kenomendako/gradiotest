@@ -171,12 +171,18 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
             api_key_name=current_api_key_name_state # APIキー名を渡す
         )
 
-        # ★★★ ログ保存は、invoke_nexus_agent が内部で行うので、ここからは削除する ★★★
-        # if log_message_content.strip(): # ユーザーの入力があった場合のみログ保存
-        #     save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
-        #
-        # if api_response_text:
-        #     save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
+        # ★★★【最後の真実】ログ保存は、全てが、終わった、ここで、行う ★★★
+        # ユーザー入力の、テキスト部分を、再構築 (log_message_content はAPI呼び出し前に準備済み)
+        # タイムスタンプを追加 (timestamp はAPI呼び出し前に準備済み)
+        final_log_message = log_message_content.strip() + timestamp
+
+        if final_log_message.strip(): # ユーザー入力があった場合のみ (添付ファイルのみでも可)
+            # user_header はAPI呼び出し前に準備済み
+            # 1. ユーザーの発言を保存
+            utils.save_message_to_log(log_f, user_header, final_log_message)
+            # 2. AIの応答を保存
+            if api_response_text: # AIの応答があった場合のみ
+                utils.save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
 
     except Exception as e:
         traceback.print_exc()
