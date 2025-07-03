@@ -17,7 +17,25 @@ DEFAULT_API_HISTORY_LIMIT_OPTION = "all"
 DEFAULT_ALARM_MODEL = "gemini-1.5-flash-latest"
 DEFAULT_ALARM_API_HISTORY_TURNS = 1
 DEFAULT_NOTIFICATION_WEBHOOK_URL = None # Webhook URLのデフォルトはNone
-SAFETY_CONFIG = {types.HarmCategory.HARM_CATEGORY_HATE_SPEECH: types.HarmBlockThreshold.BLOCK_NONE, types.HarmCategory.HARM_CATEGORY_HARASSMENT: types.HarmBlockThreshold.BLOCK_NONE, types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: types.HarmBlockThreshold.BLOCK_NONE, types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: types.HarmBlockThreshold.BLOCK_NONE}
+# ★★★【最後の真実】safety_settings は、この「辞書のリスト」形式でなければならない ★★★
+SAFETY_CONFIG = [
+    {
+        "category": types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        "threshold": types.HarmBlockThreshold.BLOCK_NONE,
+    },
+    {
+        "category": types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+        "threshold": types.HarmBlockThreshold.BLOCK_NONE,
+    },
+    {
+        "category": types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        "threshold": types.HarmBlockThreshold.BLOCK_NONE,
+    },
+    {
+        "category": types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        "threshold": types.HarmBlockThreshold.BLOCK_NONE,
+    },
+]
 
 # --- 設定関連グローバル変数 (他モジュールから参照される) ---
 initial_character_global = None
