@@ -89,39 +89,7 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
         elif final_state and final_state.get('messages') and final_state['messages'][-1]: # AIMessageでない場合もcontentを試みる
              response_text = str(final_state['messages'][-1].content if hasattr(final_state['messages'][-1], 'content') else final_state['messages'][-1])
 
-
-        # --- ログ保存ロジック (基本的に変更なしだが、user_input_textの扱いを再確認) ---
-        # ユーザー入力テキスト (user_input_text) は上でpartsから作成済み
-        # 添付ファイル情報もログに追加
-        # この部分は、partsを元にUI表示用のユーザー発言を作成するのと同様のロジック
-        log_user_input = ""
-        for p in parts:
-            if isinstance(p, str):
-                user_input_text += p + "\n"
-        user_input_text = user_input_text.strip()
-
-        # 添付ファイル情報もログに追加 (ファイル名を取得)
-        attached_file_names = []
-        for p in parts:
-            if not isinstance(p, str):
-                if hasattr(p, 'name'): # gradio の FileData オブジェクトなど
-                    attached_file_names.append(os.path.basename(p.name))
-                elif isinstance(p, Image.Image) and hasattr(p, 'filename') and p.filename:
-                     attached_file_names.append(os.path.basename(p.filename))
-                # Image.Imageでファイル名がない場合はログに含めない（以前は"[インライン画像]"としていたが、ユーザー入力テキストとの区別のため）
-
-        if attached_file_names:
-            user_input_text += "\n[ファイル添付: " + ", ".join(attached_file_names) + "]"
-
-        # ユーザー入力が空でない場合のみログ保存
-        if user_input_text.strip() or attached_file_names: # 添付ファイルだけでもログるように変更
-            user_header = utils._get_user_header_from_log(log_file, character_name)
-            # 1. ユーザーの発言を保存
-            utils.save_message_to_log(log_file, user_header, user_input_text.strip())
-            # 2. AIの応答を保存
-            utils.save_message_to_log(log_file, f"## {character_name}:", response_text)
-        # --- 修正ここまで ---
-
+        # ★★★【最後の真実】この、ブロック全体を、完全に、削除する ★★★
         return response_text, None
 
     except Exception as e:
