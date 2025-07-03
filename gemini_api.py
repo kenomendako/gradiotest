@@ -41,6 +41,7 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
             "input_parts": parts,
             "chat_history": formatted_history,
             "api_key": api_key,
+            "character_name": character_name, # ★★★ この一行を追加 ★★★
         }
         print(f"--- LangGraphエージェント呼び出し (Character: {character_name}, UI Model: {model_name}) ---")
         final_state = app.invoke(initial_state)

@@ -3,6 +3,7 @@ from typing import List, TypedDict, Optional
 from PIL import Image
 import io
 import traceback # print_exc() のために追加
+import rag_manager # rag_managerをインポート
 
 from langgraph.graph import StateGraph, END
 
@@ -24,6 +25,7 @@ class AgentState(TypedDict):
     final_response: str
     chat_history: List[dict]
     api_key: str
+    character_name: Optional[str] # RAGのためにキャラクター名を追加
 
 # --- 知覚ノードの実装 ---
 def perceive_input_node(state: AgentState):
@@ -93,6 +95,54 @@ def perceive_input_node(state: AgentState):
 
     return {"perceived_content": combined_perception}
 
+# --- RAG検索ノードの実装 ---
+def rag_search_node(state: AgentState):
+    """
+    【神託準拠】ユーザーの純粋なテキスト入力に基づき、記憶を検索するノード。
+    """
+    print("--- 記憶想起ノード (RAG) 実行 ---")
+
+    character_name = state['character_name']
+    api_key = state['api_key']
+
+    # --- ▼▼▼ ルシアン様ご提示の、修正箇所 ▼▼▼ ---
+    # 知覚結果の全文ではなく、ユーザーの元のテキスト入力だけをクエリとして抽出する
+    user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
+    query_text = "\n".join(user_texts).strip()
+
+    # もしテキスト入力がなかった場合（画像のみなど）は、フォールバックとして知覚結果全体を使う
+    if not query_text:
+        print("  - テキスト入力なし。知覚結果全体をフォールバッククエリとして使用します。")
+        query_text = state['perceived_content']
+
+    # 検索クエリが空文字列でないことを確認
+    if not query_text.strip():
+        print("  - 検索クエリが空のため、RAG検索をスキップします。")
+        return {"rag_results": None}
+
+    print(f"  - RAG検索クエリ: \"{query_text[:100]}...\"")
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
+    try:
+        relevant_chunks = rag_manager.search_relevant_chunks(
+            character_name=character_name,
+            query_text=query_text,
+            api_key=api_key,
+            top_k=3 # ← 安定性を重視し、3に戻す
+        )
+
+        if relevant_chunks:
+            rag_results_text = "\n---\n".join(relevant_chunks)
+            print(f"  - {len(relevant_chunks)}件の関連記憶を発見。")
+            return {"rag_results": rag_results_text}
+        else:
+            print("  - 関連する記憶は見つかりませんでした。")
+            return {"rag_results": None}
+
+    except Exception as e:
+        print(f"  - RAG検索中にエラー: {e}")
+        traceback.print_exc()
+        return {"rag_results": "[エラー：記憶の検索中に問題が発生しました]"}
 
 # --- 応答生成ノードの実装 ---
 def generate_response_node(state: AgentState):
@@ -115,16 +165,17 @@ def generate_response_node(state: AgentState):
         # あるいはユーザーに見えない形でプロンプトエンジニアリングでperceived_contentに含める方が良い場合もある。
         # ここでは、指示書に基づき perceived_content をそのままユーザー入力として扱う。
         # もしRAG等の情報を付加するなら、以下のようにする。
-        # final_user_prompt = state['perceived_content']
-        # if state.get('rag_results'):
-        #    final_user_prompt += f"\n\n# 参考情報:\n{state['rag_results']}"
-        # contents_for_generation.append({'role': 'user', 'parts': [{'text': final_user_prompt}]})
+        # ユーザーの最新の知覚情報に、RAGの結果を付加する
+        final_user_prompt = state['perceived_content']
+        if not final_user_prompt.strip(): # 知覚結果が空やスペースのみの場合
+            final_user_prompt = "[ユーザーは何も入力しませんでした]"
 
-        current_user_turn_content = state['perceived_content']
-        if not current_user_turn_content.strip(): # 知覚結果が空やスペースのみの場合
-            current_user_turn_content = "[ユーザーは何も入力しませんでした]"
+        rag_info = state.get('rag_results') # StateからRAG結果を取得
+        if rag_info:
+            # RAG結果が存在する場合、プロンプトに情報を追加
+            final_user_prompt += f"\n\n# 参照した記憶の断片:\n---\n{rag_info}\n---"
 
-        contents_for_generation.append({'role': 'user', 'parts': [{'text': current_user_turn_content}]})
+        contents_for_generation.append({'role': 'user', 'parts': [{'text': final_user_prompt}]})
 
         # 3. client.models.generate_content を呼び出す
         response = client.models.generate_content(
@@ -149,11 +200,15 @@ def generate_response_node(state: AgentState):
 # --- グラフの定義 ---
 workflow = StateGraph(AgentState)
 
+# ノードをグラフに追加
 workflow.add_node("perceive", perceive_input_node)
+workflow.add_node("rag_search", rag_search_node) # ★新しいRAGノードを追加
 workflow.add_node("generate", generate_response_node)
 
+# グラフの実行順序を定義
 workflow.set_entry_point("perceive")
-workflow.add_edge("perceive", "generate")
+workflow.add_edge("perceive", "rag_search")   # 知覚 → RAG検索
+workflow.add_edge("rag_search", "generate") # RAG検索 → 応答生成
 workflow.add_edge("generate", END)
 
 # グラフをコンパイル

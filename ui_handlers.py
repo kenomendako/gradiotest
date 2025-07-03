@@ -155,22 +155,28 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
             # この後、空の履歴などを返して処理を中断する
             return chatbot_history, gr.update(), gr.update(value=None)
 
-        os.environ['GOOGLE_API_KEY'] = api_key
+        os.environ['GOOGLE_API_KEY'] = api_key # APIキーの設定はLangGraph呼び出し前に行うのが適切
 
-        api_response_text, generated_image_path = send_multimodal_to_gemini(
+        # ★★★ ここで呼び出す関数を、invoke_nexus_agent に統一する ★★★
+        # 古い呼び出し: api_response_text, _ = send_multimodal_to_gemini(...)
+
+        # 新しい呼び出し
+        # generated_image_path は invoke_nexus_agent から返されないため、一旦Noneで受けるか、返り値を調整する必要がある。
+        # ここではひとまず _ で受けて無視する。画像生成をLangGraphに統合する場合は別途検討。
+        api_response_text, _ = gemini_api.invoke_nexus_agent(
             character_name=current_character_name,
-            model_name=current_model_name,
+            model_name=current_model_name, # invoke_nexus_agent は model_name を使わないが、互換性のために残す
             parts=parts_for_api,
             api_history_limit_option=api_history_limit_state,
-            api_key_name=current_api_key_name_state  # この引数を維持する
+            api_key_name=current_api_key_name_state # APIキー名を渡す
         )
 
-        # --- ログ保存処理をここにまとめる ---
-        if log_message_content.strip(): # ユーザーの入力があった場合のみログ保存
-            save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
-
-        if api_response_text:
-            save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
+        # ★★★ ログ保存は、invoke_nexus_agent が内部で行うので、ここからは削除する ★★★
+        # if log_message_content.strip(): # ユーザーの入力があった場合のみログ保存
+        #     save_message_to_log(log_f, user_header, log_message_content.strip() + timestamp)
+        #
+        # if api_response_text:
+        #     save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
 
     except Exception as e:
         traceback.print_exc()
@@ -263,10 +269,14 @@ def update_model_state(model):
     return model
 
 def update_api_key_state(api_key_name):
-    ok, msg = gemini_api.configure_google_api(api_key_name)
+    # ★★★ この2行を完全に削除する ★★★
+    # ok, msg = gemini_api.configure_google_api(api_key_name)
+    # if ok: gr.Info(f"APIキー '{api_key_name}' 設定成功。")
+    # else: gr.Error(f"APIキー '{api_key_name}' 設定失敗: {msg}")
+
+    # この2行は残す
     config_manager.save_config("last_api_key_name", api_key_name)
-    if ok: gr.Info(f"APIキー '{api_key_name}' 設定成功。")
-    else: gr.Error(f"APIキー '{api_key_name}' 設定失敗: {msg}")
+    gr.Info(f"APIキーを '{api_key_name}' に設定しました。") # ← メッセージを成功確定に変更
     return api_key_name
 
 def update_timestamp_state(checked): config_manager.save_config("add_timestamp", bool(checked))
@@ -356,16 +366,23 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days):
     else:
         return display_df, df_with_ids, alarm_add_button_text, theme, prompt, char, days, h, m, editing_id
 
-def handle_rag_update_button_click(character_name: str):
+def handle_rag_update_button_click(character_name: str, api_key_name: str): # ★★★ api_key_name を引数に追加
     if not character_name:
         gr.Warning("索引を更新するキャラクターが選択されていません。")
+        return
+
+    # ★★★【追加】APIキーを取得する ★★★
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"): # 有効なキーかもチェック
+        gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。RAG索引の更新を中止します。")
         return
 
     gr.Info(f"キャラクター「{character_name}」のRAG索引の更新を開始します...（ターミナルのログを確認してください）")
 
     import threading
     def run_update():
-        success = rag_manager.create_or_update_index(character_name)
+        # ★★★【修正】取得したAPIキーを渡す ★★★
+        success = rag_manager.create_or_update_index(character_name, api_key)
         if success:
             print(f"INFO: RAG索引の更新が正常に完了しました ({character_name})")
         else:
