@@ -6,6 +6,7 @@ import traceback # print_exc() のために追加
 import rag_manager # rag_managerをインポート
 from tavily import TavilyClient # Tavily Clientをインポート
 import os # osをインポート (Tavily APIキー取得のため)
+from google.genai import types # typesをインポート
 
 from langgraph.graph import StateGraph, END
 
@@ -188,27 +189,24 @@ def web_search_node(state: AgentState):
 
 # --- 道具選択（ルーター）ノードの実装 ---
 def tool_router_node(state: AgentState):
-    """ユーザーの入力に基づき、次に進むべきノードを決定するルーター。"""
+    """【作法修正済】ユーザー入力に基づき、次に進むべきノード名を返すルーター。"""
     print("--- 道具選択ノード (Router) 実行 ---")
 
-    # ユーザーの生のテキスト入力を取得
     user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
     query_text = "\n".join(user_texts).strip()
 
-    # 判断を下すための、高速なモデルを、使用する
+    if not query_text: # 入力テキストがない場合は早期リターン
+        print("  - 入力テキストがないため、直接応答生成に進みます。")
+        return "generate" # ★★★ 次のノード名を直接返す
+
     client = genai.Client(api_key=state['api_key'])
     router_model_name = 'models/gemini-2.5-flash'
 
-    # クエリが空か、非常に短い場合は、ツールを使わずに直接応答生成へ
-    if not query_text or len(query_text) < 5: # 例えば5文字未満は挨拶や単純応答とみなす
-        print("  - 入力が短いか空のため、直接応答を生成")
-        return "generate"
-
     prompt = f"""ユーザーからの次の入力に対し、どのツールを使用すべきか判断してください。
 選択肢は "rag_search"、"web_search"、"generate" の3つです。
-- 過去の個人的な会話やユーザーの好みに関する質問、キャラクター自身の記憶や設定に関する質問の場合は "rag_search" を選択してください。
-- 最新の情報、ニュース、一般的な知識、特定の事柄に関する外部情報が必要な質問の場合は "web_search" を選択してください。
-- 単純な挨拶、短い相槌、感情表現、または上記二つのツールが不要と判断される会話の場合は "generate" を選択してください。
+- 過去の個人的な会話、ユーザーの好み、キャラクター自身の記憶に関する質問の場合は "rag_search" を選択してください。
+- 最新の情報、ニュース、一般的な知識、未知の固有名詞に関する質問の場合は "web_search" を選択してください。
+- 単純な挨拶、感想、ツールを必要としない会話の場合は "generate" を選択してください。
 
 あなたの応答は、選択したツールの名前（例: "rag_search"）のみでなければなりません。余計な説明は一切不要です。
 
@@ -216,33 +214,34 @@ def tool_router_node(state: AgentState):
 選択: """
 
     try:
+        # ★★★【作法修正】generation_configではなく、configを使い、types.GenerationConfigオブジェクトを渡す ★★★
+        generation_config = types.GenerationConfig(
+            max_output_tokens=10,
+            temperature=0.0
+        )
+
         response = client.models.generate_content(
             model=router_model_name,
             contents=prompt,
-            # 余計な出力を防ぐため、短く設定
-            generation_config={"max_output_tokens": 10, "temperature": 0.0} # temperatureを0にして決定性を高める
+            config=generation_config
         )
 
-        route = response.text.strip().lower()
-        # より厳密な判定のため、キーワードが含まれるかでなく、完全一致に近い形で判定
-        if route == "rag_search":
-            print("  - 判断：記憶の書庫 (RAG) を使用")
+        route = response.text.strip().lower().replace('"', '').replace("'", "")
+
+        if "rag" in route:
+            print(f"  - 判断：記憶の書庫 (RAG) を使用 (ルート: '{route}')")
             return "rag_search"
-        elif route == "web_search":
-            print("  - 判断：世界の窓 (Web Search) を使用")
+        elif "web" in route:
+            print(f"  - 判断：世界の窓 (Web Search) を使用 (ルート: '{route}')")
             return "web_search"
-        elif route == "generate":
-            print("  - 判断：直接応答を生成")
-            return "generate"
         else:
-            # 予期しない応答の場合は、安全策として直接生成
-            print(f"  - ルーターが予期しない応答 ({route}) を返したため、直接応答生成にフォールバックします。")
+            print(f"  - 判断：直接応答を生成 (ルート: '{route}')")
             return "generate"
 
     except Exception as e:
         print(f"  - ルーター処理中にエラー: {e}。直接応答生成にフォールバックします。")
         traceback.print_exc()
-        return "generate"
+        return "generate" # ★★★ エラー時も、次のノード名を返す
 
 # --- 応答生成ノードの実装 ---
 def generate_response_node(state: AgentState):
