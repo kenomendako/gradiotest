@@ -102,9 +102,14 @@ def rag_search_node(state: AgentState):
     """
     print("--- 記憶想起ノード (RAG) 実行 ---")
 
-    # AgentStateからcharacter_nameを取得、なければ"Default"
-    character_name = state.get('character_name') if state.get('character_name') else "Default"
+    # ★★★ Stateから直接キャラクター名を取得する ★★★
+    character_name = state['character_name']
     query_text = state['perceived_content'] # 知覚結果をクエリとして使用
+
+    # character_nameがNoneや空文字の場合の考慮を追加（基本的には渡されるはずだが念のため）
+    if not character_name:
+        print("  -警告: RAG検索ノードでcharacter_nameが取得できませんでした。\"Default\"を使用します。")
+        character_name = "Default"
 
     try:
         # rag_managerの関数を呼び出す
