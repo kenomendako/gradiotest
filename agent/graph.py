@@ -98,89 +98,64 @@ def call_model_node(state: AgentState):
         error_message = AIMessage(content=f"[エラー：思考中に問題が発生しました。詳細: {e}]")
         return {"messages": [error_message]}
 
+# --- call_tool_node の、修正 ---
 def call_tool_node(state: AgentState):
-    """AIが使用を決めたツールを実行するノード"""
+    """【配線修正済】AIが使用を決めたツールを正しく呼び出し、実行するノード"""
     # messagesが空、あるいは最後のメッセージが存在しない場合は何もしない
     if not state['messages'] or not state['messages'][-1]:
         print("  - 警告: call_tool_nodeに渡されたメッセージリストが空、または最後のメッセージがありません。")
-        return {"messages": []} # 空のリストを返してStateを壊さないようにする
+        return {"messages": []}
 
     last_message = state['messages'][-1]
 
-    # AIが、ツール使用を、決めた場合のみ、実行
     if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
+        # ツール呼び出しがない場合は、空のリストを返してStateを壊さず、次のcall_modelに処理を委ねる
         print("  - 道具呼び出しなし。スキップします。")
-        return {"messages": []} # ツール呼び出しがなければ、空のリストを返す
+        return {"messages": []}
 
     print(f"--- 道具実行ノード (Tool) 実行 ---")
     tool_messages: List[ToolMessage] = [] # 型ヒントを明確化
 
+    # ★★★【最後の真実】利用可能な、全ての、道具を、辞書として、定義する ★★★
+    available_tools = {
+        "search_tool": rag_manager.search_tool, # rag_manager.py の search_tool
+        "web_search_tool": web_search_tool      # このファイルのグローバルスコープの web_search_tool
+    }
+
     for tool_call in last_message.tool_calls:
         tool_name = tool_call.get("name")
-        tool_args = tool_call.get("args", {}) # argsがない場合も考慮
-        tool_call_id = tool_call.get("id") # idも取得
+        tool_args = tool_call.get("args", {}) # argsがない場合も考慮し、デフォルトは空辞書
+        tool_call_id = tool_call.get("id")
 
-        if not tool_call_id:
+        if not tool_call_id: # LangChainの規約上、tool_call_idは必須
             print(f"  - 警告: tool_callにIDがありません。スキップします。Tool call: {tool_call}")
+            # エラーとしてToolMessageを返すこともできるが、ここではスキップ
             continue
 
         print(f"  - 道具: {tool_name} を使用 (ID: {tool_call_id})")
         print(f"    - 引数: {tool_args}")
 
-        tool_to_call = None
-        # ツール名に、応じて、正しい、関数を、呼び出す
-        if tool_name == "rag_search":
-            # rag_manager.search_tool には character_name と api_key も渡す必要がある
-            # これらは tool_call.get("args") には含まれないので、state から取得する
-            # ただし、LangChainのツール呼び出し規約では、ツール実行に必要な引数は全てargsで渡されるべき
-            # ここでは、一旦指示書の構造に従うが、将来的にはツールの引数設計の見直しを推奨
-            if hasattr(rag_manager, 'search_tool'):
-                tool_to_call = rag_manager.search_tool
-                # search_tool のシグネチャに合わせて引数を調整する必要がある。
-                # 現状の search_tool(query: str, character_name: str, api_key: str) に合わせる
-                # args が辞書であることを期待
-                if isinstance(tool_args, dict):
-                    # query は必須、なければエラー
-                    if 'query' not in tool_args:
-                        print(f"  - エラー: rag_search の引数に query がありません。")
-                        tool_messages.append(ToolMessage(content=f"[エラー：rag_searchの引数にqueryがありません]", tool_call_id=tool_call_id))
-                        continue
-
-                    # character_name と api_key を state から取得して tool_args にマージ
-                    # これはLangChainの標準的なツール呼び出しとは異なるため注意
-                    final_tool_args = {
-                        **tool_args,
-                        "character_name": state.get("character_name"),
-                        "api_key": state.get("api_key")
-                    }
-                else:
-                    print(f"  - エラー: rag_search の引数 ({tool_args}) が辞書形式ではありません。")
-                    tool_messages.append(ToolMessage(content=f"[エラー：rag_searchの引数が辞書形式ではありません]", tool_call_id=tool_call_id))
-                    continue
-
-            else:
-                print(f"  - 警告: rag_manager.search_tool が見つかりません。")
-        elif tool_name == "web_search":
-            if 'web_search_tool' in globals() and callable(globals()['web_search_tool']):
-                tool_to_call = globals()['web_search_tool']
-                final_tool_args = tool_args # web_search_tool は query のみのはず
-            else:
-                print(f"  - 警告: web_search_tool が見つかりません。")
-        else:
-            print(f"  - 警告: 不明な道具 '{tool_name}' が指定されました。")
-            tool_messages.append(ToolMessage(content=f"[エラー：不明な道具'{tool_name}'が指定されました]", tool_call_id=tool_call_id))
-            continue
+        # ★★★ 辞書から、正しい、道具を、取り出す ★★★
+        tool_to_call = available_tools.get(tool_name)
 
         if not tool_to_call:
-            print(f"  - エラー: 道具 '{tool_name}' の実体が見つかりませんでした。")
-            tool_messages.append(ToolMessage(content=f"[エラー：道具'{tool_name}'の実体が見つかりません]", tool_call_id=tool_call_id))
+            print(f"  - 警告: 不明な道具 '{tool_name}' が指定されました。")
+            tool_messages.append(ToolMessage(content=f"Error: Unknown tool '{tool_name}'", tool_call_id=tool_call_id))
             continue
 
         try:
-            # ツールを、実行し、結果を、得る
-            # invoke には tool_args を渡す (通常は辞書)
+            # ツールを実行し、結果を得る
+            # rag_search_tool のために、args に character_name と api_key を追加する
+            # web_search_tool は 'query' のみのはずなので、影響はない
+            final_tool_args = tool_args
+            if tool_name == "search_tool": # RAGツールの場合のみ追加引数を考慮
+                final_tool_args = {
+                    **tool_args,
+                    "character_name": state.get("character_name"),
+                    "api_key": state.get("api_key") # APIキーも渡す
+                }
+
             observation = tool_to_call.invoke(final_tool_args)
-            # ツール実行結果を、ToolMessageとして、整形
             tool_messages.append(ToolMessage(content=str(observation), tool_call_id=tool_call_id))
         except Exception as e:
             print(f"  - 道具 '{tool_name}' の実行中にエラー: {e}")
