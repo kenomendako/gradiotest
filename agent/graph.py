@@ -117,7 +117,7 @@ def rag_search_node(state: AgentState):
             character_name=character_name,
             query_text=query_text,
             api_key=state['api_key'], # ★★★【追加】StateからAPIキーを渡す ★★★
-            top_k=3 # 取得するチャンク数（調整可能）
+            top_k=5 # ← まずは5件で試すのが良いでしょう
         )
 
         if relevant_chunks:
