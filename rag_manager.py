@@ -144,6 +144,35 @@ def create_or_update_index(character_name: str, api_key: str) -> bool:
         if tmp_index_path and os.path.exists(tmp_index_path):
             os.remove(tmp_index_path)
 
+# search_relevant_chunks は新しいアーキテクチャでは直接使用されないためコメントアウト
+# def search_relevant_chunks(character_name: str, query_text: str, api_key: str, top_k: int = 5) -> List[str]:
+#     # ... (既存のコード) ...
+
+from langchain_core.tools import tool
+
+@tool
+def search_tool(query: str, character_name: str, api_key: str) -> str: # api_keyは現状ダミーだが、将来の拡張のため残すことも考慮
+    """ユーザーとの過去の個人的な会話や、好みに関する情報を、記憶の中から、検索します。"""
+    # ★★★【重要】この関数は、もはや、直接、APIを、呼び出しません。
+    # ベクトル化は、LangChainの、Retrieverが、担当します。
+    # この、部分は、一度、ダミーの、実装に、置き換えます。
+    # 真の、FAISS検索は、次の、ステップで、実装します。
+    print(f"--- RAG検索ツール実行 (Query: '{query}', Character: '{character_name}') ---")
+
+    # (一旦、ダミーの、応答を、返す)
+    if "紅茶" in query.lower() or "ティー" in query.lower(): # 小文字比較
+        return f"記憶によると、{character_name}様は「アールグレイ」の紅茶を好んでおられるようです。"
+    if "チョコ" in query.lower() or "チョコレート" in query.lower():
+        return f"記録によれば、{character_name}様は「カカオ70%以上」のビターチョコレートがお好きだと記憶しております。"
+
+    # ダミー実装として、特定のキーワードがない場合は固定の応答
+    # 本来はここでFAISS等を使った実際の検索処理が入る
+    # 例: relevant_docs = actual_faiss_search(character_name, query, api_key)
+    # if relevant_docs:
+    # return "\n".join(relevant_docs)
+
+    return f"{character_name}様の記憶からは、'{query}'に直接関連する情報は見つかりませんでした。"
+
 def search_relevant_chunks(character_name: str, query_text: str, api_key: str, top_k: int = 5) -> List[str]:
     # ★★★【修正点】引数で受け取ったAPIキーでクライアントを生成 ★★★
     if not api_key:

@@ -1,335 +1,257 @@
-import google.genai as genai
-from typing import List, TypedDict, Optional
-from PIL import Image
-import io
-import traceback # print_exc() のために追加
-import rag_manager # rag_managerをインポート
-from tavily import TavilyClient # Tavily Clientをインポート
-import os # osをインポート (Tavily APIキー取得のため)
-from google.genai import types # ★ types をインポート
-import config_manager # ★★★ 我々の、盾を、インポートする ★★★
+import os
+import traceback
+from typing import TypedDict, List, Optional
 
-from langgraph.graph import StateGraph, END
+# LangChain/LangGraphに最適化された、正しい、ライブラリを、インポートする
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage # ToolMessageもインポート
 
-# --- ヘルパー関数 (先に定義) ---
-def _pil_to_bytes(img: Image.Image) -> bytes:
-    """PIL ImageをJPEGバイトに変換する"""
-    img_byte_arr = io.BytesIO()
-    # JPEGは透明度(A)やパレット(P)モードを扱えないためRGBに変換
-    save_image = img.convert('RGB') if img.mode in ('RGBA', 'P') else img
-    save_image.save(img_byte_arr, format='JPEG')
-    return img_byte_arr.getvalue()
+from langgraph.graph import StateGraph, END, START # STARTもインポートする可能性を考慮 (今回は未使用)
+from tavily import TavilyClient
 
-# --- グラフの状態定義 ---
+import config_manager
+import rag_manager
+
+# --- 新しい、魂の、定義書 (State) ---
 class AgentState(TypedDict):
-    input_parts: List[any]
-    perceived_content: str
-    rag_results: Optional[str]
-    response_outline: Optional[str]
-    final_response: str
-    chat_history: List[dict]
-    api_key: str
-    character_name: Optional[str] # RAGのためにキャラクター名を追加
+    messages: List[AIMessage | HumanMessage | ToolMessage] # LangChainのメッセージ形式
+    character_name: str # キャラクター名は引き続き必要
+    api_key: str # Google APIキーも引き続き必要
+    # perceived_content: str # これは messages に統合される
+    # rag_results: Optional[str] # これらはToolMessageとしてmessagesに格納
+    # web_search_results: Optional[str] # これらはToolMessageとしてmessagesに格納
+    # response_outline: Optional[str] # 今回のアーキテクチャでは未使用
+    # final_response: str # messages[-1].content で取得
+    # input_parts: List[any] # messages に統合
+    # route_decision: str # should_continue_logic で直接判断するためStateには不要
 
-    # ★追加：Web検索の結果を格納するキー
-    web_search_results: Optional[str]
-    # ★★★【追加】ルーターの判断結果を、保存するための、場所
-    route_decision: str
+# ヘルパー関数や他のノードは、次のステップで追加します。
+# 現時点では、グラフの基本構造とState定義のみ。
 
-# --- 知覚ノードの実装 ---
-def perceive_input_node(state: AgentState):
-    """【聖典作法準拠】入力パーツを知覚し、テキストに変換するノード。"""
-    print("--- 知覚ノード実行 ---")
+# --- 新しい、ノードの、定義 ---
 
-    try:
-        # 1. APIキーを使ってクライアントを生成
-        client = genai.Client(api_key=state['api_key'])
-        vision_model_name = 'models/gemini-2.5-flash' # gemini-1.5-flash相当
+def call_model_node(state: AgentState):
+    """【新世界の作法】AIを呼び出し、自律的な判断を促すノード"""
+    print("--- AI思考ノード実行 ---")
 
-        input_parts = state["input_parts"]
-        perceived_texts = []
+    # 正しい、高レベルな、モデルクラスを、使用する
+    # TODO: safety_settings を config_manager から読み込んで適用する
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-pro", # 思考の、中枢は、Proモデル
+        google_api_key=state['api_key'],
+        convert_system_message_to_human=True, # システムプロンプトを、扱えるようにする
+        # safety_settings=config_manager.SAFETY_CONFIG # ここで適用すべき
+    )
 
-        images = [p for p in input_parts if isinstance(p, Image.Image)]
-        texts = [p for p in input_parts if isinstance(p, str)]
-        user_text = "\n".join(texts)
+    # ツールを、定義する (実際のツールオブジェクトは後で定義・インポート)
+    # ここでは、ツールが持つべき名前と説明を仮に定義しておくか、
+    # あるいは、ツールオブジェクトが完成してから参照するようにする。
+    # 今回は、後で作成するツール名だけをリストアップしておく形にする。
+    # tools = [rag_manager.search_tool, web_search_tool] # 後で、ツールを、作成する
 
-        # 2. generate_contentに渡すためのペイロード（辞書のリスト）を作成
-        if images:
-            print(f"  - {len(images)}個の画像を知覚中...")
-            contents_for_perception = []
-            # Visionモデルへの指示とユーザーテキスト、画像をpartsとしてまとめる
-            prompt_parts_for_vision = [{'text': "以下のテキストと画像を考慮し、添付された画像の内容を詳細に説明してください。"}]
-            if user_text:
-                # ユーザーテキストが空でない場合のみ追加
-                prompt_parts_for_vision.append({'text': f"ユーザーの発言:\n{user_text}"})
+    # LangChainの推奨に従い、ツール自体を渡すのではなく、モデルにツールスキーマを渡す
+    # ただし、ChatGoogleGenerativeAI は .bind_tools にツールオブジェクトのリストを期待する
+    # 外部で定義されたツールオブジェクトをインポートして使う
 
-            for img in images:
-                 prompt_parts_for_vision.append({'inline_data': {'mime_type': 'image/jpeg', 'data': _pil_to_bytes(img)}})
+    # 現時点ではツールが未定義なので、一旦ツールなしで呼び出すか、
+    # ダミーのツールを渡す必要がある。
+    # 指示書ではツールを渡しているので、その前提で進めるが、
+    # 実行時エラーを避けるため、ツールが未定義の場合はスキップする。
 
-            contents_for_perception.append({'role': 'user', 'parts': prompt_parts_for_vision})
+    active_tools = []
+    if hasattr(rag_manager, 'search_tool'): # rag_manager.search_tool が存在すれば追加
+        active_tools.append(rag_manager.search_tool)
 
-            # 3. client.models.generate_content を呼び出す
-            response = client.models.generate_content(
-                model=vision_model_name,
-                contents=contents_for_perception
-            )
+    # web_search_tool はこのファイル内で後ほど定義されるので、
+    # ここではグローバルスコープで参照できるか確認する
+    if 'web_search_tool' in globals() and callable(globals()['web_search_tool']):
+         active_tools.append(globals()['web_search_tool'])
 
-            generated_description = "[画像内容の取得に失敗しました]"
-            if hasattr(response, 'text') and response.text:
-                generated_description = response.text
+    if active_tools:
+        llm_with_tools = llm.bind_tools(active_tools)
+        print(f"  - 利用可能な道具: {[tool.name for tool in active_tools]}")
+    else:
+        llm_with_tools = llm # ツールがなければそのまま
+        print("  - 利用可能な道具なし。")
 
-            if response.prompt_feedback and response.prompt_feedback.block_reason:
-                generated_description = f"[知覚ブロック: 安全性設定により画像内容の取得がブロックされました。理由: {response.prompt_feedback.block_reason}]"
-
-            if user_text:
-                perceived_texts.append(f"ユーザーの発言：\n---\n{user_text}\n---\n\n添付画像の内容：\n---\n{generated_description}\n---")
-            else:
-                perceived_texts.append(f"添付画像の内容：\n---\n{generated_description}\n---")
-        else:
-            # 画像がない場合は、発言テキストのみを知覚結果とする
-            if user_text:
-                perceived_texts.append(f"ユーザーの発言：\n---\n{user_text}\n---")
-            else:
-                perceived_texts.append("[ユーザーからの入力が空でした]") # テキストも画像もない場合
-
-    except Exception as e:
-        print(f"  - 知覚処理中にエラー: {e}")
-        traceback.print_exc() # 詳細なエラーを確認するため
-        perceived_texts.append(f"[知覚エラー：添付ファイルの処理に失敗しました。詳細：{e}]")
-
-    combined_perception = "\n\n".join(perceived_texts)
-    if not combined_perception.strip(): # 何かしらの理由で空になった場合
-        combined_perception = "[知覚結果が空です]"
-    print(f"  - 知覚結果： {combined_perception[:200]}...")
-
-    return {"perceived_content": combined_perception}
-
-# --- RAG検索ノードの実装 ---
-def rag_search_node(state: AgentState):
-    """
-    【神託準拠】ユーザーの純粋なテキスト入力に基づき、記憶を検索するノード。
-    """
-    print("--- 記憶想起ノード (RAG) 実行 ---")
-
-    character_name = state['character_name']
-    api_key = state['api_key']
-
-    # --- ▼▼▼ ルシアン様ご提示の、修正箇所 ▼▼▼ ---
-    # 知覚結果の全文ではなく、ユーザーの元のテキスト入力だけをクエリとして抽出する
-    user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
-    query_text = "\n".join(user_texts).strip()
-
-    # もしテキスト入力がなかった場合（画像のみなど）は、フォールバックとして知覚結果全体を使う
-    if not query_text:
-        print("  - テキスト入力なし。知覚結果全体をフォールバッククエリとして使用します。")
-        query_text = state['perceived_content']
-
-    # 検索クエリが空文字列でないことを確認
-    if not query_text.strip():
-        print("  - 検索クエリが空のため、RAG検索をスキップします。")
-        return {"rag_results": None}
-
-    print(f"  - RAG検索クエリ: \"{query_text[:100]}...\"")
-    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
     try:
-        relevant_chunks = rag_manager.search_relevant_chunks(
-            character_name=character_name,
-            query_text=query_text,
-            api_key=api_key,
-            top_k=3 # ← 安定性を重視し、3に戻す
-        )
+        # AIに、メッセージ履歴と、利用可能な、ツールを、渡して、判断を、仰ぐ
+        # 最後のメッセージがユーザーからのものであることを期待
+        # もし履歴が空なら、HumanMessage("") のような空のメッセージで開始することも検討
+        if not state['messages']:
+             print("  - 警告: メッセージ履歴が空です。AIの応答が不安定になる可能性があります。")
+             # 空のHumanMessageを追加してエラーを回避するか、あるいはエラーとするか。
+             # ここでは空の応答を返すようにする。
+             # return {"messages": [AIMessage(content="[メッセージ履歴が空のため応答できません]")]}
 
-        if relevant_chunks:
-            rag_results_text = "\n---\n".join(relevant_chunks)
-            print(f"  - {len(relevant_chunks)}件の関連記憶を発見。")
-            return {"rag_results": rag_results_text}
-        else:
-            print("  - 関連する記憶は見つかりませんでした。")
-            return {"rag_results": None}
 
+        print(f"  - AIへの入力メッセージ数: {len(state['messages'])}")
+        # 最後のメッセージがToolMessageの場合、次のAIMessageを期待する
+        # 最後のメッセージがAIMessageでtool_callsがある場合、それはエラーケースか、未完了のツール呼び出し
+
+        response_message = llm_with_tools.invoke(state['messages'])
+        return {"messages": [response_message]}
     except Exception as e:
-        print(f"  - RAG検索中にエラー: {e}")
+        print(f"  - AI思考ノードでエラー: {e}")
         traceback.print_exc()
-        return {"rag_results": "[エラー：記憶の検索中に問題が発生しました]"}
+        error_message = AIMessage(content=f"[エラー：思考中に問題が発生しました。詳細: {e}]")
+        return {"messages": [error_message]}
 
-# --- Web検索ノードの実装 ---
-def web_search_node(state: AgentState):
-    """ユーザーのクエリに基づき、Tavilyを使ってWeb検索を実行するノード。"""
-    print("--- 世界の窓 (Web Search) 実行 ---")
+def call_tool_node(state: AgentState):
+    """AIが使用を決めたツールを実行するノード"""
+    # messagesが空、あるいは最後のメッセージが存在しない場合は何もしない
+    if not state['messages'] or not state['messages'][-1]:
+        print("  - 警告: call_tool_nodeに渡されたメッセージリストが空、または最後のメッセージがありません。")
+        return {"messages": []} # 空のリストを返してStateを壊さないようにする
 
+    last_message = state['messages'][-1]
+
+    # AIが、ツール使用を、決めた場合のみ、実行
+    if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
+        print("  - 道具呼び出しなし。スキップします。")
+        return {"messages": []} # ツール呼び出しがなければ、空のリストを返す
+
+    print(f"--- 道具実行ノード (Tool) 実行 ---")
+    tool_messages: List[ToolMessage] = [] # 型ヒントを明確化
+
+    for tool_call in last_message.tool_calls:
+        tool_name = tool_call.get("name")
+        tool_args = tool_call.get("args", {}) # argsがない場合も考慮
+        tool_call_id = tool_call.get("id") # idも取得
+
+        if not tool_call_id:
+            print(f"  - 警告: tool_callにIDがありません。スキップします。Tool call: {tool_call}")
+            continue
+
+        print(f"  - 道具: {tool_name} を使用 (ID: {tool_call_id})")
+        print(f"    - 引数: {tool_args}")
+
+        tool_to_call = None
+        # ツール名に、応じて、正しい、関数を、呼び出す
+        if tool_name == "rag_search":
+            # rag_manager.search_tool には character_name と api_key も渡す必要がある
+            # これらは tool_call.get("args") には含まれないので、state から取得する
+            # ただし、LangChainのツール呼び出し規約では、ツール実行に必要な引数は全てargsで渡されるべき
+            # ここでは、一旦指示書の構造に従うが、将来的にはツールの引数設計の見直しを推奨
+            if hasattr(rag_manager, 'search_tool'):
+                tool_to_call = rag_manager.search_tool
+                # search_tool のシグネチャに合わせて引数を調整する必要がある。
+                # 現状の search_tool(query: str, character_name: str, api_key: str) に合わせる
+                # args が辞書であることを期待
+                if isinstance(tool_args, dict):
+                    # query は必須、なければエラー
+                    if 'query' not in tool_args:
+                        print(f"  - エラー: rag_search の引数に query がありません。")
+                        tool_messages.append(ToolMessage(content=f"[エラー：rag_searchの引数にqueryがありません]", tool_call_id=tool_call_id))
+                        continue
+
+                    # character_name と api_key を state から取得して tool_args にマージ
+                    # これはLangChainの標準的なツール呼び出しとは異なるため注意
+                    final_tool_args = {
+                        **tool_args,
+                        "character_name": state.get("character_name"),
+                        "api_key": state.get("api_key")
+                    }
+                else:
+                    print(f"  - エラー: rag_search の引数 ({tool_args}) が辞書形式ではありません。")
+                    tool_messages.append(ToolMessage(content=f"[エラー：rag_searchの引数が辞書形式ではありません]", tool_call_id=tool_call_id))
+                    continue
+
+            else:
+                print(f"  - 警告: rag_manager.search_tool が見つかりません。")
+        elif tool_name == "web_search":
+            if 'web_search_tool' in globals() and callable(globals()['web_search_tool']):
+                tool_to_call = globals()['web_search_tool']
+                final_tool_args = tool_args # web_search_tool は query のみのはず
+            else:
+                print(f"  - 警告: web_search_tool が見つかりません。")
+        else:
+            print(f"  - 警告: 不明な道具 '{tool_name}' が指定されました。")
+            tool_messages.append(ToolMessage(content=f"[エラー：不明な道具'{tool_name}'が指定されました]", tool_call_id=tool_call_id))
+            continue
+
+        if not tool_to_call:
+            print(f"  - エラー: 道具 '{tool_name}' の実体が見つかりませんでした。")
+            tool_messages.append(ToolMessage(content=f"[エラー：道具'{tool_name}'の実体が見つかりません]", tool_call_id=tool_call_id))
+            continue
+
+        try:
+            # ツールを、実行し、結果を、得る
+            # invoke には tool_args を渡す (通常は辞書)
+            observation = tool_to_call.invoke(final_tool_args)
+            # ツール実行結果を、ToolMessageとして、整形
+            tool_messages.append(ToolMessage(content=str(observation), tool_call_id=tool_call_id))
+        except Exception as e:
+            print(f"  - 道具 '{tool_name}' の実行中にエラー: {e}")
+            traceback.print_exc()
+            tool_messages.append(ToolMessage(content=f"[エラー：道具'{tool_name}'の実行に失敗しました。詳細: {e}]", tool_call_id=tool_call_id))
+
+    return {"messages": tool_messages}
+
+# --- 新しい、ルーティング論理 ---
+def should_continue_logic(state: AgentState):
+    """次に何をすべきかを判断するロジック"""
+    last_message = state['messages'][-1] if state['messages'] else None
+
+    # messagesが空、あるいは最後のメッセージが存在しない場合は終了
+    if not last_message:
+        print("  - ルーティングロジック: メッセージリストが空のため終了します。")
+        return END
+
+    # AIが、ツール使用を、選択した場合、道具実行ノードへ
+    if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+        print("  - ルーティングロジック: 道具呼び出しあり。call_tool へ。")
+        return "call_tool"
+    # そうでなければ、終了
+    else:
+        print("  - ルーティングロジック: 道具呼び出しなし。終了します。")
+        return END
+
+# --- 新しい、ツールの、定義 ---
+
+# Web検索ツールを、LangChainが、理解できる、形式で、定義
+from langchain_core.tools import tool
+
+@tool
+def web_search_tool(query: str) -> str:
+    """ユーザーからのクエリに基づいて、最新の情報を得るためにWeb検索を実行します。"""
+    print(f"--- Web検索ツール実行 (Query: '{query}') ---")
     tavily_api_key = os.environ.get("TAVILY_API_KEY")
     if not tavily_api_key:
-        return {"web_search_results": "[エラー：Tavily APIキーが環境変数に設定されていません]"}
-
-    user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
-    query_text = "\n".join(user_texts).strip()
-
-    if not query_text:
-        print("  - Web検索クエリが空のためスキップしました。")
-        return {"web_search_results": None} # クエリが空ならNoneを返す
-
-    print(f"  - Web検索クエリ: \"{query_text[:100]}...\"")
+        return "[エラー：Tavily APIキーが環境変数に設定されていません]"
     try:
         client = TavilyClient(api_key=tavily_api_key)
-        # searchメソッドは、検索結果を要約し、辞書のリストとして返す
-        response = client.search(query=query_text, search_depth="advanced", max_results=5)
+        # Tavilyのsearchメソッドは辞書を返すので、結果を適切に処理する
+        response = client.search(query=query, search_depth="advanced", max_results=3) # 結果は3件に絞る
 
-        # 応答生成モデルが使いやすいように、結果をテキストにフォーマットする
         if response and response.get('results'):
-            formatted_results = "\n\n".join([f"URL: {res['url']}\n内容: {res['content']}" for res in response['results']])
-            print(f"  - Web検索成功。{len(response['results'])}件の結果を取得。")
-            return {"web_search_results": formatted_results}
+            # 結果を連結して文字列として返す
+            return "\n\n".join([f"URL: {res['url']}\n内容: {res['content']}" for res in response['results']])
         else:
-            print(f"  - Web検索で有効な結果が得られませんでした。")
-            return {"web_search_results": None}
-
+            return "[情報：Web検索で結果が見つかりませんでした]"
 
     except Exception as e:
-        print(f"  - Web検索中にエラー: {e}")
+        print(f"  - Web検索ツールでエラー: {e}")
         traceback.print_exc()
-        return {"web_search_results": f"[エラー：Web検索中に問題が発生しました。詳細: {e}]"}
+        return f"[エラー：Web検索中に問題が発生しました。詳細: {e}]"
 
-# --- 道具選択ノード（旧ルーター）の実装 ---
-def tool_router_node(state: AgentState):
-    """【最終形態】完全な設定オブジェクトでAPIと対話する、真のルーター。"""
-    print("--- 道具選択ノード (Router) 実行 ---")
-
-    user_texts = [p for p in state['input_parts'] if isinstance(p, str)]
-    query_text = "\n".join(user_texts).strip()
-    decision = "generate"
-
-    if query_text:
-        client = genai.Client(api_key=state['api_key'])
-        router_model_name = 'models/gemini-2.5-flash'
-        prompt = f"""ユーザーからの次の入力に対し、どのツールを使用すべきか判断してください。
-選択肢は "rag_search"、"web_search"、"generate" の3つです。
-- 過去の個人的な会話、ユーザーの好み、キャラクター自身の記憶に関する質問の場合は "rag_search" を選択してください。
-- 最新の情報、ニュース、一般的な知識、未知の固有名詞に関する質問の場合は "web_search" を選択してください。
-- 単純な挨拶、感想、ツールを必要としない会話の場合は "generate" を選択してください。
-
-あなたの応答は、選択したツールの名前（例: "rag_search"）のみでなければなりません。余計な説明は一切不要です。
-
-入力: "{query_text}"
-選択: """
-        try:
-            # ★★★【最後の真実】全ての、設定を、一つの、GenerateContentConfigに、統合する ★★★
-            api_config = types.GenerateContentConfig(
-                generation_config=types.GenerationConfig(
-                    temperature=0.0,
-                    max_output_tokens=10
-                ),
-                safety_settings=config_manager.SAFETY_CONFIG
-            )
-            response = client.models.generate_content(model=router_model_name, contents=prompt, config=api_config)
-
-            if response.text:
-                route = response.text.strip().lower().replace('"', '').replace("'", "")
-                if "rag" in route: decision = "rag_search"
-                elif "web" in route: decision = "web_search"
-            else:
-                print("  - 警告: ルーターAIからのテキスト応答がありませんでした。フィードバックを確認します。")
-                if response.prompt_feedback: print(f"  - プロンプトフィードバック: {response.prompt_feedback}")
-        except Exception as e:
-            print(f"  - ルーター処理中にエラー: {e}。直接応答生成にフォールバックします。")
-            traceback.print_exc()
-
-    print(f"  - 判断：'{decision}'")
-    return {"route_decision": decision}
-
-# --- ルーティング論理関数（条件付きエッジ専用）の実装 ---
-def route_logic(state: AgentState):
-    """Stateに保存された判断結果を見て、次に行くべきノード名を返す関数。"""
-    print(f"--- ルーティング実行 (判断結果: {state['route_decision']}) ---")
-    return state["route_decision"]
-
-# --- 応答生成ノードの実装 ---
-def generate_response_node(state: AgentState):
-    """【聖典作法準拠】全ての情報を統合し、最終的な応答を生成するノード。"""
-    print("--- 応答生成ノード実行 ---")
-
-    try:
-        # 1. APIキーを使ってクライアントを生成
-        client = genai.Client(api_key=state['api_key'])
-        response_model_name = 'models/gemini-2.5-pro' # gemini-1.5-pro相当
-
-        # 2. generate_contentに渡すためのペイロード（辞書のリスト）を作成
-        contents_for_generation = []
-
-        # 会話履歴を追加 (state['chat_history'] は {'role': ..., 'parts': [...]} のリスト形式)
-        contents_for_generation.extend(state['chat_history'])
-
-        # ユーザーの最新の知覚情報を追加 (これが最新のユーザーの「発話」に相当)
-        # RAG結果や思考の骨子は、システムプロンプトやfew-shot例として渡すか、
-        # あるいはユーザーに見えない形でプロンプトエンジニアリングでperceived_contentに含める方が良い場合もある。
-        # ここでは、指示書に基づき perceived_content をそのままユーザー入力として扱う。
-        # もしRAG等の情報を付加するなら、以下のようにする。
-        # ユーザーの最新の知覚情報に、RAGの結果を付加する
-        final_user_prompt = state['perceived_content']
-        if not final_user_prompt.strip(): # 知覚結果が空やスペースのみの場合
-            final_user_prompt = "[ユーザーは何も入力しませんでした]"
-
-        rag_info = state.get('rag_results')
-        if rag_info:
-            final_user_prompt += f"\n\n# 参照した記憶の断片(RAG):\n---\n{rag_info}\n---"
-
-        web_info = state.get('web_search_results')
-        if web_info:
-            final_user_prompt += f"\n\n# Web検索結果:\n---\n{web_info}\n---"
-
-        contents_for_generation.append({'role': 'user', 'parts': [{'text': final_user_prompt}]})
-
-        # 3. client.models.generate_content を呼び出す
-        api_config = types.GenerateContentConfig(safety_settings=config_manager.SAFETY_CONFIG)
-        response = client.models.generate_content(
-            model=response_model_name,
-            contents=contents_for_generation,
-            config=api_config
-        )
-
-        generated_text = response.text or "[応答テキストが空です]"
-        if response.prompt_feedback and response.prompt_feedback.block_reason: # response.textがNoneでもフィードバックはあるかもしれない
-             generated_text = f"[応答ブロック: 安全性設定により応答がブロックされました。理由: {response.prompt_feedback.block_reason}]"
-
-        print(f"  - 生成された応答： {generated_text[:100]}...")
-        return {"final_response": generated_text}
-    except Exception as e:
-        print(f"  - 応答生成中にエラー: {e}")
-        traceback.print_exc() # 詳細なエラーを確認するため
-        return {"final_response": f"[エラー：応答生成に失敗しました。詳細: {e}]"}
-
-# --- グラフの定義 ---
+# --- 新しい、グラフの、構築 ---
 workflow = StateGraph(AgentState)
 
-# ノードをグラフに追加
-workflow.add_node("perceive", perceive_input_node)
-workflow.add_node("tool_router", tool_router_node) # ★新しいルーターノード
-workflow.add_node("rag_search", rag_search_node)
-workflow.add_node("web_search", web_search_node) # ★新しいWeb検索ノード
-workflow.add_node("generate", generate_response_node)
+workflow.add_node("call_model", call_model_node)
+workflow.add_node("call_tool", call_tool_node)
 
-# グラフの実行順序を定義
-workflow.set_entry_point("perceive")
+workflow.set_entry_point("call_model")
 
-# 知覚ノードの次は、必ず、道具選択ノード
-workflow.add_edge("perceive", "tool_router")
-
-# ★★★【最重要】条件付きエッジは、この、新しい、論理関数を、使う
 workflow.add_conditional_edges(
-    "tool_router",
-    route_logic,
+    "call_model",
+    should_continue_logic,
     {
-        "rag_search": "rag_search",
-        "web_search": "web_search",
-        "generate": "generate"
+        "call_tool": "call_tool",
+        END: END
     }
 )
+workflow.add_edge("call_tool", "call_model")
 
-# ツールを使った後は、必ず、応答生成ノードに進む
-workflow.add_edge("rag_search", "generate")
-workflow.add_edge("web_search", "generate")
-# 応答生成が終わったら、グラフを終了
-workflow.add_edge("generate", END)
-
-# グラフをコンパイル
 app = workflow.compile()
