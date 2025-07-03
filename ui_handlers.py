@@ -366,16 +366,23 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days):
     else:
         return display_df, df_with_ids, alarm_add_button_text, theme, prompt, char, days, h, m, editing_id
 
-def handle_rag_update_button_click(character_name: str):
+def handle_rag_update_button_click(character_name: str, api_key_name: str): # ★★★ api_key_name を引数に追加
     if not character_name:
         gr.Warning("索引を更新するキャラクターが選択されていません。")
+        return
+
+    # ★★★【追加】APIキーを取得する ★★★
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"): # 有効なキーかもチェック
+        gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。RAG索引の更新を中止します。")
         return
 
     gr.Info(f"キャラクター「{character_name}」のRAG索引の更新を開始します...（ターミナルのログを確認してください）")
 
     import threading
     def run_update():
-        success = rag_manager.create_or_update_index(character_name)
+        # ★★★【修正】取得したAPIキーを渡す ★★★
+        success = rag_manager.create_or_update_index(character_name, api_key)
         if success:
             print(f"INFO: RAG索引の更新が正常に完了しました ({character_name})")
         else:

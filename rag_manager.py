@@ -8,11 +8,13 @@ from typing import List, Optional
 import tempfile
 import shutil
 
+import google.genai as genai # Clientを直接使うために、インポートをgenaiに統一
+
 # モジュールインポート
 import character_manager
-import gemini_api
+# import gemini_api # gemini_apiへの依存を削除
 from utils import load_chat_log
-import config_manager # 追加
+# import config_manager # config_managerへの直接依存を削除
 
 # 定数定義
 RAG_DIR = "rag_data"
@@ -35,23 +37,20 @@ def _chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> Li
     if not text: return []
     return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size - chunk_overlap)]
 
-def create_or_update_index(character_name: str) -> bool:
+def create_or_update_index(character_name: str, api_key: str) -> bool:
     print(f"--- RAG索引作成開始: {character_name} ---")
-    if not gemini_api._gemini_client:
-        print("情報: rag_manager.create_or_update_index - Geminiクライアントが未初期化のため、初期化を試みます。")
-        if hasattr(config_manager, 'initial_api_key_name_global') and config_manager.initial_api_key_name_global:
-            success, msg = gemini_api.configure_google_api(config_manager.initial_api_key_name_global)
-            if not success:
-                print(f"エラー: Geminiクライアントの初期化に失敗しました: {msg}")
-                return False
-        else:
-            print("エラー: 設定ファイルに initial_api_key_name_global が見つかりません。")
-            return False
-        if not gemini_api._gemini_client: # 再度チェック
-            print("エラー: Geminiクライアントの初期化に失敗しました（再チェック）。")
-            return False
 
-    # ★★★ system_prompt.txt (sys_p) のパス取得は不要になる ★★★
+    # ★★★【修正点】引数で受け取ったAPIキーでクライアントを生成 ★★★
+    if not api_key:
+        print("エラー: RAG索引作成にはAPIキーが必要です。")
+        return False
+    try:
+        client = genai.Client(api_key=api_key)
+    except Exception as e:
+        print(f"エラー: APIキーを使用してGeminiクライアントの生成に失敗しました: {e}")
+        traceback.print_exc()
+        return False
+
     # log_f, sys_p, _, mem_p = character_manager.get_character_files_paths(character_name) # 元の行
     log_f, _, _, mem_p = character_manager.get_character_files_paths(character_name) # sys_p を受け取らないように変更
     rag_path = _get_rag_data_path(character_name)
@@ -98,7 +97,8 @@ def create_or_update_index(character_name: str) -> bool:
         for i in range(0, len(all_chunks), batch_size):
             batch_chunks = all_chunks[i:i + batch_size]
             print(f"  - バッチ {i//batch_size + 1} を処理中 (チャンク数: {len(batch_chunks)})...")
-            result = gemini_api._gemini_client.models.embed_content(model=f"models/{EMBEDDING_MODEL}", contents=batch_chunks)
+            # ★★★【修正点】生成したクライアントを使ってAPIを呼び出す ★★★
+            result = client.models.embed_content(model=f"models/{EMBEDDING_MODEL}", contents=batch_chunks)
             all_embeddings_objects.extend(result.embeddings)
     except Exception as e:
         print(f"Embedding API呼び出しでエラー (モデル: models/{EMBEDDING_MODEL}): {e}"); traceback.print_exc()
@@ -144,20 +144,17 @@ def create_or_update_index(character_name: str) -> bool:
         if tmp_index_path and os.path.exists(tmp_index_path):
             os.remove(tmp_index_path)
 
-def search_relevant_chunks(character_name: str, query_text: str, top_k: int = 5) -> List[str]:
-    if not gemini_api._gemini_client:
-        print("情報: rag_manager.search_relevant_chunks - Geminiクライアントが未初期化のため、初期化を試みます。")
-        if hasattr(config_manager, 'initial_api_key_name_global') and config_manager.initial_api_key_name_global:
-            success, msg = gemini_api.configure_google_api(config_manager.initial_api_key_name_global)
-            if not success:
-                print(f"エラー: Geminiクライアントの初期化に失敗しました: {msg}")
-                return []
-        else:
-            print("エラー: 設定ファイルに initial_api_key_name_global が見つかりません。")
-            return []
-        if not gemini_api._gemini_client: # 再度チェック
-            print("エラー: Geminiクライアントの初期化に失敗しました（再チェック）。")
-            return []
+def search_relevant_chunks(character_name: str, query_text: str, api_key: str, top_k: int = 5) -> List[str]:
+    # ★★★【修正点】引数で受け取ったAPIキーでクライアントを生成 ★★★
+    if not api_key:
+        print("エラー: RAG検索にはAPIキーが必要です。")
+        return []
+    try:
+        client = genai.Client(api_key=api_key)
+    except Exception as e:
+        print(f"エラー: APIキーを使用してGeminiクライアントの生成に失敗しました: {e}")
+        traceback.print_exc()
+        return []
 
     rag_path = _get_rag_data_path(character_name)
     if not rag_path: return []
@@ -179,7 +176,8 @@ def search_relevant_chunks(character_name: str, query_text: str, top_k: int = 5)
         with open(chunks_file, "r", encoding="utf-8") as f:
             all_chunks = json.load(f)
 
-        result = gemini_api._gemini_client.models.embed_content(model=f"models/{EMBEDDING_MODEL}", contents=[query_text])
+        # ★★★【修正点】生成したクライアントを使ってAPIを呼び出す ★★★
+        result = client.models.embed_content(model=f"models/{EMBEDDING_MODEL}", contents=[query_text])
 
         query_embeddings_objects = result.embeddings
         if not query_embeddings_objects or not hasattr(query_embeddings_objects[0], 'values'):

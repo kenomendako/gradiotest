@@ -189,7 +189,8 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     # ファイルの末尾近くに、新しいボタンのイベントリスナーを追加
     rag_update_button.click(
         fn=ui_handlers.handle_rag_update_button_click,
-        inputs=[current_character_name], # current_api_key_name_state を削除
+        # ★★★【修正】現在のAPIキー名のStateを入力に追加 ★★★
+        inputs=[current_character_name, current_api_key_name_state],
         outputs=None
     )
     demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
