@@ -11,7 +11,7 @@ import config_manager
 import utils # 変更点: utils全体をインポート
 from character_manager import get_character_files_paths
 from agent.graph import app # LangGraphアプリケーションをインポート
-from langchain_core.messages import HumanMessage, AIMessage # LangChainメッセージ形式をインポート
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage # SystemMessage をインポート
 
 # LangGraphエージェント呼び出し関数
 def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str):
@@ -19,61 +19,90 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return f"エラー: APIキー名 '{api_key_name}' に有効なキーが設定されていません。", None
     try:
-        log_file, _, _, _ = get_character_files_paths(character_name)
-        raw_history = utils.load_chat_log(log_file, character_name) # utils.load_chat_log は [{'role': 'user', 'content': '...'}, ...] の形式を想定
+        log_file, sys_prompt_file, _, _ = get_character_files_paths(character_name) # sys_prompt_file を取得
 
-        # ★ LangChain形式の、メッセージリストを、作成
-        messages: list[HumanMessage | AIMessage] = [] # 型ヒント
+        messages = [] # 型ヒントを List[Union[SystemMessage, HumanMessage, AIMessage]] のように後で修正する可能性
+
+        # 1. システムプロンプトを読み込み、SystemMessageとして追加
+        system_prompt_content = ""
+        if sys_prompt_file and os.path.exists(sys_prompt_file):
+            with open(sys_prompt_file, 'r', encoding='utf-8') as f:
+                system_prompt_content = f.read().strip()
+
+        if system_prompt_content:
+            messages.append(SystemMessage(content=system_prompt_content))
+        else:
+            # システムプロンプトがない場合でも、空のSystemMessageを追加するか、あるいは何もしないか。
+            # Geminiの厳密な形式に従うなら、何らかのSystemMessageが先頭にあることが望ましいかもしれない。
+            # ここでは、ファイルが存在し内容がある場合のみ追加する。
+            print(f"警告: キャラクター '{character_name}' のシステムプロンプトファイルが見つからないか空です。")
+
+        # 2. 会話履歴をHumanMessageとAIMessageのペアとして追加
+        raw_history = utils.load_chat_log(log_file, character_name)
         for h_item in raw_history:
-            if h_item.get('role') == 'model' or h_item.get('role') == 'assistant' or h_item.get('role') == character_name: # 'assistant' やキャラ名もモデル側とみなす
-                messages.append(AIMessage(content=h_item['content']))
-            else: # 'user' or 'human' or その他はユーザーとみなす
-                messages.append(HumanMessage(content=h_item['content']))
+            role = h_item.get('role')
+            content = h_item.get('content', '').strip()
+            if not content: # コンテンツが空のメッセージはスキップ
+                continue
 
-        # API履歴制限の適用 (メッセージオブジェクトのリストに対して行う)
+            if role == 'model' or role == 'assistant' or role == character_name:
+                messages.append(AIMessage(content=content))
+            elif role == 'user' or role == 'human':
+                messages.append(HumanMessage(content=content))
+            # 古い形式のシステムメッセージや不明なロールはここでは無視する方針
+
+        # 3. API履歴制限の適用 (SystemMessageは常に保持)
+        history_messages = []
+        if messages and isinstance(messages[0], SystemMessage):
+            history_messages.append(messages.pop(0)) # SystemMessageを一時的に取り出す
+
         limit = 0
         if api_history_limit_option and api_history_limit_option.isdigit():
             limit = int(api_history_limit_option)
 
-        if limit > 0: # 0の場合は制限なし（全履歴）と解釈
-            # ユーザーとAIの発話ペアで1往復なので、limit * 2 の件数を残すのが一般的だが、
-            # LangChainのメッセージリストでは単純に末尾からlimit件数で良い場合もある。
-            # ここでは、user/aiのペアではなく、単純にメッセージ数で制限する。
-            # もし往復で制限したいなら、raw_historyの段階で処理が必要。
-            # 今回のAgentStateはmessagesのリストなので、単純にメッセージ数で制限。
-            if len(messages) > limit: # limit はメッセージ数そのものとする
-                 messages = messages[-limit:]
+        if limit > 0:
+            if len(messages) > limit: # limit は Human/AIメッセージのペア数ではなく、総メッセージ数
+                messages = messages[-limit:]
 
+        # SystemMessageをリストの先頭に戻す
+        if history_messages: # history_messages には SystemMessage が一つだけ入っている想定
+            messages = history_messages + messages
 
-        # ユーザーの、最新の、入力を、追加
-        # (この、部分は、テキストと、画像が、混在する場合の、処理が、必要になるが、一旦、テキストのみで)
+        # 4. ユーザーの最新の入力をHumanMessageとして追加
         # parts は Gradio から渡される [text, Image, text, ...] のようなリスト
         # これを適切に HumanMessage の content に変換する
         # LangChain HumanMessage content は文字列かリスト[dict] (text or image)
 
-        # まずは指示書通りテキストのみを連結
-        user_input_text_parts = [p for p in parts if isinstance(p, str)]
-        user_input_text = "\n".join(user_input_text_parts).strip()
+        # マルチモーダル対応のためのcontentリスト
+        user_message_content_parts = []
+        text_buffer = []
 
-        # TODO: 画像も parts に含まれる場合、HumanMessageのcontentをリスト形式にする必要がある
-        # 例: HumanMessage(content=[{"type": "text", "text": "見て"}, {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}])
-        # 今回はテキストのみを扱う
-        if user_input_text: # テキスト入力がある場合のみメッセージ追加
-            messages.append(HumanMessage(content=user_input_text))
-        elif any(isinstance(p, Image.Image) for p in parts): # 画像のみの場合 (テキストなし)
-            # 画像のみの場合の処理は現状のAgentStateとcall_model_nodeでは直接扱えない
-            # perceive_input_nodeのような前処理が別途必要になるか、
-            # HumanMessageに画像を含める対応が必要。
-            # ここでは、テキストがない場合は空のHumanMessageを追加しないようにする。
-            # あるいは、何らかのプレースホルダテキストを追加することも考えられる。
-            # 今回は、テキストがなければメッセージを追加しない方針とする。
-            # ただし、partsが空でない限り、何らかのユーザー入力があったとみなすため、
-            # ログ保存のためにはuser_input_textを別途作成する必要がある。
-            pass
+        for part_item in parts:
+            if isinstance(part_item, str):
+                text_buffer.append(part_item)
+            elif isinstance(part_item, Image.Image):
+                if text_buffer: # 画像の前にテキストがあれば、それを先に追加
+                    user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
+                    text_buffer = [] # バッファをクリア
 
+                # 画像をインラインデータとして追加 (base64エンコードはLangChain側で行われる想定)
+                # LangChainのHumanMessageはPillow Imageオブジェクトを直接扱える
+                user_message_content_parts.append({"type": "image_url", "image_url": part_item}) # Pillow Imageを直接渡す
+
+        if text_buffer: # 最後に残ったテキストがあれば追加
+            user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
+
+        if user_message_content_parts:
+            # HumanMessageのcontentは、単一の文字列か、辞書のリスト
+            # user_message_content_partsが要素1つでそれがtextなら文字列、それ以外ならリスト
+            if len(user_message_content_parts) == 1 and user_message_content_parts[0]["type"] == "text":
+                messages.append(HumanMessage(content=user_message_content_parts[0]["text"]))
+            else:
+                messages.append(HumanMessage(content=user_message_content_parts))
+        # 画像のみ、あるいはテキストのみの場合も上記で処理される
 
         initial_state = {
-            "messages": messages,
+            "messages": messages, # 完成したメッセージリスト
             "character_name": character_name,
             "api_key": api_key,
         }

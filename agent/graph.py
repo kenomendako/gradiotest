@@ -24,7 +24,7 @@ def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
     llm = ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
-        convert_system_message_to_human=True,
+        # convert_system_message_to_human=True, # この行を削除またはFalseに
     )
     if bind_tools:
         llm = llm.bind_tools(bind_tools)
