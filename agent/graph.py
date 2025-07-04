@@ -11,7 +11,7 @@ from langchain_core.tools import tool
 
 import config_manager
 import rag_manager
-from tools.web_tools import read_url_tool, web_search_tool # web_search_toolもインポート
+from tools.web_tools import read_url_tool
 
 # --- AgentState定義 (変更なし) ---
 class AgentState(TypedDict):
@@ -145,3 +145,28 @@ workflow.add_edge("call_tool", "final_response")
 workflow.add_edge("final_response", END)
 
 app = workflow.compile()
+
+# agent/graph.py の一番下に、このコードブロックを貼り付けてください
+
+from tavily import TavilyClient # tavilyのインポートが必要な場合があるので念のため
+
+@tool
+def web_search_tool(query: str) -> str:
+    """ユーザーからのクエリに基づいて、最新の情報を得るためにWeb検索を実行します。"""
+    print(f"--- Web検索ツール実行 (Query: '{query}') ---")
+    # 環境変数のTAVILY_API_KEYを直接参照するように修正
+    tavily_api_key = os.getenv("TAVILY_API_KEY")
+    if not tavily_api_key:
+        return "[エラー：Tavily APIキーが環境変数に設定されていません]"
+    try:
+        client = TavilyClient(api_key=tavily_api_key)
+        response = client.search(query=query, search_depth="advanced", max_results=3)
+        if response and response.get('results'):
+            return "\n\n".join([f"URL: {res['url']}\n内容: {res['content']}" for res in response['results']])
+        else:
+            return "[情報：Web検索で結果が見つかりませんでした]"
+    except Exception as e:
+        # 実行時のエラーをより詳細に補足
+        print(f"  - Web検索ツールでエラー: {e}")
+        traceback.print_exc()
+        return f"[エラー：Web検索中に問題が発生しました。詳細: {e}]"
