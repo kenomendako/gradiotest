@@ -36,5 +36,5 @@ google-genai
 tavily-python
 
 # For long-term memory system (The Brain)
-mem0
+mem0ai
 qdrant-client

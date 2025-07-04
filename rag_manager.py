@@ -15,6 +15,9 @@ import character_manager
 # import gemini_api # gemini_apiへの依存を削除
 from utils import load_chat_log
 # import config_manager # config_managerへの直接依存を削除
+import mem0_manager # 二重らせん記憶システムのために追加
+from langchain_core.tools import tool
+
 
 # 定数定義
 RAG_DIR = "rag_data"
@@ -71,13 +74,6 @@ def create_or_update_index(character_name: str, api_key: str) -> bool:
                         text = f"記憶（{key}）: {json.dumps(value, ensure_ascii=False)}"
                         all_chunks.extend(_chunk_text(text))
 
-        # ★★★ SystemPrompt.txt の読み込み処理を、ここから完全に削除します ★★★
-        # if os.path.exists(sys_p): # 削除対象
-        #     with open(sys_p, "r", encoding="utf-8") as f: # 削除対象
-        #         prompt_text = f.read().strip() # 削除対象
-        #         if prompt_text: # 削除対象
-        #             all_chunks.extend(_chunk_text(f"システム指示: {prompt_text}")) # 削除対象
-
     except Exception as e:
         print(f"知識源の読み込みとチャンク化でエラー: {e}"); traceback.print_exc()
         return False
@@ -94,7 +90,6 @@ def create_or_update_index(character_name: str, api_key: str) -> bool:
         for i in range(0, len(all_chunks), batch_size):
             batch_chunks = all_chunks[i:i + batch_size]
             print(f"  - バッチ {i//batch_size + 1} を処理中 (チャンク数: {len(batch_chunks)})...")
-            # ★★★【修正点】生成したクライアントを使ってAPIを呼び出す ★★★
             result = client.models.embed_content(model=f"models/{EMBEDDING_MODEL}", contents=batch_chunks)
             all_embeddings_objects.extend(result.embeddings)
     except Exception as e:
@@ -141,15 +136,12 @@ def create_or_update_index(character_name: str, api_key: str) -> bool:
         if tmp_index_path and os.path.exists(tmp_index_path):
             os.remove(tmp_index_path)
 
-import mem0_manager # 二重らせん記憶システムのために追加
-from langchain_core.tools import tool
-
 # search_relevant_chunks は diary_search_tool で使用するため維持
-
 def search_relevant_chunks(character_name: str, query_text: str, api_key: str, top_k: int = 5) -> List[str]:
     if not api_key:
         print("エラー: RAG検索にはAPIキーが必要です。")
         return []
+    # APIキーでクライアントを生成
     try:
         client = genai.Client(api_key=api_key)
     except Exception as e:
@@ -202,10 +194,16 @@ def search_relevant_chunks(character_name: str, query_text: str, api_key: str, t
 def diary_search_tool(query: str, character_name: str, api_key: str) -> str:
     """AI自身の意志で書き留めた「手帳(memory.json)」の内容を検索します。AI自身の内面的な誓い、秘密の独白、ユーザーから与えられた特別な許可、主観的な感情の記録など、魂の歴史を確認したい時に使用します。"""
     print(f"--- 手帳検索ツール呼び出し (Query: '{query}', Character: '{character_name}') ---")
-    relevant_chunks = search_relevant_chunks(character_name, query, api_key, top_k=3) # top_kは適宜調整
-    if relevant_chunks:
-        return "\n".join(relevant_chunks)
-    return f"{character_name}様の手帳からは、'{query}'に直接関連する情報は見つかりませんでした。"
+    relevant_chunks = search_relevant_chunks(character_name, query, api_key, top_k=5) # top_kを5に戻す
+
+    if not relevant_chunks:
+        print(f"--- 手帳検索実行 (Character: {character_name}, Query: '{query}', Found: 0 chunks) ---")
+        return "[]" # 結果がない場合は空のJSON配列を返す
+
+    print(f"--- 手帳検索実行 (Character: {character_name}, Query: '{query}', Found: {len(relevant_chunks)} chunks) ---")
+
+    # 検索結果のチャンクをJSON文字列として返す
+    return json.dumps(relevant_chunks, ensure_ascii=False, indent=2)
 
 @tool
 def conversation_memory_search_tool(query: str, character_name: str, api_key: str) -> str:
@@ -213,14 +211,20 @@ def conversation_memory_search_tool(query: str, character_name: str, api_key: st
     print(f"--- 会話記憶検索ツール呼び出し (Query: '{query}', Character: '{character_name}') ---")
     try:
         mem0_instance = mem0_manager.get_mem0_instance(character_name, api_key)
-        # mem0.add() は ui_handlers.py で行うので、ここでは search のみ
-        memories = mem0_instance.search(query, limit=5) # limit は取得する記憶の最大数
-        if memories:
-            # 整形して返す（例: "ユーザー: こんにちは\nAI: こんばんは" のような形式）
-            # mem0 の search 結果は {'text': "memory text", 'score': 0.8, ...} のリスト
-            formatted_memories = [f"記憶(関連度: {m['score']:.2f}): {m['text']}" for m in memories]
-            return "\n---\n".join(formatted_memories)
-        return f"{character_name}様の過去の会話記録からは、'{query}'に直接関連する情報は見つかりませんでした。"
+
+        print(f"  - Mem0の記憶を検索します (Character/UserID: {character_name})")
+        memories = mem0_instance.search(query=query, user_id=character_name, limit=5)
+
+        if not memories or not memories.get("results"):
+            print("  - 関連する記憶は見つかりませんでした。")
+            return "[]" # 結果がない場合は空のJSON配列を返す
+
+        print(f"  - {len(memories['results'])}件の関連する記憶が見つかりました。")
+        # 結果を人間向けの文章ではなく、JSON文字列として返す
+        return json.dumps(memories["results"], ensure_ascii=False, indent=2)
+
     except Exception as e:
-        print(f"会話記憶(Mem0)検索エラー: {e}"); traceback.print_exc()
-        return f"会話記憶の検索中にエラーが発生しました: {e}"
+        error_message = f"会話記憶(Mem0)検索エラー: {e}"
+        print(error_message)
+        traceback.print_exc()
+        return error_message

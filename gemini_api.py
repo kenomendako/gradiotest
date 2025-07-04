@@ -105,9 +105,10 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
             "messages": messages, # 完成したメッセージリスト
             "character_name": character_name,
             "api_key": api_key,
+            "final_model_name": model_name, # ★★★ UIで選択されたモデル名をstateに追加 ★★★
         }
 
-        print(f"--- LangGraphエージェント呼び出し (Character: {character_name}, Model in UI: {model_name}) ---") # model_nameはLangGraph内では直接使われない
+        print(f"--- LangGraphエージェント呼び出し (Character: {character_name}, Final Model by User: {model_name}) ---")
         final_state = app.invoke(initial_state)
         print("--- LangGraphエージェント実行完了 ---")
 

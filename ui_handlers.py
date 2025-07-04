@@ -196,10 +196,14 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
             try:
                 if api_key and final_log_message.strip() and api_response_text: # APIキーがあり、ユーザー発言とAI応答が両方存在する場合
                     mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
-                    # ユーザーの発言とAIの応答を結合して記憶させるか、個別にするかは設計次第
-                    # ここでは結合して記憶
-                    combined_conversation = f"ユーザー: {final_log_message.strip()}\n{current_character_name}: {api_response_text.strip()}"
-                    mem0_instance.add(combined_conversation, user_id="user", assistant_id=current_character_name) # user_id, assistant_id は任意
+
+                    # Mem0.add() は role と content を持つ辞書のリストを期待する
+                    user_message_for_mem0 = {"role": "user", "content": final_log_message.strip()}
+                    ai_response_for_mem0 = {"role": "assistant", "content": api_response_text.strip()}
+                    conversation_to_add = [user_message_for_mem0, ai_response_for_mem0]
+
+                    # 正しい引数で呼び出し
+                    mem0_instance.add(messages=conversation_to_add, user_id=current_character_name)
                     print(f"--- Mem0に会話を記憶しました (Character: {current_character_name}) ---")
             except Exception as mem0_e:
                 print(f"Mem0への記憶中にエラーが発生しました: {mem0_e}")

@@ -1,7 +1,10 @@
-# log2gemini.py の【最終・完全・確定版】
+# nexus_ark.py
+
+import os
+os.environ["MEM0_TELEMETRY_ENABLED"] = "false" # ★★★ この行を追加 ★★★
 
 import gradio as gr
-import os, sys, json, traceback, threading, time, pandas as pd
+import sys, json, traceback, threading, time, pandas as pd # os は上記でインポート済みなので削除
 import config_manager, character_manager, memory_manager, alarm_manager, gemini_api, utils, ui_handlers
 
 # --- 起動シーケンス ---
