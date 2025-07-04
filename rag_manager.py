@@ -40,10 +40,7 @@ def _chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> Li
 def create_or_update_index(character_name: str, api_key: str) -> bool:
     print(f"--- RAG索引作成開始: {character_name} ---")
 
-    # ★★★【修正点】引数で受け取ったAPIキーでクライアントを生成 ★★★
-    if not api_key:
-        print("エラー: RAG索引作成にはAPIキーが必要です。")
-        return False
+    # APIキーでクライアントを生成
     try:
         client = genai.Client(api_key=api_key)
     except Exception as e:
@@ -144,37 +141,12 @@ def create_or_update_index(character_name: str, api_key: str) -> bool:
         if tmp_index_path and os.path.exists(tmp_index_path):
             os.remove(tmp_index_path)
 
-# search_relevant_chunks は新しいアーキテクチャでは直接使用されないためコメントアウト
-# def search_relevant_chunks(character_name: str, query_text: str, api_key: str, top_k: int = 5) -> List[str]:
-#     # ... (既存のコード) ...
-
+import mem0_manager # 二重らせん記憶システムのために追加
 from langchain_core.tools import tool
 
-@tool
-def search_tool(query: str, character_name: str, api_key: str) -> str: # api_keyは現状ダミーだが、将来の拡張のため残すことも考慮
-    """ユーザーとの過去の個人的な会話や、好みに関する情報を、記憶の中から、検索します。"""
-    # ★★★【重要】この関数は、もはや、直接、APIを、呼び出しません。
-    # ベクトル化は、LangChainの、Retrieverが、担当します。
-    # この、部分は、一度、ダミーの、実装に、置き換えます。
-    # 真の、FAISS検索は、次の、ステップで、実装します。
-    print(f"--- RAG検索ツール実行 (Query: '{query}', Character: '{character_name}') ---")
-
-    # (一旦、ダミーの、応答を、返す)
-    if "紅茶" in query.lower() or "ティー" in query.lower(): # 小文字比較
-        return f"記憶によると、{character_name}様は「アールグレイ」の紅茶を好んでおられるようです。"
-    if "チョコ" in query.lower() or "チョコレート" in query.lower():
-        return f"記録によれば、{character_name}様は「カカオ70%以上」のビターチョコレートがお好きだと記憶しております。"
-
-    # ダミー実装として、特定のキーワードがない場合は固定の応答
-    # 本来はここでFAISS等を使った実際の検索処理が入る
-    # 例: relevant_docs = actual_faiss_search(character_name, query, api_key)
-    # if relevant_docs:
-    # return "\n".join(relevant_docs)
-
-    return f"{character_name}様の記憶からは、'{query}'に直接関連する情報は見つかりませんでした。"
+# search_relevant_chunks は diary_search_tool で使用するため維持
 
 def search_relevant_chunks(character_name: str, query_text: str, api_key: str, top_k: int = 5) -> List[str]:
-    # ★★★【修正点】引数で受け取ったAPIキーでクライアントを生成 ★★★
     if not api_key:
         print("エラー: RAG検索にはAPIキーが必要です。")
         return []
@@ -191,37 +163,64 @@ def search_relevant_chunks(character_name: str, query_text: str, api_key: str, t
     chunks_file = os.path.join(rag_path, RAG_CHUNKS_FILENAME)
 
     if not os.path.exists(index_file_source) or not os.path.exists(chunks_file):
-        print(f"情報: {character_name} のRAG索引が未作成です。検索をスキップします。")
+        print(f"情報: {character_name} のRAG索引(手帳)が未作成です。検索をスキップします。")
         return []
 
     tmp_read_path = None
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".faiss", mode="wb") as tmp_file:
+        # FAISSインデックスとチャンクを読み込む
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".faiss", mode="wb") as tmp_file: # mode="wb" はコピーのため
             tmp_read_path = tmp_file.name
-
-        shutil.copyfile(index_file_source, tmp_read_path)
+        shutil.copyfile(index_file_source, tmp_read_path) # 安全な読み込みのために一時ファイルにコピー
         index = faiss.read_index(tmp_read_path)
 
         with open(chunks_file, "r", encoding="utf-8") as f:
             all_chunks = json.load(f)
 
-        # ★★★【修正点】生成したクライアントを使ってAPIを呼び出す ★★★
+        # クエリをベクトル化
         result = client.models.embed_content(model=f"models/{EMBEDDING_MODEL}", contents=[query_text])
-
         query_embeddings_objects = result.embeddings
         if not query_embeddings_objects or not hasattr(query_embeddings_objects[0], 'values'):
             print(f"エラー: クエリ '{query_text[:20]}...' のEmbeddingオブジェクトまたはそのvalues属性が無効です。")
             return []
-
         query_embedding_vector = query_embeddings_objects[0].values
         query_embedding = np.array([query_embedding_vector], dtype='float32')
 
+        # FAISSで検索
         distances, indices = index.search(query_embedding, top_k)
-        relevant_chunks = [all_chunks[i] for i in indices[0] if i != -1 and 0 <= i < len(all_chunks)]
+        relevant_chunks = [all_chunks[i] for i in indices[0] if i != -1 and 0 <= i < len(all_chunks)] # 範囲チェックを追加
+        print(f"--- 手帳検索実行 (Character: {character_name}, Query: '{query_text}', Found: {len(relevant_chunks)} chunks) ---")
         return relevant_chunks
     except Exception as e:
-        print(f"RAG検索エラー: {e}"); traceback.print_exc()
+        print(f"手帳(FAISS)検索エラー: {e}"); traceback.print_exc()
         return []
     finally:
         if tmp_read_path and os.path.exists(tmp_read_path):
             os.remove(tmp_read_path)
+
+@tool
+def diary_search_tool(query: str, character_name: str, api_key: str) -> str:
+    """AI自身の意志で書き留めた「手帳(memory.json)」の内容を検索します。AI自身の内面的な誓い、秘密の独白、ユーザーから与えられた特別な許可、主観的な感情の記録など、魂の歴史を確認したい時に使用します。"""
+    print(f"--- 手帳検索ツール呼び出し (Query: '{query}', Character: '{character_name}') ---")
+    relevant_chunks = search_relevant_chunks(character_name, query, api_key, top_k=3) # top_kは適宜調整
+    if relevant_chunks:
+        return "\n".join(relevant_chunks)
+    return f"{character_name}様の手帳からは、'{query}'に直接関連する情報は見つかりませんでした。"
+
+@tool
+def conversation_memory_search_tool(query: str, character_name: str, api_key: str) -> str:
+    """ユーザーとの過去の具体的な会話のやり取り（ログ）を検索します。「昨日の夜、何話したっけ？」や「以前、〇〇という話題についてどう結論が出たか」など、客観的な事実や出来事の履歴を確認したい時に使用します。"""
+    print(f"--- 会話記憶検索ツール呼び出し (Query: '{query}', Character: '{character_name}') ---")
+    try:
+        mem0_instance = mem0_manager.get_mem0_instance(character_name, api_key)
+        # mem0.add() は ui_handlers.py で行うので、ここでは search のみ
+        memories = mem0_instance.search(query, limit=5) # limit は取得する記憶の最大数
+        if memories:
+            # 整形して返す（例: "ユーザー: こんにちは\nAI: こんばんは" のような形式）
+            # mem0 の search 結果は {'text': "memory text", 'score': 0.8, ...} のリスト
+            formatted_memories = [f"記憶(関連度: {m['score']:.2f}): {m['text']}" for m in memories]
+            return "\n---\n".join(formatted_memories)
+        return f"{character_name}様の過去の会話記録からは、'{query}'に直接関連する情報は見つかりませんでした。"
+    except Exception as e:
+        print(f"会話記憶(Mem0)検索エラー: {e}"); traceback.print_exc()
+        return f"会話記憶の検索中にエラーが発生しました: {e}"

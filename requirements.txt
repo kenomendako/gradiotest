@@ -34,3 +34,7 @@ google-genai
 
 # For Web Search with Tavily AI
 tavily-python
+
+# For long-term memory system (The Brain)
+mem0
+qdrant-client

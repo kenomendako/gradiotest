@@ -11,9 +11,10 @@ import re
 from PIL import Image
 import base64
 import mimetypes
-import rag_manager # 追加
-import google.genai as genai # 追加
-import gemini_api # 追加
+import rag_manager
+import google.genai as genai
+import gemini_api
+import mem0_manager # 二重らせん記憶システムのために追加
 
 # --- モジュールインポート ---
 import config_manager
@@ -190,6 +191,21 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
             # 2. AIの応答を保存
             if api_response_text: # AIの応答があった場合のみ
                 utils.save_message_to_log(log_f, f"## {current_character_name}:", api_response_text)
+
+            # --- 3. Mem0（脳）への記憶 ---
+            try:
+                if api_key and final_log_message.strip() and api_response_text: # APIキーがあり、ユーザー発言とAI応答が両方存在する場合
+                    mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
+                    # ユーザーの発言とAIの応答を結合して記憶させるか、個別にするかは設計次第
+                    # ここでは結合して記憶
+                    combined_conversation = f"ユーザー: {final_log_message.strip()}\n{current_character_name}: {api_response_text.strip()}"
+                    mem0_instance.add(combined_conversation, user_id="user", assistant_id=current_character_name) # user_id, assistant_id は任意
+                    print(f"--- Mem0に会話を記憶しました (Character: {current_character_name}) ---")
+            except Exception as mem0_e:
+                print(f"Mem0への記憶中にエラーが発生しました: {mem0_e}")
+                traceback.print_exc()
+                # UIにエラー表示はしない（バックグラウンド処理のエラーのため）
+
 
     except Exception as e:
         traceback.print_exc()

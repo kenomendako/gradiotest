@@ -73,7 +73,7 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
                         memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code")
                         with gr.Row():
                             save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
-                            rag_update_button = gr.Button(value="RAG索引を更新", variant="primary") # 新しいボタン
+                            rag_update_button = gr.Button(value="手帳の索引を更新", variant="primary") # 文言変更
                     with gr.TabItem("ログ (log.txt)"):
                         log_editor = gr.Code(label="ログ内容", interactive=True, elem_id="log_editor_code")
                         with gr.Row():

@@ -40,8 +40,14 @@ def tool_router_node(state: AgentState):
     print("--- ツールルーターノード (tool_router_node) 実行 ---")
     api_key = state['api_key']
 
-    available_tools = [rag_manager.search_tool, web_search_tool, read_url_tool]
-    llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
+    # 利用可能なツールリストを更新
+    available_tools = [
+        rag_manager.diary_search_tool,
+        rag_manager.conversation_memory_search_tool,
+        web_search_tool,
+        read_url_tool
+    ]
+    llm_flash_with_tools = get_configured_llm("gemini-1.5-flash-latest", api_key, available_tools) # モデル名を最新に
 
     response = llm_flash_with_tools.invoke(state['messages'])
 
@@ -65,8 +71,10 @@ def call_tool_node(state: AgentState):
 
     print(f"--- 道具実行ノード (call_tool_node) 実行 ---")
     tool_messages = []
+    # 利用可能なツールのマッピングを更新
     available_tools_map = {
-        "search_tool": rag_manager.search_tool,
+        "diary_search_tool": rag_manager.diary_search_tool,
+        "conversation_memory_search_tool": rag_manager.conversation_memory_search_tool,
         "web_search_tool": web_search_tool,
         "read_url_tool": read_url_tool
     }
@@ -83,7 +91,8 @@ def call_tool_node(state: AgentState):
             output = f"エラー: 不明な道具 '{tool_name}' が指定されました。"
         else:
             try:
-                if tool_name == "search_tool":
+                # character_name と api_key を必要とするツールに追加
+                if tool_name in ["diary_search_tool", "conversation_memory_search_tool"]:
                     tool_args.update({"character_name": state.get("character_name"), "api_key": state.get("api_key")})
                 output = tool_to_call.invoke(tool_args)
             except Exception as e:
