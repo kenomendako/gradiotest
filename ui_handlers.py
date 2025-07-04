@@ -103,10 +103,22 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
     # Gemini APIに渡すパーツリストを準備
     parts_for_api = []
     attached_filenames_for_log = []
+    detected_urls_from_ui = [] # 新しく追加
 
     # 1. テキスト部分をリストに追加
     if user_prompt_from_textbox:
         parts_for_api.append(user_prompt_from_textbox)
+        # --- URL検出処理を追加 ---
+        try:
+            urls_in_text = re.findall(r'https?://\S+', user_prompt_from_textbox)
+            if urls_in_text:
+                detected_urls_from_ui = list(set(urls_in_text)) # 重複除去
+                gr.Info(f"{len(detected_urls_from_ui)}件のURLを検出しました。内容を確認します…")
+                print(f"UIハンドラで検出されたURL: {detected_urls_from_ui}")
+        except Exception as e:
+            print(f"URL検出中にエラーが発生しました: {e}")
+            traceback.print_exc()
+        # --- URL検出処理ここまで ---
 
     # 2. ファイル部分をリストに追加
     if file_input_list:
@@ -168,7 +180,8 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
             model_name=current_model_name, # invoke_nexus_agent は model_name を使わないが、互換性のために残す
             parts=parts_for_api,
             api_history_limit_option=api_history_limit_state,
-            api_key_name=current_api_key_name_state # APIキー名を渡す
+            api_key_name=current_api_key_name_state, # APIキー名を渡す
+            detected_urls_from_ui=detected_urls_from_ui # ★ 新しく追加した引数
         )
 
         # ★★★【最後の真実】ログ保存は、全てが、終わった、ここで、行う ★★★

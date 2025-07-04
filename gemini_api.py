@@ -13,8 +13,17 @@ from character_manager import get_character_files_paths
 from agent.graph import app # LangGraphアプリケーションをインポート
 from langchain_core.messages import HumanMessage, AIMessage # LangChainメッセージ形式をインポート
 
+from typing import List, Optional # Optionalを追加
+
 # LangGraphエージェント呼び出し関数
-def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str):
+def invoke_nexus_agent(
+    character_name: str,
+    model_name: str,
+    parts: list,
+    api_history_limit_option: str,
+    api_key_name: str,
+    detected_urls_from_ui: Optional[List[str]] = None # 新しい引数を追加
+):
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return f"エラー: APIキー名 '{api_key_name}' に有効なキーが設定されていません。", None
@@ -73,12 +82,14 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
 
 
         initial_state = {
-            "messages": messages,
+            "messages": messages, # LangChain形式のメッセージリスト
             "character_name": character_name,
             "api_key": api_key,
+            "detected_urls": detected_urls_from_ui if detected_urls_from_ui else [], # UIから渡されたURLをセット
+            "url_content": None, # 初期状態ではNone
         }
 
-        print(f"--- LangGraphエージェント呼び出し (Character: {character_name}, Model in UI: {model_name}) ---") # model_nameはLangGraph内では直接使われない
+        print(f"--- LangGraphエージェント呼び出し (Character: {character_name}, Model in UI: {model_name}, Detected URLs: {detected_urls_from_ui}) ---") # ログにも追加
         final_state = app.invoke(initial_state)
         print("--- LangGraphエージェント実行完了 ---")
 
