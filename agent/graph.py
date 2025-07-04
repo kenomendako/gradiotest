@@ -31,92 +31,45 @@ TAVILY_API_KEY_ENV_VAR = "TAVILY_API_KEY" # 環境変数名を定義
 def read_url_tool(urls: list[str]) -> str:
     """
     指定されたURLリストの内容を読み取り、結合して単一の文字列として返すツール。
-    Tavilyのget_contents_of_urlメソッドを想定して使用する（SDKバージョン注意）。
+    Tavilyのextractメソッドを使用する。
     """
     if not urls:
         return "URLが指定されていません。"
 
     # 環境変数からTavilyのAPIキーを取得
-    tavily_api_key = os.getenv(TAVILY_API_KEY_ENV_VAR) # os.environ.get から os.getenv に変更 (挙動はほぼ同じ)
+    tavily_api_key = os.getenv("TAVILY_API_KEY")
     if not tavily_api_key:
         return "エラー: TAVILY_API_KEYが設定されていません。"
 
     client = TavilyClient(api_key=tavily_api_key)
-    all_content = [] # 変数名を all_content に変更
+    all_content = []
 
     print(f"--- URL読み取りツール実行 (URLs: {urls}) ---")
 
     try:
-        # Tavily Python SDKの get_contents_of_url はリストも受け付けるはず (ドキュメント/GitHub参照)
-        # ただし、前回の AttributeError のため、SDKバージョンが古い可能性を考慮
-        raw_contents = client.get_contents_of_url(urls=urls)
+        # TavilyのextractメソッドはURLのリストを受け取ることができる
+        # メソッド名は 'extract' であり 'get_contents_of_url' ではない
+        results = client.extract(urls=urls, max_tokens=4000) # ※注: TavilyClient.extract のシグネチャを再確認する必要あり
 
-        # raw_contents が単一文字列かリストかを確認
-        # SDKのバージョンやURLの数によって挙動が変わる可能性を考慮
-        if isinstance(raw_contents, str) and len(urls) == 1:
-             # 単一URLを渡し、単一文字列が返ってきた場合
-            raw_contents_list = [raw_contents]
-            urls_for_iteration = urls
-        elif isinstance(raw_contents, list) and len(raw_contents) == len(urls):
-            # URLリストを渡し、結果リストが返ってきた場合
-            raw_contents_list = raw_contents
-            urls_for_iteration = urls
-        elif isinstance(raw_contents, str) and len(urls) > 1:
-            # URLリストを渡したが、何らかの理由で単一文字列が返ってきた場合 (エラーメッセージの可能性など)
-            # このケースはエラーとして扱うか、あるいは最初のURLに対する結果とみなすか。
-            # SDKの仕様が不明瞭なため、エラーとして扱うのが安全か。
-            # ここでは、最初のURLに対する結果としてみなし、残りは失敗と扱う。
-            print(f"  - 警告: 複数のURLを要求したが単一の文字列結果 '{raw_contents[:100]}...' を受信。最初のURLのみ処理試行。")
-            raw_contents_list = [raw_contents] + [f"Error: No content received for this URL due to unexpected SDK response for multiple URLs." for _ in range(len(urls) -1)]
-            urls_for_iteration = urls
-        else:
-            # 想定外の応答形式
-            print(f"  - エラー: Tavily SDKからの予期しない応答形式。Type: {type(raw_contents)}, Content: {str(raw_contents)[:200]}")
-            return "URL読み取りツールの内部エラー（SDK応答形式不一致）。管理者に連絡してください。"
+        # 'extract'は結果のリストを返す
+        for result in results:
+            all_content.append(f"URL ({result['url']}) の内容:\n{result['content']}")
 
-
-        processed_url_count = 0
-        for i, content_item in enumerate(raw_contents_list):
-            current_url = urls_for_iteration[i] # 対応するURLを取得
-
-            # content_item が辞書型でエラーを含むケース (Tavily APIがエラー詳細を返す場合など)
-            if isinstance(content_item, dict) and content_item.get("error"):
-                error_detail = content_item.get("error")
-                all_content.append(f"URL ({current_url}) の内容取得に失敗しました: {error_detail}")
-                print(f"  - URL ({current_url}) の内容取得失敗 (APIエラー): {error_detail}")
-            # content_item が文字列でエラーを示すケース
-            elif isinstance(content_item, str) and ("error" in content_item.lower() or "failed to retrieve content" in content_item.lower() or "No content received for this URL" in content_item):
-                all_content.append(f"URL ({current_url}) の内容取得に失敗しました。")
-                print(f"  - URL ({current_url}) の内容取得失敗: {content_item}")
-            # content_item が有効な文字列コンテンツの場合
-            elif isinstance(content_item, str) and content_item:
-                content_to_add = content_item[:4000]
-                if len(content_item) > 4000:
-                    content_to_add += "... (コンテンツが長いため省略されました)"
-                all_content.append(f"URL ({current_url}) の内容:\n{content_to_add}")
-                processed_url_count +=1
-            else:
-                 all_content.append(f"URL ({current_url}) から内容を取得できませんでした（空または無効な応答）。")
-                 print(f"  - URL ({current_url}) から空または無効な応答: {content_item}")
-
-        if processed_url_count == 0 and urls: # URLがあったのに何も有効なコンテンツを取得できなかった
-             return "指定されたURLから有効な内容を抽出できませんでした。"
-
-        if not all_content: # すべての処理を経ても何も結果がない場合 (通常は上の分岐でカバー)
+        if not all_content:
             return "指定されたURLから内容を抽出できませんでした。"
 
         return "\n\n".join(all_content)
 
     except AttributeError as ae:
-        # get_contents_of_url が存在しない場合 (SDKバージョン問題の可能性)
-        error_message = f"TavilyClientのメソッド呼び出しでエラーが発生しました (AttributeError): {ae}。SDKのバージョンが古い可能性があります。`pip install tavily-python --upgrade` を試してください。"
+        # extract メソッドが存在しない場合 (SDKバージョン問題やメソッド名の再誤認の可能性)
+        error_message = f"TavilyClientのメソッド呼び出しでエラーが発生しました (AttributeError): {ae}。SDKのバージョン、またはメソッド名（extract）が正しいか確認してください。"
         print(f"  - {error_message}")
-        return "URL読み取りツールの内部エラー（メソッド未定義）。管理者に連絡し、SDKバージョンの確認を依頼してください。"
+        return "URL読み取りツールの内部エラー（メソッド未定義）。管理者に連絡してください。"
     except Exception as e:
-        # その他の予期せぬエラー
+        # 予期せぬエラーが発生した場合、詳細をログに出力し、
+        # モデルには簡潔なエラーメッセージを返す
         error_message = f"URLの読み取り中に予期せぬエラーが発生しました: {e}"
         print(f"  - {error_message}")
-        # Google APIへのエラー伝播を防ぐため、簡潔なメッセージを返す
         return "URLの内容の取得に失敗しました。URLが正しいか、ページがアクセス可能か確認してください。"
 
 @tool
