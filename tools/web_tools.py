@@ -24,8 +24,9 @@ def read_url_tool(urls: list[str]) -> str:
     print(f"--- URL読み取りツール実行 (URLs: {urls}) ---")
 
     try:
-        # サイトによっては異なる形式で結果を返すことがあるため、トークン数に余裕を持たせる
-        results = client.extract(urls=urls, max_tokens=8000)
+        # ★★★ ここが最重要修正点 ★★★
+        # 返り値が会話履歴を圧迫しないよう、トークン数を現実的な値に制限する
+        results = client.extract(urls=urls, max_tokens=2000) # 8000から2000に減らす
 
         for result in results:
             # ★★★ここが今回のエラーを解決する最重要修正点★★★
