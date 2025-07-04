@@ -108,6 +108,13 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
     if user_prompt_from_textbox:
         parts_for_api.append(user_prompt_from_textbox)
 
+        # --- URL検出処理 ---
+        urls = re.findall(r'(https?://\S+)', user_prompt_from_textbox)
+        if urls:
+            gr.Info(f"メッセージ内のURLを検出しました: {', '.join(urls)}\n内容を読み取ります...")
+            # URLはテキストプロンプトの一部として既にparts_for_apiに追加されています。
+            # LangGraph側でAIがこれを認識し、read_url_toolの使用を判断することを期待します。
+
     # 2. ファイル部分をリストに追加
     if file_input_list:
         print(f"--- {len(file_input_list)}個のファイルを処理開始 ---")

@@ -12,6 +12,7 @@ from tavily import TavilyClient
 
 import config_manager
 import rag_manager
+from tools.web_tools import read_url_tool # read_url_tool をインポート
 
 # --- 新しい、魂の、定義書 (State) ---
 class AgentState(TypedDict):
@@ -32,75 +33,81 @@ class AgentState(TypedDict):
 
 # --- 新しい、ノードの、定義 ---
 
-def call_model_node(state: AgentState):
-    """【新世界の作法】AIを呼び出し、自律的な判断を促すノード"""
-    print("--- AI思考ノード実行 ---")
-
-    # 正しい、高レベルな、モデルクラスを、使用する
-    # TODO: safety_settings を config_manager から読み込んで適用する
+def get_configured_llm(model_name: str, api_key: str, bind_tools: Optional[List] = None):
+    """指定されたモデル名とAPIキーでLLMを初期化し、オプションでツールをバインドする"""
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-pro", # 思考の、中枢は、Proモデル
-        google_api_key=state['api_key'],
-        convert_system_message_to_human=True, # システムプロンプトを、扱えるようにする
-        # safety_settings=config_manager.SAFETY_CONFIG # ここで適用すべき
+        model=model_name,
+        google_api_key=api_key,
+        convert_system_message_to_human=True,
+        # safety_settings=config_manager.SAFETY_CONFIG # 必要に応じて追加
     )
+    if bind_tools:
+        llm = llm.bind_tools(bind_tools)
+        print(f"  - モデル '{model_name}' に道具: {[tool.name for tool in bind_tools]} をバインドしました。")
+    else:
+        print(f"  - モデル '{model_name}' は道具なしで初期化されました。")
+    return llm
 
-    # ツールを、定義する (実際のツールオブジェクトは後で定義・インポート)
-    # ここでは、ツールが持つべき名前と説明を仮に定義しておくか、
-    # あるいは、ツールオブジェクトが完成してから参照するようにする。
-    # 今回は、後で作成するツール名だけをリストアップしておく形にする。
-    # tools = [rag_manager.search_tool, web_search_tool] # 後で、ツールを、作成する
-
-    # LangChainの推奨に従い、ツール自体を渡すのではなく、モデルにツールスキーマを渡す
-    # ただし、ChatGoogleGenerativeAI は .bind_tools にツールオブジェクトのリストを期待する
-    # 外部で定義されたツールオブジェクトをインポートして使う
-
-    # 現時点ではツールが未定義なので、一旦ツールなしで呼び出すか、
-    # ダミーのツールを渡す必要がある。
-    # 指示書ではツールを渡しているので、その前提で進めるが、
-    # 実行時エラーを避けるため、ツールが未定義の場合はスキップする。
+def decide_tool_use_node(state: AgentState):
+    """【ツール判断】gemini-2.5-flash を使用してツール使用を判断するノード"""
+    print("--- ツール使用判断ノード (decide_tool_use_node) 実行 ---")
+    api_key = state.get('api_key')
+    if not api_key:
+        return {"messages": [AIMessage(content="[エラー: APIキーが設定されていません。ツール判断ノード]")]}
 
     active_tools = []
-    if hasattr(rag_manager, 'search_tool'): # rag_manager.search_tool が存在すれば追加
+    if hasattr(rag_manager, 'search_tool'):
         active_tools.append(rag_manager.search_tool)
-
-    # web_search_tool はこのファイル内で後ほど定義されるので、
-    # ここではグローバルスコープで参照できるか確認する
     if 'web_search_tool' in globals() and callable(globals()['web_search_tool']):
-         active_tools.append(globals()['web_search_tool'])
+        active_tools.append(globals()['web_search_tool'])
+    active_tools.append(read_url_tool)
 
-    if active_tools:
-        llm_with_tools = llm.bind_tools(active_tools)
-        print(f"  - 利用可能な道具: {[tool.name for tool in active_tools]}")
-    else:
-        llm_with_tools = llm # ツールがなければそのまま
-        print("  - 利用可能な道具なし。")
+    llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, active_tools) # モデル名を gemini-2.5-flash に修正
 
+    if not state['messages']:
+        print("  - 警告: メッセージ履歴が空です。ツール判断が不安定になる可能性があります。")
+        # 空の応答を返すか、エラーメッセージを生成
+        return {"messages": [AIMessage(content="[メッセージ履歴が空のため、ツール判断できませんでした]")]}
 
+    print(f"  - Flashモデルへの入力メッセージ数: {len(state['messages'])}")
     try:
-        # AIに、メッセージ履歴と、利用可能な、ツールを、渡して、判断を、仰ぐ
-        # 最後のメッセージがユーザーからのものであることを期待
-        # もし履歴が空なら、HumanMessage("") のような空のメッセージで開始することも検討
-        if not state['messages']:
-             print("  - 警告: メッセージ履歴が空です。AIの応答が不安定になる可能性があります。")
-             # 空のHumanMessageを追加してエラーを回避するか、あるいはエラーとするか。
-             # ここでは空の応答を返すようにする。
-             # return {"messages": [AIMessage(content="[メッセージ履歴が空のため応答できません]")]}
-
-
-        print(f"  - AIへの入力メッセージ数: {len(state['messages'])}")
-        # 最後のメッセージがToolMessageの場合、次のAIMessageを期待する
-        # 最後のメッセージがAIMessageでtool_callsがある場合、それはエラーケースか、未完了のツール呼び出し
-
-        response_message = llm_with_tools.invoke(state['messages'])
+        response_message = llm_flash_with_tools.invoke(state['messages'])
         return {"messages": [response_message]}
     except Exception as e:
-        print(f"  - AI思考ノードでエラー: {e}")
+        print(f"  - ツール使用判断ノードでエラー: {e}")
         traceback.print_exc()
-        error_message = AIMessage(content=f"[エラー：思考中に問題が発生しました。詳細: {e}]")
+        error_message = AIMessage(content=f"[エラー：ツール使用判断中に問題が発生しました。詳細: {e}]")
         return {"messages": [error_message]}
 
-# --- call_tool_node の、修正 ---
+def generate_final_response_node(state: AgentState):
+    """【最終応答生成】gemini-2.5-pro を使用して最終的な応答を生成するノード"""
+    print("--- 最終応答生成ノード (generate_final_response_node) 実行 ---")
+    api_key = state.get('api_key')
+    if not api_key:
+        return {"messages": [AIMessage(content="[エラー: APIキーが設定されていません。最終応答生成ノード]")]}
+
+    llm_pro = get_configured_llm("gemini-2.5-pro", api_key) # ツールはバインドしない
+
+    if not state['messages']:
+        print("  - 警告: メッセージ履歴が空です。最終応答が不安定になる可能性があります。")
+        return {"messages": [AIMessage(content="[メッセージ履歴が空のため、最終応答を生成できませんでした]")]}
+
+    print(f"  - Proモデルへの入力メッセージ数: {len(state['messages'])}")
+    try:
+        # ここでは、ツール呼び出しを期待しない純粋な応答生成を行う
+        response_message = llm_pro.invoke(state['messages'])
+        # tool_calls が含まれていないことを確認（または無視）
+        if hasattr(response_message, 'tool_calls') and response_message.tool_calls:
+            print("  - 警告: 最終応答生成モデルが予期せずツール呼び出しを返しました。無視します。")
+            response_message.tool_calls = None # 強制的に削除
+        return {"messages": [response_message]}
+    except Exception as e:
+        print(f"  - 最終応答生成ノードでエラー: {e}")
+        traceback.print_exc()
+        error_message = AIMessage(content=f"[エラー：最終応答生成中に問題が発生しました。詳細: {e}]")
+        return {"messages": [error_message]}
+
+# --- call_tool_node の、修正 (内容は変更なし、呼び出し元が変わるだけ) ---
 def call_tool_node(state: AgentState):
     """【配線修正済】AIが使用を決めたツールを正しく呼び出し、実行するノード"""
     # messagesが空、あるいは最後のメッセージが存在しない場合は何もしない
@@ -121,7 +128,8 @@ def call_tool_node(state: AgentState):
     # ★★★【最後の真実】利用可能な、全ての、道具を、辞書として、定義する ★★★
     available_tools = {
         "search_tool": rag_manager.search_tool, # rag_manager.py の search_tool
-        "web_search_tool": web_search_tool      # このファイルのグローバルスコープの web_search_tool
+        "web_search_tool": web_search_tool,     # このファイルのグローバルスコープの web_search_tool
+        "read_url_tool": read_url_tool          # 追加したURL読み取りツール
     }
 
     for tool_call in last_message.tool_calls:
@@ -172,24 +180,23 @@ def call_tool_node(state: AgentState):
 
     return {"messages": tool_messages}
 
+
 # --- 新しい、ルーティング論理 ---
-def should_continue_logic(state: AgentState):
-    """次に何をすべきかを判断するロジック"""
+def route_after_tool_decision(state: AgentState):
+    """ツール使用判断ノードの後、次にどこへ進むかを決定するロジック"""
+    print("--- ルーティング判断 (route_after_tool_decision) 実行 ---")
     last_message = state['messages'][-1] if state['messages'] else None
 
-    # messagesが空、あるいは最後のメッセージが存在しない場合は終了
-    if not last_message:
-        print("  - ルーティングロジック: メッセージリストが空のため終了します。")
-        return END
+    if not last_message or not isinstance(last_message, AIMessage):
+        print("  - 警告: ルーティング判断に必要なAIメッセージが存在しません。最終応答生成へ。")
+        return "generate_final_response" # または END
 
-    # AIが、ツール使用を、選択した場合、道具実行ノードへ
     if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
-        print("  - ルーティングロジック: 道具呼び出しあり。call_tool へ。")
+        print("  - 判断: ツール呼び出しあり。call_tool ノードへ。")
         return "call_tool"
-    # そうでなければ、終了
     else:
-        print("  - ルーティングロジック: 道具呼び出しなし。終了します。")
-        return END
+        print("  - 判断: ツール呼び出しなし。generate_final_response ノードへ。")
+        return "generate_final_response"
 
 # --- 新しい、ツールの、定義 ---
 
@@ -222,19 +229,28 @@ def web_search_tool(query: str) -> str:
 # --- 新しい、グラフの、構築 ---
 workflow = StateGraph(AgentState)
 
-workflow.add_node("call_model", call_model_node)
+# ノードを登録
+workflow.add_node("decide_tool_use", decide_tool_use_node)
 workflow.add_node("call_tool", call_tool_node)
+workflow.add_node("generate_final_response", generate_final_response_node)
 
-workflow.set_entry_point("call_model")
+# エントリーポイントを設定
+workflow.set_entry_point("decide_tool_use")
 
+# 条件付きエッジ: ツール判断ノードからの分岐
 workflow.add_conditional_edges(
-    "call_model",
-    should_continue_logic,
+    "decide_tool_use",
+    route_after_tool_decision,
     {
         "call_tool": "call_tool",
-        END: END
+        "generate_final_response": "generate_final_response"
     }
 )
-workflow.add_edge("call_tool", "call_model")
+
+# ツール実行後は最終応答生成へ
+workflow.add_edge("call_tool", "generate_final_response")
+
+# 最終応答生成後は終了
+workflow.add_edge("generate_final_response", END)
 
 app = workflow.compile()

@@ -186,6 +186,11 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), cs
     submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
     timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, gr.State(config_manager.initial_notification_webhook_url_global), normal_timer_theme_input], outputs=[timer_status_output])
 
+    # Gradio UIイベントリスナー内で `gr.Info` を使用するための準備
+    # `handle_message_submission` 関数が `gr` オブジェクトにアクセスできるようにする
+    # ただし、通常はGradioのコールバック関数内で直接 gr.Info を呼び出すため、
+    # ここで特別な準備は不要かもしれません。ui_handlers.py内で呼び出される想定。
+
     # ファイルの末尾近くに、新しいボタンのイベントリスナーを追加
     rag_update_button.click(
         fn=ui_handlers.handle_rag_update_button_click,
