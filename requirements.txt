@@ -38,3 +38,6 @@ tavily-python
 # For long-term memory system (The Brain)
 mem0ai
 qdrant-client
+
+# For PID existence check in lock mechanism
+psutil
