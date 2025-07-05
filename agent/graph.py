@@ -1,4 +1,4 @@
-# agent/graph.py の内容を、このコードブロックで完全に置き換えてください
+# agent/graph.py
 
 import os
 import traceback
@@ -9,22 +9,24 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langchain_core.tools import tool
 
-import config_manager
+# ★★★ 修正箇所 ★★★
+# 正しいツールをインポートします
 import rag_manager
 from tools.web_tools import read_url_tool
+# from agent.graph_tools import web_search_tool # web_search_toolのインポート元を修正 -> 既存の末尾定義を活かす
 
 # --- AgentState定義 (変更なし) ---
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     character_name: str
     api_key: str
+    final_model_name: str # ★★★ この行を追加 ★★★
 
 # --- LLM初期化関数 (変更なし) ---
 def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
     llm = ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
-        # convert_system_message_to_human=True, # この行を削除またはFalseに
     )
     if bind_tools:
         llm = llm.bind_tools(bind_tools)
@@ -33,41 +35,50 @@ def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
         print(f"  - モデル '{model_name}' は道具なしで初期化されました。")
     return llm
 
-# ★★★ ここからが最後の、そして真の、修正点です ★★★
+# --- ノード定義 ---
 
 def tool_router_node(state: AgentState):
-    """【役割修正①】Flashを使い、ツール呼び出しを返すか、何も返さないかのどちらかを行う。"""
+    """【役割修正】Flashモデルを使い、ツール呼び出しを返すか、何も返さないかのどちらかを行う。"""
     print("--- ツールルーターノード (tool_router_node) 実行 ---")
     api_key = state['api_key']
 
-    available_tools = [rag_manager.search_tool, web_search_tool, read_url_tool]
+    # ★★★ 修正箇所 ★★★
+    # 正しい2つの記憶ツールと、ウェブ検索ツールをリストに追加します
+    available_tools = [
+        rag_manager.diary_search_tool,
+        rag_manager.conversation_memory_search_tool,
+        web_search_tool, # 末尾で定義されているものを参照
+        read_url_tool
+    ]
+
+    # ★★★ 最重要修正箇所 ★★★
+    # モデル名を指定通りの 'gemini-2.5-flash' に修正します
     llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
 
     response = llm_flash_with_tools.invoke(state['messages'])
 
-    # ★★★ 最重要修正点 ★★★
-    # Flashがツール呼び出しを返した場合「のみ」、そのメッセージを履歴に追加する。
-    # 通常のおしゃべり応答は、完全に無視する。
     if hasattr(response, 'tool_calls') and response.tool_calls:
         print("  - Flashが道具の使用を決定。")
         return {"messages": [response]}
     else:
-        # おしゃべりな応答は無視し、Stateを更新しない
         print("  - Flashは道具を使用しないと判断。")
-        return {} # 空の辞書を返すことで、messagesは変更されない
+        return {} # Stateを更新しない
 
 def call_tool_node(state: AgentState):
     """【変更なし】ツールを実行する役目。"""
     last_message = state['messages'][-1]
-    # このチェックは念のため残す
     if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
         return {}
 
     print(f"--- 道具実行ノード (call_tool_node) 実行 ---")
     tool_messages = []
+
+    # ★★★ 修正箇所 ★★★
+    # 正しいツール名と関数のマッピングに更新します
     available_tools_map = {
-        "search_tool": rag_manager.search_tool,
-        "web_search_tool": web_search_tool,
+        "diary_search_tool": rag_manager.diary_search_tool,
+        "conversation_memory_search_tool": rag_manager.conversation_memory_search_tool,
+        "web_search_tool": web_search_tool, # 末尾で定義されているものを参照
         "read_url_tool": read_url_tool
     }
 
@@ -83,11 +94,15 @@ def call_tool_node(state: AgentState):
             output = f"エラー: 不明な道具 '{tool_name}' が指定されました。"
         else:
             try:
-                if tool_name == "search_tool":
+                # ★★★ 修正箇所 ★★★
+                # diary_search_toolとconversation_memory_search_toolにcharacter_nameとapi_keyを渡す
+                if tool_name in ["diary_search_tool", "conversation_memory_search_tool"]:
                     tool_args.update({"character_name": state.get("character_name"), "api_key": state.get("api_key")})
+
                 output = tool_to_call.invoke(tool_args)
             except Exception as e:
                 output = f"[エラー：道具'{tool_name}'の実行に失敗しました。詳細: {e}]"
+                traceback.print_exc() # エラー詳細を表示
 
         tool_messages.append(ToolMessage(content=str(output), tool_call_id=tool_call_id))
 
@@ -97,29 +112,34 @@ def final_response_node(state: AgentState):
     """【変更なし】Proモデルで最終応答を生成する役目。"""
     print("--- 最終応答生成ノード (final_response_node) 実行 ---")
     api_key = state['api_key']
-    llm_pro = get_configured_llm("gemini-2.5-pro", api_key)
 
-    print(f"  - Proモデルへの入力メッセージ数: {len(state['messages'])}")
+    # ★★★ ここからが修正箇所 ★★★
+    # stateからユーザーが選択したモデル名を取得。指定がなければProをデフォルトにする。
+    final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
+    print(f"  - ユーザー指定の最終応答モデル: '{final_model_to_use}' を使用します。")
+
+    # 取得したモデル名でLLMを初期化
+    llm_final = get_configured_llm(final_model_to_use, api_key)
+    # ★★★ 修正ここまで ★★★
+
+    print(f"  - {final_model_to_use}への入力メッセージ数: {len(state['messages'])}")
     try:
-        response = llm_pro.invoke(state['messages'])
+        response = llm_final.invoke(state['messages']) # 修正したllm_finalを使用
         return {"messages": [response]}
     except Exception as e:
         print(f"  - 最終応答生成ノードでエラー: {e}")
-        # traceback.print_exc() # トレースバックはログが長くなるので一旦コメントアウト
         return {"messages": [AIMessage(content=f"[エラー：最終応答の生成中に問題が発生しました。詳細: {e}]")]}
 
 
 def should_call_tool(state: AgentState):
-    """【役割修正②】最後のメッセージにツール呼び出しがあるか「だけ」をチェックする。"""
+    """【変更なし】最後のメッセージにツール呼び出しがあるか「だけ」をチェックする。"""
     print("--- ルーティング判断 (should_call_tool) 実行 ---")
     last_message = state['messages'][-1] if state['messages'] else None
 
-    # tool_router_nodeがツール呼び出しメッセージを追加した場合のみ、last_messageはtool_callsを持つ
     if last_message and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
         print("  - 判断: ツール呼び出しあり。call_tool_node へ。")
         return "call_tool"
     else:
-        # それ以外（ツール呼び出しがなかった）場合は、最終応答へ
         print("  - 判断: ツール呼び出しなし。final_response_node へ。")
         return "final_response"
 
@@ -147,7 +167,7 @@ workflow.add_edge("final_response", END)
 app = workflow.compile()
 
 # agent/graph.py の一番下に、このコードブロックを貼り付けてください
-
+# (既存の web_search_tool 定義がここにあるはずなので、それは維持する)
 from tavily import TavilyClient # tavilyのインポートが必要な場合があるので念のため
 
 @tool
