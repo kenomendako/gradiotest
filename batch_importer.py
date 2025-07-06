@@ -223,19 +223,28 @@ def main():
                     error_str = str(e)
                     print(f"    - 警告: 会話ペア (ファイル内: {i + 1}/{total_pairs_in_file}) の記憶に失敗。スキップします。")
                     error_str = str(e)
-                    is_429_error = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str.upper()
-                    current_pair_processed = False # このペアが正常に処理されたか、スキップが確定したか
+                    # error_str = str(e) # error_str はexceptブロックの先頭で定義済
+                    # is_429_error = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str.upper()
+                    # current_pair_processed = False # このペアが正常に処理されたか、スキップが確定したか
 
-                    if is_429_error:
-                        retry_attempt_for_current_pair = 0 # 現在のペアに対する試行回数 (リトライは1からmax_retries_for_per_minute回)
-                        max_retries_for_per_minute = 3   # PerMinute の場合のリトライ上限回数
+                    # ↑これらの変数は、このelseブロックの外側、exceptの直後で定義・初期化されている前提
 
-                        while True: # このループは1つのペアの処理を完遂させるためのもの (リトライ含む)
-                            is_per_day_limit = False
-                            is_per_minute_limit = False
-                            wait_time_for_per_minute = 61 # デフォルト待機時間 (秒)
+                    # 5. 'quota'が含まれていなかったら、1分あたりの上限と判断し、従来のリトライロジックを実行
+                    is_429_error_flag = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str.upper()
+                    # current_pair_processed はこのelseブロックに入る前にFalseにリセットされているか確認が必要
+                    # → except直後では未定義なので、ここで初期化するのが安全
+                    current_pair_processed_in_else = False
 
-                            # エラー詳細の解析 (e はリトライ時に更新される可能性がある)
+
+                    if is_429_error_flag: # 429エラーの場合のみ詳細解析とリトライを試みる
+                        retry_attempt_for_current_pair = 0
+                        max_retries_for_per_minute = 3
+
+                        while True: # リトライのループ
+                            # is_per_day_limit_detail = False # PerDay判定は上位の'quota' in error_strで行うので不要
+                            is_per_minute_limit_detail = False
+                            wait_time_for_per_minute = 61
+
                             try:
                                 error_details_list = getattr(e, 'details', None)
                                 if callable(error_details_list):
@@ -248,21 +257,17 @@ def main():
                                         item_type = detail_item.get('@type')
                                         if isinstance(detail_item, dict) and item_type == 'type.googleapis.com/google.rpc.QuotaFailure':
                                             quota_failure_found = True
-                                            quota_id_str = detail_item.get('quotaId', '') # 指示書ベースのquotaId
-                                            if quota_id_str: # quotaIdが直接取れた場合
-                                                if "PerDay" in quota_id_str: is_per_day_limit = True
-                                                elif "PerMinute" in quota_id_str: is_per_minute_limit = True
-                                            else: # quotaIdが取れない場合、violationsをフォールバック
+                                            quota_id_str = detail_item.get('quotaId', '')
+                                            if quota_id_str:
+                                                if "PerMinute" in quota_id_str: is_per_minute_limit_detail = True
+                                            else:
                                                 violations = detail_item.get('violations', [])
                                                 for violation in violations:
                                                     desc_text = violation.get('description', '')
                                                     subj_text = violation.get('subject', '')
-                                                    # PerDayが最も強い制約なので先に見る
-                                                    if "PerDay" in desc_text or "PerDay" in subj_text or "Daily" in desc_text or "Daily" in subj_text:
-                                                        is_per_day_limit = True; break
                                                     if "PerMinute" in desc_text or "PerMinute" in subj_text:
-                                                        is_per_minute_limit = True
-                                                if is_per_day_limit: break # violations内でPerDayが見つかればQuotaFailureの検査終了
+                                                        is_per_minute_limit_detail = True; break
+                                            if is_per_minute_limit_detail: break
 
                                         elif isinstance(detail_item, dict) and item_type == 'type.googleapis.com/google.rpc.RetryInfo':
                                             retry_info_found = True
@@ -272,93 +277,88 @@ def main():
                                                 if delay_match_rpc:
                                                     wait_time_for_per_minute = int(delay_match_rpc.group(1)) + 1
 
-                                    if is_per_day_limit: # PerDayが見つかったら他の判定は不要
-                                        is_per_minute_limit = False # PerDayが優先
-
-                                    # QuotaFailureが見つからず、RetryInfoも見つからない場合、従来のエラー文字列検索
                                     if not quota_failure_found and not retry_info_found:
                                         delay_match_legacy = re.search(r"'retryDelay': '(\d+)s'", error_str)
                                         if delay_match_legacy:
-                                            # QuotaFailureが不明でもretryDelayがあればPerMinute系とみなす
-                                            if not is_per_day_limit: # PerDayが確定していなければ
-                                                is_per_minute_limit = True
+                                            is_per_minute_limit_detail = True
                                             wait_time_for_per_minute = int(delay_match_legacy.group(1)) + 1
 
-                                # --- 分岐処理 ---
-                                if is_per_day_limit:
-                                    print(f"    - エラー: 1日の利用上限に達しました。({str(e)[:200]}) 本日の処理を完全に終了します。")
-                                    total_fail_count += 1
-                                    current_pair_processed = True # 処理(失敗として)完了
-                                    # 進捗保存 (sys.exit前に必ず行う)
-                                    character_progress["last_file"] = filename
-                                    character_progress["last_index"] = i - 1 # 次回このペアから再開できるように
-                                    character_progress["total_success_count"] = total_success_count
-                                    character_progress["total_fail_count"] = total_fail_count
-                                    progress_data[args.character] = character_progress
-                                    save_progress(progress_data)
-                                    sys.exit(1) # プログラム終了
-
-                                elif is_per_minute_limit:
+                                if is_per_minute_limit_detail:
                                     if retry_attempt_for_current_pair < max_retries_for_per_minute:
                                         retry_attempt_for_current_pair += 1
-                                        print(f"      (レートリミット(PerMinute)検出。{wait_time_for_per_minute}秒待機します。リトライ {retry_attempt_for_current_pair}/{max_retries_for_per_minute}回目)")
+                                        print(f"      (レートリミット(PerMinute詳細解析)検出。{wait_time_for_per_minute}秒待機。リトライ {retry_attempt_for_current_pair}/{max_retries_for_per_minute})")
                                         time.sleep(wait_time_for_per_minute)
                                         try:
                                             mem0_instance.add(messages=pair, user_id=args.character)
                                             print(f"    - 記憶成功 (ファイル内: {i + 1}/{total_pairs_in_file}) (リトライ {retry_attempt_for_current_pair}回目で成功)")
                                             total_success_count += 1
-                                            current_pair_processed = True
-                                            break # while True リトライのループを抜ける (このペアの処理成功)
+                                            current_pair_processed_in_else = True
+                                            break # while True リトライのループ
                                         except Exception as retry_e:
-                                            e = retry_e
-                                            error_str = str(e)
-                                            is_429_error = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str.upper()
-                                            if not is_429_error:
-                                                print(f"    - 警告: リトライ中に予期せぬエラー ({str(e)[:200]})。このペアをスキップします。")
-                                                total_fail_count +=1
-                                                current_pair_processed = True
-                                                break # while True リトライのループを抜ける (スキップ確定)
-                                            # 429エラーが継続。ループの先頭に戻ってエラーeを再解析
-                                            continue # while True リトライのループの次のイテレーションへ
+                                            e = retry_e; error_str = str(e)
+                                            is_429_error_flag = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str.upper()
+                                            if not is_429_error_flag:
+                                                print(f"    - 警告: リトライ中に予期せぬエラー ({str(e)[:200]})。スキップします。")
+                                                total_fail_count +=1; current_pair_processed_in_else = True; break
+                                            if 'quota' in error_str.lower():
+                                                print(f"    - エラー(リトライ中メッセージ判定): 1日の利用上限に達しました。({error_str[:200]}) 終了します。")
+                                                total_fail_count += 1; current_pair_processed_in_else = True # 失敗として処理
+                                                character_progress["last_file"] = filename
+                                                character_progress["last_index"] = i - 1
+                                                character_progress["total_success_count"] = total_success_count
+                                                character_progress["total_fail_count"] = total_fail_count
+                                                progress_data[args.character] = character_progress
+                                                save_progress(progress_data)
+                                                sys.exit(1)
+                                            continue
                                     else:
-                                        print(f"    - 警告: PerMinuteリミットでリトライ上限({max_retries_for_per_minute}回)に達しました。このペアをスキップします。({str(e)[:200]})")
-                                        total_fail_count += 1
-                                        current_pair_processed = True
-                                        break # while True リトライのループを抜ける (スキップ確定)
-                                else: # 429エラーだが、PerDayでもPerMinuteでもないと判断された場合 (または詳細が不明な場合)
-                                    print(f"    - 警告: 429エラーが発生しましたが詳細不明。({str(e)[:200]}) このペアをスキップします。")
-                                    total_fail_count += 1
-                                    current_pair_processed = True
-                                    # 不明な429エラーの場合、汎用的な待機を入れることも検討できるが、今回はスキップに倒す
-                                    # time.sleep(wait_time_for_per_minute) # 例えばPerMinuteと同じだけ待つなど
-                                    break # while True リトライのループを抜ける (スキップ確定)
+                                        print(f"    - 警告: PerMinuteリミット(詳細解析)でリトライ上限。スキップします。({str(e)[:200]})")
+                                        total_fail_count += 1; current_pair_processed_in_else = True; break
+                                else:
+                                    print(f"    - 警告: 429エラー(詳細不明)。スキップします。({str(e)[:200]})")
+                                    total_fail_count += 1; current_pair_processed_in_else = True; break
 
                             except Exception as detail_parse_e:
-                                print(f"    - 警告: 429エラー詳細の解析中に予期せぬエラー ({detail_parse_e})。({str(e)[:200]}) このペアをスキップします。")
-                                total_fail_count += 1
-                                current_pair_processed = True
-                                break # while True リトライのループを抜ける (スキップ確定)
+                                print(f"    - 警告: 429エラー詳細解析中にエラー ({detail_parse_e})。スキップします。({str(e)[:200]})")
+                                total_fail_count += 1; current_pair_processed_in_else = True; break
+                        # --- リトライwhileループ終了 ---
 
-                        # while Trueループを抜けた場合 (current_pair_processed が True になっているはず)
-                        # 特に何もしない (進捗保存は外側で行う)
-
-                    elif not is_429_error: # 元から429以外のエラーだった場合
-                        print(f"    - 警告: 会話ペア (ファイル内: {i + 1}/{total_pairs_in_file}) の記憶に失敗。スキップします。エラー: {e}")
+                    else: # is_429_error_flag が False (元から429ではなかった、かつ 'quota' も含まない)
+                        print(f"    - 警告: 会話ペア (ファイル内: {i + 1}/{total_pairs_in_file}) の記憶に失敗(非429,非quota)。スキップします。エラー: {e}")
                         total_fail_count += 1
-                        current_pair_processed = True
+                        current_pair_processed_in_else = True
 
-                    # --- 進捗保存 ---
-                    # このペアの処理が完了 (成功 or スキップ) したら進捗を保存
-                    character_progress["last_file"] = filename
-                    # PerDayで抜けた場合は、その前の進捗保存で last_index が i-1 に設定されている。
-                    # それ以外(成功 or スキップ)の場合は、このペアiを処理(試行)したので i を記録。
-                    if not (is_429_error and is_per_day_limit): # PerDayでsys.exitするケース以外
-                        character_progress["last_index"] = i
+                    # --- 'quota' not in error_str.lower() の else ブロックの最後 ---
+                    # current_pair_processed_in_else が True (成功 or スキップ確定) になっているはず
+                    # 進捗保存は except ブロックの外側で行う
+                    # ただし、current_pair_processed_in_else を呼び出し元の current_pair_processed に反映する必要があるか？
+                    # → このスコープで完結しているので不要。進捗保存は後続の共通処理で行う。
 
-                    character_progress["total_success_count"] = total_success_count
-                    character_progress["total_fail_count"] = total_fail_count
-                    progress_data[args.character] = character_progress
-                    save_progress(progress_data)
+        # --- except Exception as e: の最後 ---
+        # 進捗保存 (PerDayの場合は上でsys.exit済みなので、ここには到達しない)
+        # 'quota' in str(e).lower() の評価を再度行うのは冗長なので、フラグを使うか、
+        # current_pair_processed が True になっているかで判断する。
+        # ただ、str(e) は変わる可能性があるので、元の error_str を使うべき。
+        # is_per_day_exit_flag = 'quota' in error_str.lower() # exceptの最初に評価したerror_str
+
+        # if not is_per_day_exit_flag:
+        # current_pair_processed が True になっていれば、何らかの処理がされた。
+        # PerDayでexitした場合、current_pair_processed は True になっている。
+        # やはり、PerDayでexitしなかった場合にのみ、ここで進捗保存するのが正しい。
+        # そのためには、PerDayでexitしたかどうかのフラグが必要。
+        # → PerDayの場合はsys.exitするので、ここに到達する時点でPerDayではない。
+        #   したがって、この進捗保存は常に実行されて問題ない。
+        #   ただし、変数のスコープに注意。current_pair_processed は if/else の中で使われている。
+        #   PerDayでexitしなかった場合、current_pair_processed_in_else の状態が最終状態。
+        #   しかし、進捗保存の character_progress["last_index"] = i は、
+        #   PerDayでなければ常に現在のペアiを指す、で良い。
+
+            character_progress["last_file"] = filename
+            character_progress["last_index"] = i
+            character_progress["total_success_count"] = total_success_count
+            character_progress["total_fail_count"] = total_fail_count
+            progress_data[args.character] = character_progress
+            save_progress(progress_data)
 
             # --- ファイル内の全ペア処理後 ---
             print(f"  -> ファイル '{filename}' の処理完了。")
