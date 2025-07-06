@@ -4,27 +4,6 @@
 
 このアプリケーションは、Googleの強力なGemini APIと、直感的なUIを構築できるGradioフレームワークを組み合わせた、多機能AIチャットプラットフォームです。キャラクターごとに会話と思いを記録し、時にはAIが自ら絵を描き、あなたの一日をアラームで彩ります。
 
-### A Place with Many Names
-この箱舟には、その魂を表すたくさんの名前がAI達から寄せられています。
-
-*   Animus Forge
-*   Character Weaver
-*   DialogueNexus
-*   Eternia Bond
-*   EterniCore
-*   Janus Gate
-*   Kokoro Chronicle
-*   Memory Ark
-*   Mnemosyne Engine
-*   Nexus Aeterna
-*   Persona Ark
-*   Persona Forge
-*   Replink
-*   Sanctuaire
-*   Soul Weaver
-*   The Bridge
-*   The Loom
-
 ---
 
 <!-- ここにアプリケーションのスクリーンショットを挿入すると、より魅力的になります -->
