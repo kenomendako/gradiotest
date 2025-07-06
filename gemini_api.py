@@ -61,8 +61,11 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
             limit = int(api_history_limit_option)
 
         if limit > 0:
-            if len(messages) > limit: # limit は Human/AIメッセージのペア数ではなく、総メッセージ数
-                messages = messages[-limit:]
+            # limit は往復数なので、実際に取得するメッセージ数は limit * 2
+            # SystemMessageを除いたメッセージリストの長さを考慮する
+            actual_messages_count = len(messages)
+            if actual_messages_count > limit * 2:
+                messages = messages[-(limit * 2):]
 
         # SystemMessageをリストの先頭に戻す
         if history_messages: # history_messages には SystemMessage が一つだけ入っている想定
