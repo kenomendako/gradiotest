@@ -1,4 +1,4 @@
-# batch_importer_v19_env_var_fix.py (APIキーを環境変数に設定する最終手段)
+# batch_importer.py (v2: Progress saving fix)
 import os
 import sys
 import json
@@ -108,13 +108,9 @@ def main():
             print(f"エラー: 指定されたAPIキー名 '{args.api_key_name}' がconfig.jsonに見つかりません。")
             sys.exit(1)
             
-        # ▼▼▼ ここが、この戦いを終わらせる、最後の一手 ▼▼▼
-        # Gemini APIキーを、OSの環境変数に、直接、設定する
         os.environ['GOOGLE_API_KEY'] = api_key
-        # ▲▲▲ ここまで ▲▲▲
         
-        # ライブラリが環境変数を読み取ることを信じ、引数として渡すのも続ける
-        mem0_instance = mem0_manager.get_mem0_instance(api_key, args.model)
+        mem0_instance = mem0_manager.get_mem0_instance(args.character, api_key, args.model)
         
         progress_data = load_progress()
         if args.reset and args.character in progress_data:
@@ -122,7 +118,12 @@ def main():
             del progress_data[args.character]
             save_progress(progress_data)
 
+        # ▼▼▼ 修正箇所 ▼▼▼
+        # character_progressをprogress_dataから取得し、必ず元の辞書に再リンクする
         character_progress = progress_data.get(args.character, {})
+        progress_data[args.character] = character_progress
+        # ▲▲▲ 修正ここまで ▲▲▲
+
         last_file = character_progress.get("last_file")
         last_index = character_progress.get("last_index", -1)
         total_success_count = character_progress.get("total_success_count", 0)
