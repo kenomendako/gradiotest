@@ -1,4 +1,4 @@
-# gemini_api.py (v3: Project Guideline Compliance Fix)
+# gemini_api.py (v4: Token Counting Guideline Compliance Fix)
 
 import google.genai as genai
 import os
@@ -16,7 +16,7 @@ from character_manager import get_character_files_paths
 from agent.graph import app
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
-# _build_lc_messages_from_ui と _convert_lc_messages_to_gg_contents は前回の修正のままで問題ありません
+# _build_lc_messages_from_ui, _convert_lc_messages_to_gg_contents は変更なし
 def _build_lc_messages_from_ui(character_name: str, parts: list, api_history_limit_option: str) -> List[Union[SystemMessage, HumanMessage, AIMessage]]:
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
@@ -117,22 +117,38 @@ def count_input_tokens(character_name: str, model_name: str, parts: list, api_hi
         if not lc_messages: return 0
 
         contents_for_api, system_instruction_for_api = _convert_lc_messages_to_gg_contents(lc_messages)
-        if not contents_for_api and not system_instruction_for_api: return 0
-        if not contents_for_api and system_instruction_for_api: return 0 # 実際には system_instruction のみでもトークン数はあるが、ここではUI起因の入力としては稀なので0扱い
 
         # ▼▼▼ 修正箇所 ▼▼▼
-        # プロジェクトのルールに従い、genai.Client をインスタンス化して使用する
-        client = genai.Client(api_key=api_key)
-        # AI_DEVELOPMENT_GUIDELINES.md では client.models.generate_content() となっているので、
-        # count_tokens も client.models.count_tokens() が適切。
-        model_to_use = f"models/{model_name}" # count_tokens APIは 'models/' プレフィックスが必要
+        # system_instruction を count_tokens が受け入れられる形式に変換する
+        final_contents_for_api = []
+        if system_instruction_for_api:
+            # システムプロンプトをユーザーからの最初の指示として扱う
+            final_contents_for_api.append({
+                "role": "user",
+                "parts": system_instruction_for_api["parts"]
+            })
+            # それに対するAIの応答をシミュレート
+            final_contents_for_api.append({
+                "role": "model",
+                "parts": [{"text": "承知いたしました。"}]
+            })
 
-        response = client.models.count_tokens( # client.count_tokens から client.models.count_tokens へ
-            model=model_to_use, # `model` パラメータでモデル名を渡す
-            contents=contents_for_api,
-            system_instruction=system_instruction_for_api
+        # 残りの会話履歴を結合
+        final_contents_for_api.extend(contents_for_api)
+
+        # すべてが空の場合は0を返す
+        if not final_contents_for_api: return 0
+
+        client = genai.Client(api_key=api_key)
+        model_to_use = f"models/{model_name}"
+
+        # 修正された引数でAPIを呼び出す
+        response = client.models.count_tokens(
+            model=model_to_use,
+            contents=final_contents_for_api # system_instruction の代わりに結合したリストを渡す
         )
         # ▲▲▲ 修正ここまで ▲▲▲
+
         return response.total_tokens
     except Exception as e:
         print(f"トークン計算エラー (model: {model_name}, char: {character_name}): {e}")
@@ -148,7 +164,7 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
         initial_state = {
             "messages": messages,
             "character_name": character_name,
-            "api_key": api_key, # LangGraph内でClientを初期化する際に使用される
+            "api_key": api_key,
             "final_model_name": model_name,
         }
         print(f"--- LangGraphエージェント呼び出し (Character: {character_name}, Final Model by User: {model_name}) ---")
@@ -164,7 +180,6 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
         traceback.print_exc()
         return f"エラー: エージェントの実行中にエラーが発生しました: {e}", None
 
-# 通常チャット用の関数も、プロジェクトの作法に準拠した形に修正
 def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str):
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -177,23 +192,18 @@ def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list,
             limit = int(api_history_limit_option)
         if limit > 0 and len(raw_history) > limit * 2:
             raw_history = raw_history[-(limit*2):]
-
         messages_for_api_direct_call = []
         if sys_prompt_file and os.path.exists(sys_prompt_file):
             with open(sys_prompt_file, 'r', encoding='utf-8') as f:
-                system_instruction_text = f.read().strip() # strip() を追加
+                system_instruction_text = f.read()
             if system_instruction_text:
                 messages_for_api_direct_call.append({'role': 'user', 'parts': [{'text': system_instruction_text}]})
                 messages_for_api_direct_call.append({'role': 'model', 'parts': [{'text': "承知いたしました。"}]})
-
         for h_item in raw_history:
-            # ロールをSDKが期待する 'user' または 'model' に正規化
-            sdk_role = "model" if h_item["role"] in ["model", "assistant", character_name] else "user"
             messages_for_api_direct_call.append({
-                "role": sdk_role, # 正規化したロールを使用
+                "role": h_item["role"],
                 "parts": [{'text': h_item["content"]}]
             })
-
         user_message_parts_for_payload = []
         for part_data in parts:
             if isinstance(part_data, str):
@@ -201,55 +211,29 @@ def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list,
             elif isinstance(part_data, Image.Image):
                 img_byte_arr = io.BytesIO()
                 save_image = part_data.convert('RGB') if part_data.mode in ('RGBA', 'P') else part_data
-                save_image.save(img_byte_arr, format='JPEG') # JPEG形式で統一
+                save_image.save(img_byte_arr, format='JPEG')
                 user_message_parts_for_payload.append({'inline_data': {'mime_type': 'image/jpeg', 'data': img_byte_arr.getvalue()}})
-
         if not user_message_parts_for_payload:
             return "エラー: 送信するコンテンツがありません。", None
-
         messages_for_api_direct_call.append({'role': 'user', 'parts': user_message_parts_for_payload})
-
-        # ▼▼▼ 修正箇所 ▼▼▼
-        # プロジェクトのルールに従い、genai.Client をインスタンス化して使用する
-        model_to_call_name = f"models/{model_name}" # generate_content APIは 'models/' プレフィックスが必要
+        model_to_call_name = f"models/{model_name}"
         client_for_direct_call = genai.Client(api_key=api_key)
-        # AI_DEVELOPMENT_GUIDELINES.md では client.models.generate_content()
-        response = client_for_direct_call.models.generate_content( # client.generate_content から client.models.generate_content へ
-            model=model_to_call_name, # `model` パラメータでモデル名を渡す
+        response = client_for_direct_call.models.generate_content(
+            model=model_to_call_name,
             contents=messages_for_api_direct_call
-            # system_instruction は messages_for_api_direct_call に含めているのでここでは不要
         )
-        # ▲▲▲ 修正ここまで ▲▲▲
-
         generated_text = "[応答なし]"
-        # response.text が存在するか、より安全に確認
         if hasattr(response, 'text') and response.text:
             generated_text = response.text
-        # response.parts が存在し、かつ空でないことを確認
-        elif hasattr(response, 'parts') and response.parts:
-             generated_text = "".join([part.text for part in response.parts if hasattr(part, 'text') and part.text])
         elif response.prompt_feedback and response.prompt_feedback.block_reason:
             generated_text = f"[応答ブロック: 理由: {response.prompt_feedback.block_reason}]"
-        # さらに詳細な候補からの取得も考慮 (AI Studioの提案に近い形)
-        elif hasattr(response, 'candidates') and response.candidates and \
-             hasattr(response.candidates[0], 'content') and hasattr(response.candidates[0].content, 'parts') and \
-             response.candidates[0].content.parts:
-            generated_text = "".join([part.text for part in response.candidates[0].content.parts if hasattr(part, 'text') and part.text])
-
 
         user_input_text = "".join([p for p in parts if isinstance(p, str)])
-        attached_file_names = []
-        for p in parts: # 添付ファイル名の取得方法を少し変更
-            if not isinstance(p, str):
-                if hasattr(p, 'name'): # GradioのFileValueなど
-                    attached_file_names.append(os.path.basename(p.name))
-                elif isinstance(p, Image.Image) and hasattr(p, 'filename') and p.filename: # PIL Imageオブジェクトでfilename属性がある場合
-                     attached_file_names.append(os.path.basename(p.filename))
-
+        attached_file_names = [os.path.basename(p.name) for p in parts if not isinstance(p, str) and hasattr(p, 'name')]
         if attached_file_names:
             user_input_text += "\n[ファイル添付: " + ", ".join(attached_file_names) + "]"
 
-        if user_input_text.strip(): # ユーザー入力テキストがある場合のみログ保存
+        if user_input_text.strip():
             user_header = utils._get_user_header_from_log(log_file, character_name)
             utils.save_message_to_log(log_file, user_header, user_input_text.strip())
             utils.save_message_to_log(log_file, f"## {character_name}:", generated_text)
