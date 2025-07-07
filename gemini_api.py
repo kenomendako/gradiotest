@@ -260,5 +260,3 @@ def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list,
         if 'response' in locals() and hasattr(response, 'prompt_feedback') and response.prompt_feedback:
             error_message += f"\nプロンプトフィードバック: {response.prompt_feedback}"
         return error_message, None
-
-```
