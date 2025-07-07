@@ -1,4 +1,4 @@
-# batch_importer.py (v2: Progress saving fix)
+# batch_importer.py (v3: Rate limit handling fix)
 import os
 import sys
 import json
@@ -118,11 +118,8 @@ def main():
             del progress_data[args.character]
             save_progress(progress_data)
 
-        # ▼▼▼ 修正箇所 ▼▼▼
-        # character_progressをprogress_dataから取得し、必ず元の辞書に再リンクする
         character_progress = progress_data.get(args.character, {})
         progress_data[args.character] = character_progress
-        # ▲▲▲ 修正ここまで ▲▲▲
 
         last_file = character_progress.get("last_file")
         last_index = character_progress.get("last_index", -1)
@@ -188,40 +185,50 @@ def main():
                         time.sleep(1.1)
                         break 
                     except Exception as e:
+                        # ▼▼▼ 修正箇所 ▼▼▼
+                        # エラーハンドリングのロジックを修正
                         error_str = str(e).lower()
+                        retry_attempt += 1
+
+                        # 1. 最初に、リトライ可能な「1分あたりの上限エラー」を処理する
+                        if "429" in error_str or "resource_exhausted" in error_str:
+                            print(f"    - 警告: 1分あたりの利用上限に達しました。リトライします。 ({retry_attempt}/{max_retries})")
+                            delay_match = re.search(r"'retrydelay': '(\d+)s'", error_str)
+                            wait_time = int(delay_match.group(1)) + 1 if delay_match else 61 # 1秒余裕を持たせる
+                            print(f"      (APIの指示に従い、{wait_time}秒待機します)")
+                            time.sleep(wait_time)
                         
-                        if 'quota' in error_str:
-                            print(f"\n[!!!] 1日の利用上限(Quota)に達しました。")
+                        # 2. 次に、リトライ不可能な「1日の上限エラー」を処理する
+                        elif 'user_project_denied' in error_str or 'quota' in error_str:
+                            print(f"\n[!!!] 1日の利用上限(Quota)に達したか、プロジェクトレベルでアクセスが拒否されました。")
                             print("本日の処理を安全に終了します。")
                             character_progress["last_file"] = filepath.name
-                            character_progress["last_index"] = i - 1 
+                            character_progress["last_index"] = i - 1 # 現在のiは失敗しているので、その一つ前までを記録
                             save_progress(progress_data)
                             sys.exit(1)
 
-                        retry_attempt += 1
-                        print(f"    - 警告: 記憶に失敗。リトライします。 ({retry_attempt}/{max_retries})")
-                        
-                        if "429" in error_str or "resource_exhausted" in error_str:
-                            delay_match = re.search(r"'retrydelay': '(\d+)s'", error_str)
-                            wait_time = int(delay_match.group(1)) + 1 if delay_match else 61
-                            print(f"      (レートリミットエラー検出。{wait_time}秒 待機します)")
-                            time.sleep(wait_time)
+                        # 3. その他の予期せぬエラーを処理する
                         else:
-                            print(f"      (予期せぬエラー: {str(e)[:150]}...)")
+                            print(f"    - 警告: 予期せぬエラーで記憶に失敗。リトライします。 ({retry_attempt}/{max_retries})")
+                            print(f"      (エラー詳細: {str(e)[:150]}...)")
                             print(f"      (10秒待機します)")
                             time.sleep(10)
-                else: 
+                        # ▲▲▲ 修正ここまで ▲▲▲
+
+                else: # whileループがbreakされずに終わった場合 (リトライ上限)
                     print(f"    - エラー: リトライ上限 ({max_retries}回) に達しました。このペアをスキップします。")
                     total_fail_count += 1
                     i += 1
                 
+                # ループの最後に必ず進捗を保存
                 character_progress["last_file"] = filepath.name
-                character_progress["last_index"] = i - 1
+                character_progress["last_index"] = i - 1 # 次回はiから再開するため、保存するのはi-1
                 character_progress["total_success_count"] = total_success_count
                 character_progress["total_fail_count"] = total_fail_count
                 save_progress(progress_data)
 
             print(f"  -> ファイル '{filepath.name}' の処理完了。")
+            # ファイル完了時、次のファイルから処理を開始できるようにインデックスをリセット
             character_progress["last_file"] = filepath.name
             character_progress["last_index"] = -1
             save_progress(progress_data)
