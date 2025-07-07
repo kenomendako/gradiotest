@@ -13,7 +13,7 @@ import base64
 import mimetypes
 import rag_manager
 import google.genai as genai
-import gemini_api
+import gemini_api # gemini_api.count_input_tokens を呼び出すため
 import mem0_manager # 二重らせん記憶システムのために追加
 
 # --- モジュールインポート ---
@@ -26,6 +26,64 @@ from character_manager import get_character_files_paths
 from gemini_api import send_multimodal_to_gemini
 from memory_manager import load_memory_data_safe, save_memory_data
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
+
+# ▼▼▼ 新しいイベントハンドラを追加 ▼▼▼
+def update_token_count(
+    textbox_content: Optional[str],
+    # ▼▼▼ 修正箇所 ▼▼▼
+    # Gradioのバージョン差異に起因する起動エラーを回避するため、型ヒントをより汎用的なものに変更
+    file_input_list: Optional[List[Any]],
+    # ▲▲▲ 修正ここまで ▲▲▲
+    current_character_name: str,
+    current_model_name: str,
+    current_api_key_name_state: str,
+    api_history_limit_state: str
+) -> str:
+    """入力全体のトークン数を計算して、表示用のMarkdown文字列を返す"""
+    if not current_character_name or not current_model_name or not current_api_key_name_state:
+        return "入力トークン数: (設定不足)"
+
+    parts_for_api = []
+    if textbox_content: # テキスト入力があれば追加
+        parts_for_api.append(textbox_content)
+
+    if file_input_list:
+        for file_wrapper in file_input_list:
+            try:
+                # file_wrapper.name は Gradio から渡される一時ファイルのパス
+                # 画像ファイルのみを処理対象とする（トークン計算APIが対応する形式による）
+                # ここでは提案通り、画像として開くことを試みる
+                # 拡張子などでフィルタリングする方がより安全かもしれない
+                img = Image.open(file_wrapper.name)
+                parts_for_api.append(img) # PIL.Image オブジェクトを渡す
+            except Exception as e:
+                # 画像として開けないファイルはトークン計算では無視するか、テキストとして扱うか
+                # ここでは無視する方針で (gemini_api側でテキストファイルも扱えるなら別途対応)
+                print(f"トークン計算のためのファイル読み込みに失敗（画像でない可能性）: {file_wrapper.name}, Error: {e}")
+
+    try:
+        # gemini_api.py に実装した関数を呼び出す
+        total_tokens = gemini_api.count_input_tokens(
+            character_name=current_character_name,
+            model_name=current_model_name, # 実際にトークンをカウントするモデル
+            parts=parts_for_api,
+            api_history_limit_option=api_history_limit_state,
+            api_key_name=current_api_key_name_state
+        )
+
+        if total_tokens == -1: # APIキー無効を示す
+            return "入力トークン数: (APIキー無効)"
+        elif total_tokens == -2: # 計算エラーを示す
+            return "入力トークン数: (計算エラー)"
+        elif total_tokens >= 0:
+            return f"入力トークン数: **{total_tokens}**"
+        else: # その他の予期せぬ負の値
+            return "入力トークン数: (不明なエラー)"
+
+    except Exception as e:
+        print(f"UI Handler (update_token_count) Error: {e}")
+        traceback.print_exc()
+        return "入力トークン数: (ハンドラエラー)"
 
 def handle_add_new_character(character_name: str):
     if not character_name or not character_name.strip():
@@ -91,7 +149,7 @@ def handle_save_memory_click(character_name, json_string_data):
     except Exception as e:
         gr.Error(f"記憶の保存中にエラーが発生しました: {e}")
 
-def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tuple, None]]], gr.update, gr.update]:
+def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tuple, None]]], gr.update, gr.update, str]: # 戻り値の型ヒントに str を追加
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, # この行を追加
      file_input_list, add_timestamp_checkbox,
@@ -143,7 +201,9 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
 
     # --- 入力チェックとログ記録 ---
     if not parts_for_api:
-        return chatbot_history, gr.update(), gr.update(value=None)
+        # chatbot_history, gr.update(), gr.update(value=None) に加えてトークン表示も返す
+        return chatbot_history, gr.update(), gr.update(value=None), "入力トークン数: 0"
+
 
     log_message_content = user_prompt_from_textbox
     if attached_filenames_for_log:
@@ -161,7 +221,8 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
         if not api_key or api_key.startswith("YOUR_API_KEY"):
             gr.Warning(f"APIキー '{current_api_key_name_state}' が有効ではありません。")
             # この後、空の履歴などを返して処理を中断する
-            return chatbot_history, gr.update(), gr.update(value=None)
+            return chatbot_history, gr.update(), gr.update(value=None), "入力トークン数: (APIキー無効)"
+
 
         os.environ['GOOGLE_API_KEY'] = api_key # APIキーの設定はLangGraph呼び出し前に行うのが適切
 
@@ -216,6 +277,8 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
         gr.Error(f"メッセージ処理中に予期せぬエラーが発生しました: {e}")
 
     # --- UIの更新 ---
+    # log_f を再取得 (スコープのため)
+    log_f, _, _, _ = get_character_files_paths(current_character_name)
     if log_f and os.path.exists(log_f):
         new_log = load_chat_log(log_f, current_character_name)
         display_turns = _get_display_history_count(api_history_limit_state)
@@ -223,7 +286,9 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
     else:
         new_hist = chatbot_history
 
-    return new_hist, gr.update(value=""), gr.update(value=None)
+    # ▼▼▼ 戻り値にトークン表示のリセットを追加 ▼▼▼
+    # chatbot_display, chat_input_textbox, file_upload_button, token_count_display の順で返す想定
+    return new_hist, gr.update(value=""), gr.update(value=None), "入力トークン数: 0"
 
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
