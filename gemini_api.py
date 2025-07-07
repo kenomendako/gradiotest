@@ -5,6 +5,7 @@ import json
 import traceback
 from typing import List
 from PIL import Image
+import base64 # ★★★ base64エンコードのためにインポートを追加 ★★★
 
 import config_manager
 # ★ save_message_to_log を直接呼び出すので、utils全体をインポート
@@ -19,9 +20,9 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return f"エラー: APIキー名 '{api_key_name}' に有効なキーが設定されていません。", None
     try:
-        log_file, sys_prompt_file, _, _ = get_character_files_paths(character_name) # sys_prompt_file を取得
+        log_file, sys_prompt_file, _, _ = get_character_files_paths(character_name)
 
-        messages = [] # 型ヒントを List[Union[SystemMessage, HumanMessage, AIMessage]] のように後で修正する可能性
+        messages = []
 
         # 1. システムプロンプトを読み込み、SystemMessageとして追加
         system_prompt_content = ""
@@ -32,9 +33,6 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
         if system_prompt_content:
             messages.append(SystemMessage(content=system_prompt_content))
         else:
-            # システムプロンプトがない場合でも、空のSystemMessageを追加するか、あるいは何もしないか。
-            # Geminiの厳密な形式に従うなら、何らかのSystemMessageが先頭にあることが望ましいかもしれない。
-            # ここでは、ファイルが存在し内容がある場合のみ追加する。
             print(f"警告: キャラクター '{character_name}' のシステムプロンプトファイルが見つからないか空です。")
 
         # 2. 会話履歴をHumanMessageとAIMessageのペアとして追加
@@ -42,87 +40,88 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
         for h_item in raw_history:
             role = h_item.get('role')
             content = h_item.get('content', '').strip()
-            if not content: # コンテンツが空のメッセージはスキップ
+            if not content:
                 continue
 
             if role == 'model' or role == 'assistant' or role == character_name:
                 messages.append(AIMessage(content=content))
             elif role == 'user' or role == 'human':
                 messages.append(HumanMessage(content=content))
-            # 古い形式のシステムメッセージや不明なロールはここでは無視する方針
 
         # 3. API履歴制限の適用 (SystemMessageは常に保持)
         history_messages = []
         if messages and isinstance(messages[0], SystemMessage):
-            history_messages.append(messages.pop(0)) # SystemMessageを一時的に取り出す
+            history_messages.append(messages.pop(0))
 
         limit = 0
         if api_history_limit_option and api_history_limit_option.isdigit():
             limit = int(api_history_limit_option)
 
         if limit > 0:
-            # limit は往復数なので、実際に取得するメッセージ数は limit * 2
-            # SystemMessageを除いたメッセージリストの長さを考慮する
             actual_messages_count = len(messages)
             if actual_messages_count > limit * 2:
                 messages = messages[-(limit * 2):]
 
-        # SystemMessageをリストの先頭に戻す
-        if history_messages: # history_messages には SystemMessage が一つだけ入っている想定
+        if history_messages:
             messages = history_messages + messages
 
         # 4. ユーザーの最新の入力をHumanMessageとして追加
-        # parts は Gradio から渡される [text, Image, text, ...] のようなリスト
-        # これを適切に HumanMessage の content に変換する
-        # LangChain HumanMessage content は文字列かリスト[dict] (text or image)
-
-        # マルチモーダル対応のためのcontentリスト
         user_message_content_parts = []
         text_buffer = []
 
         for part_item in parts:
             if isinstance(part_item, str):
                 text_buffer.append(part_item)
+            # ★★★ ここからが修正箇所 ★★★
             elif isinstance(part_item, Image.Image):
-                if text_buffer: # 画像の前にテキストがあれば、それを先に追加
+                if text_buffer:
                     user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
-                    text_buffer = [] # バッファをクリア
+                    text_buffer = []
 
-                # 画像をインラインデータとして追加 (base64エンコードはLangChain側で行われる想定)
-                # LangChainのHumanMessageはPillow Imageオブジェクトを直接扱える
-                user_message_content_parts.append({"type": "image_url", "image_url": part_item}) # Pillow Imageを直接渡す
+                # PillowのImageオブジェクトを、ライブラリが期待する「データURI形式の文字列」に変換する
+                buffered = io.BytesIO()
+                # 元の画像のフォーマットを維持しようと試みる (例: 'PNG', 'JPEG')
+                image_format = part_item.format or 'PNG'
+                # RGBAやPモードの画像はRGBに変換してから保存しないとJPEG保存でエラーになることがある
+                save_image = part_item.convert('RGB') if part_item.mode in ('RGBA', 'P') and image_format.upper() == 'JPEG' else part_item
+                save_image.save(buffered, format=image_format)
+                img_byte = buffered.getvalue()
+                img_base64 = base64.b64encode(img_byte).decode('utf-8')
 
-        if text_buffer: # 最後に残ったテキストがあれば追加
+                # データURIを構築
+                mime_type = f"image/{image_format.lower()}"
+                data_uri = f"data:{mime_type};base64,{img_base64}"
+
+                # 画像オブジェクトの代わりに、完成したデータURI文字列を渡す
+                user_message_content_parts.append({"type": "image_url", "image_url": data_uri})
+            # ★★★ 修正ここまで ★★★
+
+        if text_buffer:
             user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
 
         if user_message_content_parts:
-            # HumanMessageのcontentは、単一の文字列か、辞書のリスト
-            # user_message_content_partsが要素1つでそれがtextなら文字列、それ以外ならリスト
             if len(user_message_content_parts) == 1 and user_message_content_parts[0]["type"] == "text":
                 messages.append(HumanMessage(content=user_message_content_parts[0]["text"]))
             else:
                 messages.append(HumanMessage(content=user_message_content_parts))
-        # 画像のみ、あるいはテキストのみの場合も上記で処理される
 
         initial_state = {
-            "messages": messages, # 完成したメッセージリスト
+            "messages": messages,
             "character_name": character_name,
             "api_key": api_key,
-            "final_model_name": model_name, # ★★★ UIで選択されたモデル名をstateに追加 ★★★
+            "final_model_name": model_name,
         }
 
         print(f"--- LangGraphエージェント呼び出し (Character: {character_name}, Final Model by User: {model_name}) ---")
         final_state = app.invoke(initial_state)
         print("--- LangGraphエージェント実行完了 ---")
 
-        # 最後の、AIメッセージを、応答として、取得
-        response_text = "[エージェントからの応答がありませんでした]" # デフォルト
+        response_text = "[エージェントからの応答がありませんでした]"
         if final_state and final_state.get('messages') and isinstance(final_state['messages'][-1], AIMessage):
             response_text = final_state['messages'][-1].content
-        elif final_state and final_state.get('messages') and final_state['messages'][-1]: # AIMessageでない場合もcontentを試みる
+        elif final_state and final_state.get('messages') and final_state['messages'][-1]:
              response_text = str(final_state['messages'][-1].content if hasattr(final_state['messages'][-1], 'content') else final_state['messages'][-1])
 
-        # ★★★【最後の真実】この、ブロック全体を、完全に、削除する ★★★
         return response_text, None
 
     except Exception as e:
@@ -130,7 +129,7 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
         return f"エラー: エージェントの実行中にエラーが発生しました: {e}", None
 
 
-# 通常チャット用の関数
+# 通常チャット用の関数 (変更なし)
 def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str):
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -190,7 +189,6 @@ def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list,
         elif response.prompt_feedback and response.prompt_feedback.block_reason:
             generated_text = f"[応答ブロック: 理由: {response.prompt_feedback.block_reason}]"
 
-        # --- ログ保存ロジック修正 ---
         user_input_text = ""
         for p in parts:
             if isinstance(p, str):
@@ -208,19 +206,16 @@ def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list,
         if attached_file_names:
             user_input_text += "\n[ファイル添付: " + ", ".join(attached_file_names) + "]"
 
-        if user_input_text.strip() or attached_file_names: # 添付ファイルだけでもログる
+        if user_input_text.strip() or attached_file_names:
             user_header = utils._get_user_header_from_log(log_file, character_name)
-            # 1. ユーザーの発言を保存
             utils.save_message_to_log(log_file, user_header, user_input_text.strip())
-            # 2. AIの応答を保存
             utils.save_message_to_log(log_file, f"## {character_name}:", generated_text)
-        # --- 修正ここまで ---
 
         return generated_text, None
 
     except Exception as e:
         traceback.print_exc()
         error_message = f"エラー: モデル '{model_name}' との通信中に予期しないエラーが発生しました: {e}"
-        if 'response' in locals() and hasattr(response, 'prompt_feedback') and response.prompt_feedback: # responseが未定義の場合を考慮
+        if 'response' in locals() and hasattr(response, 'prompt_feedback') and response.prompt_feedback:
             error_message += f"\nプロンプトフィードバック: {response.prompt_feedback}"
         return error_message, None
