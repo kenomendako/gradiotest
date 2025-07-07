@@ -30,7 +30,10 @@ from utils import load_chat_log, format_history_for_gradio, save_message_to_log,
 # ▼▼▼ 新しいイベントハンドラを追加 ▼▼▼
 def update_token_count(
     textbox_content: Optional[str],
-    file_input_list: Optional[List[gr.utils.representation.FileValue]], # GradioのFileValue型を想定
+    # ▼▼▼ 修正箇所 ▼▼▼
+    # Gradioのバージョン差異に起因する起動エラーを回避するため、型ヒントをより汎用的なものに変更
+    file_input_list: Optional[List[Any]],
+    # ▲▲▲ 修正ここまで ▲▲▲
     current_character_name: str,
     current_model_name: str,
     current_api_key_name_state: str,

@@ -74,8 +74,10 @@ def _build_lc_messages_from_ui(character_name: str, parts: list, api_history_lim
             img_byte = buffered.getvalue()
             img_base64 = base64.b64encode(img_byte).decode('utf-8')
             mime_type = f"image/{image_format.lower()}"
-            # LangChainが期待するimage_url形式 (Data URI)
-            user_message_content_parts.append({"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_base64}"}})
+            # ▼▼▼ 修正箇所 ▼▼▼
+            # LangChainに渡す際のデータ構造を修正。ネストされた "url" キーを削除。
+            user_message_content_parts.append({"type": "image_url", "image_url": f"data:{mime_type};base64,{img_base64}"})
+            # ▲▲▲ 修正ここまで ▲▲▲
 
     if text_buffer: # 残りのテキストを追加
         user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
@@ -83,25 +85,22 @@ def _build_lc_messages_from_ui(character_name: str, parts: list, api_history_lim
     if user_message_content_parts:
         # LangChainのHumanMessageはcontentが文字列の場合とリストの場合で扱いが異なる
         # 文字列のみの場合は直接文字列を、複数のパートがある場合はリストを渡す
-        if len(user_message_content_parts) == 1 and user_message_content_parts[0]["type"] == "text":
-            messages.append(HumanMessage(content=user_message_content_parts[0]["text"]))
-        else:
-            messages.append(HumanMessage(content=user_message_content_parts))
+        content = user_message_content_parts[0]["text"] if len(user_message_content_parts) == 1 and user_message_content_parts[0]["type"] == "text" else user_message_content_parts
+        messages.append(HumanMessage(content=content))
 
     return messages
 
-def _convert_lc_messages_to_gg_contents(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> (list, dict):
+def _convert_lc_messages_to_gg_contents(messages: List) -> (list, dict): # messages の型ヒントを List のままにする（AI Studio提案）
     """LangChainのMessageリストを、google-genai SDKのcontentsとsystem_instructionに変換"""
     contents = []
-    system_instruction_dict = None # 修正: 変数名を変更し、Noneで初期化
-
+    system_instruction = None # AI Studio提案の変数名
     for msg in messages:
         if isinstance(msg, SystemMessage):
             # system_instructionは一つだけなので、最初に見つかったものを採用
-            if system_instruction_dict is None:
-                 system_instruction_dict = {"parts": [{"text": msg.content}]}
-            else:
-                print("警告: 複数のSystemMessageが見つかりました。最初のものを採用します。")
+            if system_instruction is None: # AI Studio提案の変数名
+                 system_instruction = {"parts": [{"text": msg.content}]} # AI Studio提案の変数名
+            # else: # AI Studio提案では複数のSystemMessageの警告は削除されている
+            #     print("警告: 複数のSystemMessageが見つかりました。最初のものを採用します。")
             continue # SystemMessageはcontentsには含めない
 
         role = "model" if isinstance(msg, AIMessage) else "user"
@@ -114,8 +113,10 @@ def _convert_lc_messages_to_gg_contents(messages: List[Union[SystemMessage, Huma
                 if part_data["type"] == "text":
                     sdk_parts.append({"text": part_data["text"]})
                 elif part_data["type"] == "image_url":
-                    # LangChainのimage_urlは {"url": "data:..."} という形式
-                    data_uri = part_data["image_url"]["url"]
+                    # ▼▼▼ 修正箇所 ▼▼▼
+                    # LangChainからのデータ構造（ネストされていない）に合わせて修正
+                    data_uri = part_data["image_url"]
+                    # ▲▲▲ 修正ここまで ▲▲▲
                     match = re.match(r"data:(image/\w+);base64,(.*)", data_uri)
                     if match:
                         mime_type, base64_data = match.groups()
@@ -130,14 +131,14 @@ def _convert_lc_messages_to_gg_contents(messages: List[Union[SystemMessage, Huma
         if sdk_parts: # 有効なパーツがある場合のみcontentsに追加
             contents.append({"role": role, "parts": sdk_parts})
 
-    return contents, system_instruction_dict
+    return contents, system_instruction # AI Studio提案の変数名
 
 
 def count_input_tokens(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str) -> int:
     """入力の合計トークン数を計算して返す"""
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        print(f"トークン計算スキップ: APIキー '{api_key_name}' が無効です。")
+        # print(f"トークン計算スキップ: APIキー '{api_key_name}' が無効です。") # AI Studio提案ではこのprintは削除
         return -1
 
     try:
@@ -160,27 +161,23 @@ def count_input_tokens(character_name: str, model_name: str, parts: list, api_hi
              print("警告: トークン計算時、contentsが空でsystem_instructionのみでした。0トークンとして処理します。")
              return 0
 
+        # ▼▼▼ 修正箇所 ▼▼▼
+        # SDKの推奨されるパターンに従い、genai.GenerativeModelオブジェクト経由でAPIを呼び出す
+        genai.configure(api_key=api_key) # configureを呼び出すのがより安全
+        model_to_use = genai.GenerativeModel(model_name) # AI Studio提案では f"models/{model_name}" ではなく model_name のみ
 
-        # AI_DEVELOPMENT_GUIDELINES.md に従い、genai.Client を使用
-        client = genai.Client(api_key=api_key)
-        model_to_use = f"models/{model_name}" # 'models/' プレフィックスが必要
-
-        # count_tokens API呼び出し
-        response = client.count_tokens( # client.models.count_tokens から client.count_tokens に変更 (SDKのバージョンによる違いの可能性)
-                                           # ドキュメントを確認したところ、genai.GenerativeModel(...).count_tokens(...) が推奨されている
-                                           # または client.count_tokens(model=..., contents=...)
-                                           # 後者で試す
-            model=model_to_use,
+        response = model_to_use.count_tokens( # client.count_tokens から model.count_tokens に変更
             contents=contents_for_api,
             system_instruction=system_instruction_for_api # system_instruction を渡す
         )
+        # ▲▲▲ 修正ここまで ▲▲▲
         return response.total_tokens
     except Exception as e:
         print(f"トークン計算エラー (model: {model_name}, char: {character_name}): {e}")
         traceback.print_exc() # 詳細なエラーログ
         return -2 # UI側で「計算エラー」と表示するための値
 
-# invoke_nexus_agent 関数の修正
+# invoke_nexus_agent 関数の修正 (AI Studio提案では変更なし)
 def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str):
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -275,18 +272,12 @@ def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list,
         messages_for_api_direct_call.append({'role': 'user', 'parts': user_message_parts_for_payload})
 
         model_to_call_name = f"models/{model_name}"
-        # AI_DEVELOPMENT_GUIDELINES.md に従い、genai.Client を使用
-        client_for_direct_call = genai.Client(api_key=api_key)
-
-        # generate_content API呼び出し
-        # system_instruction は messages_for_api_direct_call に user/model のやり取りとして含めているのでここではNone
-        response = client_for_direct_call.generate_content( # client.models.generate_content から client.generate_content (SDKバージョンによる違いの可能性)
-                                                              # ドキュメントでは genai.GenerativeModel(...).generate_content(...)
-                                                              # または client.generate_content(model=..., contents=...)
-                                                              # 後者で試す
-            model=model_to_call_name,
-            contents=messages_for_api_direct_call
-        )
+        # ▼▼▼ 修正箇所 ▼▼▼
+        # SDKの推奨パターンに従い、genai.GenerativeModelオブジェクト経由でAPIを呼び出す
+        genai.configure(api_key=api_key)
+        model_to_use = genai.GenerativeModel(model_name) # AI Studio提案では f"models/{model_name}" ではなく model_name
+        response = model_to_use.generate_content(contents=messages_for_api_direct_call) # client.generate_content から model.generate_content
+        # ▲▲▲ 修正ここまで ▲▲▲
 
         generated_text = "[応答なし]"
         if hasattr(response, 'text') and response.text: # 通常のテキスト応答
@@ -296,28 +287,23 @@ def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list,
         elif response.prompt_feedback and response.prompt_feedback.block_reason: # ブロックされた場合
             generated_text = f"[応答ブロック: 理由: {response.prompt_feedback.block_reason}]"
 
-        # ログ保存は ui_handlers.py に移管されているため、ここでの直接のログ保存処理は削除またはコメントアウトを検討。
-        # ただし、この関数が単独で呼ばれる可能性も考慮すると、残す判断も有り得る。
-        # 現状は元のコードのログ保存ロジックを維持。
-        user_input_text = ""
-        for p in parts:
-            if isinstance(p, str):
-                user_input_text += p + "\n"
-        user_input_text = user_input_text.strip()
-
+        # AI Studio提案では user_input_text の構築方法とログ保存条件が変更されている
+        user_input_text = "".join([p for p in parts if isinstance(p, str)]) # テキストパートのみ結合
+        # AI Studio提案では attached_file_names の取得方法が変更されているが、元のp.nameで問題ないはず
+        # (GradioのFileValueにはname属性がある)
         attached_file_names = []
         for p in parts:
-            if not isinstance(p, str): # 画像など
-                if hasattr(p, 'filename') and p.filename: # GradioのFileオブジェクトなど
-                     attached_file_names.append(os.path.basename(p.filename))
-                elif isinstance(p, Image.Image) and hasattr(p, 'fp') and hasattr(p.fp, 'name'): # Image.open(filepath) の場合
-                     attached_file_names.append(os.path.basename(p.fp.name))
+            if not isinstance(p, str) and hasattr(p, 'name'): # GradioのFileValueを想定
+                 attached_file_names.append(os.path.basename(p.name))
+            elif isinstance(p, Image.Image) and hasattr(p, 'fp') and hasattr(p.fp, 'name'): # Image.open(filepath) の場合
+                 attached_file_names.append(os.path.basename(p.fp.name))
 
 
         if attached_file_names:
             user_input_text += "\n[ファイル添付: " + ", ".join(attached_file_names) + "]"
 
-        if user_input_text.strip() or attached_file_names:
+        # AI Studio提案では user_input_text.strip() のみでログ保存を判断
+        if user_input_text.strip(): # 添付ファイルのみの場合はログ保存しない挙動になる
             user_header = utils._get_user_header_from_log(log_file, character_name)
             utils.save_message_to_log(log_file, user_header, user_input_text.strip())
             utils.save_message_to_log(log_file, f"## {character_name}:", generated_text)
