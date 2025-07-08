@@ -271,14 +271,19 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
 def handle_save_memory_click(character_name, json_string_data):
     if not character_name:
         gr.Warning("キャラクターが選択されていません。")
-        return
+        return gr.update() # 何も変更しない命令を返す
     try:
-        save_memory_data(character_name, json_string_data)
-        gr.Info("記憶を保存しました。")
+        # save_memory_data が返す gr.update() 命令を受け取る
+        update_action = save_memory_data(character_name, json_string_data)
+        gr.Info("記憶を保存しました。") # 保存成功メッセージはここで表示
+        # 受け取った命令を呼び出し元（Gradio）に返す
+        return update_action
     except json.JSONDecodeError:
         gr.Error("記憶データのJSON形式が正しくありません。")
+        return gr.update() # 何も変更しない命令を返す
     except Exception as e:
         gr.Error(f"記憶の保存中にエラーが発生しました: {e}")
+        return gr.update() # 何も変更しない命令を返す
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 

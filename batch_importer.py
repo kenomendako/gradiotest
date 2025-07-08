@@ -185,50 +185,115 @@ def main():
                         time.sleep(1.1)
                         break 
                     except Exception as e:
-                        # ▼▼▼ 修正箇所 ▼▼▼
-                        # エラーハンドリングのロジックを修正
-                        error_str = str(e).lower()
+                        # エラーハンドリング開始
+                        error_message = str(e)
+                        error_str_lower = error_message.lower() # 比較用に小文字版も用意
                         retry_attempt += 1
 
-                        # 1. 最初に、リトライ可能な「1分あたりの上限エラー」を処理する
-                        if "429" in error_str or "resource_exhausted" in error_str:
-                            print(f"    - 警告: 1分あたりの利用上限に達しました。リトライします。 ({retry_attempt}/{max_retries})")
-                            delay_match = re.search(r"'retrydelay': '(\d+)s'", error_str)
-                            wait_time = int(delay_match.group(1)) + 1 if delay_match else 61 # 1秒余裕を持たせる
-                            print(f"      (APIの指示に従い、{wait_time}秒待機します)")
-                            time.sleep(wait_time)
-                        
-                        # 2. 次に、リトライ不可能な「1日の上限エラー」を処理する
-                        elif 'user_project_denied' in error_str or 'quota' in error_str:
-                            print(f"\n[!!!] 1日の利用上限(Quota)に達したか、プロジェクトレベルでアクセスが拒否されました。")
+                        # --- エラー種別の判定と処理 ---
+                        # 1. 「1日の上限エラー」 (PerDay Quota)
+                        #    エラーメッセージに 'quotaId': '...PerDay...' または単に 'PerDay' が含まれる場合。
+                        #    このエラーはリトライしても回復しないため、進捗を保存して終了する。
+                        if "'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'" in error_message or \
+                           "PerDay" in error_message: # 広範囲の "PerDay" を含むエラーも捕捉
+                            print(f"\n[!!!] 1日の利用上限 (PerDay Quota) に達しました。")
                             print("本日の処理を安全に終了します。")
                             character_progress["last_file"] = filepath.name
-                            character_progress["last_index"] = i - 1 # 現在のiは失敗しているので、その一つ前までを記録
+                            # 現在処理中のペア(i)は未完了のため、その一つ前を記録。
+                            # iが0の場合は-1を記録し、次回起動時にファイル先頭から処理されるようにする。
+                            character_progress["last_index"] = i - 1 if i > 0 else -1
+                            character_progress["total_success_count"] = total_success_count
+                            character_progress["total_fail_count"] = total_fail_count
                             save_progress(progress_data)
-                            sys.exit(1)
+                            sys.exit(1) # 1日の上限エラーのため終了
 
-                        # 3. その他の予期せぬエラーを処理する
+                        # 2. 「1分あたりの上限エラー」 (Rate Limit)
+                        #    HTTPステータスコード "429" (Too Many Requests) や "resource_exhausted" が含まれる場合。
+                        #    APIからの指示があればそれに従い、なければ一定時間待機してリトライする。
+                        elif "429" in error_str_lower or "resource_exhausted" in error_str_lower:
+                            print(f"    - 警告: 1分あたりの利用上限に達した可能性があります。リトライします。 ({retry_attempt}/{max_retries})")
+                            delay_match = re.search(r"'retrydelay': '(\d+)s'", error_message)
+                            if delay_match:
+                                wait_time = int(delay_match.group(1)) + 1 # API指示時間に1秒追加
+                                print(f"      (APIの指示に従い、{wait_time}秒待機します)")
+                            else:
+                                wait_time = 61 # デフォルトの待機時間 (1分 + 1秒)
+                                print(f"      (APIからの待機時間指示なし。デフォルトの{wait_time}秒待機します)")
+                            time.sleep(wait_time)
+                        
+                        # 3. プロジェクトレベルのアクセス拒否 (リトライ不可)
+                        #    'user_project_denied' などが含まれる場合。設定ミスの可能性が高い。
+                        elif 'user_project_denied' in error_str_lower:
+                            print(f"\n[!!!] プロジェクトレベルでアクセスが拒否されました。APIキーやプロジェクト設定を確認してください。")
+                            print("処理を終了します。")
+                            character_progress["last_file"] = filepath.name
+                            character_progress["last_index"] = i - 1 if i > 0 else -1
+                            character_progress["total_success_count"] = total_success_count
+                            character_progress["total_fail_count"] = total_fail_count
+                            save_progress(progress_data)
+                            sys.exit(1) # リトライ不可能なエラーのため終了
+
+                        # 4. その他の予期せぬエラー (リトライ対象)
+                        #    上記以外のエラー。一定時間待機してリトライする。
                         else:
                             print(f"    - 警告: 予期せぬエラーで記憶に失敗。リトライします。 ({retry_attempt}/{max_retries})")
-                            print(f"      (エラー詳細: {str(e)[:150]}...)")
-                            print(f"      (10秒待機します)")
-                            time.sleep(10)
-                        # ▲▲▲ 修正ここまで ▲▲▲
+                            print(f"      (エラー詳細: {error_message[:200]}...)")
+                            default_wait_time = 10 # 短めの待機時間
+                            print(f"      ({default_wait_time}秒待機します)")
+                            time.sleep(default_wait_time)
+                        # エラーハンドリングここまで
 
-                else: # whileループがbreakされずに終わった場合 (リトライ上限)
-                    print(f"    - エラー: リトライ上限 ({max_retries}回) に達しました。このペアをスキップします。")
-                    total_fail_count += 1
-                    i += 1
+                else: # 内側のwhileループ (リトライループ) がbreakされずに終わった場合 (リトライ上限到達)
+                    print(f"    - エラー: リトライ上限 ({max_retries}回) に達しました。")
+                    # ユーザーに次のアクションを選択させるプロンプトを表示
+                    while True:
+                        user_choice = input("      このペアの処理をどうしますか？ (s: スキップ, r: 再リトライ, q: 終了): ").lower()
+                        if user_choice == 's':
+                            print("      -> スキップします。")
+                            total_fail_count += 1
+                            i += 1 # 次のペアへ進む (現在のペアはスキップ)
+                            break # ユーザー入力ループを抜ける
+                        elif user_choice == 'r':
+                            print("      -> 再度リトライします。")
+                            # retry_attempt は、このelseブロックを抜けた後、外側の `while i < total_pairs_in_file:` ループが
+                            # 同じ `i` で継続される際に、そのループの先頭で `retry_attempt = 0` と初期化されるため、
+                            # ここで明示的にリセットする必要はない。ユーザー入力ループを抜けるだけで良い。
+                            break # ユーザー入力ループを抜ける (外側のループで同じiでリトライが始まる)
+                        elif user_choice == 'q':
+                            print("      -> 処理を中断し、進捗を保存して終了します。")
+                            character_progress["last_file"] = filepath.name
+                            # 現在処理中のペア(i)は未完了のため、その一つ前を記録。
+                            # これにより次回再開時にこのペアからリトライできる。
+                            character_progress["last_index"] = i - 1 if i > 0 else -1
+                            character_progress["total_success_count"] = total_success_count
+                            character_progress["total_fail_count"] = total_fail_count
+                            save_progress(progress_data)
+                            sys.exit(0) # ユーザーの指示により正常終了
+                        else:
+                            print("      無効な選択です。's', 'r', 'q' のいずれかを入力してください。")
+
+                    if user_choice == 'r': # 'r' (再リトライ) が選択された場合
+                        # 同じ i で処理を継続するため、外側のループ (`while i < total_pairs_in_file:`) の
+                        # 現在のイテレーションを `continue` で再実行する。
+                        # これにより、同じペアに対して `retry_attempt` が0から再開される。
+                        continue
                 
-                # ループの最後に必ず進捗を保存
+                # --- 進捗の保存 ---
+                # 各ペアの処理試行後 (成功時またはスキップ選択時) に進捗を保存する。
+                # (リトライ上限で'q'選択時や1日の上限エラー時は、それぞれのブロック内で保存・終了している)
+                #
+                # `last_index` は、次に処理を開始すべきペアのインデックスの「一つ前」を指すように保存する。
+                # 例えば、ペア `i` が正常に処理された (またはスキップされた) 場合、`i` は次のインデックスに更新されている。
+                # そのため `i-1` を保存することで、次回は `(i-1)+1` すなわち元の次のインデックスから再開できる。
                 character_progress["last_file"] = filepath.name
-                character_progress["last_index"] = i - 1 # 次回はiから再開するため、保存するのはi-1
+                character_progress["last_index"] = i - 1
                 character_progress["total_success_count"] = total_success_count
                 character_progress["total_fail_count"] = total_fail_count
                 save_progress(progress_data)
 
             print(f"  -> ファイル '{filepath.name}' の処理完了。")
-            # ファイル完了時、次のファイルから処理を開始できるようにインデックスをリセット
+            # ファイル内の全ペア処理完了後、次のファイルから処理を始めるために last_index を -1 に設定。
+            # これにより、次回起動時は次のファイルのインデックス0から開始される (last_index + 1)。
             character_progress["last_file"] = filepath.name
             character_progress["last_index"] = -1
             save_progress(progress_data)
