@@ -1,11 +1,11 @@
-# gemini_api.py (v4: Token Counting Guideline Compliance Fix)
+# gemini_api.py (v7: Correctly using client.models.get)
 
 import google.genai as genai
 import os
 import io
 import json
 import traceback
-from typing import List, Union
+from typing import List, Union, Optional, Dict
 from PIL import Image
 import base64
 import re
@@ -16,10 +16,47 @@ from character_manager import get_character_files_paths
 from agent.graph import app
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
-# _build_lc_messages_from_ui, _convert_lc_messages_to_gg_contents は変更なし
+_model_token_limits_cache: Dict[str, Dict[str, int]] = {}
+
+def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
+    """【最終修正】公式サンプルコードに従い、client.models.get() を使用してトークン上限を正しく取得する"""
+    if model_name in _model_token_limits_cache:
+        return _model_token_limits_cache[model_name]
+
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        return None
+
+    try:
+        # ▼▼▼ 修正箇所 ▼▼▼
+        # client.models.list() の代わりに、公式推奨の client.models.get() を使用する
+        print(f"--- モデル情報取得 API呼び出し (Model: {model_name}) ---")
+        client = genai.Client(api_key=api_key)
+
+        # get()メソッドは 'models/' プレフィックスを付けて呼び出すのが最も確実
+        target_model_name = f"models/{model_name}"
+        model_info = client.models.get(model=target_model_name)
+
+        if model_info and hasattr(model_info, 'input_token_limit') and hasattr(model_info, 'output_token_limit'):
+            limits = {
+                "input": model_info.input_token_limit,
+                "output": model_info.output_token_limit
+            }
+            _model_token_limits_cache[model_name] = limits
+            print(f"  - モデル '{model_name}' の情報を取得。上限: {limits}")
+            return limits
+
+        print(f"  - 警告: モデル情報から上限トークン数を取得できませんでした (Model: {model_name})。")
+        return None
+        # ▲▲▲ 修正ここまで ▲▲▲
+
+    except Exception as e:
+        print(f"モデル情報の取得中にエラーが発生しました (Model: {model_name}): {e}")
+        # traceback.print_exc() # デバッグ時以外はコメントアウトしても良い
+        return None
+
+# (以降の関数は、前回の修正のままで完成していますので、変更ありません)
 def _build_lc_messages_from_ui(character_name: str, parts: list, api_history_limit_option: str) -> List[Union[SystemMessage, HumanMessage, AIMessage]]:
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
-
     _, sys_prompt_file, _, _ = get_character_files_paths(character_name)
     system_prompt_content = ""
     if sys_prompt_file and os.path.exists(sys_prompt_file):
@@ -27,10 +64,8 @@ def _build_lc_messages_from_ui(character_name: str, parts: list, api_history_lim
             system_prompt_content = f.read().strip()
     if system_prompt_content:
         messages.append(SystemMessage(content=system_prompt_content))
-
     log_file, _, _, _ = get_character_files_paths(character_name)
     raw_history = utils.load_chat_log(log_file, character_name)
-
     history_for_limit_check = []
     for h_item in raw_history:
         role = h_item.get('role')
@@ -40,14 +75,12 @@ def _build_lc_messages_from_ui(character_name: str, parts: list, api_history_lim
             history_for_limit_check.append(AIMessage(content=content))
         elif role == 'user' or role == 'human':
             history_for_limit_check.append(HumanMessage(content=content))
-
     limit = 0
     if api_history_limit_option.isdigit():
         limit = int(api_history_limit_option)
     if limit > 0 and len(history_for_limit_check) > limit * 2:
         history_for_limit_check = history_for_limit_check[-(limit * 2):]
     messages.extend(history_for_limit_check)
-
     user_message_content_parts = []
     text_buffer = []
     for part_item in parts:
@@ -65,14 +98,11 @@ def _build_lc_messages_from_ui(character_name: str, parts: list, api_history_lim
             img_base64 = base64.b64encode(img_byte).decode('utf-8')
             mime_type = f"image/{image_format.lower()}"
             user_message_content_parts.append({"type": "image_url", "image_url": f"data:{mime_type};base64,{img_base64}"})
-
     if text_buffer:
         user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
-
     if user_message_content_parts:
         content = user_message_content_parts[0]["text"] if len(user_message_content_parts) == 1 and user_message_content_parts[0]["type"] == "text" else user_message_content_parts
         messages.append(HumanMessage(content=content))
-
     return messages
 
 def _convert_lc_messages_to_gg_contents(messages: List) -> (list, dict):
@@ -107,49 +137,31 @@ def _convert_lc_messages_to_gg_contents(messages: List) -> (list, dict):
             contents.append({"role": role, "parts": sdk_parts})
     return contents, system_instruction
 
+def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
+    if not messages: return 0
+    try:
+        contents_for_api, system_instruction_for_api = _convert_lc_messages_to_gg_contents(messages)
+        final_contents_for_api = []
+        if system_instruction_for_api:
+            final_contents_for_api.append({"role": "user", "parts": system_instruction_for_api["parts"]})
+            final_contents_for_api.append({"role": "model", "parts": [{"text": "承知いたしました。"}]})
+        final_contents_for_api.extend(contents_for_api)
+        if not final_contents_for_api: return 0
+        client = genai.Client(api_key=api_key)
+        model_to_use = f"models/{model_name}"
+        response = client.models.count_tokens(model=model_to_use, contents=final_contents_for_api)
+        return response.total_tokens
+    except Exception as e:
+        print(f"トークン計算エラー (from messages): {e}")
+        return -1
+
 def count_input_tokens(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str) -> int:
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return -1
-
     try:
         lc_messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option)
-        if not lc_messages: return 0
-
-        contents_for_api, system_instruction_for_api = _convert_lc_messages_to_gg_contents(lc_messages)
-
-        # ▼▼▼ 修正箇所 ▼▼▼
-        # system_instruction を count_tokens が受け入れられる形式に変換する
-        final_contents_for_api = []
-        if system_instruction_for_api:
-            # システムプロンプトをユーザーからの最初の指示として扱う
-            final_contents_for_api.append({
-                "role": "user",
-                "parts": system_instruction_for_api["parts"]
-            })
-            # それに対するAIの応答をシミュレート
-            final_contents_for_api.append({
-                "role": "model",
-                "parts": [{"text": "承知いたしました。"}]
-            })
-
-        # 残りの会話履歴を結合
-        final_contents_for_api.extend(contents_for_api)
-
-        # すべてが空の場合は0を返す
-        if not final_contents_for_api: return 0
-
-        client = genai.Client(api_key=api_key)
-        model_to_use = f"models/{model_name}"
-
-        # 修正された引数でAPIを呼び出す
-        response = client.models.count_tokens(
-            model=model_to_use,
-            contents=final_contents_for_api # system_instruction の代わりに結合したリストを渡す
-        )
-        # ▲▲▲ 修正ここまで ▲▲▲
-
-        return response.total_tokens
+        return count_tokens_from_lc_messages(lc_messages, model_name, api_key)
     except Exception as e:
         print(f"トークン計算エラー (model: {model_name}, char: {character_name}): {e}")
         traceback.print_exc()
@@ -158,7 +170,7 @@ def count_input_tokens(character_name: str, model_name: str, parts: list, api_hi
 def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str):
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        return f"エラー: APIキー名 '{api_key_name}' に有効なキーが設定されていません。", None
+        return {"error": f"APIキー '{api_key_name}' が有効ではありません。"}
     try:
         messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option)
         initial_state = {
@@ -166,19 +178,15 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
             "character_name": character_name,
             "api_key": api_key,
             "final_model_name": model_name,
+            "final_token_count": 0
         }
         print(f"--- LangGraphエージェント呼び出し (Character: {character_name}, Final Model by User: {model_name}) ---")
         final_state = app.invoke(initial_state)
         print("--- LangGraphエージェント実行完了 ---")
-        response_text = "[エージェントからの応答がありませんでした]"
-        if final_state and final_state.get('messages') and isinstance(final_state['messages'][-1], AIMessage):
-            response_text = final_state['messages'][-1].content
-        elif final_state and final_state.get('messages') and final_state['messages'][-1]:
-             response_text = str(final_state['messages'][-1].content if hasattr(final_state['messages'][-1], 'content') else final_state['messages'][-1])
-        return response_text, None
+        return final_state
     except Exception as e:
         traceback.print_exc()
-        return f"エラー: エージェントの実行中にエラーが発生しました: {e}", None
+        return {"error": f"エージェントの実行中にエラーが発生しました: {e}"}
 
 def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str):
     api_key = config_manager.API_KEYS.get(api_key_name)
@@ -200,10 +208,7 @@ def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list,
                 messages_for_api_direct_call.append({'role': 'user', 'parts': [{'text': system_instruction_text}]})
                 messages_for_api_direct_call.append({'role': 'model', 'parts': [{'text': "承知いたしました。"}]})
         for h_item in raw_history:
-            messages_for_api_direct_call.append({
-                "role": h_item["role"],
-                "parts": [{'text': h_item["content"]}]
-            })
+            messages_for_api_direct_call.append({"role": h_item["role"], "parts": [{'text': h_item["content"]}]})
         user_message_parts_for_payload = []
         for part_data in parts:
             if isinstance(part_data, str):
@@ -218,21 +223,16 @@ def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list,
         messages_for_api_direct_call.append({'role': 'user', 'parts': user_message_parts_for_payload})
         model_to_call_name = f"models/{model_name}"
         client_for_direct_call = genai.Client(api_key=api_key)
-        response = client_for_direct_call.models.generate_content(
-            model=model_to_call_name,
-            contents=messages_for_api_direct_call
-        )
+        response = client_for_direct_call.models.generate_content(model=model_to_call_name, contents=messages_for_api_direct_call)
         generated_text = "[応答なし]"
         if hasattr(response, 'text') and response.text:
             generated_text = response.text
         elif response.prompt_feedback and response.prompt_feedback.block_reason:
             generated_text = f"[応答ブロック: 理由: {response.prompt_feedback.block_reason}]"
-
         user_input_text = "".join([p for p in parts if isinstance(p, str)])
         attached_file_names = [os.path.basename(p.name) for p in parts if not isinstance(p, str) and hasattr(p, 'name')]
         if attached_file_names:
             user_input_text += "\n[ファイル添付: " + ", ".join(attached_file_names) + "]"
-
         if user_input_text.strip():
             user_header = utils._get_user_header_from_log(log_file, character_name)
             utils.save_message_to_log(log_file, user_header, user_input_text.strip())
