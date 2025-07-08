@@ -444,4 +444,3 @@ def handle_rag_update_button_click(character_name: str, api_key_name: str):
         else:
             print(f"ERROR: RAG索引の更新に失敗しました ({character_name})")
     threading.Thread(target=run_update).start()
-```
