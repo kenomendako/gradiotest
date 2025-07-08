@@ -16,6 +16,7 @@ from langchain_core.messages import AIMessage # AIMessage をインポート
 
 import gemini_api
 import mem0_manager
+import rag_manager # ★★★ この行を追加しました ★★★
 import config_manager
 import alarm_manager
 import character_manager
