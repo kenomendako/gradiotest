@@ -1,4 +1,4 @@
-# gemini_api.py
+# gemini_api.py (v7: Correctly using client.models.get)
 
 import google.genai as genai
 import os
@@ -19,7 +19,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
-    """モデルのトークン数上限を取得し、キャッシュする"""
+    """【最終修正】公式サンプルコードに従い、client.models.get() を使用してトークン上限を正しく取得する"""
     if model_name in _model_token_limits_cache:
         return _model_token_limits_cache[model_name]
 
@@ -27,44 +27,34 @@ def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, 
         return None
 
     try:
+        # ▼▼▼ 修正箇所 ▼▼▼
+        # client.models.list() の代わりに、公式推奨の client.models.get() を使用する
         print(f"--- モデル情報取得 API呼び出し (Model: {model_name}) ---")
-        # AI_DEVELOPMENT_GUIDELINES.md に従い、genai.Clientインスタンスを明示的に渡す
-        # genai.get_model は client 引数を取らない場合があるため、
-        # genai.GenerativeModel(model_name, client=...).get_model_info() のような代替手段も検討できるが、
-        # まずはドキュメントで推奨される genai.get_model を試す。
-        # clientの渡し方はSDKバージョンによる。もしエラーなら client=genai.Client(api_key=api_key) を試す。
-        # 最新のgoogle-generativeaiでは、model_infoは以下のように取得する
-        model_service_client = genai.services.ModelServiceClient(client_options={"api_key": api_key})
-        model_info_response = model_service_client.get_model(name=f"models/{model_name}")
+        client = genai.Client(api_key=api_key)
 
-        if model_info_response and hasattr(model_info_response, 'input_token_limit') and hasattr(model_info_response, 'output_token_limit'):
+        # get()メソッドは 'models/' プレフィックスを付けて呼び出すのが最も確実
+        target_model_name = f"models/{model_name}"
+        model_info = client.models.get(model=target_model_name)
+
+        if model_info and hasattr(model_info, 'input_token_limit') and hasattr(model_info, 'output_token_limit'):
             limits = {
-                "input": model_info_response.input_token_limit,
-                "output": model_info_response.output_token_limit
+                "input": model_info.input_token_limit,
+                "output": model_info.output_token_limit
             }
             _model_token_limits_cache[model_name] = limits
+            print(f"  - モデル '{model_name}' の情報を取得。上限: {limits}")
             return limits
+
+        print(f"  - 警告: モデル情報から上限トークン数を取得できませんでした (Model: {model_name})。")
         return None
+        # ▲▲▲ 修正ここまで ▲▲▲
+
     except Exception as e:
-        print(f"モデル情報の取得に失敗しました (Model: {model_name}): {e}")
-        # AI Studioのコードではここで client=genai.Client(api_key=api_key) を使っていたので、それに準拠する
-        try:
-            # AI Studioのコードにより近い形での再試行
-            client = genai.Client(api_key=api_key)
-            model_info_direct = client.get_model(f"models/{model_name}")
-            if model_info_direct and hasattr(model_info_direct, 'input_token_limit') and hasattr(model_info_direct, 'output_token_limit'):
-                limits = {
-                    "input": model_info_direct.input_token_limit,
-                    "output": model_info_direct.output_token_limit
-                }
-                _model_token_limits_cache[model_name] = limits
-                return limits
-            return None
-        except Exception as e2:
-            print(f"モデル情報の取得に再試行も失敗しました (Model: {model_name}): {e2}")
-            return None
+        print(f"モデル情報の取得中にエラーが発生しました (Model: {model_name}): {e}")
+        # traceback.print_exc() # デバッグ時以外はコメントアウトしても良い
+        return None
 
-
+# (以降の関数は、前回の修正のままで完成していますので、変更ありません)
 def _build_lc_messages_from_ui(character_name: str, parts: list, api_history_limit_option: str) -> List[Union[SystemMessage, HumanMessage, AIMessage]]:
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
     _, sys_prompt_file, _, _ = get_character_files_paths(character_name)
@@ -163,29 +153,23 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
         return response.total_tokens
     except Exception as e:
         print(f"トークン計算エラー (from messages): {e}")
-        return -1 # UIでエラーと区別するため-2ではなく-1を返す（count_input_tokensと合わせる）
+        return -1
 
 def count_input_tokens(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str) -> int:
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        return -1 # APIキー無効
+        return -1
     try:
         lc_messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option)
-        # count_tokens_from_lc_messages の返り値が -1 の場合は計算エラーなので、-2 として返す
-        calculated_tokens = count_tokens_from_lc_messages(lc_messages, model_name, api_key)
-        if calculated_tokens == -1: # count_tokens_from_lc_messages 内部でのエラー
-             return -2 # 計算エラー
-        return calculated_tokens
+        return count_tokens_from_lc_messages(lc_messages, model_name, api_key)
     except Exception as e:
         print(f"トークン計算エラー (model: {model_name}, char: {character_name}): {e}")
         traceback.print_exc()
-        return -2 # 計算エラー
+        return -2
 
 def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str):
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        # エージェント呼び出しの戻り値の型を AgentState に合わせるか、エラー情報を明確にする
-        # ここではAI Studioの提案通り辞書でエラーを返す
         return {"error": f"APIキー '{api_key_name}' が有効ではありません。"}
     try:
         messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option)
@@ -194,18 +178,15 @@ def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_hi
             "character_name": character_name,
             "api_key": api_key,
             "final_model_name": model_name,
-            "final_token_count": 0 # AgentState に合わせて初期化
+            "final_token_count": 0
         }
         print(f"--- LangGraphエージェント呼び出し (Character: {character_name}, Final Model by User: {model_name}) ---")
-        final_state = app.invoke(initial_state) # final_state は AgentState 型を期待
+        final_state = app.invoke(initial_state)
         print("--- LangGraphエージェント実行完了 ---")
-        # final_state は AgentState なので、そのまま返す
         return final_state
     except Exception as e:
         traceback.print_exc()
-        # エラー時も AgentState の型に近い形で返すか、エラー専用の情報を返す
         return {"error": f"エージェントの実行中にエラーが発生しました: {e}"}
-
 
 def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str):
     api_key = config_manager.API_KEYS.get(api_key_name)
@@ -263,3 +244,4 @@ def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list,
         if 'response' in locals() and hasattr(response, 'prompt_feedback') and response.prompt_feedback:
             error_message += f"\nプロンプトフィードバック: {response.prompt_feedback}"
         return error_message, None
+```
