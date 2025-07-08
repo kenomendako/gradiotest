@@ -1,18 +1,15 @@
-# nexus_ark.py (自己修復型グローバル・ロック機能付き)
+# nexus_ark.py
+
 import os
 import sys
 import json
 from pathlib import Path
-
 try:
     import psutil
 except ImportError:
-    print("エラー: 'psutil'ライブラリが見つかりません。")
-    print("このスクリプトの全機能を利用するには、ターミナルで 'pip install psutil' を実行してください。")
+    print("エラー: 'psutil'ライブラリが見つかりません。'pip install psutil' を実行してください。")
     sys.exit(1)
-
 LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
-
 def check_and_clear_stale_lock():
     if not LOCK_FILE_PATH.exists():
         return True
@@ -20,8 +17,8 @@ def check_and_clear_stale_lock():
         with open(LOCK_FILE_PATH, "r", encoding="utf-8") as f:
             lock_info = json.load(f)
         pid = lock_info.get('pid')
-        path = lock_info.get('path', '不明') # エラー表示用にパスも取得
-        if pid is None: # PIDが記録されていない不正なロックファイル
+        path = lock_info.get('path', '不明')
+        if pid is None:
             print(f"警告: PID情報のないロックファイルが見つかりました: {LOCK_FILE_PATH}")
             try:
                 LOCK_FILE_PATH.unlink()
@@ -29,12 +26,11 @@ def check_and_clear_stale_lock():
                 return True
             except Exception as e_unlink:
                 print(f"-> 不正なロックファイルの削除に失敗しました: {e_unlink}")
-                return False # 削除できない場合は安全のため起動しない
-
+                return False
         if psutil.pid_exists(pid):
             print("エラー: Nexus Arkの別のプロセス（またはバッチ処理）がすでに実行中です。")
             print(f"  - 実行中のプロセスID: {pid}")
-            print(f"  - 実行中のフォルダパス: {path}") # 表示する情報を追加
+            print(f"  - 実行中のフォルダパス: {path}")
             print(f"\nもし、このプロセスが応答しない場合は、タスクマネージャー等でプロセスID {pid} を終了させてから、")
             print(f"ロックファイル {LOCK_FILE_PATH} を手動で削除する必要があるかもしれません。")
             return False
@@ -70,33 +66,23 @@ def check_and_clear_stale_lock():
             return False
     except Exception as e:
         print(f"エラー: ロックファイルの処理中に予期せぬ問題が発生しました: {e}")
-        traceback.print_exc() # 詳細なエラー情報を表示
+        traceback.print_exc()
         return False
-
 if not check_and_clear_stale_lock():
     sys.exit(1)
-
-# このtry...finallyブロックで、すべてのインポートとGradioの起動を囲む
 try:
     with open(LOCK_FILE_PATH, "w", encoding="utf-8") as f:
         lock_data = {"pid": os.getpid(), "path": os.path.abspath(os.path.dirname(__file__))}
         json.dump(lock_data, f)
-
-    # --- 元のNexus Arkのコード ---
     os.environ["MEM0_TELEMETRY_ENABLED"] = "false"
-
     import gradio as gr
     import traceback
     import threading
     import time
     import pandas as pd
     import config_manager, character_manager, memory_manager, alarm_manager, gemini_api, utils, ui_handlers
-
-    # --- 起動シーケンス ---
     config_manager.load_config()
     alarm_manager.load_alarms()
-
-    # --- CSS定義 ---
     custom_css = """
     #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
     #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; }
@@ -107,15 +93,13 @@ try:
     #alarm_dataframe_display th, #alarm_dataframe_display td { text-align: left !important; padding: 4px 8px !important; white-space: normal !important; font-size: 0.95em; }
     #alarm_dataframe_display th:nth-child(1), #alarm_dataframe_display td:nth-child(1) { width: 50px !important; text-align: center !important; }
     #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
-    #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: -10px; } /* AI Studio提案のCSS */
+    #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: -10px; }
     """
-
     with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css) as demo:
         character_list_on_startup = character_manager.get_character_list()
         if not character_list_on_startup:
             character_manager.ensure_character_files("Default")
             character_list_on_startup = ["Default"]
-
         effective_initial_character = config_manager.initial_character_global
         if not effective_initial_character or effective_initial_character not in character_list_on_startup:
             new_char = character_list_on_startup[0] if character_list_on_startup else "Default"
@@ -125,7 +109,6 @@ try:
             if new_char == "Default" and "Default" not in character_list_on_startup:
                  character_manager.ensure_character_files("Default")
                  character_list_on_startup = ["Default"]
-
         current_character_name = gr.State(effective_initial_character)
         current_model_name = gr.State(config_manager.initial_model_global)
         current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -134,7 +117,6 @@ try:
         alarm_dataframe_original_data = gr.State(pd.DataFrame())
         selected_alarm_ids_state = gr.State([])
         editing_alarm_id_state = gr.State(None)
-
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
@@ -193,165 +175,68 @@ try:
                             timer_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="通知キャラ", interactive=True)
                             timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。")
                             timer_submit_button = gr.Button("タイマー開始", variant="primary")
-            with gr.Column(scale=3): # チャット表示エリアの列
+            with gr.Column(scale=3):
                 chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True)
                 chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
-
-                # ▼▼▼ トークン表示エリアを追加 ▼▼▼
-                token_count_display = gr.Markdown("入力トークン数: 0", elem_id="token_count_display")
-                # ▲▲▲ 追加ここまで ▲▲▲
-
+                token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display") # 初期値を変更
                 with gr.Row():
                     submit_button = gr.Button("送信", variant="primary", scale=4)
                     chat_reload_button = gr.Button("🔄 更新", scale=1)
-                # (ファイルアップロードボタンなどの定義はここよりも後にある想定)
-        # ... (file_upload_button の定義までスキップ)
                 allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
-                file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types) # file_upload_button の定義箇所
+                file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
                 gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
-
-
-        # --- イベントハンドラ接続 ---
-
-        # ▼▼▼ トークン計算用の入力と出力を定義 ▼▼▼
-        # current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state は gr.State オブジェクト
-        token_calc_inputs = [
-            chat_input_textbox,
-            file_upload_button, # file_upload_button は gr.Files オブジェクト
-            current_character_name,
-            current_model_name,
-            current_api_key_name_state,
-            api_history_limit_state
-        ]
+        token_calc_inputs = [chat_input_textbox, file_upload_button, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state]
         token_calc_outputs = token_count_display
-
-        # ▼▼▼ トークン計算イベントをまとめて設定する関数 ▼▼▼
         def setup_token_update_events():
-            # テキスト入力時
-            chat_input_textbox.change(
-                fn=ui_handlers.update_token_count,
-                inputs=token_calc_inputs,
-                outputs=token_calc_outputs,
-                show_progress=False # トークン計算は軽量なのでプログレス非表示
-            )
-            # ファイルアップロード/クリア時
-            file_upload_button.upload( # ファイルが追加されたとき
-                fn=ui_handlers.update_token_count,
-                inputs=token_calc_inputs,
-                outputs=token_calc_outputs
-            )
-            file_upload_button.clear( # ファイルがクリアされたとき
-                fn=ui_handlers.update_token_count,
-                inputs=token_calc_inputs,
-                outputs=token_calc_outputs
-            )
-
-        # --- 既存のイベント接続 (抜粋・変更箇所のみ) ---
-        # (add_character_button.click などは変更なし)
-        add_character_button.click(
-            fn=ui_handlers.handle_add_new_character,
-            inputs=[new_character_name_textbox],
-            outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox]
-        )
+            chat_input_textbox.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs, show_progress=False)
+            file_upload_button.upload(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
+            file_upload_button.clear(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
+        add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
         def initial_load(char_name_to_load, api_history_limit):
             df_with_ids = ui_handlers.render_alarms_as_dataframe()
             display_df = ui_handlers.get_display_df(df_with_ids)
             (returned_char_name, current_chat_hist, _, current_profile_img,
              current_mem_str, alarm_dd_char_val, current_log_content, timer_dd_char_val
             ) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit)
-            return (display_df, df_with_ids, current_chat_hist, current_log_content, current_mem_str,
-                    current_profile_img, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください")
+            # 初期ロード時にもトークン数を更新
+            initial_token_str = ui_handlers.update_token_count(None, None, returned_char_name, config_manager.initial_model_global, config_manager.initial_api_key_name_global, api_history_limit)
+            return (display_df, df_with_ids, current_chat_hist, current_log_content, current_mem_str, current_profile_img, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください", initial_token_str)
 
-        # demo.load 時のトークン更新
+        # demo.load の outputs に token_count_display を追加
         demo.load(
-            fn=initial_load, inputs=[current_character_name, api_history_limit_state],
-            outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, log_editor, memory_json_editor,
-                     profile_image_display, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown]
-        ).then(
-            fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs # thenで接続
-        )
-        alarm_dataframe.select(
-            fn=ui_handlers.handle_alarm_selection_and_feedback,
-            inputs=[alarm_dataframe_original_data],
-            outputs=[selected_alarm_ids_state, selection_feedback_markdown],
-            show_progress='hidden'
-        ).then(
-            fn=ui_handlers.load_alarm_to_form,
-            inputs=[selected_alarm_ids_state],
-            outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state]
-        )
+            fn=initial_load,
+            inputs=[current_character_name, api_history_limit_state],
+            outputs=[
+                alarm_dataframe, alarm_dataframe_original_data, chatbot_display, log_editor, memory_json_editor,
+                profile_image_display, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown,
+                token_count_display # token_count_display を outputs に追加
+            ]
+        )# .then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs) # ここはinitial_load内で処理するので不要
+
+        alarm_dataframe.select(fn=ui_handlers.handle_alarm_selection_and_feedback, inputs=[alarm_dataframe_original_data], outputs=[selected_alarm_ids_state, selection_feedback_markdown], show_progress='hidden').then(fn=ui_handlers.load_alarm_to_form, inputs=[selected_alarm_ids_state], outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
         enable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
         disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
         delete_alarm_button.click(fn=ui_handlers.handle_delete_selected_alarms, inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda id_df: ui_handlers.get_display_df(id_df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe]).then(fn=lambda: ([], "アラームを選択してください"), outputs=[selected_alarm_ids_state, selection_feedback_markdown])
         alarm_add_button.click(fn=ui_handlers.handle_add_or_update_alarm, inputs=[editing_alarm_id_state, alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup], outputs=[alarm_dataframe, alarm_dataframe_original_data, alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
-
-        # character_dropdown.change 時のトークン更新
-        character_dropdown.change(
-            fn=ui_handlers.update_ui_on_character_change,
-            inputs=[character_dropdown, api_history_limit_state],
-            outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, log_editor, timer_char_dropdown]
-        ).then(
-            fn=lambda: (ui_handlers.get_display_df(ui_handlers.render_alarms_as_dataframe()), ui_handlers.render_alarms_as_dataframe()), outputs=[alarm_dataframe, alarm_dataframe_original_data]
-        ).then(
-            fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs # thenで接続
-        )
+        character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, log_editor, timer_char_dropdown]).then(fn=lambda: (ui_handlers.get_display_df(ui_handlers.render_alarms_as_dataframe()), ui_handlers.render_alarms_as_dataframe()), outputs=[alarm_dataframe, alarm_dataframe_original_data]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
         timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
-
-        # model_dropdown.change 時のトークン更新
-        model_dropdown.change(
-            fn=ui_handlers.update_model_state,
-            inputs=[model_dropdown],
-            outputs=[current_model_name]
-        ).then(
-            fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs # thenで接続
-        )
-
-        # api_key_dropdown.change 時のトークン更新
-        api_key_dropdown.change(
-            fn=ui_handlers.update_api_key_state,
-            inputs=[api_key_dropdown],
-            outputs=[current_api_key_name_state]
-        ).then(
-            fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs # thenで接続
-        )
+        model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
+        api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
         add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[])
         send_thoughts_checkbox.change(fn=ui_handlers.update_send_thoughts_state, inputs=[send_thoughts_checkbox], outputs=[send_thoughts_state])
-
-        # api_history_limit_dropdown.change 時のトークン更新
-        api_history_limit_dropdown.change(
-            fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
-            inputs=[api_history_limit_dropdown, current_character_name],
-            outputs=[api_history_limit_state, chatbot_display, log_editor]
-        ).then(
-            fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs # thenで接続
-        )
+        api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, log_editor]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor])
         save_log_button.click(fn=ui_handlers.handle_save_log_button_click, inputs=[current_character_name, log_editor])
         editor_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, log_editor])
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, log_editor])
-
-        # チャット送信時の設定
-        # 出力に token_count_display を追加 (ui_handlers.handle_message_submission の戻り値に対応)
         chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, token_count_display]
-        chat_inputs = [ # これは変更なし
-            chat_input_textbox, chatbot_display, current_character_name, current_model_name,
-            current_api_key_name_state,
-            file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state
-        ]
+        chat_inputs = [chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state]
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
-
-        # トークン計算イベントのセットアップを呼び出し
         setup_token_update_events()
         timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, gr.State(config_manager.initial_notification_webhook_url_global), normal_timer_theme_input], outputs=[timer_status_output])
-        rag_update_button.click(
-            fn=ui_handlers.handle_rag_update_button_click,
-            inputs=[current_character_name, current_api_key_name_state],
-            outputs=None
-        )
+        rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
-
-    # --- Application Launch ---
     if __name__ == "__main__":
         print("\n" + "="*60)
         print("アプリケーションを起動します...")
@@ -365,27 +250,18 @@ try:
         print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで")
         print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)")
         print("="*60 + "\n")
-
-        demo.queue().launch(
-            server_name="0.0.0.0",
-            server_port=7860,
-            share=False,
-            allowed_paths=["."]
-        )
-
+        demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
 finally:
-    # アプリケーション終了時にグローバル・ロックファイルを必ず削除
     if LOCK_FILE_PATH.exists():
         try:
             with open(LOCK_FILE_PATH, "r", encoding="utf-8") as f:
-                lock_info = json.load(f) # ここで読み込み
-            if lock_info.get('pid') == os.getpid(): # 自分のPIDと一致する場合のみ削除
+                lock_info = json.load(f)
+            if lock_info.get('pid') == os.getpid():
                 LOCK_FILE_PATH.unlink()
                 print("\nグローバル・ロックファイルを解除し、正常にシャットダウンしました。")
-            # else: # PIDが一致しない場合は、他プロセスのロックなので削除しない（ログは任意）
-                # print("\n注意: 別のプロセスによって作成されたロックファイルが存在するため、このプロセスでは解除しません。")
-        except Exception as e: # json.load や os.getpid(), unlink でエラーが起きる可能性をキャッチ
+        except Exception as e:
             print(f"\nエラー: グローバル・ロックファイルの解除/確認中に問題が発生しました: {e}")
             print(f"ロックファイル {LOCK_FILE_PATH} が残っている可能性があります。手動でご確認ください。")
     else:
         print("\nグローバル・ロックファイルは存在しませんでした。シャットダウンします。")
+```
