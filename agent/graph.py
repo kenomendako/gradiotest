@@ -145,4 +145,3 @@ def web_search_tool(query: str) -> str:
         print(f"  - Web検索ツールでエラー: {e}")
         traceback.print_exc()
         return f"[エラー：Web検索中に問題が発生しました。詳細: {e}]"
-```
