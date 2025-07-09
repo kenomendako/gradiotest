@@ -1,5 +1,6 @@
 # tools/notepad_tools.py
 import os
+import datetime # ★★★ datetime をインポート
 from langchain_core.tools import tool
 from character_manager import get_character_files_paths # character_manager から関数をインポート
 
@@ -23,13 +24,19 @@ def _write_notepad(character_name: str, lines: list[str]):
 
 @tool
 def add_to_notepad(entry: str, character_name: str) -> str:
-    """短期記憶用のメモ帳に新しい項目を一行追記する。"""
+    """短期記憶用のメモ帳に、現在時刻のタイムスタンプを付けて新しい項目を一行追記する。"""
     if not entry or not isinstance(entry, str) or not entry.strip():
         return "【エラー】メモに追加する内容が空です。"
+
+    # ★★★ ここからが修正箇所 ★★★
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    full_entry = f"[{timestamp}] {entry.strip()}" # entryもstripする
+
     lines = _read_notepad(character_name)
-    lines.append(entry.strip()) # 追加する際も前後の空白を除去
+    lines.append(full_entry) # full_entryは既にstripされたentryを含んでいる
     _write_notepad(character_name, lines)
-    return f"【メモ追加】「{entry.strip()}」をメモ帳に追記しました。"
+    # ★★★ 修正ここまで ★★★
+    return f"【メモ追加】「{entry.strip()}」をメモ帳に追記しました。" # 返答メッセージは元のentryのみでシンプルに
 
 @tool
 def update_notepad(old_entry: str, new_entry: str, character_name: str) -> str:
