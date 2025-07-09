@@ -13,6 +13,7 @@ import re
 from PIL import Image
 import base64
 from langchain_core.messages import AIMessage # AIMessage をインポート
+from langchain_core.messages import SystemMessage # ★★★ 追加 ★★★
 
 import gemini_api
 import mem0_manager
