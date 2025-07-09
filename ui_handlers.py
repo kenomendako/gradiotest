@@ -34,10 +34,11 @@ def update_token_count(
     current_character_name: str,
     current_model_name: str,
     current_api_key_name_state: str,
-    api_history_limit_state: str
+    api_history_limit_state: str,
+    send_notepad_state: bool # ★★★ この引数を追加 ★★★
 ) -> str:
     """【改訂】基本入力トークン数を、モデルの上限と共に表示する"""
-    if not all([current_character_name, current_model_name, current_api_key_name_state]):
+    if not all([current_character_name, current_model_name, current_api_key_name_state]): # send_notepad_state は bool なので all の判定に含めなくても良い
         return "入力トークン数 (設定不足)" # 初期表示用のデフォルト文字列
 
     parts_for_api = []
@@ -69,12 +70,13 @@ def update_token_count(
     limit_str = f" / {limits['input']:,}" if limits and 'input' in limits else ""
 
     # 基本入力トークン数を計算
-    basic_tokens = gemini_api.count_input_tokens( # gemini_api.py の関数を呼び出す
+    basic_tokens = gemini_api.count_input_tokens(
         character_name=current_character_name,
-        model_name=current_model_name, # 実際にトークンをカウントするモデル
+        model_name=current_model_name,
         parts=parts_for_api,
         api_history_limit_option=api_history_limit_state,
-        api_key_name=current_api_key_name_state # APIキー名を渡す
+        api_key_name=current_api_key_name_state,
+        send_notepad_to_api=send_notepad_state # ★★★ 引数を渡す ★★★
     )
 
     if basic_tokens >= 0:
@@ -455,6 +457,11 @@ def handle_rag_update_button_click(character_name: str, api_key_name: str):
             print(f"ERROR: RAG索引の更新に失敗しました ({character_name})")
     threading.Thread(target=run_update).start()
 
+# --- メモ帳送信設定ハンドラ ---
+def update_send_notepad_state(checked: bool):
+    """メモ帳送信設定の状態を更新する（保存はしない想定、UIのStateに反映される）"""
+    # config_manager を使って永続化も可能だが、今回はUIのStateのみ更新
+    return checked
 
 # --- メモ帳 (notepad.md) UIハンドラ ---
 
