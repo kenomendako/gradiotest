@@ -219,28 +219,35 @@ try:
             file_upload_button.clear(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
 
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-        def initial_load(char_name_to_load, api_history_limit):
+        # initial_load 関数の定義を修正
+        def initial_load(char_name_to_load, api_history_limit, current_send_notepad_state): # ★引数追加
             df_with_ids = ui_handlers.render_alarms_as_dataframe()
             display_df = ui_handlers.get_display_df(df_with_ids)
-            # ▼▼▼ 修正箇所 ▼▼▼ (アンパックする変数の数を9個に)
             (returned_char_name, current_chat_hist, _, current_profile_img,
              current_mem_str, alarm_dd_char_val, current_log_content, timer_dd_char_val,
-             current_notepad_content # 9番目の変数を追加
+             current_notepad_content
             ) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit)
+
+            # ▼▼▼ 修正箇所 ▼▼▼ (update_token_count に current_send_notepad_state を渡す)
+            initial_token_str = ui_handlers.update_token_count(
+                None, None, returned_char_name,
+                config_manager.initial_model_global,
+                config_manager.initial_api_key_name_global,
+                api_history_limit,
+                current_send_notepad_state # ★ 引数として渡す
+            )
             # ▲▲▲ 修正ここまで ▲▲▲
-            initial_token_str = ui_handlers.update_token_count(None, None, returned_char_name, config_manager.initial_model_global, config_manager.initial_api_key_name_global, api_history_limit)
-            # ▼▼▼ 修正箇所 ▼▼▼ (returnするタプルの要素数を11個に)
+
             return (display_df, df_with_ids, current_chat_hist, current_log_content,
                     current_mem_str, current_profile_img, alarm_dd_char_val,
                     timer_dd_char_val, "アラームを選択してください", initial_token_str,
-                    current_notepad_content # 11番目の戻り値として追加
+                    current_notepad_content
                    )
-            # ▲▲▲ 修正ここまで ▲▲▲
 
-        # demo.load の outputs に token_count_display と notepad_editor を追加
+        # demo.load の呼び出しを修正
         demo.load(
             fn=initial_load,
-            inputs=[current_character_name, api_history_limit_state],
+            inputs=[current_character_name, api_history_limit_state, send_notepad_state], # ★ inputs に send_notepad_state を追加
             outputs=[
                 alarm_dataframe, alarm_dataframe_original_data, chatbot_display, log_editor, memory_json_editor,
                 profile_image_display, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown,
