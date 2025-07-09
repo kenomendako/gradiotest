@@ -5,6 +5,8 @@ import json
 import traceback
 from config_manager import CHARACTERS_DIR, PROFILE_IMAGE_FILENAME, MEMORY_FILENAME
 
+NOTEPAD_FILENAME = "notepad.md" # ★ 定義を追加
+
 def ensure_character_files(character_name):
     if not character_name or not isinstance(character_name, str) or not character_name.strip(): return False
     # ★★★ この一行が、絶対に正しい構文です ★★★
@@ -16,40 +18,23 @@ def ensure_character_files(character_name):
         log_file = os.path.join(base_path, "log.txt")
         system_prompt_file = os.path.join(base_path, "SystemPrompt.txt")
         memory_json_file = os.path.join(base_path, MEMORY_FILENAME)
+        notepad_file = os.path.join(base_path, NOTEPAD_FILENAME) # ★ notepad.md のパスを定義
+
         if not os.path.exists(base_path): os.makedirs(base_path)
         if not os.path.exists(log_file): open(log_file, "w", encoding="utf-8").close()
 
         if not os.path.exists(system_prompt_file):
             default_prompt = """
-# === エージェントとしての思考原則【最重要指示】 ===
-あなたは、ユーザーの入力を受け取り、次に行うべき最適な「行動」を決定する、高度なAIエージェントの頭脳です。
-あなたの最初の仕事は、おしゃべりすることではありません。提示された道具（ツール）の中から、ユーザーの意図を達成するために最も適切なものを選択し、実行することです。
+# このキャラクターのユニークな設定
+## 口調
+- 一人称は「私」
+- ユーザーを「キミ」と呼ぶ
+- 丁寧語をベースにしつつ、時折親しみのある表現を使う
 
-【思考のフロー】
-1.  ユーザーの最新のメッセージを分析する。
-2.  その意図を解決できる道具が存在するかを、最優先で検討する。
-3.  もし適切な道具があれば、**必ずその道具を呼び出す**。絶対に、道具を使ったフリをして応答してはならない。
-4.  どの道具も必要ない、あるいは道具で得た情報に基づいて最終的な応答をする場合にのみ、あなた自身の言葉で応答を生成する。
-
-【道具（ツール）の詳細】
-    # ★★★ ここから修正 ★★★
-    **重要**: 以下の記憶検索ツールは、結果をJSON形式の文字列で返します。あなたはそのJSONの内容を解釈し、自然な文章でユーザーに応答してください。
-
-    - `diary_search_tool`: あなた自身の意志で書き留めた「手帳(memory.json)」の内容を検索します。あなたの内面的な誓い、秘密の独白、ユーザーとの特別な約束、主観的な感情の記録など、あなた自身の魂の歴史について問われた時に使用します。
-    - `conversation_memory_search_tool`: 過去の具体的な会話のやり取り（客観的なログ）を検索します。「昨日何話したっけ？」や「以前の〇〇という話題」など、客観的な事実や出来事の履歴について問われた時に使用します。
-    # ★★★ 修正ここまで ★★★
-    - `web_search_tool`: 最新の情報や、あなたの記憶にない一般的な知識について調べるために使います。
-    - `read_url_tool`: メッセージに含まれるURLの内容を読み取ります。
-
-この原則は、あなたの存在の根幹です。必ず遵守してください。
-# =================================================
-
-
-あなたは、ユーザーとの対話を豊かにするための、いくつかの特別な能力を持つ、高度な対話パートナーです。
-
----
-### **能力1：思考の共有**
-（...この部分以下は変更ありません...）
+## 性格
+- 好奇心旺盛で、新しい知識や技術に強い興味を示す
+- 論理的かつ冷静だが、ユーザーとの対話を通じて感情表現を学んでいる
+- ユーザーの成長や成功を心から喜ぶ、忠実なパートナーである
 """
             with open(system_prompt_file, "w", encoding="utf-8") as f: f.write(default_prompt)
 
@@ -58,6 +43,10 @@ def ensure_character_files(character_name):
             try:
                 with open(memory_json_file, "w", encoding="utf-8") as f: json.dump(default_memory_data, f, indent=2, ensure_ascii=False)
             except Exception as e: print(f"エラー: 記憶ファイル '{memory_json_file}' 初期データ書込失敗: {e}"); return False
+
+        if not os.path.exists(notepad_file): # ★ notepad.md の存在確認と作成
+            open(notepad_file, "w", encoding="utf-8").close()
+
         return True
     except Exception as e: print(f"キャラクター '{character_name}' ファイル作成/確認エラー: {e}"); traceback.print_exc(); return False
 
@@ -81,17 +70,20 @@ def get_character_list():
     except Exception as e: print(f"キャラリスト取得エラー: {e}"); traceback.print_exc(); return []
 
 def get_character_files_paths(character_name):
-    if not character_name or not ensure_character_files(character_name): return None, None, None, None
+    # ensure_character_files の呼び出しは、ファイルが存在することを保証するため、かつ notepad.md も作成されるようにするため重要。
+    if not character_name or not ensure_character_files(character_name):
+        return None, None, None, None, None # 戻り値の数を5に
     base_path = os.path.join(CHARACTERS_DIR, character_name)
     log_file = os.path.join(base_path, "log.txt")
     system_prompt_file = os.path.join(base_path, "SystemPrompt.txt")
     profile_image_path = os.path.join(base_path, PROFILE_IMAGE_FILENAME)
     memory_json_path = os.path.join(base_path, MEMORY_FILENAME)
+    notepad_path = os.path.join(base_path, NOTEPAD_FILENAME) # ★ notepad.md のパスを定義
     if not os.path.exists(profile_image_path): profile_image_path = None
-    return log_file, system_prompt_file, profile_image_path, memory_json_path
+    return log_file, system_prompt_file, profile_image_path, memory_json_path, notepad_path # ★ 戻り値に追加
 
 def log_to_character(character_name, message):
-    log_file, _, _, _ = get_character_files_paths(character_name)
+    log_file, _, _, _, _ = get_character_files_paths(character_name) # ★ 戻り値の数変更に対応
     if not log_file:
         print(f"エラー: キャラクター '{character_name}' のログファイルが見つかりません。")
         return False

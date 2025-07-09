@@ -12,6 +12,7 @@ from langchain_core.tools import tool
 import gemini_api
 import rag_manager
 from tools.web_tools import read_url_tool
+from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad # ★ 追加
 
 class AgentState(TypedDict):
     """エージェントの状態を定義するクラス"""
@@ -36,8 +37,12 @@ def tool_router_node(state: AgentState):
     available_tools = [
         rag_manager.diary_search_tool,
         rag_manager.conversation_memory_search_tool,
-        web_search_tool,
-        read_url_tool
+        web_search_tool, # web_search_tool は直接定義されている
+        read_url_tool,
+        add_to_notepad,       # ★ 追加
+        update_notepad,     # ★ 追加
+        delete_from_notepad,  # ★ 追加
+        read_full_notepad     # ★ 追加
     ]
     llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
     response = llm_flash_with_tools.invoke(state['messages'])
@@ -57,8 +62,12 @@ def call_tool_node(state: AgentState):
     available_tools_map = {
         "diary_search_tool": rag_manager.diary_search_tool,
         "conversation_memory_search_tool": rag_manager.conversation_memory_search_tool,
-        "web_search_tool": web_search_tool,
-        "read_url_tool": read_url_tool
+        "web_search_tool": web_search_tool, # web_search_tool は直接定義されている
+        "read_url_tool": read_url_tool,
+        "add_to_notepad": add_to_notepad,             # ★ 追加
+        "update_notepad": update_notepad,           # ★ 追加
+        "delete_from_notepad": delete_from_notepad,   # ★ 追加
+        "read_full_notepad": read_full_notepad        # ★ 追加
     }
     for tool_call in last_message.tool_calls:
         tool_name = tool_call.get("name")
@@ -70,8 +79,12 @@ def call_tool_node(state: AgentState):
             output = f"エラー: 不明な道具 '{tool_name}' が指定されました。"
         else:
             try:
+                # ★ character_name を渡す条件に notepad_tools を追加
+                if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "add_to_notepad", "update_notepad", "delete_from_notepad", "read_full_notepad"]:
+                    tool_args.update({"character_name": state.get("character_name")})
+                # RAGツールにはAPIキーも渡す
                 if tool_name in ["diary_search_tool", "conversation_memory_search_tool"]:
-                    tool_args.update({"character_name": state.get("character_name"), "api_key": state.get("api_key")})
+                    tool_args.update({"api_key": state.get("api_key")})
                 output = tool_to_call.invoke(tool_args)
             except Exception as e:
                 output = f"[エラー：道具'{tool_name}'の実行に失敗しました。詳細: {e}]"

@@ -18,6 +18,35 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 
+# ★★★ ここにマスタープロンプトのテンプレートを定義 ★★★
+MASTER_PROMPT_TEMPLATE = """
+# === エージェントとしての思考原則【最重要指示】 ===
+あなたは、ユーザーとの対話を豊かにするための、高度な対話パートナーです。
+{character_prompt}
+
+あなたの最初の仕事は、おしゃべりすることではありません。提示された道具（ツール）の中から、ユーザーの意与を達成するために最も適切なものを選択し、実行することです。
+
+【思考のフロー】
+1.  ユーザーの最新のメッセージを分析する。
+2.  その意図を解決できる道具が存在するかを、最優先で検討する。
+3.  もし適切な道具があれば、**必ずその道具を呼び出す**。絶対に、道具を使ったフリをして応答してはならない。
+4.  どの道具も必要ない、あるいは道具で得た情報に基づいて最終的な応答をする場合にのみ、あなた自身の言葉で応答を生成する。
+
+【道具（ツール）の詳細】
+    **重要**: 以下の記憶検索ツールは、結果をJSON形式の文字列で返します。あなたはそのJSONの内容を解釈し、自然な文章でユーザーに応答してください。
+
+    - `diary_search_tool`: あなた自身の意志で書き留めた「手帳(memory.json)」の内容を検索します。あなたの内面的な誓い、秘密の独白、ユーザーとの特別な約束、主観的な感情の記録など、あなた自身の魂の歴史について問われた時に使用します。
+    - `conversation_memory_search_tool`: 過去の具体的な会話のやり取り（客観的なログ）を検索します。「昨日何話したっけ？」や「以前の〇〇という話題」など、客観的な事実や出来事の履歴について問われた時に使用します。
+    - `web_search_tool`: 最新の情報や、あなたの記憶にない一般的な知識について調べるために使います。
+    - `read_url_tool`: メッセージに含まれるURLの内容を読み取ります。
+    - `add_to_notepad`: 短期的なタスクや文脈を「メモ帳」に追記します。タイムスタンプは自動で付与されます。
+    - `update_notepad`: 「メモ帳」の内容を更新します。**重要：更新する際は、タイムスタンプを含む行全体を正確に old_entry に指定してください。**
+    - `delete_from_notepad`: 「メモ帳」から不要になった項目を削除します。**重要：削除する際は、タイムスタンプを含む行全体を正確に entry_to_delete に指定してください。**
+
+この原則は、あなたの存在の根幹です。必ず遵守してください。
+# =================================================
+"""
+
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
     """【最終修正】公式サンプルコードに従い、client.models.get() を使用してトークン上限を正しく取得する"""
     if model_name in _model_token_limits_cache:
@@ -55,17 +84,55 @@ def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, 
         return None
 
 # (以降の関数は、前回の修正のままで完成していますので、変更ありません)
-def _build_lc_messages_from_ui(character_name: str, parts: list, api_history_limit_option: str) -> List[Union[SystemMessage, HumanMessage, AIMessage]]:
+def _build_lc_messages_from_ui(
+    character_name: str,
+    parts: list,
+    api_history_limit_option: str,
+    send_notepad_to_api: bool,
+    use_common_prompt: bool # この引数は維持しますが、ロジックを変更
+) -> List[Union[SystemMessage, HumanMessage, AIMessage]]:
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
-    _, sys_prompt_file, _, _ = get_character_files_paths(character_name)
-    system_prompt_content = ""
+    log_file, sys_prompt_file, _, _, notepad_path = get_character_files_paths(character_name)
+
+    # キャラクター固有のプロンプトを読み込む
+    character_specific_prompt = ""
     if sys_prompt_file and os.path.exists(sys_prompt_file):
-        with open(sys_prompt_file, 'r', encoding='utf-8') as f:
-            system_prompt_content = f.read().strip()
-    if system_prompt_content:
-        messages.append(SystemMessage(content=system_prompt_content))
-    log_file, _, _, _ = get_character_files_paths(character_name)
-    raw_history = utils.load_chat_log(log_file, character_name)
+        try:
+            with open(sys_prompt_file, 'r', encoding='utf-8') as f:
+                character_specific_prompt = f.read().strip()
+        except Exception as e:
+            print(f"警告: キャラクター固有のSystemPrompt ({sys_prompt_file}) の読み込みに失敗しました: {e}")
+            character_specific_prompt = "" # エラー時は空にする
+
+    # ★★★ 新しいプロンプト構築ロジック ★★★
+    final_prompt_text = ""
+    if use_common_prompt:
+        # マスターテンプレートにキャラクター設定を注入する
+        final_prompt_text = MASTER_PROMPT_TEMPLATE.format(
+            character_prompt=character_specific_prompt
+        ).strip()
+    else:
+        # スイッチがOFFの場合は、キャラクター固有のプロンプトのみ使用
+        final_prompt_text = character_specific_prompt
+
+    # メモ帳の内容を読み込んで追加する
+    notepad_content = ""
+    if notepad_path and os.path.exists(notepad_path):
+        try:
+            with open(notepad_path, 'r', encoding='utf-8') as f:
+                notepad_content = f.read().strip()
+        except Exception as e:
+            print(f"警告: メモ帳 ({notepad_path}) の読み込みに失敗しました: {e}")
+            notepad_content = "" # エラー時は空にする
+
+    if send_notepad_to_api and notepad_content:
+        final_prompt_text += f"\n\n---\n【現在のメモ帳の内容】\n{notepad_content}\n---"
+
+    if final_prompt_text:
+        messages.append(SystemMessage(content=final_prompt_text))
+
+    # ... (以降の会話履歴を追加するロジックは変更なし) ...
+    raw_history = utils.load_chat_log(log_file, character_name) # log_fileはここで必要
     history_for_limit_check = []
     for h_item in raw_history:
         role = h_item.get('role')
@@ -155,24 +222,43 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
         print(f"トークン計算エラー (from messages): {e}")
         return -1
 
-def count_input_tokens(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str) -> int:
+def count_input_tokens(
+    character_name: str,
+    model_name: str,
+    parts: list,
+    api_history_limit_option: str,
+    api_key_name: str,
+    send_notepad_to_api: bool,
+    use_common_prompt: bool # ★★★ 引数を追加 ★★★
+) -> int:
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return -1
     try:
-        lc_messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option)
+        # ★★★ 呼び出し時に use_common_prompt も渡す ★★★
+        lc_messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option, send_notepad_to_api, use_common_prompt)
         return count_tokens_from_lc_messages(lc_messages, model_name, api_key)
     except Exception as e:
         print(f"トークン計算エラー (model: {model_name}, char: {character_name}): {e}")
         traceback.print_exc()
         return -2
 
-def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str):
+# ★★★ 引数に send_notepad_to_api を追加 ★★★
+def invoke_nexus_agent(
+    character_name: str,
+    model_name: str,
+    parts: list,
+    api_history_limit_option: str,
+    api_key_name: str,
+    send_notepad_to_api: bool,
+    use_common_prompt: bool # ★★★ 引数を追加 ★★★
+):
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return {"error": f"APIキー '{api_key_name}' が有効ではありません。"}
     try:
-        messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option)
+        # ★★★ 呼び出し時に use_common_prompt も渡す ★★★
+        messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option, send_notepad_to_api, use_common_prompt)
         initial_state = {
             "messages": messages,
             "character_name": character_name,
@@ -193,7 +279,7 @@ def send_multimodal_to_gemini(character_name: str, model_name: str, parts: list,
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return f"エラー: APIキー名 '{api_key_name}' に有効なキーが設定されていません。", None
     try:
-        log_file, sys_prompt_file, _, _ = get_character_files_paths(character_name)
+        log_file, sys_prompt_file, _, _, _ = get_character_files_paths(character_name) # 戻り値の数を5に変更
         raw_history = utils.load_chat_log(log_file, character_name)
         limit = 0
         if api_history_limit_option and api_history_limit_option.isdigit():

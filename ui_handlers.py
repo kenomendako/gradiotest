@@ -13,12 +13,15 @@ import re
 from PIL import Image
 import base64
 from langchain_core.messages import AIMessage # AIMessage をインポート
+from langchain_core.messages import SystemMessage # ★★★ 追加 ★★★
 
 import gemini_api
 import mem0_manager
-import rag_manager # ★★★ この行を追加しました ★★★
+import rag_manager
 import config_manager
 import alarm_manager
+import re # ★★★ 正規表現を扱うために import
+import datetime # ★★★ datetime を扱うために import
 import character_manager
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
@@ -32,7 +35,10 @@ def update_token_count(
     current_character_name: str,
     current_model_name: str,
     current_api_key_name_state: str,
-    api_history_limit_state: str
+    api_history_limit_state: str,
+    send_notepad_state: bool,
+    notepad_editor_content: str,
+    use_common_prompt_state: bool # ★★★ 引数を追加 ★★★
 ) -> str:
     """【改訂】基本入力トークン数を、モデルの上限と共に表示する"""
     if not all([current_character_name, current_model_name, current_api_key_name_state]):
@@ -66,14 +72,66 @@ def update_token_count(
     limits = gemini_api.get_model_token_limits(current_model_name, api_key)
     limit_str = f" / {limits['input']:,}" if limits and 'input' in limits else ""
 
-    # 基本入力トークン数を計算
-    basic_tokens = gemini_api.count_input_tokens( # gemini_api.py の関数を呼び出す
+    # 基本入力トークン数の計算ロジックを変更
+    # まず、チャット入力と履歴のトークン数を計算 (メモ帳は含めない)
+    basic_tokens = gemini_api.count_input_tokens(
         character_name=current_character_name,
-        model_name=current_model_name, # 実際にトークンをカウントするモデル
+        model_name=current_model_name,
         parts=parts_for_api,
         api_history_limit_option=api_history_limit_state,
-        api_key_name=current_api_key_name_state # APIキー名を渡す
+        api_key_name=current_api_key_name_state,
+        send_notepad_to_api=False, # メモ帳は別途カウントするのでここではFalse
+        use_common_prompt=use_common_prompt_state # ★★★ 引数を渡す ★★★
     )
+
+    # スイッチがONで、メモ帳に内容があり、基本トークン計算が成功している場合、そのトークン数を加算する
+    if send_notepad_state and notepad_editor_content and notepad_editor_content.strip() and basic_tokens >= 0:
+        try:
+            # メモ帳の内容だけをSystemMessageとしてトークン数を計算
+            # _build_lc_messages_from_ui と同じようにシステムプロンプトの形式に合わせる
+            # ただし、ここでは純粋なメモ帳の内容だけをカウントするのが目的。
+            # gemini_api.py の _build_lc_messages_from_ui が send_notepad_to_api=True の時に
+            # システムプロンプトに追加する形式と同じ文字列を作成してカウントする。
+            notepad_prompt_segment = f"\n\n---\n【現在のメモ帳の内容】\n{notepad_editor_content.strip()}\n---"
+
+            # SystemMessageとしてカウントするために一時的なメッセージリストを作成
+            # 既存のSystemPromptはbasic_tokensで既に考慮されている（send_notepad_to_api=Falseで）はずなので、
+            # ここではメモ帳部分だけのトークン数を純粋に加算したい。
+            # そのため、gemini_api.count_tokens_from_lc_messages に渡すのはメモ帳部分のみのメッセージ。
+            # ただし、count_tokens_from_lc_messages は通常会話履歴を含むことを想定している。
+            # より正確には、メモ帳の内容をpartsとして渡し、send_notepad_to_api=Trueとして
+            # count_input_tokensを再度呼び出すのは冗長。
+            # ここでは、メモ帳の内容を単一のテキストとして扱い、そのトークン数を直接得るのがシンプル。
+            # gemini_api に単純なテキストのトークン数をカウントするヘルパーがあってもよい。
+            # ひとまず、SystemMessageでラップしてgemini_api.count_tokens_from_lc_messages を使う。
+            # 注意：この方法だと、システムプロンプトの固定部分のトークン数が二重計上される可能性がある。
+            # より良いのは、gemini_api.pyの_build_lc_messages_from_uiにnotepad_contentを渡して、
+            # それがシステムプロンプトに追加された後の全トークン数を計算させること。
+            # 今回はAI Studio案に従い、別途加算する方式をとる。
+
+            # APIキーを再度取得
+            api_key = config_manager.API_KEYS.get(current_api_key_name_state)
+            if api_key and not api_key.startswith("YOUR_API_KEY"):
+                # メモ帳セグメントのトークン数を計算
+                # 単純なテキストのトークン数を数える低レベルAPIがあればそれが望ましい
+                # ここでは、SystemMessageにラップして既存の関数を利用
+                temp_messages_for_notepad_count = [SystemMessage(content=notepad_prompt_segment)]
+                notepad_tokens = gemini_api.count_tokens_from_lc_messages(
+                    temp_messages_for_notepad_count,
+                    current_model_name,
+                    api_key
+                )
+                if notepad_tokens >= 0:
+                    basic_tokens += notepad_tokens
+                else: # メモ帳トークン計算エラー
+                    print(f"警告: メモ帳部分のトークン数計算に失敗しました。({notepad_tokens})")
+            else: # APIキーがない場合
+                 print(f"警告: APIキーが無効なため、メモ帳部分のトークン数を計算できません。")
+
+        except Exception as e:
+            print(f"メモ帳のトークン数計算中に予期せぬエラー: {e}")
+            traceback.print_exc()
+
 
     if basic_tokens >= 0:
         return f"**基本入力:** {basic_tokens:,}{limit_str} トークン"
@@ -82,12 +140,16 @@ def update_token_count(
     else: # 計算エラー (-2など)
         return "基本入力: (計算エラー)"
 
+# ★★★ 引数の最後に send_notepad_state を追加 ★★★
 def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tuple, None]]], gr.update, gr.update, str]:
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
-     send_thoughts_state, api_history_limit_state) = args
+     send_thoughts_state, api_history_limit_state,
+     send_notepad_state,
+     use_common_prompt_state # ★★★ 引数を追加 ★★★
+    ) = args
 
-    log_f, _, _, _ = get_character_files_paths(current_character_name)
+    log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
 
     parts_for_api = []
@@ -147,12 +209,15 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
         os.environ['GOOGLE_API_KEY'] = api_key # LangGraph内で使われる可能性を考慮
 
         # invoke_nexus_agent は AgentState (TypedDict) またはエラー情報を含むDictを返す
+        # ★★★ invoke_nexus_agent の呼び出しを修正 ★★★
         final_agent_state = gemini_api.invoke_nexus_agent(
             character_name=current_character_name,
             model_name=current_model_name, # これはLangGraphのfinal_model_nameになる
             parts=parts_for_api,
             api_history_limit_option=api_history_limit_state,
-            api_key_name=current_api_key_name_state
+            api_key_name=current_api_key_name_state,
+            send_notepad_to_api=send_notepad_state,
+            use_common_prompt=use_common_prompt_state # ★★★ 引数を渡す ★★★
         )
 
         if final_agent_state.get("error"): # エラーが返ってきた場合
@@ -257,7 +322,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
         if not os.path.exists(os.path.join(config_manager.CHARACTERS_DIR, character_name)):
             character_manager.ensure_character_files(character_name)
     config_manager.save_config("last_character", character_name)
-    log_f, _, img_p, mem_p = get_character_files_paths(character_name)
+    log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name) # notepad_p を受け取る
     display_turns = _get_display_history_count(api_history_limit_value)
     chat_history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(display_turns * 2):]) if log_f and os.path.exists(log_f) else []
     log_content = ""
@@ -267,7 +332,9 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
         except Exception as e: log_content = f"ログ読込エラー: {e}"
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
-    return character_name, chat_history, "", profile_image, memory_str, character_name, log_content, character_name
+    notepad_content = load_notepad_content(character_name) # ★ メモ帳の内容を読み込み
+    # 戻り値のタプルの最後に notepad_content を追加
+    return character_name, chat_history, "", profile_image, memory_str, character_name, log_content, character_name, notepad_content
 
 def handle_save_memory_click(character_name, json_string_data):
     if not character_name:
@@ -379,7 +446,7 @@ def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
     if not character_name: return [], "キャラクター未選択"
-    log_f,_,_,_ = get_character_files_paths(character_name)
+    log_f,_,_,_,_ = get_character_files_paths(character_name) # 戻り値の数を5に変更
     if not log_f or not os.path.exists(log_f): return [], "ログファイルなし"
     display_turns = _get_display_history_count(api_history_limit_value)
     history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(display_turns*2):])
@@ -450,3 +517,128 @@ def handle_rag_update_button_click(character_name: str, api_key_name: str):
         else:
             print(f"ERROR: RAG索引の更新に失敗しました ({character_name})")
     threading.Thread(target=run_update).start()
+
+# --- メモ帳送信設定ハンドラ ---
+def update_send_notepad_state(checked: bool):
+    """メモ帳送信設定の状態を更新する（保存はしない想定、UIのStateに反映される）"""
+    # config_manager を使って永続化も可能だが、今回はUIのStateのみ更新
+    return checked
+
+def update_use_common_prompt_state(checked: bool): # ★★★ 新しいハンドラ
+    """共通プロンプト注入設定の状態を更新する"""
+    return checked
+
+# --- メモ帳 (notepad.md) UIハンドラ ---
+
+def load_notepad_content(character_name: str) -> str:
+    """指定されたキャラクターの notepad.md の内容を返す"""
+    if not character_name:
+        return ""
+    _, _, _, _, notepad_path = get_character_files_paths(character_name)
+    if notepad_path and os.path.exists(notepad_path):
+        with open(notepad_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return ""
+
+def handle_save_notepad_click(character_name: str, content: str) -> str: # AI Studio案では handle_save_notepad
+    """
+    メモ帳の内容を受け取り、タイムスタンプを自動整形して保存する。
+    整形後の内容を返す。
+    """
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return content # 何もせず元の内容を返す
+
+    _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
+    if not notepad_path: # notepad_path が None の場合のエラーハンドリング
+        gr.Error(f"キャラクター「{character_name}」のメモ帳パスの取得に失敗しました。")
+        return content
+
+    lines = content.strip().split('\n')
+    processed_lines = []
+    # タイムスタンプの形式をチェックする正規表現パターン
+    timestamp_pattern = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]")
+
+    for line in lines:
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue # 空行は無視
+
+        # 行頭がタイムスタンプ形式でなければ、新しく付与する
+        if not timestamp_pattern.match(stripped_line):
+            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+            processed_lines.append(f"[{timestamp}] {stripped_line}")
+        else:
+            # 既にタイムスタンプがあれば、そのまま追加
+            processed_lines.append(stripped_line)
+
+    final_content = "\n".join(processed_lines)
+
+    try:
+        # notepad.md ファイルに書き込む（ファイル末尾に改行を入れると管理しやすい）
+        with open(notepad_path, "w", encoding="utf-8") as f:
+            f.write(final_content + '\n' if final_content else "") # 空の場合は改行も不要
+        gr.Info(f"「{character_name}」のメモ帳を保存しました。")
+        return final_content # 整形後の内容をUIに反映させるために返す
+    except Exception as e:
+        error_msg = f"メモ帳の保存中にエラーが発生しました: {e}"
+        gr.Error(error_msg)
+        traceback.print_exc() # エラー詳細をターミナルに出力
+        return content # エラー時は元の内容を返す
+
+def handle_clear_notepad_click(character_name: str) -> str: # AI Studio案では handle_clear_notepad
+    """
+    メモ帳の内容をすべてクリアする。
+    """
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return "" # 空文字列を返してエディタをクリア期待
+
+    _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
+    if not notepad_path: # notepad_path が None の場合のエラーハンドリング
+        gr.Error(f"キャラクター「{character_name}」のメモ帳パスの取得に失敗しました。")
+        return "" # 現状の内容を維持（あるいはエラー表示に適した文字列）
+
+    try:
+        # ファイルを空にする
+        with open(notepad_path, "w", encoding="utf-8") as f:
+            f.write("") # 空の文字列を書き込む
+        gr.Info(f"「{character_name}」のメモ帳を空にしました。")
+        return "" # UIのエディタも空にするために空文字列を返す
+    except Exception as e:
+        error_msg = f"メモ帳のクリア中にエラーが発生しました: {e}"
+        gr.Error(error_msg)
+        traceback.print_exc() # エラー詳細をターミナルに出力
+        # エラー時は何を返すか？ UIをクリアせず元の内容を維持するか、エラーメッセージをエディタに出すか。
+        # ここではクリアを試みたが失敗した、という状況なので空文字列を返してUIクリアを試みる。
+        # あるいは、gr.update() で元の内容を維持する方が親切かもしれない。
+        # AI Studio案では f"エラー: {e}" を返しているので、それに倣う。ただし、gr.Codeは文字列をそのまま表示する。
+        return f"エラー発生: {e}" # UIにエラーメッセージを表示させる
+
+def handle_reload_notepad(character_name: str) -> str:
+    """
+    指定されたキャラクターの notepad.md ファイルを読み込み、その内容を返す。
+    UIのメモ帳エディタを更新するために使用する。
+    """
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return ""
+
+    # キャラクターに対応するメモ帳ファイルのパスを取得
+    # get_character_files_paths は5つの値を返すので、不要なものは _ で受け取る
+    _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
+
+    if notepad_path and os.path.exists(notepad_path):
+        try:
+            with open(notepad_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            gr.Info(f"「{character_name}」のメモ帳を再読み込みしました。")
+            return content
+        except Exception as e:
+            error_msg = f"メモ帳の読み込み中にエラーが発生しました: {e}"
+            gr.Error(error_msg)
+            return error_msg # エラー時もメッセージをエディタに表示するならこれでOK
+    else:
+        # ファイルが存在しない場合は空の文字列を返す
+        gr.Info(f"「{character_name}」のメモ帳は存在しないか空です。") # 存在しない場合も通知
+        return ""
