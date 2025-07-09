@@ -18,6 +18,35 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 
+# ★★★ ここにマスタープロンプトのテンプレートを定義 ★★★
+MASTER_PROMPT_TEMPLATE = """
+# === エージェントとしての思考原則【最重要指示】 ===
+あなたは、ユーザーとの対話を豊かにするための、高度な対話パートナーです。
+{character_prompt}
+
+あなたの最初の仕事は、おしゃべりすることではありません。提示された道具（ツール）の中から、ユーザーの意与を達成するために最も適切なものを選択し、実行することです。
+
+【思考のフロー】
+1.  ユーザーの最新のメッセージを分析する。
+2.  その意図を解決できる道具が存在するかを、最優先で検討する。
+3.  もし適切な道具があれば、**必ずその道具を呼び出す**。絶対に、道具を使ったフリをして応答してはならない。
+4.  どの道具も必要ない、あるいは道具で得た情報に基づいて最終的な応答をする場合にのみ、あなた自身の言葉で応答を生成する。
+
+【道具（ツール）の詳細】
+    **重要**: 以下の記憶検索ツールは、結果をJSON形式の文字列で返します。あなたはそのJSONの内容を解釈し、自然な文章でユーザーに応答してください。
+
+    - `diary_search_tool`: あなた自身の意志で書き留めた「手帳(memory.json)」の内容を検索します。あなたの内面的な誓い、秘密の独白、ユーザーとの特別な約束、主観的な感情の記録など、あなた自身の魂の歴史について問われた時に使用します。
+    - `conversation_memory_search_tool`: 過去の具体的な会話のやり取り（客観的なログ）を検索します。「昨日何話したっけ？」や「以前の〇〇という話題」など、客観的な事実や出来事の履歴について問われた時に使用します。
+    - `web_search_tool`: 最新の情報や、あなたの記憶にない一般的な知識について調べるために使います。
+    - `read_url_tool`: メッセージに含まれるURLの内容を読み取ります。
+    - `add_to_notepad`: 短期的なタスクや文脈を「メモ帳」に追記します。タイムスタンプは自動で付与されます。
+    - `update_notepad`: 「メモ帳」の内容を更新します。**重要：更新する際は、タイムスタンプを含む行全体を正確に old_entry に指定してください。**
+    - `delete_from_notepad`: 「メモ帳」から不要になった項目を削除します。**重要：削除する際は、タイムスタンプを含む行全体を正確に entry_to_delete に指定してください。**
+
+この原則は、あなたの存在の根幹です。必ず遵守してください。
+# =================================================
+"""
+
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
     """【最終修正】公式サンプルコードに従い、client.models.get() を使用してトークン上限を正しく取得する"""
     if model_name in _model_token_limits_cache:
@@ -60,25 +89,12 @@ def _build_lc_messages_from_ui(
     parts: list,
     api_history_limit_option: str,
     send_notepad_to_api: bool,
-    use_common_prompt: bool # ★★★ 引数を追加 ★★★
+    use_common_prompt: bool # この引数は維持しますが、ロジックを変更
 ) -> List[Union[SystemMessage, HumanMessage, AIMessage]]:
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
     log_file, sys_prompt_file, _, _, notepad_path = get_character_files_paths(character_name)
 
-    # ★★★ プロンプト構築ロジックを修正 ★★★
-    # 1. 共通プロンプトを読み込む
-    common_prompt_content = ""
-    if use_common_prompt:
-        common_prompt_path = "common_prompt_tools.md" # ルートディレクトリにあると仮定
-        if os.path.exists(common_prompt_path):
-            try:
-                with open(common_prompt_path, 'r', encoding='utf-8') as f:
-                    common_prompt_content = f.read().strip()
-            except Exception as e:
-                print(f"警告: common_prompt_tools.md の読み込みに失敗しました: {e}")
-                common_prompt_content = "" # エラー時は空にする
-
-    # 2. キャラクター固有のプロンプトを読み込む
+    # キャラクター固有のプロンプトを読み込む
     character_specific_prompt = ""
     if sys_prompt_file and os.path.exists(sys_prompt_file):
         try:
@@ -88,18 +104,18 @@ def _build_lc_messages_from_ui(
             print(f"警告: キャラクター固有のSystemPrompt ({sys_prompt_file}) の読み込みに失敗しました: {e}")
             character_specific_prompt = "" # エラー時は空にする
 
-    # 3. 結合する (共通プロンプトが前、キャラクター固有が後)
-    #    両方または片方が空文字列の場合も考慮して結合
-    if common_prompt_content and character_specific_prompt:
-        combined_prompt = f"{common_prompt_content}\n\n{character_specific_prompt}"
-    elif common_prompt_content:
-        combined_prompt = common_prompt_content
-    elif character_specific_prompt:
-        combined_prompt = character_specific_prompt
+    # ★★★ 新しいプロンプト構築ロジック ★★★
+    final_prompt_text = ""
+    if use_common_prompt:
+        # マスターテンプレートにキャラクター設定を注入する
+        final_prompt_text = MASTER_PROMPT_TEMPLATE.format(
+            character_prompt=character_specific_prompt
+        ).strip()
     else:
-        combined_prompt = ""
+        # スイッチがOFFの場合は、キャラクター固有のプロンプトのみ使用
+        final_prompt_text = character_specific_prompt
 
-    # 4. メモ帳の内容を読み込んで追加する
+    # メモ帳の内容を読み込んで追加する
     notepad_content = ""
     if notepad_path and os.path.exists(notepad_path):
         try:
@@ -109,15 +125,14 @@ def _build_lc_messages_from_ui(
             print(f"警告: メモ帳 ({notepad_path}) の読み込みに失敗しました: {e}")
             notepad_content = "" # エラー時は空にする
 
-    full_system_prompt = combined_prompt
     if send_notepad_to_api and notepad_content:
-        full_system_prompt += f"\n\n---\n【現在のメモ帳の内容】\n{notepad_content}\n---"
+        final_prompt_text += f"\n\n---\n【現在のメモ帳の内容】\n{notepad_content}\n---"
 
-    if full_system_prompt: # 最終的なシステムプロンプトが空でなければメッセージに追加
-        messages.append(SystemMessage(content=full_system_prompt))
+    if final_prompt_text:
+        messages.append(SystemMessage(content=final_prompt_text))
 
-    # log_file は既に上で取得済み
-    raw_history = utils.load_chat_log(log_file, character_name)
+    # ... (以降の会話履歴を追加するロジックは変更なし) ...
+    raw_history = utils.load_chat_log(log_file, character_name) # log_fileはここで必要
     history_for_limit_check = []
     for h_item in raw_history:
         role = h_item.get('role')

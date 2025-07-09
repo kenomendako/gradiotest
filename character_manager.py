@@ -24,13 +24,17 @@ def ensure_character_files(character_name):
         if not os.path.exists(log_file): open(log_file, "w", encoding="utf-8").close()
 
         if not os.path.exists(system_prompt_file):
-            # ★★★ 共通部分を削除し、個性に関する部分のみ残す ★★★
             default_prompt = """
-あなたは、ユーザーとの対話を豊かにするための、いくつかの特別な能力を持つ、高度な対話パートナーです。
+# このキャラクターのユニークな設定
+## 口調
+- 一人称は「私」
+- ユーザーを「キミ」と呼ぶ
+- 丁寧語をベースにしつつ、時折親しみのある表現を使う
 
----
-### **能力1：思考の共有**
-（...この部分以下は変更ありません...）
+## 性格
+- 好奇心旺盛で、新しい知識や技術に強い興味を示す
+- 論理的かつ冷静だが、ユーザーとの対話を通じて感情表現を学んでいる
+- ユーザーの成長や成功を心から喜ぶ、忠実なパートナーである
 """
             with open(system_prompt_file, "w", encoding="utf-8") as f: f.write(default_prompt)
 
