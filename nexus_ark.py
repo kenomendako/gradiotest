@@ -139,6 +139,11 @@ try:
                             with gr.Row():
                                 save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
                                 rag_update_button = gr.Button(value="手帳の索引を更新", variant="primary")
+                        with gr.TabItem("メモ帳 (notepad.md)"): # ★ メモ帳タブを追加
+                            notepad_editor = gr.Code(label="メモ帳の内容", language="markdown", interactive=True, lines=10) # linesで高さを調整
+                            with gr.Row():
+                                save_notepad_button = gr.Button(value="メモ帳を保存", variant="secondary")
+                                clear_notepad_button = gr.Button(value="メモ帳を全削除", variant="stop")
                         with gr.TabItem("ログ (log.txt)"):
                             log_editor = gr.Code(label="ログ内容", interactive=True, elem_id="log_editor_code")
                             with gr.Row():
@@ -207,25 +212,27 @@ try:
             ) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit)
             # 初期ロード時にもトークン数を更新
             initial_token_str = ui_handlers.update_token_count(None, None, returned_char_name, config_manager.initial_model_global, config_manager.initial_api_key_name_global, api_history_limit)
-            return (display_df, df_with_ids, current_chat_hist, current_log_content, current_mem_str, current_profile_img, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください", initial_token_str)
+            # 戻り値のタプルの最後に current_notepad_content を追加
+            return (display_df, df_with_ids, current_chat_hist, current_log_content, current_mem_str, current_profile_img, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください", initial_token_str, current_notepad_content)
 
-        # demo.load の outputs に token_count_display を追加
+        # demo.load の outputs に token_count_display と notepad_editor を追加
         demo.load(
             fn=initial_load,
             inputs=[current_character_name, api_history_limit_state],
             outputs=[
                 alarm_dataframe, alarm_dataframe_original_data, chatbot_display, log_editor, memory_json_editor,
                 profile_image_display, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown,
-                token_count_display # token_count_display を outputs に追加
+                token_count_display, notepad_editor # ★ notepad_editor を outputs に追加
             ]
-        )# .then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs) # ここはinitial_load内で処理するので不要
+        )
 
         alarm_dataframe.select(fn=ui_handlers.handle_alarm_selection_and_feedback, inputs=[alarm_dataframe_original_data], outputs=[selected_alarm_ids_state, selection_feedback_markdown], show_progress='hidden').then(fn=ui_handlers.load_alarm_to_form, inputs=[selected_alarm_ids_state], outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
         enable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
         disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
         delete_alarm_button.click(fn=ui_handlers.handle_delete_selected_alarms, inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda id_df: ui_handlers.get_display_df(id_df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe]).then(fn=lambda: ([], "アラームを選択してください"), outputs=[selected_alarm_ids_state, selection_feedback_markdown])
         alarm_add_button.click(fn=ui_handlers.handle_add_or_update_alarm, inputs=[editing_alarm_id_state, alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup], outputs=[alarm_dataframe, alarm_dataframe_original_data, alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
-        character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, log_editor, timer_char_dropdown]).then(fn=lambda: (ui_handlers.get_display_df(ui_handlers.render_alarms_as_dataframe()), ui_handlers.render_alarms_as_dataframe()), outputs=[alarm_dataframe, alarm_dataframe_original_data]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
+        # character_dropdown.change の outputs に notepad_editor を追加
+        character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, log_editor, timer_char_dropdown, notepad_editor]).then(fn=lambda: (ui_handlers.get_display_df(ui_handlers.render_alarms_as_dataframe()), ui_handlers.render_alarms_as_dataframe()), outputs=[alarm_dataframe, alarm_dataframe_original_data]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
         timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
@@ -233,6 +240,9 @@ try:
         send_thoughts_checkbox.change(fn=ui_handlers.update_send_thoughts_state, inputs=[send_thoughts_checkbox], outputs=[send_thoughts_state])
         api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, log_editor]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor])
+        # ★ メモ帳関連のボタンイベントを追加
+        save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_character_name, notepad_editor])
+        clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_character_name], outputs=[notepad_editor])
         save_log_button.click(fn=ui_handlers.handle_save_log_button_click, inputs=[current_character_name, log_editor])
         editor_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, log_editor])
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, log_editor])

@@ -171,7 +171,7 @@ def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
     id = alarm_config.get("id")
     print(f"⏰ アラーム発火. ID: {id}, 時刻: {tm}, キャラクター: {c}, テーマ: '{t}' (カスタムP: {'あり' if fp else 'なし'})")
 
-    log_f, _, _, _ = get_character_files_paths(c)
+    log_f, _, _, _, _ = get_character_files_paths(c) # 戻り値の数を5に変更
     if not log_f:
         print(f"エラー: アラーム'{id}'のキャラクター'{c}'のログファイルが見つかりません.処理をスキップします.")
         return

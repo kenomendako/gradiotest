@@ -5,6 +5,8 @@ import json
 import traceback
 from config_manager import CHARACTERS_DIR, PROFILE_IMAGE_FILENAME, MEMORY_FILENAME
 
+NOTEPAD_FILENAME = "notepad.md" # ★ 定義を追加
+
 def ensure_character_files(character_name):
     if not character_name or not isinstance(character_name, str) or not character_name.strip(): return False
     # ★★★ この一行が、絶対に正しい構文です ★★★
@@ -16,6 +18,8 @@ def ensure_character_files(character_name):
         log_file = os.path.join(base_path, "log.txt")
         system_prompt_file = os.path.join(base_path, "SystemPrompt.txt")
         memory_json_file = os.path.join(base_path, MEMORY_FILENAME)
+        notepad_file = os.path.join(base_path, NOTEPAD_FILENAME) # ★ notepad.md のパスを定義
+
         if not os.path.exists(base_path): os.makedirs(base_path)
         if not os.path.exists(log_file): open(log_file, "w", encoding="utf-8").close()
 
@@ -37,6 +41,10 @@ def ensure_character_files(character_name):
 
     - `diary_search_tool`: あなた自身の意志で書き留めた「手帳(memory.json)」の内容を検索します。あなたの内面的な誓い、秘密の独白、ユーザーとの特別な約束、主観的な感情の記録など、あなた自身の魂の歴史について問われた時に使用します。
     - `conversation_memory_search_tool`: 過去の具体的な会話のやり取り（客観的なログ）を検索します。「昨日何話したっけ？」や「以前の〇〇という話題」など、客観的な事実や出来事の履歴について問われた時に使用します。
+    - `add_to_notepad`: 短期的なタスクやユーザーからの指示、覚えておくべき重要な情報を「メモ帳」に一行追記します。既存のメモは消さずに、新しい情報を末尾に追加します。
+    - `update_notepad`: 「メモ帳」の既存の項目を更新します。どの項目をどのように更新するか、明確に指示があった場合に使用します。古い項目と新しい項目の両方を指定する必要があります。
+    - `delete_from_notepad`: 「メモ帳」から不要になった項目や完了したタスクを削除します。どの項目を削除するか明確に指示があった場合に使用します。
+    - `read_full_notepad`: 「メモ帳」の現在の全内容を確認し、ユーザーに伝える必要がある場合に使用します。（注意：メモ帳の内容は常にあなたに提供されています。このツールは主にユーザーへの内容開示用です。）
     # ★★★ 修正ここまで ★★★
     - `web_search_tool`: 最新の情報や、あなたの記憶にない一般的な知識について調べるために使います。
     - `read_url_tool`: メッセージに含まれるURLの内容を読み取ります。
@@ -58,6 +66,10 @@ def ensure_character_files(character_name):
             try:
                 with open(memory_json_file, "w", encoding="utf-8") as f: json.dump(default_memory_data, f, indent=2, ensure_ascii=False)
             except Exception as e: print(f"エラー: 記憶ファイル '{memory_json_file}' 初期データ書込失敗: {e}"); return False
+
+        if not os.path.exists(notepad_file): # ★ notepad.md の存在確認と作成
+            open(notepad_file, "w", encoding="utf-8").close()
+
         return True
     except Exception as e: print(f"キャラクター '{character_name}' ファイル作成/確認エラー: {e}"); traceback.print_exc(); return False
 
@@ -81,17 +93,20 @@ def get_character_list():
     except Exception as e: print(f"キャラリスト取得エラー: {e}"); traceback.print_exc(); return []
 
 def get_character_files_paths(character_name):
-    if not character_name or not ensure_character_files(character_name): return None, None, None, None
+    # ensure_character_files の呼び出しは、ファイルが存在することを保証するため、かつ notepad.md も作成されるようにするため重要。
+    if not character_name or not ensure_character_files(character_name):
+        return None, None, None, None, None # 戻り値の数を5に
     base_path = os.path.join(CHARACTERS_DIR, character_name)
     log_file = os.path.join(base_path, "log.txt")
     system_prompt_file = os.path.join(base_path, "SystemPrompt.txt")
     profile_image_path = os.path.join(base_path, PROFILE_IMAGE_FILENAME)
     memory_json_path = os.path.join(base_path, MEMORY_FILENAME)
+    notepad_path = os.path.join(base_path, NOTEPAD_FILENAME) # ★ notepad.md のパスを定義
     if not os.path.exists(profile_image_path): profile_image_path = None
-    return log_file, system_prompt_file, profile_image_path, memory_json_path
+    return log_file, system_prompt_file, profile_image_path, memory_json_path, notepad_path # ★ 戻り値に追加
 
 def log_to_character(character_name, message):
-    log_file, _, _, _ = get_character_files_paths(character_name)
+    log_file, _, _, _, _ = get_character_files_paths(character_name) # ★ 戻り値の数変更に対応
     if not log_file:
         print(f"エラー: キャラクター '{character_name}' のログファイルが見つかりません。")
         return False

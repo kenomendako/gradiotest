@@ -87,7 +87,7 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state) = args
 
-    log_f, _, _, _ = get_character_files_paths(current_character_name)
+    log_f, _, _, _, _ = get_character_files_paths(current_character_name) # 戻り値の数を5に変更
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
 
     parts_for_api = []
@@ -257,7 +257,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
         if not os.path.exists(os.path.join(config_manager.CHARACTERS_DIR, character_name)):
             character_manager.ensure_character_files(character_name)
     config_manager.save_config("last_character", character_name)
-    log_f, _, img_p, mem_p = get_character_files_paths(character_name)
+    log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name) # notepad_p を受け取る
     display_turns = _get_display_history_count(api_history_limit_value)
     chat_history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(display_turns * 2):]) if log_f and os.path.exists(log_f) else []
     log_content = ""
@@ -267,7 +267,9 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
         except Exception as e: log_content = f"ログ読込エラー: {e}"
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
-    return character_name, chat_history, "", profile_image, memory_str, character_name, log_content, character_name
+    notepad_content = load_notepad_content(character_name) # ★ メモ帳の内容を読み込み
+    # 戻り値のタプルの最後に notepad_content を追加
+    return character_name, chat_history, "", profile_image, memory_str, character_name, log_content, character_name, notepad_content
 
 def handle_save_memory_click(character_name, json_string_data):
     if not character_name:
@@ -379,7 +381,7 @@ def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
     if not character_name: return [], "キャラクター未選択"
-    log_f,_,_,_ = get_character_files_paths(character_name)
+    log_f,_,_,_,_ = get_character_files_paths(character_name) # 戻り値の数を5に変更
     if not log_f or not os.path.exists(log_f): return [], "ログファイルなし"
     display_turns = _get_display_history_count(api_history_limit_value)
     history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(display_turns*2):])
@@ -450,3 +452,50 @@ def handle_rag_update_button_click(character_name: str, api_key_name: str):
         else:
             print(f"ERROR: RAG索引の更新に失敗しました ({character_name})")
     threading.Thread(target=run_update).start()
+
+
+# --- メモ帳 (notepad.md) UIハンドラ ---
+
+def load_notepad_content(character_name: str) -> str:
+    """指定されたキャラクターの notepad.md の内容を返す"""
+    if not character_name:
+        return ""
+    _, _, _, _, notepad_path = get_character_files_paths(character_name)
+    if notepad_path and os.path.exists(notepad_path):
+        with open(notepad_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return ""
+
+def handle_save_notepad_click(character_name: str, notepad_content: str):
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return
+    _, _, _, _, notepad_path = get_character_files_paths(character_name)
+    if not notepad_path:
+        gr.Error(f"キャラクター「{character_name}」のメモ帳パスが見つかりません。")
+        return
+    try:
+        with open(notepad_path, "w", encoding="utf-8") as f:
+            f.write(notepad_content)
+        gr.Info("メモ帳を保存しました。")
+    except Exception as e:
+        gr.Error(f"メモ帳の保存中にエラーが発生しました: {e}")
+        traceback.print_exc()
+
+def handle_clear_notepad_click(character_name: str) -> gr.update:
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return gr.update() # エディタ内容は変更しない
+    _, _, _, _, notepad_path = get_character_files_paths(character_name)
+    if not notepad_path:
+        gr.Error(f"キャラクター「{character_name}」のメモ帳パスが見つかりません。")
+        return gr.update()
+    try:
+        with open(notepad_path, "w", encoding="utf-8") as f:
+            f.write("") # 空の文字列を書き込む
+        gr.Info("メモ帳の内容を全削除しました。")
+        return gr.update(value="") # エディタを空にする
+    except Exception as e:
+        gr.Error(f"メモ帳のクリア中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return gr.update()
