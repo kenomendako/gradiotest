@@ -200,21 +200,24 @@ try:
                 allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
                 file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
                 gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
-# ★★★ トークン計算の入力リストに send_notepad_state を追加 ★★★
-token_calc_inputs = [
-    chat_input_textbox,
-    file_upload_button,
-    current_character_name,
-    current_model_name,
-    current_api_key_name_state,
-    api_history_limit_state,
-    send_notepad_state # ★★★ ここに追加 ★★★
-]
+
+        # ★★★ トークン計算関連の定義を with gr.Blocks の内側に移動 ★★★
+        token_calc_inputs = [
+            chat_input_textbox,
+            file_upload_button,
+            current_character_name,
+            current_model_name,
+            current_api_key_name_state,
+            api_history_limit_state,
+            send_notepad_state
+        ]
         token_calc_outputs = token_count_display
-def setup_token_update_events(): # この関数内の呼び出しは token_calc_inputs を使うので自動で対応
+
+        def setup_token_update_events():
             chat_input_textbox.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs, show_progress=False)
             file_upload_button.upload(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             file_upload_button.clear(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
+
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
         def initial_load(char_name_to_load, api_history_limit):
             df_with_ids = ui_handlers.render_alarms_as_dataframe()
