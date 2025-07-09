@@ -59,32 +59,61 @@ def _build_lc_messages_from_ui(
     character_name: str,
     parts: list,
     api_history_limit_option: str,
-    send_notepad_to_api: bool # ★★★ この引数を追加 ★★★
+    send_notepad_to_api: bool,
+    use_common_prompt: bool # ★★★ 引数を追加 ★★★
 ) -> List[Union[SystemMessage, HumanMessage, AIMessage]]:
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
-    log_file, sys_prompt_file, _, _, notepad_path = get_character_files_paths(character_name) # notepad_path を取得
+    log_file, sys_prompt_file, _, _, notepad_path = get_character_files_paths(character_name)
 
-    # メモ帳の内容を読み込む
+    # ★★★ プロンプト構築ロジックを修正 ★★★
+    # 1. 共通プロンプトを読み込む
+    common_prompt_content = ""
+    if use_common_prompt:
+        common_prompt_path = "common_prompt_tools.md" # ルートディレクトリにあると仮定
+        if os.path.exists(common_prompt_path):
+            try:
+                with open(common_prompt_path, 'r', encoding='utf-8') as f:
+                    common_prompt_content = f.read().strip()
+            except Exception as e:
+                print(f"警告: common_prompt_tools.md の読み込みに失敗しました: {e}")
+                common_prompt_content = "" # エラー時は空にする
+
+    # 2. キャラクター固有のプロンプトを読み込む
+    character_specific_prompt = ""
+    if sys_prompt_file and os.path.exists(sys_prompt_file):
+        try:
+            with open(sys_prompt_file, 'r', encoding='utf-8') as f:
+                character_specific_prompt = f.read().strip()
+        except Exception as e:
+            print(f"警告: キャラクター固有のSystemPrompt ({sys_prompt_file}) の読み込みに失敗しました: {e}")
+            character_specific_prompt = "" # エラー時は空にする
+
+    # 3. 結合する (共通プロンプトが前、キャラクター固有が後)
+    #    両方または片方が空文字列の場合も考慮して結合
+    if common_prompt_content and character_specific_prompt:
+        combined_prompt = f"{common_prompt_content}\n\n{character_specific_prompt}"
+    elif common_prompt_content:
+        combined_prompt = common_prompt_content
+    elif character_specific_prompt:
+        combined_prompt = character_specific_prompt
+    else:
+        combined_prompt = ""
+
+    # 4. メモ帳の内容を読み込んで追加する
     notepad_content = ""
-    if notepad_path and os.path.exists(notepad_path): # notepad_path が None でないことも確認
-        with open(notepad_path, 'r', encoding='utf-8') as f:
-            notepad_content = f.read().strip()
+    if notepad_path and os.path.exists(notepad_path):
+        try:
+            with open(notepad_path, 'r', encoding='utf-8') as f:
+                notepad_content = f.read().strip()
+        except Exception as e:
+            print(f"警告: メモ帳 ({notepad_path}) の読み込みに失敗しました: {e}")
+            notepad_content = "" # エラー時は空にする
 
-    # システムプロンプトを読み込む
-    system_prompt_content = ""
-    if sys_prompt_file and os.path.exists(sys_prompt_file): # sys_prompt_file が None でないことも確認
-        with open(sys_prompt_file, 'r', encoding='utf-8') as f:
-            system_prompt_content = f.read().strip()
-
-    full_system_prompt = system_prompt_content
-
-    # ★★★ ここからが修正箇所 ★★★
-    # スイッチがONの場合のみ、メモ帳の内容を結合する
-    if send_notepad_to_api and notepad_content: # notepad_content が空でないことも確認
+    full_system_prompt = combined_prompt
+    if send_notepad_to_api and notepad_content:
         full_system_prompt += f"\n\n---\n【現在のメモ帳の内容】\n{notepad_content}\n---"
-    # ★★★ 修正ここまで ★★★
 
-    if full_system_prompt: # full_system_prompt が空でない場合のみ追加
+    if full_system_prompt: # 最終的なシステムプロンプトが空でなければメッセージに追加
         messages.append(SystemMessage(content=full_system_prompt))
 
     # log_file は既に上で取得済み
@@ -184,14 +213,15 @@ def count_input_tokens(
     parts: list,
     api_history_limit_option: str,
     api_key_name: str,
-    send_notepad_to_api: bool # ★★★ この引数を追加 ★★★
+    send_notepad_to_api: bool,
+    use_common_prompt: bool # ★★★ 引数を追加 ★★★
 ) -> int:
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        return -1 # APIキーが無効なら-1（エラーを示す特別な値）
+        return -1
     try:
-        # ★★★ 呼び出し時に引数を渡す ★★★
-        lc_messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option, send_notepad_to_api)
+        # ★★★ 呼び出し時に use_common_prompt も渡す ★★★
+        lc_messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option, send_notepad_to_api, use_common_prompt)
         return count_tokens_from_lc_messages(lc_messages, model_name, api_key)
     except Exception as e:
         print(f"トークン計算エラー (model: {model_name}, char: {character_name}): {e}")
@@ -205,14 +235,15 @@ def invoke_nexus_agent(
     parts: list,
     api_history_limit_option: str,
     api_key_name: str,
-    send_notepad_to_api: bool # ★★★ この引数を追加 ★★★
+    send_notepad_to_api: bool,
+    use_common_prompt: bool # ★★★ 引数を追加 ★★★
 ):
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return {"error": f"APIキー '{api_key_name}' が有効ではありません。"}
     try:
-        # ★★★ 呼び出し時に引数を渡す ★★★
-        messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option, send_notepad_to_api)
+        # ★★★ 呼び出し時に use_common_prompt も渡す ★★★
+        messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option, send_notepad_to_api, use_common_prompt)
         initial_state = {
             "messages": messages,
             "character_name": character_name,

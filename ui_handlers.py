@@ -37,7 +37,8 @@ def update_token_count(
     current_api_key_name_state: str,
     api_history_limit_state: str,
     send_notepad_state: bool,
-    notepad_editor_content: str # ★★★ この引数を追加 ★★★
+    notepad_editor_content: str,
+    use_common_prompt_state: bool # ★★★ 引数を追加 ★★★
 ) -> str:
     """【改訂】基本入力トークン数を、モデルの上限と共に表示する"""
     if not all([current_character_name, current_model_name, current_api_key_name_state]):
@@ -76,10 +77,11 @@ def update_token_count(
     basic_tokens = gemini_api.count_input_tokens(
         character_name=current_character_name,
         model_name=current_model_name,
-        parts=parts_for_api, # これにはUIからのテキストとファイルのみが含まれる
+        parts=parts_for_api,
         api_history_limit_option=api_history_limit_state,
         api_key_name=current_api_key_name_state,
-        send_notepad_to_api=False # ★★★ ここでは一旦Falseにして、メモ帳分は別途計算 ★★★
+        send_notepad_to_api=False, # メモ帳は別途カウントするのでここではFalse
+        use_common_prompt=use_common_prompt_state # ★★★ 引数を渡す ★★★
     )
 
     # スイッチがONで、メモ帳に内容があり、基本トークン計算が成功している場合、そのトークン数を加算する
@@ -143,10 +145,11 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state,
-     send_notepad_state # ★★★ 引数を追加 ★★★
+     send_notepad_state,
+     use_common_prompt_state # ★★★ 引数を追加 ★★★
     ) = args
 
-    log_f, _, _, _, _ = get_character_files_paths(current_character_name) # 戻り値の数を5に変更
+    log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
 
     parts_for_api = []
@@ -213,7 +216,8 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
             parts=parts_for_api,
             api_history_limit_option=api_history_limit_state,
             api_key_name=current_api_key_name_state,
-            send_notepad_to_api=send_notepad_state # ★★★ 引数を渡す ★★★
+            send_notepad_to_api=send_notepad_state,
+            use_common_prompt=use_common_prompt_state # ★★★ 引数を渡す ★★★
         )
 
         if final_agent_state.get("error"): # エラーが返ってきた場合
@@ -518,6 +522,10 @@ def handle_rag_update_button_click(character_name: str, api_key_name: str):
 def update_send_notepad_state(checked: bool):
     """メモ帳送信設定の状態を更新する（保存はしない想定、UIのStateに反映される）"""
     # config_manager を使って永続化も可能だが、今回はUIのStateのみ更新
+    return checked
+
+def update_use_common_prompt_state(checked: bool): # ★★★ 新しいハンドラ
+    """共通プロンプト注入設定の状態を更新する"""
     return checked
 
 # --- メモ帳 (notepad.md) UIハンドラ ---

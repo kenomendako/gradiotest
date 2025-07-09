@@ -118,7 +118,8 @@ try:
         alarm_dataframe_original_data = gr.State(pd.DataFrame())
         selected_alarm_ids_state = gr.State([])
         editing_alarm_id_state = gr.State(None)
-        send_notepad_state = gr.State(True) # ★ デフォルトでON
+        send_notepad_state = gr.State(True)
+        use_common_prompt_state = gr.State(True) # ★ デフォルトでON
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
@@ -133,7 +134,8 @@ try:
                     api_history_limit_dropdown = gr.Dropdown(choices=list(config_manager.API_HISTORY_LIMIT_OPTIONS.values()), value=config_manager.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
                     add_timestamp_checkbox = gr.Checkbox(value=config_manager.initial_add_timestamp_global, label="メッセージにタイムスタンプを追加", interactive=True)
                     send_thoughts_checkbox = gr.Checkbox(value=config_manager.initial_send_thoughts_to_api_global, label="思考過程をAPIに送信", interactive=True)
-                    send_notepad_checkbox = gr.Checkbox(value=True, label="メモ帳の内容をAPIに送信", interactive=True) # ★ UI追加
+                    send_notepad_checkbox = gr.Checkbox(value=True, label="メモ帳の内容をAPIに送信", interactive=True)
+                    use_common_prompt_checkbox = gr.Checkbox(value=True, label="共通ツールプロンプトを注入", interactive=True) # ★ UI追加
                 with gr.Accordion("📗 記憶とログの編集", open=False):
                     with gr.Tabs():
                         with gr.TabItem("記憶 (memory.json)"):
@@ -210,7 +212,8 @@ try:
             current_api_key_name_state,
             api_history_limit_state,
     send_notepad_state,
-    notepad_editor # ★★★ ここに追加 ★★★
+    notepad_editor,
+    use_common_prompt_state # ★★★ ここに追加 ★★★
         ]
         token_calc_outputs = token_count_display
 
@@ -280,6 +283,16 @@ try:
             inputs=token_calc_inputs, # token_calc_inputs を使用
             outputs=token_calc_outputs
         )
+        # ★★★ use_common_prompt_checkbox のイベントを接続 ★★★
+        use_common_prompt_checkbox.change(
+            fn=ui_handlers.update_use_common_prompt_state,
+            inputs=[use_common_prompt_checkbox],
+            outputs=[use_common_prompt_state]
+        ).then(
+            fn=ui_handlers.update_token_count,
+            inputs=token_calc_inputs, # token_calc_inputs を使用 (自動で use_common_prompt_state を含む)
+            outputs=token_calc_outputs
+        )
         api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, log_editor]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs) # token_calc_inputs を使用
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor])
         # ★ メモ帳関連のボタンイベントを追加 (前回までの修正)
@@ -294,7 +307,8 @@ try:
             chat_input_textbox, chatbot_display, current_character_name, current_model_name,
             current_api_key_name_state, file_upload_button, add_timestamp_checkbox,
             send_thoughts_state, api_history_limit_state,
-            send_notepad_state # ★★★ ここに追加 ★★★
+            send_notepad_state,
+            use_common_prompt_state # ★★★ ここに追加 ★★★
         ]
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
