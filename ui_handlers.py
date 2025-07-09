@@ -499,3 +499,31 @@ def handle_clear_notepad_click(character_name: str) -> gr.update:
         gr.Error(f"メモ帳のクリア中にエラーが発生しました: {e}")
         traceback.print_exc()
         return gr.update()
+
+def handle_reload_notepad(character_name: str) -> str:
+    """
+    指定されたキャラクターの notepad.md ファイルを読み込み、その内容を返す。
+    UIのメモ帳エディタを更新するために使用する。
+    """
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return ""
+
+    # キャラクターに対応するメモ帳ファイルのパスを取得
+    # get_character_files_paths は5つの値を返すので、不要なものは _ で受け取る
+    _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
+
+    if notepad_path and os.path.exists(notepad_path):
+        try:
+            with open(notepad_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            gr.Info(f"「{character_name}」のメモ帳を再読み込みしました。")
+            return content
+        except Exception as e:
+            error_msg = f"メモ帳の読み込み中にエラーが発生しました: {e}"
+            gr.Error(error_msg)
+            return error_msg # エラー時もメッセージをエディタに表示するならこれでOK
+    else:
+        # ファイルが存在しない場合は空の文字列を返す
+        gr.Info(f"「{character_name}」のメモ帳は存在しないか空です。") # 存在しない場合も通知
+        return ""
