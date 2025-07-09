@@ -207,13 +207,20 @@ try:
         def initial_load(char_name_to_load, api_history_limit):
             df_with_ids = ui_handlers.render_alarms_as_dataframe()
             display_df = ui_handlers.get_display_df(df_with_ids)
+            # ▼▼▼ 修正箇所 ▼▼▼ (アンパックする変数の数を9個に)
             (returned_char_name, current_chat_hist, _, current_profile_img,
-             current_mem_str, alarm_dd_char_val, current_log_content, timer_dd_char_val
+             current_mem_str, alarm_dd_char_val, current_log_content, timer_dd_char_val,
+             current_notepad_content # 9番目の変数を追加
             ) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit)
-            # 初期ロード時にもトークン数を更新
+            # ▲▲▲ 修正ここまで ▲▲▲
             initial_token_str = ui_handlers.update_token_count(None, None, returned_char_name, config_manager.initial_model_global, config_manager.initial_api_key_name_global, api_history_limit)
-            # 戻り値のタプルの最後に current_notepad_content を追加
-            return (display_df, df_with_ids, current_chat_hist, current_log_content, current_mem_str, current_profile_img, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください", initial_token_str, current_notepad_content)
+            # ▼▼▼ 修正箇所 ▼▼▼ (returnするタプルの要素数を11個に)
+            return (display_df, df_with_ids, current_chat_hist, current_log_content,
+                    current_mem_str, current_profile_img, alarm_dd_char_val,
+                    timer_dd_char_val, "アラームを選択してください", initial_token_str,
+                    current_notepad_content # 11番目の戻り値として追加
+                   )
+            # ▲▲▲ 修正ここまで ▲▲▲
 
         # demo.load の outputs に token_count_display と notepad_editor を追加
         demo.load(
