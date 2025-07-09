@@ -230,13 +230,14 @@ try:
              current_notepad_content
             ) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit)
 
-            # ▼▼▼ 修正箇所 ▼▼▼ (update_token_count に current_send_notepad_state を渡す)
+            # ▼▼▼ 修正箇所 ▼▼▼
             initial_token_str = ui_handlers.update_token_count(
                 None, None, returned_char_name,
                 config_manager.initial_model_global,
                 config_manager.initial_api_key_name_global,
                 api_history_limit,
-                current_send_notepad_state # ★ 引数として渡す
+                current_send_notepad_state,
+                current_notepad_content # ★★★ 最後の引数として、読み込んだメモ帳の内容を追加 ★★★
             )
             # ▲▲▲ 修正ここまで ▲▲▲
 
