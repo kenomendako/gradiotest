@@ -225,7 +225,8 @@ try:
 
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
         # initial_load 関数の定義を修正
-        def initial_load(char_name_to_load, api_history_limit, current_send_notepad_state): # ★引数追加
+        # ★★★ 引数の最後に use_common_prompt_state を追加 ★★★
+        def initial_load(char_name_to_load, api_history_limit, current_send_notepad_state, use_common_prompt_state):
             df_with_ids = ui_handlers.render_alarms_as_dataframe()
             display_df = ui_handlers.get_display_df(df_with_ids)
             (returned_char_name, current_chat_hist, _, current_profile_img,
@@ -233,14 +234,15 @@ try:
              current_notepad_content
             ) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit)
 
-            # ▼▼▼ 修正箇所 ▼▼▼
+            # ▼▼▼ update_token_count の呼び出しを修正 ▼▼▼
             initial_token_str = ui_handlers.update_token_count(
                 None, None, returned_char_name,
                 config_manager.initial_model_global,
                 config_manager.initial_api_key_name_global,
                 api_history_limit,
                 current_send_notepad_state,
-                current_notepad_content # ★★★ 最後の引数として、読み込んだメモ帳の内容を追加 ★★★
+                current_notepad_content,
+                use_common_prompt_state # ★★★ 最後の引数として、受け取った値を追加 ★★★
             )
             # ▲▲▲ 修正ここまで ▲▲▲
 
@@ -253,7 +255,8 @@ try:
         # demo.load の呼び出しを修正
         demo.load(
             fn=initial_load,
-            inputs=[current_character_name, api_history_limit_state, send_notepad_state], # ★ inputs に send_notepad_state を追加
+            # ★★★ inputs に use_common_prompt_state を追加 ★★★
+            inputs=[current_character_name, api_history_limit_state, send_notepad_state, use_common_prompt_state],
             outputs=[
                 alarm_dataframe, alarm_dataframe_original_data, chatbot_display, log_editor, memory_json_editor,
                 profile_image_display, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown,
