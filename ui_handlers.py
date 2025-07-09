@@ -35,10 +35,11 @@ def update_token_count(
     current_model_name: str,
     current_api_key_name_state: str,
     api_history_limit_state: str,
-    send_notepad_state: bool # ★★★ この引数を追加 ★★★
+    send_notepad_state: bool,
+    notepad_editor_content: str # ★★★ この引数を追加 ★★★
 ) -> str:
     """【改訂】基本入力トークン数を、モデルの上限と共に表示する"""
-    if not all([current_character_name, current_model_name, current_api_key_name_state]): # send_notepad_state は bool なので all の判定に含めなくても良い
+    if not all([current_character_name, current_model_name, current_api_key_name_state]):
         return "入力トークン数 (設定不足)" # 初期表示用のデフォルト文字列
 
     parts_for_api = []
@@ -69,15 +70,65 @@ def update_token_count(
     limits = gemini_api.get_model_token_limits(current_model_name, api_key)
     limit_str = f" / {limits['input']:,}" if limits and 'input' in limits else ""
 
-    # 基本入力トークン数を計算
+    # 基本入力トークン数の計算ロジックを変更
+    # まず、チャット入力と履歴のトークン数を計算 (メモ帳は含めない)
     basic_tokens = gemini_api.count_input_tokens(
         character_name=current_character_name,
         model_name=current_model_name,
-        parts=parts_for_api,
+        parts=parts_for_api, # これにはUIからのテキストとファイルのみが含まれる
         api_history_limit_option=api_history_limit_state,
         api_key_name=current_api_key_name_state,
-        send_notepad_to_api=send_notepad_state # ★★★ 引数を渡す ★★★
+        send_notepad_to_api=False # ★★★ ここでは一旦Falseにして、メモ帳分は別途計算 ★★★
     )
+
+    # スイッチがONで、メモ帳に内容があり、基本トークン計算が成功している場合、そのトークン数を加算する
+    if send_notepad_state and notepad_editor_content and notepad_editor_content.strip() and basic_tokens >= 0:
+        try:
+            # メモ帳の内容だけをSystemMessageとしてトークン数を計算
+            # _build_lc_messages_from_ui と同じようにシステムプロンプトの形式に合わせる
+            # ただし、ここでは純粋なメモ帳の内容だけをカウントするのが目的。
+            # gemini_api.py の _build_lc_messages_from_ui が send_notepad_to_api=True の時に
+            # システムプロンプトに追加する形式と同じ文字列を作成してカウントする。
+            notepad_prompt_segment = f"\n\n---\n【現在のメモ帳の内容】\n{notepad_editor_content.strip()}\n---"
+
+            # SystemMessageとしてカウントするために一時的なメッセージリストを作成
+            # 既存のSystemPromptはbasic_tokensで既に考慮されている（send_notepad_to_api=Falseで）はずなので、
+            # ここではメモ帳部分だけのトークン数を純粋に加算したい。
+            # そのため、gemini_api.count_tokens_from_lc_messages に渡すのはメモ帳部分のみのメッセージ。
+            # ただし、count_tokens_from_lc_messages は通常会話履歴を含むことを想定している。
+            # より正確には、メモ帳の内容をpartsとして渡し、send_notepad_to_api=Trueとして
+            # count_input_tokensを再度呼び出すのは冗長。
+            # ここでは、メモ帳の内容を単一のテキストとして扱い、そのトークン数を直接得るのがシンプル。
+            # gemini_api に単純なテキストのトークン数をカウントするヘルパーがあってもよい。
+            # ひとまず、SystemMessageでラップしてgemini_api.count_tokens_from_lc_messages を使う。
+            # 注意：この方法だと、システムプロンプトの固定部分のトークン数が二重計上される可能性がある。
+            # より良いのは、gemini_api.pyの_build_lc_messages_from_uiにnotepad_contentを渡して、
+            # それがシステムプロンプトに追加された後の全トークン数を計算させること。
+            # 今回はAI Studio案に従い、別途加算する方式をとる。
+
+            # APIキーを再度取得
+            api_key = config_manager.API_KEYS.get(current_api_key_name_state)
+            if api_key and not api_key.startswith("YOUR_API_KEY"):
+                # メモ帳セグメントのトークン数を計算
+                # 単純なテキストのトークン数を数える低レベルAPIがあればそれが望ましい
+                # ここでは、SystemMessageにラップして既存の関数を利用
+                temp_messages_for_notepad_count = [SystemMessage(content=notepad_prompt_segment)]
+                notepad_tokens = gemini_api.count_tokens_from_lc_messages(
+                    temp_messages_for_notepad_count,
+                    current_model_name,
+                    api_key
+                )
+                if notepad_tokens >= 0:
+                    basic_tokens += notepad_tokens
+                else: # メモ帳トークン計算エラー
+                    print(f"警告: メモ帳部分のトークン数計算に失敗しました。({notepad_tokens})")
+            else: # APIキーがない場合
+                 print(f"警告: APIキーが無効なため、メモ帳部分のトークン数を計算できません。")
+
+        except Exception as e:
+            print(f"メモ帳のトークン数計算中に予期せぬエラー: {e}")
+            traceback.print_exc()
+
 
     if basic_tokens >= 0:
         return f"**基本入力:** {basic_tokens:,}{limit_str} トークン"
@@ -86,10 +137,13 @@ def update_token_count(
     else: # 計算エラー (-2など)
         return "基本入力: (計算エラー)"
 
+# ★★★ 引数の最後に send_notepad_state を追加 ★★★
 def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tuple, None]]], gr.update, gr.update, str]:
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
-     send_thoughts_state, api_history_limit_state) = args
+     send_thoughts_state, api_history_limit_state,
+     send_notepad_state # ★★★ 引数を追加 ★★★
+    ) = args
 
     log_f, _, _, _, _ = get_character_files_paths(current_character_name) # 戻り値の数を5に変更
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
@@ -151,12 +205,14 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
         os.environ['GOOGLE_API_KEY'] = api_key # LangGraph内で使われる可能性を考慮
 
         # invoke_nexus_agent は AgentState (TypedDict) またはエラー情報を含むDictを返す
+        # ★★★ invoke_nexus_agent の呼び出しを修正 ★★★
         final_agent_state = gemini_api.invoke_nexus_agent(
             character_name=current_character_name,
             model_name=current_model_name, # これはLangGraphのfinal_model_nameになる
             parts=parts_for_api,
             api_history_limit_option=api_history_limit_state,
-            api_key_name=current_api_key_name_state
+            api_key_name=current_api_key_name_state,
+            send_notepad_to_api=send_notepad_state # ★★★ 引数を渡す ★★★
         )
 
         if final_agent_state.get("error"): # エラーが返ってきた場合

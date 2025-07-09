@@ -198,12 +198,21 @@ def count_input_tokens(
         traceback.print_exc()
         return -2
 
-def invoke_nexus_agent(character_name: str, model_name: str, parts: list, api_history_limit_option: str, api_key_name: str):
+# ★★★ 引数に send_notepad_to_api を追加 ★★★
+def invoke_nexus_agent(
+    character_name: str,
+    model_name: str,
+    parts: list,
+    api_history_limit_option: str,
+    api_key_name: str,
+    send_notepad_to_api: bool # ★★★ この引数を追加 ★★★
+):
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return {"error": f"APIキー '{api_key_name}' が有効ではありません。"}
     try:
-        messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option)
+        # ★★★ 呼び出し時に引数を渡す ★★★
+        messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option, send_notepad_to_api)
         initial_state = {
             "messages": messages,
             "character_name": character_name,

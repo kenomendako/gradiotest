@@ -209,7 +209,8 @@ try:
             current_model_name,
             current_api_key_name_state,
             api_history_limit_state,
-            send_notepad_state
+    send_notepad_state,
+    notepad_editor # ★★★ ここに追加 ★★★
         ]
         token_calc_outputs = token_count_display
 
@@ -217,6 +218,7 @@ try:
             chat_input_textbox.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs, show_progress=False)
             file_upload_button.upload(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             file_upload_button.clear(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
+            notepad_editor.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs, show_progress=False) # ★★★ 追加 ★★★
 
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
         # initial_load 関数の定義を修正
@@ -287,7 +289,12 @@ try:
         editor_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, log_editor])
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, log_editor])
         chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, token_count_display]
-        chat_inputs = [chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state]
+        chat_inputs = [
+            chat_input_textbox, chatbot_display, current_character_name, current_model_name,
+            current_api_key_name_state, file_upload_button, add_timestamp_checkbox,
+            send_thoughts_state, api_history_limit_state,
+            send_notepad_state # ★★★ ここに追加 ★★★
+        ]
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         setup_token_update_events()
