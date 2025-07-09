@@ -16,9 +16,11 @@ from langchain_core.messages import AIMessage # AIMessage をインポート
 
 import gemini_api
 import mem0_manager
-import rag_manager # ★★★ この行を追加しました ★★★
+import rag_manager
 import config_manager
 import alarm_manager
+import re # ★★★ 正規表現を扱うために import
+import datetime # ★★★ datetime を扱うために import
 import character_manager
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
@@ -466,39 +468,80 @@ def load_notepad_content(character_name: str) -> str:
             return f.read()
     return ""
 
-def handle_save_notepad_click(character_name: str, notepad_content: str):
+def handle_save_notepad_click(character_name: str, content: str) -> str: # AI Studio案では handle_save_notepad
+    """
+    メモ帳の内容を受け取り、タイムスタンプを自動整形して保存する。
+    整形後の内容を返す。
+    """
     if not character_name:
         gr.Warning("キャラクターが選択されていません。")
-        return
-    _, _, _, _, notepad_path = get_character_files_paths(character_name)
-    if not notepad_path:
-        gr.Error(f"キャラクター「{character_name}」のメモ帳パスが見つかりません。")
-        return
-    try:
-        with open(notepad_path, "w", encoding="utf-8") as f:
-            f.write(notepad_content)
-        gr.Info("メモ帳を保存しました。")
-    except Exception as e:
-        gr.Error(f"メモ帳の保存中にエラーが発生しました: {e}")
-        traceback.print_exc()
+        return content # 何もせず元の内容を返す
 
-def handle_clear_notepad_click(character_name: str) -> gr.update:
+    _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
+    if not notepad_path: # notepad_path が None の場合のエラーハンドリング
+        gr.Error(f"キャラクター「{character_name}」のメモ帳パスの取得に失敗しました。")
+        return content
+
+    lines = content.strip().split('\n')
+    processed_lines = []
+    # タイムスタンプの形式をチェックする正規表現パターン
+    timestamp_pattern = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]")
+
+    for line in lines:
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue # 空行は無視
+
+        # 行頭がタイムスタンプ形式でなければ、新しく付与する
+        if not timestamp_pattern.match(stripped_line):
+            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+            processed_lines.append(f"[{timestamp}] {stripped_line}")
+        else:
+            # 既にタイムスタンプがあれば、そのまま追加
+            processed_lines.append(stripped_line)
+
+    final_content = "\n".join(processed_lines)
+
+    try:
+        # notepad.md ファイルに書き込む（ファイル末尾に改行を入れると管理しやすい）
+        with open(notepad_path, "w", encoding="utf-8") as f:
+            f.write(final_content + '\n' if final_content else "") # 空の場合は改行も不要
+        gr.Info(f"「{character_name}」のメモ帳を保存しました。")
+        return final_content # 整形後の内容をUIに反映させるために返す
+    except Exception as e:
+        error_msg = f"メモ帳の保存中にエラーが発生しました: {e}"
+        gr.Error(error_msg)
+        traceback.print_exc() # エラー詳細をターミナルに出力
+        return content # エラー時は元の内容を返す
+
+def handle_clear_notepad_click(character_name: str) -> str: # AI Studio案では handle_clear_notepad
+    """
+    メモ帳の内容をすべてクリアする。
+    """
     if not character_name:
         gr.Warning("キャラクターが選択されていません。")
-        return gr.update() # エディタ内容は変更しない
-    _, _, _, _, notepad_path = get_character_files_paths(character_name)
-    if not notepad_path:
-        gr.Error(f"キャラクター「{character_name}」のメモ帳パスが見つかりません。")
-        return gr.update()
+        return "" # 空文字列を返してエディタをクリア期待
+
+    _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
+    if not notepad_path: # notepad_path が None の場合のエラーハンドリング
+        gr.Error(f"キャラクター「{character_name}」のメモ帳パスの取得に失敗しました。")
+        return "" # 現状の内容を維持（あるいはエラー表示に適した文字列）
+
     try:
+        # ファイルを空にする
         with open(notepad_path, "w", encoding="utf-8") as f:
             f.write("") # 空の文字列を書き込む
-        gr.Info("メモ帳の内容を全削除しました。")
-        return gr.update(value="") # エディタを空にする
+        gr.Info(f"「{character_name}」のメモ帳を空にしました。")
+        return "" # UIのエディタも空にするために空文字列を返す
     except Exception as e:
-        gr.Error(f"メモ帳のクリア中にエラーが発生しました: {e}")
-        traceback.print_exc()
-        return gr.update()
+        error_msg = f"メモ帳のクリア中にエラーが発生しました: {e}"
+        gr.Error(error_msg)
+        traceback.print_exc() # エラー詳細をターミナルに出力
+        # エラー時は何を返すか？ UIをクリアせず元の内容を維持するか、エラーメッセージをエディタに出すか。
+        # ここではクリアを試みたが失敗した、という状況なので空文字列を返してUIクリアを試みる。
+        # あるいは、gr.update() で元の内容を維持する方が親切かもしれない。
+        # AI Studio案では f"エラー: {e}" を返しているので、それに倣う。ただし、gr.Codeは文字列をそのまま表示する。
+        return f"エラー発生: {e}" # UIにエラーメッセージを表示させる
 
 def handle_reload_notepad(character_name: str) -> str:
     """
