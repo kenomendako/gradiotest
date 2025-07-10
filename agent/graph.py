@@ -4,7 +4,7 @@ import os
 import traceback
 from typing import TypedDict, List
 from typing_extensions import Annotated
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langchain_core.tools import tool
@@ -33,15 +33,45 @@ def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
         print(f"  - モデル '{model_name}' は道具なしで初期化されました。")
     return llm
 
-# ▼▼▼【重要】新しい「魂の統合」ノードを定義 ▼▼▼
+# ▼▼▼【重要】agent_node を全面的に書き換え▼▼▼
 def agent_node(state: AgentState):
     """
     思考と行動の全てを担う、唯一の判断ノード。
-    gemini-2.5-proがツールを直接呼び出すか、最終応答を返すかを決定する。
+    Proに渡す情報を「最後のユーザー指示以降」に限定し、判断を誤らせないようにする。
     """
     print("--- エージェントノード (agent_node) 実行 ---")
+
+    # 1. 集中モード用の新しいメッセージリストを作成
+    messages_for_agent = []
+
+    # 2. 元の履歴からシステムプロンプトを最初に抽出
+    original_messages = state['messages']
+    system_prompt = next((msg for msg in original_messages if isinstance(msg, SystemMessage)), None)
+    if system_prompt:
+        messages_for_agent.append(system_prompt)
+        print("  - システムプロンプトをコンテキストに追加しました。")
+    else:
+        print("  - 警告: システムプロンプトが見つかりませんでした。")
+
+    # 3. 元の履歴から「最後のユーザー指示」以降のメッセージのみを抽出
+    last_human_message_index = -1
+    for i in range(len(original_messages) - 1, -1, -1):
+        if isinstance(original_messages[i], HumanMessage):
+            last_human_message_index = i
+            break
+
+    # 4. 抽出した「集中モード用コンテキスト」をリストに追加
+    if last_human_message_index != -1:
+        recent_context = original_messages[last_human_message_index:]
+        messages_for_agent.extend(recent_context)
+        print(f"  - 最後のユーザー指示以降の{len(recent_context)}件を「集中モード用コンテキスト」として使用します。")
+    else:
+        # 通常は起こらないが、万が一のフォールバック
+        messages_for_agent.append(original_messages[-1])
+        print("  - 警告: ユーザーメッセージが見つかりません。最後のメッセージのみをコンテキストとして使用します。")
+
+    # 5. 構築した「集中モード用コンテキスト」でProを呼び出す
     api_key = state['api_key']
-    # UIで選択されたモデル（Proのはず）を最終判断役として使用
     model_name = state.get("final_model_name", "gemini-2.5-pro")
 
     available_tools = [
@@ -55,19 +85,19 @@ def agent_node(state: AgentState):
         read_full_notepad
     ]
 
-    # Proモデルに全てのツールをバインド
     llm_pro_with_tools = get_configured_llm(model_name, api_key, available_tools)
 
-    # トークン数を計算
+    # この時点でのトークン数は、実際の入力に近いため、ここで計算
     total_tokens = gemini_api.count_tokens_from_lc_messages(
-        state['messages'], model_name, api_key
+        messages_for_agent, model_name, api_key
     )
-    print(f"  - 合計入力トークン数を計算しました: {total_tokens}")
+    print(f"  - 集中モード用コンテキストのトークン数を計算しました: {total_tokens}")
 
-    print(f"  - {model_name}への入力メッセージ数: {len(state['messages'])}")
+    print(f"  - {model_name}への入力メッセージ数: {len(messages_for_agent)}")
     try:
-        # 全権を委任されたProが思考・判断・行動する
-        response = llm_pro_with_tools.invoke(state['messages'])
+        response = llm_pro_with_tools.invoke(messages_for_agent)
+        # 最終的な状態には、完全な履歴に新しい応答を追加したものを返す必要がある
+        # しかし、LangGraphのadd_messagesが自動でやってくれるので、ここでは新しい応答だけを返せばよい
         return {"messages": [response], "final_token_count": total_tokens}
     except Exception as e:
         print(f"  - エージェントノードでエラー: {e}")
