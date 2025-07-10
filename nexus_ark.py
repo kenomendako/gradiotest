@@ -86,8 +86,19 @@ try:
     custom_css = """
     #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
     #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; }
-    #memory_json_editor_code .cm-editor, #log_editor_code .cm-editor { max-height: 300px !important; overflow-y: auto !important; }
-    #memory_json_editor_code, #log_editor_code { max-height: 310px; overflow: hidden; border: 1px solid #ccc; border-radius: 5px; }
+    #memory_json_editor_code .cm-editor, #log_editor_code .cm-editor, #notepad_editor_code .cm-editor {
+        max-height: 300px !important;
+        overflow-y: auto !important;
+        white-space: pre-wrap !important; /* 折り返し */
+        word-break: break-word !important; /* 単語途中での折り返し */
+        overflow-wrap: break-word !important; /* 長い単語やURLの折り返し */
+    }
+    #memory_json_editor_code, #log_editor_code, #notepad_editor_code {
+        max-height: 310px;
+        overflow: hidden;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+    }
     #alarm_dataframe_display { border-radius: 8px !important; }
     #alarm_dataframe_display table { width: 100% !important; }
     #alarm_dataframe_display th, #alarm_dataframe_display td { text-align: left !important; padding: 4px 8px !important; white-space: normal !important; font-size: 0.95em; }
