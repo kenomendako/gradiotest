@@ -11,6 +11,17 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langchain_core.tools import tool
 
+# ▼▼▼ ツールルーター専用のプロンプトを新たに定義 ▼▼▼
+TOOL_ROUTER_PROMPT_STRICT = """あなたは、ユーザーの指示を分析し、利用可能なツールの中から最も適切なものを選択して呼び出すことに特化した、高度なAIルーターです。
+あなたの唯一の仕事は、ツールを呼び出すためのJSON形式の指示を出力するか、ツールが必要ないと判断した場合は沈黙（ツール呼び出しをしない）することです。
+絶対に、あなた自身の言葉で応答メッセージを生成してはいけません。思考や挨拶、相槌も一切不要です。
+
+【指示】ユーザーの最新のメッセージとこれまでの会話履歴を分析し、以下のいずれかのアクションを実行してください。
+1.  指示の達成にツールが必要な場合、そのツールを呼び出すためのJSONを生成する。
+2.  ツールが本当に必要ない場合、何も生成しない。
+"""
+# ▲▲▲ プロンプト定義ここまで ▲▲▲
+
 import gemini_api
 import rag_manager
 from tools.web_tools import read_url_tool
@@ -37,27 +48,55 @@ def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
         print(f"  - モデル '{model_name}' は道具なしで初期化されました。")
     return llm
 
+# ▼▼▼ tool_router_node を全面的に書き換え ▼▼▼
 def tool_router_node(state: AgentState):
+    """
+    ツール呼び出し判断に特化したノード。
+    Flashに対して厳格な専用プロンプトを使用し、判断を誤らせないようにする。
+    """
     print("--- ツールルーターノード (tool_router_node) 実行 ---")
+
+    # 1. 現在のメッセージリストをコピーして、プロンプトを差し替える準備
+    messages_for_router = list(state['messages'])
+
+    # 2. 既存のSystemMessageを探して、新しい厳格なプロンプトに置き換える
+    #    SystemMessageがなければ、リストの先頭に追加する
+    found_system_message = False
+    for i, msg in enumerate(messages_for_router):
+        if isinstance(msg, SystemMessage):
+            messages_for_router[i] = SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT)
+            found_system_message = True
+            print("  - システムプロンプトをツールルーター専用の厳格なものに上書きしました。")
+            break
+    if not found_system_message:
+        messages_for_router.insert(0, SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT))
+        print("  - システムプロンプトが見つからなかったため、ツールルーター専用プロンプトを先頭に追加しました。")
+
+    # 3. 差し替え後のメッセージリストを使ってFlashを呼び出す
     api_key = state['api_key']
     available_tools = [
         rag_manager.diary_search_tool,
         rag_manager.conversation_memory_search_tool,
-        web_search_tool, # web_search_tool は直接定義されている
+        web_search_tool,
         read_url_tool,
-        add_to_notepad,       # ★ 追加
-        update_notepad,     # ★ 追加
-        delete_from_notepad,  # ★ 追加
-        read_full_notepad     # ★ 追加
+        add_to_notepad,
+        update_notepad,
+        delete_from_notepad,
+        read_full_notepad
     ]
     llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
-    response = llm_flash_with_tools.invoke(state['messages'])
+
+    # 差し替えたメッセージリストを使ってinvoke
+    response = llm_flash_with_tools.invoke(messages_for_router)
+
     if hasattr(response, 'tool_calls') and response.tool_calls:
         print("  - Flashが道具の使用を決定。")
         return {"messages": [response]}
     else:
         print("  - Flashは道具を使用しないと判断。")
         return {}
+# ▲▲▲ 書き換えここまで ▲▲▲
+
 
 def call_tool_node(state: AgentState):
     last_message = state['messages'][-1]
