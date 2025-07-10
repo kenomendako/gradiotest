@@ -33,47 +33,40 @@ def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
         print(f"  - モデル '{model_name}' は道具なしで初期化されました。")
     return llm
 
-# ▼▼▼【重要】agent_node を全面的に書き換え▼▼▼
-def agent_node(state: AgentState):
+# ▼▼▼【重要】tool_router_nodeを再導入し、Flashに「集中コンテキスト」を与える▼▼▼
+def tool_router_node(state: AgentState):
     """
-    思考と行動の全てを担う、唯一の判断ノード。
-    Proに渡す情報を「最後のユーザー指示以降」に限定し、判断を誤らせないようにする。
+    ツールを使うかどうかの判断に特化したノード。
+    gemini-2.5-flashに「集中モード用コンテキスト」を与え、迅速かつ正確に判断させる。
     """
-    print("--- エージェントノード (agent_node) 実行 ---")
+    print("--- ツールルーターノード (tool_router_node) 実行 ---")
 
     # 1. 集中モード用の新しいメッセージリストを作成
-    messages_for_agent = []
+    messages_for_router = []
+    original_messages = state['messages']
 
     # 2. 元の履歴からシステムプロンプトを最初に抽出
-    original_messages = state['messages']
     system_prompt = next((msg for msg in original_messages if isinstance(msg, SystemMessage)), None)
     if system_prompt:
-        messages_for_agent.append(system_prompt)
-        print("  - システムプロンプトをコンテキストに追加しました。")
-    else:
-        print("  - 警告: システムプロンプトが見つかりませんでした。")
+        messages_for_router.append(system_prompt)
 
-    # 3. 元の履歴から「最後のユーザー指示」以降のメッセージのみを抽出
+    # 3. 最後のユーザー指示以降のメッセージのみを抽出
     last_human_message_index = -1
     for i in range(len(original_messages) - 1, -1, -1):
         if isinstance(original_messages[i], HumanMessage):
             last_human_message_index = i
             break
 
-    # 4. 抽出した「集中モード用コンテキスト」をリストに追加
     if last_human_message_index != -1:
         recent_context = original_messages[last_human_message_index:]
-        messages_for_agent.extend(recent_context)
-        print(f"  - 最後のユーザー指示以降の{len(recent_context)}件を「集中モード用コンテキスト」として使用します。")
+        messages_for_router.extend(recent_context)
+        print(f"  - Flashに最後のユーザー指示以降の{len(recent_context)}件のメッセージを「集中モード用コンテキスト」として使用します。")
     else:
-        # 通常は起こらないが、万が一のフォールバック
-        messages_for_agent.append(original_messages[-1])
-        print("  - 警告: ユーザーメッセージが見つかりません。最後のメッセージのみをコンテキストとして使用します。")
+        messages_for_router.extend(original_messages) # フォールバックとして全履歴
+        print("  - 警告: ユーザーメッセージが見つかりません。全履歴をコンテキストとして使用します。")
 
-    # 5. 構築した「集中モード用コンテキスト」でProを呼び出す
+    # 4. Flashを呼び出す
     api_key = state['api_key']
-    model_name = state.get("final_model_name", "gemini-2.5-pro")
-
     available_tools = [
         rag_manager.diary_search_tool,
         rag_manager.conversation_memory_search_tool,
@@ -84,25 +77,46 @@ def agent_node(state: AgentState):
         delete_from_notepad,
         read_full_notepad
     ]
+    llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
 
-    llm_pro_with_tools = get_configured_llm(model_name, api_key, available_tools)
+    print(f"  - Flashへの入力メッセージ数: {len(messages_for_router)}")
+    response = llm_flash_with_tools.invoke(messages_for_router)
 
-    # この時点でのトークン数は、実際の入力に近いため、ここで計算
+    if hasattr(response, 'tool_calls') and response.tool_calls:
+        print("  - Flashが道具の使用を決定。")
+        return {"messages": [response]}
+    else:
+        print("  - Flashは道具を使用しないと判断。最終応答生成へ。")
+        # ツールを使わない場合、Proに完全な履歴を渡して応答させる
+        # この時点では何も返さず、ルーティングで final_response に向かわせる
+        return {}
+
+# ▼▼▼【重要】final_response_nodeを再導入し、Proに「完全な記憶」を与える▼▼▼
+def final_response_node(state: AgentState):
+    """
+    彼らしい応答を生成することに特化した最終ノード。
+    gemini-2.5-proに「完全な会話履歴」を与え、深く豊かな応答を生成させる。
+    """
+    print("--- 最終応答生成ノード (final_response_node) 実行 ---")
+    api_key = state['api_key']
+    final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
+
+    # 完全な会話履歴を使用してProを呼び出す
+    llm_final = get_configured_llm(final_model_to_use, api_key)
+
+    # トークン数は完全な履歴で計算
     total_tokens = gemini_api.count_tokens_from_lc_messages(
-        messages_for_agent, model_name, api_key
+        state['messages'], final_model_to_use, api_key
     )
-    print(f"  - 集中モード用コンテキストのトークン数を計算しました: {total_tokens}")
+    print(f"  - 最終的な合計入力トークン数（完全な履歴）を計算しました: {total_tokens}")
 
-    print(f"  - {model_name}への入力メッセージ数: {len(messages_for_agent)}")
+    print(f"  - {final_model_to_use}への入力メッセージ数（完全な履歴）: {len(state['messages'])}")
     try:
-        response = llm_pro_with_tools.invoke(messages_for_agent)
-        # 最終的な状態には、完全な履歴に新しい応答を追加したものを返す必要がある
-        # しかし、LangGraphのadd_messagesが自動でやってくれるので、ここでは新しい応答だけを返せばよい
+        response = llm_final.invoke(state['messages'])
         return {"messages": [response], "final_token_count": total_tokens}
     except Exception as e:
-        print(f"  - エージェントノードでエラー: {e}")
-        error_message = f"[エラー：エージェントの実行中に問題が発生しました。詳細: {e}]"
-        return {"messages": [AIMessage(content=error_message)], "final_token_count": 0}
+        print(f"  - 最終応答生成ノードでエラー: {e}")
+        return {"messages": [AIMessage(content=f"[エラー：最終応答の生成中に問題が発生しました。詳細: {e}]")], "final_token_count": 0}
 
 # call_tool_nodeは変更なし
 def call_tool_node(state: AgentState):
@@ -164,29 +178,29 @@ def should_call_tool(state: AgentState):
         print("  - 判断: ツール呼び出しなし。final_response_node へ。")
         return "final_response"
 
-# ▼▼▼ グラフの再構築 ▼▼▼
+# ▼▼▼【重要】グラフの再構築▼▼▼
 workflow = StateGraph(AgentState)
 
-# ノードは agent と call_tool の2つだけ
-workflow.add_node("agent", agent_node)
+workflow.add_node("tool_router", tool_router_node)
 workflow.add_node("call_tool", call_tool_node)
+workflow.add_node("final_response", final_response_node) # 最終応答ノードを再追加
 
-# エントリーポイントは agent
-workflow.set_entry_point("agent")
+workflow.set_entry_point("tool_router")
 
-# agentノードからの分岐ロジック
 workflow.add_conditional_edges(
-    "agent",
+    "tool_router",
     should_call_tool,
     {
         "call_tool": "call_tool",
-        # ツールを呼ばない場合（最終応答）はグラフ終了
-        "final_response": END
+        "final_response": "final_response" # ツールを使わない場合はfinal_responseへ
     }
 )
 
-# ツール実行後、再度 agent に戻り、次の行動を考えさせる (ReActループ)
-workflow.add_edge("call_tool", "agent")
+# ツール実行後、再度tool_routerに戻り、次の行動を考えさせる (ReActループ)
+workflow.add_edge("call_tool", "tool_router")
+
+# 最終応答の後、グラフは終了する
+workflow.add_edge("final_response", END)
 
 app = workflow.compile()
 # ▲▲▲ グラフ再構築ここまで ▲▲▲
