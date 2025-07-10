@@ -170,15 +170,28 @@ AIの応答は、ユーザーの指示を完全に満たしていますか？
         reflection_result = llm_flash.invoke(reflection_prompt)
         decision = reflection_result.content.strip().upper()
         print(f"  - 振り返りの結果: {decision}")
-        # 想定外の応答が来た場合も安全にFINISHとする
-        if decision not in ["RETRY", "FINISH"]:
-            print(f"  - 警告: 振り返りノードの応答が予期せぬ形式です ({decision})。FINISHとして扱います。")
-            decision = "FINISH"
-        return {"reflection": decision}
+
+        if decision == "RETRY":
+            print("  - 再試行を決定。履歴に修正指示メッセージを追加します。")
+            # ▼▼▼ ここが最重要修正点 ▼▼▼
+            # 次のループのために、自然な会話の流れを作るための「ユーザーからの指示」を追加する
+            retry_instruction = HumanMessage(
+                content="前回の応答は不十分でした。ユーザーの意図を再考し、もう一度応答を生成してください。"
+            )
+            # 状態を更新して返す
+            return {
+                "messages": [retry_instruction],
+                "reflection": "RETRY"
+            }
+            # ▲▲▲ 修正ここまで ▲▲▲
+        else: # FINISH または予期せぬ値
+            if decision != "FINISH":
+                print(f"  - 警告: 振り返りノードの応答が予期せぬ形式です ({decision})。FINISHとして扱います。")
+            return {"reflection": "FINISH"}
+
     except Exception as e:
         print(f"  - 振り返りノードでエラー: {e}")
         traceback.print_exc()
-        # エラー時は安全に終了させる
         return {"reflection": "FINISH"}
 # ★★★ 追加ここまで ★★★
 
