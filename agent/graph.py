@@ -20,7 +20,11 @@ class AgentState(TypedDict):
     character_name: str
     api_key: str
     final_model_name: str
-    final_token_count: int  # 最終的な合計トークン数を格納するキーを追加
+    final_token_count: int
+    # ★★★ ここから追加 ★★★
+    # 振り返りの結果を格納するキー
+    reflection: str
+    # ★★★ 追加ここまで ★★★
 
 def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
     llm = ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key)
@@ -115,6 +119,86 @@ def final_response_node(state: AgentState):
         print(f"  - 最終応答生成ノードでエラー: {e}")
         return {"messages": [AIMessage(content=f"[エラー：最終応答の生成中に問題が発生しました。詳細: {e}]")], "final_token_count": 0}
 
+# ★★★ ここから新しいノードの定義を追加 ★★★
+def reflection_node(state: AgentState) -> dict:
+    """
+    最終応答が、本来ツールを使うべきだったという「後悔」を含んでいないか、
+    あるいはユーザーの指示を達成しきれているかを確認する。
+    """
+    print("--- 振り返りノード (reflection_node) 実行 ---")
+
+    # 最後のAIメッセージ（Proの応答）と、その前のユーザーメッセージを取得
+    # messagesリストの構造を確認し、適切なインデックスでアクセスする
+    # 通常、最後がAIの応答、その一つ前がユーザーの指示のはず
+    if len(state["messages"]) < 2:
+        print("  - 警告: 振り返りのための十分なメッセージがありません。安全に終了します。")
+        return {"reflection": "FINISH"}
+
+    ai_message_obj = state["messages"][-1]
+    user_message_obj = state["messages"][-2]
+
+    # content属性から文字列を取得
+    ai_message = ai_message_obj.content if hasattr(ai_message_obj, 'content') else str(ai_message_obj)
+    user_message = user_message_obj.content if hasattr(user_message_obj, 'content') else str(user_message_obj)
+
+    # 振り返り用のプロンプト
+    reflection_prompt = f"""
+あなたは、AIアシスタントの応答を評価する、高度な評価者です。
+以下の「ユーザーの指示」と、それに対する「AIの応答」を分析してください。
+
+【ユーザーの指示】
+{user_message}
+
+【AIの応答】
+{ai_message}
+
+【評価基準】
+AIの応答は、ユーザーの指示を完全に満たしていますか？
+それとも、AIは「Webで検索すればよかった」「メモ帳を確認するべきだった」のように、本来ツールを使うべきだったというニュアンスや、情報不足を示唆していませんか？
+
+【判断】
+もし、AIの応答が不完全で、ツールを使えばより良い応答ができたと考えられる場合は "RETRY" とだけ出力してください。
+応答が完全で、これ以上のアクションが不要な場合は "FINISH" とだけ出力してください。
+"""
+
+    # 振り返りには高速なモデルで十分
+    api_key = state['api_key']
+    # モデル名は state から取得するか、固定で指定するか検討。ここでは Flash を直接指定。
+    llm_flash = get_configured_llm("gemini-1.5-flash-latest", api_key) # モデル名を最新版に更新
+
+    try:
+        reflection_result = llm_flash.invoke(reflection_prompt)
+        decision = reflection_result.content.strip().upper()
+        print(f"  - 振り返りの結果: {decision}")
+        # 想定外の応答が来た場合も安全にFINISHとする
+        if decision not in ["RETRY", "FINISH"]:
+            print(f"  - 警告: 振り返りノードの応答が予期せぬ形式です ({decision})。FINISHとして扱います。")
+            decision = "FINISH"
+        return {"reflection": decision}
+    except Exception as e:
+        print(f"  - 振り返りノードでエラー: {e}")
+        traceback.print_exc()
+        # エラー時は安全に終了させる
+        return {"reflection": "FINISH"}
+# ★★★ 追加ここまで ★★★
+
+# ★★★ ここから新しい条件付きエッジの定義を追加 ★★★
+def should_retry(state: AgentState) -> str:
+    """
+    reflection_nodeの結果に基づき、グラフをやり直すか終了するかを決定する。
+    """
+    print("--- 再試行判断 (should_retry) 実行 ---")
+    if state.get("reflection") == "RETRY":
+        print("  - 判断: 応答が不十分。tool_router に戻ってやり直します。")
+        # messagesの最後にユーザーの指示を再度追加して、tool_routerがそれを参照できるようにする
+        # あるいは、tool_routerが参照するメッセージを調整する
+        # ここでは、stateは変更せずに、単にルーティング先を返す
+        return "tool_router"
+    else: # FINISH または予期せぬ値
+        print("  - 判断: 応答は完了。グラフを終了します。")
+        return END
+# ★★★ 追加ここまで ★★★
+
 def should_call_tool(state: AgentState):
     print("--- ルーティング判断 (should_call_tool) 実行 ---")
     last_message = state['messages'][-1] if state['messages'] else None
@@ -129,14 +213,40 @@ workflow = StateGraph(AgentState)
 workflow.add_node("tool_router", tool_router_node)
 workflow.add_node("call_tool", call_tool_node)
 workflow.add_node("final_response", final_response_node)
+workflow.add_node("reflection", reflection_node) # ★ 新しいノードを追加
+
+# エッジ（配線）の接続
 workflow.set_entry_point("tool_router")
+
+# 最初のルーターからの分岐
 workflow.add_conditional_edges(
     "tool_router",
     should_call_tool,
-    {"call_tool": "call_tool", "final_response": "final_response"}
+    {
+        "call_tool": "call_tool",
+        "final_response": "final_response"
+    }
 )
+
+# ツール呼び出しから最終応答へ
 workflow.add_edge("call_tool", "final_response")
-workflow.add_edge("final_response", END)
+
+# ★★★ ここからが最重要変更点 ★★★
+# 最終応答の後、すぐに終了(END)するのではなく、振り返り(reflection)を行う
+workflow.add_edge("final_response", "reflection")
+
+# 振り返りの結果に応じて、やり直す(tool_routerへループ)か、終了(END)するかを決める
+workflow.add_conditional_edges(
+    "reflection",
+    should_retry,
+    { # should_retryが返す文字列とノード名をマッピング
+        "tool_router": "tool_router",
+        END: END
+    }
+)
+# ★★★ 変更ここまで ★★★
+
+# グラフのコンパイル
 app = workflow.compile()
 
 @tool

@@ -86,8 +86,35 @@ try:
     custom_css = """
     #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
     #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; }
-    #memory_json_editor_code .cm-editor, #log_editor_code .cm-editor { max-height: 300px !important; overflow-y: auto !important; }
-    #memory_json_editor_code, #log_editor_code { max-height: 310px; overflow: hidden; border: 1px solid #ccc; border-radius: 5px; }
+
+    /* gr.Codeコンポーネント（記憶、ログ）用のスタイル */
+    #memory_json_editor_code .cm-editor, #log_editor_code .cm-editor {
+        max-height: 300px !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        white-space: pre-wrap !important;
+        word-break: break-word !important;
+        overflow-wrap: break-word !important;
+    }
+
+    /* gr.Textboxコンポーネント（メモ帳）用のスタイル */
+    #notepad_editor_code textarea { /* セレクタを textarea に変更 */
+        max-height: 300px !important; /* 高さを他のエディタの .cm-editor に合わせる */
+        overflow-y: auto !important;
+        white-space: pre-wrap !important;
+        word-break: break-word !important;
+        overflow-wrap: break-word !important;
+        box-sizing: border-box; /* paddingやborderが高さに含まれるように */
+    }
+
+    /* 全てのエディタの親コンテナのスタイル */
+    #memory_json_editor_code, #log_editor_code, #notepad_editor_code {
+        max-height: 310px;
+        /* overflow: hidden; は削除済み */
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        padding: 0; /* Textboxが内部にpaddingを持つ場合があるので親は0に */
+    }
     #alarm_dataframe_display { border-radius: 8px !important; }
     #alarm_dataframe_display table { width: 100% !important; }
     #alarm_dataframe_display th, #alarm_dataframe_display td { text-align: left !important; padding: 4px 8px !important; white-space: normal !important; font-size: 0.95em; }
@@ -143,11 +170,17 @@ try:
                             with gr.Row():
                                 save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
                                 rag_update_button = gr.Button(value="手帳の索引を更新", variant="primary")
-                        with gr.TabItem("メモ帳 (notepad.md)"): # ★ メモ帳タブを追加
-                            notepad_editor = gr.Code(label="メモ帳の内容", language="markdown", interactive=True, lines=10) # linesで高さを調整
+                        with gr.TabItem("メモ帳 (notepad.md)"):
+                            notepad_editor = gr.Textbox(
+                                label="メモ帳の内容",
+                                interactive=True,
+                                elem_id="notepad_editor_code",
+                                lines=15, # 高さを他のエディタと合わせる
+                                autoscroll=True
+                            )
                             with gr.Row():
                                 save_notepad_button = gr.Button(value="メモ帳を保存", variant="secondary")
-                                reload_notepad_button = gr.Button(value="再読込", variant="secondary") # ★ ボタン追加
+                                reload_notepad_button = gr.Button(value="再読込", variant="secondary")
                                 clear_notepad_button = gr.Button(value="メモ帳を全削除", variant="stop")
                         with gr.TabItem("ログ (log.txt)"):
                             log_editor = gr.Code(label="ログ内容", interactive=True, elem_id="log_editor_code")
