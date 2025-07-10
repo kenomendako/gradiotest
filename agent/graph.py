@@ -56,27 +56,34 @@ def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
 def tool_router_node(state: AgentState):
     """
     ツール呼び出し判断に特化したノード。
-    Flashに対して厳格な専用プロンプトを使用し、判断を誤らせないようにする。
+    Flashに渡す情報を「最後のユーザー指示以降」に限定し、判断を誤らせないようにする。
     """
     print("--- ツールルーターノード (tool_router_node) 実行 ---")
 
-    # 1. 現在のメッセージリストをコピーして、プロンプトを差し替える準備
-    messages_for_router = list(state['messages'])
+    # 1. ツールルーター専用のシステムプロンプトでメッセージリストを初期化
+    messages_for_router = [SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT)]
+    print("  - ツールルーター専用の厳格なプロンプトを準備しました。")
 
-    # 2. 既存のSystemMessageを探して、新しい厳格なプロンプトに置き換える
-    #    SystemMessageがなければ、リストの先頭に追加する
-    found_system_message = False
-    for i, msg in enumerate(messages_for_router):
-        if isinstance(msg, SystemMessage):
-            messages_for_router[i] = SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT)
-            found_system_message = True
-            print("  - システムプロンプトをツールルーター専用の厳格なものに上書きしました。")
+    # 2. 履歴から「最後のユーザー指示」以降のメッセージのみを抽出
+    original_messages = state['messages']
+    last_human_message_index = -1
+    for i in range(len(original_messages) - 1, -1, -1):
+        if isinstance(original_messages[i], HumanMessage):
+            last_human_message_index = i
             break
-    if not found_system_message:
-        messages_for_router.insert(0, SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT))
-        print("  - システムプロンプトが見つからなかったため、ツールルーター専用プロンプトを先頭に追加しました。")
 
-    # 3. 差し替え後のメッセージリストを使ってFlashを呼び出す
+    # 3. 抽出した「集中モード用コンテキスト」を専用プロンプトに追加
+    if last_human_message_index != -1:
+        # 最後のユーザー指示から末尾までが、現在のタスクに最も関連するコンテキスト
+        recent_context = original_messages[last_human_message_index:]
+        messages_for_router.extend(recent_context)
+        print(f"  - 最後のユーザー指示以降の{len(recent_context)}件のメッセージを「集中モード用コンテキスト」として使用します。")
+    else:
+        # 通常は起こらないが、万が一ユーザーメッセージが見つからない場合のフォールバック
+        messages_for_router.append(original_messages[-1])
+        print("  - 警告: ユーザーメッセージが見つかりません。最後のメッセージのみをコンテキストとして使用します。")
+
+    # 4. 構築した「集中モード用コンテキスト」でFlashを呼び出す
     api_key = state['api_key']
     available_tools = [
         rag_manager.diary_search_tool,
@@ -90,7 +97,6 @@ def tool_router_node(state: AgentState):
     ]
     llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
 
-    # 差し替えたメッセージリストを使ってinvoke
     response = llm_flash_with_tools.invoke(messages_for_router)
 
     if hasattr(response, 'tool_calls') and response.tool_calls:
