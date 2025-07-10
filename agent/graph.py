@@ -55,35 +55,21 @@ def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
 # ▼▼▼ tool_router_node を全面的に書き換え ▼▼▼
 def tool_router_node(state: AgentState):
     """
-    ツール呼び出し判断に特化したノード。
-    Flashに渡す情報を「最後のユーザー指示以降」に限定し、判断を誤らせないようにする。
+    ツール呼び出し判断ノード。
+    完全な会話履歴と、ツールルーター専用の厳格なシステムプロンプトを組み合わせて使用する。
     """
     print("--- ツールルーターノード (tool_router_node) 実行 ---")
 
-    # 1. ツールルーター専用のシステムプロンプトでメッセージリストを初期化
-    messages_for_router = [SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT)]
-    print("  - ツールルーター専用の厳格なプロンプトを準備しました。")
+    # 1. 既存の完全なメッセージリストをコピー
+    messages_for_router = list(state['messages'])
 
-    # 2. 履歴から「最後のユーザー指示」以降のメッセージのみを抽出
-    original_messages = state['messages']
-    last_human_message_index = -1
-    for i in range(len(original_messages) - 1, -1, -1):
-        if isinstance(original_messages[i], HumanMessage):
-            last_human_message_index = i
-            break
+    # 2. 厳格な指示を、既存のシステムプロンプトの「前」に追加する
+    #    これにより、AIはキャラクター性を保ちつつ、ツール使用を最優先する
+    strict_instruction = SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT)
+    messages_for_router.insert(0, strict_instruction)
+    print("  - 完全な会話履歴の先頭に、ツールルーター専用の厳格なプロンプトを注入しました。")
 
-    # 3. 抽出した「集中モード用コンテキスト」を専用プロンプトに追加
-    if last_human_message_index != -1:
-        # 最後のユーザー指示から末尾までが、現在のタスクに最も関連するコンテキスト
-        recent_context = original_messages[last_human_message_index:]
-        messages_for_router.extend(recent_context)
-        print(f"  - 最後のユーザー指示以降の{len(recent_context)}件のメッセージを「集中モード用コンテキスト」として使用します。")
-    else:
-        # 通常は起こらないが、万が一ユーザーメッセージが見つからない場合のフォールバック
-        messages_for_router.append(original_messages[-1])
-        print("  - 警告: ユーザーメッセージが見つかりません。最後のメッセージのみをコンテキストとして使用します。")
-
-    # 4. 構築した「集中モード用コンテキスト」でFlashを呼び出す
+    # 3. 構築した新しいメッセージリストでFlashを呼び出す
     api_key = state['api_key']
     available_tools = [
         rag_manager.diary_search_tool,
@@ -134,12 +120,19 @@ def call_tool_node(state: AgentState):
             output = f"エラー: 不明な道具 '{tool_name}' が指定されました。"
         else:
             try:
-                # ★ character_name を渡す条件に notepad_tools を追加
+                # ▼▼▼ ここからが最重要修正点 ▼▼▼
+                # LLMが生成した引数に、状態から取得した正しい値を上書き・追加する
                 if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "add_to_notepad", "update_notepad", "delete_from_notepad", "read_full_notepad"]:
-                    tool_args.update({"character_name": state.get("character_name")})
-                # RAGツールにはAPIキーも渡す
+                    # この上書きにより、LLMが 'character_name' を間違えても必ず正しい値に修正される
+                    tool_args["character_name"] = state.get("character_name")
+                    print(f"    - 引数に正しいキャラクター名 '{tool_args['character_name']}' を注入/上書きしました。")
+
+                # RAGツールにはAPIキーも渡す (これも上書き)
                 if tool_name in ["diary_search_tool", "conversation_memory_search_tool"]:
-                    tool_args.update({"api_key": state.get("api_key")})
+                    tool_args["api_key"] = state.get("api_key")
+                    print(f"    - 引数にAPIキーを注入/上書きしました。")
+                # ▲▲▲ 修正ここまで ▲▲▲
+
                 output = tool_to_call.invoke(tool_args)
             except Exception as e:
                 output = f"[エラー：道具'{tool_name}'の実行に失敗しました。詳細: {e}]"
