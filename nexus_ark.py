@@ -94,13 +94,7 @@ try:
         word-break: break-word !important;  /* 単語途中での折り返し */
         overflow-wrap: break-word !important; /* 長い単語やURLの折り返し */
     }
-    /* ▼▼▼ ここから追加 ▼▼▼ */
-    #notepad_editor_code .cm-line {
-        white-space: pre-wrap !important;
-        word-break: break-word !important;
-        overflow-wrap: break-word !important;
-    }
-    /* ▲▲▲ ここまで追加 ▲▲▲ */
+    /* #notepad_editor_code .cm-line のルールは gr.Textbox には不要なため削除 */
     #memory_json_editor_code, #log_editor_code, #notepad_editor_code {
         max-height: 310px;
         /* overflow: hidden; を削除。子の表示を妨げないようにします。 */
@@ -163,7 +157,13 @@ try:
                                 save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
                                 rag_update_button = gr.Button(value="手帳の索引を更新", variant="primary")
                         with gr.TabItem("メモ帳 (notepad.md)"):
-                            notepad_editor = gr.Code(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code") # ★ language="markdown" を削除
+                            notepad_editor = gr.Textbox(
+                                label="メモ帳の内容",
+                                interactive=True,
+                                elem_id="notepad_editor_code",
+                                lines=15, # 高さを他のエディタと合わせる
+                                autoscroll=True
+                            )
                             with gr.Row():
                                 save_notepad_button = gr.Button(value="メモ帳を保存", variant="secondary")
                                 reload_notepad_button = gr.Button(value="再読込", variant="secondary")
