@@ -271,8 +271,9 @@ workflow.add_conditional_edges(
     }
 )
 
-# ツール呼び出しから最終応答へ
-workflow.add_edge("call_tool", "final_response")
+# ツール呼び出しの結果を元に、次の行動を考えさせるため、tool_routerに戻す
+print("情報: ReActループを構築します (call_tool -> tool_router)")
+workflow.add_edge("call_tool", "tool_router")
 
 # ★★★ ここからが最重要変更点 ★★★
 # 最終応答の後、すぐに終了(END)するのではなく、振り返り(reflection)を行う
