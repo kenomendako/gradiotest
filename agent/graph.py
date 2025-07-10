@@ -11,21 +11,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langchain_core.tools import tool
 
-# ▼▼▼ ツールルーター専用のプロンプトを新たに定義 ▼▼▼
-TOOL_ROUTER_PROMPT_STRICT = """あなたは、ユーザーの指示やこれまでの実行結果を分析し、次に実行すべきツールを判断することに特化した、高度なAIルーターです。
-あなたの唯一の仕事は、ツールを呼び出すためのJSON形式の指示を出力するか、これ以上のツール実行は不要と判断した場合に沈黙（ツール呼び出しをしない）することです。
-絶対に、あなた自身の言葉で応答メッセージを生成してはいけません。思考や挨拶、相槌も一切不要です。
-
-【思考プロセス】
-1.  ユーザーの最新のメッセージと、直前のツールの実行結果（もしあれば）を注意深く観察する。
-2.  ユーザーの最終的な目的を達成するために、次に実行すべきツールが何かを判断する。
-    - 例1：ユーザーが「メモを整理して」と指示し、あなたが`read_full_notepad`を実行した直後なら、次はその内容に基づいて`update_notepad`や`delete_from_notepad`を呼び出すべきか検討する。
-    - 例2：`web_search_tool`でURLリストを取得したなら、次は`read_url_tool`でそのURLの内容を読むべきか検討する。
-3.  もし実行すべきツールがあれば、そのツールを呼び出すためのJSONを生成する。複数のツールを同時に呼び出すことも可能。
-4.  全てのタスクが完了し、これ以上のツール実行は不要だと確信した場合にのみ、沈黙する。
-"""
-# ▲▲▲ プロンプト定義ここまで ▲▲▲
-
 import gemini_api
 import rag_manager
 from tools.web_tools import read_url_tool
@@ -52,25 +37,16 @@ def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
         print(f"  - モデル '{model_name}' は道具なしで初期化されました。")
     return llm
 
-# ▼▼▼ tool_router_node を全面的に書き換え ▼▼▼
-def tool_router_node(state: AgentState):
+# ▼▼▼【重要】tool_router_nodeを削除し、新しいagent_nodeを定義 ▼▼▼
+def agent_node(state: AgentState):
     """
-    ツール呼び出し判断ノード。
-    完全な会話履歴と、ツールルーター専用の厳格なシステムプロンプトを組み合わせて使用する。
+    思考と行動の全てを担う、唯一の判断ノード。
+    gemini-2.5-proがツールを直接呼び出すか、最終応答を返すかを決定する。
     """
-    print("--- ツールルーターノード (tool_router_node) 実行 ---")
-
-    # 1. 既存の完全なメッセージリストをコピー
-    messages_for_router = list(state['messages'])
-
-    # 2. 厳格な指示を、既存のシステムプロンプトの「前」に追加する
-    #    これにより、AIはキャラクター性を保ちつつ、ツール使用を最優先する
-    strict_instruction = SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT)
-    messages_for_router.insert(0, strict_instruction)
-    print("  - 完全な会話履歴の先頭に、ツールルーター専用の厳格なプロンプトを注入しました。")
-
-    # 3. 構築した新しいメッセージリストでFlashを呼び出す
+    print("--- エージェントノード (agent_node) 実行 ---")
     api_key = state['api_key']
+    model_name = state.get("final_model_name", "gemini-2.5-pro")
+
     available_tools = [
         rag_manager.diary_search_tool,
         rag_manager.conversation_memory_search_tool,
@@ -81,20 +57,27 @@ def tool_router_node(state: AgentState):
         delete_from_notepad,
         read_full_notepad
     ]
-    llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
 
-    response = llm_flash_with_tools.invoke(messages_for_router)
+    # Proモデルに全てのツールをバインドする
+    llm_pro_with_tools = get_configured_llm(model_name, api_key, available_tools)
 
-    if hasattr(response, 'tool_calls') and response.tool_calls:
-        print("  - Flashが道具の使用を決定。")
-        return {"messages": [response]}
-    else:
-        print("  - Flashは道具を使用しないと判断。")
-        return {}
-# ▲▲▲ 書き換えここまで ▲▲▲
+    # 合計トークン数を計算
+    total_tokens = gemini_api.count_tokens_from_lc_messages(
+        state['messages'], model_name, api_key
+    )
+    print(f"  - 合計入力トークン数を計算しました: {total_tokens}")
 
+    print(f"  - {model_name}への入力メッセージ数: {len(state['messages'])}")
+    try:
+        response = llm_pro_with_tools.invoke(state['messages'])
+        return {"messages": [response], "final_token_count": total_tokens}
+    except Exception as e:
+        print(f"  - エージェントノードでエラー: {e}")
+        error_message = f"[エラー：エージェントの実行中に問題が発生しました。詳細: {e}]"
+        return {"messages": [AIMessage(content=error_message)], "final_token_count": 0}
 
 def call_tool_node(state: AgentState):
+    # (この関数は変更なし)
     last_message = state['messages'][-1]
     if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
         return {}
@@ -139,29 +122,6 @@ def call_tool_node(state: AgentState):
                 traceback.print_exc()
         tool_messages.append(ToolMessage(content=str(output), tool_call_id=tool_call_id))
     return {"messages": tool_messages}
-
-def final_response_node(state: AgentState):
-    """【変更】最終応答生成。合計トークン数を計算し、Stateに保存する。"""
-    print("--- 最終応答生成ノード (final_response_node) 実行 ---")
-    api_key = state['api_key']
-    final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
-
-    # ツール実行後の全コンテキストを含んだ合計トークン数を計算
-    total_tokens = gemini_api.count_tokens_from_lc_messages(
-        state['messages'], final_model_to_use, api_key
-    )
-    print(f"  - 最終的な合計入力トークン数を計算しました: {total_tokens}")
-
-    llm_final = get_configured_llm(final_model_to_use, api_key)
-
-    print(f"  - {final_model_to_use}への入力メッセージ数: {len(state['messages'])}")
-    try:
-        response = llm_final.invoke(state['messages'])
-        # 応答メッセージと、計算したトークン数をStateに返す
-        return {"messages": [response], "final_token_count": total_tokens}
-    except Exception as e:
-        print(f"  - 最終応答生成ノードでエラー: {e}")
-        return {"messages": [AIMessage(content=f"[エラー：最終応答の生成中に問題が発生しました。詳細: {e}]")], "final_token_count": 0}
 
 # ▼▼▼ 不要になった関数をコメントアウトまたは削除 ▼▼▼
 # def reflection_node(state: AgentState) -> dict:
@@ -285,6 +245,7 @@ def final_response_node(state: AgentState):
 # ▲▲▲ 不要な関数ここまで ▲▲▲
 
 def should_call_tool(state: AgentState):
+    # (この関数は変更なし)
     print("--- ルーティング判断 (should_call_tool) 実行 ---")
     last_message = state['messages'][-1] if state['messages'] else None
     if last_message and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
@@ -294,45 +255,32 @@ def should_call_tool(state: AgentState):
         print("  - 判断: ツール呼び出しなし。final_response_node へ。")
         return "final_response"
 
+# ▼▼▼ グラフの再構築 ▼▼▼
 workflow = StateGraph(AgentState)
-workflow.add_node("tool_router", tool_router_node)
+
+# ノードは agent と call_tool の2つだけになる
+workflow.add_node("agent", agent_node)
 workflow.add_node("call_tool", call_tool_node)
-workflow.add_node("final_response", final_response_node)
-# workflow.add_node("reflection", reflection_node) # 不要なノード
 
-workflow.set_entry_point("tool_router")
+# エントリーポイントは agent
+workflow.set_entry_point("agent")
 
+# agentノードからの分岐
 workflow.add_conditional_edges(
-    "tool_router",
+    "agent",
     should_call_tool,
     {
         "call_tool": "call_tool",
-        "final_response": "final_response"
+        # ツールを呼ばない場合（最終応答が生成された場合）は終了
+        "final_response": END  # 'final_response' は should_call_tool が返す文字列
     }
 )
 
-# ▼▼▼ ここからが重要な配線の修正 ▼▼▼
-# --- 変更前 ---
-# workflow.add_edge("call_tool", "tool_router")
-# workflow.add_edge("final_response", "reflection")
-# workflow.add_conditional_edges(
-#     "reflection",
-#     should_retry,
-#     {
-#         "tool_router": "tool_router",
-#         END: END
-#     }
-# )
-# --- 変更後 (シンプルで堅牢な構造) ---
-# ツール呼び出しの結果を元に、次の行動を考えさせるため、tool_routerに戻す
-workflow.add_edge("call_tool", "tool_router")
+# ツール実行後、再度 agent に戻り、次の行動を考えさせる
+workflow.add_edge("call_tool", "agent")
 
-# 最終応答の後、グラフは必ず終了する
-workflow.add_edge("final_response", END)
-# ▲▲▲ 配線の修正ここまで ▲▲▲
-
-# グラフのコンパイル
 app = workflow.compile()
+# ▲▲▲ グラフ再構築ここまで ▲▲▲
 
 @tool
 def web_search_tool(query: str) -> str:
