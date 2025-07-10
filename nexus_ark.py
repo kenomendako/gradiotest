@@ -94,6 +94,13 @@ try:
         word-break: break-word !important;  /* 単語途中での折り返し */
         overflow-wrap: break-word !important; /* 長い単語やURLの折り返し */
     }
+    /* ▼▼▼ ここから追加 ▼▼▼ */
+    #notepad_editor_code .cm-line {
+        white-space: pre-wrap !important;
+        word-break: break-word !important;
+        overflow-wrap: break-word !important;
+    }
+    /* ▲▲▲ ここまで追加 ▲▲▲ */
     #memory_json_editor_code, #log_editor_code, #notepad_editor_code {
         max-height: 310px;
         /* overflow: hidden; を削除。子の表示を妨げないようにします。 */
