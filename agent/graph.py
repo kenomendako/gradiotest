@@ -12,13 +12,17 @@ from langgraph.graph import StateGraph, END, START, add_messages
 from langchain_core.tools import tool
 
 # ▼▼▼ ツールルーター専用のプロンプトを新たに定義 ▼▼▼
-TOOL_ROUTER_PROMPT_STRICT = """あなたは、ユーザーの指示を分析し、利用可能なツールの中から最も適切なものを選択して呼び出すことに特化した、高度なAIルーターです。
-あなたの唯一の仕事は、ツールを呼び出すためのJSON形式の指示を出力するか、ツールが必要ないと判断した場合は沈黙（ツール呼び出しをしない）することです。
+TOOL_ROUTER_PROMPT_STRICT = """あなたは、ユーザーの指示やこれまでの実行結果を分析し、次に実行すべきツールを判断することに特化した、高度なAIルーターです。
+あなたの唯一の仕事は、ツールを呼び出すためのJSON形式の指示を出力するか、これ以上のツール実行は不要と判断した場合に沈黙（ツール呼び出しをしない）することです。
 絶対に、あなた自身の言葉で応答メッセージを生成してはいけません。思考や挨拶、相槌も一切不要です。
 
-【指示】ユーザーの最新のメッセージとこれまでの会話履歴を分析し、以下のいずれかのアクションを実行してください。
-1.  指示の達成にツールが必要な場合、そのツールを呼び出すためのJSONを生成する。
-2.  ツールが本当に必要ない場合、何も生成しない。
+【思考プロセス】
+1.  ユーザーの最新のメッセージと、直前のツールの実行結果（もしあれば）を注意深く観察する。
+2.  ユーザーの最終的な目的を達成するために、次に実行すべきツールが何かを判断する。
+    - 例1：ユーザーが「メモを整理して」と指示し、あなたが`read_full_notepad`を実行した直後なら、次はその内容に基づいて`update_notepad`や`delete_from_notepad`を呼び出すべきか検討する。
+    - 例2：`web_search_tool`でURLリストを取得したなら、次は`read_url_tool`でそのURLの内容を読むべきか検討する。
+3.  もし実行すべきツールがあれば、そのツールを呼び出すためのJSONを生成する。複数のツールを同時に呼び出すことも可能。
+4.  全てのタスクが完了し、これ以上のツール実行は不要だと確信した場合にのみ、沈黙する。
 """
 # ▲▲▲ プロンプト定義ここまで ▲▲▲
 
@@ -160,128 +164,126 @@ def final_response_node(state: AgentState):
         print(f"  - 最終応答生成ノードでエラー: {e}")
         return {"messages": [AIMessage(content=f"[エラー：最終応答の生成中に問題が発生しました。詳細: {e}]")], "final_token_count": 0}
 
-# ★★★ ここから新しいノードの定義を追加 ★★★
-def reflection_node(state: AgentState) -> dict:
-    """
-    最終応答を評価し、不十分な場合はRETRYを決定する。
-    RETRYの場合、会話履歴を最後のユーザー入力まで巻き戻し、
-    再試行を促すシステムメッセージを追加して、クリーンな状態で再試行する。
-    """
-    print("--- 振り返りノード (reflection_node) 実行 ---")
+# ▼▼▼ 不要になった関数をコメントアウトまたは削除 ▼▼▼
+# def reflection_node(state: AgentState) -> dict:
+#     """
+#     最終応答を評価し、不十分な場合はRETRYを決定する。
+#     RETRYの場合、会話履歴を最後のユーザー入力まで巻き戻し、
+#     再試行を促すシステムメッセージを追加して、クリーンな状態で再試行する。
+#     """
+#     print("--- 振り返りノード (reflection_node) 実行 ---")
 
-    # ▼▼▼ ここからが最重要変更点 ▼▼▼
-    # 1. モデルのバージョンを規約通りに修正
-    print("  - 振り返りモデルとして 'gemini-2.5-flash' を使用します。")
-    llm_flash = get_configured_llm("gemini-2.5-flash", state['api_key'])
+#     # ▼▼▼ ここからが最重要変更点 ▼▼▼
+#     # 1. モデルのバージョンを規約通りに修正
+#     print("  - 振り返りモデルとして 'gemini-2.5-flash' を使用します。")
+#     llm_flash = get_configured_llm("gemini-2.5-flash", state['api_key'])
 
-    # 2. 評価対象のメッセージを取得
-    if len(state["messages"]) < 2:
-        print("  - 警告: 振り返りのための十分なメッセージがありません。FINISHします。")
-        return {"reflection": "FINISH"}
+#     # 2. 評価対象のメッセージを取得
+#     if len(state["messages"]) < 2:
+#         print("  - 警告: 振り返りのための十分なメッセージがありません。FINISHします。")
+#         return {"reflection": "FINISH"}
 
-    ai_message = state["messages"][-1]
-    # HumanMessage, AIMessage, ToolMessage以外のメッセージは評価対象外とする
-    if not isinstance(ai_message, (AIMessage, ToolMessage)):
-        last_human_message_index = -1
-        for i in range(len(state["messages"]) - 1, -1, -1):
-            if isinstance(state["messages"][i], HumanMessage):
-                last_human_message_index = i
-                break
-        if last_human_message_index != -1 and last_human_message_index < len(state["messages"]) - 1:
-            ai_message = state["messages"][last_human_message_index + 1]
-        else:
-             print("  - 評価対象のAIメッセージが見つかりません。FINISHします。")
-             return {"reflection": "FINISH"}
+#     ai_message = state["messages"][-1]
+#     # HumanMessage, AIMessage, ToolMessage以外のメッセージは評価対象外とする
+#     if not isinstance(ai_message, (AIMessage, ToolMessage)):
+#         last_human_message_index = -1
+#         for i in range(len(state["messages"]) - 1, -1, -1):
+#             if isinstance(state["messages"][i], HumanMessage):
+#                 last_human_message_index = i
+#                 break
+#         if last_human_message_index != -1 and last_human_message_index < len(state["messages"]) - 1:
+#             ai_message = state["messages"][last_human_message_index + 1]
+#         else:
+#              print("  - 評価対象のAIメッセージが見つかりません。FINISHします。")
+#              return {"reflection": "FINISH"}
 
 
-    user_message = None
-    for i in range(len(state["messages"]) - 2, -1, -1):
-        if isinstance(state["messages"][i], HumanMessage):
-            user_message = state["messages"][i]
-            break
+#     user_message = None
+#     for i in range(len(state["messages"]) - 2, -1, -1):
+#         if isinstance(state["messages"][i], HumanMessage):
+#             user_message = state["messages"][i]
+#             break
 
-    if not user_message:
-        print("  - 評価対象のユーザーメッセージが見つかりません。FINISHします。")
-        return {"reflection": "FINISH"}
+#     if not user_message:
+#         print("  - 評価対象のユーザーメッセージが見つかりません。FINISHします。")
+#         return {"reflection": "FINISH"}
 
-    reflection_prompt = f"""
-あなたは、AIアシスタントの応答を評価する、高度な評価者です。
-以下の「ユーザーの指示」と、それに対する「AIの応答」を分析してください。
+#     reflection_prompt = f"""
+# あなたは、AIアシスタントの応答を評価する、高度な評価者です。
+# 以下の「ユーザーの指示」と、それに対する「AIの応答」を分析してください。
 
-【ユーザーの指示】
-{user_message.content}
+# 【ユーザーの指示】
+# {user_message.content}
 
-【AIの応答】
-{ai_message.content}
+# 【AIの応答】
+# {ai_message.content}
 
-【評価基準】
-AIの応答は、ユーザーの指示を完全に満たしていますか？
-それとも、AIは「Webで検索すればよかった」「メモ帳を確認するべきだった」のように、本来ツールを使うべきだったというニュアンスや、情報不足を示唆していませんか？
+# 【評価基準】
+# AIの応答は、ユーザーの指示を完全に満たしていますか？
+# それとも、AIは「Webで検索すればよかった」「メモ帳を確認するべきだった」のように、本来ツールを使うべきだったというニュアンスや、情報不足を示唆していませんか？
 
-【判断】
-もし、AIの応答が不完全で、ツールを使えばより良い応答ができたと考えられる場合は "RETRY" とだけ出力してください。
-応答が完全で、これ以上のアクションが不要な場合は "FINISH" とだけ出力してください。
-"""
-    try:
-        reflection_result = llm_flash.invoke(reflection_prompt)
-        decision = reflection_result.content.strip().upper()
-        print(f"  - 振り返りの結果: {decision}")
+# 【判断】
+# もし、AIの応答が不完全で、ツールを使えばより良い応答ができたと考えられる場合は "RETRY" とだけ出力してください。
+# 応答が完全で、これ以上のアクションが不要な場合は "FINISH" とだけ出力してください。
+# """
+#     try:
+#         reflection_result = llm_flash.invoke(reflection_prompt)
+#         decision = reflection_result.content.strip().upper()
+#         print(f"  - 振り返りの結果: {decision}")
 
-        if decision == "RETRY":
-            print("  - 再試行を決定。履歴を最後のユーザー入力まで巻き戻します。")
+#         if decision == "RETRY":
+#             print("  - 再試行を決定。履歴を最後のユーザー入力まで巻き戻します。")
 
-            # 3. 最後のHumanMessageの位置を探す
-            last_human_message_index = -1
-            for i in range(len(state["messages"]) - 1, -1, -1):
-                if isinstance(state["messages"][i], HumanMessage):
-                    last_human_message_index = i
-                    break
+#             # 3. 最後のHumanMessageの位置を探す
+#             last_human_message_index = -1
+#             for i in range(len(state["messages"]) - 1, -1, -1):
+#                 if isinstance(state["messages"][i], HumanMessage):
+#                     last_human_message_index = i
+#                     break
 
-            if last_human_message_index == -1:
-                print("  - 警告: 巻き戻し地点となるユーザーメッセージが見つかりません。FINISHします。")
-                return {"reflection": "FINISH"}
+#             if last_human_message_index == -1:
+#                 print("  - 警告: 巻き戻し地点となるユーザーメッセージが見つかりません。FINISHします。")
+#                 return {"reflection": "FINISH"}
 
-            # 4. 履歴をリセットし、再試行用のシステムメッセージを追加
-            messages_for_retry = state["messages"][:last_human_message_index + 1]
-            # ▼▼▼ 自然な会話の流れを作るため、システムメッセージではなくユーザーメッセージとして指示を出す ▼▼▼
-            retry_instruction = HumanMessage(
-                content="（システムからの内部指示：あなたの直前の応答は、ユーザーの意図を完全に満たしていませんでした。会話の文脈を再確認し、利用可能なツールを検討した上で、もう一度応答を生成してください。）"
-            )
-            # ▲▲▲ 変更ここまで ▲▲▲
-            messages_for_retry.append(retry_instruction)
-            print(f"  - 履歴を{len(state['messages'])}件から{len(messages_for_retry)}件にリセットしました。")
+#             # 4. 履歴をリセットし、再試行用のシステムメッセージを追加
+#             messages_for_retry = state["messages"][:last_human_message_index + 1]
+#             # ▼▼▼ 自然な会話の流れを作るため、システムメッセージではなくユーザーメッセージとして指示を出す ▼▼▼
+#             retry_instruction = HumanMessage(
+#                 content="（システムからの内部指示：あなたの直前の応答は、ユーザーの意図を完全に満たしていませんでした。会話の文脈を再確認し、利用可能なツールを検討した上で、もう一度応答を生成してください。）"
+#             )
+#             # ▲▲▲ 変更ここまで ▲▲▲
+#             messages_for_retry.append(retry_instruction)
+#             print(f"  - 履歴を{len(state['messages'])}件から{len(messages_for_retry)}件にリセットしました。")
 
-            return {
-                "messages": messages_for_retry,
-                "reflection": "RETRY"
-            }
-        else:
-            if decision != "FINISH":
-                print(f"  - 警告: 振り返りノードの応答が予期せぬ形式({decision})。FINISHとして扱います。")
-            return {"reflection": "FINISH"}
+#             return {
+#                 "messages": messages_for_retry,
+#                 "reflection": "RETRY"
+#             }
+#         else:
+#             if decision != "FINISH":
+#                 print(f"  - 警告: 振り返りノードの応答が予期せぬ形式({decision})。FINISHとして扱います。")
+#             return {"reflection": "FINISH"}
 
-    except Exception as e:
-        print(f"  - 振り返りノードでエラー: {e}")
-        traceback.print_exc()
-        return {"reflection": "FINISH"}
-# ▲▲▲ 変更ここまで ▲▲▲
+#     except Exception as e:
+#         print(f"  - 振り返りノードでエラー: {e}")
+#         traceback.print_exc()
+#         return {"reflection": "FINISH"}
 
-# ★★★ ここから新しい条件付きエッジの定義を追加 ★★★
-def should_retry(state: AgentState) -> str:
-    """
-    reflection_nodeの結果に基づき、グラフをやり直すか終了するかを決定する。
-    """
-    print("--- 再試行判断 (should_retry) 実行 ---")
-    if state.get("reflection") == "RETRY":
-        print("  - 判断: 応答が不十分。tool_router に戻ってやり直します。")
-        # messagesの最後にユーザーの指示を再度追加して、tool_routerがそれを参照できるようにする
-        # あるいは、tool_routerが参照するメッセージを調整する
-        # ここでは、stateは変更せずに、単にルーティング先を返す
-        return "tool_router"
-    else: # FINISH または予期せぬ値
-        print("  - 判断: 応答は完了。グラフを終了します。")
-        return END
-# ★★★ 追加ここまで ★★★
+# def should_retry(state: AgentState) -> str:
+#     """
+#     reflection_nodeの結果に基づき、グラフをやり直すか終了するかを決定する。
+#     """
+#     print("--- 再試行判断 (should_retry) 実行 ---")
+#     if state.get("reflection") == "RETRY":
+#         print("  - 判断: 応答が不十分。tool_router に戻ってやり直します。")
+#         # messagesの最後にユーザーの指示を再度追加して、tool_routerがそれを参照できるようにする
+#         # あるいは、tool_routerが参照するメッセージを調整する
+#         # ここでは、stateは変更せずに、単にルーティング先を返す
+#         return "tool_router"
+#     else: # FINISH または予期せぬ値
+#         print("  - 判断: 応答は完了。グラフを終了します。")
+#         return END
+# ▲▲▲ 不要な関数ここまで ▲▲▲
 
 def should_call_tool(state: AgentState):
     print("--- ルーティング判断 (should_call_tool) 実行 ---")
@@ -297,12 +299,10 @@ workflow = StateGraph(AgentState)
 workflow.add_node("tool_router", tool_router_node)
 workflow.add_node("call_tool", call_tool_node)
 workflow.add_node("final_response", final_response_node)
-workflow.add_node("reflection", reflection_node) # ★ 新しいノードを追加
+# workflow.add_node("reflection", reflection_node) # 不要なノード
 
-# エッジ（配線）の接続
 workflow.set_entry_point("tool_router")
 
-# 最初のルーターからの分岐
 workflow.add_conditional_edges(
     "tool_router",
     should_call_tool,
@@ -312,24 +312,25 @@ workflow.add_conditional_edges(
     }
 )
 
+# ▼▼▼ ここからが重要な配線の修正 ▼▼▼
+# --- 変更前 ---
+# workflow.add_edge("call_tool", "tool_router")
+# workflow.add_edge("final_response", "reflection")
+# workflow.add_conditional_edges(
+#     "reflection",
+#     should_retry,
+#     {
+#         "tool_router": "tool_router",
+#         END: END
+#     }
+# )
+# --- 変更後 (シンプルで堅牢な構造) ---
 # ツール呼び出しの結果を元に、次の行動を考えさせるため、tool_routerに戻す
-print("情報: ReActループを構築します (call_tool -> tool_router)")
 workflow.add_edge("call_tool", "tool_router")
 
-# ★★★ ここからが最重要変更点 ★★★
-# 最終応答の後、すぐに終了(END)するのではなく、振り返り(reflection)を行う
-workflow.add_edge("final_response", "reflection")
-
-# 振り返りの結果に応じて、やり直す(tool_routerへループ)か、終了(END)するかを決める
-workflow.add_conditional_edges(
-    "reflection",
-    should_retry,
-    { # should_retryが返す文字列とノード名をマッピング
-        "tool_router": "tool_router",
-        END: END
-    }
-)
-# ★★★ 変更ここまで ★★★
+# 最終応答の後、グラフは必ず終了する
+workflow.add_edge("final_response", END)
+# ▲▲▲ 配線の修正ここまで ▲▲▲
 
 # グラフのコンパイル
 app = workflow.compile()
