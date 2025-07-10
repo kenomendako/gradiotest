@@ -4,7 +4,9 @@ import os
 import traceback
 from typing import TypedDict, List
 from typing_extensions import Annotated
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+# ▼▼▼ SystemMessage をインポート ▼▼▼
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, SystemMessage
+# ▲▲▲ インポート追加 ▲▲▲
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langchain_core.tools import tool
@@ -122,35 +124,56 @@ def final_response_node(state: AgentState):
 # ★★★ ここから新しいノードの定義を追加 ★★★
 def reflection_node(state: AgentState) -> dict:
     """
-    最終応答が、本来ツールを使うべきだったという「後悔」を含んでいないか、
-    あるいはユーザーの指示を達成しきれているかを確認する。
+    最終応答を評価し、不十分な場合はRETRYを決定する。
+    RETRYの場合、会話履歴を最後のユーザー入力まで巻き戻し、
+    再試行を促すシステムメッセージを追加して、クリーンな状態で再試行する。
     """
     print("--- 振り返りノード (reflection_node) 実行 ---")
 
-    # 最後のAIメッセージ（Proの応答）と、その前のユーザーメッセージを取得
-    # messagesリストの構造を確認し、適切なインデックスでアクセスする
-    # 通常、最後がAIの応答、その一つ前がユーザーの指示のはず
+    # ▼▼▼ ここからが最重要変更点 ▼▼▼
+    # 1. モデルのバージョンを規約通りに修正
+    print("  - 振り返りモデルとして 'gemini-2.5-flash' を使用します。")
+    llm_flash = get_configured_llm("gemini-2.5-flash", state['api_key'])
+
+    # 2. 評価対象のメッセージを取得
     if len(state["messages"]) < 2:
-        print("  - 警告: 振り返りのための十分なメッセージがありません。安全に終了します。")
+        print("  - 警告: 振り返りのための十分なメッセージがありません。FINISHします。")
         return {"reflection": "FINISH"}
 
-    ai_message_obj = state["messages"][-1]
-    user_message_obj = state["messages"][-2]
+    ai_message = state["messages"][-1]
+    # HumanMessage, AIMessage, ToolMessage以外のメッセージは評価対象外とする
+    if not isinstance(ai_message, (AIMessage, ToolMessage)):
+        last_human_message_index = -1
+        for i in range(len(state["messages"]) - 1, -1, -1):
+            if isinstance(state["messages"][i], HumanMessage):
+                last_human_message_index = i
+                break
+        if last_human_message_index != -1 and last_human_message_index < len(state["messages"]) - 1:
+            ai_message = state["messages"][last_human_message_index + 1]
+        else:
+             print("  - 評価対象のAIメッセージが見つかりません。FINISHします。")
+             return {"reflection": "FINISH"}
 
-    # content属性から文字列を取得
-    ai_message = ai_message_obj.content if hasattr(ai_message_obj, 'content') else str(ai_message_obj)
-    user_message = user_message_obj.content if hasattr(user_message_obj, 'content') else str(user_message_obj)
 
-    # 振り返り用のプロンプト
+    user_message = None
+    for i in range(len(state["messages"]) - 2, -1, -1):
+        if isinstance(state["messages"][i], HumanMessage):
+            user_message = state["messages"][i]
+            break
+
+    if not user_message:
+        print("  - 評価対象のユーザーメッセージが見つかりません。FINISHします。")
+        return {"reflection": "FINISH"}
+
     reflection_prompt = f"""
 あなたは、AIアシスタントの応答を評価する、高度な評価者です。
 以下の「ユーザーの指示」と、それに対する「AIの応答」を分析してください。
 
 【ユーザーの指示】
-{user_message}
+{user_message.content}
 
 【AIの応答】
-{ai_message}
+{ai_message.content}
 
 【評価基準】
 AIの応答は、ユーザーの指示を完全に満たしていますか？
@@ -160,40 +183,47 @@ AIの応答は、ユーザーの指示を完全に満たしていますか？
 もし、AIの応答が不完全で、ツールを使えばより良い応答ができたと考えられる場合は "RETRY" とだけ出力してください。
 応答が完全で、これ以上のアクションが不要な場合は "FINISH" とだけ出力してください。
 """
-
-    # 振り返りには高速なモデルで十分
-    api_key = state['api_key']
-    # モデル名は state から取得するか、固定で指定するか検討。ここでは Flash を直接指定。
-    llm_flash = get_configured_llm("gemini-1.5-flash-latest", api_key) # モデル名を最新版に更新
-
     try:
         reflection_result = llm_flash.invoke(reflection_prompt)
         decision = reflection_result.content.strip().upper()
         print(f"  - 振り返りの結果: {decision}")
 
         if decision == "RETRY":
-            print("  - 再試行を決定。履歴に修正指示メッセージを追加します。")
-            # ▼▼▼ ここが最重要修正点 ▼▼▼
-            # 次のループのために、自然な会話の流れを作るための「ユーザーからの指示」を追加する
-            retry_instruction = HumanMessage(
-                content="前回の応答は不十分でした。ユーザーの意図を再考し、もう一度応答を生成してください。"
+            print("  - 再試行を決定。履歴を最後のユーザー入力まで巻き戻します。")
+
+            # 3. 最後のHumanMessageの位置を探す
+            last_human_message_index = -1
+            for i in range(len(state["messages"]) - 1, -1, -1):
+                if isinstance(state["messages"][i], HumanMessage):
+                    last_human_message_index = i
+                    break
+
+            if last_human_message_index == -1:
+                print("  - 警告: 巻き戻し地点となるユーザーメッセージが見つかりません。FINISHします。")
+                return {"reflection": "FINISH"}
+
+            # 4. 履歴をリセットし、再試行用のシステムメッセージを追加
+            messages_for_retry = state["messages"][:last_human_message_index + 1]
+            retry_instruction = SystemMessage(
+                content="【システム指示】前回の応答は不十分でした。ユーザーの最新の要求を再度分析し、利用可能なツールを最大限活用して、より精度の高い応答を生成してください。"
             )
-            # 状態を更新して返す
+            messages_for_retry.append(retry_instruction)
+            print(f"  - 履歴を{len(state['messages'])}件から{len(messages_for_retry)}件にリセットしました。")
+
             return {
-                "messages": [retry_instruction],
+                "messages": messages_for_retry,
                 "reflection": "RETRY"
             }
-            # ▲▲▲ 修正ここまで ▲▲▲
-        else: # FINISH または予期せぬ値
+        else:
             if decision != "FINISH":
-                print(f"  - 警告: 振り返りノードの応答が予期せぬ形式です ({decision})。FINISHとして扱います。")
+                print(f"  - 警告: 振り返りノードの応答が予期せぬ形式({decision})。FINISHとして扱います。")
             return {"reflection": "FINISH"}
 
     except Exception as e:
         print(f"  - 振り返りノードでエラー: {e}")
         traceback.print_exc()
         return {"reflection": "FINISH"}
-# ★★★ 追加ここまで ★★★
+# ▲▲▲ 変更ここまで ▲▲▲
 
 # ★★★ ここから新しい条件付きエッジの定義を追加 ★★★
 def should_retry(state: AgentState) -> str:
