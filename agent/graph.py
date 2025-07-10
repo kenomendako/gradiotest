@@ -243,9 +243,11 @@ AIの応答は、ユーザーの指示を完全に満たしていますか？
 
             # 4. 履歴をリセットし、再試行用のシステムメッセージを追加
             messages_for_retry = state["messages"][:last_human_message_index + 1]
-            retry_instruction = SystemMessage(
-                content="【システム指示】前回の応答は不十分でした。ユーザーの最新の要求を再度分析し、利用可能なツールを最大限活用して、より精度の高い応答を生成してください。"
+            # ▼▼▼ 自然な会話の流れを作るため、システムメッセージではなくユーザーメッセージとして指示を出す ▼▼▼
+            retry_instruction = HumanMessage(
+                content="（システムからの内部指示：あなたの直前の応答は、ユーザーの意図を完全に満たしていませんでした。会話の文脈を再確認し、利用可能なツールを検討した上で、もう一度応答を生成してください。）"
             )
+            # ▲▲▲ 変更ここまで ▲▲▲
             messages_for_retry.append(retry_instruction)
             print(f"  - 履歴を{len(state['messages'])}件から{len(messages_for_retry)}件にリセットしました。")
 
