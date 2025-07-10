@@ -163,7 +163,7 @@ try:
                                 save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
                                 rag_update_button = gr.Button(value="手帳の索引を更新", variant="primary")
                         with gr.TabItem("メモ帳 (notepad.md)"):
-                            notepad_editor = gr.Code(label="メモ帳の内容", language="markdown", interactive=True, elem_id="notepad_editor_code") # ★ lines=10 を削除
+                            notepad_editor = gr.Code(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code") # ★ language="markdown" を削除
                             with gr.Row():
                                 save_notepad_button = gr.Button(value="メモ帳を保存", variant="secondary")
                                 reload_notepad_button = gr.Button(value="再読込", variant="secondary")
