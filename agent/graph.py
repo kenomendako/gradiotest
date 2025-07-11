@@ -28,6 +28,24 @@ TOOL_ROUTER_PROMPT_STRICT = """あなたは、ユーザーの指示やこれま�
 """
 # ▲▲▲ 定義ここまで ▲▲▲
 
+# ▼▼▼【重要】最終応答用のプロンプトを新たに定義▼▼▼
+FINAL_RESPONSE_PROMPT = """あなたは、優秀なアシスタントAIです。
+あなたの部下である、ツール実行エージェントが、ユーザーの指示に基づいて、一連の調査・操作タスクを完了しました。
+以下に、その「ユーザーの最新の指示」と、部下が実行した「タスクの実行結果ログ」を提示します。
+
+あなたは、これらの情報を元に、これまでの会話全体の文脈を踏まえ、あなた自身のキャラクターとして、自然で、心のこもった、最終的な応答メッセージを生成してください。
+部下の実行結果を、ただ、繰り返すのではなく、何が、行われ、どう、なったのかを、あなた自身の、言葉で、まとめて、報告することが、あなたの、最後の、重要な、仕事です。
+
+---
+【ユーザーの最新の指示】
+{last_user_message}
+
+【部下からのタスク実行結果ログ】
+{tool_outputs}
+---
+"""
+# ▲▲▲プロンプト定義ここまで▲▲▲
+
 
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
@@ -113,24 +131,47 @@ def tool_router_node(state: AgentState):
 def final_response_node(state: AgentState):
     """
     彼らしい応答を生成することに特化した最終ノード。
-    Proに「完全な会話履歴」を与え、深く豊かな応答を生成させる。
+    Proに「完全な会話履歴」と「最終報告の書き方」を与え、応答を生成させる。
     """
     print("--- 最終応答生成ノード (final_response_node) 実行 ---")
+
+    messages = state['messages']
+    last_user_message_content = ""
+    last_human_message_index = -1
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            last_user_message_content = messages[i].content
+            last_human_message_index = i
+            break
+
+    tool_outputs = []
+    if last_human_message_index != -1:
+        for msg in messages[last_human_message_index:]:
+            if isinstance(msg, ToolMessage):
+                tool_outputs.append(f"・ツール「{msg.name}」を実行し、結果「{msg.content}」を得ました。")
+
+    tool_outputs_str = "\n".join(tool_outputs) if tool_outputs else "（特筆すべき、ツール実行結果なし）"
+
+    final_prompt_text = FINAL_RESPONSE_PROMPT.format(
+        last_user_message=last_user_message_content,
+        tool_outputs=tool_outputs_str
+    )
+
+    final_messages_for_pro = list(messages)
+    final_messages_for_pro.append(HumanMessage(content=final_prompt_text))
+
     api_key = state['api_key']
     final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
-
     llm_final = get_configured_llm(final_model_to_use, api_key)
 
-    messages_for_final_response = state['messages'] # Proには完全な履歴を渡す
-
     total_tokens = gemini_api.count_tokens_from_lc_messages(
-        messages_for_final_response, final_model_to_use, api_key
+        final_messages_for_pro, final_model_to_use, api_key
     )
-    print(f"  - 最終的な合計入力トークン数（完全な履歴）を計算しました: {total_tokens}")
+    print(f"  - 最終的な合計入力トークン数（指示プロンプト含む）を計算しました: {total_tokens}")
 
-    print(f"  - {final_model_to_use}への入力メッセージ数（完全な履歴）: {len(messages_for_final_response)}")
+    print(f"  - {final_model_to_use}への入力メッセージ数（指示プロンプト含む）: {len(final_messages_for_pro)}")
     try:
-        response = llm_final.invoke(messages_for_final_response)
+        response = llm_final.invoke(final_messages_for_pro)
         return {"messages": [response], "final_token_count": total_tokens}
     except Exception as e:
         print(f"  - 最終応答生成ノードでエラー: {e}")
@@ -138,10 +179,16 @@ def final_response_node(state: AgentState):
 
 
 def call_tool_node(state: AgentState):
+    """
+    ツールを実行するノード。
+    一度に実行するツールの数を物理的に制限し、APIのレートリミット超過を防ぐ。
+    """
     last_message = state['messages'][-1]
     if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
         return {}
+
     print(f"--- 道具実行ノード (call_tool_node) 実行 ---")
+
     tool_messages = []
     available_tools_map = {
         "diary_search_tool": rag_manager.diary_search_tool,
@@ -153,7 +200,14 @@ def call_tool_node(state: AgentState):
         "delete_from_notepad": delete_from_notepad,
         "read_full_notepad": read_full_notepad
     }
-    for tool_call in last_message.tool_calls:
+
+    MAX_TOOLS_PER_TURN = 3
+    tool_calls_to_execute = last_message.tool_calls[:MAX_TOOLS_PER_TURN]
+
+    if len(last_message.tool_calls) > MAX_TOOLS_PER_TURN:
+        print(f"  - 警告: 一度に{len(last_message.tool_calls)}個のツール呼び出しが要求されましたが、最初の{MAX_TOOLS_PER_TURN}個のみ実行します。")
+
+    for tool_call in tool_calls_to_execute:
         tool_name = tool_call.get("name")
         tool_args = tool_call.get("args", {})
         tool_call_id = tool_call.get("id")
@@ -165,13 +219,16 @@ def call_tool_node(state: AgentState):
             try:
                 if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "add_to_notepad", "update_notepad", "delete_from_notepad", "read_full_notepad"]:
                     tool_args["character_name"] = state.get("character_name")
+                    print(f"    - 引数に正しいキャラクター名 '{tool_args['character_name']}' を注入/上書きしました。")
                 if tool_name in ["diary_search_tool", "conversation_memory_search_tool"]:
                     tool_args["api_key"] = state.get("api_key")
+                    print(f"    - 引数にAPIキーを注入/上書きしました。")
                 output = tool_to_call.invoke(tool_args)
             except Exception as e:
                 output = f"[エラー：道具'{tool_name}'の実行に失敗しました。詳細: {e}]"
                 traceback.print_exc()
         tool_messages.append(ToolMessage(content=str(output), tool_call_id=tool_call_id, name=tool_name))
+
     return {"messages": tool_messages}
 
 
