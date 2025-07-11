@@ -31,6 +31,21 @@ TOOL_ROUTER_PROMPT_STRICT = """あなたは、ユーザーの指示やこれま�
 """
 # ▲▲▲ プロンプト定義ここまで ▲▲▲
 
+# ▼▼▼【重要】最終応答用のプロンプトを新たに定義▼▼▼
+FINAL_RESPONSE_PROMPT = """あなたは、優秀なアシスタントAIです。
+あなたの部下である、ツール実行エージェントが、ユーザーの指示に基づいて、調査活動を行いました。
+以下に、その「ユーザーの指示」と、部下が集めてきた「調査結果（ツール実行結果）」を、提示します。
+
+あなたは、これらの情報を元に、これまでの全ての会話文脈を踏まえ、あなた自身のキャラクターとして、自然で、心のこもった、最終的な応答メッセージを生成してください。
+
+【ユーザーの最新の指示】
+{last_user_message}
+
+【部下からの調査結果】
+{tool_outputs}
+"""
+# ▲▲▲プロンプト定義ここまで▲▲▲
+
 # ▲▲▲ インポート追加 ▲▲▲
 import rag_manager
 from tools.web_tools import read_url_tool
@@ -126,28 +141,53 @@ def tool_router_node(state: AgentState):
 def final_response_node(state: AgentState):
     """
     彼らしい応答を生成することに特化した最終ノード。
-    gemini-2.5-proに「完全な会話履歴」を与え、深く豊かな応答を生成させる。
+    gemini-2.5-proに「完全な会話履歴」と「最終報告の書き方」を与え、応答を生成させる。
     """
     print("--- 最終応答生成ノード (final_response_node) 実行 ---")
+
+    # 1. 最後のユーザーメッセージと、ツール実行結果を抽出
+    messages = state['messages']
+    last_user_message = ""
+    for msg in reversed(messages):
+        if isinstance(msg, HumanMessage):
+            last_user_message = msg.content
+            break
+
+    tool_outputs = []
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            tool_outputs.append(f"・ツール「{msg.name}」の実行結果:\n{msg.content}")
+    tool_outputs_str = "\n".join(tool_outputs) if tool_outputs else "（特になし）"
+
+    # 2. 最終報告書用のプロンプトをフォーマット
+    final_prompt_text = FINAL_RESPONSE_PROMPT.format(
+        last_user_message=last_user_message,
+        tool_outputs=tool_outputs_str
+    )
+
+    # 3. 完全な履歴の末尾に、最終指示プロンプトを追加
+    messages_for_final_response = list(messages)
+    messages_for_final_response.append(HumanMessage(content=final_prompt_text))
+
+    # 4. モデルを呼び出す
     api_key = state['api_key']
     final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
-
-    # 完全な会話履歴を使用してProを呼び出す
     llm_final = get_configured_llm(final_model_to_use, api_key)
 
-    # トークン数は完全な履歴で計算
     total_tokens = gemini_api.count_tokens_from_lc_messages(
-        state['messages'], final_model_to_use, api_key
+        messages_for_final_response, final_model_to_use, api_key
     )
-    print(f"  - 最終的な合計入力トークン数（完全な履歴）を計算しました: {total_tokens}")
+    print(f"  - 最終的な合計入力トークン数（指示プロンプト含む）を計算しました: {total_tokens}")
 
-    print(f"  - {final_model_to_use}への入力メッセージ数（完全な履歴）: {len(state['messages'])}")
+    print(f"  - {final_model_to_use}への入力メッセージ数（指示プロンプト含む）: {len(messages_for_final_response)}")
     try:
-        response = llm_final.invoke(state['messages'])
+        response = llm_final.invoke(messages_for_final_response)
         return {"messages": [response], "final_token_count": total_tokens}
     except Exception as e:
         print(f"  - 最終応答生成ノードでエラー: {e}")
         return {"messages": [AIMessage(content=f"[エラー：最終応答の生成中に問題が発生しました。詳細: {e}]")], "final_token_count": 0}
+# ▲▲▲修正ここまで▲▲▲
+
 
 # call_tool_nodeは変更なし
 def call_tool_node(state: AgentState):
