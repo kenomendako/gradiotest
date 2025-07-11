@@ -7,7 +7,7 @@ from mem0.configs.base import MemoryConfig, LlmConfig, EmbedderConfig, VectorSto
 # キャラクターごとにMem0インスタンスをキャッシュするための辞書
 _mem0_instances = {}
 
-def get_mem0_instance(character_name: str, api_key: str, model_name: str = "gemini-2.5-flash") -> Memory:
+def get_mem0_instance(character_name: str, api_key: str, model_name: str = "gemini-2.5-flash-lite-preview-06-17") -> Memory:
     """
     キャラクター名、APIキー、モデル名に基づいて、対応するMem0インスタンスを取得または生成する。
     """
