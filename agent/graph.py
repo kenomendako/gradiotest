@@ -258,7 +258,7 @@ def call_tool_node(state: AgentState):
         "read_full_notepad": read_full_notepad
     }
 
-    MAX_TOOLS_PER_TURN = 3 # 指示通り3に戻す
+    MAX_TOOLS_PER_TURN = 5 # 指示通り3から5に変更
     tool_calls_to_execute = last_message.tool_calls[:MAX_TOOLS_PER_TURN]
 
     if len(last_message.tool_calls) > MAX_TOOLS_PER_TURN:
