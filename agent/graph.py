@@ -30,21 +30,14 @@ class AgentState(TypedDict):
 # ▼▼▼【重要】get_configured_llm を最終修正▼▼▼
 def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
     """
-    config_managerの安全設定リストを、ChatGoogleGenerativeAIが要求する
-    辞書形式に変換して、モデルを初期化する。
+    モデルを初期化する際、config_managerの安全設定を【そのまま】渡す。
     """
-    # 1. config_managerからリスト形式の安全設定を取得
-    safety_settings_list = config_manager.SAFETY_CONFIG
-
-    # 2. ChatGoogleGenerativeAIが要求する辞書形式に「通訳」する
-    safety_settings_dict = {item['category']: item['threshold'] for item in safety_settings_list}
-    print(f"  - 安全設定をLangChain用の辞書形式に変換しました。")
-
-    # 3. 変換後の辞書を渡してモデルを初期化
+    print("  - 安全設定をconfig_managerから直接取得して使用します。")
+    # 3. 変換せず、config_managerのリストをそのまま渡す
     llm = ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
-        safety_settings=safety_settings_dict # ★★★ 変換後の辞書を渡す ★★★
+        safety_settings=config_manager.SAFETY_CONFIG # ★★★ 一切加工せず、そのまま渡す ★★★
     )
     if bind_tools:
         llm = llm.bind_tools(bind_tools)
