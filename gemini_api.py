@@ -200,6 +200,7 @@ def _convert_lc_messages_to_gg_contents(messages: List) -> (list, dict):
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
     if not messages: return 0
+    # ▼▼▼ try-exceptブロックを追加 ▼▼▼
     try:
         contents_for_api, system_instruction_for_api = _convert_lc_messages_to_gg_contents(messages)
         final_contents_for_api = []
@@ -208,13 +209,19 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
             final_contents_for_api.append({"role": "model", "parts": [{"text": "承知いたしました。"}]})
         final_contents_for_api.extend(contents_for_api)
         if not final_contents_for_api: return 0
+
         client = genai.Client(api_key=api_key)
         model_to_use = f"models/{model_name}"
+
+        # このAPI呼び出しがエラーの原因
         response = client.models.count_tokens(model=model_to_use, contents=final_contents_for_api)
+
         return response.total_tokens
     except Exception as e:
+        # エラーが発生しても停止せず、-1を返して処理を継続する
         print(f"トークン計算エラー (from messages): {e}")
         return -1
+    # ▲▲▲ 修正ここまで ▲▲▲
 
 def count_input_tokens(
     character_name: str,
