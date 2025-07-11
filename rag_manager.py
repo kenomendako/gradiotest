@@ -228,3 +228,28 @@ def conversation_memory_search_tool(query: str, character_name: str, api_key: st
         print(error_message)
         traceback.print_exc()
         return error_message
+
+def search_conversation_memory_for_summary(character_name: str, query: str, api_key: str, limit: int = 5) -> str:
+    """
+    memory_weaver_nodeのために、Mem0の記憶を検索し、要約に適した形式の文字列として返す。
+    """
+    print(f"--- [Memory Weaver] 長期記憶(Mem0)検索実行 (Query: '{query}') ---")
+    try:
+        mem0_instance = mem0_manager.get_mem0_instance(character_name, api_key)
+        memories = mem0_instance.search(query=query, user_id=character_name, limit=limit)
+
+        if not memories or not memories.get("results"):
+            print("  - [Memory Weaver] 関連する長期記憶は見つかりませんでした。")
+            return "関連する長期記憶はありませんでした。"
+
+        # 要約用のプロンプトに埋め込みやすいように、結果をフォーマットする
+        formatted_memories = [f"- {item['memory']}" for item in memories["results"]]
+        result_str = "\n".join(formatted_memories)
+        print(f"  - [Memory Weaver] {len(formatted_memories)}件の長期記憶を発見しました。")
+        return result_str
+
+    except Exception as e:
+        error_message = f"  - [Memory Weaver] 長期記憶(Mem0)の検索中にエラーが発生しました: {e}"
+        print(error_message)
+        traceback.print_exc()
+        return "長期記憶の検索中にエラーが発生しました。"
