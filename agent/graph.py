@@ -9,7 +9,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langchain_core.tools import tool
 
+# ▼▼▼ config_managerをインポート ▼▼▼
+import config_manager
 import gemini_api
+# ▲▲▲ インポート追加 ▲▲▲
 import rag_manager
 from tools.web_tools import read_url_tool
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad # ★ 追加
@@ -24,8 +27,19 @@ class AgentState(TypedDict):
     # reflection: str # 不要になったキー
     pass # AgentStateの定義はこれ以上変更なし
 
+# ▼▼▼【重要】get_configured_llm を修正▼▼▼
 def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
-    llm = ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key)
+    """
+    全てのモデルに、デフォルトの安全設定（検閲緩和）を適用して初期化する。
+    """
+    llm = ChatGoogleGenerativeAI(
+        model=model_name,
+        google_api_key=api_key,
+        # ▼▼▼ ここが最重要修正点 ▼▼▼
+        # 我々の安全基準を、全てのモデル通信に適用する
+        safety_settings=config_manager.SAFETY_CONFIG
+        # ▲▲▲ 修正ここまで ▲▲▲
+    )
     if bind_tools:
         llm = llm.bind_tools(bind_tools)
         print(f"  - モデル '{model_name}' に道具: {[tool.name for tool in bind_tools]} をバインドしました。")
