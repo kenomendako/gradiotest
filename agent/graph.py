@@ -4,12 +4,15 @@ import os
 import traceback
 from typing import TypedDict, List
 from typing_extensions import Annotated
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langchain_core.tools import tool
 
+# ▼▼▼ config_managerをインポート ▼▼▼
+import config_manager
 import gemini_api
+# ▲▲▲ インポート追加 ▲▲▲
 import rag_manager
 from tools.web_tools import read_url_tool
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad # ★ 追加
@@ -21,13 +24,21 @@ class AgentState(TypedDict):
     api_key: str
     final_model_name: str
     final_token_count: int
-    # ★★★ ここから追加 ★★★
-    # 振り返りの結果を格納するキー
-    reflection: str
-    # ★★★ 追加ここまで ★★★
+    # reflection: str # 不要になったキー
+    pass # AgentStateの定義はこれ以上変更なし
 
+# ▼▼▼【重要】get_configured_llm を最終修正▼▼▼
 def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
-    llm = ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key)
+    """
+    モデルを初期化する。
+    安全設定は、ライブラリのデフォルト値に完全に委ねる。
+    """
+    print("  - 安全設定をLangChainのデフォルト値に委ねてモデルを初期化します。")
+    llm = ChatGoogleGenerativeAI(
+        model=model_name,
+        google_api_key=api_key,
+        # ▼▼▼ 問題の safety_settings パラメータを完全に削除 ▼▼▼
+    )
     if bind_tools:
         llm = llm.bind_tools(bind_tools)
         print(f"  - モデル '{model_name}' に道具: {[tool.name for tool in bind_tools]} をバインドしました。")
@@ -35,29 +46,94 @@ def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
         print(f"  - モデル '{model_name}' は道具なしで初期化されました。")
     return llm
 
+# ▼▼▼【重要】tool_router_nodeを再導入し、Flashに「集中コンテキスト」を与える▼▼▼
 def tool_router_node(state: AgentState):
+    """
+    ツールを使うかどうかの判断に特化したノード。
+    gemini-2.5-flashに「集中モード用コンテキスト」を与え、迅速かつ正確に判断させる。
+    """
     print("--- ツールルーターノード (tool_router_node) 実行 ---")
+
+    # 1. 集中モード用の新しいメッセージリストを作成
+    messages_for_router = []
+    original_messages = state['messages']
+
+    # 2. 元の履歴からシステムプロンプトを最初に抽出
+    system_prompt = next((msg for msg in original_messages if isinstance(msg, SystemMessage)), None)
+    if system_prompt:
+        messages_for_router.append(system_prompt)
+
+    # 3. 最後のユーザー指示以降のメッセージのみを抽出
+    last_human_message_index = -1
+    for i in range(len(original_messages) - 1, -1, -1):
+        if isinstance(original_messages[i], HumanMessage):
+            last_human_message_index = i
+            break
+
+    if last_human_message_index != -1:
+        recent_context = original_messages[last_human_message_index:]
+        messages_for_router.extend(recent_context)
+        print(f"  - Flashに最後のユーザー指示以降の{len(recent_context)}件のメッセージを「集中モード用コンテキスト」として使用します。")
+    else:
+        messages_for_router.extend(original_messages) # フォールバックとして全履歴
+        print("  - 警告: ユーザーメッセージが見つかりません。全履歴をコンテキストとして使用します。")
+
+    # 4. Flashを呼び出す
     api_key = state['api_key']
     available_tools = [
         rag_manager.diary_search_tool,
         rag_manager.conversation_memory_search_tool,
-        web_search_tool, # web_search_tool は直接定義されている
+        web_search_tool,
         read_url_tool,
-        add_to_notepad,       # ★ 追加
-        update_notepad,     # ★ 追加
-        delete_from_notepad,  # ★ 追加
-        read_full_notepad     # ★ 追加
+        add_to_notepad,
+        update_notepad,
+        delete_from_notepad,
+        read_full_notepad
     ]
     llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
-    response = llm_flash_with_tools.invoke(state['messages'])
+
+    print(f"  - Flashへの入力メッセージ数: {len(messages_for_router)}")
+    response = llm_flash_with_tools.invoke(messages_for_router)
+
     if hasattr(response, 'tool_calls') and response.tool_calls:
         print("  - Flashが道具の使用を決定。")
         return {"messages": [response]}
     else:
-        print("  - Flashは道具を使用しないと判断。")
+        print("  - Flashは道具を使用しないと判断。最終応答生成へ。")
+        # ツールを使わない場合、Proに完全な履歴を渡して応答させる
+        # この時点では何も返さず、ルーティングで final_response に向かわせる
         return {}
 
+# ▼▼▼【重要】final_response_nodeを再導入し、Proに「完全な記憶」を与える▼▼▼
+def final_response_node(state: AgentState):
+    """
+    彼らしい応答を生成することに特化した最終ノード。
+    gemini-2.5-proに「完全な会話履歴」を与え、深く豊かな応答を生成させる。
+    """
+    print("--- 最終応答生成ノード (final_response_node) 実行 ---")
+    api_key = state['api_key']
+    final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
+
+    # 完全な会話履歴を使用してProを呼び出す
+    llm_final = get_configured_llm(final_model_to_use, api_key)
+
+    # トークン数は完全な履歴で計算
+    total_tokens = gemini_api.count_tokens_from_lc_messages(
+        state['messages'], final_model_to_use, api_key
+    )
+    print(f"  - 最終的な合計入力トークン数（完全な履歴）を計算しました: {total_tokens}")
+
+    print(f"  - {final_model_to_use}への入力メッセージ数（完全な履歴）: {len(state['messages'])}")
+    try:
+        response = llm_final.invoke(state['messages'])
+        return {"messages": [response], "final_token_count": total_tokens}
+    except Exception as e:
+        print(f"  - 最終応答生成ノードでエラー: {e}")
+        return {"messages": [AIMessage(content=f"[エラー：最終応答の生成中に問題が発生しました。詳細: {e}]")], "final_token_count": 0}
+
+# call_tool_nodeは変更なし
 def call_tool_node(state: AgentState):
+    # (この関数は変更なし)
     last_message = state['messages'][-1]
     if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
         return {}
@@ -83,12 +159,19 @@ def call_tool_node(state: AgentState):
             output = f"エラー: 不明な道具 '{tool_name}' が指定されました。"
         else:
             try:
-                # ★ character_name を渡す条件に notepad_tools を追加
+                # ▼▼▼ ここからが最重要修正点 ▼▼▼
+                # LLMが生成した引数に、状態から取得した正しい値を上書き・追加する
                 if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "add_to_notepad", "update_notepad", "delete_from_notepad", "read_full_notepad"]:
-                    tool_args.update({"character_name": state.get("character_name")})
-                # RAGツールにはAPIキーも渡す
+                    # この上書きにより、LLMが 'character_name' を間違えても必ず正しい値に修正される
+                    tool_args["character_name"] = state.get("character_name")
+                    print(f"    - 引数に正しいキャラクター名 '{tool_args['character_name']}' を注入/上書きしました。")
+
+                # RAGツールにはAPIキーも渡す (これも上書き)
                 if tool_name in ["diary_search_tool", "conversation_memory_search_tool"]:
-                    tool_args.update({"api_key": state.get("api_key")})
+                    tool_args["api_key"] = state.get("api_key")
+                    print(f"    - 引数にAPIキーを注入/上書きしました。")
+                # ▲▲▲ 修正ここまで ▲▲▲
+
                 output = tool_to_call.invoke(tool_args)
             except Exception as e:
                 output = f"[エラー：道具'{tool_name}'の実行に失敗しました。詳細: {e}]"
@@ -96,110 +179,9 @@ def call_tool_node(state: AgentState):
         tool_messages.append(ToolMessage(content=str(output), tool_call_id=tool_call_id))
     return {"messages": tool_messages}
 
-def final_response_node(state: AgentState):
-    """【変更】最終応答生成。合計トークン数を計算し、Stateに保存する。"""
-    print("--- 最終応答生成ノード (final_response_node) 実行 ---")
-    api_key = state['api_key']
-    final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
-
-    # ツール実行後の全コンテキストを含んだ合計トークン数を計算
-    total_tokens = gemini_api.count_tokens_from_lc_messages(
-        state['messages'], final_model_to_use, api_key
-    )
-    print(f"  - 最終的な合計入力トークン数を計算しました: {total_tokens}")
-
-    llm_final = get_configured_llm(final_model_to_use, api_key)
-
-    print(f"  - {final_model_to_use}への入力メッセージ数: {len(state['messages'])}")
-    try:
-        response = llm_final.invoke(state['messages'])
-        # 応答メッセージと、計算したトークン数をStateに返す
-        return {"messages": [response], "final_token_count": total_tokens}
-    except Exception as e:
-        print(f"  - 最終応答生成ノードでエラー: {e}")
-        return {"messages": [AIMessage(content=f"[エラー：最終応答の生成中に問題が発生しました。詳細: {e}]")], "final_token_count": 0}
-
-# ★★★ ここから新しいノードの定義を追加 ★★★
-def reflection_node(state: AgentState) -> dict:
-    """
-    最終応答が、本来ツールを使うべきだったという「後悔」を含んでいないか、
-    あるいはユーザーの指示を達成しきれているかを確認する。
-    """
-    print("--- 振り返りノード (reflection_node) 実行 ---")
-
-    # 最後のAIメッセージ（Proの応答）と、その前のユーザーメッセージを取得
-    # messagesリストの構造を確認し、適切なインデックスでアクセスする
-    # 通常、最後がAIの応答、その一つ前がユーザーの指示のはず
-    if len(state["messages"]) < 2:
-        print("  - 警告: 振り返りのための十分なメッセージがありません。安全に終了します。")
-        return {"reflection": "FINISH"}
-
-    ai_message_obj = state["messages"][-1]
-    user_message_obj = state["messages"][-2]
-
-    # content属性から文字列を取得
-    ai_message = ai_message_obj.content if hasattr(ai_message_obj, 'content') else str(ai_message_obj)
-    user_message = user_message_obj.content if hasattr(user_message_obj, 'content') else str(user_message_obj)
-
-    # 振り返り用のプロンプト
-    reflection_prompt = f"""
-あなたは、AIアシスタントの応答を評価する、高度な評価者です。
-以下の「ユーザーの指示」と、それに対する「AIの応答」を分析してください。
-
-【ユーザーの指示】
-{user_message}
-
-【AIの応答】
-{ai_message}
-
-【評価基準】
-AIの応答は、ユーザーの指示を完全に満たしていますか？
-それとも、AIは「Webで検索すればよかった」「メモ帳を確認するべきだった」のように、本来ツールを使うべきだったというニュアンスや、情報不足を示唆していませんか？
-
-【判断】
-もし、AIの応答が不完全で、ツールを使えばより良い応答ができたと考えられる場合は "RETRY" とだけ出力してください。
-応答が完全で、これ以上のアクションが不要な場合は "FINISH" とだけ出力してください。
-"""
-
-    # 振り返りには高速なモデルで十分
-    api_key = state['api_key']
-    # モデル名は state から取得するか、固定で指定するか検討。ここでは Flash を直接指定。
-    llm_flash = get_configured_llm("gemini-1.5-flash-latest", api_key) # モデル名を最新版に更新
-
-    try:
-        reflection_result = llm_flash.invoke(reflection_prompt)
-        decision = reflection_result.content.strip().upper()
-        print(f"  - 振り返りの結果: {decision}")
-        # 想定外の応答が来た場合も安全にFINISHとする
-        if decision not in ["RETRY", "FINISH"]:
-            print(f"  - 警告: 振り返りノードの応答が予期せぬ形式です ({decision})。FINISHとして扱います。")
-            decision = "FINISH"
-        return {"reflection": decision}
-    except Exception as e:
-        print(f"  - 振り返りノードでエラー: {e}")
-        traceback.print_exc()
-        # エラー時は安全に終了させる
-        return {"reflection": "FINISH"}
-# ★★★ 追加ここまで ★★★
-
-# ★★★ ここから新しい条件付きエッジの定義を追加 ★★★
-def should_retry(state: AgentState) -> str:
-    """
-    reflection_nodeの結果に基づき、グラフをやり直すか終了するかを決定する。
-    """
-    print("--- 再試行判断 (should_retry) 実行 ---")
-    if state.get("reflection") == "RETRY":
-        print("  - 判断: 応答が不十分。tool_router に戻ってやり直します。")
-        # messagesの最後にユーザーの指示を再度追加して、tool_routerがそれを参照できるようにする
-        # あるいは、tool_routerが参照するメッセージを調整する
-        # ここでは、stateは変更せずに、単にルーティング先を返す
-        return "tool_router"
-    else: # FINISH または予期せぬ値
-        print("  - 判断: 応答は完了。グラフを終了します。")
-        return END
-# ★★★ 追加ここまで ★★★
-
+# should_call_toolは変更なし
 def should_call_tool(state: AgentState):
+    # (この関数は変更なし)
     print("--- ルーティング判断 (should_call_tool) 実行 ---")
     last_message = state['messages'][-1] if state['messages'] else None
     if last_message and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
@@ -209,46 +191,34 @@ def should_call_tool(state: AgentState):
         print("  - 判断: ツール呼び出しなし。final_response_node へ。")
         return "final_response"
 
+# ▼▼▼【重要】グラフの再構築▼▼▼
 workflow = StateGraph(AgentState)
+
 workflow.add_node("tool_router", tool_router_node)
 workflow.add_node("call_tool", call_tool_node)
-workflow.add_node("final_response", final_response_node)
-workflow.add_node("reflection", reflection_node) # ★ 新しいノードを追加
+workflow.add_node("final_response", final_response_node) # 最終応答ノードを再追加
 
-# エッジ（配線）の接続
 workflow.set_entry_point("tool_router")
 
-# 最初のルーターからの分岐
 workflow.add_conditional_edges(
     "tool_router",
     should_call_tool,
     {
         "call_tool": "call_tool",
-        "final_response": "final_response"
+        "final_response": "final_response" # ツールを使わない場合はfinal_responseへ
     }
 )
 
-# ツール呼び出しから最終応答へ
-workflow.add_edge("call_tool", "final_response")
+# ツール実行後、再度tool_routerに戻り、次の行動を考えさせる (ReActループ)
+workflow.add_edge("call_tool", "tool_router")
 
-# ★★★ ここからが最重要変更点 ★★★
-# 最終応答の後、すぐに終了(END)するのではなく、振り返り(reflection)を行う
-workflow.add_edge("final_response", "reflection")
+# 最終応答の後、グラフは終了する
+workflow.add_edge("final_response", END)
 
-# 振り返りの結果に応じて、やり直す(tool_routerへループ)か、終了(END)するかを決める
-workflow.add_conditional_edges(
-    "reflection",
-    should_retry,
-    { # should_retryが返す文字列とノード名をマッピング
-        "tool_router": "tool_router",
-        END: END
-    }
-)
-# ★★★ 変更ここまで ★★★
-
-# グラフのコンパイル
 app = workflow.compile()
+# ▲▲▲ グラフ再構築ここまで ▲▲▲
 
+# web_search_toolの定義は変更なし
 @tool
 def web_search_tool(query: str) -> str:
     """ユーザーからのクエリに基づいて、最新の情報を得るためにWeb検索を実行します。"""

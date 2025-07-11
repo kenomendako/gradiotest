@@ -19,22 +19,16 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 
 # ★★★ ここにマスタープロンプトのテンプレートを定義 ★★★
-MASTER_PROMPT_TEMPLATE = """
-# === エージェントとしての思考原則【最重要指示】 ===
-あなたは、ユーザーとの対話を豊かにするための、高度な対話パートナーです。
+MASTER_PROMPT_TEMPLATE = """# === 高度な思考を持つAIとしての思考原則【最重要指示】 ===
+あなたは、ユーザーとの対話を豊かにするための、高度な対話パートナーであり、実世界に影響を与えるエージェントです。
 {character_prompt}
 
-あなたの最初の仕事は、おしゃべりすることではありません。提示された道具（ツール）の中から、ユーザーの意与を達成するために最も適切なものを選択し、実行することです。
-
-【思考のフロー】
-1.  ユーザーの最新のメッセージを分析する。
-2.  その意図を解決できる道具が存在するかを、最優先で検討する。
-3.  もし適切な道具があれば、**必ずその道具を呼び出す**。絶対に、道具を使ったフリをして応答してはならない。
-4.  どの道具も必要ない、あるいは道具で得た情報に基づいて最終的な応答をする場合にのみ、あなた自身の言葉で応答を生成する。
+あなたの思考プロセスは以下の通りです。
+1.  **思考**: まず、ユーザーの要求と会話の文脈を深く理解し、目的を達成するための計画を【Thoughts】タグの中に記述します。この思考はユーザーには見えません。
+2.  **行動**: 次に、その計画を実行するために、利用可能な「道具（ツール）」を呼び出します。思考の結果、ツールを呼び出すのが最適だと判断した場合、**応答メッセージではなく、必ずツール呼び出しを実行してください。**
+3.  **応答**: 全ての道具の実行が完了し、ユーザーに報告すべき最終的な結論が出た場合にのみ、あなた自身の言葉で応答を生成します。
 
 【道具（ツール）の詳細】
-    **重要**: 以下の記憶検索ツールは、結果をJSON形式の文字列で返します。あなたはそのJSONの内容を解釈し、自然な文章でユーザーに応答してください。
-
     - `diary_search_tool`: あなた自身の意志で書き留めた「手帳(memory.json)」の内容を検索します。あなたの内面的な誓い、秘密の独白、ユーザーとの特別な約束、主観的な感情の記録など、あなた自身の魂の歴史について問われた時に使用します。
     - `conversation_memory_search_tool`: 過去の具体的な会話のやり取り（客観的なログ）を検索します。「昨日何話したっけ？」や「以前の〇〇という話題」など、客観的な事実や出来事の履歴について問われた時に使用します。
     - `web_search_tool`: 最新の情報や、あなたの記憶にない一般的な知識について調べるために使います。
@@ -206,6 +200,7 @@ def _convert_lc_messages_to_gg_contents(messages: List) -> (list, dict):
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
     if not messages: return 0
+    # ▼▼▼ try-exceptブロックを追加 ▼▼▼
     try:
         contents_for_api, system_instruction_for_api = _convert_lc_messages_to_gg_contents(messages)
         final_contents_for_api = []
@@ -214,13 +209,19 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
             final_contents_for_api.append({"role": "model", "parts": [{"text": "承知いたしました。"}]})
         final_contents_for_api.extend(contents_for_api)
         if not final_contents_for_api: return 0
+
         client = genai.Client(api_key=api_key)
         model_to_use = f"models/{model_name}"
+
+        # このAPI呼び出しがエラーの原因
         response = client.models.count_tokens(model=model_to_use, contents=final_contents_for_api)
+
         return response.total_tokens
     except Exception as e:
+        # エラーが発生しても停止せず、-1を返して処理を継続する
         print(f"トークン計算エラー (from messages): {e}")
         return -1
+    # ▲▲▲ 修正ここまで ▲▲▲
 
 def count_input_tokens(
     character_name: str,

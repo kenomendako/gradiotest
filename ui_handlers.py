@@ -279,9 +279,23 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
         # 送信後は一旦リセットされたと見なして、再度計算するのが自然か。
         # ただし、エラーの場合はエラーメッセージを維持したい。
         if api_response_text.startswith("[エラー") or (final_agent_state and final_agent_state.get("error")):
-             token_output_str = update_token_count(textbox_content, file_input_list, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state)
+            # ★★★ 不足していた引数をすべて渡すように修正 ★★★
+            token_output_str = update_token_count(
+                textbox_content, file_input_list, current_character_name, current_model_name,
+                current_api_key_name_state, api_history_limit_state,
+                send_notepad_state, # 不足していた引数
+                chatbot_history[-1]['content'] if chatbot_history and send_notepad_state else "", # メモ帳エディタの最新状態は取得困難なため、履歴から近似
+                use_common_prompt_state # 不足していた引数
+            )
         else: # 正常終了したがfinal_token_countが0の場合（通常はないはずだが）
-             token_output_str = update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state)
+            # ★★★ こちらも同様に修正 ★★★
+            token_output_str = update_token_count(
+                None, None, current_character_name, current_model_name,
+                current_api_key_name_state, api_history_limit_state,
+                send_notepad_state,
+                chatbot_history[-1]['content'] if chatbot_history and send_notepad_state else "",
+                use_common_prompt_state
+            )
 
 
     return new_hist, gr.update(value=""), gr.update(value=None), token_output_str
