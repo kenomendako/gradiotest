@@ -11,6 +11,7 @@ from langchain_core.tools import tool
 
 import config_manager
 import gemini_api # final_response_node で gemini_api.FINAL_RESPONSE_PROMPT を参照するため（ただし、最終的にはこのファイル内の定数を使う）
+import rag_manager
 from agent.prompts import MEMORY_WEAVER_PROMPT_TEMPLATE
 from tools.web_tools import read_url_tool
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
