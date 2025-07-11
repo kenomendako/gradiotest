@@ -52,7 +52,7 @@ def create_or_update_index(character_name: str, api_key: str) -> bool:
         return False
 
     # log_f, sys_p, _, mem_p = character_manager.get_character_files_paths(character_name) # 元の行
-    log_f, _, _, mem_p = character_manager.get_character_files_paths(character_name) # sys_p を受け取らないように変更
+    log_f, _, _, mem_p, _ = character_manager.get_character_files_paths(character_name) # sys_p と notepad_path を受け取らないように変更
     rag_path = _get_rag_data_path(character_name)
 
     # ★★★ RAGの知識源は memory.json のみになったので、その存在だけをチェック ★★★
