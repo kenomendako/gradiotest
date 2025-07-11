@@ -27,18 +27,24 @@ class AgentState(TypedDict):
     # reflection: str # 不要になったキー
     pass # AgentStateの定義はこれ以上変更なし
 
-# ▼▼▼【重要】get_configured_llm を修正▼▼▼
+# ▼▼▼【重要】get_configured_llm を最終修正▼▼▼
 def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
     """
-    全てのモデルに、デフォルトの安全設定（検閲緩和）を適用して初期化する。
+    config_managerの安全設定リストを、ChatGoogleGenerativeAIが要求する
+    辞書形式に変換して、モデルを初期化する。
     """
+    # 1. config_managerからリスト形式の安全設定を取得
+    safety_settings_list = config_manager.SAFETY_CONFIG
+
+    # 2. ChatGoogleGenerativeAIが要求する辞書形式に「通訳」する
+    safety_settings_dict = {item['category']: item['threshold'] for item in safety_settings_list}
+    print(f"  - 安全設定をLangChain用の辞書形式に変換しました。")
+
+    # 3. 変換後の辞書を渡してモデルを初期化
     llm = ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
-        # ▼▼▼ ここが最重要修正点 ▼▼▼
-        # 我々の安全基準を、全てのモデル通信に適用する
-        safety_settings=config_manager.SAFETY_CONFIG
-        # ▲▲▲ 修正ここまで ▲▲▲
+        safety_settings=safety_settings_dict # ★★★ 変換後の辞書を渡す ★★★
     )
     if bind_tools:
         llm = llm.bind_tools(bind_tools)
