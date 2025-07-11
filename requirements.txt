@@ -39,5 +39,12 @@ tavily-python
 mem0ai
 qdrant-client
 
+# ▼▼▼【最後の修正】ここを修正▼▼▼
+# Legacy SDK required ONLY for 'mem0ai' dependency.
+# 'mem0ai' internally uses 'import google.generativeai', which is provided by this old package.
+# This is NOT the primary SDK for this project.
+google-generativeai
+# ▲▲▲修正ここまで▲▲▲
+
 # For PID existence check in lock mechanism
 psutil
