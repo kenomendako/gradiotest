@@ -99,7 +99,7 @@ def main():
                 sys.exit(1)
 
             os.environ['GOOGLE_API_KEY'] = api_key
-            
+
             mem0_instance = mem0_manager.get_mem0_instance(args.character, api_key, args.model)
 
             progress_data = load_progress()
@@ -290,7 +290,9 @@ def main():
 
             print("\n--- すべての指定ログファイルのインポート試行が終了しました ---")
             print(f"最終結果: 成功 {total_success_count}件, 失敗 {total_fail_count}件")
-
+        except KeyboardInterrupt:
+            # ★★★ このブロックを一行追加 ★★★
+            print("\n[情報] ユーザーの操作により処理が中断されました。")
         finally:
             release_lock()
 
