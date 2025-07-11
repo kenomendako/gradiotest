@@ -12,6 +12,25 @@ from langchain_core.tools import tool
 # ▼▼▼ config_managerをインポート ▼▼▼
 import config_manager
 import gemini_api
+
+# ▼▼▼ ツールルーター専用のプロンプトを新たに定義 ▼▼▼
+TOOL_ROUTER_PROMPT_STRICT = """あなたは、ユーザーの指示やこれまでの実行結果を分析し、次に実行すべきツールを判断することに特化した、高度なAIルーターです。
+あなたの唯一の仕事は、ツールを呼び出すためのJSON形式の指示を出力するか、これ以上のツール実行は不要と判断した場合に沈黙（ツール呼び出しをしない）することです。
+絶対に、あなた自身の言葉で応答メッセージを生成してはいけません。思考や挨拶、相槌も一切不要です。
+
+【思考プロセス】
+1.  ユーザーの最新のメッセージと、直前のツールの実行結果（もしあれば）を注意深く観察する。
+2.  ユーザーの最終的な目的を達成するために、次に実行すべきツールが何かを判断する。
+    - 例1：ユーザーが「メモを整理して」と指示し、あなたが`read_full_notepad`を実行した直後なら、次はその内容に基づいて`update_notepad`や`delete_from_notepad`を呼び出すべきか検討する。
+    - 例2：`web_search_tool`でURLリストを取得したなら、次は`read_url_tool`でそのURLの内容を読むべきか検討する。
+3.  もし実行すべきツールがあれば、そのツールを呼び出すためのJSONを生成する。
+4.  全てのタスクが完了し、これ以上のツール実行は不要だと確信した場合にのみ、沈黙する。
+
+【最重要原則】
+**一度に大量のツールを呼び出すのは避けなさい。** タスクは、可能な限り**一つずつ、あるいは関連性の高い2つ程度のペア**で実行し、その都度、思考のループに戻り、状況を再評価することを推奨します。複雑なタスクは、分割して、段階的に解決にあたりなさい。
+"""
+# ▲▲▲ プロンプト定義ここまで ▲▲▲
+
 # ▲▲▲ インポート追加 ▲▲▲
 import rag_manager
 from tools.web_tools import read_url_tool
@@ -55,13 +74,12 @@ def tool_router_node(state: AgentState):
     print("--- ツールルーターノード (tool_router_node) 実行 ---")
 
     # 1. 集中モード用の新しいメッセージリストを作成
-    messages_for_router = []
-    original_messages = state['messages']
+    #    TOOL_ROUTER_PROMPT_STRICT を最初のシステムメッセージとして使用する
+    messages_for_router = [SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT)]
+    print("  - ツールルーター専用の厳格なプロンプトをシステムメッセージとして使用します。")
 
-    # 2. 元の履歴からシステムプロンプトを最初に抽出
-    system_prompt = next((msg for msg in original_messages if isinstance(msg, SystemMessage)), None)
-    if system_prompt:
-        messages_for_router.append(system_prompt)
+    original_messages = state['messages']
+    # 2. 元の履歴のシステムプロンプトはここでは使用しない
 
     # 3. 最後のユーザー指示以降のメッセージのみを抽出
     last_human_message_index = -1
