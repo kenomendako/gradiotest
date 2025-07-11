@@ -30,14 +30,14 @@ class AgentState(TypedDict):
 # ▼▼▼【重要】get_configured_llm を最終修正▼▼▼
 def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
     """
-    モデルを初期化する際、config_managerの安全設定を【そのまま】渡す。
+    モデルを初期化する。
+    安全設定は、ライブラリのデフォルト値に完全に委ねる。
     """
-    print("  - 安全設定をconfig_managerから直接取得して使用します。")
-    # 3. 変換せず、config_managerのリストをそのまま渡す
+    print("  - 安全設定をLangChainのデフォルト値に委ねてモデルを初期化します。")
     llm = ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
-        safety_settings=config_manager.SAFETY_CONFIG # ★★★ 一切加工せず、そのまま渡す ★★★
+        # ▼▼▼ 問題の safety_settings パラメータを完全に削除 ▼▼▼
     )
     if bind_tools:
         llm = llm.bind_tools(bind_tools)
