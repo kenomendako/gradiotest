@@ -36,7 +36,7 @@ def add_to_notepad(entry: str, character_name: str) -> str:
     lines.append(full_entry) # full_entryは既にstripされたentryを含んでいる
     _write_notepad(character_name, lines)
     # ★★★ 修正ここまで ★★★
-    return f"【メモ追加】「{entry.strip()}」をメモ帳に追記しました。" # 返答メッセージは元のentryのみでシンプルに
+    return f'Success: The entry "{entry.strip()}" was added to the notepad.'
 
 @tool
 def update_notepad(old_entry: str, new_entry: str, character_name: str) -> str:
@@ -55,12 +55,12 @@ def update_notepad(old_entry: str, new_entry: str, character_name: str) -> str:
             index = lines.index(old_entry_stripped)
             lines[index] = new_entry_stripped
             _write_notepad(character_name, lines)
-            return f"【メモ更新】「{old_entry_stripped}」を「{new_entry_stripped}」に更新しました。"
+            return f'Success: The entry "{old_entry_stripped}" was updated.'
         except ValueError:
             # 基本的には old_entry_stripped in lines でチェックされるが、念のため
-            return f"【エラー】更新対象の項目「{old_entry_stripped}」の処理中に問題が発生しました。"
+            return f"Error: An issue occurred while processing the entry to be updated."
     else:
-        return f"【エラー】更新対象の項目「{old_entry_stripped}」が見つかりませんでした。"
+        return f'Error: The entry to be updated "{old_entry_stripped}" was not found.'
 
 @tool
 def delete_from_notepad(entry_to_delete: str, character_name: str) -> str:
@@ -74,9 +74,9 @@ def delete_from_notepad(entry_to_delete: str, character_name: str) -> str:
     if entry_to_delete_stripped in lines:
         lines.remove(entry_to_delete_stripped)
         _write_notepad(character_name, lines)
-        return f"【メモ削除】「{entry_to_delete_stripped}」を削除しました。"
+        return f'Success: The entry "{entry_to_delete_stripped}" was deleted.'
     else:
-        return f"【エラー】削除対象の項目「{entry_to_delete_stripped}」が見つかりませんでした。"
+        return f'Error: The entry to be deleted "{entry_to_delete_stripped}" was not found.'
 
 @tool
 def read_full_notepad(character_name: str) -> str:
