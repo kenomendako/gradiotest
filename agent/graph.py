@@ -50,7 +50,7 @@ def memory_weaver_node(state: AgentState):
     character_name = state['character_name']
     api_key = state['api_key']
 
-    RECENT_HISTORY_COUNT = 30
+    # RECENT_HISTORY_COUNT = 30 # ★★★ この行を削除 ★★★
 
     last_user_message_obj = next((msg for msg in reversed(messages) if isinstance(msg, HumanMessage)), None)
     search_query = ""
@@ -74,7 +74,8 @@ def memory_weaver_node(state: AgentState):
         api_key=api_key
     )
 
-    recent_history_messages = messages[-RECENT_HISTORY_COUNT:]
+    # ★★★ config_managerのグローバル変数を参照するように変更 ★★★
+    recent_history_messages = messages[-config_manager.initial_memory_weaver_history_count_global:]
     recent_history_str = "\n".join([f"- {msg.type}: {msg.content}" for msg in recent_history_messages])
     print(f"  - 直近の会話履歴 {len(recent_history_messages)} 件を、要約の、材料とします。")
 

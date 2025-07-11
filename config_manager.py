@@ -17,6 +17,7 @@ DEFAULT_API_HISTORY_LIMIT_OPTION = "all"
 DEFAULT_ALARM_MODEL = "gemini-1.5-flash-latest"
 DEFAULT_ALARM_API_HISTORY_TURNS = 1
 DEFAULT_NOTIFICATION_WEBHOOK_URL = None # Webhook URLのデフォルトはNone
+DEFAULT_MEMORY_WEAVER_HISTORY_COUNT = 30
 # ★★★【最後の真実】safety_settings は、この「辞書のリスト」形式でなければならない ★★★
 SAFETY_CONFIG = [
     {
@@ -47,6 +48,7 @@ initial_api_history_limit_option_global = DEFAULT_API_HISTORY_LIMIT_OPTION
 initial_alarm_model_global = DEFAULT_ALARM_MODEL
 initial_alarm_api_history_turns_global = DEFAULT_ALARM_API_HISTORY_TURNS
 initial_notification_webhook_url_global = DEFAULT_NOTIFICATION_WEBHOOK_URL
+initial_memory_weaver_history_count_global = DEFAULT_MEMORY_WEAVER_HISTORY_COUNT
 API_KEYS = {}
 AVAILABLE_MODELS_GLOBAL = []
 DEFAULT_MODEL_GLOBAL = None
@@ -60,7 +62,7 @@ def get_character_list():
     return get_char_list_impl()
 
 def load_config():
-    global API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global, initial_add_timestamp_global, initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_model_global, initial_alarm_api_history_turns_global, AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, initial_notification_webhook_url_global
+    global API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global, initial_add_timestamp_global, initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_model_global, initial_alarm_api_history_turns_global, AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, initial_notification_webhook_url_global, initial_memory_weaver_history_count_global
     default_config = {
         "api_keys": {"your_key_name_1": "YOUR_API_KEY_HERE"},
         "available_models": ["gemini-1.5-pro-latest"],
@@ -74,7 +76,8 @@ def load_config():
         "last_api_history_limit_option": DEFAULT_API_HISTORY_LIMIT_OPTION,
         "alarm_model": DEFAULT_ALARM_MODEL,
         "alarm_api_history_turns": DEFAULT_ALARM_API_HISTORY_TURNS,
-        "notification_webhook_url": DEFAULT_NOTIFICATION_WEBHOOK_URL # デフォルト値を追加
+        "notification_webhook_url": DEFAULT_NOTIFICATION_WEBHOOK_URL, # デフォルト値を追加
+        "memory_weaver_history_count": DEFAULT_MEMORY_WEAVER_HISTORY_COUNT
     }
     config = {}
     if not os.path.exists(CONFIG_FILE):
@@ -125,6 +128,10 @@ def load_config():
         initial_notification_webhook_url_global = None
     elif initial_notification_webhook_url_global == "": # 空文字列もNone扱い
         initial_notification_webhook_url_global = None
+
+    initial_memory_weaver_history_count_global = config.get("memory_weaver_history_count", DEFAULT_MEMORY_WEAVER_HISTORY_COUNT)
+    if not isinstance(initial_memory_weaver_history_count_global, int) or initial_memory_weaver_history_count_global <= 0:
+        initial_memory_weaver_history_count_global = DEFAULT_MEMORY_WEAVER_HISTORY_COUNT
 
     needs_update = False
     for key, default_value in default_config.items():
