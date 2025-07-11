@@ -73,7 +73,7 @@ def memory_weaver_node(state: AgentState):
 
     # 直近の会話履歴を、定義した件数だけ、取得し、整形
     recent_history_messages = messages[-RECENT_HISTORY_COUNT:]
-    recent_history_str = "\n".join([f"- {msg.role}: {msg.content}" for msg in recent_history_messages])
+    recent_history_str = "\n".join([f"- {msg.type}: {msg.content}" for msg in recent_history_messages]) # msg.role を msg.type に修正
     print(f"  - 直近の会話履歴 {len(recent_history_messages)} 件を、要約の、材料とします。")
 
     # Flashに要約を依頼
