@@ -7,6 +7,10 @@ import html
 from typing import List, Dict, Optional, Tuple, Union
 import gradio as gr
 import character_manager
+import sys # sysモジュールをインポート
+import psutil # psutilモジュールをインポート
+from pathlib import Path # pathlibモジュールをインポート
+import json # json モジュールをインポート (acquire_lockで使用)
 
 def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
     messages: List[Dict[str, str]] = []
@@ -209,3 +213,100 @@ def save_log_file(character_name: str, content: str) -> None:
     except Exception as e:
         print(f"エラー: ログファイル書き込み中に予期せぬエラーが発生しました (キャラクター: {character_name}): {e}")
         traceback.print_exc()
+
+# --- グローバル・ロック管理 ---
+LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
+
+def acquire_lock() -> bool:
+    """
+    グローバル・ロックを取得する。
+    ロックファイルが存在する場合、そのプロセスがまだ実行中か確認し、
+    そうでなければ古いロックとして削除を試みる。
+    ロック取得に成功した場合はTrue、失敗した場合はFalseを返す。
+    """
+    if not LOCK_FILE_PATH.exists():
+        # ロックファイルが存在しない場合、新しいロックファイルを作成
+        try:
+            with open(LOCK_FILE_PATH, "w", encoding="utf-8") as f:
+                lock_data = {"pid": os.getpid(), "path": os.path.abspath(os.path.dirname(__file__))}
+                json.dump(lock_data, f)
+            return True
+        except Exception as e:
+            print(f"エラー: ロックファイルの作成に失敗しました: {e}")
+            return False
+
+    # ロックファイルが存在する場合
+    try:
+        with open(LOCK_FILE_PATH, "r", encoding="utf-8") as f:
+            lock_info = json.load(f)
+        pid = lock_info.get('pid')
+
+        if pid is None:
+            # PID情報のない不正なロックファイル
+            print(f"警告: PID情報のないロックファイルが見つかりました: {LOCK_FILE_PATH}")
+            if _prompt_to_delete_lock():
+                return acquire_lock() # 削除後、再度ロック取得を試みる
+            else:
+                return False
+
+        if psutil.pid_exists(pid):
+            # プロセスがまだ実行中
+            path = lock_info.get('path', '不明')
+            print("エラー: Nexus Arkの別のプロセス（またはバッチ処理）がすでに実行中です。")
+            print(f"  - 実行中のプロセスID: {pid}")
+            print(f"  - 実行中のフォルダパス: {path}")
+            return False
+        else:
+            # プロセスが存在しない古いロックファイル
+            print(f"警告: 古いロックファイルが見つかりました (プロセスID: {pid} は実行されていません)。")
+            if _prompt_to_delete_lock():
+                return acquire_lock() # 削除後、再度ロック取得を試みる
+            else:
+                return False
+
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"警告: ロックファイル '{LOCK_FILE_PATH}' の読み込み中にエラーが発生しました: {e}")
+        if _prompt_to_delete_lock():
+            return acquire_lock() # 削除後、再度ロック取得を試みる
+        else:
+            return False
+    except Exception as e:
+        print(f"エラー: ロックファイルの処理中に予期せぬ問題が発生しました: {e}")
+        traceback.print_exc()
+        return False
+
+def _prompt_to_delete_lock() -> bool:
+    """ユーザーにロックファイル削除の確認を求める内部関数"""
+    try:
+        user_input = input("-> このロックファイルを削除して続行しますか？ (y/n): ").lower()
+        if user_input == 'y':
+            try:
+                LOCK_FILE_PATH.unlink()
+                print("-> ロックファイルを削除しました。")
+                return True
+            except Exception as e_unlink:
+                print(f"-> ロックファイルの削除に失敗しました: {e_unlink}")
+                return False
+        else:
+            print("-> 処理を中止しました。")
+            return False
+    except (EOFError, KeyboardInterrupt): # ユーザーがCtrl+Cなどで入力を中断した場合
+        print("\n-> 処理を中断しました。")
+        return False
+
+
+def release_lock():
+    """
+    現在のプロセスが所有するグローバル・ロックを解放する。
+    """
+    if LOCK_FILE_PATH.exists():
+        try:
+            with open(LOCK_FILE_PATH, "r", encoding="utf-8") as f:
+                lock_info = json.load(f)
+            if lock_info.get('pid') == os.getpid():
+                LOCK_FILE_PATH.unlink()
+                print("\nグローバル・ロックを解放しました。")
+        except (IOError, json.JSONDecodeError) as e:
+             print(f"\n警告: ロックファイルの読み取り/解析中にエラーが発生したため、解放できませんでした: {e}")
+        except Exception as e:
+            print(f"\n警告: ロックファイルの解放中に予期せぬエラーが発生しました: {e}")

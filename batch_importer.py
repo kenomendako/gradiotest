@@ -1,8 +1,8 @@
 # batch_importer.py (v3: Rate limit handling fix)
 import os
 import sys
-import json
-from pathlib import Path
+import json # load_progress と save_progress のために必要
+from pathlib import Path # logs_path で使用するため再度有効化
 import argparse
 import time
 import traceback
@@ -11,40 +11,27 @@ from typing import List, Dict
 import importlib.util
 
 # --- ライブラリ存在チェック ---
-psutil_spec = importlib.util.find_spec("psutil")
-if psutil_spec is None:
-    print("エラー: 'psutil'ライブラリが見つかりません。 'pip install psutil' を実行してください。")
-    sys.exit(1)
-import psutil
+# psutil は utils.py で処理されるため、ここでの直接的な存在チェックは不要になる可能性があるが、
+# スクリプト単体で psutil を使う他の箇所が将来的に追加される可能性を考慮し、
+# 当面は残しても良いかもしれない。ただし、ロック処理自体は utils に移管する。
+# 今回の指示では psutil のインポート自体は残す形になっていないため、コメントアウトまたは削除する。
+# psutil_spec = importlib.util.find_spec("psutil")
+# if psutil_spec is None:
+#     print("エラー: 'psutil'ライブラリが見つかりません。 'pip install psutil' を実行してください。")
+#     sys.exit(1)
+# import psutil
+
 
 # --- 必要なモジュールをインポート ---
 import mem0_manager
-from utils import load_chat_log
+from utils import load_chat_log, acquire_lock, release_lock # ★★★ acquire_lockとrelease_lockをインポート ★★★
 
-# --- グローバル・ロック処理 (変更なし) ---
-LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
-def check_and_clear_stale_lock():
-    if not LOCK_FILE_PATH.exists():
-        return True
-    try:
-        with open(LOCK_FILE_PATH, "r", encoding="utf-8") as f:
-            lock_info = json.load(f)
-        pid = lock_info.get('pid')
-        if pid is None or not psutil.pid_exists(pid):
-            LOCK_FILE_PATH.unlink()
-            return True
-        else:
-            path = lock_info.get('path', '不明')
-            print(f"エラー: Nexus Arkの別のプロセスがすでに実行中です。 (PID: {pid}, Path: {path})")
-            return False
-    except Exception:
-        try:
-            LOCK_FILE_PATH.unlink()
-            return True
-        except Exception:
-            return False
+# --- グローバル・ロック処理 (既存のコードを全て削除) ---
+# LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
+# def check_and_clear_stale_lock():
+# ... (ここから既存のロック処理関数を全て削除) ...
 
-# --- ログ解析・進捗管理関数 (変更なし) ---
+# --- ログ解析・進捗管理関数 (ここはそのまま) ---
 def parse_log_for_mem0(log_messages: List[Dict[str, str]]) -> List[List[Dict[str, str]]]:
     conversation_pairs = []
     current_pair = []
@@ -77,16 +64,24 @@ def load_progress():
 
 def save_progress(progress_data):
     with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
+        # json は import から削除したので、ここで json モジュールを直接使えない。
+        # progress_data が辞書であることを前提とし、Python の標準的な方法で書き込むか、
+        # utils.py に json を扱うヘルパー関数を作る必要がある。
+        # ただし、このファイル内で json はまだ load_progress でも使われている。
+        # load_progress の json.loads と save_progress の json.dump のために、
+        # batch_importer.py の先頭で `import json` を残す必要がある。
+        # 元の指示では json を削除するようになっているが、ここでは残す。
+        import json # save_progress と load_progress のために必要
         json.dump(progress_data, f, indent=2, ensure_ascii=False)
 
 def main():
-    if not check_and_clear_stale_lock():
+    # ★★★ ロック取得処理を置き換え ★★★
+    if not acquire_lock():
         sys.exit(1)
     
+    # ★★★ try...finally ブロックでメイン処理を囲む ★★★
     try:
-        with open(LOCK_FILE_PATH, "w", encoding="utf-8") as f:
-            lock_data = {"pid": os.getpid(), "path": os.path.abspath(os.path.dirname(__file__))}
-            json.dump(lock_data, f)
+        # with open(LOCK_FILE_PATH, ... ) の行は不要なので削除
         
         parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをMem0に一括インポートするツール")
         parser.add_argument("--character", required=True, help="対象のキャラクター名")
@@ -302,11 +297,8 @@ def main():
         print(f"最終結果: 成功 {total_success_count}件, 失敗 {total_fail_count}件")
 
     finally:
-        if LOCK_FILE_PATH.exists():
-            try:
-                os.unlink(LOCK_FILE_PATH)
-            except OSError:
-                pass
+        # ★★★ finallyブロックの中身をこの一行に置き換え ★★★
+        release_lock()
 
 if __name__ == "__main__":
     main()

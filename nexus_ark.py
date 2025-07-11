@@ -2,78 +2,23 @@
 
 import os
 import sys
-import json
-from pathlib import Path
-try:
-    import psutil
-except ImportError:
-    print("エラー: 'psutil'ライブラリが見つかりません。'pip install psutil' を実行してください。")
+# psutil と json と pathlib は utils.py に移管したので、ここでは不要
+# import json
+# from pathlib import Path
+# try:
+#     import psutil
+# except ImportError:
+# ... (ここから既存のロック処理コードを全て削除) ...
+
+# ★★★ ここからが新しいコード ★★★
+import utils  # utilsをインポート
+
+# グローバル・ロックの取得
+if not utils.acquire_lock():
     sys.exit(1)
-LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
-def check_and_clear_stale_lock():
-    if not LOCK_FILE_PATH.exists():
-        return True
-    try:
-        with open(LOCK_FILE_PATH, "r", encoding="utf-8") as f:
-            lock_info = json.load(f)
-        pid = lock_info.get('pid')
-        path = lock_info.get('path', '不明')
-        if pid is None:
-            print(f"警告: PID情報のないロックファイルが見つかりました: {LOCK_FILE_PATH}")
-            try:
-                LOCK_FILE_PATH.unlink()
-                print("-> 不正なロックファイルを削除しました。")
-                return True
-            except Exception as e_unlink:
-                print(f"-> 不正なロックファイルの削除に失敗しました: {e_unlink}")
-                return False
-        if psutil.pid_exists(pid):
-            print("エラー: Nexus Arkの別のプロセス（またはバッチ処理）がすでに実行中です。")
-            print(f"  - 実行中のプロセスID: {pid}")
-            print(f"  - 実行中のフォルダパス: {path}")
-            print(f"\nもし、このプロセスが応答しない場合は、タスクマネージャー等でプロセスID {pid} を終了させてから、")
-            print(f"ロックファイル {LOCK_FILE_PATH} を手動で削除する必要があるかもしれません。")
-            return False
-        else:
-            print(f"警告: 古いロックファイルが見つかりました (プロセスID: {pid} は実行されていません)。")
-            print(f"  - ロックファイルに記録されたパス: {path}")
-            user_input = input("-> このロックファイルを削除して起動しますか？ (y/n): ").lower()
-            if user_input == 'y':
-                try:
-                    LOCK_FILE_PATH.unlink()
-                    print("-> 古いロックファイルを削除しました。")
-                    return True
-                except Exception as e_unlink:
-                    print(f"-> 古いロックファイルの削除に失敗しました: {e_unlink}")
-                    print(f"   手動で {LOCK_FILE_PATH} を削除してください。")
-                    return False
-            else:
-                print("-> 起動をキャンセルしました。")
-                return False
-    except json.JSONDecodeError:
-        print(f"警告: ロックファイル '{LOCK_FILE_PATH}' が不正なJSON形式です。")
-        user_input = input("-> このロックファイルを削除して起動しますか？ (y/n): ").lower()
-        if user_input == 'y':
-            try:
-                LOCK_FILE_PATH.unlink()
-                print("-> 不正なロックファイルを削除しました。")
-                return True
-            except Exception as e_unlink:
-                print(f"-> 不正なロックファイルの削除に失敗しました: {e_unlink}")
-                return False
-        else:
-            print("-> 起動をキャンセルしました。")
-            return False
-    except Exception as e:
-        print(f"エラー: ロックファイルの処理中に予期せぬ問題が発生しました: {e}")
-        traceback.print_exc()
-        return False
-if not check_and_clear_stale_lock():
-    sys.exit(1)
+
+# try...finallyブロックでアプリケーションのメイン処理を囲む
 try:
-    with open(LOCK_FILE_PATH, "w", encoding="utf-8") as f:
-        lock_data = {"pid": os.getpid(), "path": os.path.abspath(os.path.dirname(__file__))}
-        json.dump(lock_data, f)
     os.environ["MEM0_TELEMETRY_ENABLED"] = "false"
     import gradio as gr
     import traceback
@@ -366,16 +311,8 @@ try:
         print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)")
         print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
+
 finally:
-    if LOCK_FILE_PATH.exists():
-        try:
-            with open(LOCK_FILE_PATH, "r", encoding="utf-8") as f:
-                lock_info = json.load(f)
-            if lock_info.get('pid') == os.getpid():
-                LOCK_FILE_PATH.unlink()
-                print("\nグローバル・ロックファイルを解除し、正常にシャットダウンしました。")
-        except Exception as e:
-            print(f"\nエラー: グローバル・ロックファイルの解除/確認中に問題が発生しました: {e}")
-            print(f"ロックファイル {LOCK_FILE_PATH} が残っている可能性があります。手動でご確認ください。")
-    else:
-        print("\nグローバル・ロックファイルは存在しませんでした。シャットダウンします。")
+    utils.release_lock() # ★★★ finallyブロックの中身をこの一行に置き換え ★★★
+
+# ★★★ ここまでが新しいコード ★★★
