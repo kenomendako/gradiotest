@@ -101,28 +101,38 @@ def memory_weaver_node(state: AgentState):
 def tool_router_node(state: AgentState):
     """
     ツールを使うかどうかの判断に特化したノード。
-    memory_weaver_nodeが生成した「要約コンテキスト」を使用する。
+    これまでのループでのツール実行履歴も含めて、次の行動を判断する。
     """
     print("--- ツールルーターノード (tool_router_node) 実行 ---")
 
     messages_for_router = []
     original_messages = state['messages']
 
-    # SystemMessageは、memory_weaver_nodeが生成したsynthesized_context以外（つまりキャラクタープロンプトなど）を指す
-    # ただし、現状のstate['messages']には最初にSystemMessage(キャラクタープロンプト)が入っている想定
+    # システムプロンプトと、memory_weaverが生成した初期コンテキストを追加
     system_prompt = next((msg for msg in original_messages if isinstance(msg, SystemMessage) and msg.content != state['synthesized_context'].content), None)
-
     if system_prompt:
         messages_for_router.append(system_prompt)
     else:
-        # 既存のSystemMessageが見つからない場合（通常はありえないが）、フォールバック
         messages_for_router.append(SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT))
+    messages_for_router.append(state['synthesized_context'])
 
-    messages_for_router.append(state['synthesized_context']) # memory_weaverが生成した要約コンテキスト
+    # ★★★ ここからが新しいロジック ★★★
+    # 最後のユーザーメッセージ以降の、すべてのメッセージ（AIのツール呼び出しとツールの結果）をコンテキストに追加する
+    last_human_message_index = -1
+    for i in range(len(original_messages) - 1, -1, -1):
+        if isinstance(original_messages[i], HumanMessage):
+            last_human_message_index = i
+            break
 
-    last_user_message = next((msg for msg in reversed(original_messages) if isinstance(msg, HumanMessage)), None)
-    if last_user_message:
-        messages_for_router.append(last_user_message)
+    if last_human_message_index != -1:
+        # 最後のユーザーメッセージとその後の全メッセージ（ツール関連）を追加
+        messages_since_last_user = original_messages[last_human_message_index:]
+        messages_for_router.extend(messages_since_last_user)
+    else:
+        # 万が一ユーザーメッセージが見つからない場合、最新のメッセージだけを追加
+        if original_messages:
+            messages_for_router.append(original_messages[-1])
+    # ★★★ ロジックの変更はここまで ★★★
 
     api_key = state['api_key']
     available_tools = [
@@ -136,7 +146,7 @@ def tool_router_node(state: AgentState):
         read_full_notepad
     ]
 
-    llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools) # モデル名を規約通りに
+    llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
 
     print(f"  - Flashへの入力メッセージ数: {len(messages_for_router)}")
     response = llm_flash_with_tools.invoke(messages_for_router)
