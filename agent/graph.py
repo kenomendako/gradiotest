@@ -25,6 +25,7 @@ class AgentState(TypedDict):
     final_token_count: int
     synthesized_context: SystemMessage # memory_weaver_node が生成する要約
     retrieved_long_term_memories: str # memory_weaver_node が検索する長期記憶
+    tool_call_count: int  # ★★★ この行を追加 ★★★
 
 def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
     print(f"  - 安全設定をLangChainのデフォルト値に委ねてモデルを初期化します。")
@@ -255,10 +256,24 @@ def call_tool_node(state: AgentState):
                 traceback.print_exc()
         tool_messages.append(ToolMessage(content=str(output), tool_call_id=tool_call_id, name=tool_name))
 
-    return {"messages": tool_messages}
+    # 現在のカウントを取得し、1加算して返す
+    current_count = state.get('tool_call_count', 0)
+    return {"messages": tool_messages, "tool_call_count": current_count + 1}
 
 def should_call_tool(state: AgentState):
     print("--- ルーティング判断 (should_call_tool) 実行 ---")
+
+    # ★★★ ここからが追加/変更箇所 ★★★
+    MAX_ITERATIONS = 5  # ループの最大回数を定義 (5回で十分なはず)
+    tool_call_count = state.get('tool_call_count', 0)
+    print(f"  - 現在のツール実行ループ回数: {tool_call_count}")
+
+    if tool_call_count >= MAX_ITERATIONS:
+        print(f"  - 警告: ツール実行ループが上限の {MAX_ITERATIONS} 回に達しました。")
+        print("  - AIの判断を無視し、強制的に最終応答生成へ移行します。")
+        return "final_response"
+    # ★★★ ここまでが追加/変更箇所 ★★★
+
     last_message = state['messages'][-1] if state['messages'] else None
     # tool_routerがツール使用を決定した場合、last_messageはAIMessageでtool_callsを持つ
     if isinstance(last_message, AIMessage) and hasattr(last_message, 'tool_calls') and last_message.tool_calls:

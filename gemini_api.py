@@ -288,7 +288,8 @@ def invoke_nexus_agent(
             "character_name": character_name,
             "api_key": api_key,
             "final_model_name": model_name,
-            "final_token_count": 0
+            "final_token_count": 0,
+            "tool_call_count": 0  # ★★★ この行を追加 ★★★
         }
         print(f"--- LangGraphエージェント呼び出し (Character: {character_name}, Final Model by User: {model_name}) ---")
         final_state = app.invoke(initial_state)
