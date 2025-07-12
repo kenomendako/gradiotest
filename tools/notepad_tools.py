@@ -42,9 +42,8 @@ def add_to_notepad(entry: str, character_name: str) -> str:
 def update_notepad(old_entry: str, new_entry: str, character_name: str) -> str:
     """
     短期記憶用のメモ帳の項目を更新する。
-    `old_entry`のキーワードを含む最も新しい項目を探し出す。
-    `new_entry`が空の場合、その項目を削除する。
-    `new_entry`に内容がある場合、その内容で項目を完全に置き換える（新しいタイムスタンプが付与される）。
+    `old_entry`のキーワードを含む最も新しい項目を探し出し、`new_entry`の内容で完全に置き換える（新しいタイムスタンプが付与される）。
+    もし `new_entry` が空文字列の場合、該当項目は削除される。
     """
     if not old_entry or not isinstance(old_entry, str) or not old_entry.strip():
         return "【エラー】更新/削除対象のキーワードが空です。"
@@ -63,10 +62,8 @@ def update_notepad(old_entry: str, new_entry: str, character_name: str) -> str:
     if target_index == -1:
         return f'Error: No entry containing the keyword "{keyword}" was found.'
 
-    # --- ここからが新しいロジック ---
-    lines.pop(target_index) # まず対象行を削除する
+    lines.pop(target_index)
 
-    # new_entry が空でない場合、新しいエントリとして追加する
     if new_entry and isinstance(new_entry, str) and new_entry.strip():
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
         cleaned_new_entry = re.sub(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]\s*", "", new_entry.strip())
@@ -75,7 +72,6 @@ def update_notepad(old_entry: str, new_entry: str, character_name: str) -> str:
         _write_notepad(character_name, lines)
         return f'Success: The entry "{original_line}" was updated to "{cleaned_new_entry}".'
     else:
-        # new_entry が空の場合、削除したままで書き込む（実質的な削除）
         _write_notepad(character_name, lines)
         return f'Success: The entry "{original_line}" was deleted from the notepad.'
 
@@ -84,9 +80,28 @@ def delete_from_notepad(entry_to_delete: str, character_name: str) -> str:
     """
     短期記憶用のメモ帳から項目を削除する。
     `entry_to_delete`のキーワードを含む最も新しい項目を探し出して削除する。
-    （内部的には、update_notepadを空の新しいエントリで呼び出すことで実現される）
     """
-    return update_notepad(old_entry=entry_to_delete, new_entry="", character_name=character_name)
+    # ★★★ この関数自身のロジックで削除を行うように変更 ★★★
+    if not entry_to_delete or not isinstance(entry_to_delete, str) or not entry_to_delete.strip():
+        return "【エラー】削除対象のキーワードが空です。"
+
+    lines = _read_notepad(character_name)
+    keyword = entry_to_delete.strip()
+
+    target_index = -1
+    original_line = ""
+    for i in range(len(lines) - 1, -1, -1):
+        if keyword in lines[i]:
+            target_index = i
+            original_line = lines[i]
+            break
+
+    if target_index != -1:
+        lines.pop(target_index)
+        _write_notepad(character_name, lines)
+        return f'Success: The entry "{original_line}" was deleted from the notepad.'
+    else:
+        return f'Error: No entry containing the keyword "{keyword}" was found to delete.'
 
 @tool
 def read_full_notepad(character_name: str) -> str:
