@@ -323,7 +323,8 @@ workflow.add_conditional_edges(
         "final_response": "final_response"
     }
 )
-workflow.add_edge("call_tool", "tool_router")
+# workflow.add_edge("call_tool", "tool_router") # この行を削除、またはコメントアウト
+workflow.add_edge("call_tool", "final_response") # ★★★ この行を新しく追加 ★★★
 workflow.add_edge("final_response", END)
 app = workflow.compile()
 
