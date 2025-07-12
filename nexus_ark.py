@@ -274,7 +274,26 @@ if utils.acquire_lock(): # ★★★ if文でメイン処理を囲む ★★★
                 outputs=token_calc_outputs
             )
             api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, log_editor]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs) # token_calc_inputs を使用
-            save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor])
+            # .then() を使って、複数のイベントを連結する
+            save_memory_button.click(
+                fn=ui_handlers.handle_save_memory_click,
+                inputs=[current_character_name, memory_json_editor],
+                outputs=[memory_json_editor]
+            ).then(
+                fn=ui_handlers.update_ui_on_character_change,
+                inputs=[current_character_name, api_history_limit_state],
+                outputs=[
+                    current_character_name,
+                    chatbot_display,
+                    chat_input_textbox,
+                    profile_image_display,
+                    memory_json_editor,
+                    alarm_char_dropdown,
+                    log_editor,
+                    timer_char_dropdown,
+                    notepad_editor
+                ]
+            )
             # ★ メモ帳関連のボタンイベントを追加 (前回までの修正)
             save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_character_name, notepad_editor], outputs=[notepad_editor]) # ★ outputs追加
             reload_notepad_button.click(fn=ui_handlers.handle_reload_notepad, inputs=[current_character_name], outputs=[notepad_editor])
