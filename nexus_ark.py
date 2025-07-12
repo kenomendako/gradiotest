@@ -110,7 +110,7 @@ if utils.acquire_lock(): # ★★★ if文でメイン処理を囲む ★★★
                     with gr.Accordion("📗 記憶とログの編集", open=False):
                         with gr.Tabs():
                             with gr.TabItem("記憶 (memory.json)"):
-                                memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code")
+                                memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True)
                                 with gr.Row():
                                     save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
                                     rag_update_button = gr.Button(value="手帳の索引を更新", variant="primary")
@@ -127,7 +127,7 @@ if utils.acquire_lock(): # ★★★ if文でメイン処理を囲む ★★★
                                     reload_notepad_button = gr.Button(value="再読込", variant="secondary")
                                     clear_notepad_button = gr.Button(value="メモ帳を全削除", variant="stop")
                             with gr.TabItem("ログ (log.txt)"):
-                                log_editor = gr.Code(label="ログ内容", interactive=True, elem_id="log_editor_code")
+                                log_editor = gr.Code(label="ログ内容", interactive=True)
                                 with gr.Row():
                                     save_log_button = gr.Button(value="ログを保存", variant="secondary")
                                     editor_reload_button = gr.Button(value="ログ再読込", variant="secondary")
