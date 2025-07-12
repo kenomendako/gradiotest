@@ -10,7 +10,7 @@ from config_manager import MEMORY_FILENAME # 定義をconfig_managerに集約
 # --- 記憶データ管理関数 ---
 def save_memory_data(character_name, json_string_data):
     if not character_name: gr.Error("キャラクター名未指定"); return gr.update()
-    _, _, _, memory_json_path = get_character_files_paths(character_name)
+    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
     if not memory_json_path: gr.Error(f"'{character_name}' 記憶パス取得失敗"); return gr.update()
     try:
         memory_data_to_save = json.loads(json_string_data)
