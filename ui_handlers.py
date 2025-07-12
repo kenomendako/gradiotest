@@ -350,22 +350,30 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     # 戻り値のタプルの最後に notepad_content を追加
     return character_name, chat_history, "", profile_image, memory_str, character_name, log_content, character_name, notepad_content
 
-def handle_save_memory_click(character_name, json_string_data):
+def handle_save_memory_click(character_name: str, json_string_data: str) -> str:
+    """
+    UIからの保存ボタンクリックを処理する。
+    memory_managerを呼び出し、その結果に基づいてUIを更新する。
+    """
     if not character_name:
         gr.Warning("キャラクターが選択されていません。")
-        return gr.update() # 何も変更しない命令を返す
+        return json_string_data # 元のデータをそのまま返す
+
     try:
-        # save_memory_data が返す gr.update() 命令を受け取る
-        update_action = save_memory_data(character_name, json_string_data)
-        gr.Info("記憶を保存しました。") # 保存成功メッセージはここで表示
-        # 受け取った命令を呼び出し元（Gradio）に返す
-        return update_action
-    except json.JSONDecodeError:
-        gr.Error("記憶データのJSON形式が正しくありません。")
-        return gr.update() # 何も変更しない命令を返す
+        # 新しいsave_memory_dataを呼び出し、成功した場合は更新後のデータを取得
+        updated_data = memory_manager.save_memory_data(character_name, json_string_data)
+
+        # UIへの通知
+        gr.Info(f"キャラクター「{character_name}」の記憶を保存しました。")
+
+        # UIコンポーネントの更新
+        return json.dumps(updated_data, indent=2, ensure_ascii=False)
+
     except Exception as e:
-        gr.Error(f"記憶の保存中にエラーが発生しました: {e}")
-        return gr.update() # 何も変更しない命令を返す
+        # memory_managerからスローされた例外を捕捉
+        gr.Error(f"記憶の保存に失敗しました: {e}")
+        # 失敗した場合は、ユーザーが修正できるように元のデータをそのまま返す
+        return json_string_data
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 
