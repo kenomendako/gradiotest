@@ -204,7 +204,8 @@ def save_log_file(character_name: str, content: str) -> None:
         print("エラー: save_log_file - character_name が指定されていません。")
         return
     try:
-        log_file_path, _, _, _ = character_manager.get_character_files_paths(character_name)
+        # ★★★ ここのアンダースコアを1つ追加し、5つの値を受け取るように修正 ★★★
+        log_file_path, _, _, _, _ = character_manager.get_character_files_paths(character_name)
         if not log_file_path:
             print(f"エラー: save_log_file - キャラクター '{character_name}' のログファイルパスを取得できませんでした。")
             return

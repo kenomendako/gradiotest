@@ -7,15 +7,9 @@ from character_manager import get_character_files_paths
 from config_manager import MEMORY_FILENAME
 
 def save_memory_data(character_name: str, json_string_data: str) -> dict:
-    """
-    記憶データをファイルに保存する。
-    成功した場合は、更新後の記憶データを辞書として返す。
-    失敗した場合は、例外を発生させる。
-    """
     if not character_name:
         raise ValueError("キャラクター名が指定されていません。")
 
-    # ★★★ 5つの値を受け取るように修正 ★★★
     _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
     if not memory_json_path:
         raise FileNotFoundError(f"キャラクター '{character_name}' の記憶ファイルパスが見つかりません。")
