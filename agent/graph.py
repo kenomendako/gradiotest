@@ -101,28 +101,38 @@ def memory_weaver_node(state: AgentState):
 def tool_router_node(state: AgentState):
     """
     ツールを使うかどうかの判断に特化したノード。
-    memory_weaver_nodeが生成した「要約コンテキスト」を使用する。
+    これまでのループでのツール実行履歴も含めて、次の行動を判断する。
     """
     print("--- ツールルーターノード (tool_router_node) 実行 ---")
 
     messages_for_router = []
     original_messages = state['messages']
 
-    # SystemMessageは、memory_weaver_nodeが生成したsynthesized_context以外（つまりキャラクタープロンプトなど）を指す
-    # ただし、現状のstate['messages']には最初にSystemMessage(キャラクタープロンプト)が入っている想定
+    # システムプロンプトと、memory_weaverが生成した初期コンテキストを追加
     system_prompt = next((msg for msg in original_messages if isinstance(msg, SystemMessage) and msg.content != state['synthesized_context'].content), None)
-
     if system_prompt:
         messages_for_router.append(system_prompt)
     else:
-        # 既存のSystemMessageが見つからない場合（通常はありえないが）、フォールバック
         messages_for_router.append(SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT))
+    messages_for_router.append(state['synthesized_context'])
 
-    messages_for_router.append(state['synthesized_context']) # memory_weaverが生成した要約コンテキスト
+    # ★★★ ここからが新しいロジック ★★★
+    # 最後のユーザーメッセージ以降の、すべてのメッセージ（AIのツール呼び出しとツールの結果）をコンテキストに追加する
+    last_human_message_index = -1
+    for i in range(len(original_messages) - 1, -1, -1):
+        if isinstance(original_messages[i], HumanMessage):
+            last_human_message_index = i
+            break
 
-    last_user_message = next((msg for msg in reversed(original_messages) if isinstance(msg, HumanMessage)), None)
-    if last_user_message:
-        messages_for_router.append(last_user_message)
+    if last_human_message_index != -1:
+        # 最後のユーザーメッセージとその後の全メッセージ（ツール関連）を追加
+        messages_since_last_user = original_messages[last_human_message_index:]
+        messages_for_router.extend(messages_since_last_user)
+    else:
+        # 万が一ユーザーメッセージが見つからない場合、最新のメッセージだけを追加
+        if original_messages:
+            messages_for_router.append(original_messages[-1])
+    # ★★★ ロジックの変更はここまで ★★★
 
     api_key = state['api_key']
     available_tools = [
@@ -136,7 +146,7 @@ def tool_router_node(state: AgentState):
         read_full_notepad
     ]
 
-    llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools) # モデル名を規約通りに
+    llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
 
     print(f"  - Flashへの入力メッセージ数: {len(messages_for_router)}")
     response = llm_flash_with_tools.invoke(messages_for_router)
@@ -150,15 +160,12 @@ def tool_router_node(state: AgentState):
 
 def final_response_node(state: AgentState):
     """
-    Proに「クリーンな会話履歴」と「要約された各種情報」を与え、応答を生成させる。
+    Proに「クリーンな会話履歴」と「要約されたツール実行ログ」のみを与え、応答を生成させる。
     """
     print("--- 最終応答生成ノード (final_response_node) 実行 ---")
 
-    # 最初に検索した長期記憶を取得
-    retrieved_memories = state.get("retrieved_long_term_memories", "（関連する長期記憶なし）")
     all_messages = state['messages']
 
-    # --- ここからが新しいロジック ---
     # 最後のユーザーメッセージを探し、それ以前のクリーンな履歴を構築する
     last_human_message_index = -1
     for i in range(len(all_messages) - 1, -1, -1):
@@ -166,13 +173,10 @@ def final_response_node(state: AgentState):
             last_human_message_index = i
             break
 
-    # 最後のユーザーメッセージが見つからない場合（通常はあり得ないが）、全履歴を対象とする
     if last_human_message_index == -1:
         print("警告: 最終応答ノードでユーザーメッセージが見つかりませんでした。")
-        # この場合、エラーを防ぐため、単純な応答を返すなどのフォールバックが必要かもしれない
-        # ここでは、とりあえず処理を継続する
-        last_human_message_index = len(all_messages) - 1
-
+        error_response_message = AIMessage(content="[エラー：処理対象のユーザーメッセージが見つかりませんでした。]")
+        return {"messages": [error_response_message], "final_token_count": 0}
 
     # クリーンな会話履歴（ツール実行ループの手前まで）を抽出
     clean_history = all_messages[:last_human_message_index + 1]
@@ -190,7 +194,9 @@ def final_response_node(state: AgentState):
     tool_outputs = []
     for msg in all_messages[last_human_message_index:]:
         if isinstance(msg, ToolMessage):
-            tool_outputs.append(f"・ツール「{msg.name}」を実行し、結果「{msg.content}」を得ました。")
+            # 非常に長いツール出力を要約する（例：最初の200文字）
+            content_preview = (str(msg.content)[:200] + '...') if len(str(msg.content)) > 200 else str(msg.content)
+            tool_outputs.append(f"・ツール「{msg.name}」を実行し、結果「{content_preview}」を得ました。")
     tool_outputs_str = "\n".join(tool_outputs) if tool_outputs else "（特筆すべき、ツール実行結果なし）"
 
     # 最終モデルに渡すための、新しいクリーンなメッセージリストを作成
@@ -199,12 +205,10 @@ def final_response_node(state: AgentState):
     # 最終指示プロンプトを作成
     final_prompt_text = FINAL_RESPONSE_PROMPT.format(
         last_user_message=last_user_message_content,
-        tool_outputs=tool_outputs_str,
-        retrieved_memories=retrieved_memories
+        tool_outputs=tool_outputs_str
     )
     # 最終指示を新しいHumanMessageとして追加
     messages_for_pro.append(HumanMessage(content=final_prompt_text))
-    # --- ロジックの変更はここまで ---
 
     api_key = state['api_key']
     final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
@@ -218,12 +222,15 @@ def final_response_node(state: AgentState):
     print(f"  - {final_model_to_use}への入力メッセージ数（指示プロンプト含む）: {len(messages_for_pro)}")
     try:
         response = llm_final.invoke(messages_for_pro)
-        return {"messages": [response], "final_token_count": total_tokens}
+        # 最終状態には、ループの過程を含んだ元の全メッセージを返す
+        # これにより、次のターンのmemory_weaverは全コンテキストを把握できる
+        all_messages.append(response)
+        return {"messages": all_messages, "final_token_count": total_tokens}
     except Exception as e:
         print(f"  - 最終応答生成ノードでエラー: {e}")
-        # エラーが発生した場合も、元のメッセージ履歴を壊さないように、応答だけを返す
         error_response_message = AIMessage(content=f"[エラー：最終応答の生成中に問題が発生しました。詳細: {e}]")
-        return {"messages": [error_response_message], "final_token_count": 0}
+        all_messages.append(error_response_message)
+        return {"messages": all_messages, "final_token_count": 0}
 
 def call_tool_node(state: AgentState):
     """
@@ -323,8 +330,8 @@ workflow.add_conditional_edges(
         "final_response": "final_response"
     }
 )
-# workflow.add_edge("call_tool", "tool_router") # この行を削除、またはコメントアウト
-workflow.add_edge("call_tool", "final_response") # ★★★ この行を新しく追加 ★★★
+workflow.add_edge("call_tool", "tool_router") # ★★★ この行を復活させる ★★★
+# workflow.add_edge("call_tool", "final_response") # この行は削除、またはコメントアウト
 workflow.add_edge("final_response", END)
 app = workflow.compile()
 
