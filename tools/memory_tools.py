@@ -130,7 +130,7 @@ def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
 """
 
         # gemini-2.5-flash を使用して要約
-        response = client.models.generate_content("models/gemini-2.5-flash", prompt)
+        response = client.models.generate_content(model="models/gemini-2.5-flash", contents=[prompt])
         core_memory_text = response.text.strip()
 
         # core_memory.txt に保存
