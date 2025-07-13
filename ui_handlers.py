@@ -4,6 +4,7 @@ import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Union
 import gradio as gr
 import datetime
+import threading
 import utils
 import json
 import traceback
@@ -658,7 +659,25 @@ def handle_reload_notepad(character_name: str) -> str:
         gr.Info(f"「{character_name}」のメモ帳は存在しないか空です。") # 存在しない場合も通知
         return ""
 
+def _run_core_memory_update(character_name: str, api_key: str):
+    """【新設】バックグラウンドで実行される実際の処理"""
+    print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
+    try:
+        # .func を使って、ラップされた元のPython関数を直接呼び出す
+        result = memory_tools.summarize_and_save_core_memory.func(
+            character_name=character_name,
+            api_key=api_key
+        )
+        # 処理結果をターミナルに出力
+        print(f"--- [スレッド終了] コアメモリ更新処理完了 ---")
+        print(f"    結果: {result}")
+    except Exception as e:
+        # スレッド内で発生した予期せぬエラーもターミナルに出力
+        print(f"--- [スレッドエラー] コアメモリ更新中に予期せぬエラーが発生しました ---")
+        print(traceback.format_exc())
+
 def handle_core_memory_update_click(character_name: str, api_key_name: str):
+    """【改訂】UIからのクリックイベントを受け取り、バックグラウンド処理を開始する"""
     if not character_name or not api_key_name:
         gr.Warning("キャラクターとAPIキーを選択してください。")
         return
@@ -668,16 +687,12 @@ def handle_core_memory_update_click(character_name: str, api_key_name: str):
         gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。")
         return
 
-    gr.Info(f"キャラクター「{character_name}」のコアメモリ更新を開始します...")
+    # UIにはまず「開始」を通知し、結果はターミナルで確認するよう促す
+    gr.Info(f"キャラクター「{character_name}」のコアメモリ更新をバックグラウンドで開始しました。(結果はターミナルを確認してください)")
 
-    # ★★★ ここを修正 ★★★
-    # .invoke() ではなく .func を使って、ラップされた元のPython関数を直接呼び出す
-    result = memory_tools.summarize_and_save_core_memory.func(
-        character_name=character_name,
-        api_key=api_key
+    # 実際の重い処理は別のスレッドで実行する
+    thread = threading.Thread(
+        target=_run_core_memory_update,
+        args=(character_name, api_key)
     )
-
-    if "成功" in result:
-        gr.Info(result)
-    else:
-        gr.Error(result)
+    thread.start()
