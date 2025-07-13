@@ -670,11 +670,12 @@ def handle_core_memory_update_click(character_name: str, api_key_name: str):
 
     gr.Info(f"キャラクター「{character_name}」のコアメモリ更新を開始します...")
 
-    # ツールを直接呼び出す
-    result = memory_tools.summarize_and_save_core_memory.invoke({
-        "character_name": character_name,
-        "api_key": api_key
-    })
+    # ★★★ ここを修正 ★★★
+    # .invoke() ではなく .func を使って、ラップされた元のPython関数を直接呼び出す
+    result = memory_tools.summarize_and_save_core_memory.func(
+        character_name=character_name,
+        api_key=api_key
+    )
 
     if "成功" in result:
         gr.Info(result)
