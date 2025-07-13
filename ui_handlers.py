@@ -4,6 +4,7 @@ import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Union
 import gradio as gr
 import datetime
+import threading
 import utils
 import json
 import traceback
@@ -23,6 +24,7 @@ import alarm_manager
 import re # ★★★ 正規表現を扱うために import
 import datetime # ★★★ datetime を扱うために import
 import character_manager
+from tools import memory_tools
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
 from gemini_api import send_multimodal_to_gemini # これは直接呼び出し用なので残す
@@ -656,3 +658,41 @@ def handle_reload_notepad(character_name: str) -> str:
         # ファイルが存在しない場合は空の文字列を返す
         gr.Info(f"「{character_name}」のメモ帳は存在しないか空です。") # 存在しない場合も通知
         return ""
+
+def _run_core_memory_update(character_name: str, api_key: str):
+    """【新設】バックグラウンドで実行される実際の処理"""
+    print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
+    try:
+        # .func を使って、ラップされた元のPython関数を直接呼び出す
+        result = memory_tools.summarize_and_save_core_memory.func(
+            character_name=character_name,
+            api_key=api_key
+        )
+        # 処理結果をターミナルに出力
+        print(f"--- [スレッド終了] コアメモリ更新処理完了 ---")
+        print(f"    結果: {result}")
+    except Exception as e:
+        # スレッド内で発生した予期せぬエラーもターミナルに出力
+        print(f"--- [スレッドエラー] コアメモリ更新中に予期せぬエラーが発生しました ---")
+        print(traceback.format_exc())
+
+def handle_core_memory_update_click(character_name: str, api_key_name: str):
+    """【改訂】UIからのクリックイベントを受け取り、バックグラウンド処理を開始する"""
+    if not character_name or not api_key_name:
+        gr.Warning("キャラクターとAPIキーを選択してください。")
+        return
+
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。")
+        return
+
+    # UIにはまず「開始」を通知し、結果はターミナルで確認するよう促す
+    gr.Info(f"キャラクター「{character_name}」のコアメモリ更新をバックグラウンドで開始しました。(結果はターミナルを確認してください)")
+
+    # 実際の重い処理は別のスレッドで実行する
+    thread = threading.Thread(
+        target=_run_core_memory_update,
+        args=(character_name, api_key)
+    )
+    thread.start()

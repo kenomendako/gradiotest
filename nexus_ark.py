@@ -113,7 +113,8 @@ if utils.acquire_lock(): # ★★★ if文でメイン処理を囲む ★★★
                                 memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code")
                                 with gr.Row():
                                     save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
-                                    rag_update_button = gr.Button(value="手帳の索引を更新", variant="primary")
+                                    core_memory_update_button = gr.Button(value="コアメモリを更新", variant="primary") # ★ 追加
+                                    rag_update_button = gr.Button(value="手帳の索引を更新", variant="secondary") # variant を secondary に
                             with gr.TabItem("メモ帳 (notepad.md)"):
                                 notepad_editor = gr.Textbox(
                                     label="メモ帳の内容",
@@ -308,6 +309,7 @@ if utils.acquire_lock(): # ★★★ if文でメイン処理を囲む ★★★
             setup_token_update_events()
             timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, gr.State(config_manager.initial_notification_webhook_url_global), normal_timer_theme_input], outputs=[timer_status_output])
             rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
+            core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
         if __name__ == "__main__":
             print("\n" + "="*60)
