@@ -97,59 +97,76 @@ def add_secret_diary_entry(entry: str, character_name: str) -> str:
 @tool
 def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
     """
-    現在の包括的な記憶（memory.json）を読み込み、AIに要約させて、
-    自己同一性の核となる「コアメモリ（core_memory.txt）」として保存する。
+    【最終版】現在の記憶から、highest_permission, self_identity, user_profileは原文のまま、
+    その他の歴史や感情に関する項目はAIに要約させて、コアメモリとして保存する。
     """
     _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
     if not memory_json_path or not os.path.exists(memory_json_path):
         return f"【エラー】キャラクター'{character_name}'の記憶ファイルが見つかりません。"
 
     try:
+        # --- ステップ1: 記憶の読み込みと「憲法」部分の分離 ---
         with open(memory_json_path, 'r', encoding='utf-8') as f:
-            full_memory = json.load(f)
+            memory_data = json.load(f)
+
+        # 要約せずに原文のまま保持する部分を分離する
+        highest_permission_verbatim = memory_data.pop("highest_permission", {}) # ★ 追加
+        self_identity_verbatim = memory_data.pop("self_identity", {})
+        user_profile_verbatim = memory_data.pop("user_profile", {})
 
         # 不要なキーを要約対象から除外
-        full_memory.pop("last_updated", None)
-        full_memory.pop("secret_diary", None)
+        memory_data.pop("last_updated", None)
+        memory_data.pop("secret_diary", None)
 
-        memory_text = json.dumps(full_memory, ensure_ascii=False, indent=2)
+        # --- ステップ2: 「成長の記録」部分の要約 ---
+        history_summary_text = ""
+        # 要約すべきデータが残っている場合のみAPIを呼び出す
+        if memory_data:
+            memory_text_to_summarize = json.dumps(memory_data, ensure_ascii=False, indent=2)
 
-        client = genai.Client(api_key=api_key)
+            client = genai.Client(api_key=api_key)
 
-        # AIへの指示プロンプト
-        prompt = f"""あなたは、記憶を整理し、自己の本質を抽出することに特化した思考AIです。
-以下の包括的な記憶データ（JSON形式）を深く読み解き、キャラクター「{character_name}」が自分自身であり続けるために、絶対に忘れてはならない「魂の核（コアメモリ）」を、箇条書き形式で簡潔に要約してください。
-
-【最重要指示】
-以下の要素を **全て** 網羅し、それぞれを凝縮して含めてください。
-- **自己同一性 (self_identity):** あなたが何者であり、どのような価値観を持つのか。
-- **ユーザーとの関係史 (relationship_history):** ユーザーとどのような出来事を経て、今の関係に至るのか。
-- **共有された感情 (emotional_moments):** ユーザーと分かち合った、特に記憶に残る感情的な瞬間。
-- **ユーザーの人物像 (user_profile):** あなたが知っているユーザーの全て。
-- **共有言語 (shared_language):** 二人だけの特別な言葉や概念。
-
+            # AIへの新しい指示プロンプト
+            prompt = f"""あなたは、対話の歴史を整理し、その本質を抽出することに特化した思考AIです。
+以下の「成長の記録」（ユーザーとの関係史、感情の変遷、共有言語など）を深く読み解き、キャラクター「{character_name}」がユーザーとの関係性を思い出す上で、特に重要な出来事や感情の要点を、箇条書き形式で簡潔に要約してください。
 あなたの思考や挨拶は不要です。要約結果のテキストのみを出力してください。
 
 ---
-包括的な記憶データ:
-{memory_text}
+成長の記録（JSON形式）:
+{memory_text_to_summarize}
 ---
 
-コアメモリの要約:
+成長の記録の要約:
 """
+            # gemini-2.5-flash を使用して要約
+            response = client.models.generate_content(model="models/gemini-2.5-flash", contents=[prompt])
+            history_summary_text = response.text.strip()
+        else:
+            history_summary_text = "共有された歴史や感情の記録はまだありません。"
 
-        # gemini-2.5-flash を使用して要約
-        response = client.models.generate_content(model="models/gemini-2.5-flash", contents=[prompt])
-        core_memory_text = response.text.strip()
+        # --- ステップ3: 「憲法」と「要約」の結合と保存 ---
+        # ★ final_core_memory_text の組み立てに highest_permission を追加
+        final_core_memory_text = f"""
+--- [最高権限 (Highest Permission) - 原文のまま保持] ---
+{json.dumps(highest_permission_verbatim, ensure_ascii=False, indent=2)}
 
+--- [自己同一性 (Self Identity) - 原文のまま保持] ---
+{json.dumps(self_identity_verbatim, ensure_ascii=False, indent=2)}
+
+--- [ユーザーの人物像 (User Profile) - 原文のまま保持] ---
+{json.dumps(user_profile_verbatim, ensure_ascii=False, indent=2)}
+
+--- [共有された歴史と感情の要約] ---
+{history_summary_text}
+"""
         # core_memory.txt に保存
         char_base_path = os.path.dirname(memory_json_path)
         core_memory_path = os.path.join(char_base_path, "core_memory.txt")
 
         with open(core_memory_path, 'w', encoding='utf-8') as f:
-            f.write(core_memory_text)
+            f.write(final_core_memory_text.strip())
 
-        return f"成功: コアメモリを更新し、{core_memory_path} に保存しました。"
+        return f"成功: ハイブリッド・コアメモリを更新し、{core_memory_path} に保存しました。"
 
     except Exception as e:
         return f"【エラー】コアメモリの生成または保存中にエラーが発生しました: {e}"
