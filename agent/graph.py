@@ -15,6 +15,7 @@ import rag_manager
 from agent.prompts import MEMORY_WEAVER_PROMPT_TEMPLATE, TOOL_ROUTER_PROMPT_STRICT, FINAL_RESPONSE_PROMPT
 from tools.web_tools import read_url_tool
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
+from tools.memory_tools import edit_memory, add_secret_diary_entry # ★ インポート
 
 # ▼▼▼【重要】AgentStateを、最終形態に、修正▼▼▼
 class AgentState(TypedDict):
@@ -143,7 +144,9 @@ def tool_router_node(state: AgentState):
         add_to_notepad,
         update_notepad,
         delete_from_notepad,
-        read_full_notepad
+        read_full_notepad,
+        edit_memory,              # ★ 追加
+        add_secret_diary_entry    # ★ 追加
     ]
 
     llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
@@ -252,7 +255,9 @@ def call_tool_node(state: AgentState):
         "add_to_notepad": add_to_notepad,
         "update_notepad": update_notepad,
         "delete_from_notepad": delete_from_notepad,
-        "read_full_notepad": read_full_notepad
+        "read_full_notepad": read_full_notepad,
+        "edit_memory": edit_memory,                      # ★ 追加
+        "add_secret_diary_entry": add_secret_diary_entry # ★ 追加
     }
 
     MAX_TOOLS_PER_TURN = 5 # 指示通り3から5に変更
@@ -271,7 +276,12 @@ def call_tool_node(state: AgentState):
             output = f"エラー: 不明な道具 '{tool_name}' が指定されました。"
         else:
             try:
-                if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "add_to_notepad", "update_notepad", "delete_from_notepad", "read_full_notepad"]:
+                # character_nameを注入するロジックを更新
+                if tool_name in [
+                    "diary_search_tool", "conversation_memory_search_tool",
+                    "add_to_notepad", "update_notepad", "delete_from_notepad", "read_full_notepad",
+                    "edit_memory", "add_secret_diary_entry" # ★ 追加
+                ]:
                     tool_args["character_name"] = state.get("character_name")
                     print(f"    - 引数に正しいキャラクター名 '{tool_args['character_name']}' を注入/上書きしました。")
                 if tool_name in ["diary_search_tool", "conversation_memory_search_tool"]:

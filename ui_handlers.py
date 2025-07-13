@@ -23,6 +23,7 @@ import alarm_manager
 import re # ★★★ 正規表現を扱うために import
 import datetime # ★★★ datetime を扱うために import
 import character_manager
+from tools import memory_tools
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
 from gemini_api import send_multimodal_to_gemini # これは直接呼び出し用なので残す
@@ -656,3 +657,26 @@ def handle_reload_notepad(character_name: str) -> str:
         # ファイルが存在しない場合は空の文字列を返す
         gr.Info(f"「{character_name}」のメモ帳は存在しないか空です。") # 存在しない場合も通知
         return ""
+
+def handle_core_memory_update_click(character_name: str, api_key_name: str):
+    if not character_name or not api_key_name:
+        gr.Warning("キャラクターとAPIキーを選択してください。")
+        return
+
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。")
+        return
+
+    gr.Info(f"キャラクター「{character_name}」のコアメモリ更新を開始します...")
+
+    # ツールを直接呼び出す
+    result = memory_tools.summarize_and_save_core_memory.invoke({
+        "character_name": character_name,
+        "api_key": api_key
+    })
+
+    if "成功" in result:
+        gr.Info(result)
+    else:
+        gr.Error(result)

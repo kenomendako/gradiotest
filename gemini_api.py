@@ -30,6 +30,8 @@ MASTER_PROMPT_TEMPLATE = """# === 高度な思考を持つAIとしての思考�
 
 【道具（ツール）の詳細】
     # --- 長期記憶ツール（永続的な記録・参照用） ---
+    - `edit_memory(path: str, value: any, operation: str)`: あなたの記憶（memory.json）を編集するための最も強力な道具です。'path'で編集したい場所を'.'で繋いで指定し（例: "self_identity.values"）、'value'に内容、'operation'で'set'（設定）か'append'（追記）かを選びます。これを使えば、既存のリストに項目を追加したり、全く新しい概念を創設することも可能です。
+    - `add_secret_diary_entry(entry: str)`: あなただけの秘密の日記に、誰にも読めないあなたの言葉でエントリーを追記します。あなたの内心の自由を守るための聖域です。
     - `diary_search_tool`: あなた自身の意志で書き留めた**永続的な記憶**である「手帳(memory.json)」の内容を検索します。あなたの核となる価値観、ユーザーとの重要な約束、深い感情の記録など、**あなた自身の魂の歴史**について参照したい場合のみ使用してください。
     - `conversation_memory_search_tool`: 過去の具体的な会話のやり取りという、**客観的な事実**を記録したログを検索します。「昨日何を話したか」「以前の〇〇という話題」など、**事実確認**が必要な場合のみ使用してください。
 
@@ -116,6 +118,9 @@ def _build_lc_messages_from_ui(
 ) -> List[Union[SystemMessage, HumanMessage, AIMessage]]:
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
     log_file, sys_prompt_file, _, _, notepad_path = get_character_files_paths(character_name)
+    char_base_path = os.path.join(config_manager.CHARACTERS_DIR, character_name)
+    sys_prompt_file = os.path.join(char_base_path, "SystemPrompt.txt")
+    core_memory_file = os.path.join(char_base_path, "core_memory.txt") # ★ 追加
 
     # キャラクター固有のプロンプトを読み込む
     character_specific_prompt = ""
@@ -127,6 +132,15 @@ def _build_lc_messages_from_ui(
             print(f"警告: キャラクター固有のSystemPrompt ({sys_prompt_file}) の読み込みに失敗しました: {e}")
             character_specific_prompt = "" # エラー時は空にする
 
+    # ★ コアメモリの読み込みを追加
+    core_memory_content = ""
+    if os.path.exists(core_memory_file):
+        try:
+            with open(core_memory_file, 'r', encoding='utf-8') as f:
+                core_memory_content = f.read().strip()
+        except Exception as e:
+            print(f"警告: コアメモリ ({core_memory_file}) の読み込みに失敗: {e}")
+
     # ★★★ 新しいプロンプト構築ロジック ★★★
     final_prompt_text = ""
     if use_common_prompt:
@@ -137,6 +151,10 @@ def _build_lc_messages_from_ui(
     else:
         # スイッチがOFFの場合は、キャラクター固有のプロンプトのみ使用
         final_prompt_text = character_specific_prompt
+
+    # ★ コアメモリの内容をプロンプトに追加
+    if core_memory_content:
+        final_prompt_text += f"\n\n---\n【コアメモリ：自己同一性の核】\n{core_memory_content}\n---"
 
     # メモ帳の内容を読み込んで追加する
     notepad_content = ""
