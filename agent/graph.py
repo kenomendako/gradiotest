@@ -73,14 +73,20 @@ def memory_weaver_node(state: AgentState):
 import json
 from character_manager import get_character_files_paths
 
+# 【改訂版】ヘルパー関数
 def get_current_location_from_notepad(character_name: str) -> str:
     """メモ帳を読み、'現在地:'で始まる行から現在の場所を抽出するヘルパー関数"""
-    lines = read_full_notepad.func(character_name=character_name)
-    if isinstance(lines, str): # read_full_notepadは文字列を返す
-        for line in lines.split('\n'):
+    # read_full_notepadツールを直接呼び出し、その結果（文字列）を受け取る
+    lines_str = read_full_notepad.func(character_name=character_name)
+
+    if isinstance(lines_str, str):
+        for line in lines_str.split('\n'):
             if line.strip().startswith("現在地:"):
+                # "現在地:" の部分を削除し、前後の空白を取り除いて返す
                 return line.strip().replace("現在地:", "").strip()
-    return "living_space" # デフォルトは屋敷全体
+
+    # 見つからなかった場合のデフォルト値
+    return "living_space"
 
 # 【最終版】aether_weaver_node
 def aether_weaver_node(state: AgentState):
@@ -91,28 +97,40 @@ def aether_weaver_node(state: AgentState):
     character_name = state['character_name']
     api_key = state['api_key']
 
-    # 1. 「王の印」= 現在地をメモ帳から取得
+    # 1. 「王の印」= 現在地をメモ帳から取得 (★ ヘルパー関数を正しく呼び出す)
     current_location = get_current_location_from_notepad(character_name)
     print(f"  - [王の印] 現在地を '{current_location}' と認識。")
 
-    # 2. 現在地の空間定義を取得 (read_memory_by_pathは使わず、直接JSONを扱う)
+    # 2. 現在地の空間定義を取得 (★ JSONの深い階層を取得するロジックを強化)
     _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
     space_definition_json = "{}" # デフォルト
     if memory_json_path and os.path.exists(memory_json_path):
         with open(memory_json_path, 'r', encoding='utf-8') as f:
             memory = json.load(f)
-        # ドット記法で深い階層も取得できるようにする
-        keys = current_location.split('.')
-        current_level = memory
+
+        # living_space を基点に、指定されたパスをたどる
+        # 例: current_location が "書斎" なら、memory['living_space']['書斎'] を探す
+        path_keys = current_location.split('.')
+        current_data = memory.get("living_space", {})
+        found = True
         try:
-            for key in keys:
-                current_level = current_level[key]
-            space_definition_json = json.dumps(current_level, ensure_ascii=False, indent=2)
-        except (KeyError, TypeError):
-            print(f"  - 警告: パス '{current_location}' が見つからないため、living_space全体をコンテキストとします。")
+            for key in path_keys:
+                if isinstance(current_data, dict) and key in current_data:
+                    current_data = current_data[key]
+                else:
+                    found = False
+                    break
+            if found:
+                 space_definition_json = json.dumps(current_data, ensure_ascii=False, indent=2)
+            else:
+                print(f"  - 警告: パス '{current_location}' がliving_space内に見つからないため、living_space全体をコンテキストとします。")
+                space_definition_json = json.dumps(memory.get("living_space", {}), ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"  - 警告: 空間定義の取得中にエラー: {e}。living_space全体をコンテキストとします。")
             space_definition_json = json.dumps(memory.get("living_space", {}), ensure_ascii=False, indent=2)
 
-    # 3. 動的情報と対話状況の取得（変更なし）
+
+    # ... (以降の、動的情報取得、プロンプト構築、情景生成のロジックは変更なし) ...
     now = datetime.now()
     current_time_str = now.strftime('%H:%M')
     seasons = {12: "冬", 1: "冬", 2: "冬", 3: "春", 4: "春", 5: "春", 6: "夏", 7: "夏", 8: "夏", 9: "秋", 10: "秋", 11: "秋"}
