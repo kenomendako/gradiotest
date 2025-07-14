@@ -27,6 +27,7 @@ class AgentState(TypedDict):
     synthesized_context: SystemMessage # memory_weaver_node が生成する要約
     retrieved_long_term_memories: str # memory_weaver_node が検索する長期記憶
     tool_call_count: int  # ★★★ この行を追加 ★★★
+    initial_intent: str # ★★★ AIの最初の意志（計画）を保持するキーを追加 ★★★
 
 def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
     print(f"  - 安全設定をLangChainのデフォルト値に委ねてモデルを初期化します。")
@@ -103,23 +104,47 @@ def memory_weaver_node(state: AgentState):
 # 【新設】これまでのtool_routerとfinal_responseを統合した、新しい「心」
 def nexus_mind_node(state: AgentState):
     """
-    AIの思考と応答生成の中心。gemini-2.5-proがツール使用と応答生成を同時に判断する。
+    AIの思考と応答生成の中心。初回呼び出しとループ中で役割が変わる。
     """
     print("--- 統合思考ノード (nexus_mind_node) 実行 ---")
 
-    # 思考に必要な全てのメッセージを準備
     messages_for_mind = []
-    # システムプロンプトを追加
+    # システムプロンプトは常に含める
     system_prompt = next((msg for msg in state['messages'] if isinstance(msg, SystemMessage)), None)
     if system_prompt:
         messages_for_mind.append(system_prompt)
 
-    # memory_weaverが生成したコンテキストを追加
-    messages_for_mind.append(state['synthesized_context'])
+    is_first_call = state.get('tool_call_count', 0) == 0
 
-    # ツール実行ループを含む、これまでの全履歴を追加
-    # add_messagesのおかげで、state['messages']には常に完全な履歴が蓄積されている
-    messages_for_mind.extend(state['messages'])
+    if is_first_call:
+        print("  - [初回呼び出し] 完全な履歴を基に、応答または行動計画を生成します。")
+        # 初回は、memory_weaverの要約は使わず、生の全履歴を渡す
+        messages_for_mind.extend(state['messages'])
+    else:
+        print("  - [ループ内呼び出し] AIの当初の意志とツール結果を基に、次の行動を判断します。")
+        # ループ内では、当初の意志、直近のユーザーメッセージ、そしてツール関連のメッセージのみを引き継ぐ
+
+        # 1. 当初の意志をシステムメッセージとして追加
+        initial_intent_text = state.get('initial_intent', '（エラー：当初の意志が見つかりません）')
+        intent_prompt = f"""【あなたの当初の行動計画】
+{initial_intent_text}
+---
+上記の計画を達成するため、提供された最新のツール実行結果を分析し、次の行動を判断してください。
+全てのタスクが完了したと判断した場合にのみ、最終的な応答を生成してください。"""
+        messages_for_mind.append(SystemMessage(content=intent_prompt))
+
+        # 2. 最後のユーザーメッセージと、それ以降のツール関連メッセージを追加
+        last_human_message_index = -1
+        for i in range(len(state['messages']) - 1, -1, -1):
+            if isinstance(state['messages'][i], HumanMessage):
+                last_human_message_index = i
+                break
+
+        if last_human_message_index != -1:
+            messages_for_mind.extend(state['messages'][last_human_message_index:])
+        else:
+            # 万が一ユーザーメッセージが見つからない場合
+            messages_for_mind.append(state['messages'][-1])
 
     api_key = state['api_key']
     final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
@@ -138,16 +163,18 @@ def nexus_mind_node(state: AgentState):
         summarize_and_save_core_memory # UIからだけでなく、AIの判断でも実行できるよう追加
     ]
 
-    # 最上位モデルにツールをバインド
     llm_pro_with_tools = get_configured_llm(final_model_to_use, api_key, available_tools)
 
     print(f"  - {final_model_to_use}への入力メッセージ数: {len(messages_for_mind)}")
-
-    # AIに応답とツール使用を同時に判断させる
     response = llm_pro_with_tools.invoke(messages_for_mind)
 
-    # tool_callsがある場合もない場合も、そのままresponseを返す
-    # これにより、AgentStateにAIMessage(content=...)またはAIMessage(tool_calls=...)が追加される
+    # 初回呼び出し時にツール使用を決めた場合、その応答（思考）を「当初の意志」として保存する
+    if is_first_call and hasattr(response, 'tool_calls') and response.tool_calls:
+        # 応答のテキスト部分（思考や計画が書かれているはず）を抽出
+        initial_intent_content = response.content if isinstance(response.content, str) else str(response)
+        print(f"  - [意志の記録] AIの当初の行動計画を記録しました:\n{initial_intent_content}")
+        return {"messages": [response], "initial_intent": initial_intent_content}
+
     return {"messages": [response]}
 
 
