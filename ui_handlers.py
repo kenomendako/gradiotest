@@ -245,12 +245,12 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
                     mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
 
                     # ★★★ ここを修正 ★★★
-                    # mem0ライブラリが最も安全に解釈できる、生のテキスト形式で渡す
-                    mem0_instance.add(
-                        final_log_message.strip(),
-                        api_response_text.strip(),
-                        user_id=current_character_name
-                    )
+                    # 最も安全で正しい、構造化されたリスト形式で渡す
+                    conversation_to_add = [
+                        {"role": "user", "content": final_log_message.strip()},
+                        {"role": "assistant", "content": api_response_text.strip()}
+                    ]
+                    mem0_instance.add(messages=conversation_to_add, user_id=current_character_name)
                     print(f"--- Mem0に会話を記憶しました (Character: {current_character_name}) ---")
             except Exception as mem0_e:
                 print(f"Mem0への記憶中にエラーが発生しました: {mem0_e}")
