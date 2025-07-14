@@ -26,7 +26,7 @@ def _write_notepad(character_name: str, lines: list[str]):
         f.write(content_to_write)
 
 @tool
-def add_to_notepad(entry: str, character_name: str) -> str:
+def add_to_notepad(entry: str, character_name: str = None) -> str:
     """短期記憶用のメモ帳に、現在時刻のタイムスタンプを付けて新しい項目を一行追記する。"""
     if not entry or not isinstance(entry, str) or not entry.strip():
         return "【エラー】メモに追加する内容が空です。"
@@ -39,7 +39,7 @@ def add_to_notepad(entry: str, character_name: str) -> str:
     return f'Success: The entry "{cleaned_entry}" was added to the notepad.'
 
 @tool
-def update_notepad(old_entry: str, new_entry: str, character_name: str) -> str:
+def update_notepad(old_entry: str, new_entry: str, character_name: str = None) -> str:
     """
     短期記憶用のメモ帳の項目を更新する。
     `old_entry`のキーワードを含む最も新しい項目を探し出し、`new_entry`の内容で完全に置き換える（新しいタイムスタンプが付与される）。
@@ -76,7 +76,7 @@ def update_notepad(old_entry: str, new_entry: str, character_name: str) -> str:
         return f'Success: The entry "{original_line}" was deleted from the notepad.'
 
 @tool
-def delete_from_notepad(entry_to_delete: str, character_name: str) -> str:
+def delete_from_notepad(entry_to_delete: str, character_name: str = None) -> str:
     """
     短期記憶用のメモ帳から項目を削除する。
     `entry_to_delete`のキーワードを含む最も新しい項目を探し出して削除する。
@@ -104,7 +104,7 @@ def delete_from_notepad(entry_to_delete: str, character_name: str) -> str:
         return f'Error: No entry containing the keyword "{keyword}" was found to delete.'
 
 @tool
-def read_full_notepad(character_name: str) -> str:
+def read_full_notepad(character_name: str = None) -> str:
     """短期記憶用のメモ帳の全内容を読み上げる。内容がなければその旨を伝える。"""
     lines = _read_notepad(character_name)
     if not lines:
