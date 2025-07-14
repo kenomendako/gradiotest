@@ -170,3 +170,38 @@ def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
 
     except Exception as e:
         return f"【エラー】コアメモリの生成または保存中にエラーが発生しました: {e}"
+
+@tool
+def read_memory_by_path(path: str, character_name: str = None) -> str:
+    """
+    記憶（memory.json）の指定した場所（パス）にあるデータを、JSON形式の文字列として読み取る。
+    パスはドット記法で指定する（例: "living_space.study"）。
+    """
+    if not path or not character_name:
+        return "【エラー】引数 'path' と 'character_name' は必須です。"
+
+    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
+    if not memory_json_path:
+        return f"【エラー】キャラクター'{character_name}'の記憶ファイルパスが見つかりません。"
+
+    memory_data = load_memory_data_safe(memory_json_path)
+    if "error" in memory_data:
+        return f"【エラー】記憶ファイルの読み込みに失敗: {memory_data['message']}"
+
+    try:
+        keys = path.split('.')
+        current_level = memory_data
+        for key in keys:
+            if isinstance(current_level, dict):
+                current_level = current_level[key]
+            else:
+                # パスの途中で辞書以外の型に当たった場合
+                raise KeyError(f"パス '{path}' のキー '{key}' が見つからないか、または親が辞書ではありません。")
+
+        # 最終的に取得したデータをJSON文字列として返す
+        return json.dumps(current_level, ensure_ascii=False, indent=2)
+
+    except KeyError as e:
+        return f"【エラー】指定されたパス '{path}' が記憶内に見つかりません。詳細: {e}"
+    except Exception as e:
+        return f"【エラー】記憶の読み取り中に予期せぬエラーが発生しました: {e}"

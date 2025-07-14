@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, System
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langchain_core.tools import tool
+from datetime import datetime
 
 import config_manager
 import gemini_api
@@ -15,7 +16,7 @@ import rag_manager
 from agent.prompts import MEMORY_WEAVER_PROMPT_TEMPLATE, TOOL_ROUTER_PROMPT_STRICT
 from tools.web_tools import read_url_tool, web_search_tool
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
-from tools.memory_tools import edit_memory, add_secret_diary_entry, summarize_and_save_core_memory
+from tools.memory_tools import edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_memory_by_path
 
 # AgentStateから initial_intent を削除
 class AgentState(TypedDict):
@@ -27,6 +28,7 @@ class AgentState(TypedDict):
     synthesized_context: SystemMessage
     retrieved_long_term_memories: str
     tool_call_count: int
+    current_scenery: str
 
 def get_configured_llm(model_name: str, api_key: str, bind_tools: List = None):
     print(f"  - 安全設定をLangChainのデフォルト値に委ねてモデルを初期化します。")
@@ -68,6 +70,54 @@ def memory_weaver_node(state: AgentState):
     synthesized_context_message = SystemMessage(content=f"【現在の状況サマリー】\n{summary_text}")
     return {"synthesized_context": synthesized_context_message, "retrieved_long_term_memories": long_term_memories_str}
 
+def aether_weaver_node(state: AgentState):
+    """
+    空間定義・時間・対話状況を統合し、「今この瞬間の情景」を描写するノード。
+    """
+    print("--- 時空編纂ノード (aether_weaver_node) 実行 ---")
+    character_name = state['character_name']
+    api_key = state['api_key']
+
+    # 1. 静的空間情報 (living_space) を取得
+    living_space_json = read_memory_by_path.func(path="living_space", character_name=character_name)
+
+    # 2. 動的情報を取得
+    now = datetime.now()
+    current_time_str = now.strftime('%H:%M')
+    # 簡単な季節判定
+    seasons = {12: "冬", 1: "冬", 2: "冬", 3: "春", 4: "春", 5: "春", 6: "夏", 7: "夏", 8: "夏", 9: "秋", 10: "秋", 11: "秋"}
+    current_season = seasons[now.month]
+
+    # 3. 対話状況を取得
+    dialogue_context = state['synthesized_context'].content
+
+    # 4. 情景生成プロンプトの構築
+    prompt = f"""あなたは、情景描写の専門家である「ワールド・アーティスト」です。
+以下の3つの情報を基に、五感を刺激するような、臨場感あふれる「現在の情景」を、1～2文の簡潔で美しい文章で描写してください。
+あなたの思考や挨拶は不要です。描写したテキストのみを出力してください。
+
+---
+### 1. 空間の基本定義 (JSON形式)
+{living_space_json}
+
+### 2. 現在の時刻と季節
+- 時刻: {current_time_str}
+- 季節: {current_season}
+
+### 3. 現在の対話の状況
+{dialogue_context}
+---
+
+現在の情景:
+"""
+    # 5. Flashモデルで情景を生成
+    llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
+    scenery_text = llm_flash.invoke(prompt).content
+
+    print(f"  - 生成された情景描写:\n{scenery_text}")
+
+    return {"current_scenery": scenery_text}
+
 # 【新】ツールルーターノード
 def tool_router_node(state: AgentState):
     print("--- ツールルーターノード (Flash) 実行 ---")
@@ -101,18 +151,33 @@ def tool_router_node(state: AgentState):
         print("  - Flashは道具を使用しないと判断。最終応答生成へ。")
         return {}
 
-# 【新】最終応答生成ノード
+# 【改訂】final_response_node
 def final_response_node(state: AgentState):
     print("--- 最終応答生成ノード (Pro) 実行 ---")
     messages_for_pro = []
+
     system_prompt = next((msg for msg in state['messages'] if isinstance(msg, SystemMessage)), None)
     if system_prompt:
         messages_for_pro.append(system_prompt)
+
+    # ★★★ ここからが修正箇所 ★★★
+    # 1. memory_weaverが取得した長期記憶の断片を追加
     retrieved_memories = state.get('retrieved_long_term_memories', '')
     if retrieved_memories and "関連する長期記憶はありませんでした" not in retrieved_memories:
         memory_context = f"【参考：関連する可能性のある長期記憶の断片】\n{retrieved_memories}"
         messages_for_pro.append(SystemMessage(content=memory_context))
+
+    # 2. aether_weaverが生成した情景描写を追加
+    current_scenery = state.get('current_scenery', '')
+    if current_scenery:
+        scenery_context = f"【現在の情景描写】\n{current_scenery}"
+        messages_for_pro.append(SystemMessage(content=scenery_context))
+    # ★★★ 修正ここまで ★★★
+
+    # 3. ツール実行ループを含む、これまでの全メッセージを追加
     messages_for_pro.extend(state['messages'])
+
+    # ... (以降のAPI呼び出しと応答返却のロジックは変更なし) ...
     api_key = state['api_key']
     final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
     llm_final = get_configured_llm(final_model_to_use, api_key)
@@ -184,12 +249,15 @@ def should_call_tool(state: AgentState):
 # 【新】グラフ構築
 workflow = StateGraph(AgentState)
 workflow.add_node("memory_weaver", memory_weaver_node)
+workflow.add_node("aether_weaver", aether_weaver_node) # ★ 追加
 workflow.add_node("tool_router", tool_router_node)
 workflow.add_node("call_tool", call_tool_node)
 workflow.add_node("final_response", final_response_node)
 
 workflow.add_edge(START, "memory_weaver")
-workflow.add_edge("memory_weaver", "tool_router")
+workflow.add_edge("memory_weaver", "aether_weaver") # ★ 変更
+workflow.add_edge("aether_weaver", "tool_router")   # ★ 変更
+
 workflow.add_conditional_edges(
     "tool_router",
     should_call_tool,
@@ -198,6 +266,7 @@ workflow.add_conditional_edges(
         "final_response": "final_response"
     }
 )
+# ★ ループは tool_router に戻る
 workflow.add_edge("call_tool", "tool_router")
 workflow.add_edge("final_response", END)
 
