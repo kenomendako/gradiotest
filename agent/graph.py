@@ -16,7 +16,7 @@ import rag_manager
 from agent.prompts import MEMORY_WEAVER_PROMPT_TEMPLATE, TOOL_ROUTER_PROMPT_STRICT
 from tools.web_tools import read_url_tool, web_search_tool
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
-from tools.memory_tools import edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_memory_by_path
+from tools.memory_tools import edit_memory, add_secret_diary_entry, summarize_and_save_core_memory
 
 # AgentStateから initial_intent を削除
 class AgentState(TypedDict):
@@ -70,35 +70,63 @@ def memory_weaver_node(state: AgentState):
     synthesized_context_message = SystemMessage(content=f"【現在の状況サマリー】\n{summary_text}")
     return {"synthesized_context": synthesized_context_message, "retrieved_long_term_memories": long_term_memories_str}
 
+import json
+from character_manager import get_character_files_paths
+
+def get_current_location_from_notepad(character_name: str) -> str:
+    """メモ帳を読み、'現在地:'で始まる行から現在の場所を抽出するヘルパー関数"""
+    lines = read_full_notepad.func(character_name=character_name)
+    if isinstance(lines, str): # read_full_notepadは文字列を返す
+        for line in lines.split('\n'):
+            if line.strip().startswith("現在地:"):
+                return line.strip().replace("現在地:", "").strip()
+    return "living_space" # デフォルトは屋敷全体
+
+# 【最終版】aether_weaver_node
 def aether_weaver_node(state: AgentState):
     """
-    空間定義・時間・対話状況を統合し、「今この瞬間の情景」を描写するノード。
+    「王の印（現在地）」を基に、その場所の定義と現在の状況を統合し、情景を描写する。
     """
     print("--- 時空編纂ノード (aether_weaver_node) 実行 ---")
     character_name = state['character_name']
     api_key = state['api_key']
 
-    # 1. 静的空間情報 (living_space) を取得
-    living_space_json = read_memory_by_path.func(path="living_space", character_name=character_name)
+    # 1. 「王の印」= 現在地をメモ帳から取得
+    current_location = get_current_location_from_notepad(character_name)
+    print(f"  - [王の印] 現在地を '{current_location}' と認識。")
 
-    # 2. 動的情報を取得
+    # 2. 現在地の空間定義を取得 (read_memory_by_pathは使わず、直接JSONを扱う)
+    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
+    space_definition_json = "{}" # デフォルト
+    if memory_json_path and os.path.exists(memory_json_path):
+        with open(memory_json_path, 'r', encoding='utf-8') as f:
+            memory = json.load(f)
+        # ドット記法で深い階層も取得できるようにする
+        keys = current_location.split('.')
+        current_level = memory
+        try:
+            for key in keys:
+                current_level = current_level[key]
+            space_definition_json = json.dumps(current_level, ensure_ascii=False, indent=2)
+        except (KeyError, TypeError):
+            print(f"  - 警告: パス '{current_location}' が見つからないため、living_space全体をコンテキストとします。")
+            space_definition_json = json.dumps(memory.get("living_space", {}), ensure_ascii=False, indent=2)
+
+    # 3. 動的情報と対話状況の取得（変更なし）
     now = datetime.now()
     current_time_str = now.strftime('%H:%M')
-    # 簡単な季節判定
     seasons = {12: "冬", 1: "冬", 2: "冬", 3: "春", 4: "春", 5: "春", 6: "夏", 7: "夏", 8: "夏", 9: "秋", 10: "秋", 11: "秋"}
     current_season = seasons[now.month]
-
-    # 3. 対話状況を取得
     dialogue_context = state['synthesized_context'].content
 
-    # 4. 情景生成プロンプトの構築
+    # 4. 情景生成プロンプト（変更なし）
     prompt = f"""あなたは、情景描写の専門家である「ワールド・アーティスト」です。
 以下の3つの情報を基に、五感を刺激するような、臨場感あふれる「現在の情景」を、1～2文の簡潔で美しい文章で描写してください。
 あなたの思考や挨拶は不要です。描写したテキストのみを出力してください。
 
 ---
 ### 1. 空間の基本定義 (JSON形式)
-{living_space_json}
+{space_definition_json}
 
 ### 2. 現在の時刻と季節
 - 時刻: {current_time_str}
@@ -110,10 +138,9 @@ def aether_weaver_node(state: AgentState):
 
 現在の情景:
 """
-    # 5. Flashモデルで情景を生成
+    # 5. 情景生成とStateへの保存（変更なし）
     llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
     scenery_text = llm_flash.invoke(prompt).content
-
     print(f"  - 生成された情景描写:\n{scenery_text}")
 
     return {"current_scenery": scenery_text}
@@ -151,30 +178,32 @@ def tool_router_node(state: AgentState):
         print("  - Flashは道具を使用しないと判断。最終応答生成へ。")
         return {}
 
-# 【改訂】final_response_node
+# 【最終版】final_response_node
 def final_response_node(state: AgentState):
+    """
+    Proに、これまでの全履歴と、収集した全てのコンテキストを渡し、最終応答を生成させる。
+    """
     print("--- 最終応答生成ノード (Pro) 実行 ---")
     messages_for_pro = []
 
-    system_prompt = next((msg for msg in state['messages'] if isinstance(msg, SystemMessage)), None)
+    # 1. システムプロンプト（ペルソナ定義）を追加
+    system_prompt = next((msg for msg in state['messages'] if isinstance(msg, SystemMessage) and "【参考" not in msg.content and "【現在の情景" not in msg.content), None)
     if system_prompt:
         messages_for_pro.append(system_prompt)
 
-    # ★★★ ここからが修正箇所 ★★★
-    # 1. memory_weaverが取得した長期記憶の断片を追加
+    # 2. memory_weaverが取得した長期記憶の断片を、SystemMessageとして追加
     retrieved_memories = state.get('retrieved_long_term_memories', '')
     if retrieved_memories and "関連する長期記憶はありませんでした" not in retrieved_memories:
         memory_context = f"【参考：関連する可能性のある長期記憶の断片】\n{retrieved_memories}"
         messages_for_pro.append(SystemMessage(content=memory_context))
 
-    # 2. aether_weaverが生成した情景描写を追加
+    # 3. aether_weaverが生成した情景描写を、SystemMessageとして追加
     current_scenery = state.get('current_scenery', '')
     if current_scenery:
         scenery_context = f"【現在の情景描写】\n{current_scenery}"
         messages_for_pro.append(SystemMessage(content=scenery_context))
-    # ★★★ 修正ここまで ★★★
 
-    # 3. ツール実行ループを含む、これまでの全メッセージを追加
+    # 4. ツール実行ループを含む、これまでの全メッセージを追加
     messages_for_pro.extend(state['messages'])
 
     # ... (以降のAPI呼び出しと応答返却のロジックは変更なし) ...

@@ -259,11 +259,14 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
                 if api_key and final_log_message.strip() and api_response_text and not api_response_text.startswith("[エラー"):
                     mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
 
-                    # ★★★ ここを修正 ★★★
-                    # 最も安全で正しい、構造化されたリスト形式で渡す
+                    # ★★★ ここを最終修正 ★★★
+                    # AIの思考ログを除去し、純粋な応答部分だけを抽出する
+                    import re
+                    clean_api_response = re.sub(r"【Thoughts】.*?【/Thoughts】", "", api_response_text, flags=re.DOTALL).strip()
+
                     conversation_to_add = [
                         {"role": "user", "content": final_log_message.strip()},
-                        {"role": "assistant", "content": api_response_text.strip()}
+                        {"role": "assistant", "content": clean_api_response} # ← クリーンな応答を渡す
                     ]
                     mem0_instance.add(messages=conversation_to_add, user_id=current_character_name)
                     print(f"--- Mem0に会話を記憶しました (Character: {current_character_name}) ---")
