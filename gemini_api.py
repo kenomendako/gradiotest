@@ -13,7 +13,7 @@ import re
 import config_manager
 import utils
 from character_manager import get_character_files_paths
-from agent.graph import app
+# from agent.graph import app  # ← この行を削除またはコメントアウト
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
@@ -305,6 +305,8 @@ def invoke_nexus_agent(
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return {"error": f"APIキー '{api_key_name}' が有効ではありません。"}
     try:
+        from agent.graph import app # ★★★ 関数の中でインポートする ★★★
+
         # ★★★ 呼び出し時に use_common_prompt も渡す ★★★
         messages = _build_lc_messages_from_ui(character_name, parts, api_history_limit_option, send_notepad_to_api, use_common_prompt)
         initial_state = {
