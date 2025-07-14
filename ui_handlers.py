@@ -226,10 +226,25 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
             api_response_text = f"[エラー: {final_agent_state['error']}]"
         elif final_agent_state and final_agent_state.get('messages'): # 正常なAgentStateの場合
             last_message = final_agent_state['messages'][-1]
-            if isinstance(last_message, AIMessage): # LangChainのAIMessageか確認
-                api_response_text = last_message.content
-            else: # それ以外の場合はcontent属性を見るか文字列化
+
+            # ★★★ ここからが修正箇所 ★★★
+            if isinstance(last_message, AIMessage):
+                content = last_message.content
+                # .contentがリスト形式か文字列かをチェック
+                if isinstance(content, list):
+                    # リストの場合、テキスト部分だけを抽出して結合する
+                    text_parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"]
+                    api_response_text = "\n".join(text_parts)
+                elif isinstance(content, str):
+                    # 文字列の場合はそのまま使用
+                    api_response_text = content
+                else:
+                    # その他の予期せぬ形式の場合は安全に文字列化
+                    api_response_text = str(content)
+            else:
+                # AIMessageでない場合のフォールバック
                 api_response_text = str(last_message.content if hasattr(last_message, 'content') else last_message)
+            # ★★★ 修正ここまで ★★★
 
         # ログ保存
         final_log_message = log_message_content.strip() + timestamp
