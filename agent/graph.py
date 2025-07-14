@@ -12,10 +12,10 @@ from langchain_core.tools import tool
 import config_manager
 import gemini_api # final_response_node で gemini_api.FINAL_RESPONSE_PROMPT を参照するため（ただし、最終的にはこのファイル内の定数を使う）
 import rag_manager
-from agent.prompts import MEMORY_WEAVER_PROMPT_TEMPLATE, TOOL_ROUTER_PROMPT_STRICT, FINAL_RESPONSE_PROMPT
-from tools.web_tools import read_url_tool
+from agent.prompts import MEMORY_WEAVER_PROMPT_TEMPLATE, TOOL_ROUTER_PROMPT_STRICT
+from tools.web_tools import read_url_tool, web_search_tool
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
-from tools.memory_tools import edit_memory, add_secret_diary_entry # ★ インポート
+from tools.memory_tools import edit_memory, add_secret_diary_entry, summarize_and_save_core_memory # コアメモリツールも追加
 
 # ▼▼▼【重要】AgentStateを、最終形態に、修正▼▼▼
 class AgentState(TypedDict):
@@ -99,43 +99,31 @@ def memory_weaver_node(state: AgentState):
         "retrieved_long_term_memories": long_term_memories_str
     }
 
-def tool_router_node(state: AgentState):
-    """
-    ツールを使うかどうかの判断に特化したノード。
-    これまでのループでのツール実行履歴も含めて、次の行動を判断する。
-    """
-    print("--- ツールルーターノード (tool_router_node) 実行 ---")
 
-    messages_for_router = []
-    original_messages = state['messages']
+# 【新設】これまでのtool_routerとfinal_responseを統合した、新しい「心」
+def nexus_mind_node(state: AgentState):
+    """
+    AIの思考と応答生成の中心。gemini-2.5-proがツール使用と応答生成を同時に判断する。
+    """
+    print("--- 統合思考ノード (nexus_mind_node) 実行 ---")
 
-    # システムプロンプトと、memory_weaverが生成した初期コンテキストを追加
-    system_prompt = next((msg for msg in original_messages if isinstance(msg, SystemMessage) and msg.content != state['synthesized_context'].content), None)
+    # 思考に必要な全てのメッセージを準備
+    messages_for_mind = []
+    # システムプロンプトを追加
+    system_prompt = next((msg for msg in state['messages'] if isinstance(msg, SystemMessage)), None)
     if system_prompt:
-        messages_for_router.append(system_prompt)
-    else:
-        messages_for_router.append(SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT))
-    messages_for_router.append(state['synthesized_context'])
+        messages_for_mind.append(system_prompt)
 
-    # ★★★ ここからが新しいロジック ★★★
-    # 最後のユーザーメッセージ以降の、すべてのメッセージ（AIのツール呼び出しとツールの結果）をコンテキストに追加する
-    last_human_message_index = -1
-    for i in range(len(original_messages) - 1, -1, -1):
-        if isinstance(original_messages[i], HumanMessage):
-            last_human_message_index = i
-            break
+    # memory_weaverが生成したコンテキストを追加
+    messages_for_mind.append(state['synthesized_context'])
 
-    if last_human_message_index != -1:
-        # 最後のユーザーメッセージとその後の全メッセージ（ツール関連）を追加
-        messages_since_last_user = original_messages[last_human_message_index:]
-        messages_for_router.extend(messages_since_last_user)
-    else:
-        # 万が一ユーザーメッセージが見つからない場合、最新のメッセージだけを追加
-        if original_messages:
-            messages_for_router.append(original_messages[-1])
-    # ★★★ ロジックの変更はここまで ★★★
+    # ツール実行ループを含む、これまでの全履歴を追加
+    # add_messagesのおかげで、state['messages']には常に完全な履歴が蓄積されている
+    messages_for_mind.extend(state['messages'])
 
     api_key = state['api_key']
+    final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
+
     available_tools = [
         rag_manager.diary_search_tool,
         rag_manager.conversation_memory_search_tool,
@@ -145,95 +133,23 @@ def tool_router_node(state: AgentState):
         update_notepad,
         delete_from_notepad,
         read_full_notepad,
-        edit_memory,              # ★ 追加
-        add_secret_diary_entry    # ★ 追加
+        edit_memory,
+        add_secret_diary_entry,
+        summarize_and_save_core_memory # UIからだけでなく、AIの判断でも実行できるよう追加
     ]
 
-    llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
+    # 最上位モデルにツールをバインド
+    llm_pro_with_tools = get_configured_llm(final_model_to_use, api_key, available_tools)
 
-    print(f"  - Flashへの入力メッセージ数: {len(messages_for_router)}")
-    response = llm_flash_with_tools.invoke(messages_for_router)
+    print(f"  - {final_model_to_use}への入力メッセージ数: {len(messages_for_mind)}")
 
-    if hasattr(response, 'tool_calls') and response.tool_calls:
-        print("  - Flashが道具の使用を決定。")
-        return {"messages": [response]}
-    else:
-        print("  - Flashは道具を使用しないと判断。最終応答生成へ。")
-        return {}
+    # AIに応답とツール使用を同時に判断させる
+    response = llm_pro_with_tools.invoke(messages_for_mind)
 
-def final_response_node(state: AgentState):
-    """
-    Proに「クリーンな会話履歴」と「要約されたツール実行ログ」のみを与え、応答を生成させる。
-    """
-    print("--- 最終応答生成ノード (final_response_node) 実行 ---")
+    # tool_callsがある場合もない場合も、そのままresponseを返す
+    # これにより、AgentStateにAIMessage(content=...)またはAIMessage(tool_calls=...)が追加される
+    return {"messages": [response]}
 
-    all_messages = state['messages']
-
-    # 最後のユーザーメッセージを探し、それ以前のクリーンな履歴を構築する
-    last_human_message_index = -1
-    for i in range(len(all_messages) - 1, -1, -1):
-        if isinstance(all_messages[i], HumanMessage):
-            last_human_message_index = i
-            break
-
-    if last_human_message_index == -1:
-        print("警告: 最終応答ノードでユーザーメッセージが見つかりませんでした。")
-        error_response_message = AIMessage(content="[エラー：処理対象のユーザーメッセージが見つかりませんでした。]")
-        return {"messages": [error_response_message], "final_token_count": 0}
-
-    # クリーンな会話履歴（ツール実行ループの手前まで）を抽出
-    clean_history = all_messages[:last_human_message_index + 1]
-
-    # 最後のユーザーメッセージの内容を取得
-    last_user_message_content = ""
-    last_user_message = clean_history[-1]
-    if isinstance(last_user_message.content, str):
-        last_user_message_content = last_user_message.content
-    elif isinstance(last_user_message.content, list):
-        text_parts = [part['text'] for part in last_user_message.content if isinstance(part, dict) and part.get('type') == 'text']
-        last_user_message_content = " ".join(text_parts)
-
-    # ツール実行のログを全メッセージから集約して要約する
-    tool_outputs = []
-    for msg in all_messages[last_human_message_index:]:
-        if isinstance(msg, ToolMessage):
-            # 非常に長いツール出力を要約する（例：最初の200文字）
-            content_preview = (str(msg.content)[:200] + '...') if len(str(msg.content)) > 200 else str(msg.content)
-            tool_outputs.append(f"・ツール「{msg.name}」を実行し、結果「{content_preview}」を得ました。")
-    tool_outputs_str = "\n".join(tool_outputs) if tool_outputs else "（特筆すべき、ツール実行結果なし）"
-
-    # 最終モデルに渡すための、新しいクリーンなメッセージリストを作成
-    messages_for_pro = list(clean_history)
-
-    # 最終指示プロンプトを作成
-    final_prompt_text = FINAL_RESPONSE_PROMPT.format(
-        last_user_message=last_user_message_content,
-        tool_outputs=tool_outputs_str
-    )
-    # 最終指示を新しいHumanMessageとして追加
-    messages_for_pro.append(HumanMessage(content=final_prompt_text))
-
-    api_key = state['api_key']
-    final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
-    llm_final = get_configured_llm(final_model_to_use, api_key)
-
-    total_tokens = gemini_api.count_tokens_from_lc_messages(
-        messages_for_pro, final_model_to_use, api_key
-    )
-    print(f"  - 最終的な合計入力トークン数（指示プロンプト含む）を計算しました: {total_tokens}")
-
-    print(f"  - {final_model_to_use}への入力メッセージ数（指示プロンプト含む）: {len(messages_for_pro)}")
-    try:
-        response = llm_final.invoke(messages_for_pro)
-        # 最終状態には、ループの過程を含んだ元の全メッセージを返す
-        # これにより、次のターンのmemory_weaverは全コンテキストを把握できる
-        all_messages.append(response)
-        return {"messages": all_messages, "final_token_count": total_tokens}
-    except Exception as e:
-        print(f"  - 最終応答生成ノードでエラー: {e}")
-        error_response_message = AIMessage(content=f"[エラー：最終応答の生成中に問題が発生しました。詳細: {e}]")
-        all_messages.append(error_response_message)
-        return {"messages": all_messages, "final_token_count": 0}
 
 def call_tool_node(state: AgentState):
     """
@@ -284,9 +200,13 @@ def call_tool_node(state: AgentState):
                 ]:
                     tool_args["character_name"] = state.get("character_name")
                     print(f"    - 引数に正しいキャラクター名 '{tool_args['character_name']}' を注入/上書きしました。")
-                if tool_name in ["diary_search_tool", "conversation_memory_search_tool"]:
+                # ★★★ ここから修正 ★★★
+                # api_keyを必要とするツールに、現在のstateからapi_keyを注入する
+                if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "summarize_and_save_core_memory"]:
                     tool_args["api_key"] = state.get("api_key")
                     print(f"    - 引数にAPIキーを注入/上書きしました。")
+                # ★★★ 修正ここまで ★★★
+
                 output = tool_to_call.invoke(tool_args)
             except Exception as e:
                 output = f"[エラー：道具'{tool_name}'の実行に失敗しました。詳細: {e}]"
@@ -297,52 +217,53 @@ def call_tool_node(state: AgentState):
     current_count = state.get('tool_call_count', 0)
     return {"messages": tool_messages, "tool_call_count": current_count + 1}
 
-def should_call_tool(state: AgentState):
-    print("--- ルーティング判断 (should_call_tool) 実行 ---")
+# 【改訂】ルーティング判断ロジック
+def should_call_tool_or_finish(state: AgentState):
+    print("--- ルーティング判断 (should_call_tool_or_finish) 実行 ---")
 
-    # ★★★ ここからが追加/変更箇所 ★★★
-    MAX_ITERATIONS = 5  # ループの最大回数を定義 (5回で十分なはず)
+    # ループ回数チェックは維持
+    MAX_ITERATIONS = 5
     tool_call_count = state.get('tool_call_count', 0)
     print(f"  - 現在のツール実行ループ回数: {tool_call_count}")
-
     if tool_call_count >= MAX_ITERATIONS:
-        print(f"  - 警告: ツール実行ループが上限の {MAX_ITERATIONS} 回に達しました。")
-        print("  - AIの判断を無視し、強制的に最終応答生成へ移行します。")
-        return "final_response"
-    # ★★★ ここまでが追加/変更箇所 ★★★
+        print(f"  - 警告: ツール実行ループが上限の {MAX_ITERATIONS} 回に達しました。強制的に終了します。")
+        return END # 直接ENDを返す
 
     last_message = state['messages'][-1] if state['messages'] else None
-    # tool_routerがツール使用を決定した場合、last_messageはAIMessageでtool_callsを持つ
+
     if isinstance(last_message, AIMessage) and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
         print("  - 判断: ツール呼び出しあり。call_tool_node へ。")
         return "call_tool"
     else:
-        # ツールを使用しない場合や、他のケース（エラーなど）は最終応答へ
-        print("  - 判断: ツール呼び出しなし。final_response_node へ。")
-        return "final_response"
+        # ツール呼び出しがない = AIが応答生成した、ということなのでグラフを終了
+        print("  - 判断: ツール呼び出しなし。AIが応答を完了。グラフを終了します。")
+        return END
 
 # グラフの構築
 workflow = StateGraph(AgentState)
+
+# ノードの定義
 workflow.add_node("memory_weaver", memory_weaver_node)
-workflow.add_node("tool_router", tool_router_node)
+workflow.add_node("nexus_mind", nexus_mind_node) # 新しい中心ノード
 workflow.add_node("call_tool", call_tool_node)
-workflow.add_node("final_response", final_response_node)
 
-# workflow.set_entry_point("memory_weaver") # LangGraphの推奨に従い、add_edge(START,...)を使用
-workflow.add_edge(START, "memory_weaver") # エントリーポイントを memory_weaver に設定
+# エッジ（繋がり）の定義
+workflow.add_edge(START, "memory_weaver")
+workflow.add_edge("memory_weaver", "nexus_mind")
 
-workflow.add_edge("memory_weaver", "tool_router")
+# nexus_mindノードからの条件分岐
 workflow.add_conditional_edges(
-    "tool_router",
-    should_call_tool,
+    "nexus_mind",
+    should_call_tool_or_finish, # 新しい判断関数
     {
         "call_tool": "call_tool",
-        "final_response": "final_response"
+        END: END
     }
 )
-workflow.add_edge("call_tool", "tool_router") # ★★★ この行を復活させる ★★★
-# workflow.add_edge("call_tool", "final_response") # この行は削除、またはコメントアウト
-workflow.add_edge("final_response", END)
+
+# ツール実行後は、再びnexus_mindに戻る（ループ）
+workflow.add_edge("call_tool", "nexus_mind")
+
 app = workflow.compile()
 
 @tool
