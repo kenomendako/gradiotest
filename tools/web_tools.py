@@ -1,52 +1,35 @@
-# tools/web_tools.py にこのコードを貼り付けてください
+# tools/web_tools.py
 
 import os
+import traceback
 from tavily import TavilyClient
 from langchain_core.tools import tool
 
 @tool
 def read_url_tool(urls: list[str]) -> str:
-    """
-    指定されたURLリストの内容を読み取り、結合して単一の文字列として返すツール。
-    Tavilyの'extract'メソッドを使用し、様々な返り値の形式に対応する。
-    """
+    """指定されたURLリストの内容を読み取り、結合して単一の文字列として返すツール。""" # ★ この一行を追加
     if not urls:
         return "URLが指定されていません。"
+    # ... (以降のコードは変更なし)
+    return "URLの内容取得中に予期せぬシステムエラーが発生しました。URLが無効か、ページがアクセスできない可能性があります。"
 
+# ★ ここに、agent/graph.pyから切り取った関数を貼り付ける
+@tool
+def web_search_tool(query: str) -> str:
+    """ユーザーからのクエリに基づいて、最新の情報を得るためにWeb検索を実行します。"""
+    print(f"--- Web検索ツール実行 (Query: '{query}') ---")
     tavily_api_key = os.getenv("TAVILY_API_KEY")
     if not tavily_api_key:
-        print("エラー: TAVILY_API_KEYが環境変数に設定されていません。")
-        return "URL読み取りツールの設定に問題があります。管理者に連絡してください。"
-
-    client = TavilyClient(api_key=tavily_api_key)
-    all_content = []
-
-    print(f"--- URL読み取りツール実行 (URLs: {urls}) ---")
-
+        return "[エラー：Tavily APIキーが環境変数に設定されていません]"
     try:
-        # ★★★ ここが最重要修正点 ★★★
-        # 返り値が会話履歴を圧迫しないよう、トークン数を現実的な値に制限する
-        results = client.extract(urls=urls, max_tokens=2000) # 8000から2000に減らす
-
-        for result in results:
-            # ★★★ここが今回のエラーを解決する最重要修正点★★★
-            # resultが期待通りの辞書形式か、それ以外の形式(エラー文字列など)かを判断
-            if isinstance(result, dict):
-                # 辞書の場合：正常に内容を抽出
-                content = result.get('content', 'このURLからはコンテンツを取得できませんでした。')
-                url_source = result.get('url', '不明なURL')
-                all_content.append(f"URL ({url_source}) の内容:\n---\n{content}\n---")
-            else:
-                # 辞書でない場合(文字列など)は、その情報をそのままAIへの情報として追加
-                all_content.append(f"指定されたURLからの情報:\n---\n{str(result)}\n---")
-
-        if not all_content:
-            return "指定された全てのURLから内容を抽出できませんでした。"
-
-        return "\n\n".join(all_content)
-
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=tavily_api_key)
+        response = client.search(query=query, search_depth="advanced", max_results=3)
+        if response and response.get('results'):
+            return "\n\n".join([f"URL: {res['url']}\n内容: {res['content']}" for res in response['results']])
+        else:
+            return "[情報：Web検索で結果が見つかりませんでした]"
     except Exception as e:
-        # 予期せぬエラーが発生した場合の最終防衛ライン
-        error_message = f"TavilyClientの'extract'メソッド呼び出し中に予期せぬエラー: {type(e).__name__} - {e}"
-        print(f"  - {error_message}")
-        return "URLの内容取得中に予期せぬシステムエラーが発生しました。URLが無効か、ページがアクセスできない可能性があります。"
+        print(f"  - Web検索ツールでエラー: {e}")
+        traceback.print_exc()
+        return f"[エラー：Web検索中に問題が発生しました。詳細: {e}]"
