@@ -73,19 +73,24 @@ def memory_weaver_node(state: AgentState):
 import json
 from character_manager import get_character_files_paths
 
-# 【改訂版】ヘルパー関数
+# 【最終修正版】ヘルパー関数
 def get_current_location_from_notepad(character_name: str) -> str:
     """メモ帳を読み、'現在地:'で始まる行から現在の場所を抽出するヘルパー関数"""
-    # read_full_notepadツールを直接呼び出し、その結果（文字列）を受け取る
-    lines_str = read_full_notepad.func(character_name=character_name)
+    try:
+        # ★★★ ここが最も重要な修正点 ★★★
+        # .func を使って、ツールでラップされた、元のPython関数を直接呼び出す
+        lines_str = read_full_notepad.func(character_name=character_name)
 
-    if isinstance(lines_str, str):
-        for line in lines_str.split('\n'):
-            if line.strip().startswith("現在地:"):
-                # "現在地:" の部分を削除し、前後の空白を取り除いて返す
-                return line.strip().replace("現在地:", "").strip()
+        if isinstance(lines_str, str):
+            for line in lines_str.split('\n'):
+                # strip()で前後の空白を除去してからチェック
+                if line.strip().startswith("現在地:"):
+                    # "現在地:" の部分を削除し、さらに前後の空白を取り除いて返す
+                    return line.strip().replace("現在地:", "").strip()
+    except Exception as e:
+        print(f"  - 警告: メモ帳からの現在地読み取り中にエラー: {e}")
 
-    # 見つからなかった場合のデフォルト値
+    # 見つからなかった場合、またはエラー発生時のデフォルト値
     return "living_space"
 
 # 【最終版】aether_weaver_node
