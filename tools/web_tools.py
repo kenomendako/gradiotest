@@ -1,14 +1,16 @@
 # tools/web_tools.py
 
 import os
-import traceback  # ★ 追加
+import traceback
 from tavily import TavilyClient
 from langchain_core.tools import tool
 
 @tool
 def read_url_tool(urls: list[str]) -> str:
-    # ... (この関数は変更なし) ...
-    # ...
+    """指定されたURLリストの内容を読み取り、結合して単一の文字列として返すツール。""" # ★ この一行を追加
+    if not urls:
+        return "URLが指定されていません。"
+    # ... (以降のコードは変更なし)
     return "URLの内容取得中に予期せぬシステムエラーが発生しました。URLが無効か、ページがアクセスできない可能性があります。"
 
 # ★ ここに、agent/graph.pyから切り取った関数を貼り付ける
