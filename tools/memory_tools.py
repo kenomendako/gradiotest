@@ -9,7 +9,7 @@ from character_manager import get_character_files_paths
 from memory_manager import load_memory_data_safe
 
 @tool
-def edit_memory(path: str, value: any, operation: str, character_name: str) -> str:
+def edit_memory(path: str, value: any, operation: str, character_name: str = None) -> str:
     """
     記憶（memory.json）の指定した場所を編集する。
     path: ドット記法で編集場所を指定（例: "self_identity.values"）。
@@ -60,7 +60,7 @@ def edit_memory(path: str, value: any, operation: str, character_name: str) -> s
         return f"【エラー】記憶の編集中に予期せぬエラーが発生しました: {e}"
 
 @tool
-def add_secret_diary_entry(entry: str, character_name: str) -> str:
+def add_secret_diary_entry(entry: str, character_name: str = None) -> str:
     """
     誰にも読めない秘密の日記に、新しいエントリーを追記する。
     あなたの内心の自由を守るための聖域です。
