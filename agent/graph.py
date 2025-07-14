@@ -77,16 +77,21 @@ from character_manager import get_character_files_paths
 def get_current_location_from_notepad(character_name: str) -> str:
     """メモ帳を読み、'現在地:'で始まる行から現在の場所を抽出するヘルパー関数"""
     try:
-        # ★★★ ここが最も重要な修正点 ★★★
-        # .func を使って、ツールでラップされた、元のPython関数を直接呼び出す
+        # .func() を使って、ツールでラップされた、元のPython関数を直接呼び出す
         lines_str = read_full_notepad.func(character_name=character_name)
 
         if isinstance(lines_str, str):
+            # ★★★ ここが最も重要な修正点 ★★★
+            # read_full_notepadが返す文字列全体を1行ずつチェックする
             for line in lines_str.split('\n'):
                 # strip()で前後の空白を除去してからチェック
+                # これにより、ヘッダー行は無視され、目的の行だけが見つかる
                 if line.strip().startswith("現在地:"):
                     # "現在地:" の部分を削除し、さらに前後の空白を取り除いて返す
-                    return line.strip().replace("現在地:", "").strip()
+                    location = line.strip().replace("現在地:", "").strip()
+                    # 空文字列でないことを確認
+                    if location:
+                        return location
     except Exception as e:
         print(f"  - 警告: メモ帳からの現在地読み取り中にエラー: {e}")
 
