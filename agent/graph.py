@@ -139,24 +139,17 @@ def aether_weaver_node(state: AgentState):
 def tool_router_node(state: AgentState):
     print("--- ツールルーターノード (Flash) 実行 ---")
 
-    # ★★★ ここから追加 ★★★
-    # aether_weaverが生成した情景描写を取得
     current_scenery = state.get('current_scenery', '')
-    # 情景描写が存在する場合、SystemMessageとして整形
     scenery_context_message = SystemMessage(content=f"【現在の情景】\n{current_scenery}") if current_scenery else None
-    # ★★★ 追加ここまで ★★★
 
     messages_for_router = [
         SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT),
         state['synthesized_context']
     ]
 
-    # ★★★ ここから追加 ★★★
-    # 整形した情景描写メッセージを、判断材料として追加する
     if scenery_context_message:
         messages_for_router.append(scenery_context_message)
         print(f"  - 判断材料に「現在の情景」を追加しました。")
-    # ★★★ 追加ここまで ★★★
 
     last_human_message_index = -1
     for i in range(len(state['messages']) - 1, -1, -1):
@@ -171,13 +164,13 @@ def tool_router_node(state: AgentState):
 
     api_key = state['api_key']
 
-    # ★★★ ここで、インポートした全てのツールをリストとして渡す ★★★
     available_tools = [
         rag_manager.diary_search_tool, rag_manager.conversation_memory_search_tool,
         web_search_tool, read_url_tool,
         add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad,
         edit_memory, add_secret_diary_entry, summarize_and_save_core_memory,
-        set_current_location, read_memory_by_path, find_location_id_by_name
+        set_current_location, read_memory_by_path,
+        find_location_id_by_name
     ]
     llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
     print(f"  - Flashへの入力メッセージ数: {len(messages_for_router)}")
@@ -198,29 +191,22 @@ def final_response_node(state: AgentState):
     print("--- 最終応答生成ノード (Pro) 実行 ---")
     messages_for_pro = []
 
-    # 1. システムプロンプト（ペルソナ定義）を最初に抽出して追加
     system_prompt = next((msg for msg in state['messages'] if isinstance(msg, SystemMessage)), None)
     if system_prompt:
         messages_for_pro.append(system_prompt)
 
-    # 2. memory_weaverが取得した長期記憶の断片を、SystemMessageとして追加
     retrieved_memories = state.get('retrieved_long_term_memories', '')
     if retrieved_memories and "関連する長期記憶はありませんでした" not in retrieved_memories:
         memory_context = f"【参考：関連する可能性のある長期記憶の断片】\n{retrieved_memories}"
         messages_for_pro.append(SystemMessage(content=memory_context))
 
-    # 3. aether_weaverが生成した情景描写を、SystemMessageとして追加
     current_scenery = state.get('current_scenery', '')
     if current_scenery:
         scenery_context = f"【現在の情景描写】\n{current_scenery}"
         messages_for_pro.append(SystemMessage(content=scenery_context))
 
-    # ★★★ ここが最も重要な修正点 ★★★
-    # 4. 元のメッセージ履歴から、「SystemPromptではない」メッセージだけを抽出して追加する
-    #    これにより、ペルソナの重複を防ぎ、情景描写が消えることもなくなる
     history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
     messages_for_pro.extend(history_messages)
-    # ★★★ 修正ここまで ★★★
 
     api_key = state['api_key']
     final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
@@ -242,13 +228,13 @@ def call_tool_node(state: AgentState):
         return {}
     tool_messages = []
 
-    # ★★★ ここで、インポートした全てのツールを辞書として渡す ★★★
     available_tools_map = {
         "diary_search_tool": rag_manager.diary_search_tool, "conversation_memory_search_tool": rag_manager.conversation_memory_search_tool,
         "web_search_tool": web_search_tool, "read_url_tool": read_url_tool,
         "add_to_notepad": add_to_notepad, "update_notepad": update_notepad, "delete_from_notepad": delete_from_notepad, "read_full_notepad": read_full_notepad,
         "edit_memory": edit_memory, "add_secret_diary_entry": add_secret_diary_entry, "summarize_and_save_core_memory": summarize_and_save_core_memory,
-        "set_current_location": set_current_location, "read_memory_by_path": read_memory_by_path, "find_location_id_by_name": find_location_id_by_name
+        "set_current_location": set_current_location, "read_memory_by_path": read_memory_by_path,
+        "find_location_id_by_name": find_location_id_by_name
     }
 
     MAX_TOOLS_PER_TURN = 5
