@@ -154,16 +154,22 @@ def stream_nexus_agent(*args: Any) -> Generator[str, None, None]:
     model_name = args[3]
 
     try:
-        client = genai.Client(api_key=api_key)
+        # APIキーは genai.configure で全体に設定するのが、
+        # GenerativeModel を使う際の標準的な方法です。
+        genai.configure(api_key=api_key)
 
         system_instruction_text = system_instruction['parts'][0]['text'] if system_instruction else None
 
-        # system_instruction と safety_settings を直接の引数として渡す
-        response = client.models.generate_content(
-            model=f"models/{model_name}",
-            contents=contents,
+        # GenerativeModelオブジェクトを、設定を含めて生成します。
+        model = genai.GenerativeModel(
+            model_name=model_name, # ここでは "models/" プレフィックスは不要です
             system_instruction=system_instruction_text,
-            safety_settings=config_manager.SAFETY_CONFIG,
+            safety_settings=config_manager.SAFETY_CONFIG
+        )
+
+        # 生成した model オブジェクトから generate_content を呼び出します。
+        response = model.generate_content(
+            contents=contents,
             stream=True
         )
 
