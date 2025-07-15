@@ -188,52 +188,71 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
             else:
                 api_response_text = str(last_message.content if hasattr(last_message, 'content') else last_message)
 
-        # ★★★ ここからが新しいコード ★★★
-        tool_code_match = re.search(r"<tool_code>(.*?)</tool_code>", api_response_text, re.DOTALL)
-        tool_output_for_log = ""
-        if tool_code_match:
-            code_to_run = tool_code_match.group(1).strip()
-            print(f"--- 検出されたツールコードを実行します ---\n{code_to_run}\n------------------------------------")
+    # ★★★ ここからが修正ブロック ★★★
+    tool_code_match = re.search(r"<tool_code>(.*?)</tool_code>", api_response_text, re.DOTALL)
+    tool_output_for_log = ""
+    if tool_code_match:
+        code_to_run = tool_code_match.group(1).strip()
+        print(f"--- 検出されたツールコードを解析・実行します ---\n{code_to_run}\n------------------------------------")
 
-            # ツール実行に必要な関数やモジュールをここでインポート
-            from tools.space_tools import set_current_location
-            import io
-            from contextlib import redirect_stdout
+        # ツール実行に必要な関数やモジュールをここでインポート
+        from tools.space_tools import set_current_location, find_location_id_by_name
+        from tools.memory_tools import edit_memory
+        # ... 将来的に他のツールもここに追加
 
-            # 安全のため、利用可能な関数を限定したコンテキストで実行
-            available_tools = {
-                "set_current_location": set_current_location,
-                # 将来的に他の安全なツールを追加可能
-            }
+        available_tools = {
+            "set_current_location": set_current_location,
+            "find_location_id_by_name": find_location_id_by_name,
+            "edit_memory": edit_memory
+        }
 
-            f = io.StringIO()
-            try:
-                # character_name を渡すために、ローカルコンテキストに追加
-                exec_globals = {"print": print} # exec内でprintを使えるように
-                exec_locals = available_tools
-                exec_locals['character_name'] = current_character_name # ★ 重要な追加
+        # 正規表現で関数名と引数を抽出
+        # 例: print(set_current_location(location='Library'))
+        call_match = re.search(r"(\w+)\((.*)\)", code_to_run)
 
-                # コードに character_name が含まれていない場合、自動で追加する
-                if 'character_name=' not in code_to_run:
-                     code_to_run = code_to_run.replace(')', f", character_name='{current_character_name}')")
+        if call_match:
+            tool_name = call_match.group(1).strip()
+            args_str = call_match.group(2).strip()
 
-                with redirect_stdout(f):
-                    exec(code_to_run, exec_globals, exec_locals)
+            if tool_name in available_tools:
+                try:
+                    # 引数文字列を解析して辞書に変換
+                    # 例: "location='Library', character_name='ルシアン'" -> {'location': 'Library', 'character_name': 'ルシアン'}
+                    tool_args = dict(arg.strip().split('=') for arg in args_str.split(','))
+                    # 値のクォートを削除
+                    for key, value in tool_args.items():
+                        tool_args[key] = value.strip("'\"")
 
-                tool_output_for_log = f.getvalue().strip()
-                print(f"--- ツール実行成功。出力: {tool_output_for_log} ---")
+                    # character_nameが引数になければ、自動で注入
+                    if 'character_name' not in tool_args:
+                        tool_args['character_name'] = current_character_name
 
-            except Exception as e:
-                tool_output_for_log = f"【ツール実行エラー】: {e}"
+                    tool_to_call = available_tools[tool_name]
+
+                    # ★★★ LangChainツールの正しい呼び出し方: .invoke() を使用 ★★★
+                    result = tool_to_call.invoke(tool_args)
+
+                    tool_output_for_log = str(result)
+                    print(f"--- ツール '{tool_name}' 実行成功。出力: {tool_output_for_log} ---")
+
+                except Exception as e:
+                    tool_output_for_log = f"【ツール実行エラー】: {e}"
+                    print(tool_output_for_log)
+                    traceback.print_exc()
+            else:
+                tool_output_for_log = f"【実行エラー】: 不明なツール '{tool_name}' です。"
                 print(tool_output_for_log)
-                traceback.print_exc()
+        else:
+            tool_output_for_log = f"【解析エラー】: 実行可能なコード形式ではありません。"
+            print(tool_output_for_log)
 
-            # 応答テキストから<tool_code>タグ自体は削除する
-            api_response_text = re.sub(r"<tool_code>.*?</tool_code>", "", api_response_text, flags=re.DOTALL).strip()
-            # 実行結果をログに追加（表示はしない）
-            if tool_output_for_log:
-                 api_response_text += f"\n\n*[システムログ: ツール実行結果: {tool_output_for_log}]*"
-        # ★★★ 新しいコードここまで ★★★
+
+        # 応答テキストから<tool_code>タグ自体は削除する
+        api_response_text = re.sub(r"<tool_code>.*?</tool_code>", "", api_response_text, flags=re.DOTALL).strip()
+        # 実行結果をログに追加
+        if tool_output_for_log:
+             api_response_text += f"\n\n*[システムログ: ツール実行結果: {tool_output_for_log}]*"
+    # ★★★ 修正ブロックここまで ★★★
 
 
         final_log_message = log_message_content.strip() + timestamp
