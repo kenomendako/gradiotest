@@ -17,6 +17,7 @@ from agent.prompts import MEMORY_WEAVER_PROMPT_TEMPLATE, TOOL_ROUTER_PROMPT_STRI
 from tools.web_tools import read_url_tool, web_search_tool
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
 from tools.memory_tools import edit_memory, add_secret_diary_entry, summarize_and_save_core_memory
+from tools.space_tools import set_current_location
 
 # AgentStateから initial_intent を削除
 class AgentState(TypedDict):
@@ -73,53 +74,37 @@ def memory_weaver_node(state: AgentState):
 import json
 from character_manager import get_character_files_paths
 
-# 【最終修正版】ヘルパー関数
-def get_current_location_from_notepad(character_name: str) -> str:
-    """メモ帳を読み、'現在地:'で始まる行から現在の場所を抽出するヘルパー関数"""
-    try:
-        # .func() を使って、ツールでラップされた、元のPython関数を直接呼び出す
-        lines_str = read_full_notepad.func(character_name=character_name)
-
-        if isinstance(lines_str, str):
-            # ★★★ ここが最も重要な修正点 ★★★
-            # read_full_notepadが返す文字列全体を1行ずつチェックする
-            for line in lines_str.split('\n'):
-                # strip()で前後の空白を除去してからチェック
-                # これにより、ヘッダー行は無視され、目的の行だけが見つかる
-                if line.strip().startswith("現在地:"):
-                    # "現在地:" の部分を削除し、さらに前後の空白を取り除いて返す
-                    location = line.strip().replace("現在地:", "").strip()
-                    # 空文字列でないことを確認
-                    if location:
-                        return location
-    except Exception as e:
-        print(f"  - 警告: メモ帳からの現在地読み取り中にエラー: {e}")
-
-    # 見つからなかった場合、またはエラー発生時のデフォルト値
-    return "living_space"
-
-# 【最終版】aether_weaver_node
+# 【最終修正版】aether_weaver_node
 def aether_weaver_node(state: AgentState):
     """
-    「王の印（現在地）」を基に、その場所の定義と現在の状況を統合し、情景を描写する。
+    「王の印（current_location.txt）」を読み、その場所の定義と状況を統合して情景を描写する。
     """
     print("--- 時空編纂ノード (aether_weaver_node) 実行 ---")
     character_name = state['character_name']
     api_key = state['api_key']
 
-    # 1. 「王の印」= 現在地をメモ帳から取得 (★ ヘルパー関数を正しく呼び出す)
-    current_location = get_current_location_from_notepad(character_name)
+    # 1. 「王の印」= 現在地を専用ファイルから取得
+    current_location = "living_space" # デフォルト
+    try:
+        base_path = os.path.join("characters", character_name)
+        location_file_path = os.path.join(base_path, "current_location.txt")
+        if os.path.exists(location_file_path):
+            with open(location_file_path, 'r', encoding='utf-8') as f:
+                location_from_file = f.read().strip()
+                if location_from_file:
+                    current_location = location_from_file
+    except Exception as e:
+        print(f"  - 警告: 現在地ファイルの読み込み中にエラー: {e}")
+
     print(f"  - [王の印] 現在地を '{current_location}' と認識。")
 
-    # 2. 現在地の空間定義を取得 (★ JSONの深い階層を取得するロジックを強化)
+    # 2. 現在地の空間定義を取得
     _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
     space_definition_json = "{}" # デフォルト
     if memory_json_path and os.path.exists(memory_json_path):
         with open(memory_json_path, 'r', encoding='utf-8') as f:
             memory = json.load(f)
 
-        # living_space を基点に、指定されたパスをたどる
-        # 例: current_location が "書斎" なら、memory['living_space']['書斎'] を探す
         path_keys = current_location.split('.')
         current_data = memory.get("living_space", {})
         found = True
@@ -139,15 +124,12 @@ def aether_weaver_node(state: AgentState):
             print(f"  - 警告: 空間定義の取得中にエラー: {e}。living_space全体をコンテキストとします。")
             space_definition_json = json.dumps(memory.get("living_space", {}), ensure_ascii=False, indent=2)
 
-
-    # ... (以降の、動的情報取得、プロンプト構築、情景生成のロジックは変更なし) ...
     now = datetime.now()
     current_time_str = now.strftime('%H:%M')
     seasons = {12: "冬", 1: "冬", 2: "冬", 3: "春", 4: "春", 5: "春", 6: "夏", 7: "夏", 8: "夏", 9: "秋", 10: "秋", 11: "秋"}
     current_season = seasons[now.month]
     dialogue_context = state['synthesized_context'].content
 
-    # 4. 情景生成プロンプト（変更なし）
     prompt = f"""あなたは、情景描写の専門家である「ワールド・アーティスト」です。
 以下の3つの情報を基に、五感を刺激するような、臨場感あふれる「現在の情景」を、1～2文の簡潔で美しい文章で描写してください。
 あなたの思考や挨拶は不要です。描写したテキストのみを出力してください。
@@ -166,7 +148,6 @@ def aether_weaver_node(state: AgentState):
 
 現在の情景:
 """
-    # 5. 情景生成とStateへの保存（変更なし）
     llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
     scenery_text = llm_flash.invoke(prompt).content
     print(f"  - 生成された情景描写:\n{scenery_text}")
@@ -256,7 +237,8 @@ def call_tool_node(state: AgentState):
         "diary_search_tool": rag_manager.diary_search_tool, "conversation_memory_search_tool": rag_manager.conversation_memory_search_tool,
         "web_search_tool": web_search_tool, "read_url_tool": read_url_tool,
         "add_to_notepad": add_to_notepad, "update_notepad": update_notepad, "delete_from_notepad": delete_from_notepad, "read_full_notepad": read_full_notepad,
-        "edit_memory": edit_memory, "add_secret_diary_entry": add_secret_diary_entry, "summarize_and_save_core_memory": summarize_and_save_core_memory
+        "edit_memory": edit_memory, "add_secret_diary_entry": add_secret_diary_entry, "summarize_and_save_core_memory": summarize_and_save_core_memory,
+        "set_current_location": set_current_location
     }
     MAX_TOOLS_PER_TURN = 5
     tool_calls_to_execute = last_message.tool_calls[:MAX_TOOLS_PER_TURN]
@@ -272,7 +254,7 @@ def call_tool_node(state: AgentState):
             output = f"エラー: 不明な道具 '{tool_name}' が指定されました。"
         else:
             try:
-                if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "add_to_notepad", "update_notepad", "delete_from_notepad", "read_full_notepad", "edit_memory", "add_secret_diary_entry"]:
+                if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "add_to_notepad", "update_notepad", "delete_from_notepad", "read_full_notepad", "edit_memory", "add_secret_diary_entry", "set_current_location"]:
                     tool_args["character_name"] = state.get("character_name")
                     print(f"    - 引数に正しいキャラクター名 '{tool_args['character_name']}' を注入/上書きしました。")
                 if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "summarize_and_save_core_memory"]:
