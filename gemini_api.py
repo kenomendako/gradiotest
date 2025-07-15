@@ -157,16 +157,15 @@ def stream_nexus_agent(*args: Any) -> Generator[str, None, None]:
         # このプロジェクトで唯一動作が確認されている genai.Client を使用します
         client = genai.Client(api_key=api_key)
 
-        # 既存のトークン計算関数と同じロジックで、システムプロンプトを会話の先頭に注入します
+        # 既存のトークン計算関数と全く同じロジックで、システムプロンプトを会話の先頭に注入します
         if system_instruction:
             contents.insert(0, {"role": "user", "parts": system_instruction['parts']})
             contents.insert(1, {"role": "model", "parts": [{"text": "OK"}]})
 
-        # proven to work: client.models.generate_content を、余計な引数なしで呼び出します
+        # 全ての設定引数を削除し、最もシンプルな形でAPIを呼び出します
         response = client.models.generate_content(
             model=f"models/{model_name}",
             contents=contents,
-            safety_settings=config_manager.SAFETY_CONFIG,
             stream=True
         )
 
