@@ -97,25 +97,25 @@ def handle_message_submission(*args: Any):
     if attached_filenames_for_log: log_message_content += "\n[ファイル添付: " + ", ".join(attached_filenames_for_log) + "]"
     
     chatbot_history.append({"role": "user", "content": log_message_content})
-    chatbot_history.append({"role": "assistant", "content": ""})
+    # 「思考中」のインジケーターを表示
+    chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
     yield chatbot_history, gr.update(value=""), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 
     full_response = ""
     try:
-        stream = gemini_api.stream_nexus_agent(*args)
-        for chunk in stream:
-            full_response += chunk
-            chatbot_history[-1]["content"] = full_response + " ▌"
-            yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
+        # 新しい一括応答関数を呼び出します
+        full_response = gemini_api.get_nexus_agent_response(*args)
         chatbot_history[-1]["content"] = full_response
-        yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
     except Exception as e:
         traceback.print_exc()
-        chatbot_history[-1]["content"] = f"[ストリーミングエラー: {e}]"
-        yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
-        return
+        chatbot_history[-1]["content"] = f"[APIハンドラエラー: {e}]"
+
+    # UIを最終的な応答で更新
+    yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 
     final_response_text = full_response
+
+    # (ここから下のツールコード処理やログ保存のロジックは、元の関数のものをそのまま流用・維持します)
     tool_code_match = re.search(r"<tool_code>(.*?)</tool_code>", final_response_text, re.DOTALL)
     tool_output_for_log = ""
     if tool_code_match:
@@ -164,7 +164,6 @@ def handle_message_submission(*args: Any):
                 mem0_instance.add([{"role": "user", "content": final_log_message.strip()}, {"role": "assistant", "content": clean_api_response}], user_id=current_character_name)
         except Exception as mem0_e: print(f"Mem0記憶エラー: {mem0_e}")
 
-    # ストリーミングの最後として、最終的な状態を再度yieldする
     chatbot_history[-1]["content"] = final_response_text
     yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 

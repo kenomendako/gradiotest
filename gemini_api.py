@@ -144,38 +144,36 @@ def _build_and_prepare_messages_for_api(*args: Any) -> (List[Dict], Optional[Dic
         
     return _convert_lc_messages_to_gg_contents(messages)
 
-def stream_nexus_agent(*args: Any) -> Generator[str, None, None]:
+def get_nexus_agent_response(*args: Any) -> str:
+    """
+    Nexusエージェントから一括応答を取得する。ストリーミングは行わない。
+    """
     api_key = config_manager.API_KEYS.get(args[4])
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        yield f"[エラー: APIキー '{args[4]}' が有効ではありません。]"
-        return
+        return f"[エラー: APIキー '{args[4]}' が有効ではありません。]"
 
     contents, system_instruction = _build_and_prepare_messages_for_api(*args)
     model_name = args[3]
 
     try:
-        # このプロジェクトで唯一動作が確認されている genai.Client を使用します
         client = genai.Client(api_key=api_key)
 
-        # 既存のトークン計算関数と全く同じロジックで、システムプロンプトを会話の先頭に注入します
         if system_instruction:
             contents.insert(0, {"role": "user", "parts": system_instruction['parts']})
             contents.insert(1, {"role": "model", "parts": [{"text": "OK"}]})
 
-        # 全ての設定引数を削除し、最もシンプルな形でAPIを呼び出します
+        # 引数を model と contents のみにして、一括で応答を取得します。
         response = client.models.generate_content(
             model=f"models/{model_name}",
-            contents=contents,
-            stream=True
+            contents=contents
         )
 
-        for chunk in response:
-            if chunk.text:
-                yield chunk.text
+        # 応答オブジェクトからテキストを返します。
+        return response.text
 
     except Exception as e:
         traceback.print_exc()
-        yield f"[APIストリーミングエラー: {e}]"
+        return f"[API呼び出しエラー: {e}]"
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
     if not messages: return 0
