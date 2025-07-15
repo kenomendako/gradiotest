@@ -154,22 +154,19 @@ def stream_nexus_agent(*args: Any) -> Generator[str, None, None]:
     model_name = args[3]
 
     try:
-        # APIキーは genai.configure で全体に設定するのが、
-        # GenerativeModel を使う際の標準的な方法です。
-        genai.configure(api_key=api_key)
+        # このプロジェクトで唯一動作が確認されている genai.Client を使用します
+        client = genai.Client(api_key=api_key)
 
-        system_instruction_text = system_instruction['parts'][0]['text'] if system_instruction else None
+        # 既存のトークン計算関数と同じロジックで、システムプロンプトを会話の先頭に注入します
+        if system_instruction:
+            contents.insert(0, {"role": "user", "parts": system_instruction['parts']})
+            contents.insert(1, {"role": "model", "parts": [{"text": "OK"}]})
 
-        # GenerativeModelオブジェクトを、設定を含めて生成します。
-        model = genai.GenerativeModel(
-            model_name=model_name, # ここでは "models/" プレフィックスは不要です
-            system_instruction=system_instruction_text,
-            safety_settings=config_manager.SAFETY_CONFIG
-        )
-
-        # 生成した model オブジェクトから generate_content を呼び出します。
-        response = model.generate_content(
+        # proven to work: client.models.generate_content を、余計な引数なしで呼び出します
+        response = client.models.generate_content(
+            model=f"models/{model_name}",
             contents=contents,
+            safety_settings=config_manager.SAFETY_CONFIG,
             stream=True
         )
 
