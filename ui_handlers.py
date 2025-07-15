@@ -277,3 +277,43 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
     final_token_str = update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 
     return new_hist, gr.update(value=""), gr.update(value=None), final_token_str
+
+# ui_handlers.py に追記する handle_add_new_character 関数
+
+def handle_add_new_character(character_name: str):
+    """
+    新しいキャラクター名を受け取り、ファイルを作成し、UIのドロップダウンを更新する。
+    """
+    if not character_name or not character_name.strip():
+        gr.Warning("キャラクター名が入力されていません。")
+        char_list = character_manager.get_character_list()
+        # 4つのアウトプット全てにgr.update()を返す
+        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value="")
+
+    # ファイル名として不適切な文字を削除
+    safe_name = re.sub(r'[\\/*?:"<>|]', "", character_name).strip()
+    if not safe_name:
+        gr.Warning("無効なキャラクター名です。")
+        char_list = character_manager.get_character_list()
+        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value="")
+
+    if character_manager.ensure_character_files(safe_name):
+        gr.Info(f"新しいキャラクター「{safe_name}」さんを迎えました！")
+        new_char_list = character_manager.get_character_list()
+        # 新しいリストで全てのドロップダウンを更新し、テキストボックスをクリア
+        return (
+            gr.update(choices=new_char_list, value=safe_name),
+            gr.update(choices=new_char_list, value=safe_name),
+            gr.update(choices=new_char_list, value=safe_name),
+            gr.update(value="")
+        )
+    else:
+        gr.Error(f"キャラクター「{safe_name}」の準備に失敗しました。")
+        char_list = character_manager.get_character_list()
+        # エラー時は元のテキストを維持
+        return (
+            gr.update(choices=char_list),
+            gr.update(choices=char_list),
+            gr.update(choices=char_list),
+            gr.update(value=character_name)
+        )
