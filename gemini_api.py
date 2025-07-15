@@ -1,11 +1,11 @@
-# gemini_api.py (vFinal-2: The Last Stand)
+# gemini_api.py (vFinal-3: The Restoration)
 
 import google.genai as genai
 import os
 import io
 import json
 import traceback
-from typing import List, Union, Optional, Dict, Generator, Any # ★★★ Any をインポート ★★★
+from typing import List, Union, Optional, Dict, Generator, Any
 from PIL import Image
 import base64
 import re
@@ -16,22 +16,44 @@ from character_manager import get_character_files_paths
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 #
-# このファイルは、google-genai SDKに準拠したストリーミングとトークン計算を行い、
-# かつ、全ての必要な型定義をインポートした、真の最終版です。
+# このファイルは、google-genai SDKに準拠したストリーミングと、
+# 欠落していたトークン計算機能を完全に復元した、真の最終版です。
 #
 
+# ★★★ 欠落していた get_model_token_limits 関数を完全に復元 ★★★
+def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
+    """モデルの入力・出力トークン上限を取得する（キャッシュ機能付き）"""
+    # この関数は、最初にユーザーから提供されたXMLファイルに存在したものを、
+    # 完全に復元したものです。
+    if model_name in utils._model_token_limits_cache: # キャッシュ先をutilsに変更
+        return utils._model_token_limits_cache[model_name]
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        return None
+    try:
+        print(f"--- モデル情報取得 API呼び出し (Model: {model_name}) ---")
+        client = genai.Client(api_key=api_key)
+        model_info = client.models.get(model=f"models/{model_name}")
+        if model_info and hasattr(model_info, 'input_token_limit') and hasattr(model_info, 'output_token_limit'):
+            limits = {
+                "input": model_info.input_token_limit,
+                "output": model_info.output_token_limit
+            }
+            utils._model_token_limits_cache[model_name] = limits
+            print(f"  - モデル '{model_name}' の情報を取得。上限: {limits}")
+            return limits
+        print(f"  - 警告: モデル情報から上限トークン数を取得できませんでした (Model: {model_name})。")
+        return None
+    except Exception as e:
+        print(f"モデル情報の取得中にエラーが発生しました (Model: {model_name}): {e}")
+        return None
+
 def _convert_lc_messages_to_gg_contents(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> (List[Dict], Optional[Dict]):
-    """
-    LangChainのメッセージ形式を、Google AI SDKが要求するcontents形式に変換する、
-    このファイル内で完結する、自己完結型の、ヘルパー関数。
-    """
+    """LangChainメッセージをGoogle AI SDK形式に変換するヘルパー関数"""
     contents = []
     system_instruction = None
-    
     if messages and isinstance(messages[0], SystemMessage):
         system_instruction = {"parts": [{"text": messages[0].content}]}
         messages = messages[1:]
-
     for msg in messages:
         role = "model" if isinstance(msg, AIMessage) else "user"
         sdk_parts = []
@@ -55,20 +77,15 @@ def _convert_lc_messages_to_gg_contents(messages: List[Union[SystemMessage, Huma
                         print(f"警告: 不正なData URI形式。スキップ。URI: {data_uri[:50]}...")
         if sdk_parts:
             contents.append({"role": role, "parts": sdk_parts})
-            
     return contents, system_instruction
 
 def _build_and_prepare_messages_for_api(*args: Any) -> (List[Dict], Optional[Dict]):
-    """
-    UIハンドラから受け取った引数を基に、APIに渡すための最終的なメッセージリストを作成する。
-    """
+    """UIハンドラからの引数を基にAPI用のメッセージを構築する"""
     (textbox_content, chatbot_history, current_character_name, 
      current_model_name, current_api_key_name_state, file_input_list, 
      add_timestamp_checkbox, send_thoughts_state, api_history_limit_state,
      send_notepad_state, use_common_prompt_state) = args
-
     from agent.prompts import ACTOR_PROMPT_TEMPLATE
-    
     parts_for_api = []
     if textbox_content: parts_for_api.append(textbox_content)
     if file_input_list:
@@ -89,25 +106,18 @@ def _build_and_prepare_messages_for_api(*args: Any) -> (List[Dict], Optional[Dic
     core_memory = ""
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
-
-    final_system_prompt = ACTOR_PROMPT_TEMPLATE.format(
-        character_name=current_character_name, character_prompt=character_prompt, core_memory=core_memory
-    ) if use_common_prompt_state else character_prompt
-    
+    final_system_prompt = ACTOR_PROMPT_TEMPLATE.format(character_name=current_character_name, character_prompt=character_prompt, core_memory=core_memory) if use_common_prompt_state else character_prompt
     if send_notepad_state:
         _, _, _, _, notepad_path = get_character_files_paths(current_character_name)
         if notepad_path and os.path.exists(notepad_path):
             with open(notepad_path, 'r', encoding='utf-8') as f:
                 notepad_content = f.read().strip()
                 if notepad_content: final_system_prompt += f"\n\n---\n【現在のメモ帳の内容】\n{notepad_content}\n---"
-    
     messages.append(SystemMessage(content=final_system_prompt))
-    
     log_file, _, _, _, _ = get_character_files_paths(current_character_name)
     raw_history = utils.load_chat_log(log_file, current_character_name)
     limit = int(api_history_limit_state) if api_history_limit_state.isdigit() else 0
     if limit > 0 and len(raw_history) > limit * 2: raw_history = raw_history[-(limit * 2):]
-    
     for h_item in raw_history:
         role, content = h_item.get('role'), h_item.get('content', '').strip()
         if not content: continue
@@ -208,6 +218,7 @@ def count_input_tokens(
         if not content: continue
         if role in ['model', 'assistant', character_name]: messages.append(AIMessage(content=content))
         elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
+        
     user_message_content_parts = []
     text_buffer = []
     for part_item in parts:
@@ -221,6 +232,7 @@ def count_input_tokens(
             mime_type = f"image/{(part_item.format or 'PNG').lower()}"
             user_message_content_parts.append({"type": "image_url", "image_url": f"data:{mime_type};base64,{img_base64}"})
     if text_buffer: user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
+    
     if user_message_content_parts:
         content = user_message_content_parts[0]["text"] if len(user_message_content_parts) == 1 and user_message_content_parts[0]["type"] == "text" else user_message_content_parts
         messages.append(HumanMessage(content=content))
