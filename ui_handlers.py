@@ -278,8 +278,6 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
 
     return new_hist, gr.update(value=""), gr.update(value=None), final_token_str
 
-# ui_handlers.py に追記する handle_add_new_character 関数
-
 def handle_add_new_character(character_name: str):
     """
     新しいキャラクター名を受け取り、ファイルを作成し、UIのドロップダウンを更新する。
