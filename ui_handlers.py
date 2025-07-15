@@ -188,6 +188,54 @@ def handle_message_submission(*args: Any) -> Tuple[List[Dict[str, Union[str, tup
             else:
                 api_response_text = str(last_message.content if hasattr(last_message, 'content') else last_message)
 
+        # ★★★ ここからが新しいコード ★★★
+        tool_code_match = re.search(r"<tool_code>(.*?)</tool_code>", api_response_text, re.DOTALL)
+        tool_output_for_log = ""
+        if tool_code_match:
+            code_to_run = tool_code_match.group(1).strip()
+            print(f"--- 検出されたツールコードを実行します ---\n{code_to_run}\n------------------------------------")
+
+            # ツール実行に必要な関数やモジュールをここでインポート
+            from tools.space_tools import set_current_location
+            import io
+            from contextlib import redirect_stdout
+
+            # 安全のため、利用可能な関数を限定したコンテキストで実行
+            available_tools = {
+                "set_current_location": set_current_location,
+                # 将来的に他の安全なツールを追加可能
+            }
+
+            f = io.StringIO()
+            try:
+                # character_name を渡すために、ローカルコンテキストに追加
+                exec_globals = {"print": print} # exec内でprintを使えるように
+                exec_locals = available_tools
+                exec_locals['character_name'] = current_character_name # ★ 重要な追加
+
+                # コードに character_name が含まれていない場合、自動で追加する
+                if 'character_name=' not in code_to_run:
+                     code_to_run = code_to_run.replace(')', f", character_name='{current_character_name}')")
+
+                with redirect_stdout(f):
+                    exec(code_to_run, exec_globals, exec_locals)
+
+                tool_output_for_log = f.getvalue().strip()
+                print(f"--- ツール実行成功。出力: {tool_output_for_log} ---")
+
+            except Exception as e:
+                tool_output_for_log = f"【ツール実行エラー】: {e}"
+                print(tool_output_for_log)
+                traceback.print_exc()
+
+            # 応答テキストから<tool_code>タグ自体は削除する
+            api_response_text = re.sub(r"<tool_code>.*?</tool_code>", "", api_response_text, flags=re.DOTALL).strip()
+            # 実行結果をログに追加（表示はしない）
+            if tool_output_for_log:
+                 api_response_text += f"\n\n*[システムログ: ツール実行結果: {tool_output_for_log}]*"
+        # ★★★ 新しいコードここまで ★★★
+
+
         final_log_message = log_message_content.strip() + timestamp
         if final_log_message.strip():
             user_header = _get_user_header_from_log(log_f, current_character_name)

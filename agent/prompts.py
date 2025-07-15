@@ -41,7 +41,7 @@ TOOL_ROUTER_PROMPT_STRICT = """# 命令: ツール呼び出しルーター
 - `diary_search_tool(query: str)`: AI自身の主観的な記憶（手帳）を検索する。
 - `conversation_memory_search_tool(query: str)`: 過去の客観的な会話履歴を検索する。
 - `find_location_id_by_name(location_name: str)`: 「書斎」などの日本語の場所名から、システム用のID（例: "study"）を検索する。場所が存在するかどうかを確認したい場合に便利。
-- `set_current_location(location: str)`: AIの現在地を設定する。引数には「study」や「書斎」のような、単一の場所を示す「地名」または「ID」だけを指定すること。決して、情景描写や長い文章を引数に指定してはいけません。
+- `set_current_location(location: str)`: AIの現在地を設定する。引数には「study」や「書斎」のような、単一の場所を示す「地名」または「ID」だけを指定すること。
 - `add_to_notepad(entry: str)`: 短期記憶用のメモ帳に新しい項目を追記する。
 - `update_notepad(old_entry: str, new_entry: str)`: メモ帳の項目を更新する。
 - `delete_from_notepad(entry_to_delete: str)`: メモ帳の項目を削除する。
@@ -49,6 +49,14 @@ TOOL_ROUTER_PROMPT_STRICT = """# 命令: ツール呼び出しルーター
 - `web_search_tool(query: str)`: 最新情報や一般的な知識についてWeb検索する。
 - `read_url_tool(urls: list[str])`: URLの内容を読み取る。
 - `summarize_and_save_core_memory()`: 長期記憶を要約し、コアメモリとして保存する。
+
+【ツール使用の具体的な指示】
+ツールを使用したい場合、あなたの応答メッセージの中に、以下のような特別な形式で、実行したいコードを記述してください。
+<tool_code>
+print(set_current_location(location='Library'))
+</tool_code>
+
+この形式で記述されたコードは、システムによって自動的に実行されます。
 
 【思考プロセス】
 1.  ユーザーの最新のメッセージとコンテキストを分析する。
