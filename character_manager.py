@@ -47,6 +47,17 @@ def ensure_character_files(character_name):
         if not os.path.exists(notepad_file): # ★ notepad.md の存在確認と作成
             open(notepad_file, "w", encoding="utf-8").close()
 
+        location_file = os.path.join(base_path, "current_location.txt")
+        if not os.path.exists(location_file):
+            # ファイルが存在しない場合、デフォルト値として 'living_space' を書き込んで作成する
+            try:
+                with open(location_file, "w", encoding="utf-8") as f:
+                    f.write("living_space")
+                print(f"情報: '{location_file}' をデフォルト値で作成しました。")
+            except Exception as e:
+                print(f"エラー: 現在地ファイル '{location_file}' の作成に失敗: {e}")
+                return False
+
         return True
     except Exception as e: print(f"キャラクター '{character_name}' ファイル作成/確認エラー: {e}"); traceback.print_exc(); return False
 
