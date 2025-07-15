@@ -12,6 +12,9 @@ import psutil # psutilモジュールをインポート
 from pathlib import Path # pathlibモジュールをインポート
 import json # json モジュールをインポート (acquire_lockで使用)
 
+# --- モデル情報キャッシュ ---
+_model_token_limits_cache: Dict[str, Dict[str, int]] = {}
+
 def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
     messages: List[Dict[str, str]] = []
     if not character_name:
