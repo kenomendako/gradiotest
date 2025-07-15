@@ -20,7 +20,7 @@ from character_manager import get_character_files_paths
 from tools.web_tools import read_url_tool, web_search_tool
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
 from tools.memory_tools import edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_memory_by_path
-from tools.space_tools import set_current_location
+from tools.space_tools import set_current_location, find_location_id_by_name
 
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
@@ -177,7 +177,7 @@ def tool_router_node(state: AgentState):
         web_search_tool, read_url_tool,
         add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad,
         edit_memory, add_secret_diary_entry, summarize_and_save_core_memory,
-        set_current_location, read_memory_by_path
+        set_current_location, read_memory_by_path, find_location_id_by_name
     ]
     llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
     print(f"  - Flashへの入力メッセージ数: {len(messages_for_router)}")
@@ -248,7 +248,7 @@ def call_tool_node(state: AgentState):
         "web_search_tool": web_search_tool, "read_url_tool": read_url_tool,
         "add_to_notepad": add_to_notepad, "update_notepad": update_notepad, "delete_from_notepad": delete_from_notepad, "read_full_notepad": read_full_notepad,
         "edit_memory": edit_memory, "add_secret_diary_entry": add_secret_diary_entry, "summarize_and_save_core_memory": summarize_and_save_core_memory,
-        "set_current_location": set_current_location, "read_memory_by_path": read_memory_by_path
+        "set_current_location": set_current_location, "read_memory_by_path": read_memory_by_path, "find_location_id_by_name": find_location_id_by_name
     }
 
     MAX_TOOLS_PER_TURN = 5
@@ -266,7 +266,7 @@ def call_tool_node(state: AgentState):
             output = f"エラー: 不明な道具 '{tool_name}' が指定されました。"
         else:
             try:
-                if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "add_to_notepad", "update_notepad", "delete_from_notepad", "read_full_notepad", "edit_memory", "add_secret_diary_entry", "set_current_location", "read_memory_by_path"]:
+                if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "add_to_notepad", "update_notepad", "delete_from_notepad", "read_full_notepad", "edit_memory", "add_secret_diary_entry", "set_current_location", "read_memory_by_path", "find_location_id_by_name"]:
                     tool_args["character_name"] = state.get("character_name")
                     print(f"    - 引数に正しいキャラクター名 '{tool_args['character_name']}' を注入/上書きしました。")
                 if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "summarize_and_save_core_memory"]:
