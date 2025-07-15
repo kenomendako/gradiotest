@@ -73,43 +73,56 @@ def memory_weaver_node(state: AgentState):
     synthesized_context_message = SystemMessage(content=f"【現在の状況サマリー】\n{summary_text}")
     return {"synthesized_context": synthesized_context_message, "retrieved_long_term_memories": long_term_memories_str}
 
-# 【最終版】aether_weaver_node
+# agent/graph.py (aether_weaver_node の最終版)
+
 def aether_weaver_node(state: AgentState):
     print("--- 時空編纂ノード (aether_weaver_node) 実行 ---")
     character_name = state['character_name']
     api_key = state['api_key']
 
     # 1. 「王の印」= 現在地を専用ファイルから取得
-    current_location = "living_space"
+    location_from_file = "living_space" # デフォルト値
     try:
         base_path = os.path.join("characters", character_name)
         location_file_path = os.path.join(base_path, "current_location.txt")
         if os.path.exists(location_file_path):
             with open(location_file_path, 'r', encoding='utf-8') as f:
-                location_from_file = f.read().strip()
-                if location_from_file:
-                    current_location = location_from_file
+                content_in_file = f.read().strip()
+                if content_in_file:
+                    location_from_file = content_in_file
     except Exception as e:
         print(f"  - 警告: 現在地ファイルの読み込み中にエラー: {e}")
-    print(f"  - [王の印] 現在地を '{current_location}' と認識。")
 
-    # 2. 現在地の空間定義を取得
+    # ★★★ ここからが修正箇所 ★★★
+    # 2. 日本語名の可能性があるため、場所の正式IDを検索する
+    #    find_location_id_by_name ツールの .func を使って、中身のPython関数を直接呼び出す
+    from tools.space_tools import find_location_id_by_name
+    found_id = find_location_id_by_name.func(location_name=location_from_file, character_name=character_name)
+
+    if found_id and not found_id.startswith("【エラー】"):
+        current_location_id = found_id
+        print(f"  - [王の印] 現在地 '{location_from_file}' から、正式ID '{current_location_id}' を特定。")
+    else:
+        current_location_id = location_from_file # IDが見つからなければ、元の値をそのまま使う
+        print(f"  - [王の印] 現在地を '{current_location_id}' と認識（ID直接指定）。")
+
+    # 3. 正式IDを使って空間定義を取得
     space_definition_json = read_memory_by_path.func(
-        path=f"living_space.{current_location}",
+        path=f"living_space.{current_location_id}",
         character_name=character_name
     )
     if "エラー" in space_definition_json:
          space_definition_json = read_memory_by_path.func(path="living_space", character_name=character_name)
-         print(f"  - 警告: パス 'living_space.{current_location}' が見つからないため、living_space全体をコンテキストとします。")
+         print(f"  - 警告: パス 'living_space.{current_location_id}' が見つからないため、living_space全体をコンテキストとします。")
+    # ★★★ 修正ここまで ★★★
 
-    # 3. 動的情報と対話状況の取得
+    # 4. 動的情報と対話状況の取得 (変更なし)
     now = datetime.now()
     current_time_str = now.strftime('%H:%M')
     seasons = {12: "冬", 1: "冬", 2: "冬", 3: "春", 4: "春", 5: "春", 6: "夏", 7: "夏", 8: "夏", 9: "秋", 10: "秋", 11: "秋"}
     current_season = seasons[now.month]
     dialogue_context = state['synthesized_context'].content
 
-    # 4. 情景生成プロンプト
     prompt = f"""あなたは、情景描写の専門家である「ワールド・アーティスト」です。
 以下の3つの情報を基に、五感を刺激するような、臨場感あふれる「現在の情景」を、1～2文の簡潔で美しい文章で描写してください。
 あなたの思考や挨拶は不要です。描写したテキストのみを出力してください。
@@ -128,11 +141,10 @@ def aether_weaver_node(state: AgentState):
 
 現在の情景:
 """
-
-    # 5. 情景生成とStateへの保存
     llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
     scenery_text = llm_flash.invoke(prompt).content
     print(f"  - 生成された情景描写:\n{scenery_text}")
+
     return {"current_scenery": scenery_text}
 
 # 【最終版】tool_router_node

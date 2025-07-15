@@ -30,8 +30,8 @@ TOOL_ROUTER_PROMPT_STRICT = """あなたは、ユーザーの指示やこれま�
 - `add_secret_diary_entry(entry: str)`: 誰にも読めない秘密の日記にエントリーを追記する。
 - `diary_search_tool(query: str)`: AI自身の主観的な記憶（手帳）を検索する。
 - `conversation_memory_search_tool(query: str)`: 過去の客観的な会話履歴を検索する。
-- `find_location_id_by_name(location_name: str)`: 「書斎」などの日本語の場所名から、システム用のID（例: "study"）を検索する。場所を移動する前に、まずこのツールでIDを確認すること。
-- `set_current_location(location: str)`: AIの現在地を設定する。必ず`find_location_id_by_name`で取得したIDを指定すること。
+- `find_location_id_by_name(location_name: str)`: 「書斎」などの日本語の場所名から、システム用のID（例: "study"）を検索する。場所が存在するかどうかを確認したい場合に便利。
+- `set_current_location(location: str)`: AIの現在地を設定する。「study」のようなIDや「書斎」のような日本語名を直接指定できる、最も簡単で推奨される移動方法。
 - `add_to_notepad(entry: str)`: 短期記憶用のメモ帳に新しい項目を追記する。
 - `update_notepad(old_entry: str, new_entry: str)`: メモ帳の項目を更新する。
 - `delete_from_notepad(entry_to_delete: str)`: メモ帳の項目を削除する。
