@@ -115,10 +115,12 @@ def handle_message_submission(*args: Any):
 
     final_response_text = full_response
 
-    # (ここから下のツールコード処理やログ保存のロジックは、元の関数のものをそのまま流用・維持します)
+    # (from line "tool_code_match = ... " )
+
     tool_code_match = re.search(r"<tool_code>(.*?)</tool_code>", final_response_text, re.DOTALL)
     tool_output_for_log = ""
     if tool_code_match:
+        # (このifブロックの中身は変更なし)
         code_to_run = tool_code_match.group(1).strip()
         print(f"--- 検出されたツールコードを解析・実行します ---\n{code_to_run}\n------------------------------------")
         
@@ -160,11 +162,20 @@ def handle_message_submission(*args: Any):
             api_key = config_manager.API_KEYS.get(current_api_key_name_state)
             if api_key and not api_key.startswith("YOUR_API_KEY") and final_log_message.strip() and final_response_text and not final_response_text.startswith("[エラー"):
                 mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
-                clean_api_response = re.sub(r"【Thoughts】.*?【/Thoughts】|\*\[システムログ:.*?\]\*", "", final_response_text, flags=re.DOTALL).strip()
-                mem0_instance.add([{"role": "user", "content": final_log_message.strip()}, {"role": "assistant", "content": clean_api_response}], user_id=current_character_name)
+
+                # ★★★ 修正点2: mem0用のクリーンロジックをより堅牢な方法に変更 ★★★
+                # `split()` を使って、確実にシステムログ部分を除去する
+                clean_api_response = final_response_text.split("*[システムログ:")[0].strip()
+                # `re.sub` を使って【Thoughts】タグを除去する
+                clean_api_response_for_mem0 = re.sub(r"【Thoughts】.*?【/Thoughts】", "", clean_api_response, flags=re.DOTALL).strip()
+
+                mem0_instance.add([{"role": "user", "content": final_log_message.strip()}, {"role": "assistant", "content": clean_api_response_for_mem0}], user_id=current_character_name)
+
         except Exception as mem0_e: print(f"Mem0記憶エラー: {mem0_e}")
 
-    chatbot_history[-1]["content"] = final_response_text
+    # ★★★ 修正点1: UIに表示する前に、整形関数を呼び出す ★★★
+    chatbot_history[-1]["content"] = utils.format_response_for_display(final_response_text)
+
     yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 
 # (ここに、最初のXMLにあった他の全ての関数が、そのままの形で含まれます)
