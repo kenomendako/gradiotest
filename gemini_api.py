@@ -1,11 +1,11 @@
-# gemini_api.py (vFinal: 原点回帰 - Official SDK Streaming)
+# gemini_api.py (vFinal-2: The Last Stand)
 
 import google.genai as genai
 import os
 import io
 import json
 import traceback
-from typing import List, Union, Optional, Dict, Generator
+from typing import List, Union, Optional, Dict, Generator, Any # ★★★ Any をインポート ★★★
 from PIL import Image
 import base64
 import re
@@ -15,7 +15,10 @@ import utils
 from character_manager import get_character_files_paths
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
-# ★★★ ここからが最終修正: LangChainラッパーを捨て、公式SDKに準拠 ★★★
+#
+# このファイルは、google-genai SDKに準拠したストリーミングとトークン計算を行い、
+# かつ、全ての必要な型定義をインポートした、真の最終版です。
+#
 
 def _convert_lc_messages_to_gg_contents(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> (List[Dict], Optional[Dict]):
     """
@@ -25,7 +28,6 @@ def _convert_lc_messages_to_gg_contents(messages: List[Union[SystemMessage, Huma
     contents = []
     system_instruction = None
     
-    # 最初のSystemMessageをsystem_instructionとして分離
     if messages and isinstance(messages[0], SystemMessage):
         system_instruction = {"parts": [{"text": messages[0].content}]}
         messages = messages[1:]
@@ -65,7 +67,6 @@ def _build_and_prepare_messages_for_api(*args: Any) -> (List[Dict], Optional[Dic
      add_timestamp_checkbox, send_thoughts_state, api_history_limit_state,
      send_notepad_state, use_common_prompt_state) = args
 
-    # LangChain形式のメッセージリストを構築（これは既存ロジックを流用）
     from agent.prompts import ACTOR_PROMPT_TEMPLATE
     
     parts_for_api = []
@@ -79,7 +80,6 @@ def _build_and_prepare_messages_for_api(*args: Any) -> (List[Dict], Optional[Dic
                     with open(file_wrapper.name, 'r', encoding='utf-8') as f: parts_for_api.append(f.read())
                 except Exception as e2: print(f"ファイル処理エラー: {e2}")
 
-    # --- LangChain Message の構築 ---
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
     char_prompt_path = os.path.join("characters", current_character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", current_character_name, "core_memory.txt")
@@ -132,17 +132,16 @@ def _build_and_prepare_messages_for_api(*args: Any) -> (List[Dict], Optional[Dic
         content = user_message_content_parts[0]["text"] if len(user_message_content_parts) == 1 and user_message_content_parts[0]["type"] == "text" else user_message_content_parts
         messages.append(HumanMessage(content=content))
         
-    # --- 最終的な変換 ---
     return _convert_lc_messages_to_gg_contents(messages)
 
 def stream_nexus_agent(*args: Any) -> Generator[str, None, None]:
-    api_key = config_manager.API_KEYS.get(args[4]) # current_api_key_name_state
+    api_key = config_manager.API_KEYS.get(args[4])
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         yield f"[エラー: APIキー '{args[4]}' が有効ではありません。]"
         return
 
     contents, system_instruction = _build_and_prepare_messages_for_api(*args)
-    model_name = args[3] # current_model_name
+    model_name = args[3]
 
     try:
         genai.configure(api_key=api_key)
@@ -165,14 +164,9 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(model_name=model_name)
         contents, system_instruction = _convert_lc_messages_to_gg_contents(messages)
-        # system_instruction もトークン数計算に含める
         if system_instruction:
-            # Google AI SDKではsystem_instructionはcontentsとは別扱いだが、
-            # count_tokensではcontentsに含める必要があるかもしれない。
-            # ここでは、簡易的にcontentsの先頭に追加して計算する。
             contents.insert(0, {"role": "user", "parts": system_instruction['parts']})
             contents.insert(1, {"role": "model", "parts": [{"text": "OK"}]})
-
         result = model.count_tokens(contents)
         return result.total_tokens
     except Exception as e:
@@ -187,12 +181,7 @@ def count_input_tokens(
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return -1
     
-    # _build_and_prepare_messages_for_api を使用してメッセージを構築し、
-    # その結果を count_tokens_from_lc_messages に渡すための準備
-    # ※ この構造は若干冗長だが、既存の関数シグネチャを維持するために採用
-    
-    # LangChainメッセージリストを一度構築
-    from agent.prompts import ACTOR_PROMPT_TEMPLATE # 再度インポート
+    from agent.prompts import ACTOR_PROMPT_TEMPLATE
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
@@ -237,6 +226,3 @@ def count_input_tokens(
         messages.append(HumanMessage(content=content))
 
     return count_tokens_from_lc_messages(messages, model_name, api_key)
-
-# invoke_nexus_agent はストリーミングに完全移行したため、このファイルから削除します。
-# 呼び出し元である ui_handlers.py もストリーミング専用に修正済みです。
