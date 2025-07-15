@@ -190,13 +190,14 @@ def tool_router_node(state: AgentState):
 # 【最終版】final_response_node
 def final_response_node(state: AgentState):
     """
-    Proに、これまでの全履歴と、収集した全てのコンテキストを渡し、最終応答を生成させる。
+    Proに、ペルソナ、収集したコンテキスト、そして会話履歴を、
+    正しい順序で、かつ重複なく渡し、最終応答を生成させる。
     """
     print("--- 最終応答生成ノード (Pro) 実行 ---")
     messages_for_pro = []
 
-    # 1. システムプロンプト（ペルソナ定義）を追加
-    system_prompt = next((msg for msg in state['messages'] if isinstance(msg, SystemMessage) and "【参考" not in msg.content and "【現在の情景" not in msg.content), None)
+    # 1. システムプロンプト（ペルソナ定義）を最初に抽出して追加
+    system_prompt = next((msg for msg in state['messages'] if isinstance(msg, SystemMessage)), None)
     if system_prompt:
         messages_for_pro.append(system_prompt)
 
@@ -212,16 +213,22 @@ def final_response_node(state: AgentState):
         scenery_context = f"【現在の情景描写】\n{current_scenery}"
         messages_for_pro.append(SystemMessage(content=scenery_context))
 
-    # 4. ツール実行ループを含む、これまでの全メッセージを追加
-    messages_for_pro.extend(state['messages'])
+    # ★★★ ここが最も重要な修正点 ★★★
+    # 4. 元のメッセージ履歴から、「SystemPromptではない」メッセージだけを抽出して追加する
+    #    これにより、ペルソナの重複を防ぎ、情景描写が消えることもなくなる
+    history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
+    messages_for_pro.extend(history_messages)
+    # ★★★ 修正ここまで ★★★
 
-    # ... (以降のAPI呼び出しと応答返却のロジックは変更なし) ...
     api_key = state['api_key']
     final_model_to_use = state.get("final_model_name", "gemini-2.5-pro")
     llm_final = get_configured_llm(final_model_to_use, api_key)
+
     total_tokens = gemini_api.count_tokens_from_lc_messages(messages_for_pro, final_model_to_use, api_key)
     print(f"  - 最終的な合計入力トークン数: {total_tokens}")
+
     response = llm_final.invoke(messages_for_pro)
+
     final_messages = state['messages'] + [response]
     return {"messages": final_messages, "final_token_count": total_tokens}
 
