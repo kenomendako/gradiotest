@@ -156,27 +156,21 @@ def stream_nexus_agent(*args: Any) -> Generator[str, None, None]:
     try:
         client = genai.Client(api_key=api_key)
 
-        # system_instruction は辞書形式かNoneのため、テキスト部分を安全に抽出
         system_instruction_text = system_instruction['parts'][0]['text'] if system_instruction else None
 
-        # google.genai.types を使って設定を構成
-        from google.genai import types
-        generation_config = types.GenerateContentConfig(
-            system_instruction=system_instruction_text,
-            safety_settings=config_manager.SAFETY_CONFIG
-        )
-
-        # client.models.generate_content を呼び出す
+        # system_instruction と safety_settings を直接の引数として渡す
         response = client.models.generate_content(
             model=f"models/{model_name}",
             contents=contents,
-            generation_config=generation_config,
+            system_instruction=system_instruction_text,
+            safety_settings=config_manager.SAFETY_CONFIG,
             stream=True
         )
 
         for chunk in response:
             if chunk.text:
                 yield chunk.text
+
     except Exception as e:
         traceback.print_exc()
         yield f"[APIストリーミングエラー: {e}]"
