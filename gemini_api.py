@@ -154,13 +154,26 @@ def stream_nexus_agent(*args: Any) -> Generator[str, None, None]:
     model_name = args[3]
 
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(
-            model_name=model_name,
-            system_instruction=system_instruction['parts'][0]['text'] if system_instruction else None,
+        client = genai.Client(api_key=api_key)
+
+        # system_instruction は辞書形式かNoneのため、テキスト部分を安全に抽出
+        system_instruction_text = system_instruction['parts'][0]['text'] if system_instruction else None
+
+        # google.genai.types を使って設定を構成
+        from google.genai import types
+        generation_config = types.GenerateContentConfig(
+            system_instruction=system_instruction_text,
             safety_settings=config_manager.SAFETY_CONFIG
         )
-        response = model.generate_content(contents, stream=True)
+
+        # client.models.generate_content を呼び出す
+        response = client.models.generate_content(
+            model=f"models/{model_name}",
+            contents=contents,
+            generation_config=generation_config,
+            stream=True
+        )
+
         for chunk in response:
             if chunk.text:
                 yield chunk.text
@@ -171,13 +184,19 @@ def stream_nexus_agent(*args: Any) -> Generator[str, None, None]:
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
     if not messages: return 0
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name=model_name)
+        client = genai.Client(api_key=api_key)
         contents, system_instruction = _convert_lc_messages_to_gg_contents(messages)
+
+        # system_instruction を user/model のやり取りに変換する既存ロジックを維持
         if system_instruction:
             contents.insert(0, {"role": "user", "parts": system_instruction['parts']})
             contents.insert(1, {"role": "model", "parts": [{"text": "OK"}]})
-        result = model.count_tokens(contents)
+
+        # client.models.count_tokens を呼び出す
+        result = client.models.count_tokens(
+            model=f"models/{model_name}",
+            contents=contents
+        )
         return result.total_tokens
     except Exception as e:
         print(f"トークン計算エラー: {e}")
