@@ -279,6 +279,33 @@ def call_tool_node(state: AgentState):
     current_count = state.get('tool_call_count', 0)
     return {"messages": tool_messages, "tool_call_count": current_count + 1}
 
+def after_tool_call_router(state: AgentState):
+    """
+    call_toolノードの実行後、次にどこへ進むかを判断する。
+    set_current_locationが実行された場合は情景描写(aether_weaver)へ、
+    それ以外のツールの場合は次の判断(tool_router)へ。
+    """
+    print("--- 道具実行後ルーティング (after_tool_call_router) 実行 ---")
+    last_messages = state['messages'][-1]
+
+    # LangGraphの仕様上、ToolMessageはリストではなく単一のオブジェクトとして最後に追加されることがあるため、
+    # リストでない場合も考慮する
+    if not isinstance(last_messages, list):
+        last_messages = [last_messages]
+
+    # 直近のToolMessageの中に set_current_location が含まれているかチェック
+    was_location_set = any(
+        isinstance(msg, ToolMessage) and msg.name == "set_current_location"
+        for msg in last_messages
+    )
+
+    if was_location_set:
+        print("  - 判断: set_current_locationが実行されたため、情景の再描写 (aether_weaver) へ。")
+        return "aether_weaver"
+    else:
+        print("  - 判断: 通常のツール実行のため、次の判断 (tool_router) へ。")
+        return "tool_router"
+
 def should_call_tool(state: AgentState):
     print("--- ルーティング判断 (should_call_tool) 実行 ---")
     MAX_ITERATIONS = 5
@@ -315,7 +342,18 @@ workflow.add_conditional_edges(
         "final_response": "final_response"
     }
 )
-workflow.add_edge("call_tool", "tool_router")
+# ★★★ ここが最も重要な修正点 ★★★
+# call_tool の後の行き先を、新しい分岐路(after_tool_call_router)に繋ぎ変える
+workflow.add_conditional_edges(
+    "call_tool",
+    after_tool_call_router,
+    {
+        "aether_weaver": "aether_weaver",
+        "tool_router": "tool_router",
+    }
+)
+# ★★★ 修正ここまで ★★★
+
 workflow.add_edge("final_response", END)
 
 app = workflow.compile()
