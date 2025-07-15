@@ -1,25 +1,27 @@
-# agent/graph.py (全体をこのコードに置き換えてください)
+# agent/graph.py (最終完成版)
 
 import os
 import traceback
+import json
 from typing import TypedDict, List
 from typing_extensions import Annotated
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
-from langchain_core.tools import tool
 from datetime import datetime
 
 import config_manager
 import gemini_api
 import rag_manager
 from agent.prompts import MEMORY_WEAVER_PROMPT_TEMPLATE, TOOL_ROUTER_PROMPT_STRICT
+from character_manager import get_character_files_paths
+
+# ★★★ ここで、全てのツールを明示的にインポートする ★★★
 from tools.web_tools import read_url_tool, web_search_tool
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
-from tools.memory_tools import edit_memory, add_secret_diary_entry, summarize_and_save_core_memory
+from tools.memory_tools import edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_memory_by_path
 from tools.space_tools import set_current_location
 
-# AgentStateから initial_intent を削除
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     character_name: str
@@ -71,20 +73,14 @@ def memory_weaver_node(state: AgentState):
     synthesized_context_message = SystemMessage(content=f"【現在の状況サマリー】\n{summary_text}")
     return {"synthesized_context": synthesized_context_message, "retrieved_long_term_memories": long_term_memories_str}
 
-import json
-from character_manager import get_character_files_paths
-
-# 【最終修正版】aether_weaver_node
+# 【最終版】aether_weaver_node
 def aether_weaver_node(state: AgentState):
-    """
-    「王の印（current_location.txt）」を読み、その場所の定義と状況を統合して情景を描写する。
-    """
     print("--- 時空編纂ノード (aether_weaver_node) 実行 ---")
     character_name = state['character_name']
     api_key = state['api_key']
 
     # 1. 「王の印」= 現在地を専用ファイルから取得
-    current_location = "living_space" # デフォルト
+    current_location = "living_space"
     try:
         base_path = os.path.join("characters", character_name)
         location_file_path = os.path.join(base_path, "current_location.txt")
@@ -95,41 +91,25 @@ def aether_weaver_node(state: AgentState):
                     current_location = location_from_file
     except Exception as e:
         print(f"  - 警告: 現在地ファイルの読み込み中にエラー: {e}")
-
     print(f"  - [王の印] 現在地を '{current_location}' と認識。")
 
     # 2. 現在地の空間定義を取得
-    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
-    space_definition_json = "{}" # デフォルト
-    if memory_json_path and os.path.exists(memory_json_path):
-        with open(memory_json_path, 'r', encoding='utf-8') as f:
-            memory = json.load(f)
+    space_definition_json = read_memory_by_path.func(
+        path=f"living_space.{current_location}",
+        character_name=character_name
+    )
+    if "エラー" in space_definition_json:
+         space_definition_json = read_memory_by_path.func(path="living_space", character_name=character_name)
+         print(f"  - 警告: パス 'living_space.{current_location}' が見つからないため、living_space全体をコンテキストとします。")
 
-        path_keys = current_location.split('.')
-        current_data = memory.get("living_space", {})
-        found = True
-        try:
-            for key in path_keys:
-                if isinstance(current_data, dict) and key in current_data:
-                    current_data = current_data[key]
-                else:
-                    found = False
-                    break
-            if found:
-                 space_definition_json = json.dumps(current_data, ensure_ascii=False, indent=2)
-            else:
-                print(f"  - 警告: パス '{current_location}' がliving_space内に見つからないため、living_space全体をコンテキストとします。")
-                space_definition_json = json.dumps(memory.get("living_space", {}), ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"  - 警告: 空間定義の取得中にエラー: {e}。living_space全体をコンテキストとします。")
-            space_definition_json = json.dumps(memory.get("living_space", {}), ensure_ascii=False, indent=2)
-
+    # 3. 動的情報と対話状況の取得
     now = datetime.now()
     current_time_str = now.strftime('%H:%M')
     seasons = {12: "冬", 1: "冬", 2: "冬", 3: "春", 4: "春", 5: "春", 6: "夏", 7: "夏", 8: "夏", 9: "秋", 10: "秋", 11: "秋"}
     current_season = seasons[now.month]
     dialogue_context = state['synthesized_context'].content
 
+    # 4. 情景生成プロンプト
     prompt = f"""あなたは、情景描写の専門家である「ワールド・アーティスト」です。
 以下の3つの情報を基に、五感を刺激するような、臨場感あふれる「現在の情景」を、1～2文の簡潔で美しい文章で描写してください。
 あなたの思考や挨拶は不要です。描写したテキストのみを出力してください。
@@ -148,18 +128,20 @@ def aether_weaver_node(state: AgentState):
 
 現在の情景:
 """
+
+    # 5. 情景生成とStateへの保存
     llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
     scenery_text = llm_flash.invoke(prompt).content
     print(f"  - 生成された情景描写:\n{scenery_text}")
-
     return {"current_scenery": scenery_text}
 
-# 【新】ツールルーターノード
+# 【最終版】tool_router_node
 def tool_router_node(state: AgentState):
     print("--- ツールルーターノード (Flash) 実行 ---")
-    messages_for_router = []
-    messages_for_router.append(SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT))
-    messages_for_router.append(state['synthesized_context'])
+    messages_for_router = [
+        SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT),
+        state['synthesized_context']
+    ]
     last_human_message_index = -1
     for i in range(len(state['messages']) - 1, -1, -1):
         if isinstance(state['messages'][i], HumanMessage):
@@ -170,12 +152,16 @@ def tool_router_node(state: AgentState):
     else:
         if state['messages']:
             messages_for_router.append(state['messages'][-1])
+
     api_key = state['api_key']
+
+    # ★★★ ここで、インポートした全てのツールをリストとして渡す ★★★
     available_tools = [
         rag_manager.diary_search_tool, rag_manager.conversation_memory_search_tool,
         web_search_tool, read_url_tool,
         add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad,
-        edit_memory, add_secret_diary_entry, summarize_and_save_core_memory
+        edit_memory, add_secret_diary_entry, summarize_and_save_core_memory,
+        set_current_location, read_memory_by_path
     ]
     llm_flash_with_tools = get_configured_llm("gemini-2.5-flash", api_key, available_tools)
     print(f"  - Flashへの入力メッセージ数: {len(messages_for_router)}")
@@ -232,25 +218,28 @@ def final_response_node(state: AgentState):
     final_messages = state['messages'] + [response]
     return {"messages": final_messages, "final_token_count": total_tokens}
 
-# call_tool_nodeは、api_keyを注入するロジックの追加が必要です
+# 【最終版】call_tool_node
 def call_tool_node(state: AgentState):
-    # (このノードの内部ロジックは前回の提案から変更なし)
     print(f"--- 道具実行ノード (call_tool_node) 実行 ---")
     last_message = state['messages'][-1]
     if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
         return {}
     tool_messages = []
+
+    # ★★★ ここで、インポートした全てのツールを辞書として渡す ★★★
     available_tools_map = {
         "diary_search_tool": rag_manager.diary_search_tool, "conversation_memory_search_tool": rag_manager.conversation_memory_search_tool,
         "web_search_tool": web_search_tool, "read_url_tool": read_url_tool,
         "add_to_notepad": add_to_notepad, "update_notepad": update_notepad, "delete_from_notepad": delete_from_notepad, "read_full_notepad": read_full_notepad,
         "edit_memory": edit_memory, "add_secret_diary_entry": add_secret_diary_entry, "summarize_and_save_core_memory": summarize_and_save_core_memory,
-        "set_current_location": set_current_location
+        "set_current_location": set_current_location, "read_memory_by_path": read_memory_by_path
     }
+
     MAX_TOOLS_PER_TURN = 5
     tool_calls_to_execute = last_message.tool_calls[:MAX_TOOLS_PER_TURN]
     if len(last_message.tool_calls) > MAX_TOOLS_PER_TURN:
         print(f"  - 警告: 一度に{len(last_message.tool_calls)}個のツール呼び出しが要求されましたが、最初の{MAX_TOOLS_PER_TURN}個のみ実行します。")
+
     for tool_call in tool_calls_to_execute:
         tool_name = tool_call.get("name")
         tool_args = tool_call.get("args", {})
@@ -261,7 +250,7 @@ def call_tool_node(state: AgentState):
             output = f"エラー: 不明な道具 '{tool_name}' が指定されました。"
         else:
             try:
-                if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "add_to_notepad", "update_notepad", "delete_from_notepad", "read_full_notepad", "edit_memory", "add_secret_diary_entry", "set_current_location"]:
+                if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "add_to_notepad", "update_notepad", "delete_from_notepad", "read_full_notepad", "edit_memory", "add_secret_diary_entry", "set_current_location", "read_memory_by_path"]:
                     tool_args["character_name"] = state.get("character_name")
                     print(f"    - 引数に正しいキャラクター名 '{tool_args['character_name']}' を注入/上書きしました。")
                 if tool_name in ["diary_search_tool", "conversation_memory_search_tool", "summarize_and_save_core_memory"]:
@@ -272,10 +261,10 @@ def call_tool_node(state: AgentState):
                 output = f"[エラー：道具'{tool_name}'の実行に失敗しました。詳細: {e}]"
                 traceback.print_exc()
         tool_messages.append(ToolMessage(content=str(output), tool_call_id=tool_call_id, name=tool_name))
+
     current_count = state.get('tool_call_count', 0)
     return {"messages": tool_messages, "tool_call_count": current_count + 1}
 
-# 【新】ルーティング判断ロジック
 def should_call_tool(state: AgentState):
     print("--- ルーティング判断 (should_call_tool) 実行 ---")
     MAX_ITERATIONS = 5
@@ -284,6 +273,7 @@ def should_call_tool(state: AgentState):
     if tool_call_count >= MAX_ITERATIONS:
         print(f"  - 警告: ツール実行ループが上限の {MAX_ITERATIONS} 回に達しました。強制的に最終応答へ。")
         return "final_response"
+
     last_message = state['messages'][-1] if state['messages'] else None
     if isinstance(last_message, AIMessage) and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
         print("  - 判断: ツール呼び出しあり。call_tool_node へ。")
@@ -292,17 +282,16 @@ def should_call_tool(state: AgentState):
         print("  - 判断: ツール呼び出しなし。final_response_node へ。")
         return "final_response"
 
-# 【新】グラフ構築
 workflow = StateGraph(AgentState)
 workflow.add_node("memory_weaver", memory_weaver_node)
-workflow.add_node("aether_weaver", aether_weaver_node) # ★ 追加
+workflow.add_node("aether_weaver", aether_weaver_node)
 workflow.add_node("tool_router", tool_router_node)
 workflow.add_node("call_tool", call_tool_node)
 workflow.add_node("final_response", final_response_node)
 
 workflow.add_edge(START, "memory_weaver")
-workflow.add_edge("memory_weaver", "aether_weaver") # ★ 変更
-workflow.add_edge("aether_weaver", "tool_router")   # ★ 変更
+workflow.add_edge("memory_weaver", "aether_weaver")
+workflow.add_edge("aether_weaver", "tool_router")
 
 workflow.add_conditional_edges(
     "tool_router",
@@ -312,7 +301,6 @@ workflow.add_conditional_edges(
         "final_response": "final_response"
     }
 )
-# ★ ループは tool_router に戻る
 workflow.add_edge("call_tool", "tool_router")
 workflow.add_edge("final_response", END)
 
