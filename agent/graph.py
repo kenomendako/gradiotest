@@ -138,10 +138,26 @@ def aether_weaver_node(state: AgentState):
 # 【最終版】tool_router_node
 def tool_router_node(state: AgentState):
     print("--- ツールルーターノード (Flash) 実行 ---")
+
+    # ★★★ ここから追加 ★★★
+    # aether_weaverが生成した情景描写を取得
+    current_scenery = state.get('current_scenery', '')
+    # 情景描写が存在する場合、SystemMessageとして整形
+    scenery_context_message = SystemMessage(content=f"【現在の情景】\n{current_scenery}") if current_scenery else None
+    # ★★★ 追加ここまで ★★★
+
     messages_for_router = [
         SystemMessage(content=TOOL_ROUTER_PROMPT_STRICT),
         state['synthesized_context']
     ]
+
+    # ★★★ ここから追加 ★★★
+    # 整形した情景描写メッセージを、判断材料として追加する
+    if scenery_context_message:
+        messages_for_router.append(scenery_context_message)
+        print(f"  - 判断材料に「現在の情景」を追加しました。")
+    # ★★★ 追加ここまで ★★★
+
     last_human_message_index = -1
     for i in range(len(state['messages']) - 1, -1, -1):
         if isinstance(state['messages'][i], HumanMessage):
