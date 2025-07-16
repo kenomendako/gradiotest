@@ -103,10 +103,10 @@ def handle_message_submission(*args: Any):
         user_header = _get_user_header_from_log(log_f, current_character_name)
         save_message_to_log(log_f, user_header, final_log_message)
         if final_response_text:
-            # ツールを使った場合、その旨をログに残す
-            if "<tool_code>" in final_response_text:
-                 save_message_to_log(log_f, f"## {current_character_name}:", "(ツールを使用しました)")
-            save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
+            # ツールコールを除いた、純粋な会話部分のみをログに残す
+            response_for_log = re.sub(r"<tool_code>.*?</tool_code>", "", final_response_text, flags=re.DOTALL).strip()
+            if response_for_log: # 会話部分があればログに書く
+                 save_message_to_log(log_f, f"## {current_character_name}:", response_for_log)
         try:
             api_key = config_manager.API_KEYS.get(current_api_key_name_state)
             if api_key and not api_key.startswith("YOUR_API_KEY") and not final_response_text.startswith("[エラー"):

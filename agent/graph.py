@@ -1,13 +1,9 @@
-# agent/graph.py の内容を以下で完全に置き換え
-
 import os
-from typing import TypedDict
-from typing_extensions import Annotated
-
-from langchain_core.messages import SystemMessage, HumanMessage
+from typing import TypedDict, Annotated, List
+from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage, ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
-from langgraph.prebuilt import ToolNode
+from langgraph.prebuilt import ToolNode, tools_condition
 from datetime import datetime
 
 from agent.prompts import MEMORY_WEAVER_PROMPT_TEMPLATE, ACTOR_PROMPT_TEMPLATE
@@ -19,106 +15,59 @@ from rag_manager import diary_search_tool, conversation_memory_search_tool
 import rag_manager
 import config_manager
 
-# 利用可能な全ツールをリスト化
+# --- 1. ツールと状態の定義 ---
 all_tools = [
-    set_current_location, find_location_id_by_name,
-    read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory,
-    add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad,
-    web_search_tool, read_url_tool,
-    diary_search_tool, conversation_memory_search_tool
+    set_current_location, find_location_id_by_name, read_memory_by_path, edit_memory,
+    add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
+    update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
+    read_url_tool, diary_search_tool, conversation_memory_search_tool
 ]
+tool_node = ToolNode(all_tools)
 
 class AgentState(TypedDict):
-    messages: Annotated[list, add_messages]
+    messages: Annotated[List[BaseMessage], add_messages]
     character_name: str
     api_key: str
-    synthesized_context: SystemMessage
-    current_scenery: str
 
+# --- 2. モデル初期化 ---
 def get_configured_llm(model_name: str, api_key: str):
-    return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, convert_system_message_to_human=False) # ★★★ TrueからFalseに変更 ★★★
+    return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, convert_system_message_to_human=False)
 
-def memory_weaver_node(state: AgentState):
-    # (このノードの中身は変更なし)
-    print("--- 魂を織りなす記憶ノード (memory_weaver_node) 実行 ---")
-    messages = state['messages']
+# --- 3. グラフのノード定義 ---
+
+def context_generator_node(state: AgentState):
+    """状況サマリーと情景描写を生成し、システムプロンプトとして統合するノード"""
+    print("--- コンテキスト生成ノード (context_generator_node) 実行 ---")
     character_name = state['character_name']
     api_key = state['api_key']
+    messages = state['messages']
+
+    # 記憶の織り手 (Memory Weaver)
     last_user_message_obj = next((msg for msg in reversed(messages) if isinstance(msg, HumanMessage)), None)
-    search_query = ""
-    if last_user_message_obj:
-        if isinstance(last_user_message_obj.content, str):
-            search_query = last_user_message_obj.content
-        elif isinstance(last_user_message_obj.content, list):
-            text_parts = [part['text'] for part in last_user_message_obj.content if isinstance(part, dict) and part.get('type') == 'text']
-            search_query = " ".join(text_parts)
-    if len(search_query) > 500: search_query = search_query[:500] + "..."
-    if not search_query.strip(): search_query = "（ユーザーからの添付ファイル、または、空のメッセージ）"
+    search_query = last_user_message_obj.content if last_user_message_obj and isinstance(last_user_message_obj.content, str) else "直近の出来事"
     long_term_memories_str = rag_manager.search_conversation_memory_for_summary(character_name=character_name, query=search_query, api_key=api_key)
-    history_for_summary = [m for m in messages if not isinstance(m, SystemMessage)]
-    recent_history_messages = history_for_summary[-config_manager.initial_memory_weaver_history_count_global:]
-    recent_history_str = "\n".join([f"- {msg.type}: {msg.content}" for msg in recent_history_messages])
+    history_for_summary = [m for m in messages if not isinstance(m, SystemMessage)][-config_manager.initial_memory_weaver_history_count_global:]
+    recent_history_str = "\n".join([f"- {msg.type}: {msg.content}" for msg in history_for_summary])
     summarizer_prompt = MEMORY_WEAVER_PROMPT_TEMPLATE.format(character_name=character_name, long_term_memories=long_term_memories_str, recent_history=recent_history_str)
     llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
     summary_text = llm_flash.invoke(summarizer_prompt).content
-    print(f"  - 生成された状況サマリー:\n{summary_text}")
-    synthesized_context_message = SystemMessage(content=f"【現在の状況サマリー】\n{summary_text}")
-    return {"synthesized_context": synthesized_context_message}
 
-
-def aether_weaver_node(state: AgentState):
-    # (このノードの中身は変更なし)
-    print("--- 時空編纂ノード (aether_weaver_node) 実行 ---")
-    character_name = state['character_name']
-    api_key = state['api_key']
+    # 時空の編纂者 (Aether Weaver)
     location_from_file = "living_space"
     try:
-        base_path = os.path.join("characters", character_name)
-        location_file_path = os.path.join(base_path, "current_location.txt")
+        location_file_path = os.path.join("characters", character_name, "current_location.txt")
         if os.path.exists(location_file_path):
             with open(location_file_path, 'r', encoding='utf-8') as f:
-                content_in_file = f.read().strip()
-                if content_in_file: location_from_file = content_in_file
-    except Exception as e: print(f"  - 警告: 現在地ファイルの読み込み中にエラー: {e}")
+                content = f.read().strip()
+                if content: location_from_file = content
+    except Exception as e: print(f"  - 警告: 現在地ファイル読込エラー: {e}")
     found_id = find_location_id_by_name.invoke({"location_name": location_from_file, "character_name": character_name})
-    current_location_id = found_id if found_id and not found_id.startswith("【エラー】") else location_from_file
-    space_definition_json = read_memory_by_path.invoke({"path": f"living_space.{current_location_id}", "character_name": character_name})
-    if "エラー" in space_definition_json:
-         space_definition_json = read_memory_by_path.invoke({"path": "living_space", "character_name": character_name})
+    space_def = read_memory_by_path.invoke({"path": f"living_space.{found_id if found_id and not found_id.startswith('【エラー】') else location_from_file}", "character_name": character_name})
     now = datetime.now()
-    current_time_str = now.strftime('%H:%M')
-    seasons = {12: "冬", 1: "冬", 2: "冬", 3: "春", 4: "春", 5: "春", 6: "夏", 7: "夏", 8: "夏", 9: "秋", 10: "秋", 11: "秋"}
-    current_season = seasons[now.month]
-    dialogue_context = state['synthesized_context'].content
-    prompt = """あなたは、情景描写の専門家である「ワールド・アーティスト」です。以下の3つの情報を基に、五感を刺激するような、臨場感あふれ精緻で写実的な「現在の情景」を、1～2文の簡潔で美しい文章で描写してください。人物描写やあなたの思考や挨拶は不要です。描写したテキストのみを出力してください。
----
-### 1. 空間の基本定義 (JSON形式)
-{space_definition_json}
-### 2. 現在の時刻と季節
-- 時刻: {current_time_str}
-- 季節: {current_season}
-### 3. 現在の対話の状況
-{dialogue_context}
----
-現在の情景:
-""".format(
-    space_definition_json=space_definition_json,
-    current_time_str=current_time_str,
-    current_season=current_season,
-    dialogue_context=dialogue_context
-)
-    llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
-    scenery_text = llm_flash.invoke(prompt).content
-    print(f"  - 生成された情景描写:\n{scenery_text}")
-    return {"current_scenery": scenery_text}
+    scenery_prompt = f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')}\n季節:{now.month}月\n対話状況:{summary_text}\n以上の情報から1-2文で簡潔かつ美しい情景を描写:"
+    scenery_text = llm_flash.invoke(scenery_prompt).content
 
-def actor_node(state: AgentState):
-    # ★★★ actor_nodeはツールをバインドするように変更 ★★★
-    print("--- 主演ノード (actor_node) 実行 ---")
-    character_name = state['character_name']
-    api_key = state['api_key']
-
-    # (プロンプト読み込み部分は変更なし)
+    # キャラクタープロンプトとコアメモリ
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
     character_prompt = ""
@@ -128,72 +77,88 @@ def actor_node(state: AgentState):
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
-    # (システムプロンプト結合部分は変更なし)
-    final_system_prompt_text = """
-{actor_prompt}
-
+    final_system_prompt_text = f"""
+{ACTOR_PROMPT_TEMPLATE.format(character_name=character_name, character_prompt=character_prompt, core_memory=core_memory)}
 ---
-{synthesized_context}
-
+【現在の状況サマリー】
+{summary_text}
 【現在の情景】
-{current_scenery}
+{scenery_text}
 ---
-""".format(
-    actor_prompt=ACTOR_PROMPT_TEMPLATE.format(
-        character_name=character_name,
-        character_prompt=character_prompt,
-        core_memory=core_memory
-    ),
-    synthesized_context=state['synthesized_context'].content,
-    current_scenery=state['current_scenery']
-)
-    # (メッセージリスト構築部分は変更なし)
-    messages_for_actor = [
-        SystemMessage(content=final_system_prompt_text)
-    ]
-    messages_for_actor.extend([msg for msg in state['messages'] if not isinstance(msg, SystemMessage)])
+"""
+    return {"messages": [SystemMessage(content=final_system_prompt_text, name="context_update")]}
 
-    # ★★★ モデルにツールをバインドする ★★★
-    llm_actor = get_configured_llm("gemini-2.5-pro", api_key)
-    llm_with_tools = llm_actor.bind_tools(all_tools)
+def actor_node(state: AgentState):
+    """コンテキストに基づき、ツール使用or応答生成を行うノード"""
+    print("--- 主演ノード (actor_node) 実行 ---")
+    llm_pro = get_configured_llm("gemini-2.5-pro", state['api_key'])
+    llm_with_tools = llm_pro.bind_tools(all_tools)
 
-    print(f"  - Actor(Pro)への入力メッセージ数: {len(messages_for_actor)}")
+    # コンテキスト生成ノードが作ったシステムプロンプトと、それ以降の履歴を渡す
+    messages_for_actor = [msg for msg in state['messages'] if msg.name == "context_update" or not isinstance(msg, SystemMessage)]
     response = llm_with_tools.invoke(messages_for_actor)
     return {"messages": [response]}
 
-# ★★★ ここからが新しいグラフ構造 ★★★
+def tool_executor_node(state: AgentState):
+    """AIが要求したツールを、必要なAPIキーと共に実行するノード"""
+    print("--- ツール実行ノード (tool_executor_node) 実行 ---")
+    tool_calls = state["messages"][-1].tool_calls
+    tool_outputs = []
 
-# ツール実行ノードを定義
-tool_node = ToolNode(all_tools)
+    for call in tool_calls:
+        tool_name = call["name"]
+        tool_args = call["args"]
+        print(f"  - 実行対象: {tool_name}, 引数: {tool_args}")
 
-# ツールを使うべきか判断する条件分岐関数
-def should_continue(state):
-    last_message = state["messages"][-1]
-    if last_message.tool_calls:
-        return "continue_tool"
-    return "end"
+        # Tavily検索ツールの場合、configからキーを追加
+        if tool_name == "web_search_tool":
+            tool_args["api_key"] = config_manager.TAVILY_API_KEY
 
-# グラフの構築
+        # 他のツールでAPIキーが必要な場合もここに追加できる
+
+        found_tool = False
+        for tool in all_tools:
+            if tool.name == tool_name:
+                try:
+                    output = tool.invoke(tool_args)
+                    tool_outputs.append(
+                        ToolMessage(content=str(output), tool_call_id=call["id"])
+                    )
+                    found_tool = True
+                    break
+                except Exception as e:
+                    tool_outputs.append(
+                        ToolMessage(content=f"ツール実行エラー: {e}", tool_call_id=call["id"])
+                    )
+                    found_tool = True
+                    break
+
+        if not found_tool:
+            tool_outputs.append(
+                ToolMessage(content=f"エラー: ツール '{tool_name}' が見つかりません。", tool_call_id=call["id"])
+            )
+
+    return {"messages": tool_outputs}
+
+# --- 4. グラフ構築 ---
 workflow = StateGraph(AgentState)
-workflow.add_node("memory_weaver", memory_weaver_node)
-workflow.add_node("aether_weaver", aether_weaver_node)
+workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("actor", actor_node)
-workflow.add_node("tool_executor", tool_node)
+# ToolNodeの代わりに、新しい手動実行ノードを登録
+workflow.add_node("tool_executor", tool_executor_node)
 
-workflow.add_edge(START, "memory_weaver")
-workflow.add_edge("memory_weaver", "aether_weaver")
-workflow.add_edge("aether_weaver", "actor")
+workflow.add_edge(START, "context_generator")
+workflow.add_edge("context_generator", "actor")
 
 workflow.add_conditional_edges(
     "actor",
-    should_continue,
+    tools_condition,
     {
-        "continue_tool": "tool_executor",
-        "end": END,
+        "tools": "tool_executor",
+        END: END,
     },
 )
-# ツール実行後、再度コンテキスト生成からやり直す
-workflow.add_edge("tool_executor", "memory_weaver")
+workflow.add_edge("tool_executor", "actor")
 
 app = workflow.compile()
-print("--- ツール実行ループを持つエージェントグラフがコンパイルされました ---")
+print("--- APIキー制御機能付きリアクティブ・エージェントがコンパイルされました ---")

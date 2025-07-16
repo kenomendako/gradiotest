@@ -49,7 +49,9 @@ initial_alarm_model_global = DEFAULT_ALARM_MODEL
 initial_alarm_api_history_turns_global = DEFAULT_ALARM_API_HISTORY_TURNS
 initial_notification_webhook_url_global = DEFAULT_NOTIFICATION_WEBHOOK_URL
 initial_memory_weaver_history_count_global = DEFAULT_MEMORY_WEAVER_HISTORY_COUNT
+initial_tavily_api_key_global = None # ★追加
 API_KEYS = {}
+TAVILY_API_KEY = "" # ★追加
 AVAILABLE_MODELS_GLOBAL = []
 DEFAULT_MODEL_GLOBAL = None
 
@@ -77,7 +79,8 @@ def load_config():
         "alarm_model": DEFAULT_ALARM_MODEL,
         "alarm_api_history_turns": DEFAULT_ALARM_API_HISTORY_TURNS,
         "notification_webhook_url": DEFAULT_NOTIFICATION_WEBHOOK_URL, # デフォルト値を追加
-        "memory_weaver_history_count": DEFAULT_MEMORY_WEAVER_HISTORY_COUNT
+        "memory_weaver_history_count": DEFAULT_MEMORY_WEAVER_HISTORY_COUNT,
+        "tavily_api_key": "YOUR_TAVILY_API_KEY_HERE"
     }
     config = {}
     if not os.path.exists(CONFIG_FILE):
@@ -132,6 +135,9 @@ def load_config():
     initial_memory_weaver_history_count_global = config.get("memory_weaver_history_count", DEFAULT_MEMORY_WEAVER_HISTORY_COUNT)
     if not isinstance(initial_memory_weaver_history_count_global, int) or initial_memory_weaver_history_count_global <= 0:
         initial_memory_weaver_history_count_global = DEFAULT_MEMORY_WEAVER_HISTORY_COUNT
+
+    global TAVILY_API_KEY
+    TAVILY_API_KEY = config.get("tavily_api_key", default_config["tavily_api_key"])
 
     needs_update = False
     for key, default_value in default_config.items():
