@@ -25,7 +25,7 @@ all_tools = [
     update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
     read_url_tool, diary_search_tool, conversation_memory_search_tool
 ]
-tool_node = ToolNode(all_tools)
+# tool_node = ToolNode(all_tools) # ★★★ この行は使用しませんが、参考のために残しても良いです
 
 # --- 2. 状態定義の修正 ---
 class AgentState(TypedDict):
@@ -103,38 +103,60 @@ def actor_node(state: AgentState):
     return {"messages": [response]}
 
 def tool_executor_node(state: AgentState):
-    # (このノードは変更なし)
+    """ツールを実行し、その結果を返すノード。"""
     print("--- ツール実行ノード (tool_executor_node) 実行 ---")
     tool_calls = state["messages"][-1].tool_calls
-    if not tool_calls: return {}
+    if not tool_calls:
+        print("  - 警告: tool_callsが空のため、ツール実行をスキップします。")
+        return {} # ツール呼び出しがなければ何もせずに終了
+
     tool_outputs = []
     for call in tool_calls:
         tool_name, tool_args = call["name"], call["args"]
         print(f"  - 実行対象: {tool_name}, 引数: {tool_args}")
+
+        # ツールが必要とする共通の引数を追加
         tool_args.update({'character_name': state['character_name'], 'api_key': state['api_key']})
-        if tool_name == "web_search_tool": tool_args["api_key"] = state['tavily_api_key']
+        if tool_name == "web_search_tool":
+            tool_args["api_key"] = state['tavily_api_key'] # Web検索ツールにはTavilyキーを渡す
+
+        # all_toolsリストから該当するツールを探す
         found_tool = next((t for t in all_tools if t.name == tool_name), None)
+
         if found_tool:
             try:
+                # ツールを実行し、結果をToolMessageとして追加
                 output = found_tool.invoke(tool_args)
                 tool_outputs.append(ToolMessage(content=str(output), tool_call_id=call["id"]))
             except Exception as e:
+                # ツール実行中のエラーハンドリング
+                print(f"  - エラー: ツール '{tool_name}' の実行中にエラーが発生しました: {e}")
+                traceback.print_exc()
                 tool_outputs.append(ToolMessage(content=f"ツール実行エラー: {e}", tool_call_id=call["id"]))
         else:
+            # ツールが見つからない場合のエラーメッセージ
+            print(f"  - エラー: ツール '{tool_name}' が見つかりません。")
             tool_outputs.append(ToolMessage(content=f"エラー: ツール '{tool_name}' が見つかりません。", tool_call_id=call["id"]))
+
+    # 状態の 'messages' を更新するために、辞書形式で返す
     return {"messages": tool_outputs}
 
 # --- 5. グラフ構築 ---
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("actor", actor_node)
-workflow.add_node("tool_executor", tool_node)
+# ★★★ ここを修正: tool_nodeインスタンスではなく、tool_executor_node関数を登録 ★★★
+workflow.add_node("tool_executor", tool_executor_node)
 
 workflow.add_edge(START, "context_generator")
 workflow.add_edge("context_generator", "actor")
 
-workflow.add_conditional_edges("actor", tools_condition, {"tools": "tool_executor", END: END})
+workflow.add_conditional_edges(
+    "actor",
+    tools_condition,
+    {"tools": "tool_executor", END: END}
+)
 workflow.add_edge("tool_executor", "context_generator")
 
 app = workflow.compile()
-print("--- 最終版v3：リアクティブ・単一アクターモデルのグラフがコンパイルされました ---")
+print("--- 最終版v4：リアクティブ・単一アクターモデルのグラフがコンパイルされました ---")

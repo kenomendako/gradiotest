@@ -13,6 +13,7 @@ from agent.graph import app
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import config_manager
 import utils
+import mem0_manager # ★★★ この行を追加 ★★★
 from character_manager import get_character_files_paths
 
 # ★★★ ここから、失われた、関数を、復元 ★★★
