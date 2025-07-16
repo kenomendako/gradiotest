@@ -88,7 +88,7 @@ def handle_message_submission(*args: Any):
 
     final_response_text = ""
     try:
-        final_response_text = gemini_api.get_nexus_agent_response(*args)
+        final_response_text = gemini_api.invoke_nexus_agent(*args)
     except Exception as e:
         traceback.print_exc()
         final_response_text = f"[UIハンドラエラー: {e}]"
