@@ -50,7 +50,7 @@ def memory_weaver_node(state: AgentState):
     recent_history_str = "\n".join([f"- {msg.type}: {msg.content}" for msg in recent_history_messages])
 
     summarizer_prompt = MEMORY_WEAVER_PROMPT_TEMPLATE.format(character_name=character_name, long_term_memories=long_term_memories_str, recent_history=recent_history_str)
-    llm_flash = get_configured_llm("gemini-1.5-flash-latest", api_key)
+    llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
     summary_text = llm_flash.invoke(summarizer_prompt).content
     print(f"  - 生成された状況サマリー:\n{summary_text}")
     synthesized_context_message = SystemMessage(content=f"【現在の状況サマリー】\n{summary_text}")
@@ -95,7 +95,7 @@ def aether_weaver_node(state: AgentState):
 ---
 現在の情景:
 """
-    llm_flash = get_configured_llm("gemini-1.5-flash-latest", api_key)
+    llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
     scenery_text = llm_flash.invoke(prompt).content
     print(f"  - 生成された情景描写:\n{scenery_text}")
     return {"current_scenery": scenery_text}
@@ -127,7 +127,7 @@ def actor_node(state: AgentState):
     ]
     messages_for_actor.extend([msg for msg in state['messages'] if not isinstance(msg, SystemMessage)])
 
-    llm_actor = get_configured_llm("gemini-2.5-pro-latest", api_key)
+    llm_actor = get_configured_llm("gemini-2.5-pro", api_key)
 
     print(f"  - Actor(Pro)への入力メッセージ数: {len(messages_for_actor)}")
     response = llm_actor.invoke(messages_for_actor)
