@@ -41,26 +41,15 @@ def get_configured_llm(model_name: str, api_key: str):
 # --- 3. グラフのノード定義 ---
 
 def context_generator_node(state: AgentState):
-    """【舞台裏】思考の前に、状況サマリーと情景描写を生成・統合するノード"""
+    """【舞台裏】情景描写のみを生成し、システムプロンプトを準備するノード"""
     print("--- コンテキスト生成ノード (context_generator_node) 実行 ---")
     character_name = state['character_name']
     api_key = state['api_key']
-    messages = state['messages']
 
-    history_messages = [msg for msg in messages if not isinstance(msg, SystemMessage)]
+    # ★★★ 状況サマリー（Memory Weaver）のロジックを完全に削除 ★★★
 
+    # 時空の編纂者 (Aether Weaver)
     llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
-
-    # 記憶の織り手
-    last_message_obj = next((msg for msg in reversed(history_messages) if not isinstance(msg, SystemMessage)), None)
-    search_query = str(last_message_obj.content) if last_message_obj else "直近の出来事"
-    long_term_memories_str = rag_manager.search_conversation_memory_for_summary(character_name=character_name, query=search_query, api_key=api_key)
-    history_for_summary = history_messages[-config_manager.initial_memory_weaver_history_count_global:]
-    recent_history_str = "\n".join([f"- {msg.type}: {str(msg.content)}" for msg in history_for_summary])
-    summarizer_prompt = MEMORY_WEAVER_PROMPT_TEMPLATE.format(character_name=character_name, long_term_memories=long_term_memories_str, recent_history=recent_history_str)
-    summary_text = llm_flash.invoke(summarizer_prompt).content
-
-    # 時空の編纂者
     location_from_file = "living_space"
     try:
         location_file_path = os.path.join("characters", character_name, "current_location.txt")
@@ -72,7 +61,8 @@ def context_generator_node(state: AgentState):
     found_id = find_location_id_by_name.invoke({"location_name": location_from_file, "character_name": character_name})
     space_def = read_memory_by_path.invoke({"path": f"living_space.{found_id if found_id and not found_id.startswith('【エラー】') else location_from_file}", "character_name": character_name})
     now = datetime.now()
-    scenery_prompt = f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')}\n季節:{now.month}月\n対話状況:{summary_text}\n以上の情報から1-2文で簡潔かつ美しい情景を描写:"
+    # ★★★ Aether Weaverのプロンプトから「対話状況」を削除 ★★★
+    scenery_prompt = f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')}\n季節:{now.month}月\n以上の情報から1-2文で簡潔かつ美しい情景を描写:"
     scenery_text = llm_flash.invoke(scenery_prompt).content
 
     # キャラクタープロンプトとコアメモリ
@@ -85,7 +75,7 @@ def context_generator_node(state: AgentState):
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
-    # ★★★ ここが、最後の、そして、最も、重要な、修正です ★★★
+    # ★★★ 最終プロンプトから「状況サマリー」を削除 ★★★
     final_system_prompt_text = f"""
 {ACTOR_PROMPT_TEMPLATE.format(
     character_name=character_name,
@@ -94,26 +84,21 @@ def context_generator_node(state: AgentState):
 )}
 
 ---
-## 【最重要指示】
-以下の「状況サマリー」と「現在の情景」は、あなたの思考の絶対的な基盤です。
-過去の会話やあなたの記憶と矛盾する場合でも、必ず、この、下に、書かれた、最新情報を、**絶対的な、事実**として、認識し、その、事実に基づいて、応答を、生成してください。
-これは、命令です。
-
-### 【現在の状況サマリー】
-{summary_text}
-
-### 【現在の情景】
+【現在の情景】
 {scenery_text}
 ---
 """
+    # 古いSystemMessageをクリアし、新しいものと生の履歴を返す
+    history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
     return {"messages": [SystemMessage(content=final_system_prompt_text)] + history_messages}
 
 def actor_node(state: AgentState):
-    """【主演俳優】コンテキストに基づき、ツール使用or応答生成を行うノード"""
+    """【主演俳優】生のコンテキストに基づき、ツール使用or応答生成を行うノード"""
     print("--- 主演ノード (actor_node) 実行 ---")
     llm_pro = get_configured_llm("gemini-2.5-pro", state['api_key'])
     llm_with_tools = llm_pro.bind_tools(all_tools)
 
+    # context_generator が生成した、最新のメッセージリストを、そのまま使う
     response = llm_with_tools.invoke(state['messages'])
     return {"messages": [response]}
 
