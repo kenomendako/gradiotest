@@ -77,105 +77,55 @@ def handle_message_submission(*args: Any):
      send_notepad_state, use_common_prompt_state) = args
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
-    parts_for_api, attached_filenames_for_log = [], []
-    if user_prompt_from_textbox: parts_for_api.append(user_prompt_from_textbox)
-    if file_input_list:
-        for file_wrapper in file_input_list:
-            if not file_wrapper: continue
-            attached_filenames_for_log.append(os.path.basename(file_wrapper.name))
-            try: parts_for_api.append(Image.open(file_wrapper.name))
-            except Exception:
-                try:
-                    with open(file_wrapper.name, 'r', encoding='utf-8') as f: parts_for_api.append(f.read())
-                except Exception as e2: print(f"ファイル処理エラー: {e2}")
-
-    if not parts_for_api:
-        yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
+    if not user_prompt_from_textbox:
         return
 
     log_message_content = user_prompt_from_textbox
-    if attached_filenames_for_log: log_message_content += "\n[ファイル添付: " + ", ".join(attached_filenames_for_log) + "]"
     
     chatbot_history.append({"role": "user", "content": log_message_content})
-    # 「思考中」のインジケーターを表示
     chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
     yield chatbot_history, gr.update(value=""), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 
-    full_response = ""
+    final_response_text = ""
     try:
-        # 新しい一括応答関数を呼び出します
-        full_response = gemini_api.get_nexus_agent_response(*args)
-        chatbot_history[-1]["content"] = full_response
+        # エージェントを呼び出し、最終応答を取得
+        final_response_text = gemini_api.get_nexus_agent_response(*args)
     except Exception as e:
         traceback.print_exc()
-        chatbot_history[-1]["content"] = f"[APIハンドラエラー: {e}]"
+        final_response_text = f"[UIハンドラエラー: {e}]"
 
-    # UIを最終的な応答で更新
-    yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
-
-    final_response_text = full_response
-
-    # (from line "tool_code_match = ... " )
-
-    tool_code_match = re.search(r"<tool_code>(.*?)</tool_code>", final_response_text, re.DOTALL)
+    # --- ここから、ツールコードの手動解析ロジックを全て削除 ---
+    # ↓↓↓↓↓↓
     tool_output_for_log = ""
+    tool_code_match = re.search(r"<tool_code>(.*?)</tool_code>", final_response_text, re.DOTALL)
     if tool_code_match:
-        # (このifブロックの中身は変更なし)
         code_to_run = tool_code_match.group(1).strip()
-        print(f"--- 検出されたツールコードを解析・実行します ---\n{code_to_run}\n------------------------------------")
-        
-        from tools.space_tools import set_current_location, find_location_id_by_name
-        from tools.memory_tools import edit_memory
-        available_tools = {"set_current_location": set_current_location, "find_location_id_by_name": find_location_id_by_name, "edit_memory": edit_memory}
-        
-        code_to_parse = code_to_run
-        if code_to_parse.startswith("print(") and code_to_parse.endswith(")"):
-            code_to_parse = code_to_parse[6:-1]
-        
-        call_match = re.search(r"(\w+)\((.*)\)", code_to_parse)
-        if call_match:
-            tool_name, args_str = call_match.group(1).strip(), call_match.group(2).strip()
-            if tool_name in available_tools:
-                try:
-                    tool_args = {}
-                    if args_str:
-                       arg_parts = re.split(r",\s*(?=\w+=)", args_str)
-                       tool_args = {part.split('=', 1)[0].strip(): part.split('=', 1)[1].strip().strip("'\"") for part in arg_parts}
-                    if 'character_name' not in tool_args: tool_args['character_name'] = current_character_name
-                    tool_output_for_log = str(available_tools[tool_name].invoke(tool_args))
-                    print(f"--- ツール '{tool_name}' 実行成功。出力: {tool_output_for_log} ---")
-                except Exception as e_tool: tool_output_for_log = f"【ツール実行エラー】: {e_tool}"; print(tool_output_for_log); traceback.print_exc()
-            else: tool_output_for_log = f"【実行エラー】: 不明なツール '{tool_name}' です。"
-        else: tool_output_for_log = f"【解析エラー】: 実行可能なコード形式ではありません。"
-        
-        final_response_text = re.sub(r"<tool_code>.*?</tool_code>", "", final_response_text, flags=re.DOTALL).strip()
-        if tool_output_for_log: final_response_text += f"\n\n*[システムログ: ツール実行結果: {tool_output_for_log}]*"
+        print(f"--- UIハンドラがツールコードを検出（エージェントが処理するはずなので、ここでは実行しません） ---\n{code_to_run}\n------------------------------------")
+        # 新しいアーキテクチャでは、ツール実行はエージェントの外部（UI側）では行わない。
+        # しかし、AIがツールを使ったという事実をログに残すことは有益かもしれない。
+        # ここではシンプルにするため、何もしない。
+    # ↑↑↑↑↑↑
 
+    # ログ保存と記憶
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
     final_log_message = log_message_content.strip() + timestamp
     if final_log_message.strip():
         user_header = _get_user_header_from_log(log_f, current_character_name)
         save_message_to_log(log_f, user_header, final_log_message)
-        if final_response_text: save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
+        if final_response_text:
+            save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
         try:
             api_key = config_manager.API_KEYS.get(current_api_key_name_state)
-            if api_key and not api_key.startswith("YOUR_API_KEY") and final_log_message.strip() and final_response_text and not final_response_text.startswith("[エラー"):
+            if api_key and not api_key.startswith("YOUR_API_KEY") and not final_response_text.startswith("[エラー"):
                 mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
+                clean_response_for_mem0 = re.sub(r"【Thoughts】.*?【/Thoughts】", "", final_response_text, flags=re.DOTALL).strip()
+                mem0_instance.add([{"role": "user", "content": final_log_message.strip()}, {"role": "assistant", "content": clean_response_for_mem0}], user_id=current_character_name)
+        except Exception as mem0_e:
+            print(f"Mem0記憶エラー: {mem0_e}")
 
-                # ★★★ 修正点2: mem0用のクリーンロジックをより堅牢な方法に変更 ★★★
-                # `split()` を使って、確実にシステムログ部分を除去する
-                clean_api_response = final_response_text.split("*[システムログ:")[0].strip()
-                # `re.sub` を使って【Thoughts】タグを除去する
-                clean_api_response_for_mem0 = re.sub(r"【Thoughts】.*?【/Thoughts】", "", clean_api_response, flags=re.DOTALL).strip()
-
-                mem0_instance.add([{"role": "user", "content": final_log_message.strip()}, {"role": "assistant", "content": clean_api_response_for_mem0}], user_id=current_character_name)
-
-        except Exception as mem0_e: print(f"Mem0記憶エラー: {mem0_e}")
-
-    # ★★★ 修正点1: UIに表示する前に、整形関数を呼び出す ★★★
+    # UIを最終的な応答で更新
     chatbot_history[-1]["content"] = utils.format_response_for_display(final_response_text)
-
     yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 
 # (ここに、最初のXMLにあった他の全ての関数が、そのままの形で含まれます)
