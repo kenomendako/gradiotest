@@ -114,16 +114,29 @@ def actor_node(state: AgentState):
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
-    system_prompt_text = ACTOR_PROMPT_TEMPLATE.format(
-        character_name=character_name,
-        character_prompt=character_prompt,
-        core_memory=core_memory
-    )
+    # ★★★ ここからが修正の核心 ★★★
+    # 全てのシステム情報を、一つのプロンプト文字列に結合する
+    final_system_prompt_text = f"""
+{ACTOR_PROMPT_TEMPLATE.format(
+    character_name=character_name,
+    character_prompt=character_prompt,
+    core_memory=core_memory
+)}
 
+---
+{state['synthesized_context'].content}
+
+{state['synthesized_context'].content}
+
+【現在の情景】
+{state['current_scenery']}
+---
+"""
+    # ★★★ 修正ここまで ★★★
+
+    # メッセージリストを、単一のSystemMessageと、それ以外の履歴で構成する
     messages_for_actor = [
-        SystemMessage(content=system_prompt_text),
-        state['synthesized_context'],
-        SystemMessage(content=f"【現在の情景】\n{state['current_scenery']}")
+        SystemMessage(content=final_system_prompt_text)
     ]
     messages_for_actor.extend([msg for msg in state['messages'] if not isinstance(msg, SystemMessage)])
 
