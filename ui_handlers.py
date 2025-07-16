@@ -88,23 +88,12 @@ def handle_message_submission(*args: Any):
 
     final_response_text = ""
     try:
-        # エージェントを呼び出し、最終応答を取得
         final_response_text = gemini_api.get_nexus_agent_response(*args)
     except Exception as e:
         traceback.print_exc()
         final_response_text = f"[UIハンドラエラー: {e}]"
 
-    # --- ここから、ツールコードの手動解析ロジックを全て削除 ---
-    # ↓↓↓↓↓↓
-    tool_output_for_log = ""
-    tool_code_match = re.search(r"<tool_code>(.*?)</tool_code>", final_response_text, re.DOTALL)
-    if tool_code_match:
-        code_to_run = tool_code_match.group(1).strip()
-        print(f"--- UIハンドラがツールコードを検出（エージェントが処理するはずなので、ここでは実行しません） ---\n{code_to_run}\n------------------------------------")
-        # 新しいアーキテクチャでは、ツール実行はエージェントの外部（UI側）では行わない。
-        # しかし、AIがツールを使ったという事実をログに残すことは有益かもしれない。
-        # ここではシンプルにするため、何もしない。
-    # ↑↑↑↑↑↑
+    # --- ツールコードの手動解析ロジックを完全に削除 ---
 
     # ログ保存と記憶
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
@@ -114,13 +103,17 @@ def handle_message_submission(*args: Any):
         user_header = _get_user_header_from_log(log_f, current_character_name)
         save_message_to_log(log_f, user_header, final_log_message)
         if final_response_text:
+            # ツールを使った場合、その旨をログに残す
+            if "<tool_code>" in final_response_text:
+                 save_message_to_log(log_f, f"## {current_character_name}:", "(ツールを使用しました)")
             save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
         try:
             api_key = config_manager.API_KEYS.get(current_api_key_name_state)
             if api_key and not api_key.startswith("YOUR_API_KEY") and not final_response_text.startswith("[エラー"):
                 mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
-                clean_response_for_mem0 = re.sub(r"【Thoughts】.*?【/Thoughts】", "", final_response_text, flags=re.DOTALL).strip()
-                mem0_instance.add([{"role": "user", "content": final_log_message.strip()}, {"role": "assistant", "content": clean_response_for_mem0}], user_id=current_character_name)
+                clean_response_for_mem0 = re.sub(r"【Thoughts】.*?【/Thoughts】|<tool_code>.*?</tool_code>", "", final_response_text, flags=re.DOTALL).strip()
+                if clean_response_for_mem0: # 空でなければ記憶
+                    mem0_instance.add([{"role": "user", "content": final_log_message.strip()}, {"role": "assistant", "content": clean_response_for_mem0}], user_id=current_character_name)
         except Exception as mem0_e:
             print(f"Mem0記憶エラー: {mem0_e}")
 
