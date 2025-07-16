@@ -114,7 +114,7 @@ def actor_node(state: AgentState):
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
-    # ★★★ ここからが修正の核心 ★★★
+    # ★★★ ここが修正された正しいバージョンです ★★★
     # 全てのシステム情報を、一つのプロンプト文字列に結合する
     final_system_prompt_text = f"""
 {ACTOR_PROMPT_TEMPLATE.format(
@@ -124,8 +124,6 @@ def actor_node(state: AgentState):
 )}
 
 ---
-{state['synthesized_context'].content}
-
 {state['synthesized_context'].content}
 
 【現在の情景】
