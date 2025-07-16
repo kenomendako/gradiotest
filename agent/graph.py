@@ -36,7 +36,7 @@ class AgentState(TypedDict):
     current_scenery: str
 
 def get_configured_llm(model_name: str, api_key: str):
-    return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, convert_system_message_to_human=True)
+    return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, convert_system_message_to_human=False) # ★★★ TrueからFalseに変更 ★★★
 
 def memory_weaver_node(state: AgentState):
     # (このノードの中身は変更なし)
