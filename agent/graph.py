@@ -44,33 +44,51 @@ def get_configured_llm(model_name: str, api_key: str):
 # --- 4. グラフのノード定義 ---
 
 def context_generator_node(state: AgentState):
-    """舞台裏：情景描写などを生成し、システムプロンプトとして返すノード"""
+    """【舞台裏】情景描写のみを生成し、システムプロンプトを準備するノード"""
     print("--- コンテキスト生成ノード (context_generator_node) 実行 ---")
     character_name = state['character_name']
     api_key = state['api_key']
-    messages = state['messages']
 
-    llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
+    # 古いSystemMessageを履歴から取り除く
+    history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
 
-    # ★★★ 状況サマリー生成は、廃止 ★★★
+    # ★★★ ここからが修正の核心 ★★★
+    # 状況サマリー生成（Memory Weaver）に関する、全てのロジックを、完全に削除。
+    # これにより、不要で、不安定な、API呼び出しが、無くなります。
 
     # 時空の編纂者 (Aether Weaver)
-    location_from_file = "living_space"
+    scenery_text = "" # デフォルト値を設定
     try:
-        location_file_path = os.path.join("characters", character_name, "current_location.txt")
-        if os.path.exists(location_file_path):
-            with open(location_file_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                if content: location_from_file = content
-    except Exception as e: print(f"  - 警告: 現在地ファイル読込エラー: {e}")
-    found_id = find_location_id_by_name.invoke({"location_name": location_from_file, "character_name": character_name})
-    space_def = read_memory_by_path.invoke({"path": f"living_space.{found_id if found_id and not found_id.startswith('【エラー】') else location_from_file}", "character_name": character_name})
-    now = datetime.now()
-    # ★★★ 対話状況のサマリーは不要なので、プロンプトから削除 ★★★
-    scenery_prompt = f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')}\n季節:{now.month}月\n以上の情報から1-2文で簡潔かつ美しい情景を描写:"
-    scenery_text = llm_flash.invoke(scenery_prompt).content
+        llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
+        location_from_file = "living_space"
+        try:
+            location_file_path = os.path.join("characters", character_name, "current_location.txt")
+            if os.path.exists(location_file_path):
+                with open(location_file_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if content: location_from_file = content
+        except Exception as e: print(f"  - 警告: 現在地ファイル読込エラー: {e}")
 
-    # キャラクタープロンプトとコアメモリ
+        found_id = find_location_id_by_name.invoke({"location_name": location_from_file, "character_name": character_name})
+        space_def = read_memory_by_path.invoke({"path": f"living_space.{found_id if found_id and not found_id.startswith('【エラー】') else location_from_file}", "character_name": character_name})
+
+        # memory.jsonに場所の定義がない場合のエラーハンドリング
+        if "エラー" in space_def:
+            print(f"  - 警告: 場所「{location_from_file}」の定義が見つかりません。デフォルトの描写を使用します。")
+            scenery_text = "（特定の場所の描写はありません）"
+        else:
+            now = datetime.now()
+            # プロンプトを簡素化し、サマリーへの依存をなくす
+            scenery_prompt = f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')}\n季節:{now.month}月\n以上の情報から1-2文で簡潔かつ美しい情景を描写:"
+            scenery_text = llm_flash.invoke(scenery_prompt).content
+            print(f"  - 生成された情景描写: {scenery_text}")
+
+    except Exception as e:
+        print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---")
+        print(traceback.format_exc())
+        scenery_text = "（エラーにより、現在の情景を描写できませんでした）"
+
+    # キャラクタープロンプトとコアメモリの読み込み
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
     character_prompt = ""
@@ -80,7 +98,7 @@ def context_generator_node(state: AgentState):
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
-    # ★★★ 最終プロンプトから、サマリーを、完全に、削除 ★★★
+    # 最終的なシステムプロンプトから【状況サマリー】を完全に削除
     final_system_prompt_text = f"""
 {ACTOR_PROMPT_TEMPLATE.format(
     character_name=character_name,
@@ -93,8 +111,8 @@ def context_generator_node(state: AgentState):
 {scenery_text}
 ---
 """
-    # ★★★ `system_prompt`キーに、結果を、格納して、返す ★★★
-    return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
+    # `messages`キーで返すことで、actor_nodeがそのまま使えるようにする
+    return {"messages": [SystemMessage(content=final_system_prompt_text)] + history_messages}
 
 def actor_node(state: AgentState):
     """主演俳優：コンテキストと生の履歴に基づき、思考するノード"""
@@ -102,10 +120,8 @@ def actor_node(state: AgentState):
     llm_pro = get_configured_llm("gemini-2.5-pro", state['api_key'])
     llm_with_tools = llm_pro.bind_tools(all_tools)
 
-    # ★★★ `system_prompt`キーから、脚本を、受け取り、生の、履歴と、結合する ★★★
-    messages_for_actor = [state['system_prompt']] + state['messages']
-
-    response = llm_with_tools.invoke(messages_for_actor)
+    # context_generator が生成した、最新のメッセージリストを、そのまま使う
+    response = llm_with_tools.invoke(state['messages'])
     return {"messages": [response]}
 
 # (tool_executor_node は変更なし)
