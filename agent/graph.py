@@ -90,7 +90,7 @@ def aether_weaver_node(state: AgentState):
     seasons = {12: "冬", 1: "冬", 2: "冬", 3: "春", 4: "春", 5: "春", 6: "夏", 7: "夏", 8: "夏", 9: "秋", 10: "秋", 11: "秋"}
     current_season = seasons[now.month]
     dialogue_context = state['synthesized_context'].content
-    prompt = f"""あなたは、情景描写の専門家である「ワールド・アーティスト」です。以下の3つの情報を基に、五感を刺激するような、臨場感あふれ精緻で写実的な「現在の情景」を、1～2文の簡潔で美しい文章で描写してください。人物描写やあなたの思考や挨拶は不要です。描写したテキストのみを出力してください。
+    prompt = """あなたは、情景描写の専門家である「ワールド・アーティスト」です。以下の3つの情報を基に、五感を刺激するような、臨場感あふれ精緻で写実的な「現在の情景」を、1～2文の簡潔で美しい文章で描写してください。人物描写やあなたの思考や挨拶は不要です。描写したテキストのみを出力してください。
 ---
 ### 1. 空間の基本定義 (JSON形式)
 {space_definition_json}
@@ -101,7 +101,12 @@ def aether_weaver_node(state: AgentState):
 {dialogue_context}
 ---
 現在の情景:
-\"\"\"
+""".format(
+    space_definition_json=space_definition_json,
+    current_time_str=current_time_str,
+    current_season=current_season,
+    dialogue_context=dialogue_context
+)
     llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
     scenery_text = llm_flash.invoke(prompt).content
     print(f"  - 生成された情景描写:\n{scenery_text}")
@@ -124,20 +129,24 @@ def actor_node(state: AgentState):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
     # (システムプロンプト結合部分は変更なし)
-    final_system_prompt_text = f\"\"\"
-{ACTOR_PROMPT_TEMPLATE.format(
-    character_name=character_name,
-    character_prompt=character_prompt,
-    core_memory=core_memory
-)}
+    final_system_prompt_text = """
+{actor_prompt}
 
 ---
-{state['synthesized_context'].content}
+{synthesized_context}
 
 【現在の情景】
-{state['current_scenery']}
+{current_scenery}
 ---
-\"\"\"
+""".format(
+    actor_prompt=ACTOR_PROMPT_TEMPLATE.format(
+        character_name=character_name,
+        character_prompt=character_prompt,
+        core_memory=core_memory
+    ),
+    synthesized_context=state['synthesized_context'].content,
+    current_scenery=state['current_scenery']
+)
     # (メッセージリスト構築部分は変更なし)
     messages_for_actor = [
         SystemMessage(content=final_system_prompt_text)
