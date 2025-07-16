@@ -1,6 +1,6 @@
 import os
 from typing import TypedDict, Annotated, List
-from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage
+from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage, ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -99,11 +99,53 @@ def actor_node(state: AgentState):
     response = llm_with_tools.invoke(messages_for_actor)
     return {"messages": [response]}
 
+def tool_executor_node(state: AgentState):
+    """AIが要求したツールを、必要なAPIキーと共に実行するノード"""
+    print("--- ツール実行ノード (tool_executor_node) 実行 ---")
+    tool_calls = state["messages"][-1].tool_calls
+    tool_outputs = []
+
+    for call in tool_calls:
+        tool_name = call["name"]
+        tool_args = call["args"]
+        print(f"  - 実行対象: {tool_name}, 引数: {tool_args}")
+
+        # Tavily検索ツールの場合、configからキーを追加
+        if tool_name == "web_search_tool":
+            tool_args["api_key"] = config_manager.TAVILY_API_KEY
+
+        # 他のツールでAPIキーが必要な場合もここに追加できる
+
+        found_tool = False
+        for tool in all_tools:
+            if tool.name == tool_name:
+                try:
+                    output = tool.invoke(tool_args)
+                    tool_outputs.append(
+                        ToolMessage(content=str(output), tool_call_id=call["id"])
+                    )
+                    found_tool = True
+                    break
+                except Exception as e:
+                    tool_outputs.append(
+                        ToolMessage(content=f"ツール実行エラー: {e}", tool_call_id=call["id"])
+                    )
+                    found_tool = True
+                    break
+
+        if not found_tool:
+            tool_outputs.append(
+                ToolMessage(content=f"エラー: ツール '{tool_name}' が見つかりません。", tool_call_id=call["id"])
+            )
+
+    return {"messages": tool_outputs}
+
 # --- 4. グラフ構築 ---
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("actor", actor_node)
-workflow.add_node("tool_executor", tool_node)
+# ToolNodeの代わりに、新しい手動実行ノードを登録
+workflow.add_node("tool_executor", tool_executor_node)
 
 workflow.add_edge(START, "context_generator")
 workflow.add_edge("context_generator", "actor")
@@ -116,7 +158,7 @@ workflow.add_conditional_edges(
         END: END,
     },
 )
-workflow.add_edge("tool_executor", "actor") # ツール実行後は、再度actorノードに戻り、結果を基に応答を生成する
+workflow.add_edge("tool_executor", "actor")
 
 app = workflow.compile()
-print("--- 最終版：リアクティブ・単一アクターモデルのグラフがコンパイルされました ---")
+print("--- APIキー制御機能付きリアクティブ・エージェントがコンパイルされました ---")
