@@ -168,10 +168,15 @@ tool_node = ToolNode(all_tools)
 
 # ツールを使うべきか判断する条件分岐関数
 def should_continue(state):
+    """AIの応答に<tool_code>が含まれているかチェックする"""
     last_message = state["messages"][-1]
-    if last_message.tool_calls:
+    # AIの応答(content)内に <tool_code> という文字列が含まれているかをチェック
+    if isinstance(last_message.content, str) and "<tool_code>" in last_message.content:
+        print("--- ツールコードを検出。ツール実行ノードへ ---")
         return "continue_tool"
-    return "end"
+    else:
+        print("--- ツールコードなし。グラフを終了 ---")
+        return "end"
 
 # グラフの構築
 workflow = StateGraph(AgentState)
