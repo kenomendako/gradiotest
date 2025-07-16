@@ -7,9 +7,10 @@ import os
 import google.genai as genai
 from character_manager import get_character_files_paths
 from memory_manager import load_memory_data_safe
+from typing import Any
 
 @tool
-def edit_memory(path: str, value: any, operation: str, character_name: str = None) -> str:
+def edit_memory(path: str, value: Any, operation: str, character_name: str = None) -> str: # ★★★ any を Any に変更 ★★★
     """
     記憶（memory.json）の指定した場所を編集する。
     path: ドット記法で編集場所を指定（例: "self_identity.values"）。
