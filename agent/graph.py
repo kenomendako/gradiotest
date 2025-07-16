@@ -94,7 +94,7 @@ def aether_weaver_node(state: AgentState):
 {dialogue_context}
 ---
 現在の情景:
-\"\"\"
+"""
     llm_flash = get_configured_llm("gemini-1.5-flash-latest", api_key)
     scenery_text = llm_flash.invoke(prompt).content
     print(f"  - 生成された情景描写:\n{scenery_text}")
