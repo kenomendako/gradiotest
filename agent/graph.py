@@ -1,4 +1,5 @@
 import os
+import traceback
 from typing import TypedDict, Annotated, List
 from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage, ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -14,6 +15,7 @@ from tools.web_tools import web_search_tool, read_url_tool
 from rag_manager import diary_search_tool, conversation_memory_search_tool
 import rag_manager
 import config_manager
+import mem0_manager
 
 # --- 1. ツールと状態の定義 ---
 all_tools = [
@@ -140,12 +142,50 @@ def tool_executor_node(state: AgentState):
 
     return {"messages": tool_outputs}
 
+def persist_memory_node(state: AgentState):
+    """グラフの最後に、ここまでの全やり取りをmem0に記憶させるノード"""
+    print("--- 長期記憶保存ノード (persist_memory_node) 実行 ---")
+    character_name = state['character_name']
+    # Google APIキーをmem0の初期化にも使う
+    api_key = config_manager.API_KEYS.get(state['api_key_name']) if 'api_key_name' in state else state['api_key']
+
+    # mem0が解釈できる形式にメッセージを変換
+    messages_for_mem0 = []
+    # システムプロンプトは除外
+    relevant_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
+
+    # ユーザー発言と、それに対する最終応答（ツール使用含む）をペアにする
+    if len(relevant_messages) >= 2:
+        user_message = relevant_messages[0].content
+        # 最後のメッセージが最終応答
+        assistant_response = relevant_messages[-1].content
+
+        # 途中にツール実行があれば、それも文脈に含める
+        tool_context = ""
+        tool_messages = [m.content for m in relevant_messages if isinstance(m, ToolMessage)]
+        if tool_messages:
+            tool_context = f"\n（ツールの実行結果: {', '.join(tool_messages)}）\n"
+
+        messages_for_mem0.append({"role": "user", "content": user_message})
+        messages_for_mem0.append({"role": "assistant", "content": tool_context + assistant_response})
+
+    if messages_for_mem0:
+        try:
+            mem0_instance = mem0_manager.get_mem0_instance(character_name, api_key)
+            mem0_instance.add(messages_for_mem0, user_id=character_name)
+            print(f"  - mem0への記憶成功")
+        except Exception as e:
+            print(f"  - mem0への記憶中にエラー: {e}")
+            traceback.print_exc()
+
+    return {}
+
 # --- 4. グラフ構築 ---
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("actor", actor_node)
-# ToolNodeの代わりに、新しい手動実行ノードを登録
-workflow.add_node("tool_executor", tool_executor_node)
+workflow.add_node("tool_executor", tool_node)
+workflow.add_node("memory_persister", persist_memory_node) # 新しいノード
 
 workflow.add_edge(START, "context_generator")
 workflow.add_edge("context_generator", "actor")
@@ -154,11 +194,17 @@ workflow.add_conditional_edges(
     "actor",
     tools_condition,
     {
+        # ツールを使わない場合は、記憶して終了
+        END: "memory_persister",
+        # ツールを使う場合は、実行ノードへ
         "tools": "tool_executor",
-        END: END,
     },
 )
+# ツール実行後は、再度actorに戻る
 workflow.add_edge("tool_executor", "actor")
+# 記憶ノードの後は、グラフを終了
+workflow.add_edge("memory_persister", END)
+
 
 app = workflow.compile()
-print("--- APIキー制御機能付きリアクティブ・エージェントがコンパイルされました ---")
+print("--- 記憶機能付きリアクティブ・エージェントがコンパイルされました ---")

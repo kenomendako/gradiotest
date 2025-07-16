@@ -107,15 +107,6 @@ def handle_message_submission(*args: Any):
             response_for_log = re.sub(r"<tool_code>.*?</tool_code>", "", final_response_text, flags=re.DOTALL).strip()
             if response_for_log: # 会話部分があればログに書く
                  save_message_to_log(log_f, f"## {current_character_name}:", response_for_log)
-        try:
-            api_key = config_manager.API_KEYS.get(current_api_key_name_state)
-            if api_key and not api_key.startswith("YOUR_API_KEY") and not final_response_text.startswith("[エラー"):
-                mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
-                clean_response_for_mem0 = re.sub(r"【Thoughts】.*?【/Thoughts】|<tool_code>.*?</tool_code>", "", final_response_text, flags=re.DOTALL).strip()
-                if clean_response_for_mem0: # 空でなければ記憶
-                    mem0_instance.add([{"role": "user", "content": final_log_message.strip()}, {"role": "assistant", "content": clean_response_for_mem0}], user_id=current_character_name)
-        except Exception as mem0_e:
-            print(f"Mem0記憶エラー: {mem0_e}")
 
     # UIを最終的な応答で更新
     chatbot_history[-1]["content"] = utils.format_response_for_display(final_response_text)
