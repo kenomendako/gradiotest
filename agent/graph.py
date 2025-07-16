@@ -1,4 +1,4 @@
-# agent/graph.py の内容を、以下のコードで完全に置き換えてください
+# agent/graph.py の内容を、以下の、最終版コードで、完全に、置き換えてください
 
 import os
 import traceback
@@ -19,7 +19,7 @@ import rag_manager
 import config_manager
 import mem0_manager
 
-# --- 1. ツールと状態の定義 ---
+# --- 1. ツール定義 ---
 all_tools = [
     set_current_location, find_location_id_by_name, read_memory_by_path, edit_memory,
     add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
@@ -28,28 +28,33 @@ all_tools = [
 ]
 tool_node = ToolNode(all_tools)
 
+# --- 2. 状態定義の修正 ---
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     character_name: str
     api_key: str
     tavily_api_key: str
+    # ★★★ ここが最重要：システムプロンプトを、専用の、キーで、管理する ★★★
+    system_prompt: SystemMessage
 
-# --- 2. モデル初期化 ---
+# --- 3. モデル初期化 ---
 def get_configured_llm(model_name: str, api_key: str):
     return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, convert_system_message_to_human=False)
 
-# --- 3. グラフのノード定義 ---
+# --- 4. グラフのノード定義 ---
 
 def context_generator_node(state: AgentState):
-    """【舞台裏】情景描写のみを生成し、システムプロンプトを準備するノード"""
+    """舞台裏：情景描写などを生成し、システムプロンプトとして返すノード"""
     print("--- コンテキスト生成ノード (context_generator_node) 実行 ---")
     character_name = state['character_name']
     api_key = state['api_key']
+    messages = state['messages']
 
-    # ★★★ 状況サマリー（Memory Weaver）のロジックを完全に削除 ★★★
+    llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
+
+    # ★★★ 状況サマリー生成は、廃止 ★★★
 
     # 時空の編纂者 (Aether Weaver)
-    llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
     location_from_file = "living_space"
     try:
         location_file_path = os.path.join("characters", character_name, "current_location.txt")
@@ -61,7 +66,7 @@ def context_generator_node(state: AgentState):
     found_id = find_location_id_by_name.invoke({"location_name": location_from_file, "character_name": character_name})
     space_def = read_memory_by_path.invoke({"path": f"living_space.{found_id if found_id and not found_id.startswith('【エラー】') else location_from_file}", "character_name": character_name})
     now = datetime.now()
-    # ★★★ Aether Weaverのプロンプトから「対話状況」を削除 ★★★
+    # ★★★ 対話状況のサマリーは不要なので、プロンプトから削除 ★★★
     scenery_prompt = f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')}\n季節:{now.month}月\n以上の情報から1-2文で簡潔かつ美しい情景を描写:"
     scenery_text = llm_flash.invoke(scenery_prompt).content
 
@@ -75,7 +80,7 @@ def context_generator_node(state: AgentState):
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
-    # ★★★ 最終プロンプトから「状況サマリー」を削除 ★★★
+    # ★★★ 最終プロンプトから、サマリーを、完全に、削除 ★★★
     final_system_prompt_text = f"""
 {ACTOR_PROMPT_TEMPLATE.format(
     character_name=character_name,
@@ -88,20 +93,22 @@ def context_generator_node(state: AgentState):
 {scenery_text}
 ---
 """
-    # 古いSystemMessageをクリアし、新しいものと生の履歴を返す
-    history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
-    return {"messages": [SystemMessage(content=final_system_prompt_text)] + history_messages}
+    # ★★★ `system_prompt`キーに、結果を、格納して、返す ★★★
+    return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def actor_node(state: AgentState):
-    """【主演俳優】生のコンテキストに基づき、ツール使用or応答生成を行うノード"""
+    """主演俳優：コンテキストと生の履歴に基づき、思考するノード"""
     print("--- 主演ノード (actor_node) 実行 ---")
     llm_pro = get_configured_llm("gemini-2.5-pro", state['api_key'])
     llm_with_tools = llm_pro.bind_tools(all_tools)
 
-    # context_generator が生成した、最新のメッセージリストを、そのまま使う
-    response = llm_with_tools.invoke(state['messages'])
+    # ★★★ `system_prompt`キーから、脚本を、受け取り、生の、履歴と、結合する ★★★
+    messages_for_actor = [state['system_prompt']] + state['messages']
+
+    response = llm_with_tools.invoke(messages_for_actor)
     return {"messages": [response]}
 
+# (tool_executor_node は変更なし)
 def tool_executor_node(state: AgentState):
     """【舞台装置】AIが要求したツールを、必要なAPIキーと共に実行するノード"""
     print("--- ツール実行ノード (tool_executor_node) 実行 ---")
@@ -135,7 +142,7 @@ def tool_executor_node(state: AgentState):
             tool_outputs.append(ToolMessage(content=f"エラー: ツール '{tool_name}' が見つかりません。", tool_call_id=call["id"]))
     return {"messages": tool_outputs}
 
-# --- 4. グラフ構築 ---
+# --- 5. グラフ構築 ---
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("actor", actor_node)
@@ -149,11 +156,11 @@ workflow.add_conditional_edges(
     tools_condition,
     {
         "tools": "tool_executor",
-        END: END, # ツールが不要なら、グラフを終了
+        END: END,
     },
 )
 # ツール実行後、再度コンテキスト生成からやり直すことで、変化した現実を反映する
 workflow.add_edge("tool_executor", "context_generator")
 
 app = workflow.compile()
-print("--- 最終版：リアクティブ・単一アクターモデルのグラフがコンパイルされました ---")
+print("--- 最終版：リアクティブ・単一アクターモデルv2のグラフがコンパイルされました ---")
