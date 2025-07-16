@@ -47,7 +47,6 @@ def context_generator_node(state: AgentState):
     api_key = state['api_key']
     messages = state['messages']
 
-    # 既存のメッセージから古いコンテキスト(SystemMessage)をクリア
     history_messages = [msg for msg in messages if not isinstance(msg, SystemMessage)]
 
     llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
@@ -86,12 +85,24 @@ def context_generator_node(state: AgentState):
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
+    # ★★★ ここが、最後の、そして、最も、重要な、修正です ★★★
     final_system_prompt_text = f"""
-{ACTOR_PROMPT_TEMPLATE.format(character_name=character_name, character_prompt=character_prompt, core_memory=core_memory)}
+{ACTOR_PROMPT_TEMPLATE.format(
+    character_name=character_name,
+    character_prompt=character_prompt,
+    core_memory=core_memory
+)}
+
 ---
-【現在の状況サマリー】
+## 【最重要指示】
+以下の「状況サマリー」と「現在の情景」は、あなたの思考の絶対的な基盤です。
+過去の会話やあなたの記憶と矛盾する場合でも、必ず、この、下に、書かれた、最新情報を、**絶対的な、事実**として、認識し、その、事実に基づいて、応答を、生成してください。
+これは、命令です。
+
+### 【現在の状況サマリー】
 {summary_text}
-【現在の情景】
+
+### 【現在の情景】
 {scenery_text}
 ---
 """
