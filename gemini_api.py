@@ -13,13 +13,10 @@ from agent.graph import app
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import config_manager
 import utils
-import mem0_manager # ★★★ この行を追加 ★★★
+import mem0_manager
 from character_manager import get_character_files_paths
 
-# ★★★ ここから、失われた、関数を、復元 ★★★
-
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
-    """モデルの入力・出力トークン上限を取得する（キャッシュ機能付き）"""
     if model_name in utils._model_token_limits_cache:
         return utils._model_token_limits_cache[model_name]
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -43,9 +40,7 @@ def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, 
         return None
 
 def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> List[Dict]:
-    """トークン計算のためにLangChainメッセージをGoogle AI SDK形式に変換する"""
     contents = []
-    # SystemMessageも変換対象に含める
     for msg in messages:
         role = "model" if isinstance(msg, AIMessage) else "user"
         sdk_parts = []
@@ -60,18 +55,15 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
     return contents
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
-    """LangChainメッセージリストからトークン数を計算する"""
     if not messages: return 0
     try:
         client = genai.Client(api_key=api_key)
         contents = _convert_lc_to_gg_for_count(messages)
 
-        # SystemMessageはuser/modelのペアに変換しないと正確に数えられない場合がある
         final_contents_for_api = []
         system_instruction = None
         if contents and contents[0]['role'] == 'user' and isinstance(messages[0], SystemMessage):
              system_instruction = contents[0]['parts']
-             # システムプロンプトをuser/modelの会話として扱う
              final_contents_for_api.append({"role": "user", "parts": system_instruction})
              final_contents_for_api.append({"role": "model", "parts": [{"text": "OK"}]})
              final_contents_for_api.extend(contents[1:])
@@ -89,14 +81,12 @@ def count_input_tokens(
     api_history_limit_option: str, api_key_name: str,
     send_notepad_to_api: bool, use_common_prompt: bool
 ) -> int:
-    """UIからの入力全体を評価してトークン数を計算する"""
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return -1
 
     from agent.prompts import ACTOR_PROMPT_TEMPLATE
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
-    # システムプロンプトの構築
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
     character_prompt = ""
@@ -114,7 +104,6 @@ def count_input_tokens(
                 if notepad_content: final_system_prompt += f"\n\n---\n【現在のメモ帳の内容】\n{notepad_content}\n---"
     messages.append(SystemMessage(content=final_system_prompt))
 
-    # 履歴の追加
     log_file, _, _, _, _ = get_character_files_paths(character_name)
     raw_history = utils.load_chat_log(log_file, character_name)
     limit = int(api_history_limit_option) if api_history_limit_option.isdigit() else 0
@@ -125,7 +114,6 @@ def count_input_tokens(
         if role in ['model', 'assistant', character_name]: messages.append(AIMessage(content=content))
         elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
 
-    # ユーザーの最新入力の追加
     user_message_content_parts = []
     text_buffer = []
     for part_item in parts:
@@ -149,10 +137,7 @@ def count_input_tokens(
 
     return count_tokens_from_lc_messages(messages, model_name, api_key)
 
-# ★★★ 復元ここまで ★★★
 
-
-# 新しいエージェント呼び出し関数 (これは変更なし)
 def invoke_nexus_agent(*args: Any) -> str:
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
@@ -188,6 +173,7 @@ def invoke_nexus_agent(*args: Any) -> str:
         "character_name": current_character_name,
         "api_key": api_key,
         "tavily_api_key": config_manager.TAVILY_API_KEY,
+        "model_name": current_model_name,
     }
 
     try:
@@ -195,6 +181,7 @@ def invoke_nexus_agent(*args: Any) -> str:
         final_response_message = final_state['messages'][-1]
 
         try:
+            # ★★★ ここを修正: ハードコードされたモデル名を削除 ★★★
             mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
             mem0_instance.add([
                 {"role": "user", "content": user_input_text},

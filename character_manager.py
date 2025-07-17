@@ -5,22 +5,25 @@ import json
 import traceback
 from config_manager import CHARACTERS_DIR, PROFILE_IMAGE_FILENAME, MEMORY_FILENAME
 
-NOTEPAD_FILENAME = "notepad.md" # ★ 定義を追加
+NOTEPAD_FILENAME = "notepad.md"
 
 def ensure_character_files(character_name):
     if not character_name or not isinstance(character_name, str) or not character_name.strip(): return False
-    # ★★★ この一行が、絶対に正しい構文です ★★★
     if ".." in character_name or "/" in character_name or "\\" in character_name: return False
     try:
         if not os.path.exists(CHARACTERS_DIR): os.makedirs(CHARACTERS_DIR)
         elif not os.path.isdir(CHARACTERS_DIR): return False
+
         base_path = os.path.join(CHARACTERS_DIR, character_name)
         log_file = os.path.join(base_path, "log.txt")
         system_prompt_file = os.path.join(base_path, "SystemPrompt.txt")
         memory_json_file = os.path.join(base_path, MEMORY_FILENAME)
-        notepad_file = os.path.join(base_path, NOTEPAD_FILENAME) # ★ notepad.md のパスを定義
+        notepad_file = os.path.join(base_path, NOTEPAD_FILENAME)
+        image_gen_dir = os.path.join(base_path, "generated_images")
 
         if not os.path.exists(base_path): os.makedirs(base_path)
+        if not os.path.exists(image_gen_dir): os.makedirs(image_gen_dir)
+
         if not os.path.exists(log_file): open(log_file, "w", encoding="utf-8").close()
 
         if not os.path.exists(system_prompt_file):
@@ -44,12 +47,11 @@ def ensure_character_files(character_name):
                 with open(memory_json_file, "w", encoding="utf-8") as f: json.dump(default_memory_data, f, indent=2, ensure_ascii=False)
             except Exception as e: print(f"エラー: 記憶ファイル '{memory_json_file}' 初期データ書込失敗: {e}"); return False
 
-        if not os.path.exists(notepad_file): # ★ notepad.md の存在確認と作成
+        if not os.path.exists(notepad_file):
             open(notepad_file, "w", encoding="utf-8").close()
 
         location_file = os.path.join(base_path, "current_location.txt")
         if not os.path.exists(location_file):
-            # ファイルが存在しない場合、デフォルト値として 'living_space' を書き込んで作成する
             try:
                 with open(location_file, "w", encoding="utf-8") as f:
                     f.write("living_space")
@@ -81,20 +83,19 @@ def get_character_list():
     except Exception as e: print(f"キャラリスト取得エラー: {e}"); traceback.print_exc(); return []
 
 def get_character_files_paths(character_name):
-    # ensure_character_files の呼び出しは、ファイルが存在することを保証するため、かつ notepad.md も作成されるようにするため重要。
     if not character_name or not ensure_character_files(character_name):
-        return None, None, None, None, None # 戻り値の数を5に
+        return None, None, None, None, None
     base_path = os.path.join(CHARACTERS_DIR, character_name)
     log_file = os.path.join(base_path, "log.txt")
     system_prompt_file = os.path.join(base_path, "SystemPrompt.txt")
-    profile_image_path = os.path.join(base_path, PROFILE_IMAGE_FILENAME)
+    profile_image_path = os.path.join(base_path, "profile.png")
     memory_json_path = os.path.join(base_path, MEMORY_FILENAME)
-    notepad_path = os.path.join(base_path, NOTEPAD_FILENAME) # ★ notepad.md のパスを定義
+    notepad_path = os.path.join(base_path, NOTEPAD_FILENAME)
     if not os.path.exists(profile_image_path): profile_image_path = None
-    return log_file, system_prompt_file, profile_image_path, memory_json_path, notepad_path # ★ 戻り値に追加
+    return log_file, system_prompt_file, profile_image_path, memory_json_path, notepad_path
 
 def log_to_character(character_name, message):
-    log_file, _, _, _, _ = get_character_files_paths(character_name) # ★ 戻り値の数変更に対応
+    log_file, _, _, _, _ = get_character_files_paths(character_name)
     if not log_file:
         print(f"エラー: キャラクター '{character_name}' のログファイルが見つかりません。")
         return False
