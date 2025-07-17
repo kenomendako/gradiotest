@@ -11,7 +11,7 @@ from datetime import datetime
 
 from agent.prompts import ACTOR_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, find_location_id_by_name
-from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory
+from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
@@ -25,16 +25,16 @@ all_tools = [
     add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
     update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
     read_url_tool, diary_search_tool, conversation_memory_search_tool,
-    generate_image
+    generate_image, read_full_memory # ★★★ この行を修正 ★★★
 ]
 
-# --- 2. 状態定義の修正 ---
+# --- 2. 状態定義 ---
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     character_name: str
     api_key: str
     tavily_api_key: str
-    model_name: str  # ★★★ この行を追加 ★★★
+    model_name: str
     system_prompt: SystemMessage
 
 # --- 3. モデル初期化 ---
@@ -42,7 +42,6 @@ def get_configured_llm(model_name: str, api_key: str):
     return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, convert_system_message_to_human=False)
 
 # --- 4. グラフのノード定義 ---
-
 def context_generator_node(state: AgentState):
     print("--- コンテキスト生成ノード (context_generator_node) 実行 ---")
     character_name = state['character_name']
@@ -92,14 +91,10 @@ def context_generator_node(state: AgentState):
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def actor_node(state: AgentState):
-    """主演俳優：コンテキストと生の履歴に基づき、思考するノード"""
     print("--- 主演ノード (actor_node) 実行 ---")
-    # ★★★ ここを修正: ハードコードではなく、stateからモデル名を取得 ★★★
     llm = get_configured_llm(state['model_name'], state['api_key'])
     llm_with_tools = llm.bind_tools(all_tools)
-
     messages_for_actor = [state['system_prompt']] + state['messages']
-
     response = llm_with_tools.invoke(messages_for_actor)
     return {"messages": [response]}
 
@@ -114,13 +109,11 @@ def tool_executor_node(state: AgentState):
     for call in tool_calls:
         tool_name, tool_args = call["name"], call["args"]
         print(f"  - 実行対象: {tool_name}, 引数: {tool_args}")
-
         tool_args.update({'character_name': state['character_name'], 'api_key': state['api_key']})
         if tool_name == "web_search_tool":
             tool_args["api_key"] = state['tavily_api_key']
 
         found_tool = next((t for t in all_tools if t.name == tool_name), None)
-
         if found_tool:
             try:
                 output = found_tool.invoke(tool_args)
@@ -132,7 +125,6 @@ def tool_executor_node(state: AgentState):
         else:
             print(f"  - エラー: ツール '{tool_name}' が見つかりません。")
             tool_outputs.append(ToolMessage(content=f"エラー: ツール '{tool_name}' が見つかりません。", tool_call_id=call["id"]))
-
     return {"messages": tool_outputs}
 
 # --- 5. グラフ構築 ---
@@ -152,4 +144,4 @@ workflow.add_conditional_edges(
 workflow.add_edge("tool_executor", "context_generator")
 
 app = workflow.compile()
-print("--- 最終版v6：モデル指定バグを修正したグラフがコンパイルされました ---")
+print("--- 最終版v7：記憶の全文閲覧ツールを統合したグラフがコンパイルされました ---")

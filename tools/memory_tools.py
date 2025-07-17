@@ -10,7 +10,7 @@ from memory_manager import load_memory_data_safe
 from typing import Any
 
 @tool
-def edit_memory(path: str, value: Any, operation: str, character_name: str = None) -> str: # ★★★ any を Any に変更 ★★★
+def edit_memory(path: str, value: Any, operation: str, character_name: str = None) -> str:
     """
     記憶（memory.json）の指定した場所を編集する。
     path: ドット記法で編集場所を指定（例: "self_identity.values"）。
@@ -31,25 +31,21 @@ def edit_memory(path: str, value: Any, operation: str, character_name: str = Non
     try:
         keys = path.split('.')
         current_level = memory_data
-        # パスの最後のキーの親レベルまで移動
         for key in keys[:-1]:
             current_level = current_level.setdefault(key, {})
 
         last_key = keys[-1]
 
         if operation.lower() == 'append':
-            # 追記操作
             target_list = current_level.setdefault(last_key, [])
             if not isinstance(target_list, list):
                 return f"【エラー】追記（append）操作はリストに対してのみ可能です。'{path}'の現在の値はリストではありません。"
             target_list.append(value)
         elif operation.lower() == 'set':
-            # 設定/上書き操作
             current_level[last_key] = value
         else:
             return f"【エラー】無効な操作です: '{operation}'。'set' または 'append' を使用してください。"
 
-        # 更新日時を記録
         memory_data["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         with open(memory_json_path, "w", encoding="utf-8") as f:
@@ -106,28 +102,19 @@ def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
         return f"【エラー】キャラクター'{character_name}'の記憶ファイルが見つかりません。"
 
     try:
-        # --- ステップ1: 記憶の読み込みと「憲法」部分の分離 ---
         with open(memory_json_path, 'r', encoding='utf-8') as f:
             memory_data = json.load(f)
 
-        # 要約せずに原文のまま保持する部分を分離する
-        highest_permission_verbatim = memory_data.pop("highest_permission", {}) # ★ 追加
+        highest_permission_verbatim = memory_data.pop("highest_permission", {})
         self_identity_verbatim = memory_data.pop("self_identity", {})
         user_profile_verbatim = memory_data.pop("user_profile", {})
-
-        # 不要なキーを要約対象から除外
         memory_data.pop("last_updated", None)
         memory_data.pop("secret_diary", None)
 
-        # --- ステップ2: 「成長の記録」部分の要約 ---
         history_summary_text = ""
-        # 要約すべきデータが残っている場合のみAPIを呼び出す
         if memory_data:
             memory_text_to_summarize = json.dumps(memory_data, ensure_ascii=False, indent=2)
-
             client = genai.Client(api_key=api_key)
-
-            # AIへの新しい指示プロンプト
             prompt = f"""あなたは、対話の歴史を整理し、その本質を抽出することに特化した思考AIです。
 以下の「成長の記録」（ユーザーとの関係史、感情の変遷、共有言語など）を深く読み解き、キャラクター「{character_name}」がユーザーとの関係性を思い出す上で、特に重要な出来事や感情の要点を、箇条書き形式で簡潔に要約してください。
 あなたの思考や挨拶は不要です。要約結果のテキストのみを出力してください。
@@ -139,14 +126,11 @@ def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
 
 成長の記録の要約:
 """
-            # gemini-2.5-flash を使用して要約
             response = client.models.generate_content(model="models/gemini-2.5-flash", contents=[prompt])
             history_summary_text = response.text.strip()
         else:
             history_summary_text = "共有された歴史や感情の記録はまだありません。"
 
-        # --- ステップ3: 「憲法」と「要約」の結合と保存 ---
-        # ★ final_core_memory_text の組み立てに highest_permission を追加
         final_core_memory_text = f"""
 --- [最高権限 (Highest Permission) - 原文のまま保持] ---
 {json.dumps(highest_permission_verbatim, ensure_ascii=False, indent=2)}
@@ -160,7 +144,6 @@ def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
 --- [共有された歴史と感情の要約] ---
 {history_summary_text}
 """
-        # core_memory.txt に保存
         char_base_path = os.path.dirname(memory_json_path)
         core_memory_path = os.path.join(char_base_path, "core_memory.txt")
 
@@ -196,13 +179,33 @@ def read_memory_by_path(path: str, character_name: str = None) -> str:
             if isinstance(current_level, dict):
                 current_level = current_level[key]
             else:
-                # パスの途中で辞書以外の型に当たった場合
                 raise KeyError(f"パス '{path}' のキー '{key}' が見つからないか、または親が辞書ではありません。")
-
-        # 最終的に取得したデータをJSON文字列として返す
         return json.dumps(current_level, ensure_ascii=False, indent=2)
 
     except KeyError as e:
         return f"【エラー】指定されたパス '{path}' が記憶内に見つかりません。詳細: {e}"
+    except Exception as e:
+        return f"【エラー】記憶の読み取り中に予期せぬエラーが発生しました: {e}"
+
+@tool
+def read_full_memory(character_name: str = None) -> str:
+    """
+    記憶（memory.json）の全ての項目を、全体構造がわかるようにJSON形式の文字列として読み取る。
+    記憶を編集する前に、既存の項目や構造を確認するために使用する。
+    """
+    if not character_name:
+        return "【エラー】引数 'character_name' は必須です。"
+
+    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
+    if not memory_json_path:
+        return f"【エラー】キャラクター'{character_name}'の記憶ファイルパスが見つかりません。"
+
+    memory_data = load_memory_data_safe(memory_json_path)
+    if "error" in memory_data:
+        return f"【エラー】記憶ファイルの読み込みに失敗: {memory_data['message']}"
+
+    try:
+        # 読み込んだデータをそのままJSON文字列として返す
+        return json.dumps(memory_data, ensure_ascii=False, indent=2)
     except Exception as e:
         return f"【エラー】記憶の読み取り中に予期せぬエラーが発生しました: {e}"
