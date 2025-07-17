@@ -39,35 +39,32 @@ def handle_message_submission(*args: Any):
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox:
         # テキスト入力がない場合は何もせず終了
-        # yield文はジェネレータ関数で必須なため、現在の状態をそのまま返す
         yield chatbot_history, gr.update(), gr.update(), update_token_count(textbox_content, file_input_list, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
         return
 
-    # ★★★ 修正箇所1: タイムスタンプ処理を一番最初に行う ★★★
-    timestamp = f"\n\n`{datetime.datetime.now().strftime('%H:%M:%S')}`" if add_timestamp_checkbox else ""
+    # ★★★ 修正箇所: タイムスタンプのフォーマットを元に戻す ★★★
+    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
     processed_user_message = user_prompt_from_textbox + timestamp
 
-    # ★★★ 修正箇所2: タイムスタンプ付きのメッセージをUIに反映させる ★★★
+    # タイムスタンプ付きのメッセージをUIに反映させる
     chatbot_history.append({"role": "user", "content": processed_user_message})
     chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
     yield chatbot_history, gr.update(value=""), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 
     final_response_text = ""
     try:
-        # ★★★ 修正箇所3: AIに渡す引数リストを加工し、タイムスタンプ付きメッセージに置き換える ★★★
+        # AIに渡す引数リストを加工し、タイムスタンプ付きメッセージに置き換える
         args_list = list(args)
-        # 最初の要素が textbox_content なので、それを加工済みのメッセージに置き換える
         args_list[0] = processed_user_message
 
-        final_response_text = gemini_api.invoke_nexus_agent(*args_list) # 加工した引数でAIを呼び出す
+        final_response_text = gemini_api.invoke_nexus_agent(*args_list)
 
     except Exception as e:
         traceback.print_exc()
         final_response_text = f"[UIハンドラエラー: {e}]"
 
-    # --- ツールコードの手動解析ロジックを完全に削除 ---
 
-    # ★★★ 修正箇所4: ログ保存と記憶のロジックを、タイムスタンプ付きメッセージを正として使用するように統一 ★★★
+    # ログ保存と記憶のロジック
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
 
     if processed_user_message.strip():
@@ -76,9 +73,8 @@ def handle_message_submission(*args: Any):
         save_message_to_log(log_f, user_header, processed_user_message)
 
         if final_response_text:
-            # ツールコールを除いた、純粋な会話部分のみをログに残す
             response_for_log = re.sub(r"<tool_code>.*?</tool_code>", "", final_response_text, flags=re.DOTALL).strip()
-            if response_for_log: # 会話部分があればログに書く
+            if response_for_log:
                  save_message_to_log(log_f, f"## {current_character_name}:", response_for_log)
 
     # UIを最終的な応答で更新
@@ -86,7 +82,6 @@ def handle_message_submission(*args: Any):
     yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 
 # (ここに、ファイル内の他の全ての関数が、そのままの形で含まれます)
-# handle_add_new_character, _get_display_history_count, update_ui_on_character_change, etc...
 def handle_add_new_character(character_name: str):
     if not character_name or not character_name.strip():
         gr.Warning("キャラクター名が入力されていません。")
