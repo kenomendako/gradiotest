@@ -28,9 +28,7 @@ def generate_image(prompt: str, character_name: str, api_key: str) -> str:
 
         client = genai.Client(api_key=api_key)
 
-        # ★★★ ここがAPI規約に準拠した最終修正箇所です ★★★
         generation_config = types.GenerateContentConfig(
-            # モデルが要求する通り、IMAGEとTEXTの両方を指定
             response_modalities=['IMAGE', 'TEXT']
         )
 
@@ -39,7 +37,6 @@ def generate_image(prompt: str, character_name: str, api_key: str) -> str:
             contents=prompt,
             config=generation_config
         )
-        # ★★★ 修正箇所ここまで ★★★
 
         image_data = None
         if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
@@ -48,7 +45,6 @@ def generate_image(prompt: str, character_name: str, api_key: str) -> str:
                     print(f"  - APIからのテキスト応答: {part.text}")
                 if part.inline_data and part.inline_data.mime_type.startswith("image/"):
                     image_data = io.BytesIO(part.inline_data.data)
-                    # 画像が見つかった時点でループを抜けても良い
                     break
 
         if not image_data:
@@ -64,7 +60,19 @@ def generate_image(prompt: str, character_name: str, api_key: str) -> str:
 
         return f"[Generated Image: {save_path}]"
 
+    # ★★★ ここからがエラーハンドリングの修正箇所です ★★★
+    except genai.errors.ServerError as e:
+        # 500系のサーバーエラーを特別に補足
+        print(f"  - 画像生成ツールでサーバーエラー(500番台): {e}")
+        # AIに対して、より具体的で次のアクションを促すメッセージを返す
+        return "【エラー】Googleのサーバー側で内部エラー(500)が発生しました。プロンプトが安全フィルターに抵触したか、一時的な問題の可能性があります。プロンプトをよりシンプルにして、もう一度試してみてください。"
+    except genai.errors.ClientError as e:
+        # 400系のクライアントエラー（無効な引数など）を補足
+        print(f"  - 画像生成ツールでクライアントエラー(400番台): {e}")
+        return f"【エラー】APIリクエストが無効です(400番台)。詳細: {e}"
     except Exception as e:
-        print(f"  - 画像生成ツールでエラー: {e}")
+        # その他の予期せぬエラー
+        print(f"  - 画像生成ツールで予期せぬエラー: {e}")
         traceback.print_exc()
-        return f"[エラー：画像生成中に予期せぬ問題が発生しました。詳細: {e}]"
+        return f"【エラー】画像生成中に予期せぬ問題が発生しました。詳細: {e}"
+    # ★★★ 修正箇所ここまで ★★★
