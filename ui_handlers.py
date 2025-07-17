@@ -1,4 +1,4 @@
-# ui_handlers.py (vFinal: Streaming & Intelligent Parser)
+# ui_handlers.py の修正版
 
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Union
@@ -27,48 +27,8 @@ from character_manager import get_character_files_paths
 from memory_manager import load_memory_data_safe, save_memory_data
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
 
-#
-# このファイルは、最初のXMLファイルにあったui_handlers.pyの全関数を復元し、
-# handle_message_submission関数を、ストリーミング対応させ、
-# かつ、print()構文を正しく解釈するパーサーに置き換えた最終版です。
-#
-
-def update_token_count(
-    textbox_content: Optional[str],
-    file_input_list: Optional[List[Any]],
-    current_character_name: str,
-    current_model_name: str,
-    current_api_key_name_state: str,
-    api_history_limit_state: str,
-    send_notepad_state: bool,
-    notepad_editor_content: str,
-    use_common_prompt_state: bool
-) -> str:
-    if not all([current_character_name, current_model_name, current_api_key_name_state]):
-        return "入力トークン数 (設定不足)"
-    parts_for_api = []
-    if textbox_content: parts_for_api.append(textbox_content)
-    if file_input_list:
-        for file_wrapper in file_input_list:
-            if not file_wrapper: continue
-            try: parts_for_api.append(Image.open(file_wrapper.name))
-            except Exception:
-                try:
-                    with open(file_wrapper.name, 'r', encoding='utf-8') as f: parts_for_api.append(f.read())
-                except Exception as text_e: print(f"トークン計算ファイル読込エラー: {text_e}")
-    api_key = config_manager.API_KEYS.get(current_api_key_name_state)
-    limits = gemini_api.get_model_token_limits(current_model_name, api_key)
-    limit_str = f" / {limits['input']:,}" if limits and 'input' in limits else ""
-    basic_tokens = gemini_api.count_input_tokens(character_name=current_character_name, model_name=current_model_name, parts=parts_for_api, api_history_limit_option=api_history_limit_state, api_key_name=current_api_key_name_state, send_notepad_to_api=False, use_common_prompt=use_common_prompt_state)
-    if send_notepad_state and notepad_editor_content and notepad_editor_content.strip() and basic_tokens >= 0:
-        try:
-            if api_key and not api_key.startswith("YOUR_API_KEY"):
-                temp_messages = [SystemMessage(content=f"\n\n---\n【現在のメモ帳の内容】\n{notepad_editor_content.strip()}\n---")]
-                notepad_tokens = gemini_api.count_tokens_from_lc_messages(temp_messages, current_model_name, api_key)
-                if notepad_tokens >= 0: basic_tokens += notepad_tokens
-        except Exception as e: print(f"メモ帳トークン計算エラー: {e}")
-    if basic_tokens >= 0: return f"**基本入力:** {basic_tokens:,}{limit_str} トークン"
-    return "基本入力: (APIキー無効)" if basic_tokens == -1 else "基本入力: (計算エラー)"
+# (このファイル内の他の関数は変更ありません)
+# ...
 
 def handle_message_submission(*args: Any):
     (textbox_content, chatbot_history, current_character_name, current_model_name,
@@ -78,50 +38,54 @@ def handle_message_submission(*args: Any):
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox:
+        # テキスト入力がない場合は何もせず終了
+        # yield文はジェネレータ関数で必須なため、現在の状態をそのまま返す
+        yield chatbot_history, gr.update(), gr.update(), update_token_count(textbox_content, file_input_list, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
         return
 
-    log_message_content = user_prompt_from_textbox
-    
-    chatbot_history.append({"role": "user", "content": log_message_content})
+    # ★★★ 修正箇所1: タイムスタンプ処理を一番最初に行う ★★★
+    timestamp = f"\n\n`{datetime.datetime.now().strftime('%H:%M:%S')}`" if add_timestamp_checkbox else ""
+    processed_user_message = user_prompt_from_textbox + timestamp
+
+    # ★★★ 修正箇所2: タイムスタンプ付きのメッセージをUIに反映させる ★★★
+    chatbot_history.append({"role": "user", "content": processed_user_message})
     chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
     yield chatbot_history, gr.update(value=""), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 
     final_response_text = ""
     try:
-        final_response_text = gemini_api.get_nexus_agent_response(*args)
+        # ★★★ 修正箇所3: AIに渡す引数リストを加工し、タイムスタンプ付きメッセージに置き換える ★★★
+        args_list = list(args)
+        # 最初の要素が textbox_content なので、それを加工済みのメッセージに置き換える
+        args_list[0] = processed_user_message
+
+        final_response_text = gemini_api.invoke_nexus_agent(*args_list) # 加工した引数でAIを呼び出す
+
     except Exception as e:
         traceback.print_exc()
         final_response_text = f"[UIハンドラエラー: {e}]"
 
     # --- ツールコードの手動解析ロジックを完全に削除 ---
 
-    # ログ保存と記憶
+    # ★★★ 修正箇所4: ログ保存と記憶のロジックを、タイムスタンプ付きメッセージを正として使用するように統一 ★★★
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
-    timestamp = f"\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
-    final_log_message = log_message_content.strip() + timestamp
-    if final_log_message.strip():
+
+    if processed_user_message.strip():
         user_header = _get_user_header_from_log(log_f, current_character_name)
-        save_message_to_log(log_f, user_header, final_log_message)
+        # ログには、すでにタイムスタンプが含まれている `processed_user_message` をそのまま保存
+        save_message_to_log(log_f, user_header, processed_user_message)
+
         if final_response_text:
             # ツールコールを除いた、純粋な会話部分のみをログに残す
             response_for_log = re.sub(r"<tool_code>.*?</tool_code>", "", final_response_text, flags=re.DOTALL).strip()
             if response_for_log: # 会話部分があればログに書く
                  save_message_to_log(log_f, f"## {current_character_name}:", response_for_log)
-        try:
-            api_key = config_manager.API_KEYS.get(current_api_key_name_state)
-            if api_key and not api_key.startswith("YOUR_API_KEY") and not final_response_text.startswith("[エラー"):
-                mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
-                clean_response_for_mem0 = re.sub(r"【Thoughts】.*?【/Thoughts】|<tool_code>.*?</tool_code>", "", final_response_text, flags=re.DOTALL).strip()
-                if clean_response_for_mem0: # 空でなければ記憶
-                    mem0_instance.add([{"role": "user", "content": final_log_message.strip()}, {"role": "assistant", "content": clean_response_for_mem0}], user_id=current_character_name)
-        except Exception as mem0_e:
-            print(f"Mem0記憶エラー: {mem0_e}")
 
     # UIを最終的な応答で更新
     chatbot_history[-1]["content"] = utils.format_response_for_display(final_response_text)
     yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 
-# (ここに、最初のXMLにあった他の全ての関数が、そのままの形で含まれます)
+# (ここに、ファイル内の他の全ての関数が、そのままの形で含まれます)
 # handle_add_new_character, _get_display_history_count, update_ui_on_character_change, etc...
 def handle_add_new_character(character_name: str):
     if not character_name or not character_name.strip():
@@ -335,3 +299,40 @@ def handle_core_memory_update_click(character_name: str, api_key_name: str):
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{character_name}」のコアメモリ更新をバックグラウンドで開始しました。")
     threading.Thread(target=_run_core_memory_update, args=(character_name, api_key)).start()
+
+def update_token_count(
+    textbox_content: Optional[str],
+    file_input_list: Optional[List[Any]],
+    current_character_name: str,
+    current_model_name: str,
+    current_api_key_name_state: str,
+    api_history_limit_state: str,
+    send_notepad_state: bool,
+    notepad_editor_content: str,
+    use_common_prompt_state: bool
+) -> str:
+    if not all([current_character_name, current_model_name, current_api_key_name_state]):
+        return "入力トークン数 (設定不足)"
+    parts_for_api = []
+    if textbox_content: parts_for_api.append(textbox_content)
+    if file_input_list:
+        for file_wrapper in file_input_list:
+            if not file_wrapper: continue
+            try: parts_for_api.append(Image.open(file_wrapper.name))
+            except Exception:
+                try:
+                    with open(file_wrapper.name, 'r', encoding='utf-8') as f: parts_for_api.append(f.read())
+                except Exception as text_e: print(f"トークン計算ファイル読込エラー: {text_e}")
+    api_key = config_manager.API_KEYS.get(current_api_key_name_state)
+    limits = gemini_api.get_model_token_limits(current_model_name, api_key)
+    limit_str = f" / {limits['input']:,}" if limits and 'input' in limits else ""
+    basic_tokens = gemini_api.count_input_tokens(character_name=current_character_name, model_name=current_model_name, parts=parts_for_api, api_history_limit_option=api_history_limit_state, api_key_name=current_api_key_name_state, send_notepad_to_api=False, use_common_prompt=use_common_prompt_state)
+    if send_notepad_state and notepad_editor_content and notepad_editor_content.strip() and basic_tokens >= 0:
+        try:
+            if api_key and not api_key.startswith("YOUR_API_KEY"):
+                temp_messages = [SystemMessage(content=f"\n\n---\n【現在のメモ帳の内容】\n{notepad_editor_content.strip()}\n---")]
+                notepad_tokens = gemini_api.count_tokens_from_lc_messages(temp_messages, current_model_name, api_key)
+                if notepad_tokens >= 0: basic_tokens += notepad_tokens
+        except Exception as e: print(f"メモ帳トークン計算エラー: {e}")
+    if basic_tokens >= 0: return f"**基本入力:** {basic_tokens:,}{limit_str} トークン"
+    return "基本入力: (APIキー無効)" if basic_tokens == -1 else "基本入力: (計算エラー)"
