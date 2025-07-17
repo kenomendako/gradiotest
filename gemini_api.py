@@ -16,10 +16,7 @@ import utils
 import mem0_manager
 from character_manager import get_character_files_paths
 
-# ★★★ ここからが復元された補助関数群です ★★★
-
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
-    """モデルの入力・出力トークン上限を取得する（キャッシュ機能付き）"""
     if model_name in utils._model_token_limits_cache:
         return utils._model_token_limits_cache[model_name]
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -43,9 +40,7 @@ def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, 
         return None
 
 def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> List[Dict]:
-    """トークン計算のためにLangChainメッセージをGoogle AI SDK形式に変換する"""
     contents = []
-    # SystemMessageも変換対象に含める
     for msg in messages:
         role = "model" if isinstance(msg, AIMessage) else "user"
         sdk_parts = []
@@ -60,7 +55,6 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
     return contents
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
-    """LangChainメッセージリストからトークン数を計算する"""
     if not messages: return 0
     try:
         client = genai.Client(api_key=api_key)
@@ -87,7 +81,6 @@ def count_input_tokens(
     api_history_limit_option: str, api_key_name: str,
     send_notepad_to_api: bool, use_common_prompt: bool
 ) -> int:
-    """UIからの入力全体を評価してトークン数を計算する"""
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return -1
 
@@ -144,7 +137,6 @@ def count_input_tokens(
 
     return count_tokens_from_lc_messages(messages, model_name, api_key)
 
-# ★★★ ここまでが復元された補助関数群です ★★★
 
 def invoke_nexus_agent(*args: Any) -> str:
     (textbox_content, chatbot_history, current_character_name, current_model_name,
@@ -189,8 +181,8 @@ def invoke_nexus_agent(*args: Any) -> str:
         final_response_message = final_state['messages'][-1]
 
         try:
-            # model_nameはmem0のインスタンス取得時に必要に応じて渡される
-            mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key, model_name="gemini-1.5-flash-latest")
+            # ★★★ ここを修正: ハードコードされたモデル名を削除 ★★★
+            mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
             mem0_instance.add([
                 {"role": "user", "content": user_input_text},
                 {"role": "assistant", "content": final_response_message.content}

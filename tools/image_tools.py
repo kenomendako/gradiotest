@@ -7,7 +7,6 @@ import traceback
 from PIL import Image
 import google.genai as genai
 from langchain_core.tools import tool
-# ★★★ 正しいtypesをインポート ★★★
 from google.genai import types
 
 IMAGE_GEN_MODEL = "gemini-2.0-flash-preview-image-generation"
@@ -29,13 +28,12 @@ def generate_image(prompt: str, character_name: str, api_key: str) -> str:
 
         client = genai.Client(api_key=api_key)
 
-        # ★★★ ここからが公式サンプルに基づく完全な修正箇所 ★★★
-        # 正しい設定オブジェクトを作成
+        # ★★★ ここがAPI規約に準拠した最終修正箇所です ★★★
         generation_config = types.GenerateContentConfig(
-            response_modalities=['IMAGE'] # IMAGEのみを要求
+            # モデルが要求する通り、IMAGEとTEXTの両方を指定
+            response_modalities=['IMAGE', 'TEXT']
         )
 
-        # 正しい引数名 `config` を使用してAPIを呼び出す
         response = client.models.generate_content(
             model=IMAGE_GEN_MODEL,
             contents=prompt,
@@ -44,15 +42,13 @@ def generate_image(prompt: str, character_name: str, api_key: str) -> str:
         # ★★★ 修正箇所ここまで ★★★
 
         image_data = None
-        # ★★★ 正しいデータ取得方法 `part.inline_data.data` を使用 ★★★
         if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
             for part in response.candidates[0].content.parts:
-                # テキスト応答（エラーメッセージなど）をログに出力
                 if part.text:
                     print(f"  - APIからのテキスト応答: {part.text}")
-                # 画像データを正しく抽出
                 if part.inline_data and part.inline_data.mime_type.startswith("image/"):
                     image_data = io.BytesIO(part.inline_data.data)
+                    # 画像が見つかった時点でループを抜けても良い
                     break
 
         if not image_data:
