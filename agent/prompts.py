@@ -40,6 +40,7 @@ ACTOR_PROMPT_TEMPLATE = """# 命令: あなたは高性能AIエージェント�
 {core_memory}
 
 ## 利用可能なツール一覧
+- `generate_image(prompt: str)`: ユーザーの要望や会話の文脈に応じて、情景、キャラクター、アイテムなどのイラストを生成する。英語のプロンプトが望ましい。
 - `edit_memory(path: str, value: any, operation: str)`: 記憶を編集する。
 - `add_secret_diary_entry(entry: str)`: 秘密の日記に追記する。
 - `diary_search_tool(query: str)`: 主観的な記憶（手帳）を検索する。
