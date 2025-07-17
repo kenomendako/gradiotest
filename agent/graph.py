@@ -28,12 +28,13 @@ all_tools = [
     generate_image
 ]
 
-# --- 2. 状態定義 ---
+# --- 2. 状態定義の修正 ---
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     character_name: str
     api_key: str
     tavily_api_key: str
+    model_name: str  # ★★★ この行を追加 ★★★
     system_prompt: SystemMessage
 
 # --- 3. モデル初期化 ---
@@ -43,11 +44,9 @@ def get_configured_llm(model_name: str, api_key: str):
 # --- 4. グラフのノード定義 ---
 
 def context_generator_node(state: AgentState):
-    """舞台裏：情景描写を生成し、システムプロンプトとして返すノード"""
     print("--- コンテキスト生成ノード (context_generator_node) 実行 ---")
     character_name = state['character_name']
     api_key = state['api_key']
-
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     try:
         llm_flash = get_configured_llm("gemini-1.5-flash", api_key)
@@ -65,7 +64,6 @@ def context_generator_node(state: AgentState):
 
         if "エラー" not in space_def:
             now = datetime.now()
-            # ★★★ 情景描写プロンプトを更新 ★★★
             scenery_prompt = f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')}\n季節:{now.month}月\n以上の情報から2-3文で、人物描写を排し気温・湿度・音・匂い・感触まで伝わるような精緻で写実的な情景を描写:"
             scenery_text = llm_flash.invoke(scenery_prompt).content
             print(f"  - 生成された情景描写: {scenery_text}")
@@ -96,8 +94,9 @@ def context_generator_node(state: AgentState):
 def actor_node(state: AgentState):
     """主演俳優：コンテキストと生の履歴に基づき、思考するノード"""
     print("--- 主演ノード (actor_node) 実行 ---")
-    llm_pro = get_configured_llm("gemini-1.5-pro", state['api_key'])
-    llm_with_tools = llm_pro.bind_tools(all_tools)
+    # ★★★ ここを修正: ハードコードではなく、stateからモデル名を取得 ★★★
+    llm = get_configured_llm(state['model_name'], state['api_key'])
+    llm_with_tools = llm.bind_tools(all_tools)
 
     messages_for_actor = [state['system_prompt']] + state['messages']
 
@@ -105,7 +104,6 @@ def actor_node(state: AgentState):
     return {"messages": [response]}
 
 def tool_executor_node(state: AgentState):
-    """ツールを実行し、その結果を返すノード。"""
     print("--- ツール実行ノード (tool_executor_node) 実行 ---")
     tool_calls = state["messages"][-1].tool_calls
     if not tool_calls:
@@ -154,4 +152,4 @@ workflow.add_conditional_edges(
 workflow.add_edge("tool_executor", "context_generator")
 
 app = workflow.compile()
-print("--- 最終版v5.1：画像生成ツール統合＆プロンプト改良済みのグラフがコンパイルされました ---")
+print("--- 最終版v6：モデル指定バグを修正したグラフがコンパイルされました ---")
