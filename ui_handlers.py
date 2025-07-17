@@ -1,4 +1,4 @@
-# ui_handlers.py の修正版
+# ui_handlers.py の最終修正版
 
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Union
@@ -27,9 +27,6 @@ from character_manager import get_character_files_paths
 from memory_manager import load_memory_data_safe, save_memory_data
 from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
 
-# (このファイル内の他の関数は変更ありません)
-# ...
-
 def handle_message_submission(*args: Any):
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
@@ -38,50 +35,65 @@ def handle_message_submission(*args: Any):
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox:
-        # テキスト入力がない場合は何もせず終了
         yield chatbot_history, gr.update(), gr.update(), update_token_count(textbox_content, file_input_list, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
         return
 
-    # ★★★ 修正箇所: タイムスタンプのフォーマットを元に戻す ★★★
     timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
     processed_user_message = user_prompt_from_textbox + timestamp
 
-    # タイムスタンプ付きのメッセージをUIに反映させる
     chatbot_history.append({"role": "user", "content": processed_user_message})
     chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
     yield chatbot_history, gr.update(value=""), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 
     final_response_text = ""
     try:
-        # AIに渡す引数リストを加工し、タイムスタンプ付きメッセージに置き換える
         args_list = list(args)
         args_list[0] = processed_user_message
-
         final_response_text = gemini_api.invoke_nexus_agent(*args_list)
-
     except Exception as e:
         traceback.print_exc()
         final_response_text = f"[UIハンドラエラー: {e}]"
 
-
-    # ログ保存と記憶のロジック
+    # --- ログ保存ロジック (UI更新より先に行う) ---
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
-
     if processed_user_message.strip():
         user_header = _get_user_header_from_log(log_f, current_character_name)
-        # ログには、すでにタイムスタンプが含まれている `processed_user_message` をそのまま保存
         save_message_to_log(log_f, user_header, processed_user_message)
-
         if final_response_text:
-            response_for_log = re.sub(r"<tool_code>.*?</tool_code>", "", final_response_text, flags=re.DOTALL).strip()
-            if response_for_log:
-                 save_message_to_log(log_f, f"## {current_character_name}:", response_for_log)
+            save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
 
-    # UIを最終的な応答で更新
-    chatbot_history[-1]["content"] = utils.format_response_for_display(final_response_text)
+    # ★★★ ここからがUI表示ロジックの修正箇所です ★★★
+    chatbot_history.pop() # 「思考中...」を削除
+
+    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
+    image_match = image_tag_pattern.search(final_response_text)
+
+    if image_match:
+        text_before_image = final_response_text[:image_match.start()].strip()
+        image_path = image_match.group(1).strip()
+        text_after_image = final_response_text[image_match.end():].strip()
+
+        if text_before_image:
+            chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(text_before_image)})
+
+        absolute_image_path = os.path.abspath(image_path)
+        if os.path.exists(absolute_image_path):
+            chatbot_history.append({"role": "assistant", "content": (absolute_image_path, os.path.basename(image_path))})
+        else:
+            chatbot_history.append({"role": "assistant", "content": f"*[表示エラー: 画像 '{os.path.basename(image_path)}' が見つかりません]*"})
+
+        if text_after_image:
+            chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(text_after_image)})
+    else:
+        # 画像がない場合は、通常通り応答全体を表示
+        chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(final_response_text)})
+
+    # ★★★ 修正箇所ここまで ★★★
+
     yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
 
-# (ここに、ファイル内の他の全ての関数が、そのままの形で含まれます)
+# (このファイル内の他の全ての関数は変更ありません)
+# ... (handle_add_new_character, update_ui_on_character_change, etc.)
 def handle_add_new_character(character_name: str):
     if not character_name or not character_name.strip():
         gr.Warning("キャラクター名が入力されていません。")
