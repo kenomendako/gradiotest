@@ -5,7 +5,6 @@ import re # ★ 正規表現ライブラリをインポート
 import traceback
 from typing import TypedDict, Annotated, List, Literal
 from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage, ToolMessage, AIMessage
-from langchain_core.tools import format_tool_to_openai_function
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from datetime import datetime
