@@ -2,12 +2,12 @@
 
 import os
 import traceback
-from typing import TypedDict, Annotated, List
+from typing import TypedDict, Annotated, List, Literal
 from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage, ToolMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
-from langgraph.prebuilt import tools_condition
 from datetime import datetime
+from langchain_core.tools import tool
 
 from agent.prompts import ACTOR_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, find_location_id_by_name
@@ -16,11 +16,19 @@ from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_note
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from rag_manager import diary_search_tool, conversation_memory_search_tool
-import config_manager
-import mem0_manager
 
-# --- 1. ツール定義 ---
+# --- 1. 新しいツールの定義 ---
+@tool
+def task_complete_tool() -> str:
+    """
+    全ての思考とツール使用が完了し、ユーザーへの最終応答を生成する準備ができたことを示すために、
+    思考の連鎖の最後に必ず呼び出す特別なツール。
+    """
+    return "タスク完了。最終応答を生成します。"
+
+# --- 2. ツール定義 ---
 all_tools = [
+    task_complete_tool, # ★★★ この行を追加 ★★★
     set_current_location, find_location_id_by_name, read_memory_by_path, edit_memory,
     add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
     update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
@@ -28,7 +36,7 @@ all_tools = [
     generate_image, read_full_memory
 ]
 
-# --- 2. 状態定義 ---
+# --- 3. 状態定義 ---
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     character_name: str
@@ -36,12 +44,13 @@ class AgentState(TypedDict):
     tavily_api_key: str
     model_name: str
     system_prompt: SystemMessage
+    task_complete: bool # ★★★ この行を追加 ★★★
 
-# --- 3. モデル初期化 ---
+# --- 4. モデル初期化 ---
 def get_configured_llm(model_name: str, api_key: str):
     return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, convert_system_message_to_human=False)
 
-# --- 4. グラフのノード定義 ---
+# --- 5. グラフのノード定義 ---
 def context_generator_node(state: AgentState):
     print("--- コンテキスト生成ノード (context_generator_node) 実行 ---")
     character_name = state['character_name']
@@ -49,7 +58,6 @@ def context_generator_node(state: AgentState):
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     try:
         llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
-
         location_from_file = "living_space"
         try:
             location_file_path = os.path.join("characters", character_name, "current_location.txt")
@@ -69,7 +77,6 @@ def context_generator_node(state: AgentState):
             print(f"  - 生成された情景描写: {scenery_text}")
         else:
             print(f"  - 警告: 場所「{location_from_file}」の定義が見つかりません。")
-
     except Exception as e:
         print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}")
 
@@ -82,17 +89,11 @@ def context_generator_node(state: AgentState):
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
-    final_system_prompt_text = f"""
-{ACTOR_PROMPT_TEMPLATE.format(character_name=character_name, character_prompt=character_prompt, core_memory=core_memory)}
----
-【現在の情景】
-{scenery_text}
----
-"""
-    return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
+    final_system_prompt_text = f"{ACTOR_PROMPT_TEMPLATE.format(character_name=character_name, character_prompt=character_prompt, core_memory=core_memory)}\n---\n【現在の情景】\n{scenery_text}\n---"
+    return {"system_prompt": SystemMessage(content=final_system_prompt_text), "task_complete": False}
 
 def actor_node(state: AgentState):
-    print("--- 主演ノード (actor_node) 実行 ---")
+    print("--- 計画ノード (actor_node) 実行 ---")
     llm = get_configured_llm(state['model_name'], state['api_key'])
     llm_with_tools = llm.bind_tools(all_tools)
     messages_for_actor = [state['system_prompt']] + state['messages']
@@ -102,9 +103,11 @@ def actor_node(state: AgentState):
 def tool_executor_node(state: AgentState):
     print("--- ツール実行ノード (tool_executor_node) 実行 ---")
     tool_calls = state["messages"][-1].tool_calls
-    if not tool_calls:
-        print("  - 警告: tool_callsが空のため、ツール実行をスキップします。")
-        return {}
+    task_is_complete = any(call['name'] == 'task_complete_tool' for call in tool_calls)
+
+    if task_is_complete:
+        print("  - `task_complete_tool`が呼び出されたため、タスクを完了します。")
+        return {"task_complete": True}
 
     tool_outputs = []
     for call in tool_calls:
@@ -120,62 +123,39 @@ def tool_executor_node(state: AgentState):
                 output = found_tool.invoke(tool_args)
                 tool_outputs.append(ToolMessage(content=str(output), tool_call_id=call["id"]))
             except Exception as e:
-                print(f"  - エラー: ツール '{tool_name}' の実行中にエラーが発生しました: {e}")
-                traceback.print_exc()
                 tool_outputs.append(ToolMessage(content=f"ツール実行エラー: {e}", tool_call_id=call["id"]))
         else:
-            print(f"  - エラー: ツール '{tool_name}' が見つかりません。")
             tool_outputs.append(ToolMessage(content=f"エラー: ツール '{tool_name}' が見つかりません。", tool_call_id=call["id"]))
     return {"messages": tool_outputs}
 
-# ★★★ ここからが修正箇所です ★★★
+def final_response_node(state: AgentState):
+    print("--- 応答生成ノード (final_response_node) 実行 ---")
+    llm = get_configured_llm(state['model_name'], state['api_key'])
+    messages_for_response = [state['system_prompt']] + state['messages']
+    response = llm.invoke(messages_for_response)
+    return {"messages": [response]}
 
-def after_tool_condition(state: AgentState) -> str:
-    """
-    ツール実行後、次に進むべきノードを判断する。
-    場所移動ツールが使われた場合は情景を再生成し、それ以外は直接応答生成に進む。
-    """
-    print("--- ツール後条件分岐 (after_tool_condition) 実行 ---")
-    last_message = state['messages'][-2] # ツールコールを行ったAIMessageを取得
-    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
-        print("  - ツールコールが見つからないため、actorへフォールバックします。")
-        return "actor" # 予期せぬケース
+def router(state: AgentState) -> Literal["tool_executor", "final_response_node"]:
+    print("--- ルーター (router) 実行 ---")
+    if state["task_complete"]:
+        print("  - タスク完了フラグがTrueのため、最終応答へ。")
+        return "final_response_node"
+    else:
+        print("  - タスク継続中のため、ツール実行へ。")
+        return "tool_executor"
 
-    # 実行されたツールコールの中に `set_current_location` が含まれているかチェック
-    for tool_call in last_message.tool_calls:
-        if tool_call['name'] == 'set_current_location':
-            print("  - `set_current_location`が実行されたため、情景を再生成します。")
-            return "context_generator"
-
-    print("  - 場所移動以外のツールが実行されたため、直接actorへ進みます。")
-    return "actor"
-
-# --- 5. グラフ構築 ---
+# --- 6. グラフ構築 ---
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("actor", actor_node)
 workflow.add_node("tool_executor", tool_executor_node)
+workflow.add_node("final_response_node", final_response_node)
 
 workflow.add_edge(START, "context_generator")
 workflow.add_edge("context_generator", "actor")
-
-workflow.add_conditional_edges(
-    "actor",
-    tools_condition,
-    {"tools": "tool_executor", END: END}
-)
-
-# ツール実行後のエッジを、新しい条件分岐 `after_tool_condition` を使うように変更
-workflow.add_conditional_edges(
-    "tool_executor",
-    after_tool_condition,
-    {
-        "context_generator": "context_generator",
-        "actor": "actor"
-    }
-)
-
-# ★★★ 修正箇所ここまで ★★★
+workflow.add_conditional_edges("actor", router, {"tool_executor": "tool_executor", "final_response_node": "final_response_node"})
+workflow.add_edge("tool_executor", "actor")
+workflow.add_edge("final_response_node", END)
 
 app = workflow.compile()
-print("--- 最終版v9：インテリジェント・ルーティングを導入したグラフがコンパイルされました ---")
+print("--- 最終版v11：自律的タスク完了メカニズムを導入した最終グラフがコンパイルされました ---")
