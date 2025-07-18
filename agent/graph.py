@@ -3,7 +3,7 @@
 import os
 import traceback
 from typing import TypedDict, Annotated, List
-from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage, ToolMessage
+from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage, ToolMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langgraph.prebuilt import tools_condition
@@ -25,7 +25,7 @@ all_tools = [
     add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
     update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
     read_url_tool, diary_search_tool, conversation_memory_search_tool,
-    generate_image, read_full_memory # ★★★ この行を修正 ★★★
+    generate_image, read_full_memory
 ]
 
 # --- 2. 状態定義 ---
@@ -49,6 +49,7 @@ def context_generator_node(state: AgentState):
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     try:
         llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
+
         location_from_file = "living_space"
         try:
             location_file_path = os.path.join("characters", character_name, "current_location.txt")
@@ -127,6 +128,28 @@ def tool_executor_node(state: AgentState):
             tool_outputs.append(ToolMessage(content=f"エラー: ツール '{tool_name}' が見つかりません。", tool_call_id=call["id"]))
     return {"messages": tool_outputs}
 
+# ★★★ ここからが修正箇所です ★★★
+
+def after_tool_condition(state: AgentState) -> str:
+    """
+    ツール実行後、次に進むべきノードを判断する。
+    場所移動ツールが使われた場合は情景を再生成し、それ以外は直接応答生成に進む。
+    """
+    print("--- ツール後条件分岐 (after_tool_condition) 実行 ---")
+    last_message = state['messages'][-2] # ツールコールを行ったAIMessageを取得
+    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
+        print("  - ツールコールが見つからないため、actorへフォールバックします。")
+        return "actor" # 予期せぬケース
+
+    # 実行されたツールコールの中に `set_current_location` が含まれているかチェック
+    for tool_call in last_message.tool_calls:
+        if tool_call['name'] == 'set_current_location':
+            print("  - `set_current_location`が実行されたため、情景を再生成します。")
+            return "context_generator"
+
+    print("  - 場所移動以外のツールが実行されたため、直接actorへ進みます。")
+    return "actor"
+
 # --- 5. グラフ構築 ---
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
@@ -141,7 +164,18 @@ workflow.add_conditional_edges(
     tools_condition,
     {"tools": "tool_executor", END: END}
 )
-workflow.add_edge("tool_executor", "context_generator")
+
+# ツール実行後のエッジを、新しい条件分岐 `after_tool_condition` を使うように変更
+workflow.add_conditional_edges(
+    "tool_executor",
+    after_tool_condition,
+    {
+        "context_generator": "context_generator",
+        "actor": "actor"
+    }
+)
+
+# ★★★ 修正箇所ここまで ★★★
 
 app = workflow.compile()
-print("--- 最終版v7：記憶の全文閲覧ツールを統合したグラフがコンパイルされました ---")
+print("--- 最終版v9：インテリジェント・ルーティングを導入したグラフがコンパイルされました ---")
