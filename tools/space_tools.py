@@ -12,26 +12,24 @@ def find_location_id_by_name(location_name: str, character_name: str = None) -> 
     location_name: ユーザーが言及した場所の日本語名。
     """
     if not location_name or not character_name:
-        return "【エラー】場所名とキャラクター名は必須です。"
+        return "【Error】Location name and character name are required."
 
     _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
     if not memory_json_path:
-        return f"【エラー】キャラクター'{character_name}'の記憶ファイルパスが見つかりません。"
+        return f"【Error】Could not find memory file path for character '{character_name}'."
 
     memory_data = load_memory_data_safe(memory_json_path)
     if "error" in memory_data or "living_space" not in memory_data:
-        return "【エラー】living_spaceの記憶が読み込めません。"
+        return "【Error】Could not load living_space memory."
 
     living_space = memory_data.get("living_space", {})
     for location_id, details in living_space.items():
-        # location_id自体が一致する場合も考慮
         if location_id.lower() == location_name.lower():
             return location_id
-        # detailsが辞書であり、'name'キーが存在する場合にチェック
         if isinstance(details, dict) and details.get("name", "").lower() == location_name.lower():
             return location_id
 
-    return f"【エラー】場所「{location_name}」が見つかりませんでした。typoの可能性、または先にedit_memoryで場所を定義する必要があるかもしれません。"
+    return f"【Error】Location '{location_name}' not found. Check for typos or define it first using edit_memory."
 
 
 @tool
@@ -41,29 +39,25 @@ def set_current_location(location: str, character_name: str = None) -> str:
     location: "study"のような場所のID、または"書斎"のような日本語名を指定。日本語名が指定された場合、自動でIDを検索します。
     """
     if not location or not character_name:
-        return "【エラー】場所とキャラクター名は必須です。"
+        return "【Error】Location and character name are required."
 
-    # まず、与えられたlocationが日本語名かもしれないのでIDを検索する
-    found_id = find_location_id_by_name.func(location_name=location, character_name=character_name)
+    found_id_result = find_location_id_by_name.func(location_name=location, character_name=character_name)
 
-    # 検索結果を評価
-    if found_id and not found_id.startswith("【エラー】"):
-        location_to_set = found_id
-        print(f"  - 場所名'{location}'からID'{location_to_set}'を特定しました。")
+    if not found_id_result.startswith("【Error】"):
+        location_to_set = found_id_result
+        print(f"  - Identified location ID '{location_to_set}' from name '{location}'.")
     else:
-        # IDが見つからなかった場合、元のlocationをそのまま使う（英語ID直接指定のケース）
         location_to_set = location
-        print(f"  - 場所名'{location}'をIDとして直接使用します。")
+        print(f"  - Using '{location}' directly as location ID.")
 
 
     try:
         base_path = os.path.join("characters", character_name)
         location_file_path = os.path.join(base_path, "current_location.txt")
 
-        # ★★★ 最終的にファイルに書き込むのは、特定したID ★★★
         with open(location_file_path, "w", encoding="utf-8") as f:
             f.write(location_to_set.strip())
 
-        return f"成功: 現在地を「{location_to_set}」に設定しました。"
+        return f"Success: Current location has been set to '{location_to_set}'."
     except Exception as e:
-        return f"【エラー】現在地の設定中にエラーが発生しました: {e}"
+        return f"【Error】Failed to set current location: {e}"
