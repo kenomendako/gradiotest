@@ -48,7 +48,7 @@ def context_generator_node(state: AgentState):
     api_key = state['api_key']
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     try:
-        llm_flash = get_configured_llm("gemini-1.5-flash", api_key)
+        llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
         location_from_file = "living_space"
         try:
             location_file_path = os.path.join("characters", character_name, "current_location.txt")
