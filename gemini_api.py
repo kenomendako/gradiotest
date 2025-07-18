@@ -95,7 +95,21 @@ def count_input_tokens(
     core_memory = ""
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
-    final_system_prompt = ACTOR_PROMPT_TEMPLATE.format(character_name=character_name, character_prompt=character_prompt, core_memory=core_memory) if use_common_prompt else character_prompt
+    # ★★★ ここからが修正箇所 ★★★
+    if use_common_prompt:
+        class SafeDict(dict):
+            def __missing__(self, key):
+                return f'{{{key}}}'
+        prompt_vars = {
+            'character_name': character_name,
+            'character_prompt': character_prompt,
+            'core_memory': core_memory
+        }
+        final_system_prompt = ACTOR_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+    else:
+        final_system_prompt = character_prompt
+    # ★★★ 修正ここまで ★★★
+
     if send_notepad_to_api:
         _, _, _, _, notepad_path = get_character_files_paths(character_name)
         if notepad_path and os.path.exists(notepad_path):

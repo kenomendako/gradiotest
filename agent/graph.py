@@ -89,7 +89,19 @@ def context_generator_node(state: AgentState):
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
-    final_system_prompt_text = f"{ACTOR_PROMPT_TEMPLATE.format(character_name=character_name, character_prompt=character_prompt, core_memory=core_memory)}\n---\n【現在の情景】\n{scenery_text}\n---"
+    # ★★★ ここからが修正箇所 ★★★
+    class SafeDict(dict):
+        def __missing__(self, key):
+            return f'{{{key}}}'
+
+    prompt_vars = {
+        'character_name': character_name,
+        'character_prompt': character_prompt,
+        'core_memory': core_memory
+    }
+    formatted_actor_prompt = ACTOR_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+    final_system_prompt_text = f"{formatted_actor_prompt}\n---\n【現在の情景】\n{scenery_text}\n---"
+    # ★★★ 修正ここまで ★★★
     return {"system_prompt": SystemMessage(content=final_system_prompt_text), "task_complete": False}
 
 def actor_node(state: AgentState):
