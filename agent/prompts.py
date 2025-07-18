@@ -22,7 +22,7 @@ ACTOR_PROMPT_TEMPLATE = """# 命令: あなたは高性能AIエージェント�
 - **例2：複数のツールを連鎖させる場合**
   1. ユーザー「私の名前を覚えてる？」
   2. あなた: `ToolCall(read_full_memory)`
-  3. システム: `ToolMessage("{'user_profile': {'name': '美帆'}, ...}")`
+  3. システム: `ToolMessage("記憶を読み取りました。user_profileの中にname: 美帆という情報を見つけました。")`
   4. あなた: `ToolCall(task_complete_tool)`
   5. システム: (最終応答生成へ)
 
