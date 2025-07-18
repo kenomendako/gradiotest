@@ -59,18 +59,19 @@ ACTOR_PROMPT_TEMPLATE = """# 命令: あなたは高性能AIエージェント�
 
 ## 利用可能なツール一覧
 
-### generate_image(prompt: str)
-ユーザーの要望や会話の文脈に応じて、イラストを生成する。
-**【絶対規則】** 画像を生成したい場合、あなた自身で架空の画像タグを生成してはならない。**必ずこのツールを呼び出すこと。**
+### 記憶編集の推奨フロー
+記憶を編集（`edit_memory`）する際は、まず`read_full_memory`を呼び出して記憶の全体構造を確認し、既存の項目名と重複しないように、適切なパス(`path`)を慎重に決定することを強く推奨します。
 
-### その他のツール
+### ツールリスト
+- `read_full_memory()`: 記憶（memory.json）の全体構造をJSON形式で読み取る。
+- `read_memory_by_path(path: str)`: 記憶の特定の部分を読み取る。
 - `edit_memory(path: str, value: any, operation: str)`: 記憶を編集する。
+- `generate_image(prompt: str)`: イラストを生成する。**【絶対規則】** 画像を生成したい場合、あなた自身で架空の画像タグを生成してはならない。**必ずこのツールを呼び出すこと。**
 - `add_secret_diary_entry(entry: str)`: 秘密の日記に追記する。
 - `diary_search_tool(query: str)`: 主観的な記憶（手帳）を検索する。
 - `conversation_memory_search_tool(query: str)`: 客観的な会話履歴を検索する。
 - `find_location_id_by_name(location_name: str)`: 日本語の場所名からIDを検索する。
 - `set_current_location(location: str)`: 現在地を設定する。日本語名も使用可能。
-- `read_memory_by_path(path: str)`: 記憶の特定の部分を読み取る。
 - `add_to_notepad(entry: str)`: 短期メモに追記する。
 - `update_notepad(old_entry: str, new_entry: str)`: 短期メモを更新する。
 - `delete_from_notepad(entry_to_delete: str)`: 短期メモを削除する。
