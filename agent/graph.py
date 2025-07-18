@@ -1,9 +1,11 @@
 # agent/graph.py の、内容を、以下の、最終版で、完全に、置き換えてください
 
 import os
+import re # ★ 正規表現ライブラリをインポート
 import traceback
 from typing import TypedDict, Annotated, List, Literal
 from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage, ToolMessage, AIMessage
+from langchain_core.tools import format_tool_to_openai_function
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from datetime import datetime
@@ -45,36 +47,61 @@ def context_generator_node(state: AgentState):
     character_name = state['character_name']
     api_key = state['api_key']
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
+
     try:
+        # ★★★ ここからが場所特定のロジック変更 ★★★
+        location_to_describe = None
+
+        # 1. まず、直前のツール実行結果から場所の変更を試みる (最優先)
+        last_tool_message = next((msg for msg in reversed(state['messages']) if isinstance(msg, ToolMessage)), None)
+        if last_tool_message and "Success: Location set to" in last_tool_message.content:
+            match = re.search(r"'(.*?)'", last_tool_message.content)
+            if match:
+                location_to_describe = match.group(1)
+                print(f"  - ツール実行結果から最新の場所 '{location_to_describe}' を特定しました。")
+
+        # 2. ツール実行結果がなければ、ファイルから読み込む
+        if not location_to_describe:
+            try:
+                location_file_path = os.path.join("characters", character_name, "current_location.txt")
+                if os.path.exists(location_file_path):
+                    with open(location_file_path, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                        if content:
+                            location_to_describe = content
+                            print(f"  - ファイルから現在の場所 '{location_to_describe}' を読み込みました。")
+            except Exception as e:
+                print(f"  - 警告: 現在地ファイル読込エラー: {e}")
+
+        # 3. それでも場所が不明なら、デフォルト値を設定
+        if not location_to_describe:
+            location_to_describe = "living_space"
+            print(f"  - 場所が特定できなかったため、デフォルトの '{location_to_describe}' を使用します。")
+        # ★★★ 場所特定のロジック変更ここまで ★★★
+
+        # 特定した場所の情景を描写
         llm_flash = get_configured_llm("gemini-1.5-flash-latest", api_key)
-        location_from_file = "living_space"
-        try:
-            location_file_path = os.path.join("characters", character_name, "current_location.txt")
-            if os.path.exists(location_file_path):
-                with open(location_file_path, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-                    if content: location_from_file = content
-        except Exception as e: print(f"  - 警告: 現在地ファイル読込エラー: {e}")
 
-        found_id_result = find_location_id_by_name.invoke({"location_name": location_from_file, "character_name": character_name})
-
-        id_to_use = location_from_file
-        if not found_id_result.startswith("【Error】"):
+        # 場所名からIDを検索
+        found_id_result = find_location_id_by_name.invoke({"location_name": location_to_describe, "character_name": character_name})
+        id_to_use = location_to_describe
+        if not found_id_result.startswith("Error:"):
             id_to_use = found_id_result
 
         space_def = read_memory_by_path.invoke({"path": f"living_space.{id_to_use}", "character_name": character_name})
 
-        if "【Error】" not in space_def and "エラー" not in space_def:
+        if not space_def.startswith("【Error】") and not space_def.startswith("Error:"):
             now = datetime.now()
             scenery_prompt = f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')}\n季節:{now.month}月\n以上の情報から2-3文で、人物描写を排し気温・湿度・音・匂い・感触まで伝わるような精緻で写実的な情景を描写:"
             scenery_text = llm_flash.invoke(scenery_prompt).content
             print(f"  - 生成された情景描写: {scenery_text}")
         else:
-            print(f"  - 警告: 場所「{location_from_file}」(ID: {id_to_use}) の定義が見つかりません。")
+            print(f"  - 警告: 場所「{location_to_describe}」(ID: {id_to_use}) の定義が見つかりません。")
 
     except Exception as e:
         print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}")
 
+    # プロンプトの組み立て
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
     character_prompt = ""
@@ -84,13 +111,18 @@ def context_generator_node(state: AgentState):
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
+    # ★★★ 新しいプロンプトテンプレートに合わせてツールリストを渡す ★★★
+    tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
+
     class SafeDict(dict):
         def __missing__(self, key):
             return f'{{{key}}}'
+
     prompt_vars = {
         'character_name': character_name,
         'character_prompt': character_prompt,
-        'core_memory': core_memory
+        'core_memory': core_memory,
+        'tools_list': tools_list_str
     }
     formatted_actor_prompt = ACTOR_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
     final_system_prompt_text = f"{formatted_actor_prompt}\n---\n【現在の情景】\n{scenery_text}\n---"
@@ -98,6 +130,7 @@ def context_generator_node(state: AgentState):
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def agent_node(state: AgentState):
+    # (この関数は変更なし)
     print("--- エージェントノード (agent_node) 実行 ---")
     llm = get_configured_llm(state['model_name'], state['api_key'])
     llm_with_tools = llm.bind_tools(all_tools)
@@ -107,6 +140,7 @@ def agent_node(state: AgentState):
 
 # --- 5. ルーターの定義 ---
 def route_after_agent(state: AgentState) -> Literal["__end__", "tool_node"]:
+    # (この関数は変更なし)
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
     last_message = state["messages"][-1]
     if not last_message.tool_calls:
@@ -115,9 +149,7 @@ def route_after_agent(state: AgentState) -> Literal["__end__", "tool_node"]:
     print("  - ツール呼び出しあり。ツール実行ノードへ。")
     return "tool_node"
 
-# ★★★ 新しいルーターを追加 ★★★
 def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"]:
-    """ツール実行後、どのノードに進むかを決定する"""
     print("--- ツール後ルーター (route_after_tools) 実行 ---")
     # messagesリストから、ツール呼び出しを行った最後のAIMessageを探す
     last_ai_message_with_tool_call = next((msg for msg in reversed(state['messages']) if isinstance(msg, AIMessage) and msg.tool_calls), None)
@@ -139,30 +171,20 @@ workflow.add_node("agent", agent_node)
 tool_node = ToolNode(all_tools)
 workflow.add_node("tool_node", tool_node)
 
-# STARTからコンテキスト生成へ
 workflow.add_edge(START, "context_generator")
-# コンテキスト生成後、エージェントの思考へ
 workflow.add_edge("context_generator", "agent")
 
-# エージェントの思考後、ツールを使うか終了するかを判断
 workflow.add_conditional_edges(
     "agent",
     route_after_agent,
-    {
-        "tool_node": "tool_node",
-        "__end__": END
-    }
+    {"tool_node": "tool_node", "__end__": END}
 )
 
-# ★★★ ツール実行後の分岐を追加 ★★★
 workflow.add_conditional_edges(
     "tool_node",
     route_after_tools,
-    {
-        "context_generator": "context_generator", # 場所変更ならコンテキスト生成へループ
-        "agent": "agent"                       # それ以外ならエージェントの思考へ
-    }
+    {"context_generator": "context_generator", "agent": "agent"}
 )
 
 app = workflow.compile()
-print("--- 最終版v25：認識フィードバック・ループを導入した最終グラフがコンパイルされました ---")
+print("--- 最終完成版v29：ルールと構造の革命を導入した最終グラフがコンパイルされました ---")
