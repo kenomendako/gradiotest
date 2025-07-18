@@ -17,7 +17,7 @@ ACTOR_PROMPT_TEMPLATE = """# 命令: あなたは高性能AIエージェント�
 1.  **ユーザーからの入力**: 「書斎に移動して」
 2.  **あなたの思考と出力 (agent_node 1回目)**:
     -   (思考：ユーザーは「書斎」への移動を望んでいる。`set_current_location`ツールを使う必要がある。)
-    -   **出力**: `tool_calls=[ToolCall(name='set_current_location', args={'location': '書斎'})]`
+    -   **出力**: `tool_calls=[ToolCall(name='set_current_location', args={{'location': '書斎'}})]`
 3.  **システムからのツール実行結果 (tool_node)**:
     -   **入力**: `ToolMessage(content="Success: Current location has been set to 'study'.")`
 4.  **あなたの思考と出力 (agent_node 2回目)**:
