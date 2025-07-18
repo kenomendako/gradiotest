@@ -7,8 +7,6 @@ from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage, To
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from datetime import datetime
-
-# LangGraphの標準的なツール実行ノードをインポート
 from langgraph.prebuilt import ToolNode
 
 from agent.prompts import ACTOR_PROMPT_TEMPLATE
@@ -20,7 +18,6 @@ from tools.image_tools import generate_image
 from rag_manager import diary_search_tool, conversation_memory_search_tool
 
 # --- 1. ツール定義 ---
-# task_complete_tool は廃止
 all_tools = [
     set_current_location, find_location_id_by_name, read_memory_by_path, edit_memory,
     add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
@@ -37,7 +34,6 @@ class AgentState(TypedDict):
     tavily_api_key: str
     model_name: str
     system_prompt: SystemMessage
-    # task_complete フラグは廃止
 
 # --- 3. モデル初期化 ---
 def get_configured_llm(model_name: str, api_key: str):
@@ -50,8 +46,7 @@ def context_generator_node(state: AgentState):
     api_key = state['api_key']
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     try:
-        # このノードのロジックは変更なし
-        llm_flash = get_configured_llm("gemini-1.5-flash-latest", api_key) # モデル名を最新版に更新
+        llm_flash = get_configured_llm("gemini-1.5-flash-latest", api_key)
         location_from_file = "living_space"
         try:
             location_file_path = os.path.join("characters", character_name, "current_location.txt")
@@ -62,12 +57,12 @@ def context_generator_node(state: AgentState):
         except Exception as e: print(f"  - 警告: 現在地ファイル読込エラー: {e}")
 
         found_id_result = find_location_id_by_name.invoke({"location_name": location_from_file, "character_name": character_name})
-        # find_location_id_by_name が返すのはID文字列そのものか、エラーメッセージ
-        if not found_id_result.startswith("【Error】"):
-             space_def = read_memory_by_path.invoke({"path": f"living_space.{found_id_result}", "character_name": character_name})
-        else:
-             space_def = read_memory_by_path.invoke({"path": f"living_space.{location_from_file}", "character_name": character_name})
 
+        id_to_use = location_from_file
+        if not found_id_result.startswith("【Error】"):
+            id_to_use = found_id_result
+
+        space_def = read_memory_by_path.invoke({"path": f"living_space.{id_to_use}", "character_name": character_name})
 
         if "【Error】" not in space_def and "エラー" not in space_def:
             now = datetime.now()
@@ -75,7 +70,7 @@ def context_generator_node(state: AgentState):
             scenery_text = llm_flash.invoke(scenery_prompt).content
             print(f"  - 生成された情景描写: {scenery_text}")
         else:
-            print(f"  - 警告: 場所「{location_from_file}」の定義が見つかりません。")
+            print(f"  - 警告: 場所「{location_from_file}」(ID: {id_to_use}) の定義が見つかりません。")
 
     except Exception as e:
         print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}")
@@ -89,7 +84,6 @@ def context_generator_node(state: AgentState):
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
-    # 安全なフォーマット
     class SafeDict(dict):
         def __missing__(self, key):
             return f'{{{key}}}'
@@ -104,80 +98,71 @@ def context_generator_node(state: AgentState):
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def agent_node(state: AgentState):
-    """思考と計画を担当するノード"""
     print("--- エージェントノード (agent_node) 実行 ---")
     llm = get_configured_llm(state['model_name'], state['api_key'])
-
-    # ★★★ Tavily APIキーをツールにバインドする準備 ★★★
     llm_with_tools = llm.bind_tools(all_tools)
-
-    # システムプロンプトとメッセージ履歴を結合
     messages_for_agent = [state['system_prompt']] + state['messages']
-
-    # ★★★ web_search_tool に Tavily API キーを渡すための特別な処理は不要 ★★★
-    # bind_tools が引数を自動で解決してくれるため、tool_executor側で処理する
-
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}
 
-# ★★★ tool_executor_node は LangGraph の ToolNode に置き換えるため不要 ★★★
-# def tool_executor_node(state: AgentState): ...
-
-def final_response_node(state: AgentState):
-    """最終応答を生成するノード"""
-    print("--- 応答生成ノード (final_response_node) 実行 ---")
-    llm = get_configured_llm(state['model_name'], state['api_key'])
-    messages_for_response = [state['system_prompt']] + state['messages']
-    response = llm.invoke(messages_for_response)
-    return {"messages": [response]}
-
-# --- 5. ルーターの定義 (新しい形式) ---
-def router(state: AgentState) -> Literal["__end__", "tool_node"]:
-    """AIの応答にツール呼び出しが含まれているかどうかに基づいて、次にどこへ進むかを決定する。"""
-    print("--- ルーター (router) 実行 ---")
-    # 状態から最後のメッセージを取得
+# --- 5. ルーターの定義 ---
+def route_after_agent(state: AgentState) -> Literal["__end__", "tool_node"]:
+    print("--- エージェント後ルーター (route_after_agent) 実行 ---")
     last_message = state["messages"][-1]
-    # 最後のメッセージにツール呼び出しがあるかチェック
     if not last_message.tool_calls:
         print("  - ツール呼び出しなし。思考完了と判断し、グラフを終了します。")
-        return "__end__" # LangGraph v0.2.0以降では "end" ではなく "__end__" を推奨
-
+        return "__end__"
     print("  - ツール呼び出しあり。ツール実行ノードへ。")
-    # ツール呼び出しがあれば、ツール実行ノードへ
     return "tool_node"
 
-# --- 6. グラフ構築 (新しい形式) ---
+# ★★★ 新しいルーターを追加 ★★★
+def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"]:
+    """ツール実行後、どのノードに進むかを決定する"""
+    print("--- ツール後ルーター (route_after_tools) 実行 ---")
+    # messagesリストから、ツール呼び出しを行った最後のAIMessageを探す
+    last_ai_message_with_tool_call = next((msg for msg in reversed(state['messages']) if isinstance(msg, AIMessage) and msg.tool_calls), None)
+
+    if last_ai_message_with_tool_call:
+        # 呼び出されたツールの名前に 'set_current_location' が含まれているかチェック
+        if any(call['name'] == 'set_current_location' for call in last_ai_message_with_tool_call.tool_calls):
+            print("  - `set_current_location` が実行されたため、コンテキスト再生成へ。")
+            return "context_generator"
+
+    print("  - 通常のツール実行完了。エージェントの思考へ。")
+    return "agent"
+
+# --- 6. グラフ構築 ---
 workflow = StateGraph(AgentState)
 
-# ノードを追加
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
-# LangGraph標準のToolNodeを使用
 tool_node = ToolNode(all_tools)
 workflow.add_node("tool_node", tool_node)
-# final_response_nodeは、AIがツールを使わない場合に直接呼ばれることはなくなったため、削除しても良いが、
-# 将来的な拡張性のために残すこともできる。今回はシンプルにするため、一旦コメントアウト。
-# workflow.add_node("final_response_node", final_response_node)
 
-
-# エッジ（処理の流れ）を定義
+# STARTからコンテキスト生成へ
 workflow.add_edge(START, "context_generator")
+# コンテキスト生成後、エージェントの思考へ
 workflow.add_edge("context_generator", "agent")
 
-# agentノードの後に、新しいルーターを条件付きエッジとして追加
+# エージェントの思考後、ツールを使うか終了するかを判断
 workflow.add_conditional_edges(
     "agent",
-    router,
-    # ルーターの返す文字列と、次に向かうべきノード名をマッピング
+    route_after_agent,
     {
         "tool_node": "tool_node",
         "__end__": END
     }
 )
 
-# ツール実行後、再びエージェントノードに戻って次の思考を促す
-workflow.add_edge("tool_node", "agent")
+# ★★★ ツール実行後の分岐を追加 ★★★
+workflow.add_conditional_edges(
+    "tool_node",
+    route_after_tools,
+    {
+        "context_generator": "context_generator", # 場所変更ならコンテキスト生成へループ
+        "agent": "agent"                       # それ以外ならエージェントの思考へ
+    }
+)
 
-# コンパイル
 app = workflow.compile()
-print("--- 最終版v21：LangGraph標準のルーターとToolNodeを導入した最終グラフがコンパイルされました ---")
+print("--- 最終版v25：認識フィードバック・ループを導入した最終グラフがコンパイルされました ---")
