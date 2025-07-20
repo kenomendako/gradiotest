@@ -136,7 +136,7 @@ def agent_node(state: AgentState):
     action_match = re.search(r"【Action】\s*(.*)", raw_response, re.DOTALL)
 
     thoughts = thoughts_match.group(1).strip() if thoughts_match else ""
-    action_str = action_match.group(1).strip() if action_match else "TALK"
+    action_str = action_match.group(1).strip().strip('`') if action_match else "TALK"
 
     thought_message = f"【Thoughts】\n{thoughts}\n【/Thoughts】"
 
