@@ -81,6 +81,7 @@ def count_input_tokens(
     api_history_limit_option: str, api_key_name: str,
     send_notepad_to_api: bool, use_common_prompt: bool
 ) -> int:
+    from agent.graph import all_tools # ★★★ all_toolsをインポート ★★★
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return -1
 
@@ -95,7 +96,23 @@ def count_input_tokens(
     core_memory = ""
     if os.path.exists(core_memory_path):
         with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
-    final_system_prompt = ACTOR_PROMPT_TEMPLATE.format(character_name=character_name, character_prompt=character_prompt, core_memory=core_memory) if use_common_prompt else character_prompt
+
+    # ★★★ プロンプトの組み立て方を修正 ★★★
+    if use_common_prompt:
+        tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
+        class SafeDict(dict):
+            def __missing__(self, key):
+                return f'{{{key}}}'
+        prompt_vars = {
+            'character_name': character_name,
+            'character_prompt': character_prompt,
+            'core_memory': core_memory,
+            'tools_list': tools_list_str
+        }
+        final_system_prompt = ACTOR_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+    else:
+        final_system_prompt = character_prompt
+        
     if send_notepad_to_api:
         _, _, _, _, notepad_path = get_character_files_paths(character_name)
         if notepad_path and os.path.exists(notepad_path):
@@ -149,10 +166,13 @@ def invoke_nexus_agent(*args: Any) -> str:
         return f"[エラー: APIキー '{current_api_key_name_state}' が有効ではありません。]"
 
     user_input_text = textbox_content.strip() if textbox_content else ""
-    if not user_input_text:
-         return "[エラー: テキスト入力がありません]"
+    if not user_input_text and not file_input_list:
+         return "[エラー: テキスト入力またはファイル添付がありません]"
 
+    # ★★★ ここからが修正箇所 ★★★
     messages = []
+    
+    # 既存の履歴を追加
     log_file, _, _, _, _ = get_character_files_paths(current_character_name)
     raw_history = utils.load_chat_log(log_file, current_character_name)
     limit = int(api_history_limit_state) if api_history_limit_state.isdigit() else 0
@@ -161,12 +181,30 @@ def invoke_nexus_agent(*args: Any) -> str:
     for h_item in raw_history:
         role, content = h_item.get('role'), h_item.get('content', '').strip()
         if not content: continue
+        # LangChainのメッセージ形式に変換
         if role in ['model', 'assistant', current_character_name]:
             messages.append(AIMessage(content=content))
         elif role in ['user', 'human']:
             messages.append(HumanMessage(content=content))
 
-    messages.append(HumanMessage(content=user_input_text))
+    # 今回のユーザー入力を追加
+    user_message_parts = []
+    if user_input_text:
+        user_message_parts.append({"type": "text", "text": user_input_text})
+    if file_input_list:
+        for file in file_input_list:
+             # GradioのFileオブジェクトからPIL.Imageに変換
+            img = Image.open(file.name)
+            buffered = io.BytesIO()
+            img.save(buffered, format="PNG")
+            img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            user_message_parts.append({
+                "type": "image_url",
+                "image_url": { "url": f"data:image/png;base64,{img_base64}"}
+            })
+    
+    messages.append(HumanMessage(content=user_message_parts))
+    # ★★★ 修正ここまで ★★★
 
     initial_state = {
         "messages": messages,
@@ -181,13 +219,15 @@ def invoke_nexus_agent(*args: Any) -> str:
         final_response_message = final_state['messages'][-1]
 
         try:
-            # ★★★ ここを修正: ハードコードされたモデル名を削除 ★★★
             mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
-            mem0_instance.add([
-                {"role": "user", "content": user_input_text},
-                {"role": "assistant", "content": final_response_message.content}
-            ], user_id=current_character_name)
-            print("--- mem0への記憶成功 ---")
+            # HumanMessageのcontentはリスト形式なので、テキスト部分だけを抽出
+            user_text_for_mem0 = next((part['text'] for part in user_message_parts if part['type'] == 'text'), "")
+            if user_text_for_mem0: # テキストがある場合のみ記憶
+                mem0_instance.add([
+                    {"role": "user", "content": user_text_for_mem0},
+                    {"role": "assistant", "content": final_response_message.content}
+                ], user_id=current_character_name)
+                print("--- mem0への記憶成功 ---")
         except Exception as e:
             print(f"--- mem0への記憶中にエラー: {e} ---")
             traceback.print_exc()
