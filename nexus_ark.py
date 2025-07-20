@@ -13,10 +13,12 @@ import sys
 # ★★★ ここからが新しいコード ★★★
 import utils  # utilsをインポート
 
+# Mem0ライブラリの利用統計送信（テレメトリー）を無効化する
+os.environ["MEM0_TELEMETRY_ENABLED"] = "false"
+
 # グローバル・ロックの取得とメイン処理の実行
 if utils.acquire_lock(): # ★★★ if文でメイン処理を囲む ★★★
     try:
-        os.environ["MEM0_TELEMETRY_ENABLED"] = "false"
         import gradio as gr
         import traceback
         import threading
