@@ -210,7 +210,17 @@ def invoke_nexus_agent(*args: Any) -> str:
                     img_base64 = base64.b64encode(image_file.read()).decode('utf-8')
 
                 ext = os.path.splitext(filepath)[1].lower()
-                mime_type = f"image/{ext[1:]}" if ext in ['.png', '.jpg', '.jpeg', '.webp', '.gif'] else "image/png"
+
+                # ★★★ ここからが修正箇所 ★★★
+                if ext in ['.jpg', '.jpeg']:
+                    mime_type = 'image/jpeg'
+                elif ext in ['.png', '.webp', '.gif', '.heic', '.heif']:
+                    # 他のサポートされている画像形式
+                    mime_type = f"image/{ext[1:]}"
+                else:
+                    # サポートされていない画像形式の場合はエラーを発生させ、テキストとして処理させる
+                    raise ValueError("Unsupported image format")
+                # ★★★ 修正ここまで ★★★
 
                 user_message_parts.append({
                     "type": "image_url",
@@ -228,7 +238,7 @@ def invoke_nexus_agent(*args: Any) -> str:
                     })
                     print(f"  - テキストファイル '{os.path.basename(filepath)}' を処理しました。")
                 except Exception as text_e:
-                    print(f"  - 警告: ファイル '{os.path.basename(filepath)}' は画像でもテキストでもないためスキップします。エラー: {text_e}")
+                    print(f"  - 警告: ファイル '{os.path.basename(filepath)}' はサポートされている画像でもテキストでもないためスキップします。エラー: {text_e}")
 
     if user_message_parts:
         messages.append(HumanMessage(content=user_message_parts))
