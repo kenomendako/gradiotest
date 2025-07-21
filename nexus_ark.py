@@ -17,13 +17,12 @@ if utils.acquire_lock():
         config_manager.load_config()
         alarm_manager.load_alarms()
 
-        # (このファイルの内容は、前回の提案から変更ありません。念のため、全文を記載します)
         custom_css = """
     #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
-    #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; }
-    #memory_json_editor_code .cm-editor, #log_editor_code .cm-editor { max-height: 300px !important; overflow-y: auto !important; overflow-x: hidden !important; white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: break-word !important; }
+    #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word !important; }
+    #memory_json_editor_code .cm-editor { max-height: 300px !important; overflow-y: auto !important; overflow-x: hidden !important; white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: break-word !important; }
     #notepad_editor_code textarea { max-height: 300px !important; overflow-y: auto !important; white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: break-word !important; box-sizing: border-box; }
-    #memory_json_editor_code, #log_editor_code, #notepad_editor_code { max-height: 310px; border: 1px solid #ccc; border-radius: 5px; padding: 0; }
+    #memory_json_editor_code, #notepad_editor_code { max-height: 310px; border: 1px solid #ccc; border-radius: 5px; padding: 0; }
     #alarm_dataframe_display { border-radius: 8px !important; }
     #alarm_dataframe_display table { width: 100% !important; }
     #alarm_dataframe_display th, #alarm_dataframe_display td { text-align: left !important; padding: 4px 8px !important; white-space: normal !important; font-size: 0.95em; }
@@ -87,8 +86,9 @@ if utils.acquire_lock():
                                 timer_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="通知キャラ", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
                 with gr.Column(scale=3):
                     selected_message_state = gr.State(None)
-                    chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True, selectable=True)
-                    delete_selected_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
+                    # ★★★ selectable=True から likeable=True に変更 ★★★
+                    chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True, likeable=True)
+                    delete_selected_button = gr.Button("🗑️ 選択した発言（👍で選択）を削除", variant="stop")
                     chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
                     token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
                     tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
@@ -96,6 +96,8 @@ if utils.acquire_lock():
                     allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
                     file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
                     gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
+
+            # --- (State定義やtoken_calc_inputsなどの部分は変更なし) ---
             token_calc_inputs = [chat_input_textbox, file_upload_button, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, notepad_editor, use_common_prompt_state]
             token_calc_outputs = token_count_display
             def setup_token_update_events():
@@ -106,26 +108,15 @@ if utils.acquire_lock():
             add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
             def initial_load(char_name_to_load, api_history_limit, current_send_notepad_state, use_common_prompt_state):
                 df_with_ids = ui_handlers.render_alarms_as_dataframe(); display_df = ui_handlers.get_display_df(df_with_ids)
-                (returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str, alarm_dd_char_val, current_log_content, timer_dd_char_val, current_notepad_content) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit)
+                (returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str, alarm_dd_char_val, _, timer_dd_char_val, current_notepad_content) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit)
                 initial_token_str = ui_handlers.update_token_count(None, None, returned_char_name, config_manager.initial_model_global, config_manager.initial_api_key_name_global, api_history_limit, current_send_notepad_state, current_notepad_content, use_common_prompt_state)
-                return (display_df, df_with_ids, current_chat_hist, current_log_content, current_mem_str, current_profile_img, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください", initial_token_str, current_notepad_content)
+                # demo.loadではlog_editorに何も返さないように変更
+                return (display_df, df_with_ids, current_chat_hist, current_profile_img, current_mem_str, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください", initial_token_str, current_notepad_content)
 
-            # Ouroboros Break: イベントリスナーのinputsを修正
-            selected_message_index_state = gr.State(None)
+            # demo.loadのoutputsからlog_editorを削除し、対応する戻り値も削除
+            demo.load(fn=initial_load, inputs=[current_character_name, api_history_limit_state, send_notepad_state, use_common_prompt_state], outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor])
 
-            chatbot_display.select(
-                fn=lambda evt: evt.index[0] if evt.index else None,
-                inputs=[gr.SelectData()],
-                outputs=[selected_message_index_state],
-                show_progress=False
-            )
-            delete_selected_button.click(
-                fn=ui_handlers.handle_delete_selected_messages,
-                inputs=[current_character_name, selected_message_index_state, chatbot_display, api_history_limit_state],
-                outputs=[chatbot_display, selected_message_index_state]
-            )
-
-            demo.load(fn=initial_load, inputs=[current_character_name, api_history_limit_state, send_notepad_state, use_common_prompt_state], outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, gr.State(), memory_json_editor, profile_image_display, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor])
+            # --- (既存のイベントハンドラ定義はほぼ変更なし) ---
             alarm_dataframe.select(fn=ui_handlers.handle_alarm_selection_and_feedback, inputs=[alarm_dataframe_original_data], outputs=[selected_alarm_ids_state, selection_feedback_markdown], show_progress='hidden').then(fn=ui_handlers.load_alarm_to_form, inputs=[selected_alarm_ids_state], outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
             enable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
             disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
@@ -154,6 +145,11 @@ if utils.acquire_lock():
             timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, gr.State(config_manager.initial_notification_webhook_url_global), normal_timer_theme_input], outputs=[timer_status_output])
             rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
             core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
+
+            # ★★★ .select から .like に変更し、ハンドラ名も変更 ★★★
+            chatbot_display.like(fn=ui_handlers.handle_chatbot_like, inputs=[chatbot_display], outputs=[selected_message_state], show_progress=False)
+            delete_selected_button.click(fn=ui_handlers.handle_delete_selected_messages, inputs=[current_character_name, selected_message_state, api_history_limit_state], outputs=[chatbot_display, selected_message_state])
+
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
         if __name__ == "__main__":
             print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(""); print(f"  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(""); print("  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
