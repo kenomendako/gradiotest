@@ -1,10 +1,9 @@
-# ui_handlers.py の最終修正版
+# ui_handlers.py の完全修正版
 
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Union
 import gradio as gr
 import datetime
-import utils
 import json
 import traceback
 import os
@@ -15,17 +14,27 @@ import base64
 from langchain_core.messages import AIMessage, SystemMessage
 import threading
 
+# --- Nexus Ark モジュールのインポート ---
 import gemini_api
 import mem0_manager
 import rag_manager
 import config_manager
 import alarm_manager
 import character_manager
+import utils # ★★★ utilsを直接インポート ★★★
 from tools import memory_tools
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
 from memory_manager import load_memory_data_safe, save_memory_data
-from utils import load_chat_log, format_history_for_gradio, save_message_to_log, _get_user_header_from_log, save_log_file
+
+# ★★★ utilsからの個別インポートは不要になるか、あるいは以下のように明示的に行う ★★★
+# from utils import (
+#     load_chat_log,
+#     format_history_for_gradio,
+#     save_message_to_log,
+#     _get_user_header_from_log,
+#     save_log_file
+# )
 
 def handle_message_submission(*args: Any):
     (textbox_content, chatbot_history, current_character_name, current_model_name,
@@ -34,66 +43,88 @@ def handle_message_submission(*args: Any):
      send_notepad_state, use_common_prompt_state) = args
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
-    if not user_prompt_from_textbox:
-        yield chatbot_history, gr.update(), gr.update(), update_token_count(textbox_content, file_input_list, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
+
+    if not user_prompt_from_textbox and not file_input_list:
+        token_count = update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
+        yield chatbot_history, gr.update(), gr.update(), token_count
         return
 
+    # --- ★★★ ここからが修正箇所 ★★★ ---
+
+    # 1. タイムスタンプを生成
     timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
+    # 2. UI表示用・ログ記録用の両方に使用する、完全なメッセージを作成
     processed_user_message = user_prompt_from_textbox + timestamp
 
-    chatbot_history.append({"role": "user", "content": processed_user_message})
+    # 3. UIのチャット履歴に、タイムスタンプ付きのメッセージを追加
+    if user_prompt_from_textbox:
+        chatbot_history.append({"role": "user", "content": processed_user_message})
+
+    # 4. ログ記録用のメッセージを作成（ファイル添付も考慮）
+    log_message_parts = []
+    if user_prompt_from_textbox:
+         log_message_parts.append(processed_user_message)
+
+    if file_input_list:
+        for file_obj in file_input_list:
+            filepath = file_obj.name
+            filename = os.path.basename(filepath)
+            # UI表示用のファイルを追加
+            chatbot_history.append({"role": "user", "content": (filepath, filename)})
+            # ログ記録用のタグを追加
+            log_message_parts.append(f"[ファイル添付: {filepath}]")
+
+    final_log_message = "\n\n".join(log_message_parts).strip()
+
+    # --- ★★★ 修正ここまで ★★★ ---
+
     chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
-    yield chatbot_history, gr.update(value=""), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
+
+    token_count = update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
+    yield chatbot_history, gr.update(value=""), gr.update(value=None), token_count
 
     final_response_text = ""
     try:
+        # invoke_nexus_agent には、元の textbox_content (タイムスタンプなし) を渡す
+        # タイムスタンプはログ保存とUI表示のためのものであり、AIの思考には不要
         args_list = list(args)
-        args_list[0] = processed_user_message
+        # args_list[0] は textbox_content なので、変更不要
         final_response_text = gemini_api.invoke_nexus_agent(*args_list)
+
     except Exception as e:
         traceback.print_exc()
         final_response_text = f"[UIハンドラエラー: {e}]"
 
-    # --- ログ保存ロジック (UI更新より先に行う) ---
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
-    if processed_user_message.strip():
-        user_header = _get_user_header_from_log(log_f, current_character_name)
-        save_message_to_log(log_f, user_header, processed_user_message)
+    if final_log_message:
+        user_header = utils._get_user_header_from_log(log_f, current_character_name)
+        utils.save_message_to_log(log_f, user_header, final_log_message)
         if final_response_text:
-            save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
+            utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
 
-    # ★★★ ここからがUI表示ロジックの修正箇所です ★★★
-    chatbot_history.pop() # 「思考中...」を削除
+    chatbot_history.pop()
 
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
     image_match = image_tag_pattern.search(final_response_text)
-
     if image_match:
         text_before_image = final_response_text[:image_match.start()].strip()
         image_path = image_match.group(1).strip()
         text_after_image = final_response_text[image_match.end():].strip()
-
         if text_before_image:
             chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(text_before_image)})
-
         absolute_image_path = os.path.abspath(image_path)
         if os.path.exists(absolute_image_path):
             chatbot_history.append({"role": "assistant", "content": (absolute_image_path, os.path.basename(image_path))})
         else:
             chatbot_history.append({"role": "assistant", "content": f"*[表示エラー: 画像 '{os.path.basename(image_path)}' が見つかりません]*"})
-
         if text_after_image:
             chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(text_after_image)})
     else:
-        # 画像がない場合は、通常通り応答全体を表示
         chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(final_response_text)})
 
-    # ★★★ 修正箇所ここまで ★★★
+    token_count = update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
+    yield chatbot_history, gr.update(), gr.update(value=None), token_count
 
-    yield chatbot_history, gr.update(), gr.update(value=None), update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
-
-# (このファイル内の他の全ての関数は変更ありません)
-# ... (handle_add_new_character, update_ui_on_character_change, etc.)
 def handle_add_new_character(character_name: str):
     if not character_name or not character_name.strip():
         gr.Warning("キャラクター名が入力されていません。")
@@ -124,7 +155,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     config_manager.save_config("last_character", character_name)
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
     display_turns = _get_display_history_count(api_history_limit_value)
-    chat_history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(display_turns * 2):]) if log_f and os.path.exists(log_f) else []
+    chat_history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):]) if log_f and os.path.exists(log_f) else [] # ★★★
     log_content = ""
     if log_f and os.path.exists(log_f):
         try:
@@ -213,13 +244,15 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
     log_f,_,_,_,_ = get_character_files_paths(character_name)
     if not log_f or not os.path.exists(log_f): return [], "ログファイルなし"
     display_turns = _get_display_history_count(api_history_limit_value)
-    history = format_history_for_gradio(load_chat_log(log_f, character_name)[-(display_turns*2):])
+    history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):]) # ★★★
     content = ""
     with open(log_f, "r", encoding="utf-8") as f: content = f.read()
     return history, content
 
 def handle_save_log_button_click(character_name, log_content):
-    if character_name: save_log_file(character_name, log_content); gr.Info(f"'{character_name}'のログを保存しました。")
+    if character_name:
+        utils.save_log_file(character_name, log_content) # ★★★
+        gr.Info(f"'{character_name}'のログを保存しました。")
     else: gr.Error("キャラクターが選択されていません。")
 
 def load_alarm_to_form(selected_ids: list):
@@ -238,11 +271,11 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days):
     if not char: gr.Warning("キャラクターが選択されていません。"); df = render_alarms_as_dataframe(); return df, df, "アラーム更新" if editing_id else "アラーム追加", theme, prompt, char, days, h, m, editing_id
     success = False
     if editing_id:
-        pass # 更新ロジックは未実装
+        pass
     else:
         if alarm_manager.add_alarm(h, m, char, theme, prompt, days): gr.Info("新しいアラームを追加しました。"); success = True
         else: gr.Warning("新しいアラームの追加に失敗しました。")
-    if success: 
+    if success:
         df = render_alarms_as_dataframe()
         return df, df, "アラーム追加", "", "", default_char, list(DAY_MAP_EN_TO_JA.values()), "08", "00", None
     df = render_alarms_as_dataframe()
