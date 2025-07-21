@@ -51,7 +51,9 @@ def edit_memory(path: str, value: Any, operation: str, character_name: str = Non
         with open(memory_json_path, "w", encoding="utf-8") as f:
             json.dump(memory_data, f, indent=2, ensure_ascii=False)
 
-        return f"成功: 記憶を編集しました (Path: {path}, Operation: {operation})。"
+        # ★★★ ここからが修正箇所 ★★★
+        return f"Success: The memory at path '{path}' was successfully modified with the operation '{operation}'."
+        # ★★★ 修正ここまで ★★★
 
     except Exception as e:
         return f"【エラー】記憶の編集中に予期せぬエラーが発生しました: {e}"
@@ -87,7 +89,9 @@ def add_secret_diary_entry(entry: str, character_name: str = None) -> str:
     try:
         with open(memory_json_path, "w", encoding="utf-8") as f:
             json.dump(memory_data, f, indent=2, ensure_ascii=False)
-        return "成功: 秘密の日記に新しい思いを綴りました。"
+        # ★★★ ここからが修正箇所 ★★★
+        return "Success: A new entry was successfully added to the secret diary. This content is private and cannot be read back."
+        # ★★★ 修正ここまで ★★★
     except Exception as e:
         return f"【エラー】秘密の日記への書き込みに失敗しました: {e}"
 
@@ -126,6 +130,7 @@ def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
 
 成長の記録の要約:
 """
+            # モデル名を 'gemini-1.5-flash' から 'gemini-2.5-flash' に変更
             response = client.models.generate_content(model="models/gemini-2.5-flash", contents=[prompt])
             history_summary_text = response.text.strip()
         else:
