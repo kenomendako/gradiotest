@@ -49,23 +49,34 @@ def handle_message_submission(*args: Any):
         yield chatbot_history, gr.update(), gr.update(), token_count
         return
 
+    # --- ★★★ ここからが修正箇所 ★★★ ---
+
+    # 1. タイムスタンプを生成
     timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
+    # 2. UI表示用・ログ記録用の両方に使用する、完全なメッセージを作成
+    processed_user_message = user_prompt_from_textbox + timestamp
 
-    log_message_parts = []
-
+    # 3. UIのチャット履歴に、タイムスタンプ付きのメッセージを追加
     if user_prompt_from_textbox:
-        processed_text = user_prompt_from_textbox + timestamp
-        log_message_parts.append(processed_text)
-        chatbot_history.append({"role": "user", "content": user_prompt_from_textbox})
+        chatbot_history.append({"role": "user", "content": processed_user_message})
+
+    # 4. ログ記録用のメッセージを作成（ファイル添付も考慮）
+    log_message_parts = []
+    if user_prompt_from_textbox:
+         log_message_parts.append(processed_user_message)
 
     if file_input_list:
         for file_obj in file_input_list:
             filepath = file_obj.name
             filename = os.path.basename(filepath)
-            log_message_parts.append(f"[ファイル添付: {filepath}]")
+            # UI表示用のファイルを追加
             chatbot_history.append({"role": "user", "content": (filepath, filename)})
+            # ログ記録用のタグを追加
+            log_message_parts.append(f"[ファイル添付: {filepath}]")
 
     final_log_message = "\n\n".join(log_message_parts).strip()
+
+    # --- ★★★ 修正ここまで ★★★ ---
 
     chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
 
@@ -74,18 +85,22 @@ def handle_message_submission(*args: Any):
 
     final_response_text = ""
     try:
+        # invoke_nexus_agent には、元の textbox_content (タイムスタンプなし) を渡す
+        # タイムスタンプはログ保存とUI表示のためのものであり、AIの思考には不要
         args_list = list(args)
+        # args_list[0] は textbox_content なので、変更不要
         final_response_text = gemini_api.invoke_nexus_agent(*args_list)
+
     except Exception as e:
         traceback.print_exc()
         final_response_text = f"[UIハンドラエラー: {e}]"
 
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     if final_log_message:
-        user_header = utils._get_user_header_from_log(log_f, current_character_name) # ★★★ utils. を追記 ★★★
-        utils.save_message_to_log(log_f, user_header, final_log_message) # ★★★ utils. を追記 ★★★
+        user_header = utils._get_user_header_from_log(log_f, current_character_name)
+        utils.save_message_to_log(log_f, user_header, final_log_message)
         if final_response_text:
-            utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text) # ★★★ utils. を追記 ★★★
+            utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
 
     chatbot_history.pop()
 
