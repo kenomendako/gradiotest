@@ -270,21 +270,65 @@ def update_token_count(textbox_content: Optional[str], file_input_list: Optional
         except Exception as e: print(f"メモ帳トークン計算エラー: {e}")
     if basic_tokens >= 0: return f"**基本入力:** {basic_tokens:,}{limit_str} トークン"
     return "基本入力: (APIキー無効)" if basic_tokens == -1 else "基本入力: (計算エラー)"
-def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str, str]]):
-    if evt.value:
+def handle_chatbot_like(evt: gr.LikeData, chatbot_history: List[Dict[str, str]]):
+    """
+    チャットボットで「いいね」が押されたときに、その内容をStateに保存する。
+    """
+    if evt.liked:
         if evt.index is not None:
             message_index = evt.index[0]
             if 0 <= message_index < len(chatbot_history):
                 selected_message_obj = chatbot_history[message_index]
-                print(f"--- 発言選択: Index={message_index}, Content='{str(selected_message_obj['content'])[:50]}...' ---")
+                # Gradioは content がタプル(ファイル)の場合、valueとしてファイル名を返す
+                # ログ削除のためには完全なオブジェクトが必要
+                print(f"--- 発言選択(Like): Index={message_index}, Content='{str(selected_message_obj['content'])[:50]}...' ---")
+
+                # 削除処理のため、Gradioが表示用に変換したcontentではなく、
+                # 元のchatbot_historyから取得した完全なオブジェクトを返すことが重要
                 return selected_message_obj
+
+    # いいねが解除された場合や無効な場合はNoneを返す
+    print("--- 発言選択解除 ---")
     return None
-def handle_delete_selected_messages(character_name: str, selected_message: Dict[str, str], api_history_limit: str):
+
+
+def handle_delete_selected_messages(
+    character_name: str,
+    selected_message: Dict[str, str],
+    api_history_limit: str,
+    chatbot_history: List[Dict[str, str]] # 現在のchatbot履歴も入力として受け取る
+):
+    """
+    「選択した発言を削除」ボタンが押されたときの処理。
+    """
     if not character_name or not selected_message:
-        gr.Warning("キャラクターが選択されていないか、削除する発言が選択されていません。"); return reload_chat_log(character_name, api_history_limit)[0], None
+        gr.Warning("キャラクターが選択されていないか、削除する発言が選択されていません。")
+        return chatbot_history, None, "削除する発言を👍で選択してください。"
+
     log_f, _, _, _, _ = get_character_files_paths(character_name)
-    success = utils.delete_message_from_log(log_f, selected_message)
-    if success: gr.Info("選択された発言をログから削除しました。")
-    else: gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
+
+    # 削除対象のcontentを特定する
+    content_to_delete = selected_message.get('content')
+    if isinstance(content_to_delete, tuple):
+        # ファイルの場合、ログにはタグとして記録されている
+        # (filepath, filename) -> "[ファイル添付: filepath]"
+        filepath = content_to_delete[0]
+        content_to_find_in_log = f"[ファイル添付: {filepath}]"
+        # ログに記録されている実際のメッセージオブジェクトを作成
+        message_to_delete_in_log = {"role": selected_message.get("role"), "content": content_to_find_in_log}
+    else:
+        message_to_delete_in_log = selected_message
+
+
+    success = utils.delete_message_from_log(log_f, message_to_delete_in_log)
+
+    if success:
+        gr.Info("選択された発言をログから削除しました。")
+    else:
+        gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
+
+    # ログの変更をUIに反映させるために、チャット履歴を再読み込みする
     new_chat_history = reload_chat_log(character_name, api_history_limit)[0]
-    return new_chat_history, None
+
+    # 選択状態をリセットし、フィードバックメッセージを更新
+    return new_chat_history, None, "削除する発言を👍で選択してください。"
