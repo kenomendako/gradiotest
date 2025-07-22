@@ -1,5 +1,3 @@
-# agent/graph.py の、内容を、以下の、最終版で、完全に、置き換えてください
-
 import os
 import re
 import traceback
@@ -10,7 +8,7 @@ from langgraph.graph import StateGraph, END, START, add_messages
 from datetime import datetime
 from langgraph.prebuilt import ToolNode
 
-from agent.prompts import ACTOR_PROMPT_TEMPLATE
+from agent.prompts import CORE_PROMPT_TEMPLATE # ★ 変更点
 from tools.space_tools import set_current_location, find_location_id_by_name
 from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
@@ -113,8 +111,9 @@ def context_generator_node(state: AgentState):
         'core_memory': core_memory,
         'tools_list': tools_list_str
     }
-    formatted_actor_prompt = ACTOR_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
-    final_system_prompt_text = f"{formatted_actor_prompt}\n---\n【現在の情景】\n{scenery_text}\n---"
+    # ★ 変更点
+    formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+    final_system_prompt_text = f"{formatted_core_prompt}\n---\n【現在の情景】\n{scenery_text}\n---"
 
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
@@ -155,7 +154,6 @@ workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
 tool_node = ToolNode(all_tools)
 workflow.add_node("tool_node", tool_node)
-# final_response_node は不要になったため削除
 
 workflow.add_edge(START, "context_generator")
 workflow.add_edge("context_generator", "agent")
