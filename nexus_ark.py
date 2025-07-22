@@ -28,8 +28,8 @@ if utils.acquire_lock():
     #alarm_dataframe_display th, #alarm_dataframe_display td { text-align: left !important; padding: 4px 8px !important; white-space: normal !important; font-size: 0.95em; }
     #alarm_dataframe_display th:nth-child(1), #alarm_dataframe_display td:nth-child(1) { width: 50px !important; text-align: center !important; }
     #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
-    #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: -5px; }
-    #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -10px; margin-top: 0px; }
+    #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; } /* 位置変更に伴いmarginを調整 */
+    #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; } /* 位置変更に伴いmarginを調整 */
     """
         with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css) as demo:
             character_list_on_startup = character_manager.get_character_list()
@@ -88,15 +88,25 @@ if utils.acquire_lock():
                                 timer_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="通知キャラ", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
                 with gr.Column(scale=3):
                     chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True)
-                    delete_selected_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
-                    chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
+
+                    # ▼▼▼ UIレイアウト変更箇所1 ▼▼▼
+                    with gr.Row():
+                        delete_selected_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=4)
+                        chat_reload_button = gr.Button("🔄 更新", scale=1)
+
                     token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
                     tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
-                    with gr.Row(): submit_button = gr.Button("送信", variant="primary", scale=4); chat_reload_button = gr.Button("🔄 更新", scale=1)
+
+                    chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
+
+                    submit_button = gr.Button("送信", variant="primary")
+                    # ▲▲▲ UIレイアウト変更箇所1 ▲▲▲
+
                     allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
                     file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
                     gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
+            # ▼▼▼ UIレイアウト変更箇所2 (イベントリスナーの定義順は変えない) ▼▼▼
             token_calc_inputs = [chat_input_textbox, file_upload_button, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, notepad_editor, use_common_prompt_state]
             token_calc_outputs = token_count_display
             def setup_token_update_events():
