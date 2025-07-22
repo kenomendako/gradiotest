@@ -1,4 +1,4 @@
-# nexus_ark.py の最終確定版
+# nexus_ark.py の内容を、以下のコードで完全に置き換えてください
 
 import os
 import sys
@@ -87,7 +87,7 @@ if utils.acquire_lock():
                                 with gr.Column(visible=False) as pomo_timer_ui: pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
                                 timer_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="通知キャラ", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
                 with gr.Column(scale=3):
-                    chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True, selectable=True)
+                    chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True)
                     delete_selected_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
                     chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
                     token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
