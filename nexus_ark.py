@@ -142,8 +142,8 @@ if utils.acquire_lock():
             rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
             core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
 
-            chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[chatbot_display], outputs=[selected_message_state], show_progress=False)
-            delete_selected_button.click(fn=ui_handlers.handle_delete_selected_messages, inputs=[current_character_name, selected_message_state, api_history_limit_state], outputs=[chatbot_display, selected_message_state])
+            chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[chatbot_display], outputs=[selected_message_state, delete_selected_button], show_progress=False)
+            delete_selected_button.click(fn=ui_handlers.handle_delete_selected_messages, inputs=[current_character_name, selected_message_state, api_history_limit_state], outputs=[chatbot_display, selected_message_state, delete_selected_button])
 
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
         if __name__ == "__main__":

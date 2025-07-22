@@ -48,11 +48,9 @@ def handle_message_submission(*args: Any):
         for file_obj in file_input_list:
             filepath = file_obj.name
             filename = os.path.basename(filepath)
-            # Markdown形式の文字列を生成してUI履歴に追加
             safe_filepath = os.path.abspath(filepath).replace("\\", "/")
             md_string = f"[{filename}](/file={safe_filepath})"
             chatbot_history.append({"role": "user", "content": md_string})
-            # ログには元のタグ形式で記録
             log_message_parts.append(f"[ファイル添付: {filepath}]")
 
     final_log_message = "\n\n".join(log_message_parts).strip()
@@ -72,10 +70,7 @@ def handle_message_submission(*args: Any):
         if final_response_text:
             utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
     chatbot_history.pop()
-
-    # utils.format_history_for_gradio がMarkdownを返すので、単純にそれを表示する
     chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(final_response_text)})
-
     token_count = update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
     yield chatbot_history, gr.update(), gr.update(value=None), token_count
 
@@ -108,7 +103,6 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
-    # 戻り値の log_content を削除し、対応するタプルの要素も削除
     return character_name, chat_history, "", profile_image, memory_str, character_name, character_name, notepad_content
 
 def handle_save_memory_click(character_name, json_string_data):
@@ -125,7 +119,9 @@ def get_display_df(df_with_id: pd.DataFrame):
     if df_with_id is None or df_with_id.empty or 'ID' not in df_with_id.columns: return pd.DataFrame(columns=["状態", "時刻", "曜日", "キャラ", "テーマ"])
     return df_with_id[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
 def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame) -> List[str]:
-    if evt.index is None or df_with_id is None or df_with_id.empty: return []; indices = [evt.index[0]] if isinstance(evt.index, tuple) else evt.index
+    if evt.index is None or df_with_id is None or df_with_id.empty: return []
+    # Dataframeのselect eventはインデックスのリスト(タプル)を返す
+    indices = evt.index if isinstance(evt.index, list) else [evt.index[0]] if isinstance(evt.index, tuple) else []
     return [str(df_with_id.iloc[i]['ID']) for i in indices if 0 <= i < len(df_with_id)]
 def handle_alarm_selection_and_feedback(evt: gr.SelectData, df_with_id: pd.DataFrame):
     selected_ids = handle_alarm_selection(evt, df_with_id); count = len(selected_ids); feedback_text = "アラームを選択してください" if count == 0 else f"{count} 件のアラームを選択中"
@@ -166,9 +162,6 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
     display_turns = _get_display_history_count(api_history_limit_value)
     history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):])
     return history, gr.State()
-def handle_save_log_button_click(character_name, log_content):
-    if character_name: utils.save_log_file(character_name, log_content); gr.Info(f"'{character_name}'のログを保存しました。")
-    else: gr.Error("キャラクターが選択されていません。")
 def load_alarm_to_form(selected_ids: list):
     default_char = character_manager.get_character_list()[0] if character_manager.get_character_list() else "Default"
     if not selected_ids or len(selected_ids) != 1: return "アラーム追加", "", "", default_char, list(DAY_MAP_EN_TO_JA.values()), "08", "00", None
@@ -257,21 +250,26 @@ def update_token_count(textbox_content: Optional[str], file_input_list: Optional
 
 def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str, str]]):
     """gr.Chatbotの.selectイベントを処理するハンドラ。"""
+    default_button_text = "🗑️ 選択した発言を削除"
     if evt.value:
-        if evt.index is not None:
-            # gr.SelectData.indexはタプル(行, 列)だが、Chatbotでは列は常に0
-            message_index = evt.index[0]
-            if 0 <= message_index < len(chatbot_history):
-                selected_message_obj = chatbot_history[message_index]
-                print(f"--- 発言選択: Index={message_index}, Content='{str(selected_message_obj['content'])[:50]}...' ---")
-                return selected_message_obj
-    return None
+        # evt.indexはGradio 4.xでは整数
+        message_index = evt.index
+        if 0 <= message_index < len(chatbot_history):
+            selected_message_obj = chatbot_history[message_index]
+            content = str(selected_message_obj.get('content', ''))
+            # ボタンに表示するテキストを生成（長すぎる場合は省略）
+            display_text = content[:20] + '...' if len(content) > 20 else content
+            new_button_text = f"🗑️ 「{display_text}」を削除"
+            print(f"--- 発言選択: Index={message_index}, Content='{content[:50]}...' ---")
+            return selected_message_obj, gr.update(value=new_button_text)
+    return None, gr.update(value=default_button_text)
 
 def handle_delete_selected_messages(character_name: str, selected_message: Dict[str, str], api_history_limit: str):
+    default_button_text = "🗑️ 選択した発言を削除"
     if not character_name or not selected_message:
         gr.Warning("キャラクターが選択されていないか、削除する発言が選択されていません。");
         new_chat_history, _ = reload_chat_log(character_name, api_history_limit)
-        return new_chat_history, None
+        return new_chat_history, None, gr.update(value=default_button_text)
     log_f, _, _, _, _ = get_character_files_paths(character_name)
     success = utils.delete_message_from_log(log_f, selected_message)
     if success:
@@ -279,4 +277,4 @@ def handle_delete_selected_messages(character_name: str, selected_message: Dict[
     else:
         gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
     new_chat_history, _ = reload_chat_log(character_name, api_history_limit)
-    return new_chat_history, None
+    return new_chat_history, None, gr.update(value=default_button_text)
