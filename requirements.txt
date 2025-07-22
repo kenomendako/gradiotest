@@ -29,22 +29,16 @@ langchain_google_genai
 python-dotenv
 
 # Correct, modern SDK for Gemini API. DO NOT CHANGE.
-# Gemini API用の正しく新しいSDKです。変更しないでください。
+# This is the ONLY Google SDK this project should directly depend on.
 google-genai
 
 # For Web Search with Tavily AI
 tavily-python
 
 # For long-term memory system (The Brain)
+# We let its dependencies be resolved automatically without the legacy google-generativeai
 mem0ai
 qdrant-client
-
-# ▼▼▼【最後の修正】ここを修正▼▼▼
-# Legacy SDK required ONLY for 'mem0ai' dependency.
-# 'mem0ai' internally uses 'import google.generativeai', which is provided by this old package.
-# This is NOT the primary SDK for this project.
-google-generativeai
-# ▲▲▲修正ここまで▲▲▲
 
 # For PID existence check in lock mechanism
 psutil
