@@ -1,4 +1,4 @@
-# utils.py の最終確定版
+# utils.py の内容を、以下のコードで完全に置き換えてください
 
 import os
 import re
@@ -12,7 +12,6 @@ import psutil
 from pathlib import Path
 import json
 
-# (このファイルの内容は、前回の提案から変更ありません。念のため、全文を記載します)
 # --- モデル情報キャッシュ ---
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 
@@ -64,6 +63,10 @@ def format_response_for_display(response_text: Optional[str]) -> str:
         return response_text.strip()
 
 def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, Union[str, tuple, None]]]:
+    """
+    チャットログをGradio Chatbotの `messages` 形式に変換する（Markdown文字列出力版）。
+    タプルは一切返さず、画像やファイルはMarkdown形式の文字列としてフォーマットする。
+    """
     if not messages:
         return []
 
@@ -73,11 +76,11 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
     for msg in messages:
         role = "assistant" if msg.get("role") == "model" else "user"
         content = msg.get("content", "").strip()
-
         if not content:
             continue
 
         parts = tag_pattern.split(content)
+        current_message_parts = []
 
         for part in parts:
             part = part.strip()
@@ -87,34 +90,44 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
             is_image_tag = part.startswith("[Generated Image:") and part.endswith("]")
             is_file_tag = part.startswith("[ファイル添付:") and part.endswith("]")
 
-            if is_image_tag:
-                image_path = part[len("[Generated Image:"): -1].strip()
-                absolute_image_path = os.path.abspath(image_path)
-                if os.path.exists(absolute_image_path):
-                    gradio_history.append({"role": role, "content": (absolute_image_path, os.path.basename(image_path))})
-                else:
-                    gradio_history.append({"role": role, "content": f"*[表示エラー: 画像 '{os.path.basename(image_path)}' が見つかりません]*"})
+            if is_image_tag or is_file_tag:
+                # タグからパスとファイル名を抽出
+                if is_image_tag:
+                    filepath = part[len("[Generated Image:"): -1].strip()
+                else: # is_file_tag
+                    filepath = part[len("[ファイル添付:"): -1].strip()
 
-            elif is_file_tag:
-                filepath = part[len("[ファイル添付:"): -1].strip()
-                original_filename = os.path.basename(filepath)
                 absolute_filepath = os.path.abspath(filepath)
-                if os.path.exists(absolute_filepath):
-                    gradio_history.append({"role": role, "content": (absolute_filepath, original_filename)})
-                else:
-                    gradio_history.append({"role": role, "content": f"*[表示エラー: ファイル '{original_filename}' が見つかりません]*"})
+                filename = os.path.basename(filepath)
 
+                if os.path.exists(absolute_filepath):
+                    # パス内のバックスラッシュをスラッシュに置換
+                    safe_filepath = absolute_filepath.replace("\\", "/")
+                    if is_image_tag:
+                        # Markdown画像形式
+                        current_message_parts.append(f"![{filename}](/file={safe_filepath})")
+                    else:
+                        # Markdownリンク形式
+                        current_message_parts.append(f"[{filename}](/file={safe_filepath})")
+                else:
+                    error_msg = f"*[表示エラー: ファイル '{filename}' が見つかりません]*"
+                    current_message_parts.append(error_msg)
             else:
+                # 通常のテキスト部分の処理
                 formatted_text = format_response_for_display(part) if role == "assistant" else part
                 if formatted_text:
-                    gradio_history.append({"role": role, "content": formatted_text})
+                    current_message_parts.append(formatted_text)
+
+        # 1つのメッセージ（1つのcontent）を結合して履歴に追加
+        if current_message_parts:
+            final_content = "\n\n".join(current_message_parts)
+            gradio_history.append({"role": role, "content": final_content})
 
     return gradio_history
 
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
     if not log_file_path or not header or not text_content or not text_content.strip():
         return
-
     try:
         needs_leading_newline = False
         if os.path.exists(log_file_path) and os.path.getsize(log_file_path) > 0:
@@ -122,71 +135,90 @@ def save_message_to_log(log_file_path: str, header: str, text_content: str) -> N
                 f.seek(-2, os.SEEK_END)
                 if f.read(2) != b'\n\n':
                     needs_leading_newline = True
-
         if os.path.exists(log_file_path) and os.path.getsize(log_file_path) == 0:
              needs_leading_newline = False
-
         with open(log_file_path, "a", encoding="utf-8") as f:
             if needs_leading_newline:
                 f.write("\n\n")
             f.write(f"{header}\n{text_content.strip()}")
-
     except Exception as e:
         print(f"エラー: ログファイル '{log_file_path}' 書き込みエラー: {e}")
         traceback.print_exc()
 
 def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str]) -> bool:
+    """
+    UIから渡されたメッセージオブジェクトを元に、ログファイルから対応するエントリを削除する堅牢版。
+    """
     if not log_file_path or not os.path.exists(log_file_path) or not message_to_delete:
         return False
 
-    role = message_to_delete.get("role")
-    content_to_find = message_to_delete.get("content", "").strip()
-    if not role or not content_to_find:
+    content_from_ui = message_to_delete.get("content", "")
+    if not content_from_ui:
         return False
 
     try:
         with open(log_file_path, "r", encoding="utf-8") as f:
-            original_content = f.read()
+            original_log_content = f.read()
 
-        # 正規表現を使用して、ヘッダーとそれに続くコンテンツ全体を検索
-        # コンテンツ内の特殊文字をエスケープし、改行も考慮に入れる
-        escaped_content = re.escape(content_to_find)
-        # ヘッダーは動的に決まる可能性があるため、一般的なパターンで検索
-        pattern_str = r"^(## .*?:\s*\n)?" + escaped_content
+        # ログをヘッダーとコンテンツのペアに分割
+        log_entries = re.split(r'(^## .*?:$)', original_log_content, flags=re.MULTILINE)
 
-        # ログ全体をヘッダーとコンテンツのペアに分割
-        log_entries = re.split(r'(^## .*?:$)', original_content, flags=re.MULTILINE)
+        new_log_entries = []
+        found_and_deleted = False
 
-        new_log_content = ""
-        found = False
-        # 最初の要素が空文字列の場合があるのでスキップ
-        i = 1 if log_entries[0] == '' else 0
+        # UIのcontentから検索対象の文字列（ログ形式）を再構築
+        search_targets = []
+        # 1. Markdownリンクを解析
+        md_link_pattern = re.compile(r"!*\[.*?\]\(/file=(.*?)\)")
+        md_matches = md_link_pattern.findall(content_from_ui)
+        if md_matches:
+            for filepath in md_matches:
+                # Gradioはパスを正規化している可能性があるので、こちらも正規化して比較
+                normalized_path = os.path.normpath(filepath)
+                search_targets.append(f"[Generated Image: {normalized_path}]")
+                search_targets.append(f"[ファイル添付: {normalized_path}]")
+        else:
+            # 2. 通常のテキストとして扱う
+            # UIで表示されるテキストは、format_response_for_displayを通っている可能性があるので、元に戻す試み
+            # 簡単なケースとして、思考ログのHTMLタグを除去する
+            cleaned_text = re.sub(r"<div class='thoughts'>.*?</div>\n\n", "", content_from_ui, flags=re.DOTALL)
+            search_targets.append(cleaned_text.strip())
+
+        # ログエントリを走査して削除対象を特定
+        i = 1 if log_entries and log_entries[0] == '' else 0
         while i < len(log_entries):
             header = log_entries[i]
-            content = log_entries[i+1].strip()
+            content_from_log = log_entries[i+1].strip()
 
-            if content == content_to_find and not found:
-                # 削除対象のメッセージが見つかった場合、スキップ
-                found = True
-                print(f"--- ログからメッセージを削除: {content[:50]}... ---")
+            is_match = False
+            for target in search_targets:
+                if target in content_from_log:
+                    is_match = True
+                    break
+
+            if is_match and not found_and_deleted:
+                # 削除対象が見つかったら、新しいリストには追加しない
+                found_and_deleted = True
+                print(f"--- ログからメッセージを削除: {content_from_log[:50]}... ---")
             else:
-                # 削除対象でない場合は、新しいログコンテンツに追加
-                new_log_content += header + log_entries[i+1]
+                # 削除対象でない場合は、新しいリストに追加
+                new_log_entries.append(header)
+                new_log_entries.append(log_entries[i+1])
             i += 2
 
-        if not found:
-             # フォールバックとして、単純なテキスト置換も試みる（ヘッダーがない場合など）
-            if content_to_find in original_content:
-                 new_log_content = original_content.replace(content_to_find, "").strip()
-                 new_log_content = re.sub(r'\n{3,}', '\n\n', new_log_content)
-                 found = True
-
-        if not found:
-            print(f"警告: ログファイル内に削除対象のメッセージが見つかりませんでした。")
+        if not found_and_deleted:
+            print(f"警告: ログファイル内に削除対象のメッセージが見つかりませんでした。UI Content: {content_from_ui[:50]}...")
             return False
 
+        # 新しいログファイルの内容を結合
+        new_log_content = "".join(new_log_entries).strip()
+
         with open(log_file_path, "w", encoding="utf-8") as f:
-            f.write(new_log_content.strip())
+            f.write(new_log_content)
+        # ログ末尾に改行を追加して、次の書き込みに備える
+        with open(log_file_path, "a", encoding="utf-8") as f:
+            f.write("\n\n")
+
 
         return True
 
@@ -195,8 +227,8 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
         traceback.print_exc()
         return False
 
+
 def _get_user_header_from_log(log_file_path: str, ai_character_name: str) -> str:
-    # (この関数の内容は変更なし)
     default_user_header = "## ユーザー:"
     ai_response_header = f"## {ai_character_name}:"
     system_alarm_header = "## システム(アラーム):"
@@ -216,7 +248,6 @@ def _get_user_header_from_log(log_file_path: str, ai_character_name: str) -> str
         return default_user_header
 
 def save_log_file(character_name: str, content: str) -> None:
-    # (この関数の内容は変更なし)
     if not character_name: return
     try:
         log_file_path, _, _, _, _ = character_manager.get_character_files_paths(character_name)
@@ -226,11 +257,10 @@ def save_log_file(character_name: str, content: str) -> None:
     except Exception as e:
         print(f"エラー: ログファイル書き込みエラー: {e}")
 
-# --- グローバル・ロック管理 (この関数の内容は変更なし) ---
+# --- グローバル・ロック管理 ---
 LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
 
 def acquire_lock() -> bool:
-    # (この関数の内容は変更なし)
     if not LOCK_FILE_PATH.exists():
         try:
             with open(LOCK_FILE_PATH, "w", encoding="utf-8") as f:
@@ -257,7 +287,6 @@ def acquire_lock() -> bool:
         print(f"エラー: ロック処理中の予期せぬ問題: {e}"); return False
 
 def _prompt_to_delete_lock() -> bool:
-    # (この関数の内容は変更なし)
     try:
         user_input = input("-> このロックファイルを削除して続行しますか？ (y/n): ").lower()
         if user_input == 'y':
@@ -266,7 +295,6 @@ def _prompt_to_delete_lock() -> bool:
     print("-> 処理を中止しました。"); return False
 
 def release_lock():
-    # (この関数の内容は変更なし)
     if LOCK_FILE_PATH.exists():
         try:
             with open(LOCK_FILE_PATH, "r", encoding="utf-8") as f:

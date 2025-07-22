@@ -1,4 +1,4 @@
-# ui_handlers.py の最終確定版
+# ui_handlers.py の内容を、以下のコードで完全に置き換えてください
 
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Union
@@ -27,10 +27,7 @@ from timers import UnifiedTimer
 from character_manager import get_character_files_paths
 from memory_manager import load_memory_data_safe, save_memory_data
 
-# (このファイルの内容は、前回の提案から変更ありません。念のため、全文を記載します)
-
 def handle_message_submission(*args: Any):
-    # (この関数の内容は変更なし)
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state,
@@ -49,9 +46,15 @@ def handle_message_submission(*args: Any):
          log_message_parts.append(processed_user_message)
     if file_input_list:
         for file_obj in file_input_list:
-            filepath = file_obj.name; filename = os.path.basename(filepath)
-            chatbot_history.append({"role": "user", "content": (filepath, filename)})
+            filepath = file_obj.name
+            filename = os.path.basename(filepath)
+            # Markdown形式の文字列を生成してUI履歴に追加
+            safe_filepath = os.path.abspath(filepath).replace("\\", "/")
+            md_string = f"[{filename}](/file={safe_filepath})"
+            chatbot_history.append({"role": "user", "content": md_string})
+            # ログには元のタグ形式で記録
             log_message_parts.append(f"[ファイル添付: {filepath}]")
+
     final_log_message = "\n\n".join(log_message_parts).strip()
     chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
     token_count = update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
@@ -69,24 +72,14 @@ def handle_message_submission(*args: Any):
         if final_response_text:
             utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
     chatbot_history.pop()
-    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
-    image_match = image_tag_pattern.search(final_response_text)
-    if image_match:
-        text_before_image = final_response_text[:image_match.start()].strip()
-        image_path = image_match.group(1).strip()
-        text_after_image = final_response_text[image_match.end():].strip()
-        if text_before_image: chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(text_before_image)})
-        absolute_image_path = os.path.abspath(image_path)
-        if os.path.exists(absolute_image_path): chatbot_history.append({"role": "assistant", "content": (absolute_image_path, os.path.basename(image_path))})
-        else: chatbot_history.append({"role": "assistant", "content": f"*[表示エラー: 画像 '{os.path.basename(image_path)}' が見つかりません]*"})
-        if text_after_image: chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(text_after_image)})
-    else:
-        chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(final_response_text)})
+
+    # utils.format_history_for_gradio がMarkdownを返すので、単純にそれを表示する
+    chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(final_response_text)})
+
     token_count = update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
     yield chatbot_history, gr.update(), gr.update(value=None), token_count
 
 def handle_add_new_character(character_name: str):
-    # (この関数の内容は変更なし)
     if not character_name or not character_name.strip():
         gr.Warning("キャラクター名が入力されていません。"); char_list = character_manager.get_character_list()
         return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value="")
@@ -102,11 +95,9 @@ def handle_add_new_character(character_name: str):
         return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value=character_name)
 
 def _get_display_history_count(api_history_limit_value: str) -> int:
-    # (この関数の内容は変更なし)
     return int(api_history_limit_value) if api_history_limit_value.isdigit() else config_manager.UI_HISTORY_MAX_LIMIT
 
 def update_ui_on_character_change(character_name: Optional[str], api_history_limit_value: str):
-    # (この関数の内容は変更なし)
     if not character_name:
         all_chars = character_manager.get_character_list(); character_name = all_chars[0] if all_chars else "Default"
         if not os.path.exists(os.path.join(config_manager.CHARACTERS_DIR, character_name)): character_manager.ensure_character_files(character_name)
@@ -114,17 +105,12 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
     display_turns = _get_display_history_count(api_history_limit_value)
     chat_history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):]) if log_f and os.path.exists(log_f) else []
-    log_content = "";
-    if log_f and os.path.exists(log_f):
-        try:
-            with open(log_f, "r", encoding="utf-8") as f: log_content = f.read()
-        except Exception as e: log_content = f"ログ読込エラー: {e}"
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
-    return character_name, chat_history, "", profile_image, memory_str, character_name, log_content, character_name, notepad_content
+    # 戻り値の log_content を削除し、対応するタプルの要素も削除
+    return character_name, chat_history, "", profile_image, memory_str, character_name, character_name, notepad_content
 
-# (以降、handle_save_memory_click からファイルの末尾まで、全て変更なし)
 def handle_save_memory_click(character_name, json_string_data):
     if not character_name: gr.Warning("キャラクターが選択されていません。"); return gr.update()
     try:
@@ -139,7 +125,7 @@ def get_display_df(df_with_id: pd.DataFrame):
     if df_with_id is None or df_with_id.empty or 'ID' not in df_with_id.columns: return pd.DataFrame(columns=["状態", "時刻", "曜日", "キャラ", "テーマ"])
     return df_with_id[["状態", "時刻", "曜日", "キャラ", "テーマ"]]
 def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame) -> List[str]:
-    if evt.index is None or df_with_id is None or df_with_id.empty: return []; indices = [evt.index] if isinstance(evt.index, int) else evt.index if isinstance(evt.index, list) else []
+    if evt.index is None or df_with_id is None or df_with_id.empty: return []; indices = [evt.index[0]] if isinstance(evt.index, tuple) else evt.index
     return [str(df_with_id.iloc[i]['ID']) for i in indices if 0 <= i < len(df_with_id)]
 def handle_alarm_selection_and_feedback(evt: gr.SelectData, df_with_id: pd.DataFrame):
     selected_ids = handle_alarm_selection(evt, df_with_id); count = len(selected_ids); feedback_text = "アラームを選択してください" if count == 0 else f"{count} 件のアラームを選択中"
@@ -172,16 +158,14 @@ def update_timestamp_state(checked): config_manager.save_config("add_timestamp",
 def update_send_thoughts_state(checked): config_manager.save_config("last_send_thoughts_to_api", bool(checked)); return bool(checked)
 def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
     key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all"); config_manager.save_config("last_api_history_limit_option", key)
-    chat_history, log_content = reload_chat_log(character_name, key); return key, chat_history, log_content
+    chat_history, _ = reload_chat_log(character_name, key); return key, chat_history, gr.State()
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
     if not character_name: return [], "キャラクター未選択"
     log_f,_,_,_,_ = get_character_files_paths(character_name)
     if not log_f or not os.path.exists(log_f): return [], "ログファイルなし"
     display_turns = _get_display_history_count(api_history_limit_value)
     history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):])
-    content = "";
-    with open(log_f, "r", encoding="utf-8") as f: content = f.read()
-    return history, content
+    return history, gr.State()
 def handle_save_log_button_click(character_name, log_content):
     if character_name: utils.save_log_file(character_name, log_content); gr.Info(f"'{character_name}'のログを保存しました。")
     else: gr.Error("キャラクターが選択されていません。")
@@ -270,65 +254,29 @@ def update_token_count(textbox_content: Optional[str], file_input_list: Optional
         except Exception as e: print(f"メモ帳トークン計算エラー: {e}")
     if basic_tokens >= 0: return f"**基本入力:** {basic_tokens:,}{limit_str} トークン"
     return "基本入力: (APIキー無効)" if basic_tokens == -1 else "基本入力: (計算エラー)"
-def handle_chatbot_like(evt: gr.LikeData, chatbot_history: List[Dict[str, str]]):
-    """
-    チャットボットで「いいね」が押されたときに、その内容をStateに保存する。
-    """
-    if evt.liked:
+
+def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str, str]]):
+    """gr.Chatbotの.selectイベントを処理するハンドラ。"""
+    if evt.value:
         if evt.index is not None:
+            # gr.SelectData.indexはタプル(行, 列)だが、Chatbotでは列は常に0
             message_index = evt.index[0]
             if 0 <= message_index < len(chatbot_history):
                 selected_message_obj = chatbot_history[message_index]
-                # Gradioは content がタプル(ファイル)の場合、valueとしてファイル名を返す
-                # ログ削除のためには完全なオブジェクトが必要
-                print(f"--- 発言選択(Like): Index={message_index}, Content='{str(selected_message_obj['content'])[:50]}...' ---")
-
-                # 削除処理のため、Gradioが表示用に変換したcontentではなく、
-                # 元のchatbot_historyから取得した完全なオブジェクトを返すことが重要
+                print(f"--- 発言選択: Index={message_index}, Content='{str(selected_message_obj['content'])[:50]}...' ---")
                 return selected_message_obj
-
-    # いいねが解除された場合や無効な場合はNoneを返す
-    print("--- 発言選択解除 ---")
     return None
 
-
-def handle_delete_selected_messages(
-    character_name: str,
-    selected_message: Dict[str, str],
-    api_history_limit: str,
-    chatbot_history: List[Dict[str, str]] # 現在のchatbot履歴も入力として受け取る
-):
-    """
-    「選択した発言を削除」ボタンが押されたときの処理。
-    """
+def handle_delete_selected_messages(character_name: str, selected_message: Dict[str, str], api_history_limit: str):
     if not character_name or not selected_message:
-        gr.Warning("キャラクターが選択されていないか、削除する発言が選択されていません。")
-        return chatbot_history, None, "削除する発言を👍で選択してください。"
-
+        gr.Warning("キャラクターが選択されていないか、削除する発言が選択されていません。");
+        new_chat_history, _ = reload_chat_log(character_name, api_history_limit)
+        return new_chat_history, None
     log_f, _, _, _, _ = get_character_files_paths(character_name)
-
-    # 削除対象のcontentを特定する
-    content_to_delete = selected_message.get('content')
-    if isinstance(content_to_delete, tuple):
-        # ファイルの場合、ログにはタグとして記録されている
-        # (filepath, filename) -> "[ファイル添付: filepath]"
-        filepath = content_to_delete[0]
-        content_to_find_in_log = f"[ファイル添付: {filepath}]"
-        # ログに記録されている実際のメッセージオブジェクトを作成
-        message_to_delete_in_log = {"role": selected_message.get("role"), "content": content_to_find_in_log}
-    else:
-        message_to_delete_in_log = selected_message
-
-
-    success = utils.delete_message_from_log(log_f, message_to_delete_in_log)
-
+    success = utils.delete_message_from_log(log_f, selected_message)
     if success:
         gr.Info("選択された発言をログから削除しました。")
     else:
         gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
-
-    # ログの変更をUIに反映させるために、チャット履歴を再読み込みする
-    new_chat_history = reload_chat_log(character_name, api_history_limit)[0]
-
-    # 選択状態をリセットし、フィードバックメッセージを更新
-    return new_chat_history, None, "削除する発言を👍で選択してください。"
+    new_chat_history, _ = reload_chat_log(character_name, api_history_limit)
+    return new_chat_history, None

@@ -30,10 +30,6 @@ if utils.acquire_lock():
     #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
     #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: -5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -10px; margin-top: 0px; }
-    .like-btn { font-size: 1.5em !important; padding: 0 !important; margin: 0 !important; }
-    .like-btn::before { content: "🗑️"; }
-    .like-btn.liked::before { content: "🗑️"; }
-    .like-btn > svg { display: none !important; }
     """
         with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css) as demo:
             character_list_on_startup = character_manager.get_character_list()
@@ -53,6 +49,8 @@ if utils.acquire_lock():
             editing_alarm_id_state = gr.State(None)
             send_notepad_state = gr.State(True)
             use_common_prompt_state = gr.State(True)
+            selected_message_state = gr.State(None)
+
             with gr.Row():
                 with gr.Column(scale=1, min_width=300):
                     profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
@@ -89,8 +87,7 @@ if utils.acquire_lock():
                                 with gr.Column(visible=False) as pomo_timer_ui: pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
                                 timer_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="通知キャラ", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
                 with gr.Column(scale=3):
-                    selected_message_state = gr.State(None)
-                    chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True, likeable=True)
+                    chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True, selectable=True)
                     delete_selected_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
                     chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
                     token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
@@ -110,7 +107,7 @@ if utils.acquire_lock():
             add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
             def initial_load(char_name_to_load, api_history_limit, current_send_notepad_state, use_common_prompt_state):
                 df_with_ids = ui_handlers.render_alarms_as_dataframe(); display_df = ui_handlers.get_display_df(df_with_ids)
-                (returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str, alarm_dd_char_val, _, timer_dd_char_val, current_notepad_content) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit)
+                (returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str, alarm_dd_char_val, timer_dd_char_val, current_notepad_content) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit)
                 initial_token_str = ui_handlers.update_token_count(None, None, returned_char_name, config_manager.initial_model_global, config_manager.initial_api_key_name_global, api_history_limit, current_send_notepad_state, current_notepad_content, use_common_prompt_state)
                 return (display_df, df_with_ids, current_chat_hist, current_profile_img, current_mem_str, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください", initial_token_str, current_notepad_content)
 
@@ -121,7 +118,7 @@ if utils.acquire_lock():
             disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
             delete_alarm_button.click(fn=ui_handlers.handle_delete_selected_alarms, inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda id_df: ui_handlers.get_display_df(id_df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe]).then(fn=lambda: ([], "アラームを選択してください"), outputs=[selected_alarm_ids_state, selection_feedback_markdown])
             alarm_add_button.click(fn=ui_handlers.handle_add_or_update_alarm, inputs=[editing_alarm_id_state, alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup], outputs=[alarm_dataframe, alarm_dataframe_original_data, alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
-            character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, gr.State(), timer_char_dropdown, notepad_editor]).then(fn=lambda: (ui_handlers.get_display_df(ui_handlers.render_alarms_as_dataframe()), ui_handlers.render_alarms_as_dataframe()), outputs=[alarm_dataframe, alarm_dataframe_original_data]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
+            character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor]).then(fn=lambda: (ui_handlers.get_display_df(ui_handlers.render_alarms_as_dataframe()), ui_handlers.render_alarms_as_dataframe()), outputs=[alarm_dataframe, alarm_dataframe_original_data]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
             model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
@@ -145,8 +142,8 @@ if utils.acquire_lock():
             rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
             core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
 
-            chatbot_display.like(fn=ui_handlers.handle_chatbot_like, inputs=[chatbot_display], outputs=[selected_message_state], show_progress=False)
-            delete_selected_button.click(fn=ui_handlers.handle_delete_selected_messages, inputs=[current_character_name, selected_message_state, api_history_limit_state, chatbot_display], outputs=[chatbot_display, selected_message_state])
+            chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[chatbot_display], outputs=[selected_message_state], show_progress=False)
+            delete_selected_button.click(fn=ui_handlers.handle_delete_selected_messages, inputs=[current_character_name, selected_message_state, api_history_limit_state], outputs=[chatbot_display, selected_message_state])
 
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
         if __name__ == "__main__":
