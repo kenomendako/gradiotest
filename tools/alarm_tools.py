@@ -4,6 +4,8 @@ from dateutil.parser import parse
 from langchain_core.tools import tool
 import alarm_manager
 
+import uuid
+
 @tool
 def set_personal_alarm(time: str, alarm_message: str, character_name: str, date: str = None) -> str:
     """
@@ -22,39 +24,38 @@ def set_personal_alarm(time: str, alarm_message: str, character_name: str, date:
         if not alarm_message or not alarm_message.strip():
             return "【エラー】`alarm_message`は空にできません。心のこもったメッセージを考えてください。"
 
-        # 時刻の形式を検証
         try:
             time_obj = datetime.datetime.strptime(time, "%H:%M").time()
         except ValueError:
             return "【エラー】時刻の形式が不正です。HH:MM形式で指定してください。"
 
-        # 日付の解釈
+        alarm_date_str = None
+        days = []
         if date:
             try:
                 alarm_dt = parse(date)
-                alarm_date = alarm_dt.date()
+                alarm_date_str = alarm_dt.strftime("%Y-%m-%d")
             except (ValueError, TypeError):
-                 return f"【エラー】日付の表現 '{date}' を解釈できませんでした。"
+                return f"【エラー】日付の表現 '{date}' を解釈できませんでした。"
         else:
-            now = datetime.datetime.now()
-            alarm_dt = now.replace(hour=time_obj.hour, minute=time_obj.minute, second=0, microsecond=0)
-            if alarm_dt <= now:
-                alarm_dt += datetime.timedelta(days=1)
-            alarm_date = alarm_dt.date()
+            # 日付指定がない場合は毎日鳴るアラームとして設定
+            days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
-        # alarm_managerのadd_alarmを呼び出す
-        # この時点では曜日指定は不要とし、毎日鳴るアラームとして登録する
-        success = alarm_manager.add_alarm(
-            hour=str(time_obj.hour).zfill(2),
-            minute=str(time_obj.minute).zfill(2),
-            character=character_name,
-            days_ja=[], # 空リストを渡すと、alarm_manager側で全曜日に設定される
-            message=alarm_message # 新しい引数としてメッセージを渡す
-        )
+        new_alarm = {
+            "id": str(uuid.uuid4()),
+            "time": time,
+            "character": character_name,
+            "alarm_message": alarm_message,
+            "enabled": True,
+            "date": alarm_date_str,
+            "days": days,
+        }
+
+        success = alarm_manager.add_alarm_entry(new_alarm)
 
         if success:
-            formatted_date = alarm_date.strftime("%Y-%m-%d")
-            return f"Success: Alarm with message '{alarm_message}' set for {formatted_date} {time}."
+            display_date = alarm_date_str if alarm_date_str else "every day"
+            return f"Success: Alarm with message '{alarm_message}' set for {display_date} at {time}."
         else:
             return "【エラー】alarm_managerでのアラーム追加に失敗しました。"
 
