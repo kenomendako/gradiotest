@@ -164,6 +164,74 @@ def count_input_tokens(
     return count_tokens_from_lc_messages(messages, model_name, api_key)
 
 
+def generate_alarm_message(character_name: str, context_memo: str, api_key_name: str, model_name: str) -> str:
+    """
+    アラームのコンテキストメモと直近の会話履歴に基づき、専用のプロンプトを使用して応答メッセージを生成する。
+    """
+    print(f"--- アラームメッセージ生成API呼び出し (Character: {character_name}, Model: {model_name}) ---")
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        return "[エラー: アラーム応答生成用のAPIキーが無効です]"
+
+    try:
+        from agent.prompts import ALARM_PROMPT_TEMPLATE
+
+        # キャラクターの基本設定とコアメモリを読み込む
+        char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
+        core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
+        character_prompt = ""
+        if os.path.exists(char_prompt_path):
+            with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
+        core_memory = ""
+        if os.path.exists(core_memory_path):
+            with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
+
+        # 直近の会話履歴を取得
+        history_turns = config_manager.initial_alarm_api_history_turns_global
+        log_file, _, _, _, _ = get_character_files_paths(character_name)
+        raw_history = utils.load_chat_log(log_file, character_name)
+        if history_turns > 0 and len(raw_history) > history_turns * 2:
+            raw_history = raw_history[-(history_turns * 2):]
+
+        recent_conversation = "\n".join([f"{item['role']}: {item['content']}" for item in raw_history])
+        if not recent_conversation:
+            recent_conversation = "（会話履歴がありません）"
+
+        # プロンプトを組み立てる
+        prompt = ALARM_PROMPT_TEMPLATE.format(
+            character_name=character_name,
+            context_memo=context_memo,
+            recent_conversation=recent_conversation,
+            character_prompt=character_prompt,
+            core_memory=core_memory
+        )
+
+        # 応答生成
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=f"models/{model_name}",
+            contents=[prompt]
+        )
+
+        generated_text = response.text.strip() if hasattr(response, 'text') and response.text else ""
+        if not generated_text:
+            try:
+                generated_text = response.candidates[0].content.parts[0].text.strip()
+            except (IndexError, AttributeError):
+                pass
+
+        if generated_text:
+            print(f"  - 生成されたアラームメッセージ: {generated_text}")
+            return generated_text
+        else:
+            print("  - 警告: APIからテキスト応答がありませんでした。フォールバックメッセージを返します。")
+            return f"時間になりました。「{context_memo}」の時間です。"
+
+    except Exception as e:
+        print(f"--- アラームメッセージ生成中にエラー ---")
+        traceback.print_exc()
+        return f"時間になりました。「{context_memo}」の時間です。"
+
 def invoke_nexus_agent(*args: Any) -> str:
     """エージェントを起動し、最終的な応答を取得するメイン関数"""
     (textbox_content, chatbot_history, current_character_name, current_model_name,
