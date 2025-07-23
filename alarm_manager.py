@@ -53,12 +53,14 @@ def load_alarms():
                     alarm["days"] = default_days
 
                 # 新旧データ構造の互換性処理
+                if "message" not in alarm:
+                    alarm["message"] = None # 最終形式のキー
                 if "context_memo" not in alarm:
-                    alarm["context_memo"] = None # 新しい形式のキーを追加
+                    alarm["context_memo"] = None # 中間形式のキー
                 if "theme" not in alarm:
-                    alarm["theme"] = None # 古い形式のキーがない場合も想定
+                    alarm["theme"] = None # 初期形式のキー
                 if "flash_prompt_template" not in alarm:
-                    alarm["flash_prompt_template"] = None # 古い形式のキーがない場合も想定
+                    alarm["flash_prompt_template"] = None # 初期形式のキー
 
                 valid_alarms.append(alarm)
 
@@ -87,10 +89,10 @@ DAY_MAP_JA_TO_EN = {
     "金": "fri", "土": "sat", "日": "sun"
 }
 
-def add_alarm(hour: str, minute: str, character: str, days_ja: list, context_memo: str = None, theme: str = None, flash_prompt: str = None):
+def add_alarm(hour: str, minute: str, character: str, days_ja: list, message: str = None, theme: str = None, flash_prompt: str = None):
     """
     新しいアラームを追加します。
-    UIからの呼び出しと、新しいAIツールからの呼び出しの両方に対応します。
+    AIツールからの呼び出し(message)と、古いUIからの呼び出し(theme)の両方に対応します。
     """
     global alarms_data_global
     if not character:
@@ -98,39 +100,41 @@ def add_alarm(hour: str, minute: str, character: str, days_ja: list, context_mem
         return False
 
     time_str = f"{hour}:{minute}"
+    new_alarm_data = {}
+    log_info = ""
 
-    # context_memoが提供されたか、従来のtheme/flash_promptが提供されたかで処理を分岐
-    if context_memo is not None:
-        # AIツールからの呼び出し
-        memo_stripped = context_memo.strip()
-        if not memo_stripped:
-            print("エラー: AIツールからアラームを設定する場合、context_memoは必須です。")
+    if message is not None:
+        # AIツールからの呼び出し (最終版)
+        message_stripped = message.strip()
+        if not message_stripped:
+            print("エラー: AIツールからアラームを設定する場合、messageは必須です。")
             return False
         new_alarm_data = {
-            "context_memo": memo_stripped,
-            "theme": None, # 旧形式のキーはNoneで初期化
+            "message": message_stripped,
+            "context_memo": None,
+            "theme": None,
             "flash_prompt_template": None
         }
-        log_theme_info = f"Context: '{memo_stripped}'"
+        log_info = f"Message: '{message_stripped}'"
     else:
-        # UIからの呼び出し
+        # UIからの呼び出し (旧形式)
         theme_stripped = theme.strip() if theme else "時間になりました"
         prompt_stripped = flash_prompt.strip() if flash_prompt else None
         if not theme_stripped and not prompt_stripped:
             print("エラー: 「テーマ」または「カスタムプロンプト」のいずれかを入力してください。")
             return False
         new_alarm_data = {
-            "context_memo": None, # 新しいキーはNoneで初期化
+            "message": None,
+            "context_memo": None, # context_memoは廃止
             "theme": theme_stripped,
             "flash_prompt_template": prompt_stripped
         }
-        log_theme_info = f"Theme: '{theme_stripped}', CustomPrompt: {'あり' if prompt_stripped else 'なし'}"
+        log_info = f"Theme: '{theme_stripped}', CustomPrompt: {'あり' if prompt_stripped else 'なし'}"
 
     days_en = [DAY_MAP_JA_TO_EN.get(day_ja, "") for day_ja in days_ja if DAY_MAP_JA_TO_EN.get(day_ja)]
     if not days_en:
         days_en = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-        # AIツールからの呼び出しの場合、この警告は不要なので抑制
-        if context_memo is None:
+        if message is None: # UIからの呼び出しの場合のみ警告
             print("警告: 曜日設定が無効だったため、全て選択(デフォルト)として登録します。")
 
     new_alarm = {
@@ -139,12 +143,12 @@ def add_alarm(hour: str, minute: str, character: str, days_ja: list, context_mem
         "character": character,
         "enabled": True,
         "days": days_en,
-        **new_alarm_data # context_memoまたはtheme/flash_promptを展開して結合
+        **new_alarm_data
     }
 
     alarms_data_global.append(new_alarm)
     save_alarms()
-    print(f"アラーム追加 (有効): {new_alarm['id']} ({time_str}, {character}, Days: {days_en}, {log_theme_info})")
+    print(f"アラーム追加 (有効): {new_alarm['id']} ({time_str}, {character}, Days: {days_en}, {log_info})")
     return True
 
 def toggle_alarm_enabled(alarm_id: str):
@@ -212,43 +216,33 @@ def send_webhook_notification(webhook_url, message_text):
 def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
     char_name = alarm_config.get("character")
     alarm_id = alarm_config.get("id")
+    # 保存されたメッセージを読み込む
+    response_text = alarm_config.get("message")
 
-    # 新しいアラーム形式 (context_memo) と古い形式 (theme) の両方に対応
-    context_to_use = alarm_config.get("context_memo")
-    if not context_to_use:
-        # 古い形式のフォールバック
-        context_to_use = alarm_config.get("theme", "時間になりました")
+    # メッセージがない場合は、古い形式へのフォールバック
+    if not response_text:
+        response_text = alarm_config.get("context_memo", "時間になりました")
 
-    print(f"⏰ アラーム発火. ID: {alarm_id}, キャラクター: {char_name}, コンテキスト: '{context_to_use}'")
+    print(f"⏰ アラーム発火. ID: {alarm_id}, キャラクター: {char_name}, メッセージ: '{response_text}'")
 
     log_f, _, _, _, _ = get_character_files_paths(char_name)
     if not log_f:
         print(f"エラー: アラーム'{alarm_id}'のキャラクター'{char_name}'のログファイルが見つかりません。")
         return
 
-    if not current_api_key_name:
-        print(f"エラー: 有効なAPIキー名が設定されていません。")
-        return
-
-    # 新しいAPI関数を呼び出してメッセージを生成
-    response_text = gemini_api.generate_alarm_message(char_name, context_to_use, current_api_key_name)
-
-    if response_text and not response_text.startswith("[エラー:"):
-        # ログに記録
-        dummy_user_message = f"（システムアラーム：{alarm_config.get('time')} {context_to_use}）"
+    # ログ記録と通知（API呼び出しは不要）
+    if response_text:
+        dummy_user_message = f"（システムアラーム：{alarm_config.get('time')}）"
         system_header = "## システム(アラーム):"
         utils.save_message_to_log(log_f, system_header, dummy_user_message)
         utils.save_message_to_log(log_f, f"## {char_name}:", response_text)
         print(f"アラームログ記録完了 (ID:{alarm_id})")
 
-        # Webhook通知
         if webhook_url:
             notification_message = f"⏰  {char_name}\n\n{response_text}\n"
             send_webhook_notification(webhook_url, notification_message)
-        else:
-            print("情報: Webhook URLが設定されていないため、外部通知はスキップします。")
     else:
-        print(f"警告: アラーム応答の生成に失敗したか、エラーが返されたため、ログ記録と通知をスキップします (ID:{alarm_id}).応答: {response_text}")
+        print(f"警告: アラームメッセージが空のため、処理をスキップします (ID:{alarm_id}).")
 
 def check_alarms():
     now_dt = datetime.datetime.now()
