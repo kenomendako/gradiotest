@@ -95,33 +95,39 @@ def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
     char_name = alarm_config.get("character")
     alarm_id = alarm_config.get("id")
 
-    # 1. 保存されたメッセージを直接取得
-    response_text = alarm_config.get("alarm_message")
+    # context_memoまたは古いthemeを取得
+    context_to_use = alarm_config.get("context_memo") or alarm_config.get("theme", "時間になりました")
 
-    # 2. メッセージがない場合、古い形式や手動設定へのフォールバック
-    if not response_text:
-        response_text = alarm_config.get("theme", "時間になりました")
-
-    print(f"⏰ アラーム発火. ID: {alarm_id}, キャラクター: {char_name}, メッセージ: '{response_text}'")
+    print(f"⏰ アラーム発火. ID: {alarm_id}, キャラクター: {char_name}, コンテキスト: '{context_to_use}'")
 
     log_f, _, _, _, _ = get_character_files_paths(char_name)
     if not log_f:
         print(f"エラー: アラーム'{alarm_id}'のキャラクター'{char_name}'のログファイルが見つかりません。")
         return
 
-    # 3. API呼び出しは行わず、ログ記録と通知を直接実行
-    if response_text:
-        dummy_user_message = f"（システムアラーム：{alarm_config.get('time')}）"
+    if not current_api_key_name:
+        print(f"エラー: 有効なAPIキー名が設定されていません。")
+        return
+
+    # 新しいAPI関数を呼び出してメッセージを生成
+    response_text = gemini_api.generate_alarm_message(char_name, context_to_use, current_api_key_name)
+
+    if response_text and not response_text.startswith("[エラー:"):
+        # ログに記録
+        dummy_user_message = f"（システムアラーム：{alarm_config.get('time')} {context_to_use}）"
         system_header = "## システム(アラーム):"
         utils.save_message_to_log(log_f, system_header, dummy_user_message)
         utils.save_message_to_log(log_f, f"## {char_name}:", response_text)
         print(f"アラームログ記録完了 (ID:{alarm_id})")
 
+        # Webhook通知
         if webhook_url:
             notification_message = f"⏰  {char_name}\n\n{response_text}\n"
             send_webhook_notification(webhook_url, notification_message)
+        else:
+            print("情報: Webhook URLが設定されていないため、外部通知はスキップします。")
     else:
-        print(f"警告: アラームメッセージが空のため、処理をスキップします (ID:{alarm_id}).")
+        print(f"警告: アラーム応答の生成に失敗したか、エラーが返されたため、ログ記録と通知をスキップします (ID:{alarm_id}).応答: {response_text}")
 
 # ★★★ 修正ここまで ★★★
 
