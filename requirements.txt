@@ -42,3 +42,6 @@ qdrant-client
 
 # For PID existence check in lock mechanism
 psutil
+
+# For parsing date strings in alarm tool
+python-dateutil
