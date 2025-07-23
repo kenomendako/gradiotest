@@ -1,4 +1,4 @@
-# gemini_api.py の完全な復元版
+# gemini_api.py の内容を、以下のコードで完全に置き換えてください
 
 import traceback
 from typing import Any, List, Union, Optional, Dict
@@ -64,7 +64,6 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
         contents = _convert_lc_to_gg_for_count(messages)
 
         final_contents_for_api = []
-        # SystemMessageを特別扱いする
         if contents and isinstance(messages[0], SystemMessage):
              system_instruction = contents[0]['parts']
              final_contents_for_api.append({"role": "user", "parts": system_instruction})
@@ -89,7 +88,8 @@ def count_input_tokens(
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return -1
 
-    from agent.prompts import ACTOR_PROMPT_TEMPLATE
+    # ★★★ 変更点1: インポートする名前を CORE_PROMPT_TEMPLATE に変更 ★★★
+    from agent.prompts import CORE_PROMPT_TEMPLATE
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
@@ -112,7 +112,8 @@ def count_input_tokens(
             'core_memory': core_memory,
             'tools_list': tools_list_str
         }
-        final_system_prompt = ACTOR_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+        # ★★★ 変更点2: 使用するテンプレート変数を CORE_PROMPT_TEMPLATE に変更 ★★★
+        final_system_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
     else:
         final_system_prompt = character_prompt
 
@@ -143,11 +144,9 @@ def count_input_tokens(
                 user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
                 text_buffer = []
             buffered = io.BytesIO()
-            # JPEGに変換する必要があるケースをハンドル
             save_image = part_item
             if part_item.mode in ('RGBA', 'P'):
                 save_image = part_item.convert('RGB')
-            # フォーマットを指定して保存
             image_format = part_item.format or 'PNG'
             save_image.save(buffered, format=image_format)
 
@@ -211,16 +210,12 @@ def invoke_nexus_agent(*args: Any) -> str:
 
                 ext = os.path.splitext(filepath)[1].lower()
 
-                # ★★★ ここからが修正箇所 ★★★
                 if ext in ['.jpg', '.jpeg']:
                     mime_type = 'image/jpeg'
                 elif ext in ['.png', '.webp', '.gif', '.heic', '.heif']:
-                    # 他のサポートされている画像形式
                     mime_type = f"image/{ext[1:]}"
                 else:
-                    # サポートされていない画像形式の場合はエラーを発生させ、テキストとして処理させる
                     raise ValueError("Unsupported image format")
-                # ★★★ 修正ここまで ★★★
 
                 user_message_parts.append({
                     "type": "image_url",
