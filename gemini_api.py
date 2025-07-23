@@ -164,11 +164,11 @@ def count_input_tokens(
     return count_tokens_from_lc_messages(messages, model_name, api_key)
 
 
-def generate_alarm_message(character_name: str, context_memo: str, api_key_name: str) -> str:
+def generate_alarm_message(character_name: str, context_memo: str, api_key_name: str, model_name: str) -> str:
     """
     アラームのコンテキストメモと直近の会話履歴に基づき、専用のプロンプトを使用して応答メッセージを生成する。
     """
-    print(f"--- アラームメッセージ生成API呼び出し (Character: {character_name}) ---")
+    print(f"--- アラームメッセージ生成API呼び出し (Character: {character_name}, Model: {model_name}) ---")
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return "[エラー: アラーム応答生成用のAPIキーが無効です]"
@@ -206,9 +206,8 @@ def generate_alarm_message(character_name: str, context_memo: str, api_key_name:
             core_memory=core_memory
         )
 
-        # 応答生成 (高速なモデルを使用)
+        # 応答生成
         client = genai.Client(api_key=api_key)
-        model_name = config_manager.initial_alarm_model_global
         response = client.models.generate_content(
             model=f"models/{model_name}",
             contents=[prompt]

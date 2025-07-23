@@ -10,7 +10,7 @@ import traceback
 import requests
 import config_manager
 from character_manager import get_character_files_paths
-import gemini_api  # generate_alarm_message を使わなくなるが、他の箇所で必要になる可能性を考慮し残す
+import gemini_api
 import utils
 
 # --- アラーム関連グローバル変数 ---
@@ -30,7 +30,6 @@ def load_alarms():
             if not isinstance(loaded_data, list):
                 alarms_data_global = []
                 return alarms_data_global
-            # 必須キーのチェックを緩和し、多様なアラーム形式に対応
             valid_alarms = [a for a in loaded_data if isinstance(a, dict) and "id" in a and "time" in a]
             alarms_data_global = sorted(valid_alarms, key=lambda x: x.get("time", ""))
             return alarms_data_global
@@ -49,7 +48,6 @@ def save_alarms():
         print(f"アラーム保存エラー: {e}"); traceback.print_exc()
 
 def add_alarm_entry(alarm_data: dict):
-    """新しいアラームデータをリストに追加して保存する中央関数。"""
     global alarms_data_global
     if not isinstance(alarm_data, dict) or "id" not in alarm_data:
         print(f"エラー: 無効なアラームデータです: {alarm_data}")
@@ -66,11 +64,8 @@ def delete_alarm(alarm_id: str):
         save_alarms()
         print(f"アラーム削除: ID {alarm_id}")
         return True
-    else:
-        print(f"警告: アラームID {alarm_id} が見つかりませんでした (削除不可).")
-        return False
+    return False
 
-# ... (get_all_alarms, get_alarm_by_id, send_webhook_notification は変更不要) ...
 def get_all_alarms():
     load_alarms()
     return alarms_data_global
@@ -86,17 +81,13 @@ def send_webhook_notification(webhook_url, message_text):
         response.raise_for_status()
         print(f"Webhook通知送信成功 (URL: {webhook_url[:30]}...)")
         return True
-    except requests.exceptions.RequestException as e:
-        print(f"Webhook通知送信エラー: {e}")
+    except requests.exceptions.RequestException:
         return False
 
-# ★★★ ここからが修正の核心 ★★★
 def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
     char_name = alarm_config.get("character")
     alarm_id = alarm_config.get("id")
-
-    # context_memoまたは古いthemeを取得
-    context_to_use = alarm_config.get("context_memo") or alarm_config.get("theme", "時間になりました")
+    context_to_use = alarm_config.get("context_memo", "時間になりました")
 
     print(f"⏰ アラーム発火. ID: {alarm_id}, キャラクター: {char_name}, コンテキスト: '{context_to_use}'")
 
@@ -109,27 +100,21 @@ def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
         print(f"エラー: 有効なAPIキー名が設定されていません。")
         return
 
-    # 新しいAPI関数を呼び出してメッセージを生成
-    response_text = gemini_api.generate_alarm_message(char_name, context_to_use, current_api_key_name)
+    response_text = gemini_api.generate_alarm_message(char_name, context_to_use, current_api_key_name, config_manager.AVAILABLE_MODELS_GLOBAL[0]) # モデルを渡す
 
     if response_text and not response_text.startswith("[エラー:"):
-        # ログに記録
-        dummy_user_message = f"（システムアラーム：{alarm_config.get('time')} {context_to_use}）"
+        # ★★★ 変更点 ★★★
+        dummy_user_message = f"（システムアラーム：{alarm_config.get('time')}）"
         system_header = "## システム(アラーム):"
         utils.save_message_to_log(log_f, system_header, dummy_user_message)
         utils.save_message_to_log(log_f, f"## {char_name}:", response_text)
         print(f"アラームログ記録完了 (ID:{alarm_id})")
 
-        # Webhook通知
         if webhook_url:
             notification_message = f"⏰  {char_name}\n\n{response_text}\n"
             send_webhook_notification(webhook_url, notification_message)
-        else:
-            print("情報: Webhook URLが設定されていないため、外部通知はスキップします。")
     else:
         print(f"警告: アラーム応答の生成に失敗したか、エラーが返されたため、ログ記録と通知をスキップします (ID:{alarm_id}).応答: {response_text}")
-
-# ★★★ 修正ここまで ★★★
 
 def check_alarms():
     now_dt = datetime.datetime.now()
@@ -146,10 +131,9 @@ def check_alarms():
 
     for a in current_alarms:
         alarm_time = a.get("time")
-        is_enabled = a.get("enabled", True) # デフォルト有効
+        is_enabled = a.get("enabled", True)
         alarm_days = a.get("days", [])
 
-        # 日付チェックロジック
         is_today = False
         alarm_date_str = a.get("date")
         if alarm_date_str:
@@ -158,18 +142,15 @@ def check_alarms():
                 if alarm_date == now_dt.date():
                     is_today = True
             except (ValueError, TypeError):
-                 # 日付形式が不正、または存在しない場合は曜日チェックにフォールバック
-                 is_today = current_day_short in alarm_days
+                 is_today = not alarm_days or current_day_short in alarm_days
         else:
-             # 日付指定がない場合は曜日で判断
              is_today = not alarm_days or current_day_short in alarm_days
 
         if is_enabled and alarm_time == now_t and is_today:
             alarms_to_trigger.append(a)
-            # 繰り返しでないアラームは実行後にリストから削除する
             if not a.get("days"):
                 print(f"  - 単発アラーム {a.get('id')} は実行後に削除されます。")
-                continue # remaining_alarms には追加しない
+                continue
         remaining_alarms.append(a)
 
     if len(current_alarms) != len(remaining_alarms):
@@ -186,7 +167,6 @@ def check_alarms():
             print(f"アラーム処理中に予期せぬエラー (ID:{alarm_to_run.get('id', 'N/A')})")
             traceback.print_exc()
 
-# ... (schedule_thread_function, start/stop_alarm_scheduler_thread は変更不要) ...
 def schedule_thread_function():
     global alarm_thread_stop_event
     print("アラームスケジューラスレッドを開始します.")
