@@ -13,6 +13,14 @@ from character_manager import get_character_files_paths
 import gemini_api
 import utils
 
+try:
+    from plyer import notification
+    PLYER_AVAILABLE = True
+except ImportError:
+    print("情報: 'plyer'ライブラリが見つかりません。PCデスクトップ通知機能は無効になります。")
+    print(" -> pip install plyer でインストールできます。")
+    PLYER_AVAILABLE = False
+
 # --- アラーム関連グローバル変数 ---
 alarms_data_global = []
 alarm_thread_stop_event = threading.Event()
@@ -113,6 +121,22 @@ def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
         if webhook_url:
             notification_message = f"⏰  {char_name}\n\n{response_text}\n"
             send_webhook_notification(webhook_url, notification_message)
+
+        # ★★★ ここから追加 ★★★
+        # PCデスクトップ通知
+        if PLYER_AVAILABLE:
+            try:
+                notification.notify(
+                    title=f"{char_name} ⏰",
+                    message=response_text,
+                    app_name="Nexus Ark",
+                    timeout=20  # 20秒間通知を表示
+                )
+                print("PCデスクトップ通知を送信しました。")
+            except Exception as e:
+                print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
+        # ★★★ 追加ここまで ★★★
+
     else:
         print(f"警告: アラーム応答の生成に失敗したか、エラーが返されたため、ログ記録と通知をスキップします (ID:{alarm_id}).応答: {response_text}")
 
