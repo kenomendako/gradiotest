@@ -14,7 +14,8 @@ import config_manager
 from character_manager import get_character_files_paths
 # gemini_api モジュール全体をインポート
 import gemini_api
-from utils import save_message_to_log
+# utils モジュール全体をインポート
+import utils
 
 # --- アラーム関連グローバル変数 ---
 alarms_data_global = []
@@ -209,67 +210,45 @@ def send_webhook_notification(webhook_url, message_text):
 
 # --- アラームトリガーとスケジューリング ---
 def trigger_alarm(alarm_config, current_api_key_name, webhook_url):
-    c = alarm_config.get("character")
-    tm = alarm_config.get("time")
-    id = alarm_config.get("id")
+    char_name = alarm_config.get("character")
+    alarm_id = alarm_config.get("id")
 
-    # 新旧データ構造に対応
-    context_memo = alarm_config.get("context_memo")
-    theme = alarm_config.get("theme")
-    flash_prompt = alarm_config.get("flash_prompt_template")
+    # 新しいアラーム形式 (context_memo) と古い形式 (theme) の両方に対応
+    context_to_use = alarm_config.get("context_memo")
+    if not context_to_use:
+        # 古い形式のフォールバック
+        context_to_use = alarm_config.get("theme", "時間になりました")
 
-    # ログ出力用の情報を決定
-    if context_memo:
-        log_info = f"Context: '{context_memo}'"
-        # AIに渡すテーマとしてコンテキストメモを使用
-        theme_for_gemini = context_memo
-        flash_prompt_for_gemini = None # コンテキストメモがある場合はカスタムプロンプトは無視
-    else:
-        log_info = f"Theme: '{theme}' (カスタムP: {'あり' if flash_prompt else 'なし'})"
-        theme_for_gemini = theme
-        flash_prompt_for_gemini = flash_prompt
+    print(f"⏰ アラーム発火. ID: {alarm_id}, キャラクター: {char_name}, コンテキスト: '{context_to_use}'")
 
-    print(f"⏰ アラーム発火. ID: {id}, 時刻: {tm}, キャラクター: {c}, {log_info}")
-
-    log_f, _, _, _, _ = get_character_files_paths(c)
+    log_f, _, _, _, _ = get_character_files_paths(char_name)
     if not log_f:
-        print(f"エラー: アラーム'{id}'のキャラクター'{c}'のログファイルが見つかりません.処理をスキップします.")
+        print(f"エラー: アラーム'{alarm_id}'のキャラクター'{char_name}'のログファイルが見つかりません。")
         return
 
-    a_mod = config_manager.initial_alarm_model_global
-    a_hist = config_manager.initial_alarm_api_history_turns_global
-
-    if not a_mod:
-        print(f"エラー: config.jsonでアラーム用モデル('alarm_model')が設定されていません.")
-        return
     if not current_api_key_name:
-        print(f"エラー: 有効なAPIキー名が設定されていません.")
+        print(f"エラー: 有効なAPIキー名が設定されていません。")
         return
 
-    dummy_user_theme = theme_for_gemini if theme_for_gemini else (flash_prompt_for_gemini if flash_prompt_for_gemini else "(テーマ/コンテキスト未設定)")
-    dummy_user_message = f"（システムアラーム：{tm} {dummy_user_theme}）"
-    system_header = "## システム(アラーム):"
+    # 新しいAPI関数を呼び出してメッセージを生成
+    response_text = gemini_api.generate_alarm_message(char_name, context_to_use, current_api_key_name)
 
-    # タイマー用のデフォルトテーマ設定（これはUI起因なのでcontext_memoとは共存しない）
-    if not context_memo and not theme:
-        if id == "通常タイマー": theme_for_gemini = "時間になりました"
-        elif id == "作業タイマー": theme_for_gemini = "作業終了アラーム"
-        elif id == "休憩タイマー": theme_for_gemini = "休憩終了アラーム"
+    if response_text and not response_text.startswith("[エラー:"):
+        # ログに記録
+        dummy_user_message = f"（システムアラーム：{alarm_config.get('time')} {context_to_use}）"
+        system_header = "## システム(アラーム):"
+        utils.save_message_to_log(log_f, system_header, dummy_user_message)
+        utils.save_message_to_log(log_f, f"## {char_name}:", response_text)
+        print(f"アラームログ記録完了 (ID:{alarm_id})")
 
-    response_text = gemini_api.send_alarm_to_gemini(c, theme_for_gemini, flash_prompt_for_gemini, a_mod, current_api_key_name, log_f, a_hist)
-
-    if response_text and isinstance(response_text, str) and not response_text.startswith("【アラームエラー】"):
-        save_message_to_log(log_f, system_header, dummy_user_message)
-        save_message_to_log(log_f, f"## {c}:", response_text)
-        print(f"アラームログ記録完了 (ID:{id})")
-
+        # Webhook通知
         if webhook_url:
-            notification_message = f"⏰  {c}\n\n{response_text}\n"
+            notification_message = f"⏰  {char_name}\n\n{response_text}\n"
             send_webhook_notification(webhook_url, notification_message)
         else:
-            print("情報: Webhook URLが設定されていないため、外部通知はスキップします.")
+            print("情報: Webhook URLが設定されていないため、外部通知はスキップします。")
     else:
-        print(f"警告: アラーム応答の生成に失敗したか、エラーが返されたため、ログ記録と通知をスキップします (ID:{id}).応答: {response_text}")
+        print(f"警告: アラーム応答の生成に失敗したか、エラーが返されたため、ログ記録と通知をスキップします (ID:{alarm_id}).応答: {response_text}")
 
 def check_alarms():
     now_dt = datetime.datetime.now()
