@@ -45,3 +45,6 @@ psutil
 
 # For parsing date strings in alarm tool
 python-dateutil
+
+# For desktop notifications
+plyer
