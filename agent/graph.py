@@ -1,3 +1,5 @@
+# agent/graph.py の内容を、以下のコードで完全に置き換えてください
+
 import os
 import re
 import traceback
@@ -8,7 +10,7 @@ from langgraph.graph import StateGraph, END, START, add_messages
 from datetime import datetime
 from langgraph.prebuilt import ToolNode
 
-from agent.prompts import CORE_PROMPT_TEMPLATE # ★ 変更点
+from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, find_location_id_by_name
 from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
@@ -111,7 +113,6 @@ def context_generator_node(state: AgentState):
         'core_memory': core_memory,
         'tools_list': tools_list_str
     }
-    # ★ 変更点
     formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
     final_system_prompt_text = f"{formatted_core_prompt}\n---\n【現在の情景】\n{scenery_text}\n---"
 
@@ -129,14 +130,36 @@ def agent_node(state: AgentState):
 def route_after_agent(state: AgentState) -> Literal["__end__", "tool_node"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
     last_message = state["messages"][-1]
-    if not last_message.tool_calls:
-        print("  - ツール呼び出しなし。思考完了と判断し、グラフを終了します。")
-        return "__end__"
-    print("  - ツール呼び出しあり。ツール実行ノードへ。")
-    return "tool_node"
+    
+    if last_message.tool_calls:
+        # ★ 変更点1: ツール呼び出しの詳細をログに出力 ★
+        print("  - ツール呼び出しあり。ツール実行ノードへ。")
+        for tool_call in last_message.tool_calls:
+            print(f"    🛠️ ツール呼び出し: {tool_call['name']} | 引数: {tool_call['args']}")
+        return "tool_node"
+        
+    print("  - ツール呼び出しなし。思考完了と判断し、グラフを終了します。")
+    return "__end__"
 
 def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"]:
     print("--- ツール後ルーター (route_after_tools) 実行 ---")
+    
+    # ★ 変更点2: ツール実行結果をログに出力 ★
+    # 最後のAIMessage以降に追加されたToolMessageを特定してログに出力
+    last_ai_message_index = -1
+    for i in range(len(state["messages"]) - 1, -1, -1):
+        if isinstance(state["messages"][i], AIMessage):
+            last_ai_message_index = i
+            break
+            
+    if last_ai_message_index != -1:
+        new_tool_messages = state["messages"][last_ai_message_index + 1:]
+        for msg in new_tool_messages:
+            if isinstance(msg, ToolMessage):
+                # ★ 変更点3: 結果が長い場合に省略する処理を追加 ★
+                content_to_log = (str(msg.content)[:200] + '...') if len(str(msg.content)) > 200 else str(msg.content)
+                print(f"    ✅ ツール実行結果: {msg.name} | 結果: {content_to_log}")
+
     last_ai_message_with_tool_call = next((msg for msg in reversed(state['messages']) if isinstance(msg, AIMessage) and msg.tool_calls), None)
     
     if last_ai_message_with_tool_call:
@@ -171,4 +194,4 @@ workflow.add_conditional_edges(
 )
 
 app = workflow.compile()
-print("--- 最終完成版v35：思考と行動の再統一を導入した最終グラフがコンパイルされました ---")
+print("--- 最終完成版v36：ツール利用のログ出力機能を搭載したグラフがコンパイルされました ---")
