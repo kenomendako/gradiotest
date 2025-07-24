@@ -1,4 +1,74 @@
-# gemini_api.py の invoke_nexus_agent 関数のみを、以下のコードで置き換えてください
+# gemini_api.py の内容を、以下のコードで完全に置き換えてください
+
+import traceback
+from typing import Any, List, Union, Optional, Dict
+import os
+import io
+import base64
+import re
+from PIL import Image
+import google.genai as genai
+import filetype
+
+from agent.graph import app
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+import config_manager
+import utils
+import mem0_manager
+from character_manager import get_character_files_paths
+
+def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
+    if model_name in utils._model_token_limits_cache:
+        return utils._model_token_limits_cache[model_name]
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        return None
+    try:
+        client = genai.Client(api_key=api_key)
+        model_info = client.models.get(model=f"models/{model_name}")
+        if model_info and hasattr(model_info, 'input_token_limit') and hasattr(model_info, 'output_token_limit'):
+            limits = {"input": model_info.input_token_limit, "output": model_info.output_token_limit}
+            utils._model_token_limits_cache[model_name] = limits
+            return limits
+        return None
+    except Exception as e:
+        print(f"モデル情報の取得中にエラー: {e}")
+        return None
+
+def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> List[Dict]:
+    contents = []
+    for msg in messages:
+        role = "model" if isinstance(msg, AIMessage) else "user"
+        sdk_parts = []
+        if isinstance(msg.content, str):
+            sdk_parts.append({"text": msg.content})
+        elif isinstance(msg.content, list):
+             for part_data in msg.content:
+                if isinstance(part_data, dict) and part_data.get("type") == "text":
+                    sdk_parts.append({"text": part_data["text"]})
+        if sdk_parts:
+            contents.append({"role": role, "parts": sdk_parts})
+    return contents
+
+def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
+    if not messages: return 0
+    try:
+        client = genai.Client(api_key=api_key)
+        contents = _convert_lc_to_gg_for_count(messages)
+        final_contents_for_api = []
+        if contents and isinstance(messages[0], SystemMessage):
+             system_instruction = contents[0]['parts']
+             final_contents_for_api.extend([
+                 {"role": "user", "parts": system_instruction},
+                 {"role": "model", "parts": [{"text": "OK"}]}
+             ])
+             final_contents_for_api.extend(contents[1:])
+        else:
+            final_contents_for_api = contents
+        result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
+        return result.total_tokens
+    except Exception as e:
+        print(f"トークン計算エラー: {e}")
+        return -1
 
 def invoke_nexus_agent(*args: Any) -> str:
     (textbox_content, chatbot_history, current_character_name, current_model_name,
@@ -55,8 +125,6 @@ def invoke_nexus_agent(*args: Any) -> str:
                         "image_url": { "url": f"data:{mime_type};base64,{img_base64}"}
                     })
                 elif mime_type.startswith("audio/") or mime_type.startswith("video/"):
-                    # ★★★ 最後の、そして真実の聖杯 ★★★
-                    # お客様が見つけられた情報に基づき、LangChainが要求する唯一の正しい形式に変換する
                     uploaded_file = client.files.upload(
                         file=filepath
                     )
@@ -64,7 +132,6 @@ def invoke_nexus_agent(*args: Any) -> str:
                         "type": "media_url",
                         "media_url": {"url": uploaded_file.uri}
                     })
-
                 else:
                     raise TypeError("Unsupported MIME type, attempting to read as text.")
 
