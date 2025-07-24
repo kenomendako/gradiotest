@@ -15,28 +15,20 @@ faiss-cpu
 numpy
 
 # --- LangGraph and LangChain libraries ---
-# Core LangGraph library
+# Core LangGraph library - THIS WILL MANAGE ITS OWN DEPENDENCIES
 langgraph
 
-# Core LangChain libraries
-langchain
-langchain_core
-
-# Google Gemini integration for LangChain
+# Google Gemini integration for LangChain - THIS WILL MANAGE ITS OWN DEPENDENCIES
 langchain-google-genai>=2.1.8
 
 # Potentially needed for some LangChain/LangGraph features
 python-dotenv
 
 # Correct, modern SDK for Gemini API. DO NOT CHANGE.
-# This is the ONLY Google SDK this project should directly depend on.
 google-genai
 
 # For Web Search with Tavily AI
 tavily-python
-
-# For long-term memory system (The Brain)
-# We let its dependencies be resolved automatically without the legacy google-generativeai
 
 # For PID existence check in lock mechanism
 psutil
