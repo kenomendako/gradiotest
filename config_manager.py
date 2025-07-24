@@ -14,7 +14,7 @@ MEMORY_FILENAME = "memory.json"
 API_HISTORY_LIMIT_OPTIONS = {"10": "10往復", "20": "20往復", "30": "30往復", "40": "40往復", "50": "50往復", "60": "60往復", "70": "70往復", "80": "80往復", "90": "90往復", "100": "100往復", "all": "全ログ"}
 UI_HISTORY_MAX_LIMIT = 200
 DEFAULT_API_HISTORY_LIMIT_OPTION = "all"
-DEFAULT_ALARM_API_HISTORY_TURNS = 10 # ★ 変更
+DEFAULT_ALARM_API_HISTORY_TURNS = 10
 SAFETY_CONFIG = [
     {"category": types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, "threshold": types.HarmBlockThreshold.BLOCK_NONE},
     {"category": types.HarmCategory.HARM_CATEGORY_HARASSMENT, "threshold": types.HarmBlockThreshold.BLOCK_NONE},
@@ -35,7 +35,7 @@ API_KEYS = {}
 TAVILY_API_KEY = ""
 AVAILABLE_MODELS_GLOBAL = []
 DEFAULT_MODEL_GLOBAL = None
-# ★ 通知関連のグローバル変数を追加
+# ★ 通知関連のグローバル変数を修正・復活
 NOTIFICATION_SERVICE_GLOBAL = "discord"
 NOTIFICATION_WEBHOOK_URL_GLOBAL = None
 PUSHOVER_APP_TOKEN_GLOBAL = None
@@ -64,7 +64,6 @@ def load_config():
         "last_api_history_limit_option": DEFAULT_API_HISTORY_LIMIT_OPTION,
         "alarm_api_history_turns": DEFAULT_ALARM_API_HISTORY_TURNS,
         "tavily_api_key": "YOUR_TAVILY_API_KEY_HERE",
-        # ★ 通知関連のデフォルト値を追加
         "notification_service": "discord",
         "notification_webhook_url": None,
         "pushover_app_token": None,
@@ -73,22 +72,17 @@ def load_config():
 
     config = {}
     if not os.path.exists(CONFIG_FILE):
-        print(f"情報: '{CONFIG_FILE}' が見つかりませんでした。デフォルト設定で作成します。")
         config = default_config
         try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"設定ファイルの作成に失敗しました: {e}")
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(config, f, indent=2, ensure_ascii=False)
+        except Exception as e: print(f"設定ファイルの作成に失敗しました: {e}")
     else:
         try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                config = json.load(f)
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f: config = json.load(f)
         except Exception as e:
             print(f"'{CONFIG_FILE}' の読み込みエラー: {e}。デフォルト設定を使用します。")
             config = default_config
 
-    # 既存の読み込み処理...
     API_KEYS = config.get("api_keys", {})
     AVAILABLE_MODELS_GLOBAL = config.get("available_models", ["gemini-2.5-pro"])
     DEFAULT_MODEL_GLOBAL = config.get("default_model", "gemini-2.5-pro")
@@ -104,13 +98,11 @@ def load_config():
     initial_alarm_api_history_turns_global = config.get("alarm_api_history_turns", DEFAULT_ALARM_API_HISTORY_TURNS)
     TAVILY_API_KEY = config.get("tavily_api_key")
 
-    # ★ 通知関連の設定を読み込む
     NOTIFICATION_SERVICE_GLOBAL = config.get("notification_service", "discord")
     NOTIFICATION_WEBHOOK_URL_GLOBAL = config.get("notification_webhook_url")
     PUSHOVER_APP_TOKEN_GLOBAL = config.get("pushover_app_token")
     PUSHOVER_USER_KEY_GLOBAL = config.get("pushover_user_key")
 
-    # 設定ファイルに不足しているキーがあれば追記する
     needs_update = False
     for key, default_value in default_config.items():
         if key not in config:
@@ -118,20 +110,15 @@ def load_config():
             needs_update = True
     if needs_update:
         try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(config, f, indent=2, ensure_ascii=False)
             print(f"'{CONFIG_FILE}' に不足していたキーを追記しました。")
-        except Exception as e:
-            print(f"設定ファイルの更新に失敗しました: {e}")
+        except Exception as e: print(f"設定ファイルの更新に失敗しました: {e}")
 
 def save_config(key, value):
     try:
         config = {}
         if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                config = json.load(f)
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f: config = json.load(f)
         config[key] = value
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print(f"設定の保存エラー ({key}): {e}")
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(config, f, indent=2, ensure_ascii=False)
+    except Exception as e: print(f"設定の保存エラー ({key}): {e}")

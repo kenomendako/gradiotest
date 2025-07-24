@@ -142,12 +142,20 @@ def handle_delete_selected_alarms(selected_ids: list):
         deleted_count = sum(1 for sid in selected_ids if alarm_manager.delete_alarm(str(sid)))
         if deleted_count > 0: gr.Info(f"{deleted_count}件のアラームを削除しました。")
     return render_alarms_as_dataframe()
-def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_theme, brk_theme, api_key, webhook, normal_theme):
-    if not char or not api_key: return "エラー：キャラクターとAPIキーを選択してください。"
+def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_theme, brk_theme, api_key, normal_theme):
+    if not char or not api_key:
+        return "エラー：キャラクターとAPIキーを選択してください。"
     try:
-        timer = UnifiedTimer(timer_type, float(duration or 0), float(work or 0), float(brk or 0), int(cycles or 0), char, work_theme, brk_theme, api_key, webhook, normal_theme)
-        timer.start(); gr.Info(f"{timer_type}を開始しました。"); return f"{timer_type}を開始しました。"
-    except Exception as e: return f"タイマー開始エラー: {e}"
+        # 新しい通知システムは config_manager から直接値を取得するため、webhook_urlを渡す必要がなくなる
+        timer = UnifiedTimer(
+            timer_type, float(duration or 0), float(work or 0), float(brk or 0),
+            int(cycles or 0), char, work_theme, brk_theme, api_key, normal_theme
+        )
+        timer.start()
+        gr.Info(f"{timer_type}を開始しました。")
+        return f"{timer_type}を開始しました。"
+    except Exception as e:
+        return f"タイマー開始エラー: {e}"
 def update_model_state(model): config_manager.save_config("last_model", model); return model
 def update_api_key_state(api_key_name): config_manager.save_config("last_api_key_name", api_key_name); gr.Info(f"APIキーを '{api_key_name}' に設定しました。"); return api_key_name
 def update_timestamp_state(checked): config_manager.save_config("add_timestamp", bool(checked))
