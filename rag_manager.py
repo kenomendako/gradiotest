@@ -15,7 +15,7 @@ import character_manager
 # import gemini_api # gemini_apiへの依存を削除
 from utils import load_chat_log
 # import config_manager # config_managerへの直接依存を削除
-import mem0_manager # 二重らせん記憶システムのために追加
+# import mem0_manager # 二重らせん記憶システムのために追加
 from langchain_core.tools import tool
 
 
@@ -207,49 +207,10 @@ def diary_search_tool(query: str, character_name: str, api_key: str) -> str:
 
 @tool
 def conversation_memory_search_tool(query: str, character_name: str, api_key: str) -> str:
-    """ユーザーとの過去の具体的な会話のやり取り（ログ）を検索します。「昨日の夜、何話したっけ？」や「以前、〇〇という話題についてどう結論が出たか」など、客観的な事実や出来事の履歴を確認したい時に使用します。"""
-    print(f"--- 会話記憶検索ツール呼び出し (Query: '{query}', Character: '{character_name}') ---")
-    try:
-        mem0_instance = mem0_manager.get_mem0_instance(character_name, api_key)
+    """【現在使用不可】ユーザーとの過去の具体的な会話のやり取り（ログ）を検索します。"""
+    return "この機能は現在、無効化されています (Mem0 is disabled)。"
 
-        print(f"  - Mem0の記憶を検索します (Character/UserID: {character_name})")
-        memories = mem0_instance.search(query=query, user_id=character_name, limit=5)
-
-        if not memories or not memories.get("results"):
-            print("  - 関連する記憶は見つかりませんでした。")
-            return "[]" # 結果がない場合は空のJSON配列を返す
-
-        print(f"  - {len(memories['results'])}件の関連する記憶が見つかりました。")
-        # 結果を人間向けの文章ではなく、JSON文字列として返す
-        return json.dumps(memories["results"], ensure_ascii=False, indent=2)
-
-    except Exception as e:
-        error_message = f"会話記憶(Mem0)検索エラー: {e}"
-        print(error_message)
-        traceback.print_exc()
-        return error_message
-
+@tool
 def search_conversation_memory_for_summary(character_name: str, query: str, api_key: str, limit: int = 5) -> str:
-    """
-    memory_weaver_nodeのために、Mem0の記憶を検索し、要約に適した形式の文字列として返す。
-    """
-    print(f"--- [Memory Weaver] 長期記憶(Mem0)検索実行 (Query: '{query}') ---")
-    try:
-        mem0_instance = mem0_manager.get_mem0_instance(character_name, api_key)
-        memories = mem0_instance.search(query=query, user_id=character_name, limit=limit)
-
-        if not memories or not memories.get("results"):
-            print("  - [Memory Weaver] 関連する長期記憶は見つかりませんでした。")
-            return "関連する長期記憶はありませんでした。"
-
-        # 要約用のプロンプトに埋め込みやすいように、結果をフォーマットする
-        formatted_memories = [f"- {item['memory']}" for item in memories["results"]]
-        result_str = "\n".join(formatted_memories)
-        print(f"  - [Memory Weaver] {len(formatted_memories)}件の長期記憶を発見しました。")
-        return result_str
-
-    except Exception as e:
-        error_message = f"  - [Memory Weaver] 長期記憶(Mem0)の検索中にエラーが発生しました: {e}"
-        print(error_message)
-        traceback.print_exc()
-        return "長期記憶の検索中にエラーが発生しました。"
+    """【現在使用不可】memory_weaver_nodeのために、Mem0の記憶を検索します。"""
+    return "この機能は現在、無効化されています (Mem0 is disabled)。"
