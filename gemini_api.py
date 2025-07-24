@@ -177,7 +177,6 @@ def invoke_nexus_agent(*args: Any) -> str:
         user_message_parts.append({"type": "text", "text": user_input_text})
 
     if file_input_list:
-        # ★★★ 変更点1: Clientオブジェクトをここで作成 ★★★
         client = genai.Client(api_key=api_key)
         for file_obj in file_input_list:
             filepath = file_obj.name
@@ -202,8 +201,11 @@ def invoke_nexus_agent(*args: Any) -> str:
                         "image_url": { "url": f"data:{mime_type};base64,{img_base64}"}
                     })
                 elif mime_type.startswith("audio/") or mime_type.startswith("video/"):
-                    # ★★★ 変更点2: 作成したclientオブジェクト経由でファイルをアップロード ★★★
-                    uploaded_file = client.files.upload_file(path=filepath)
+                    # ★★★ 変更点: 正しいメソッド名 .create() を使用 ★★★
+                    uploaded_file = client.files.create(
+                        path=filepath,
+                        display_name=os.path.basename(filepath)
+                    )
                     user_message_parts.append(uploaded_file)
                 else:
                     raise TypeError("Unsupported MIME type, attempting to read as text.")
