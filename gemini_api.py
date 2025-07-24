@@ -201,9 +201,11 @@ def invoke_nexus_agent(*args: Any) -> str:
                         "image_url": { "url": f"data:{mime_type};base64,{img_base64}"}
                     })
                 elif mime_type.startswith("audio/") or mime_type.startswith("video/"):
-                    # ★★★ 変更点: 正しい引数名 file_path=... を使用し、display_nameを削除 ★★★
+                    # ★★★ 変更点: 公式ドキュメントに準拠した正しい引数を使用 ★★★
                     uploaded_file = client.files.upload(
-                        file_path=filepath,
+                        file=filepath,
+                        display_name=os.path.basename(filepath),
+                        mime_type=mime_type
                     )
                     user_message_parts.append(uploaded_file)
                 else:
