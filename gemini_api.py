@@ -13,7 +13,7 @@ from agent.graph import app
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import config_manager
 import utils
-import mem0_manager
+# import mem0_manager
 from character_manager import get_character_files_paths
 
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
@@ -163,17 +163,19 @@ def invoke_nexus_agent(*args: Any) -> str:
         final_state = app.invoke(initial_state)
         final_response_message = final_state['messages'][-1]
 
-        try:
-            mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
-            user_text_for_mem0 = "\n".join([part['text'] for part in user_message_parts if isinstance(part, dict) and part.get('type') == 'text' and part.get('text')])
-            if user_text_for_mem0:
-                mem0_instance.add([
-                    {"role": "user", "content": user_text_for_mem0},
-                    {"role": "assistant", "content": final_response_message.content}
-                ], user_id=current_character_name)
-                print("--- mem0への記憶成功 ---")
-        except Exception as e:
-            print(f"--- mem0への記憶中にエラー: {e} ---")
+        # ★★★ ここから下のtryブロックを全てコメントアウト ★★★
+        # try:
+        #     mem0_instance = mem0_manager.get_mem0_instance(current_character_name, api_key)
+        #     user_text_for_mem0 = "\n".join([part['text'] for part in user_message_parts if isinstance(part, dict) and part.get('type') == 'text' and part.get('text')])
+        #     if user_text_for_mem0:
+        #         mem0_instance.add([
+        #             {"role": "user", "content": user_text_for_mem0},
+        #             {"role": "assistant", "content": final_response_message.content}
+        #         ], user_id=current_character_name)
+        #         print("--- mem0への記憶成功 ---")
+        # except Exception as e:
+        #     print(f"--- mem0への記憶中にエラー: {e} ---")
+        # ★★★ ここまでコメントアウト ★★★
 
         return final_response_message.content
     except Exception as e:
