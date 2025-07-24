@@ -48,3 +48,6 @@ python-dateutil
 
 # For desktop notifications
 plyer
+
+# For file type detection
+filetype

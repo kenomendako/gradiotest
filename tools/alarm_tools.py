@@ -8,16 +8,29 @@ import alarm_manager
 from typing import List # ★ 変更点1: Listをインポート
 
 def _parse_flexible_date(date_str: str) -> datetime.date:
-    """ "tomorrow", "next monday" などの曖昧な日付表現を解釈し、具体的な日付を返す """
-    today = datetime.date.today()
+    """ "tomorrow", "next monday" などの曖昧な日付表現を、深夜の文脈を考慮して解釈する """
+    now = datetime.datetime.now()
+    today = now.date()
+
     if not date_str or date_str.lower() in ["today", "今日"]:
         return today
-    if date_str.lower() in ["tomorrow", "明日"]:
-        return today + datetime.timedelta(days=1)
 
+    # まずは普通に日付を解釈
     try:
-        future_date = parse(date_str, default=datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0))
-        return future_date.date()
+        if date_str.lower() in ["tomorrow", "明日"]:
+            parsed_date = today + datetime.timedelta(days=1)
+        else:
+            parsed_date = parse(date_str, default=now.replace(hour=0, minute=0, second=0, microsecond=0)).date()
+
+        # 深夜補正ロジック
+        # AIが「明日」と解釈し、かつ現在時刻が午前4時より前の場合、
+        # それは「今日の朝」のことだと判断し、日付を1日戻す
+        if parsed_date == today + datetime.timedelta(days=1) and now.hour < 4:
+            print(f"  - 深夜補正: '明日' ({parsed_date}) を '今日' ({today}) として扱います。")
+            return today
+
+        return parsed_date
+
     except (ValueError, TypeError, ParserError):
         return today
 
