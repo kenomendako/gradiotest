@@ -201,14 +201,13 @@ def invoke_nexus_agent(*args: Any) -> str:
                         "image_url": { "url": f"data:{mime_type};base64,{img_base64}"}
                     })
                 elif mime_type.startswith("audio/") or mime_type.startswith("video/"):
-                    # ★★★ 変更点: 公式サンプルコード通りの正しいメソッド .upload() を使用 ★★★
+                    # ★★★ 変更点: 正しい引数名 file=... を使用 ★★★
                     uploaded_file = client.files.upload(
-                        path=filepath,
+                        file=filepath, # 'path' ではなく 'file'
                         display_name=os.path.basename(filepath),
                         mime_type=mime_type
                     )
-                    # LangChainに渡すため、SDKのFileオブジェクトをPart形式に変換する
-                    user_message_parts.append(uploaded_file.to_uri())
+                    user_message_parts.append(uploaded_file)
                 else:
                     raise TypeError("Unsupported MIME type, attempting to read as text.")
 
