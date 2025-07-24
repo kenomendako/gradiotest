@@ -5,7 +5,6 @@ from typing import Any, List, Union, Optional, Dict
 import os
 import io
 import base64
-import re
 from PIL import Image
 import google.genai as genai
 import filetype
@@ -125,6 +124,7 @@ def invoke_nexus_agent(*args: Any) -> str:
                         "image_url": { "url": f"data:{mime_type};base64,{img_base64}"}
                     })
                 elif mime_type.startswith("audio/") or mime_type.startswith("video/"):
+                    # ★★★ 最新版ライブラリで動作する、本来あるべき正しいコード ★★★
                     uploaded_file = client.files.upload(
                         file=filepath
                     )
@@ -132,6 +132,7 @@ def invoke_nexus_agent(*args: Any) -> str:
                         "type": "media_url",
                         "media_url": {"url": uploaded_file.uri}
                     })
+
                 else:
                     raise TypeError("Unsupported MIME type, attempting to read as text.")
 

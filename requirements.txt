@@ -23,7 +23,7 @@ langchain
 langchain_core
 
 # Google Gemini integration for LangChain
-langchain_google_genai
+langchain-google-genai>=2.1.8
 
 # Potentially needed for some LangChain/LangGraph features
 python-dotenv
