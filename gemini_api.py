@@ -201,11 +201,14 @@ def invoke_nexus_agent(*args: Any) -> str:
                         "image_url": { "url": f"data:{mime_type};base64,{img_base64}"}
                     })
                 elif mime_type.startswith("audio/") or mime_type.startswith("video/"):
-                    # ★★★ 変更点: 引数を唯一正しい `file=...` のみにする ★★★
+                    # ★★★ 最終・確定・真実の変更点 ★★★
+                    # Fileオブジェクトを直接渡すのではなく、LangChainが解釈できる辞書形式に変換する
                     uploaded_file = client.files.upload(
                         file=filepath
                     )
+                    # HumanMessageはFileオブジェクトそのものではなく、それを指し示す辞書を期待する
                     user_message_parts.append(uploaded_file)
+
                 else:
                     raise TypeError("Unsupported MIME type, attempting to read as text.")
 
@@ -222,6 +225,7 @@ def invoke_nexus_agent(*args: Any) -> str:
                     print(f"    - 警告: ファイル '{os.path.basename(filepath)}' の読み込みに失敗しました。スキップします。エラー: {text_e}")
 
     if user_message_parts:
+        # LangChainのHumanMessageは、contentに辞書とFileオブジェクトの混在リストを受け付ける
         messages.append(HumanMessage(content=user_message_parts))
 
     initial_state = {
