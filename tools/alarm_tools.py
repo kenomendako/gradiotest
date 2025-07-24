@@ -5,6 +5,7 @@ import datetime
 from langchain_core.tools import tool
 from dateutil.parser import parse, ParserError
 import alarm_manager
+from typing import List # ★ 変更点1: Listをインポート
 
 def _parse_flexible_date(date_str: str) -> datetime.date:
     """ "tomorrow", "next monday" などの曖昧な日付表現を解釈し、具体的な日付を返す """
@@ -15,11 +16,9 @@ def _parse_flexible_date(date_str: str) -> datetime.date:
         return today + datetime.timedelta(days=1)
 
     try:
-        # dateutil.parserは非常に強力で、"next monday"なども解釈できる
         future_date = parse(date_str, default=datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0))
         return future_date.date()
     except (ValueError, TypeError, ParserError):
-        # パースに失敗した場合は、今日の日付を返す
         return today
 
 @tool
@@ -28,7 +27,7 @@ def set_personal_alarm(
     context_memo: str,
     character_name: str,
     date: str = None,
-    days: list = None
+    days: List[str] = None # ★ 変更点2: `list` を `List[str]` に変更
 ) -> str:
     """
     ユーザーとの対話の中で、未来の特定の日時に送信するためのアラームを設定する。
@@ -50,27 +49,23 @@ def set_personal_alarm(
             "enabled": True
         }
 
-        # 繰り返し設定 (days) が優先される
         if days and isinstance(days, list) and len(days) > 0:
-            valid_days = [d.lower()[:3] for d in days] # "Monday" -> "mon"
+            valid_days = [d.lower()[:3] for d in days]
             new_alarm["days"] = valid_days
             schedule_info = f"every {', '.join(days)}"
         else:
             alarm_date_obj = _parse_flexible_date(date)
 
             now = datetime.datetime.now()
-            # 日付指定がなく、時刻がすでに過ぎている場合は明日扱いにする
             if date is None and alarm_dt_obj.time() < now.time():
                 alarm_date_obj += datetime.timedelta(days=1)
 
             alarm_date_str = alarm_date_obj.strftime("%Y-%m-%d")
             new_alarm["date"] = alarm_date_str
-            new_alarm["days"] = [] # 単発なので曜日は空
+            new_alarm["days"] = []
             schedule_info = f"for {alarm_date_str}"
 
         if alarm_manager.add_alarm_entry(new_alarm):
-            # ★★★ 変更点 ★★★
-            # AIに「任務完了」を明確に伝える、完全なメッセージを返す
             return f"Success: The alarm has been reliably set {schedule_info} at {time_str}. The memo is '{context_memo}'. There is no need to set it again."
         else:
             return "Error: Failed to save the alarm entry."
