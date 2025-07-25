@@ -243,8 +243,72 @@ def handle_core_memory_update_click(character_name: str, api_key_name: str):
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{character_name}」のコアメモリ更新をバックグラウンドで開始しました。"); threading.Thread(target=_run_core_memory_update, args=(character_name, api_key)).start()
-def update_token_count(textbox_content: Optional[str], file_input_list: Optional[List[Any]], current_character_name: str, current_model_name: str, current_api_key_name_state: str, api_history_limit_state: str, send_notepad_state: bool, notepad_editor_content: str, use_common_prompt_state: bool):
-    pass # 実装は省略
+def update_token_count(
+    textbox_content: Optional[str],
+    file_input_list: Optional[List[Any]],
+    current_character_name: str,
+    current_model_name: str,
+    current_api_key_name_state: str,
+    api_history_limit_state: str,
+    send_notepad_state: bool,
+    notepad_editor_content: str, # この引数は `notepad_editor.change` から渡される
+    use_common_prompt_state: bool
+) -> str:
+    """入力全体のトークン数を計算し、UI表示用の文字列を返す"""
+    # UIハンドラはGradioのスレッドで実行されるため、毎回インポートするのが安全
+    import gemini_api
+    from PIL import Image
+    import io
+    import base64
+
+    # 1. テキストとファイルから、gemini_apiが要求する 'parts' リストを作成
+    parts = []
+    if textbox_content:
+        parts.append(textbox_content.strip())
+    if file_input_list:
+        for file_obj in file_input_list:
+            try:
+                # 画像の場合はPIL Imageオブジェクトに変換して追加
+                img = Image.open(file_obj.name)
+                parts.append(img)
+            except Exception:
+                # 画像以外（テキストなど）の場合は、ファイルパスを渡すだけでも良いが、
+                # ここではシンプルに無視するか、テキストとして読み込む処理を追加できる
+                # 今回はシンプル化のため、画像以外のトークン数への影響は一旦無視する
+                pass
+
+    # 2. メモ帳の内容をAPIに送信する場合、partsの先頭にテキストとして追加
+    #    (count_input_tokens側で処理されるため、ここでは不要)
+
+    # 3. gemini_apiの計算関数を呼び出す
+    try:
+        # gemini_api.py内の新しい関数を呼び出すように変更
+        # この関数は内部でメモ帳の処理も行う
+        token_count = gemini_api.count_input_tokens(
+            character_name=current_character_name,
+            model_name=current_model_name,
+            parts=parts,
+            api_history_limit_option=api_history_limit_state,
+            api_key_name=current_api_key_name_state,
+            send_notepad_to_api=send_notepad_state,
+            use_common_prompt=use_common_prompt_state
+        )
+
+        if token_count == -1:
+            return "入力トークン数: (計算エラー)"
+
+        # 4. モデルの最大トークン数を取得して、よりリッチな表示にする
+        api_key = config_manager.API_KEYS.get(current_api_key_name_state)
+        limit_info = gemini_api.get_model_token_limits(current_model_name, api_key)
+
+        if limit_info and 'input' in limit_info:
+            return f"入力トークン数: {token_count} / {limit_info['input']}"
+        else:
+            return f"入力トークン数: {token_count}"
+
+    except Exception as e:
+        print(f"トークン数計算中にUIハンドラでエラー: {e}")
+        return "入力トークン数: (例外発生)"
 def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str, str]]):
     default_button_text = "🗑️ 選択した発言を削除"
     if evt.value:

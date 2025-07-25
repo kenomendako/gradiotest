@@ -175,3 +175,76 @@ def invoke_nexus_agent(*args: Any) -> str:
         print(f"--- エージェント実行エラー ---")
         traceback.print_exc()
         return f"[エージェント実行エラー: {e}]"
+
+def count_input_tokens(
+    character_name: str,
+    model_name: str,
+    parts: List[Any],
+    api_history_limit_option: str,
+    api_key_name: str,
+    send_notepad_to_api: bool,
+    use_common_prompt: bool
+) -> int:
+    """
+    指定された入力パーツ（テキスト、画像など）と履歴、設定に基づいて、
+    Google AI APIへの総入力トークン数を計算する。
+    """
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        print("トークン計算エラー: APIキーが無効です。")
+        return -1
+
+    # 1. 基本的なプロンプトとシステムメッセージの準備
+    #    invoke_nexus_agent のロジックを参考にする
+    _, prompt_f, _, mem_f, notepad_f = get_character_files_paths(character_name)
+    prompt = utils.load_prompt(prompt_f, use_common_prompt)
+    if send_notepad_to_api:
+        notepad_content = utils.load_notepad_for_api(notepad_f)
+        if notepad_content:
+            prompt += f"\n\n--- (参考メモ) ---\n{notepad_content}\n--- (ここまで) ---"
+
+    # LangChainのメッセージ形式で組み立てる
+    messages = [SystemMessage(content=prompt)]
+
+    # 2. 履歴メッセージの追加
+    log_file, _, _, _, _ = get_character_files_paths(character_name)
+    raw_history = utils.load_chat_log(log_file, character_name)
+    limit = int(api_history_limit_option) if api_history_limit_option.isdigit() else 0
+    if limit > 0 and len(raw_history) > limit * 2:
+        raw_history = raw_history[-(limit * 2):]
+
+    for h_item in raw_history:
+        role, content = h_item.get('role'), h_item.get('content', '').strip()
+        if not content: continue
+        if role in ['model', 'assistant', character_name]:
+            messages.append(AIMessage(content=content))
+        elif role in ['user', 'human']:
+            messages.append(HumanMessage(content=content))
+
+    # 3. 現在のユーザー入力（テキスト＋画像）の追加
+    user_message_parts = []
+    for part in parts:
+        if isinstance(part, str):
+            user_message_parts.append({"type": "text", "text": part})
+        elif isinstance(part, Image.Image):
+            try:
+                buffered = io.BytesIO()
+                # RGBAやPモードの画像をRGBに変換してから保存
+                save_image = part.convert('RGB') if part.mode in ('RGBA', 'P') else part
+                save_image.save(buffered, format='PNG')
+                img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                user_message_parts.append({
+                    "type": "image_url",
+                    "image_url": { "url": f"data:image/png;base64,{img_base64}"}
+                })
+            except Exception as e:
+                print(f"トークン計算のための画像処理中にエラー: {e}")
+                # 画像処理に失敗した場合はスキップ
+                pass
+
+    if user_message_parts:
+        messages.append(HumanMessage(content=user_message_parts))
+
+    # 4. トークン計算
+    #    LangChainのメッセージリストをGoogle AI SDKの形式に変換し、トークンを数える
+    return count_tokens_from_lc_messages(messages, model_name, api_key)
