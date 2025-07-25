@@ -451,7 +451,7 @@ def update_send_scenery_state(checked: bool):
     return bool(checked)
 
 def get_location_list_for_ui(character_name: str) -> list:
-    """指定されたキャラクターのmemory.jsonから、UI表示用の場所リストを取得する。"""
+    """指定されたキャラクターのmemory.jsonから、UI表示用の場所リストを取得する。【改修版】"""
     if not character_name:
         return []
 
@@ -463,13 +463,14 @@ def get_location_list_for_ui(character_name: str) -> list:
 
     living_space = memory_data.get("living_space", {})
 
-    # (表示名, ID) のタプルのリストを作成
     location_list = []
     for location_id, details in living_space.items():
-        if isinstance(details, dict) and "name" in details:
-            location_list.append((details["name"], location_id))
-        else:
-            location_list.append((location_id, location_id)) # nameがない場合はIDをそのまま表示
+        # ★★★ ここが最重要修正点 ★★★
+        # 値が辞書形式である項目のみを場所として扱う
+        if isinstance(details, dict):
+            # "name"キーがあればそれを表示名に、なければIDを表示名にする
+            display_name = details.get("name", location_id)
+            location_list.append((display_name, location_id))
 
     return sorted(location_list, key=lambda x: x[0])
 
