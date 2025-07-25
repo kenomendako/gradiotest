@@ -103,7 +103,13 @@ if utils.acquire_lock():
                     gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
             # (イベントリスナーの前半部分は変更なし)
-            token_calc_inputs = [chat_input_textbox, file_upload_button, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, notepad_editor, use_common_prompt_state]
+            token_calc_inputs = [
+                chat_input_textbox, file_upload_button, current_character_name,
+                current_model_name, current_api_key_name_state, api_history_limit_state,
+                send_notepad_state, notepad_editor, use_common_prompt_state,
+                add_timestamp_checkbox,
+                send_thoughts_checkbox  # ★★★ この行を追加 ★★★
+            ]
             token_calc_outputs = token_count_display
             def setup_token_update_events():
                 chat_input_textbox.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs, show_progress=False)
@@ -111,14 +117,23 @@ if utils.acquire_lock():
                 file_upload_button.clear(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
                 notepad_editor.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs, show_progress=False)
             add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-            def initial_load(char_name_to_load, api_history_limit, current_send_notepad_state, use_common_prompt_state):
-                df_with_ids = ui_handlers.render_alarms_as_dataframe(); display_df = ui_handlers.get_display_df(df_with_ids)
-                (returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str, alarm_dd_char_val, timer_dd_char_val, current_notepad_content) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit)
-                initial_token_str = ui_handlers.update_token_count(None, None, returned_char_name, config_manager.initial_model_global, config_manager.initial_api_key_name_global, api_history_limit, current_send_notepad_state, current_notepad_content, use_common_prompt_state)
-                return (display_df, df_with_ids, current_chat_hist, current_profile_img, current_mem_str, alarm_dd_char_val, timer_dd_char_val, "アラームを選択してください", initial_token_str, current_notepad_content)
-
-            demo.load(fn=initial_load, inputs=[current_character_name, api_history_limit_state, send_notepad_state, use_common_prompt_state], outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor])
-
+            demo.load(
+                fn=ui_handlers.handle_initial_load,  # ★★★ 呼び出し先を新しい司令塔に変更 ★★★
+                inputs=[
+                    current_character_name,
+                    api_history_limit_state,
+                    send_notepad_state,
+                    use_common_prompt_state,
+                    add_timestamp_checkbox,
+                    send_thoughts_state
+                ],
+                outputs=[
+                    alarm_dataframe, alarm_dataframe_original_data, chatbot_display,
+                    profile_image_display, memory_json_editor, alarm_char_dropdown,
+                    timer_char_dropdown, selection_feedback_markdown,
+                    token_count_display, notepad_editor
+                ]
+            )
             alarm_dataframe.select(fn=ui_handlers.handle_alarm_selection_and_feedback, inputs=[alarm_dataframe_original_data], outputs=[selected_alarm_ids_state, selection_feedback_markdown], show_progress='hidden').then(fn=ui_handlers.load_alarm_to_form, inputs=[selected_alarm_ids_state], outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
             enable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
             disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
@@ -128,8 +143,25 @@ if utils.acquire_lock():
             timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
             model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
-            add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[])
-            send_thoughts_checkbox.change(fn=ui_handlers.update_send_thoughts_state, inputs=[send_thoughts_checkbox], outputs=[send_thoughts_state])
+            add_timestamp_checkbox.change(
+                fn=ui_handlers.update_timestamp_state,
+                inputs=[add_timestamp_checkbox],
+                outputs=[]
+            ).then(  # ★★★ この .then() 以下を追記 ★★★
+                fn=ui_handlers.update_token_count,
+                inputs=token_calc_inputs,
+                outputs=token_calc_outputs
+            )
+
+            send_thoughts_checkbox.change(
+                fn=ui_handlers.update_send_thoughts_state,
+                inputs=[send_thoughts_checkbox],
+                outputs=[send_thoughts_state]
+            ).then(  # ★★★ この .then() 以下を追記 ★★★
+                fn=ui_handlers.update_token_count,
+                inputs=token_calc_inputs,
+                outputs=token_calc_outputs
+            )
             send_notepad_checkbox.change(fn=ui_handlers.update_send_notepad_state, inputs=[send_notepad_checkbox], outputs=[send_notepad_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             use_common_prompt_checkbox.change(fn=ui_handlers.update_use_common_prompt_state, inputs=[use_common_prompt_checkbox], outputs=[use_common_prompt_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)

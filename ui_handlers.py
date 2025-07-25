@@ -243,8 +243,75 @@ def handle_core_memory_update_click(character_name: str, api_key_name: str):
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{character_name}」のコアメモリ更新をバックグラウンドで開始しました。"); threading.Thread(target=_run_core_memory_update, args=(character_name, api_key)).start()
-def update_token_count(textbox_content: Optional[str], file_input_list: Optional[List[Any]], current_character_name: str, current_model_name: str, current_api_key_name_state: str, api_history_limit_state: str, send_notepad_state: bool, notepad_editor_content: str, use_common_prompt_state: bool):
-    pass # 実装は省略
+def update_token_count(
+    textbox_content: Optional[str],
+    file_input_list: Optional[List[Any]],
+    current_character_name: str,
+    current_model_name: str,
+    current_api_key_name_state: str,
+    api_history_limit_state: str,
+    send_notepad_state: bool,
+    notepad_editor_content: str,
+    use_common_prompt_state: bool,
+    add_timestamp_state: bool,
+    send_thoughts_state: bool  # ★★★ この引数を追加 ★★★
+) -> str:
+    """入力全体のトークン数を計算し、UI表示用の文字列を返す【思考過程反映版】"""
+    import gemini_api
+    import filetype
+    import base64
+    import io
+    from PIL import Image
+
+    parts_for_api = []
+    if textbox_content:
+        parts_for_api.append(textbox_content.strip())
+
+    if file_input_list:
+        for file_obj in file_input_list:
+            filepath = file_obj.name
+            try:
+                kind = filetype.guess(filepath)
+                if kind is None:
+                    with open(filepath, 'r', encoding='utf-8') as f: text_content = f.read()
+                    parts_for_api.append(f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---")
+                    continue
+
+                mime_type = kind.mime
+                if mime_type.startswith("image/"):
+                    parts_for_api.append(Image.open(filepath))
+                elif mime_type.startswith("audio/") or mime_type.startswith("video/") or mime_type == "application/pdf":
+                    with open(filepath, "rb") as f: file_data = base64.b64encode(f.read()).decode("utf-8")
+                    parts_for_api.append({"type": "media", "mime_type": mime_type, "data": file_data})
+                else:
+                    with open(filepath, 'r', encoding='utf-8') as f: text_content = f.read()
+                    parts_for_api.append(f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---")
+            except Exception as e:
+                print(f"警告: トークン計算のためのファイル '{os.path.basename(filepath)}' 処理中にエラー: {e}")
+                pass
+
+    try:
+        token_count = gemini_api.count_input_tokens(
+            character_name=current_character_name,
+            model_name=current_model_name,
+            parts=parts_for_api,
+            api_history_limit_option=api_history_limit_state,
+            api_key_name=current_api_key_name_state,
+            send_notepad_to_api=send_notepad_state,
+            use_common_prompt=use_common_prompt_state,
+            add_timestamp=add_timestamp_state,
+            send_thoughts=send_thoughts_state  # ★★★ 新しい引数を渡す ★★★
+        )
+
+        if token_count == -1: return "入力トークン数: (APIキー/モデルエラー)"
+        api_key = config_manager.API_KEYS.get(current_api_key_name_state)
+        limit_info = gemini_api.get_model_token_limits(current_model_name, api_key)
+        if limit_info and 'input' in limit_info: return f"入力トークン数: {token_count} / {limit_info['input']}"
+        else: return f"入力トークン数: {token_count}"
+    except Exception as e:
+        print(f"トークン数計算中にUIハンドラでエラー: {e}")
+        traceback.print_exc()
+        return "入力トークン数: (例外発生)"
 def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str, str]]):
     default_button_text = "🗑️ 選択した発言を削除"
     if evt.value:
@@ -271,3 +338,46 @@ def handle_delete_selected_messages(character_name: str, selected_message: Dict[
         gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
     new_chat_history, _ = reload_chat_log(character_name, api_history_limit)
     return new_chat_history, None, gr.update(value=default_button_text)
+
+def handle_initial_load(
+    char_name_to_load: str,
+    api_history_limit: str,
+    send_notepad_state: bool,
+    use_common_prompt_state: bool,
+    add_timestamp_state: bool,
+    send_thoughts_state: bool
+):
+    """
+    アプリケーション起動時にUIの全要素を初期化するための司令塔関数。
+    """
+    # 1. アラームデータを準備する
+    df_with_ids = render_alarms_as_dataframe()
+    display_df = get_display_df(df_with_ids)
+
+    # 2. キャラクター依存のUI要素（チャット履歴、プロフィール画像など）を準備する
+    (returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str,
+     alarm_dd_char_val, timer_dd_char_val, current_notepad_content) = update_ui_on_character_change(char_name_to_load, api_history_limit)
+
+    # 3. 初期のトークン数を計算する
+    initial_token_str = update_token_count(
+        None, None, returned_char_name, config_manager.initial_model_global,
+        config_manager.initial_api_key_name_global, api_history_limit,
+        send_notepad_state, "", # notepad_editor_contentはここで空文字を渡す
+        use_common_prompt_state,
+        add_timestamp_state,
+        send_thoughts_state
+    )
+
+    # 4. Gradioに渡すための全10項目のデータを組み立てて返す
+    return (
+        display_df,
+        df_with_ids,
+        current_chat_hist,
+        current_profile_img,
+        current_mem_str,
+        alarm_dd_char_val,
+        timer_dd_char_val,
+        "アラームを選択してください",
+        initial_token_str,
+        current_notepad_content
+    )
