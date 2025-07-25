@@ -24,16 +24,25 @@ from memory_manager import load_memory_data_safe, save_memory_data
 
 # (handle_message_submission から handle_save_memory_click までは変更なし)
 def handle_message_submission(*args: Any):
+    # ★★★ 1. 引数のアンパックを最新の定義に合わせる ★★★
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state,
      send_notepad_state, use_common_prompt_state,
-     send_core_memory_state) = args # ★★★ 引数を追加 ★★★
+     send_core_memory_state) = args
+
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
-        token_count = update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
+        # ★★★ 2. 最初の呼び出しを修正 ★★★
+        token_count = update_token_count(
+            None, None, current_character_name, current_model_name,
+            current_api_key_name_state, api_history_limit_state,
+            send_notepad_state, "", use_common_prompt_state,
+            add_timestamp_checkbox, send_thoughts_state, send_core_memory_state
+        )
         yield chatbot_history, gr.update(), gr.update(), token_count
         return
+
     timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
     processed_user_message = user_prompt_from_textbox + timestamp
     if user_prompt_from_textbox:
@@ -51,23 +60,41 @@ def handle_message_submission(*args: Any):
             log_message_parts.append(f"[ファイル添付: {filepath}]")
     final_log_message = "\n\n".join(log_message_parts).strip()
     chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
-    token_count = update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
+
+    # ★★★ 3. 思考中の呼び出しを修正 ★★★
+    token_count = update_token_count(
+        textbox_content, file_input_list, current_character_name, current_model_name,
+        current_api_key_name_state, api_history_limit_state,
+        send_notepad_state, "", use_common_prompt_state,
+        add_timestamp_checkbox, send_thoughts_state, send_core_memory_state
+    )
     yield chatbot_history, gr.update(value=""), gr.update(value=None), token_count
+
     final_response_text = ""
     try:
-        args_list = list(args)
-        final_response_text = gemini_api.invoke_nexus_agent(*args_list)
+        # args_listの再構築は不要、*argsをそのまま渡す
+        final_response_text = gemini_api.invoke_nexus_agent(*args)
     except Exception as e:
-        traceback.print_exc(); final_response_text = f"[UIハンドラエラー: {e}]"
+        traceback.print_exc()
+        final_response_text = f"[UIハンドラエラー: {e}]"
+
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     if final_log_message:
         user_header = utils._get_user_header_from_log(log_f, current_character_name)
         utils.save_message_to_log(log_f, user_header, final_log_message)
         if final_response_text:
             utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
+
     chatbot_history.pop()
     chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(final_response_text)})
-    token_count = update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
+
+    # ★★★ 4. 最終的な呼び出しを修正 ★★★
+    token_count = update_token_count(
+        None, None, current_character_name, current_model_name,
+        current_api_key_name_state, api_history_limit_state,
+        send_notepad_state, "", use_common_prompt_state,
+        add_timestamp_checkbox, send_thoughts_state, send_core_memory_state
+    )
     yield chatbot_history, gr.update(), gr.update(value=None), token_count
 def handle_add_new_character(character_name: str):
     if not character_name or not character_name.strip():
@@ -252,13 +279,13 @@ def update_token_count(
     current_api_key_name_state: str,
     api_history_limit_state: str,
     send_notepad_state: bool,
-    notepad_editor_content: str,
+    # notepad_editor_content: str, # ★★★ 未使用のため削除 ★★★
     use_common_prompt_state: bool,
     add_timestamp_state: bool,
     send_thoughts_state: bool,
-    send_core_memory_state: bool # ★★★ 引数を追加 ★★★
+    send_core_memory_state: bool
 ) -> str:
-    """入力全体のトークン数を計算し、UI表示用の文字列を返す【思考過程反映版】"""
+    """入力全体のトークン数を計算し、UI表示用の文字列を返す【最終確定版】"""
     import gemini_api
     import filetype
     import base64
@@ -303,7 +330,7 @@ def update_token_count(
             use_common_prompt=use_common_prompt_state,
             add_timestamp=add_timestamp_state,
             send_thoughts=send_thoughts_state,
-            send_core_memory=send_core_memory_state # ★★★ 引数を渡す ★★★
+            send_core_memory=send_core_memory_state
         )
 
         if token_count == -1: return "入力トークン数: (APIキー/モデルエラー)"
