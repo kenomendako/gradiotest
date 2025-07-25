@@ -30,7 +30,7 @@ def handle_message_submission(*args: Any):
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state,
      send_notepad_state, use_common_prompt_state,
-     send_core_memory_state) = args
+     send_core_memory_state, send_scenery_state) = args
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
@@ -38,7 +38,8 @@ def handle_message_submission(*args: Any):
             None, None, current_character_name, current_model_name,
             current_api_key_name_state, api_history_limit_state,
             send_notepad_state, use_common_prompt_state,
-            add_timestamp_checkbox, send_thoughts_state, send_core_memory_state
+            add_timestamp_checkbox, send_thoughts_state, send_core_memory_state,
+            send_scenery_state
         )
         yield chatbot_history, gr.update(), gr.update(), token_count
         return
@@ -67,7 +68,8 @@ def handle_message_submission(*args: Any):
         textbox_content, file_input_list, current_character_name, current_model_name,
         current_api_key_name_state, api_history_limit_state,
         send_notepad_state, use_common_prompt_state,
-        add_timestamp_checkbox, send_thoughts_state, send_core_memory_state
+        add_timestamp_checkbox, send_thoughts_state, send_core_memory_state,
+        send_scenery_state
     )
     yield chatbot_history, gr.update(value=""), gr.update(value=None), token_count
 
@@ -92,7 +94,8 @@ def handle_message_submission(*args: Any):
         None, None, current_character_name, current_model_name,
         current_api_key_name_state, api_history_limit_state,
         send_notepad_state, use_common_prompt_state,
-        add_timestamp_checkbox, send_thoughts_state, send_core_memory_state
+        add_timestamp_checkbox, send_thoughts_state, send_core_memory_state,
+        send_scenery_state
     )
     yield chatbot_history, gr.update(), gr.update(value=None), token_count
 
@@ -347,7 +350,8 @@ def update_token_count(
     use_common_prompt_state: bool,
     add_timestamp_state: bool,
     send_thoughts_state: bool,
-    send_core_memory_state: bool
+    send_core_memory_state: bool,
+    send_scenery_state: bool
 ) -> str:
     """入力全体のトークン数を計算し、UI表示用の文字列を返す【最終確定版】"""
     parts_for_api = []
@@ -380,7 +384,8 @@ def update_token_count(
             parts=parts_for_api, api_history_limit_option=api_history_limit_state,
             api_key_name=current_api_key_name_state, send_notepad_to_api=send_notepad_state,
             use_common_prompt=use_common_prompt_state, add_timestamp=add_timestamp_state,
-            send_thoughts=send_thoughts_state, send_core_memory=send_core_memory_state
+            send_thoughts=send_thoughts_state, send_core_memory=send_core_memory_state,
+            send_scenery=send_scenery_state
         )
         if token_count == -1: return "入力トークン数: (APIキー/モデルエラー)"
         api_key = config_manager.API_KEYS.get(current_api_key_name_state)
@@ -423,7 +428,7 @@ def update_send_core_memory_state(checked: bool): return bool(checked)
 def handle_initial_load(
     char_name_to_load: str, api_history_limit: str, send_notepad_state: bool,
     use_common_prompt_state: bool, add_timestamp_state: bool,
-    send_thoughts_state: bool, send_core_memory_state: bool
+    send_thoughts_state: bool, send_core_memory_state: bool, send_scenery_state: bool
 ):
     df_with_ids = render_alarms_as_dataframe()
     display_df = get_display_df(df_with_ids)
@@ -433,10 +438,53 @@ def handle_initial_load(
         None, None, returned_char_name, config_manager.initial_model_global,
         config_manager.initial_api_key_name_global, api_history_limit,
         send_notepad_state, use_common_prompt_state,
-        add_timestamp_state, send_thoughts_state, send_core_memory_state
+        add_timestamp_state, send_thoughts_state, send_core_memory_state,
+        send_scenery_state
     )
     return (
         display_df, df_with_ids, current_chat_hist, current_profile_img,
         current_mem_str, alarm_dd_char_val, timer_dd_char_val,
         "アラームを選択してください", initial_token_str, current_notepad_content
     )
+
+def update_send_scenery_state(checked: bool):
+    return bool(checked)
+
+def get_location_list_for_ui(character_name: str) -> list:
+    """指定されたキャラクターのmemory.jsonから、UI表示用の場所リストを取得する。"""
+    if not character_name:
+        return []
+
+    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
+    memory_data = load_memory_data_safe(memory_json_path)
+
+    if "error" in memory_data or "living_space" not in memory_data:
+        return []
+
+    living_space = memory_data.get("living_space", {})
+
+    # (表示名, ID) のタプルのリストを作成
+    location_list = []
+    for location_id, details in living_space.items():
+        if isinstance(details, dict) and "name" in details:
+            location_list.append((details["name"], location_id))
+        else:
+            location_list.append((location_id, location_id)) # nameがない場合はIDをそのまま表示
+
+    return sorted(location_list, key=lambda x: x[0])
+
+
+def handle_location_change(character_name: str, location_id: str) -> None:
+    """UIからの場所変更リクエストを処理する。"""
+    from tools.space_tools import set_current_location
+
+    if not character_name or not location_id:
+        gr.Warning("キャラクターと場所を選択してください。")
+        return
+
+    result = set_current_location.func(location=location_id, character_name=character_name)
+
+    if "Success" in result:
+        gr.Info(f"場所を「{location_id}」に変更しました。")
+    else:
+        gr.Error(f"場所の変更に失敗しました: {result}")

@@ -38,6 +38,7 @@ class AgentState(TypedDict):
     model_name: str
     system_prompt: SystemMessage
     send_core_memory: bool
+    send_scenery: bool
 
 # --- 4. 正しいモデル初期化関数の定義 ---
 def get_configured_llm(model_name: str, api_key: str):
@@ -45,6 +46,28 @@ def get_configured_llm(model_name: str, api_key: str):
 
 # --- 5. ★★★ あなたの修正と新機能を統合した、最終版ノード ★★★ ---
 def context_generator_node(state: AgentState):
+    if not state.get("send_scenery", True):
+        char_prompt_path = os.path.join("characters", state['character_name'], "SystemPrompt.txt")
+        core_memory_path = os.path.join("characters", state['character_name'], "core_memory.txt")
+        character_prompt = ""
+        if os.path.exists(char_prompt_path):
+            with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
+        core_memory = ""
+        if state.get("send_core_memory", True):
+            if os.path.exists(core_memory_path):
+                with open(core_memory_path, 'r', encoding='utf-8') as f:
+                    core_memory = f.read().strip()
+        tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
+        class SafeDict(dict):
+            def __missing__(self, key): return f'{{{key}}}'
+        prompt_vars = {
+            'character_name': state['character_name'], 'character_prompt': character_prompt,
+            'core_memory': core_memory, 'space_definition': "（空間描写OFF）", 'tools_list': tools_list_str
+        }
+        formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+        final_system_prompt_text = (f"{formatted_core_prompt}\n---\n【現在の情景】\n（空間描写OFF）\n---")
+        return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
+
     print("--- コンテキスト生成ノード (context_generator_node) 実行 ---")
     character_name = state['character_name']
     api_key = state['api_key']

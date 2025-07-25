@@ -51,12 +51,16 @@ if utils.acquire_lock():
             send_notepad_state = gr.State(True)
             use_common_prompt_state = gr.State(True)
             send_core_memory_state = gr.State(True)
+            send_scenery_state = gr.State(True) # ★★★ この行を追加 ★★★
             selected_message_state = gr.State(None)
 
             with gr.Row():
                 with gr.Column(scale=1, min_width=300):
                     profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                     gr.Markdown("### キャラクター"); character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
+                    with gr.Row(equal_height=True):
+                        location_dropdown = gr.Dropdown(label="現在地を変更", interactive=True, scale=3)
+                        change_location_button = gr.Button("移動", scale=1)
                     with gr.Row(): new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3); add_character_button = gr.Button("迎える", variant="secondary", scale=1)
                     with gr.Accordion("⚙️ 基本設定", open=False):
                         model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
@@ -67,6 +71,7 @@ if utils.acquire_lock():
                         send_notepad_checkbox = gr.Checkbox(value=True, label="メモ帳の内容をAPIに送信", interactive=True)
                         use_common_prompt_checkbox = gr.Checkbox(value=True, label="共通ツールプロンプトを注入", interactive=True)
                         send_core_memory_checkbox = gr.Checkbox(value=True, label="コアメモリをAPIに送信", interactive=True)
+                        send_scenery_checkbox = gr.Checkbox(value=True, label="空間描写・設定をAPIに送信", interactive=True) # ★★★ この行を追加 ★★★
                     with gr.Accordion("📗 記憶とログの編集", open=False):
                         with gr.Tabs():
                             with gr.TabItem("記憶 (memory.json)"):
@@ -106,7 +111,8 @@ if utils.acquire_lock():
                 chat_input_textbox, file_upload_button, current_character_name,
                 current_model_name, current_api_key_name_state, api_history_limit_state,
                 send_notepad_state, use_common_prompt_state,
-                add_timestamp_checkbox, send_thoughts_checkbox, send_core_memory_state
+                add_timestamp_checkbox, send_thoughts_checkbox, send_core_memory_state,
+                send_scenery_state
             ]
             token_calc_outputs = token_count_display
 
@@ -114,7 +120,8 @@ if utils.acquire_lock():
                 chat_input_textbox, chatbot_display, current_character_name, current_model_name,
                 current_api_key_name_state, file_upload_button, add_timestamp_checkbox,
                 send_thoughts_state, api_history_limit_state,
-                send_notepad_state, use_common_prompt_state, send_core_memory_state
+                send_notepad_state, use_common_prompt_state, send_core_memory_state,
+                send_scenery_state
             ]
 
             def setup_token_update_events():
@@ -129,7 +136,11 @@ if utils.acquire_lock():
             disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
             delete_alarm_button.click(fn=ui_handlers.handle_delete_selected_alarms, inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda id_df: ui_handlers.get_display_df(id_df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe]).then(fn=lambda: ([], "アラームを選択してください"), outputs=[selected_alarm_ids_state, selection_feedback_markdown])
             alarm_add_button.click(fn=ui_handlers.handle_add_or_update_alarm, inputs=[editing_alarm_id_state, alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup], outputs=[alarm_dataframe, alarm_dataframe_original_data, alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
-            character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor]).then(fn=lambda: (ui_handlers.get_display_df(ui_handlers.render_alarms_as_dataframe()), ui_handlers.render_alarms_as_dataframe()), outputs=[alarm_dataframe, alarm_dataframe_original_data]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
+            character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor]).then(fn=lambda: (ui_handlers.get_display_df(ui_handlers.render_alarms_as_dataframe()), ui_handlers.render_alarms_as_dataframe()), outputs=[alarm_dataframe, alarm_dataframe_original_data]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs).then(
+                fn=ui_handlers.get_location_list_for_ui,
+                inputs=[current_character_name],
+                outputs=[location_dropdown]
+            )
             timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
             model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
@@ -138,6 +149,15 @@ if utils.acquire_lock():
             send_notepad_checkbox.change(fn=ui_handlers.update_send_notepad_state, inputs=[send_notepad_checkbox], outputs=[send_notepad_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             use_common_prompt_checkbox.change(fn=ui_handlers.update_use_common_prompt_state, inputs=[use_common_prompt_checkbox], outputs=[use_common_prompt_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             send_core_memory_checkbox.change(fn=ui_handlers.update_send_core_memory_state, inputs=[send_core_memory_checkbox], outputs=[send_core_memory_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
+            send_scenery_checkbox.change(
+                fn=ui_handlers.update_send_scenery_state,
+                inputs=[send_scenery_checkbox],
+                outputs=[send_scenery_state]
+            ).then(
+                fn=ui_handlers.update_token_count,
+                inputs=token_calc_inputs,
+                outputs=token_calc_outputs
+            )
             api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             memory_json_editor.change(fn=lambda: gr.update(variant="primary"), inputs=None, outputs=[save_memory_button])
             save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
@@ -162,6 +182,11 @@ if utils.acquire_lock():
 
             rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
             core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
+            change_location_button.click(
+                fn=ui_handlers.handle_location_change,
+                inputs=[current_character_name, location_dropdown],
+                outputs=[]
+            )
             chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[chatbot_display], outputs=[selected_message_state, delete_selected_button], show_progress=False)
             delete_selected_button.click(fn=ui_handlers.handle_delete_selected_messages, inputs=[current_character_name, selected_message_state, api_history_limit_state], outputs=[chatbot_display, selected_message_state, delete_selected_button])
             demo.load(
@@ -169,7 +194,7 @@ if utils.acquire_lock():
                 inputs=[
                     current_character_name, api_history_limit_state, send_notepad_state,
                     use_common_prompt_state, add_timestamp_checkbox,
-                    send_thoughts_state, send_core_memory_state
+                    send_thoughts_state, send_core_memory_state, send_scenery_state
                 ],
                 outputs=[
                     alarm_dataframe, alarm_dataframe_original_data, chatbot_display,
@@ -177,6 +202,10 @@ if utils.acquire_lock():
                     timer_char_dropdown, selection_feedback_markdown,
                     token_count_display, notepad_editor
                 ]
+            ).then(
+                fn=ui_handlers.get_location_list_for_ui,
+                inputs=[current_character_name],
+                outputs=[location_dropdown]
             )
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 

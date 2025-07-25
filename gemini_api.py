@@ -127,7 +127,7 @@ def invoke_nexus_agent(*args: Any) -> str:
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state,
      send_notepad_state, use_common_prompt_state,
-     send_core_memory_state) = args # ★★★ 引数を追加 ★★★
+     send_core_memory_state, send_scenery_state) = args
 
     api_key = config_manager.API_KEYS.get(current_api_key_name_state)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -192,7 +192,8 @@ def invoke_nexus_agent(*args: Any) -> str:
         "api_key": api_key,
         "tavily_api_key": config_manager.TAVILY_API_KEY,
         "model_name": current_model_name,
-        "send_core_memory": send_core_memory_state # ★★★ このキーと値を追加 ★★★
+        "send_core_memory": send_core_memory_state,
+        "send_scenery": send_scenery_state
     }
     try:
         final_state = app.invoke(initial_state)
@@ -208,7 +209,8 @@ def count_input_tokens(
     send_notepad_to_api: bool, use_common_prompt: bool,
     add_timestamp: bool,
     send_thoughts: bool,
-    send_core_memory: bool # ★★★ 引数を追加 ★★★
+    send_core_memory: bool,
+    send_scenery: bool
 ) -> int:
     """
     入力全体のトークン数を計算する【思考過程反映・最終版】。
