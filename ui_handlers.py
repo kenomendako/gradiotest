@@ -1,4 +1,4 @@
-# ui_handlers.py の内容を、以下のコードで完全に置き換えてください
+# ui_handlers.py をこのコードで完全に置き換えてください
 
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Union
@@ -10,6 +10,9 @@ import os
 import re
 from PIL import Image
 import threading
+import filetype
+import base64
+import io
 
 # --- Nexus Ark モジュールのインポート ---
 import gemini_api
@@ -23,7 +26,6 @@ from character_manager import get_character_files_paths
 from memory_manager import load_memory_data_safe, save_memory_data
 
 def handle_message_submission(*args: Any):
-    # ★★★ 1. 引数のアンパックを最新の定義に合わせる ★★★
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state,
@@ -32,7 +34,6 @@ def handle_message_submission(*args: Any):
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
-        # ★★★ 2. 最初の呼び出しを修正 ★★★
         token_count = update_token_count(
             None, None, current_character_name, current_model_name,
             current_api_key_name_state, api_history_limit_state,
@@ -46,6 +47,7 @@ def handle_message_submission(*args: Any):
     processed_user_message = user_prompt_from_textbox + timestamp
     if user_prompt_from_textbox:
         chatbot_history.append({"role": "user", "content": processed_user_message})
+
     log_message_parts = []
     if user_prompt_from_textbox:
          log_message_parts.append(processed_user_message)
@@ -57,10 +59,10 @@ def handle_message_submission(*args: Any):
             md_string = f"[{filename}](/file={safe_filepath})"
             chatbot_history.append({"role": "user", "content": md_string})
             log_message_parts.append(f"[ファイル添付: {filepath}]")
+
     final_log_message = "\n\n".join(log_message_parts).strip()
     chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
 
-    # ★★★ 3. 思考中の呼び出しを修正 ★★★
     token_count = update_token_count(
         textbox_content, file_input_list, current_character_name, current_model_name,
         current_api_key_name_state, api_history_limit_state,
@@ -71,7 +73,6 @@ def handle_message_submission(*args: Any):
 
     final_response_text = ""
     try:
-        # argsをそのまま渡す
         final_response_text = gemini_api.invoke_nexus_agent(*args)
     except Exception as e:
         traceback.print_exc()
@@ -87,7 +88,6 @@ def handle_message_submission(*args: Any):
     chatbot_history.pop()
     chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(final_response_text)})
 
-    # ★★★ 4. 最終的な呼び出しを修正 ★★★
     token_count = update_token_count(
         None, None, current_character_name, current_model_name,
         current_api_key_name_state, api_history_limit_state,
@@ -96,28 +96,38 @@ def handle_message_submission(*args: Any):
     )
     yield chatbot_history, gr.update(), gr.update(value=None), token_count
 
+
 def handle_add_new_character(character_name: str):
     if not character_name or not character_name.strip():
-        gr.Warning("キャラクター名が入力されていません。"); char_list = character_manager.get_character_list()
+        gr.Warning("キャラクター名が入力されていません。")
+        char_list = character_manager.get_character_list()
         return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value="")
     safe_name = re.sub(r'[\\/*?:"<>|]', "", character_name).strip()
     if not safe_name:
-        gr.Warning("無効なキャラクター名です。"); char_list = character_manager.get_character_list()
+        gr.Warning("無効なキャラクター名です。")
+        char_list = character_manager.get_character_list()
         return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value="")
     if character_manager.ensure_character_files(safe_name):
-        gr.Info(f"新しいキャラクター「{safe_name}」さんを迎えました！"); new_char_list = character_manager.get_character_list()
+        gr.Info(f"新しいキャラクター「{safe_name}」さんを迎えました！")
+        new_char_list = character_manager.get_character_list()
         return gr.update(choices=new_char_list, value=safe_name), gr.update(choices=new_char_list, value=safe_name), gr.update(choices=new_char_list, value=safe_name), gr.update(value="")
     else:
-        gr.Error(f"キャラクター「{safe_name}」の準備に失敗しました。"); char_list = character_manager.get_character_list()
+        gr.Error(f"キャラクター「{safe_name}」の準備に失敗しました。")
+        char_list = character_manager.get_character_list()
         return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value=character_name)
+
 
 def _get_display_history_count(api_history_limit_value: str) -> int:
     return int(api_history_limit_value) if api_history_limit_value.isdigit() else config_manager.UI_HISTORY_MAX_LIMIT
 
+
 def update_ui_on_character_change(character_name: Optional[str], api_history_limit_value: str):
     if not character_name:
-        all_chars = character_manager.get_character_list(); character_name = all_chars[0] if all_chars else "Default"
-        if not os.path.exists(os.path.join(config_manager.CHARACTERS_DIR, character_name)): character_manager.ensure_character_files(character_name)
+        all_chars = character_manager.get_character_list()
+        character_name = all_chars[0] if all_chars else "Default"
+        if not os.path.exists(os.path.join(config_manager.CHARACTERS_DIR, character_name)):
+            character_manager.ensure_character_files(character_name)
+
     config_manager.save_config("last_character", character_name)
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
     display_turns = _get_display_history_count(api_history_limit_value)
@@ -127,15 +137,23 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     notepad_content = load_notepad_content(character_name)
     return character_name, chat_history, "", profile_image, memory_str, character_name, character_name, notepad_content
 
+
 def handle_save_memory_click(character_name, json_string_data):
-    if not character_name: gr.Warning("キャラクターが選択されていません。"); return gr.update()
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return gr.update()
     try:
-        update_action = save_memory_data(character_name, json_string_data); gr.Info("記憶を保存しました。"); return update_action
-    except json.JSONDecodeError: gr.Error("記憶データのJSON形式が正しくありません。"); return gr.update()
-    except Exception as e: gr.Error(f"記憶の保存中にエラーが発生しました: {e}"); return gr.update()
+        update_action = save_memory_data(character_name, json_string_data)
+        gr.Info("記憶を保存しました。")
+        return update_action
+    except json.JSONDecodeError:
+        gr.Error("記憶データのJSON形式が正しくありません。")
+        return gr.update()
+    except Exception as e:
+        gr.Error(f"記憶の保存中にエラーが発生しました: {e}")
+        return gr.update()
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
-
 def render_alarms_as_dataframe():
     alarms = sorted(alarm_manager.load_alarms(), key=lambda x: x.get("time", ""))
     display_data = []
@@ -146,18 +164,12 @@ def render_alarms_as_dataframe():
         if date_str:
             try:
                 date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
-                if date_obj == datetime.date.today():
-                    schedule_display = "今日"
-                elif date_obj == datetime.date.today() + datetime.timedelta(days=1):
-                    schedule_display = "明日"
-                else:
-                    schedule_display = date_obj.strftime("%m/%d")
-            except (ValueError, TypeError):
-                schedule_display = "日付不定"
-        elif days_list:
-            schedule_display = ",".join([DAY_MAP_EN_TO_JA.get(d.lower(), d.upper()) for d in days_list])
-        else:
-            schedule_display = "単発"
+                if date_obj == datetime.date.today(): schedule_display = "今日"
+                elif date_obj == datetime.date.today() + datetime.timedelta(days=1): schedule_display = "明日"
+                else: schedule_display = date_obj.strftime("%m/%d")
+            except (ValueError, TypeError): schedule_display = "日付不定"
+        elif days_list: schedule_display = ",".join([DAY_MAP_EN_TO_JA.get(d.lower(), d.upper()) for d in days_list])
+        else: schedule_display = "単発"
         display_data.append({
             "ID": a.get("id"), "状態": a.get("enabled", False), "時刻": a.get("time"),
             "予定": schedule_display, "キャラ": a.get("character"), "内容": theme_content
@@ -182,7 +194,7 @@ def handle_alarm_selection_and_feedback(evt: gr.SelectData, df_with_id: pd.DataF
 
 def toggle_selected_alarms_status(selected_ids: list, target_status: bool):
     if not selected_ids: gr.Warning("状態を変更するアラームが選択されていません。")
-    # ... (rest of the function)
+    return render_alarms_as_dataframe()
 
 def handle_delete_selected_alarms(selected_ids: list):
     if not selected_ids: gr.Warning("削除するアラームが選択されていません。")
@@ -193,19 +205,26 @@ def handle_delete_selected_alarms(selected_ids: list):
 def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_theme, brk_theme, api_key, normal_theme):
     if not char or not api_key: return "エラー：キャラクターとAPIキーを選択してください。"
     try:
-        timer = UnifiedTimer(
-            timer_type, float(duration or 0), float(work or 0), float(brk or 0),
-            int(cycles or 0), char, work_theme, brk_theme, api_key, normal_theme
-        )
+        timer = UnifiedTimer(timer_type, float(duration or 0), float(work or 0), float(brk or 0), int(cycles or 0), char, work_theme, brk_theme, api_key, normal_theme)
         timer.start()
         gr.Info(f"{timer_type}を開始しました。")
         return f"{timer_type}を開始しました。"
     except Exception as e: return f"タイマー開始エラー: {e}"
 
-def update_model_state(model): config_manager.save_config("last_model", model); return model
-def update_api_key_state(api_key_name): config_manager.save_config("last_api_key_name", api_key_name); gr.Info(f"APIキーを '{api_key_name}' に設定しました。"); return api_key_name
+def update_model_state(model):
+    config_manager.save_config("last_model", model)
+    return model
+
+def update_api_key_state(api_key_name):
+    config_manager.save_config("last_api_key_name", api_key_name)
+    gr.Info(f"APIキーを '{api_key_name}' に設定しました。")
+    return api_key_name
+
 def update_timestamp_state(checked): config_manager.save_config("add_timestamp", bool(checked))
-def update_send_thoughts_state(checked): config_manager.save_config("last_send_thoughts_to_api", bool(checked)); return bool(checked)
+
+def update_send_thoughts_state(checked):
+    config_manager.save_config("last_send_thoughts_to_api", bool(checked))
+    return bool(checked)
 
 def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
     key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
@@ -225,20 +244,26 @@ def load_alarm_to_form(selected_ids: list):
     default_char = character_manager.get_character_list()[0] if character_manager.get_character_list() else "Default"
     if not selected_ids or len(selected_ids) != 1: return "アラーム追加", "", "", default_char, list(DAY_MAP_EN_TO_JA.values()), "08", "00", None
     alarm = alarm_manager.get_alarm_by_id(selected_ids[0])
-    if not alarm: gr.Warning(f"アラームID '{selected_ids[0]}' が見つかりません。"); return "アラーム追加", "", "", default_char, list(DAY_MAP_EN_TO_JA.values()), "08", "00", None
+    if not alarm:
+        gr.Warning(f"アラームID '{selected_ids[0]}' が見つかりません。")
+        return "アラーム追加", "", "", default_char, list(DAY_MAP_EN_TO_JA.values()), "08", "00", None
     h, m = alarm.get("time", "08:00").split(":")
     days_ja = [DAY_MAP_EN_TO_JA.get(d.lower(), d.upper()) for d in alarm.get("days", [])]
     theme_content = alarm.get("alarm_message") or alarm.get("context_memo") or alarm.get("theme", "")
     return f"アラーム更新", theme_content, "", alarm.get("character", default_char), days_ja, h, m, selected_ids[0]
 
-def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days):
-    pass
+def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days): pass
 
 def handle_rag_update_button_click(character_name: str, api_key_name: str):
-    if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
+    if not character_name or not api_key_name:
+        gr.Warning("キャラクターとAPIキーを選択してください。")
+        return
     api_key = config_manager.API_KEYS.get(api_key_name)
-    if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
-    gr.Info(f"「{character_name}」のRAG索引の更新を開始します..."); threading.Thread(target=lambda: rag_manager.create_or_update_index(character_name, api_key)).start()
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。")
+        return
+    gr.Info(f"「{character_name}」のRAG索引の更新を開始します...")
+    threading.Thread(target=lambda: rag_manager.create_or_update_index(character_name, api_key)).start()
 
 def update_send_notepad_state(checked: bool): return checked
 def update_use_common_prompt_state(checked: bool): return checked
@@ -251,39 +276,65 @@ def load_notepad_content(character_name: str) -> str:
     return ""
 
 def handle_save_notepad_click(character_name: str, content: str) -> str:
-    if not character_name: gr.Warning("キャラクターが選択されていません。"); return content
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return content
     _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
-    if not notepad_path: gr.Error(f"「{character_name}」のメモ帳パス取得失敗。"); return content
+    if not notepad_path:
+        gr.Error(f"「{character_name}」のメモ帳パス取得失敗。")
+        return content
     lines = [f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}] {line.strip()}" if not re.match(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]", line.strip()) else line.strip() for line in content.strip().split('\n') if line.strip()]
     final_content = "\n".join(lines)
     try:
-        with open(notepad_path, "w", encoding="utf-8") as f: f.write(final_content + ('\n' if final_content else '')); gr.Info(f"「{character_name}」のメモ帳を保存しました。"); return final_content
-    except Exception as e: gr.Error(f"メモ帳の保存エラー: {e}"); return content
+        with open(notepad_path, "w", encoding="utf-8") as f: f.write(final_content + ('\n' if final_content else ''))
+        gr.Info(f"「{character_name}」のメモ帳を保存しました。")
+        return final_content
+    except Exception as e:
+        gr.Error(f"メモ帳の保存エラー: {e}")
+        return content
 
 def handle_clear_notepad_click(character_name: str) -> str:
-    if not character_name: gr.Warning("キャラクターが選択されていません。"); return ""
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return ""
     _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
-    if not notepad_path: gr.Error(f"「{character_name}」のメモ帳パス取得失敗。"); return ""
+    if not notepad_path:
+        gr.Error(f"「{character_name}」のメモ帳パス取得失敗。")
+        return ""
     try:
-        with open(notepad_path, "w", encoding="utf-8") as f: f.write(""); gr.Info(f"「{character_name}」のメモ帳を空にしました。"); return ""
-    except Exception as e: gr.Error(f"メモ帳クリアエラー: {e}"); return f"エラー: {e}"
+        with open(notepad_path, "w", encoding="utf-8") as f: f.write("")
+        gr.Info(f"「{character_name}」のメモ帳を空にしました。")
+        return ""
+    except Exception as e:
+        gr.Error(f"メモ帳クリアエラー: {e}")
+        return f"エラー: {e}"
 
 def handle_reload_notepad(character_name: str) -> str:
-    if not character_name: gr.Warning("キャラクターが選択されていません。"); return ""
-    content = load_notepad_content(character_name); gr.Info(f"「{character_name}」のメモ帳を再読み込みしました。"); return content
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return ""
+    content = load_notepad_content(character_name)
+    gr.Info(f"「{character_name}」のメモ帳を再読み込みしました。")
+    return content
 
 def _run_core_memory_update(character_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
     try:
         result = memory_tools.summarize_and_save_core_memory.func(character_name=character_name, api_key=api_key)
         print(f"--- [スレッド終了] コアメモリ更新処理完了 --- 結果: {result}")
-    except Exception as e: print(f"--- [スレッドエラー] コアメモリ更新中に予期せぬエラー ---")
+    except Exception as e:
+        print(f"--- [スレッドエラー] コアメモリ更新中に予期せぬエラー ---")
 
 def handle_core_memory_update_click(character_name: str, api_key_name: str):
-    if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
+    if not character_name or not api_key_name:
+        gr.Warning("キャラクターとAPIキーを選択してください。")
+        return
     api_key = config_manager.API_KEYS.get(api_key_name)
-    if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
-    gr.Info(f"「{character_name}」のコアメモリ更新をバックグラウンドで開始しました。"); threading.Thread(target=_run_core_memory_update, args=(character_name, api_key)).start()
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。")
+        return
+    gr.Info(f"「{character_name}」のコアメモリ更新をバックグラウンドで開始しました。")
+    threading.Thread(target=_run_core_memory_update, args=(character_name, api_key)).start()
 
 def update_token_count(
     textbox_content: Optional[str],
@@ -299,17 +350,9 @@ def update_token_count(
     send_core_memory_state: bool
 ) -> str:
     """入力全体のトークン数を計算し、UI表示用の文字列を返す【最終確定版】"""
-    # (関数の中身は変更なし)
-    import gemini_api
-    import filetype
-    import base64
-    import io
-    from PIL import Image
-
     parts_for_api = []
     if textbox_content:
         parts_for_api.append(textbox_content.strip())
-
     if file_input_list:
         for file_obj in file_input_list:
             filepath = file_obj.name
@@ -319,7 +362,6 @@ def update_token_count(
                     with open(filepath, 'r', encoding='utf-8') as f: text_content = f.read()
                     parts_for_api.append(f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---")
                     continue
-
                 mime_type = kind.mime
                 if mime_type.startswith("image/"):
                     parts_for_api.append(Image.open(filepath))
@@ -332,21 +374,14 @@ def update_token_count(
             except Exception as e:
                 print(f"警告: トークン計算のためのファイル '{os.path.basename(filepath)}' 処理中にエラー: {e}")
                 pass
-
     try:
         token_count = gemini_api.count_input_tokens(
-            character_name=current_character_name,
-            model_name=current_model_name,
-            parts=parts_for_api,
-            api_history_limit_option=api_history_limit_state,
-            api_key_name=current_api_key_name_state,
-            send_notepad_to_api=send_notepad_state,
-            use_common_prompt=use_common_prompt_state,
-            add_timestamp=add_timestamp_state,
-            send_thoughts=send_thoughts_state,
-            send_core_memory=send_core_memory_state
+            character_name=current_character_name, model_name=current_model_name,
+            parts=parts_for_api, api_history_limit_option=api_history_limit_state,
+            api_key_name=current_api_key_name_state, send_notepad_to_api=send_notepad_state,
+            use_common_prompt=use_common_prompt_state, add_timestamp=add_timestamp_state,
+            send_thoughts=send_thoughts_state, send_core_memory=send_core_memory_state
         )
-
         if token_count == -1: return "入力トークン数: (APIキー/モデルエラー)"
         api_key = config_manager.API_KEYS.get(current_api_key_name_state)
         limit_info = gemini_api.get_model_token_limits(current_model_name, api_key)
@@ -373,66 +408,35 @@ def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str,
 def handle_delete_selected_messages(character_name: str, selected_message: Dict[str, str], api_history_limit: str):
     default_button_text = "🗑️ 選択した発言を削除"
     if not character_name or not selected_message:
-        gr.Warning("キャラクターが選択されていないか、削除する発言が選択されていません。");
+        gr.Warning("キャラクターが選択されていないか、削除する発言が選択されていません。")
         new_chat_history, _ = reload_chat_log(character_name, api_history_limit)
         return new_chat_history, None, gr.update(value=default_button_text)
     log_f, _, _, _, _ = get_character_files_paths(character_name)
     success = utils.delete_message_from_log(log_f, selected_message)
-    if success:
-        gr.Info("選択された発言をログから削除しました。")
-    else:
-        gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
+    if success: gr.Info("選択された発言をログから削除しました。")
+    else: gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
     new_chat_history, _ = reload_chat_log(character_name, api_history_limit)
     return new_chat_history, None, gr.update(value=default_button_text)
 
+def update_send_core_memory_state(checked: bool): return bool(checked)
+
 def handle_initial_load(
-    char_name_to_load: str,
-    api_history_limit: str,
-    send_notepad_state: bool,
-    use_common_prompt_state: bool,
-    add_timestamp_state: bool,
-    send_thoughts_state: bool,
-    send_core_memory_state: bool # ★★★ 引数を追加 ★★★
+    char_name_to_load: str, api_history_limit: str, send_notepad_state: bool,
+    use_common_prompt_state: bool, add_timestamp_state: bool,
+    send_thoughts_state: bool, send_core_memory_state: bool
 ):
-    """
-    アプリケーション起動時にUIの全要素を初期化するための司令塔関数。
-    """
-    # 1. アラームデータを準備する
     df_with_ids = render_alarms_as_dataframe()
     display_df = get_display_df(df_with_ids)
-
-    # 2. キャラクター依存のUI要素（チャット履歴、プロフィール画像など）を準備する
     (returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str,
      alarm_dd_char_val, timer_dd_char_val, current_notepad_content) = update_ui_on_character_change(char_name_to_load, api_history_limit)
-
-    # 3. 初期のトークン数を計算する
     initial_token_str = update_token_count(
         None, None, returned_char_name, config_manager.initial_model_global,
         config_manager.initial_api_key_name_global, api_history_limit,
-        send_notepad_state, # "" を削除
-        use_common_prompt_state,
-        add_timestamp_state,
-        send_thoughts_state,
-        send_core_memory_state # ★★★ 引数を渡す ★★★
+        send_notepad_state, use_common_prompt_state,
+        add_timestamp_state, send_thoughts_state, send_core_memory_state
     )
-
-    # 4. Gradioに渡すための全10項目のデータを組み立てて返す
     return (
-        display_df,
-        df_with_ids,
-        current_chat_hist,
-        current_profile_img,
-        current_mem_str,
-        alarm_dd_char_val,
-        timer_dd_char_val,
-        "アラームを選択してください",
-        initial_token_str,
-        current_notepad_content
+        display_df, df_with_ids, current_chat_hist, current_profile_img,
+        current_mem_str, alarm_dd_char_val, timer_dd_char_val,
+        "アラームを選択してください", initial_token_str, current_notepad_content
     )
-
-def update_send_core_memory_state(checked: bool):
-    # 現状、configへの保存は不要だが、将来のために枠組みだけ用意
-    # config_manager.save_config("last_send_core_memory", bool(checked))
-    return bool(checked)
-
-[end of ui_handlers.py]
