@@ -177,74 +177,76 @@ def invoke_nexus_agent(*args: Any) -> str:
         return f"[エージェント実行エラー: {e}]"
 
 def count_input_tokens(
-    character_name: str,
-    model_name: str,
-    parts: List[Any],
-    api_history_limit_option: str,
-    api_key_name: str,
-    send_notepad_to_api: bool,
-    use_common_prompt: bool
+    character_name: str, model_name: str, parts: list,
+    api_history_limit_option: str, api_key_name: str,
+    send_notepad_to_api: bool, use_common_prompt: bool
 ) -> int:
-    """
-    指定された入力パーツ（テキスト、画像など）と履歴、設定に基づいて、
-    Google AI APIへの総入力トークン数を計算する。
-    """
+    from agent.graph import all_tools
     api_key = config_manager.API_KEYS.get(api_key_name)
-    if not api_key or api_key.startswith("YOUR_API_KEY"):
-        print("トークン計算エラー: APIキーが無効です。")
-        return -1
+    if not api_key or api_key.startswith("YOUR_API_KEY"): return -1
 
-    # 1. 基本的なプロンプトとシステムメッセージの準備
-    #    invoke_nexus_agent のロジックを参考にする
-    _, prompt_f, _, mem_f, notepad_f = get_character_files_paths(character_name)
-    prompt = utils.load_prompt(prompt_f, use_common_prompt)
+    from agent.prompts import CORE_PROMPT_TEMPLATE
+    messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
+
+    char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
+    core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
+    character_prompt = ""
+    if os.path.exists(char_prompt_path):
+        with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
+    core_memory = ""
+    if os.path.exists(core_memory_path):
+        with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
+
+    if use_common_prompt:
+        tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
+        class SafeDict(dict):
+            def __missing__(self, key): return f'{{{key}}}'
+        prompt_vars = {
+            'character_name': character_name, 'character_prompt': character_prompt,
+            'core_memory': core_memory, 'tools_list': tools_list_str
+        }
+        final_system_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+    else:
+        final_system_prompt = character_prompt
+
     if send_notepad_to_api:
-        notepad_content = utils.load_notepad_for_api(notepad_f)
-        if notepad_content:
-            prompt += f"\n\n--- (参考メモ) ---\n{notepad_content}\n--- (ここまで) ---"
+        _, _, _, _, notepad_path = get_character_files_paths(character_name)
+        if notepad_path and os.path.exists(notepad_path):
+            with open(notepad_path, 'r', encoding='utf-8') as f:
+                notepad_content = f.read().strip()
+                if notepad_content: final_system_prompt += f"\n\n---\n【現在のメモ帳の内容】\n{notepad_content}\n---"
+    messages.append(SystemMessage(content=final_system_prompt))
 
-    # LangChainのメッセージ形式で組み立てる
-    messages = [SystemMessage(content=prompt)]
-
-    # 2. 履歴メッセージの追加
     log_file, _, _, _, _ = get_character_files_paths(character_name)
     raw_history = utils.load_chat_log(log_file, character_name)
     limit = int(api_history_limit_option) if api_history_limit_option.isdigit() else 0
-    if limit > 0 and len(raw_history) > limit * 2:
-        raw_history = raw_history[-(limit * 2):]
-
+    if limit > 0 and len(raw_history) > limit * 2: raw_history = raw_history[-(limit * 2):]
     for h_item in raw_history:
         role, content = h_item.get('role'), h_item.get('content', '').strip()
         if not content: continue
-        if role in ['model', 'assistant', character_name]:
-            messages.append(AIMessage(content=content))
-        elif role in ['user', 'human']:
-            messages.append(HumanMessage(content=content))
+        if role in ['model', 'assistant', character_name]: messages.append(AIMessage(content=content))
+        elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
 
-    # 3. 現在のユーザー入力（テキスト＋画像）の追加
-    user_message_parts = []
-    for part in parts:
-        if isinstance(part, str):
-            user_message_parts.append({"type": "text", "text": part})
-        elif isinstance(part, Image.Image):
-            try:
-                buffered = io.BytesIO()
-                # RGBAやPモードの画像をRGBに変換してから保存
-                save_image = part.convert('RGB') if part.mode in ('RGBA', 'P') else part
-                save_image.save(buffered, format='PNG')
-                img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-                user_message_parts.append({
-                    "type": "image_url",
-                    "image_url": { "url": f"data:image/png;base64,{img_base64}"}
-                })
-            except Exception as e:
-                print(f"トークン計算のための画像処理中にエラー: {e}")
-                # 画像処理に失敗した場合はスキップ
-                pass
+    user_message_content_parts = []
+    text_buffer = []
+    for part_item in parts:
+        if isinstance(part_item, str): text_buffer.append(part_item)
+        elif isinstance(part_item, Image.Image):
+            if text_buffer:
+                user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
+                text_buffer = []
+            buffered = io.BytesIO()
+            save_image = part_item.convert('RGB') if part_item.mode in ('RGBA', 'P') else part_item
+            image_format = part_item.format or 'PNG'
+            save_image.save(buffered, format=image_format)
+            img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            mime_type = f"image/{image_format.lower()}"
+            user_message_content_parts.append({"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_base64}"}})
 
-    if user_message_parts:
-        messages.append(HumanMessage(content=user_message_parts))
+    if text_buffer:
+        user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
+    if user_message_content_parts:
+        content_for_lc = user_message_content_parts[0]["text"] if len(user_message_content_parts) == 1 and user_message_content_parts[0]["type"] == "text" else user_message_content_parts
+        messages.append(HumanMessage(content=content_for_lc))
 
-    # 4. トークン計算
-    #    LangChainのメッセージリストをGoogle AI SDKの形式に変換し、トークンを数える
     return count_tokens_from_lc_messages(messages, model_name, api_key)

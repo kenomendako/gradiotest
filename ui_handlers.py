@@ -251,39 +251,27 @@ def update_token_count(
     current_api_key_name_state: str,
     api_history_limit_state: str,
     send_notepad_state: bool,
-    notepad_editor_content: str, # この引数は `notepad_editor.change` から渡される
+    notepad_editor_content: str,
     use_common_prompt_state: bool
 ) -> str:
     """入力全体のトークン数を計算し、UI表示用の文字列を返す"""
-    # UIハンドラはGradioのスレッドで実行されるため、毎回インポートするのが安全
-    import gemini_api
+    import gemini_api # UIハンドラはGradioのスレッドで実行されるため、毎回インポートする
     from PIL import Image
-    import io
-    import base64
 
-    # 1. テキストとファイルから、gemini_apiが要求する 'parts' リストを作成
     parts = []
     if textbox_content:
         parts.append(textbox_content.strip())
     if file_input_list:
         for file_obj in file_input_list:
             try:
-                # 画像の場合はPIL Imageオブジェクトに変換して追加
                 img = Image.open(file_obj.name)
                 parts.append(img)
             except Exception:
-                # 画像以外（テキストなど）の場合は、ファイルパスを渡すだけでも良いが、
-                # ここではシンプルに無視するか、テキストとして読み込む処理を追加できる
-                # 今回はシンプル化のため、画像以外のトークン数への影響は一旦無視する
+                # 画像以外（音声やテキストファイルなど）のトークン数計算は現在サポートしていない
+                # 将来的に対応する場合は、ここにファイルサイズなどから概算するロジックを追加
                 pass
 
-    # 2. メモ帳の内容をAPIに送信する場合、partsの先頭にテキストとして追加
-    #    (count_input_tokens側で処理されるため、ここでは不要)
-
-    # 3. gemini_apiの計算関数を呼び出す
     try:
-        # gemini_api.py内の新しい関数を呼び出すように変更
-        # この関数は内部でメモ帳の処理も行う
         token_count = gemini_api.count_input_tokens(
             character_name=current_character_name,
             model_name=current_model_name,
@@ -295,9 +283,8 @@ def update_token_count(
         )
 
         if token_count == -1:
-            return "入力トークン数: (計算エラー)"
+            return "入力トークン数: (APIキーエラー)"
 
-        # 4. モデルの最大トークン数を取得して、よりリッチな表示にする
         api_key = config_manager.API_KEYS.get(current_api_key_name_state)
         limit_info = gemini_api.get_model_token_limits(current_model_name, api_key)
 
@@ -308,6 +295,7 @@ def update_token_count(
 
     except Exception as e:
         print(f"トークン数計算中にUIハンドラでエラー: {e}")
+        traceback.print_exc()
         return "入力トークン数: (例外発生)"
 def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str, str]]):
     default_button_text = "🗑️ 選択した発言を削除"
