@@ -117,6 +117,7 @@ def send_notification(char_name, message_text):
 def trigger_alarm(alarm_config, current_api_key_name):
         char_name = alarm_config.get("character")
         alarm_id = alarm_config.get("id")
+        alarm_time = alarm_config.get("time", "指定時刻") # ログ表示用に時刻を取得
         context_to_use = alarm_config.get("context_memo", "時間になりました")
 
         print(f"⏰ アラーム発火. ID: {alarm_id}, キャラクター: {char_name}, コンテキスト: '{context_to_use}'")
@@ -126,41 +127,42 @@ def trigger_alarm(alarm_config, current_api_key_name):
             print(f"警告: アラーム (ID:{alarm_id}) のログファイルまたはAPIキーが見つからないため、処理をスキップします。")
             return
 
-        # ★★★ ここからが最重要修正点 ★★★
-        # 古い generate_alarm_message の呼び出しを削除し、
-        # 最新のエージェント呼び出し関数 invoke_nexus_agent を使用する。
+        # ★★★ ここからが修正点 ★★★
 
-        # 1. エージェントに渡すための「擬似的なユーザー入力」を生成する
-        synthesized_user_message = f"（システムアラーム：時間です。コンテキスト「{context_to_use}」について、何か伝えてください）"
+        # 1. AIに意図を伝えるための、内部的なプロンプト
+        synthesized_user_message_for_agent = f"（システムアラーム：時間です。コンテキスト「{context_to_use}」について、何か伝えてください）"
 
-        # 2. invoke_nexus_agent が要求する引数リストを組み立てる
-        #    UIからの入力ではないため、ほとんどはデフォルト値やNoneで良い
+        # 2. ログファイルとUIに表示するための、シンプルなメッセージ
+        message_for_log = f"（システムアラーム：{alarm_time}）"
+
+        # 3. エージェントに渡す引数を構築（プロンプトはこちらを使う）
         agent_args = [
-            synthesized_user_message,                       # textbox_content
-            [],                                             # chatbot_history (空で良い)
-            char_name,                                      # current_character_name
-            config_manager.initial_model_global,            # current_model_name
-            current_api_key_name,                           # current_api_key_name_state
-            None,                                           # file_input_list
-            False,                                          # add_timestamp_checkbox
-            config_manager.initial_send_thoughts_to_api_global, # send_thoughts_state
-            config_manager.initial_api_history_limit_option_global, # api_history_limit_state
-            True,                                           # send_notepad_state
-            True,                                           # use_common_prompt_state
-            True                                            # send_core_memory_state
+            synthesized_user_message_for_agent, # textbox_content
+            [],                                 # chatbot_history
+            char_name,                          # current_character_name
+            config_manager.initial_model_global, # current_model_name
+            current_api_key_name,               # current_api_key_name_state
+            None,                               # file_input_list
+            False,                              # add_timestamp_checkbox
+            config_manager.initial_send_thoughts_to_api_global,
+            config_manager.initial_api_history_limit_option_global,
+            True,                               # send_notepad_state
+            True,                               # use_common_prompt_state
+            True                                # send_core_memory_state
         ]
 
-        # 3. エージェントを呼び出して、応答を生成させる
+        # 4. エージェントを呼び出し
         response_text = gemini_api.invoke_nexus_agent(*agent_args)
+
         # ★★★ 修正ここまで ★★★
 
         if response_text and not response_text.startswith("[エラー"):
-            # アラーム専用のヘッダーではなく、システムからの入力としてログに残す
-            utils.save_message_to_log(log_f, "## システム(アラーム):", synthesized_user_message)
+            # 5. ログにはシンプルなメッセージを記録
+            utils.save_message_to_log(log_f, "## システム(アラーム):", message_for_log)
             utils.save_message_to_log(log_f, f"## {char_name}:", response_text)
             print(f"アラームログ記録完了 (ID:{alarm_id})")
 
-            # 司令塔関数を呼び出して通知を送信
+            # 通知を送信
             send_notification(char_name, response_text)
 
             if PLYER_AVAILABLE:
