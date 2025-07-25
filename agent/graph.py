@@ -85,10 +85,14 @@ def context_generator_node(state: AgentState):
 
         space_def = read_memory_by_path.invoke({"path": f"living_space.{id_to_use}", "character_name": character_name})
 
+        # ★★★ ここからが修正点 ★★★
+        # 読み込んだ場所の定義を、ここで明確にログ出力する
+        if not space_def.startswith("【Error】"):
+            print(f"  - 読み込まれた場所の定義:\n```\n{space_def}\n```")
+        # ★★★ 修正ここまで ★★★
+
         if not space_def.startswith("【Error】") and not space_def.startswith("Error:"):
             now = datetime.now()
-
-            # ★★★ あなた様が作成した、正しいscenery_promptをここに完全復元しました ★★★
             scenery_prompt = (
                 f"空間定義:{space_def}\n"
                 f"時刻:{now.strftime('%H:%M')} / 季節:{now.month}月\n\n"
@@ -98,7 +102,6 @@ def context_generator_node(state: AgentState):
                 "- 1〜2文の簡潔な文章にまとめてください。\n"
                 "- 気温、湿度、光と影、音、香り、空気の質感など、五感に訴えかける具体的な描写を重視してください。"
             )
-
             scenery_text = llm_flash.invoke(scenery_prompt).content
             print(f"  - 生成された情景描写: {scenery_text}")
         else:
@@ -142,8 +145,8 @@ def context_generator_node(state: AgentState):
         "---"
     )
 
-    prompt_to_log = (final_system_prompt_text[:500] + '...') if len(final_system_prompt_text) > 500 else final_system_prompt_text
-    print(f"  - 生成された最終システムプロンプト (一部):\n```\n{prompt_to_log}\n```")
+    # ★★★ 誤解を招く不完全なログ出力を削除 ★★★
+    # print(f"  - 生成された最終システムプロンプト (一部): ...") の行を削除
 
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
