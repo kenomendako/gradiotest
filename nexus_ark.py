@@ -143,8 +143,25 @@ if utils.acquire_lock():
             timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
             model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
-            add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[])
-            send_thoughts_checkbox.change(fn=ui_handlers.update_send_thoughts_state, inputs=[send_thoughts_checkbox], outputs=[send_thoughts_state])
+            add_timestamp_checkbox.change(
+                fn=ui_handlers.update_timestamp_state,
+                inputs=[add_timestamp_checkbox],
+                outputs=[]
+            ).then(  # ★★★ この .then() 以下を追記 ★★★
+                fn=ui_handlers.update_token_count,
+                inputs=token_calc_inputs,
+                outputs=token_calc_outputs
+            )
+
+            send_thoughts_checkbox.change(
+                fn=ui_handlers.update_send_thoughts_state,
+                inputs=[send_thoughts_checkbox],
+                outputs=[send_thoughts_state]
+            ).then(  # ★★★ この .then() 以下を追記 ★★★
+                fn=ui_handlers.update_token_count,
+                inputs=token_calc_inputs,
+                outputs=token_calc_outputs
+            )
             send_notepad_checkbox.change(fn=ui_handlers.update_send_notepad_state, inputs=[send_notepad_checkbox], outputs=[send_notepad_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             use_common_prompt_checkbox.change(fn=ui_handlers.update_use_common_prompt_state, inputs=[use_common_prompt_checkbox], outputs=[use_common_prompt_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
