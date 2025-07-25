@@ -181,21 +181,35 @@ def count_input_tokens(
     api_history_limit_option: str, api_key_name: str,
     send_notepad_to_api: bool, use_common_prompt: bool
 ) -> int:
+    """
+    入力全体のトークン数を計算する【クラッシュ修正版】。
+    utils.load_prompt の呼び出しを削除し、ファイルを直接読み込むように修正。
+    """
     from agent.graph import all_tools
+    from agent.prompts import CORE_PROMPT_TEMPLATE
+    from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+    import io
+    import base64
+
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return -1
 
-    from agent.prompts import CORE_PROMPT_TEMPLATE
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
+    # --- 存在しない関数呼び出しを修正し、直接ファイルを読むロジックに ---
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
+
     character_prompt = ""
     if os.path.exists(char_prompt_path):
-        with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
+        with open(char_prompt_path, 'r', encoding='utf-8') as f:
+            character_prompt = f.read().strip()
+
     core_memory = ""
     if os.path.exists(core_memory_path):
-        with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
+        with open(core_memory_path, 'r', encoding='utf-8') as f:
+            core_memory = f.read().strip()
+    # --- 修正ここまで ---
 
     if use_common_prompt:
         tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
@@ -214,39 +228,53 @@ def count_input_tokens(
         if notepad_path and os.path.exists(notepad_path):
             with open(notepad_path, 'r', encoding='utf-8') as f:
                 notepad_content = f.read().strip()
-                if notepad_content: final_system_prompt += f"\n\n---\n【現在のメモ帳の内容】\n{notepad_content}\n---"
+                if notepad_content:
+                    final_system_prompt += f"\n\n---\n【現在のメモ帳の内容】\n{notepad_content}\n---"
+
     messages.append(SystemMessage(content=final_system_prompt))
 
     log_file, _, _, _, _ = get_character_files_paths(character_name)
     raw_history = utils.load_chat_log(log_file, character_name)
     limit = int(api_history_limit_option) if api_history_limit_option.isdigit() else 0
-    if limit > 0 and len(raw_history) > limit * 2: raw_history = raw_history[-(limit * 2):]
+    if limit > 0 and len(raw_history) > limit * 2:
+        raw_history = raw_history[-(limit * 2):]
+
     for h_item in raw_history:
         role, content = h_item.get('role'), h_item.get('content', '').strip()
         if not content: continue
-        if role in ['model', 'assistant', character_name]: messages.append(AIMessage(content=content))
-        elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
+        if role in ['model', 'assistant', character_name]:
+            messages.append(AIMessage(content=content))
+        elif role in ['user', 'human']:
+            messages.append(HumanMessage(content=content))
 
     user_message_content_parts = []
     text_buffer = []
     for part_item in parts:
-        if isinstance(part_item, str): text_buffer.append(part_item)
+        if isinstance(part_item, str):
+            text_buffer.append(part_item)
         elif isinstance(part_item, Image.Image):
             if text_buffer:
                 user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
                 text_buffer = []
+
             buffered = io.BytesIO()
             save_image = part_item.convert('RGB') if part_item.mode in ('RGBA', 'P') else part_item
             image_format = part_item.format or 'PNG'
             save_image.save(buffered, format=image_format)
             img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
             mime_type = f"image/{image_format.lower()}"
-            user_message_content_parts.append({"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_base64}"}})
+            user_message_content_parts.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime_type};base64,{img_base64}"}
+            })
 
     if text_buffer:
         user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
+
     if user_message_content_parts:
+        # LangChainのMessage形式に合わせて、テキストのみの場合はstr、複数パートの場合はlistを渡す
         content_for_lc = user_message_content_parts[0]["text"] if len(user_message_content_parts) == 1 and user_message_content_parts[0]["type"] == "text" else user_message_content_parts
         messages.append(HumanMessage(content=content_for_lc))
 
+    # 最終的にトークンを計算する関数を呼び出す
     return count_tokens_from_lc_messages(messages, model_name, api_key)
