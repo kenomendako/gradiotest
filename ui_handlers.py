@@ -251,31 +251,65 @@ def update_token_count(
     current_api_key_name_state: str,
     api_history_limit_state: str,
     send_notepad_state: bool,
-    notepad_editor_content: str,
+    notepad_editor_content: str, # この引数はgemini_api側で読み込むため不要だが、呼び出し元に合わせる
     use_common_prompt_state: bool
 ) -> str:
-    """入力全体のトークン数を計算し、UI表示用の文字列を返す"""
+    """入力全体のトークン数を計算し、UI表示用の文字列を返す【マルチモーダル対応版】"""
     import gemini_api # UIハンドラはGradioのスレッドで実行されるため、毎回インポートする
+    import filetype # ファイルタイプ判別のためにインポート
+    import base64   # Base64エンコードのためにインポート
+    import io       # バイトデータ操作のためにインポート
     from PIL import Image
 
-    parts = []
+    # gemini_api.count_input_tokens に渡すためのパーツリスト
+    parts_for_api = []
     if textbox_content:
-        parts.append(textbox_content.strip())
+        parts_for_api.append(textbox_content.strip())
+
     if file_input_list:
         for file_obj in file_input_list:
+            filepath = file_obj.name
             try:
-                img = Image.open(file_obj.name)
-                parts.append(img)
-            except Exception:
-                # 画像以外（音声やテキストファイルなど）のトークン数計算は現在サポートしていない
-                # 将来的に対応する場合は、ここにファイルサイズなどから概算するロジックを追加
+                # invoke_nexus_agent と同様のファイル処理ロジック
+                kind = filetype.guess(filepath)
+                if kind is None:
+                    # テキストとして試行
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        text_content = f.read()
+                    # テキストファイルの中身を直接partsに追加
+                    parts_for_api.append(f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---")
+                    continue
+
+                mime_type = kind.mime
+                if mime_type.startswith("image/"):
+                    img = Image.open(filepath)
+                    # 画像はPIL.Imageオブジェクトとしてpartsに追加
+                    parts_for_api.append(img)
+                elif mime_type.startswith("audio/") or mime_type.startswith("video/") or mime_type == "application/pdf":
+                    # 音声・動画・PDFはBase64エンコードして辞書としてpartsに追加
+                    with open(filepath, "rb") as f:
+                        file_data = base64.b64encode(f.read()).decode("utf-8")
+                    parts_for_api.append({
+                        "type": "media",
+                        "mime_type": mime_type,
+                        "data": file_data
+                    })
+                else: # その他のファイルタイプはテキストとして試行
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        text_content = f.read()
+                    parts_for_api.append(f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---")
+
+            except Exception as e:
+                print(f"警告: トークン計算のためのファイル '{os.path.basename(filepath)}' 処理中にエラー: {e}")
+                # エラーが発生したファイルはスキップ
                 pass
 
     try:
+        # 構築したパーツリストをAPI関数に渡す
         token_count = gemini_api.count_input_tokens(
             character_name=current_character_name,
             model_name=current_model_name,
-            parts=parts,
+            parts=parts_for_api, # ここが重要
             api_history_limit_option=api_history_limit_state,
             api_key_name=current_api_key_name_state,
             send_notepad_to_api=send_notepad_state,
@@ -283,7 +317,7 @@ def update_token_count(
         )
 
         if token_count == -1:
-            return "入力トークン数: (APIキーエラー)"
+            return "入力トークン数: (APIキー/モデルエラー)"
 
         api_key = config_manager.API_KEYS.get(current_api_key_name_state)
         limit_info = gemini_api.get_model_token_limits(current_model_name, api_key)

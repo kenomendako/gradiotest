@@ -34,39 +34,87 @@ def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, 
         return None
 
 def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> List[Dict]:
+    """
+    LangChainメッセージ形式を、トークン計算用のGoogle SDKコンテンツ形式に変換する【マルチモーダル対応版】。
+    テキスト、画像、その他のメディアタイプを正しく処理します。
+    """
     contents = []
     for msg in messages:
         role = "model" if isinstance(msg, AIMessage) else "user"
         sdk_parts = []
+
         if isinstance(msg.content, str):
             sdk_parts.append({"text": msg.content})
         elif isinstance(msg.content, list):
-             for part_data in msg.content:
-                if isinstance(part_data, dict) and part_data.get("type") == "text":
-                    sdk_parts.append({"text": part_data["text"]})
+            for part_data in msg.content:
+                if not isinstance(part_data, dict):
+                    continue
+
+                part_type = part_data.get("type")
+                if part_type == "text":
+                    sdk_parts.append({"text": part_data.get("text", "")})
+                elif part_type == "image_url":
+                    url_data = part_data.get("image_url", {}).get("url", "")
+                    if url_data.startswith("data:"):
+                        try:
+                            header, encoded = url_data.split(",", 1)
+                            mime_type = header.split(":")[1].split(";")[0]
+                            sdk_parts.append({
+                                "inline_data": {"mime_type": mime_type, "data": encoded}
+                            })
+                        except (ValueError, IndexError):
+                            print(f"警告: 不正な形式のimage_urlをスキップしました: {url_data[:50]}...")
+                elif part_type == "media":
+                     sdk_parts.append({
+                        "inline_data": {
+                            "mime_type": part_data.get("mime_type", "application/octet-stream"),
+                            "data": part_data.get("data", "")
+                        }
+                    })
+
         if sdk_parts:
             contents.append({"role": role, "parts": sdk_parts})
     return contents
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
-    if not messages: return 0
+    """
+    LangChainメッセージリストからトークン数を計算する【最新API仕様版】。
+    システムメッセージを `system_instruction` を使って正しく処理します。
+    """
+    if not messages:
+        return 0
     try:
         client = genai.Client(api_key=api_key)
-        contents = _convert_lc_to_gg_for_count(messages)
-        final_contents_for_api = []
-        if contents and isinstance(messages[0], SystemMessage):
-             system_instruction = contents[0]['parts']
-             final_contents_for_api.extend([
-                 {"role": "user", "parts": system_instruction},
-                 {"role": "model", "parts": [{"text": "OK"}]}
-             ])
-             final_contents_for_api.extend(contents[1:])
+        system_instruction_content = None
+
+        if messages and isinstance(messages[0], SystemMessage):
+            system_instruction_content = messages[0].content
+            # ユーザーメッセージとモデルメッセージのみを contents に含める
+            contents_for_api = _convert_lc_to_gg_for_count(messages[1:])
         else:
-            final_contents_for_api = contents
-        result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
+            contents_for_api = _convert_lc_to_gg_for_count(messages)
+
+        # APIを呼び出し
+        result = client.models.count_tokens(
+            model=f"models/{model_name}",
+            contents=contents_for_api,
+            system_instruction=system_instruction_content
+        )
         return result.total_tokens
     except Exception as e:
+        if "system_instruction" in str(e) or "System instructions are not supported" in str(e):
+             print(f"警告: モデル '{model_name}' は system_instruction をサポートしていません。従来の計算方法にフォールバックします。")
+             try:
+                 # フォールバックロジック: system_instructionを通常のユーザーメッセージとして扱う
+                 contents_for_api_fallback = _convert_lc_to_gg_for_count(messages)
+                 result = client.models.count_tokens(model=f"models/{model_name}", contents=contents_for_api_fallback)
+                 return result.total_tokens
+             except Exception as fallback_e:
+                 print(f"フォールバック計算エラー: {fallback_e}")
+                 traceback.print_exc()
+                 return -1
         print(f"トークン計算エラー: {e}")
+        traceback.print_exc()
         return -1
 
 def invoke_nexus_agent(*args: Any) -> str:
@@ -182,34 +230,33 @@ def count_input_tokens(
     send_notepad_to_api: bool, use_common_prompt: bool
 ) -> int:
     """
-    入力全体のトークン数を計算する【クラッシュ修正版】。
-    utils.load_prompt の呼び出しを削除し、ファイルを直接読み込むように修正。
+    入力全体のトークン数を計算する【マルチモーダル対応版】。
+    UIハンドラから渡された多様なパーツを解釈し、HumanMessageを構築する。
     """
     from agent.graph import all_tools
     from agent.prompts import CORE_PROMPT_TEMPLATE
     from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+    from PIL import Image
     import io
     import base64
+
+    # (この関数内のコードは、前回のクラッシュ修正で提案したものとほぼ同じですが、
+    #  多様なパーツリストを処理する部分が強化されています)
 
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return -1
 
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
-    # --- 存在しない関数呼び出しを修正し、直接ファイルを読むロジックに ---
+    # --- プロンプト構築 ---
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
-
     character_prompt = ""
     if os.path.exists(char_prompt_path):
-        with open(char_prompt_path, 'r', encoding='utf-8') as f:
-            character_prompt = f.read().strip()
-
+        with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
     core_memory = ""
     if os.path.exists(core_memory_path):
-        with open(core_memory_path, 'r', encoding='utf-8') as f:
-            core_memory = f.read().strip()
-    # --- 修正ここまで ---
+        with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
     if use_common_prompt:
         tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
@@ -228,25 +275,21 @@ def count_input_tokens(
         if notepad_path and os.path.exists(notepad_path):
             with open(notepad_path, 'r', encoding='utf-8') as f:
                 notepad_content = f.read().strip()
-                if notepad_content:
-                    final_system_prompt += f"\n\n---\n【現在のメモ帳の内容】\n{notepad_content}\n---"
-
+                if notepad_content: final_system_prompt += f"\n\n---\n【現在のメモ帳の内容】\n{notepad_content}\n---"
     messages.append(SystemMessage(content=final_system_prompt))
 
+    # --- 履歴構築 ---
     log_file, _, _, _, _ = get_character_files_paths(character_name)
     raw_history = utils.load_chat_log(log_file, character_name)
     limit = int(api_history_limit_option) if api_history_limit_option.isdigit() else 0
-    if limit > 0 and len(raw_history) > limit * 2:
-        raw_history = raw_history[-(limit * 2):]
-
+    if limit > 0 and len(raw_history) > limit * 2: raw_history = raw_history[-(limit * 2):]
     for h_item in raw_history:
         role, content = h_item.get('role'), h_item.get('content', '').strip()
         if not content: continue
-        if role in ['model', 'assistant', character_name]:
-            messages.append(AIMessage(content=content))
-        elif role in ['user', 'human']:
-            messages.append(HumanMessage(content=content))
+        if role in ['model', 'assistant', character_name]: messages.append(AIMessage(content=content))
+        elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
 
+    # --- ユーザー入力メッセージ構築 (マルチモーダル対応) ---
     user_message_content_parts = []
     text_buffer = []
     for part_item in parts:
@@ -254,27 +297,24 @@ def count_input_tokens(
             text_buffer.append(part_item)
         elif isinstance(part_item, Image.Image):
             if text_buffer:
-                user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
-                text_buffer = []
-
+                user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()}); text_buffer = []
             buffered = io.BytesIO()
             save_image = part_item.convert('RGB') if part_item.mode in ('RGBA', 'P') else part_item
             image_format = part_item.format or 'PNG'
             save_image.save(buffered, format=image_format)
             img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
             mime_type = f"image/{image_format.lower()}"
-            user_message_content_parts.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{mime_type};base64,{img_base64}"}
-            })
+            user_message_content_parts.append({"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_base64}"}})
+        elif isinstance(part_item, dict) and part_item.get("type") == "media":
+             if text_buffer:
+                user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()}); text_buffer = []
+             # UIハンドラから渡された辞書をそのまま追加
+             user_message_content_parts.append(part_item)
 
     if text_buffer:
         user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
 
     if user_message_content_parts:
-        # LangChainのMessage形式に合わせて、テキストのみの場合はstr、複数パートの場合はlistを渡す
-        content_for_lc = user_message_content_parts[0]["text"] if len(user_message_content_parts) == 1 and user_message_content_parts[0]["type"] == "text" else user_message_content_parts
-        messages.append(HumanMessage(content=content_for_lc))
+        messages.append(HumanMessage(content=user_message_content_parts))
 
-    # 最終的にトークンを計算する関数を呼び出す
     return count_tokens_from_lc_messages(messages, model_name, api_key)
