@@ -103,7 +103,12 @@ if utils.acquire_lock():
                     gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
             # (イベントリスナーの前半部分は変更なし)
-            token_calc_inputs = [chat_input_textbox, file_upload_button, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, notepad_editor, use_common_prompt_state]
+            token_calc_inputs = [
+                chat_input_textbox, file_upload_button, current_character_name,
+                current_model_name, current_api_key_name_state, api_history_limit_state,
+                send_notepad_state, notepad_editor, use_common_prompt_state,
+                add_timestamp_checkbox  # ★★★ この行を追加 ★★★
+            ]
             token_calc_outputs = token_count_display
             def setup_token_update_events():
                 chat_input_textbox.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs, show_progress=False)

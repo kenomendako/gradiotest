@@ -251,17 +251,17 @@ def update_token_count(
     current_api_key_name_state: str,
     api_history_limit_state: str,
     send_notepad_state: bool,
-    notepad_editor_content: str, # この引数はgemini_api側で読み込むため不要だが、呼び出し元に合わせる
-    use_common_prompt_state: bool
+    notepad_editor_content: str,
+    use_common_prompt_state: bool,
+    add_timestamp_state: bool  # ★★★ この引数を追加 ★★★
 ) -> str:
-    """入力全体のトークン数を計算し、UI表示用の文字列を返す【マルチモーダル対応版】"""
-    import gemini_api # UIハンドラはGradioのスレッドで実行されるため、毎回インポートする
-    import filetype # ファイルタイプ判別のためにインポート
-    import base64   # Base64エンコードのためにインポート
-    import io       # バイトデータ操作のためにインポート
+    """入力全体のトークン数を計算し、UI表示用の文字列を返す【タイムスタンプ対応版】"""
+    import gemini_api
+    import filetype
+    import base64
+    import io
     from PIL import Image
 
-    # gemini_api.count_input_tokens に渡すためのパーツリスト
     parts_for_api = []
     if textbox_content:
         parts_for_api.append(textbox_content.strip())
@@ -270,63 +270,42 @@ def update_token_count(
         for file_obj in file_input_list:
             filepath = file_obj.name
             try:
-                # invoke_nexus_agent と同様のファイル処理ロジック
                 kind = filetype.guess(filepath)
                 if kind is None:
-                    # テキストとして試行
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        text_content = f.read()
-                    # テキストファイルの中身を直接partsに追加
+                    with open(filepath, 'r', encoding='utf-8') as f: text_content = f.read()
                     parts_for_api.append(f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---")
                     continue
 
                 mime_type = kind.mime
                 if mime_type.startswith("image/"):
-                    img = Image.open(filepath)
-                    # 画像はPIL.Imageオブジェクトとしてpartsに追加
-                    parts_for_api.append(img)
+                    parts_for_api.append(Image.open(filepath))
                 elif mime_type.startswith("audio/") or mime_type.startswith("video/") or mime_type == "application/pdf":
-                    # 音声・動画・PDFはBase64エンコードして辞書としてpartsに追加
-                    with open(filepath, "rb") as f:
-                        file_data = base64.b64encode(f.read()).decode("utf-8")
-                    parts_for_api.append({
-                        "type": "media",
-                        "mime_type": mime_type,
-                        "data": file_data
-                    })
-                else: # その他のファイルタイプはテキストとして試行
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        text_content = f.read()
+                    with open(filepath, "rb") as f: file_data = base64.b64encode(f.read()).decode("utf-8")
+                    parts_for_api.append({"type": "media", "mime_type": mime_type, "data": file_data})
+                else:
+                    with open(filepath, 'r', encoding='utf-8') as f: text_content = f.read()
                     parts_for_api.append(f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---")
-
             except Exception as e:
                 print(f"警告: トークン計算のためのファイル '{os.path.basename(filepath)}' 処理中にエラー: {e}")
-                # エラーが発生したファイルはスキップ
                 pass
 
     try:
-        # 構築したパーツリストをAPI関数に渡す
         token_count = gemini_api.count_input_tokens(
             character_name=current_character_name,
             model_name=current_model_name,
-            parts=parts_for_api, # ここが重要
+            parts=parts_for_api,
             api_history_limit_option=api_history_limit_state,
             api_key_name=current_api_key_name_state,
             send_notepad_to_api=send_notepad_state,
-            use_common_prompt=use_common_prompt_state
+            use_common_prompt=use_common_prompt_state,
+            add_timestamp=add_timestamp_state  # ★★★ 新しい引数を渡す ★★★
         )
 
-        if token_count == -1:
-            return "入力トークン数: (APIキー/モデルエラー)"
-
+        if token_count == -1: return "入力トークン数: (APIキー/モデルエラー)"
         api_key = config_manager.API_KEYS.get(current_api_key_name_state)
         limit_info = gemini_api.get_model_token_limits(current_model_name, api_key)
-
-        if limit_info and 'input' in limit_info:
-            return f"入力トークン数: {token_count} / {limit_info['input']}"
-        else:
-            return f"入力トークン数: {token_count}"
-
+        if limit_info and 'input' in limit_info: return f"入力トークン数: {token_count} / {limit_info['input']}"
+        else: return f"入力トークン数: {token_count}"
     except Exception as e:
         print(f"トークン数計算中にUIハンドラでエラー: {e}")
         traceback.print_exc()

@@ -227,11 +227,12 @@ def invoke_nexus_agent(*args: Any) -> str:
 def count_input_tokens(
     character_name: str, model_name: str, parts: list,
     api_history_limit_option: str, api_key_name: str,
-    send_notepad_to_api: bool, use_common_prompt: bool
+    send_notepad_to_api: bool, use_common_prompt: bool,
+    add_timestamp: bool  # ★★★ この引数を追加 ★★★
 ) -> int:
     """
-    入力全体のトークン数を計算する【マルチモーダル対応版】。
-    UIハンドラから渡された多様なパーツを解釈し、HumanMessageを構築する。
+    入力全体のトークン数を計算する【UI設定反映版】。
+    タイムスタンプの有無を考慮して計算する。
     """
     from agent.graph import all_tools
     from agent.prompts import CORE_PROMPT_TEMPLATE
@@ -239,15 +240,14 @@ def count_input_tokens(
     from PIL import Image
     import io
     import base64
-
-    # (この関数内のコードは、前回のクラッシュ修正で提案したものとほぼ同じですが、
-    #  多様なパーツリストを処理する部分が強化されています)
+    import datetime # タイムスタンプ生成用にインポート
 
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return -1
 
     messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
+    # (プロンプト構築と履歴構築のロジックは変更なし)
     # --- プロンプト構築 ---
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
@@ -289,12 +289,13 @@ def count_input_tokens(
         if role in ['model', 'assistant', character_name]: messages.append(AIMessage(content=content))
         elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
 
-    # --- ユーザー入力メッセージ構築 (マルチモーダル対応) ---
+    # --- ユーザー入力メッセージ構築 (タイムスタンプを考慮) ---
     user_message_content_parts = []
     text_buffer = []
     for part_item in parts:
         if isinstance(part_item, str):
             text_buffer.append(part_item)
+        # (画像やメディアの処理は変更なし)
         elif isinstance(part_item, Image.Image):
             if text_buffer:
                 user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()}); text_buffer = []
@@ -308,11 +309,16 @@ def count_input_tokens(
         elif isinstance(part_item, dict) and part_item.get("type") == "media":
              if text_buffer:
                 user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()}); text_buffer = []
-             # UIハンドラから渡された辞書をそのまま追加
              user_message_content_parts.append(part_item)
 
     if text_buffer:
-        user_message_content_parts.append({"type": "text", "text": "\n".join(text_buffer).strip()})
+        # ★★★ ここでタイムスタンプを付加するかを決定 ★★★
+        final_text = "\n".join(text_buffer).strip()
+        if add_timestamp and final_text:
+            # 実際の送信時とフォーマットを合わせる
+            timestamp_str = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+            final_text += timestamp_str
+        user_message_content_parts.append({"type": "text", "text": final_text})
 
     if user_message_content_parts:
         messages.append(HumanMessage(content=user_message_content_parts))
