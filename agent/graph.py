@@ -87,6 +87,8 @@ def context_generator_node(state: AgentState):
 
         if not space_def.startswith("【Error】") and not space_def.startswith("Error:"):
             now = datetime.now()
+
+            # ★★★ あなた様が作成した、正しいscenery_promptをここに完全復元しました ★★★
             scenery_prompt = (
                 f"空間定義:{space_def}\n"
                 f"時刻:{now.strftime('%H:%M')} / 季節:{now.month}月\n\n"
@@ -96,6 +98,7 @@ def context_generator_node(state: AgentState):
                 "- 1〜2文の簡潔な文章にまとめてください。\n"
                 "- 気温、湿度、光と影、音、香り、空気の質感など、五感に訴えかける具体的な描写を重視してください。"
             )
+
             scenery_text = llm_flash.invoke(scenery_prompt).content
             print(f"  - 生成された情景描写: {scenery_text}")
         else:
@@ -126,6 +129,7 @@ def context_generator_node(state: AgentState):
         'character_name': character_name,
         'character_prompt': character_prompt,
         'core_memory': core_memory,
+        'space_definition': space_def,
         'tools_list': tools_list_str
     }
 
@@ -134,16 +138,12 @@ def context_generator_node(state: AgentState):
     final_system_prompt_text = (
         f"{formatted_core_prompt}\n"
         "---\n"
-        f"【現在の情景】\n{scenery_text}\n\n"
-        f"【現在の場所の定義・設定】\n{space_def}\n"
+        f"【現在の情景】\n{scenery_text}\n"
         "---"
     )
 
-    # ★★★ ここからが修正箇所 ★★★
-    # 最終的なシステムプロンプトをログに出力して、内容を確認できるようにする
     prompt_to_log = (final_system_prompt_text[:500] + '...') if len(final_system_prompt_text) > 500 else final_system_prompt_text
     print(f"  - 生成された最終システムプロンプト (一部):\n```\n{prompt_to_log}\n```")
-    # ★★★ 修正ここまで ★★★
 
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
