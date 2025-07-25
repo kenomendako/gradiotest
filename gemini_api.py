@@ -126,7 +126,8 @@ def invoke_nexus_agent(*args: Any) -> str:
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state,
-     send_notepad_state, use_common_prompt_state) = args
+     send_notepad_state, use_common_prompt_state,
+     send_core_memory_state) = args # ★★★ 引数を追加 ★★★
 
     api_key = config_manager.API_KEYS.get(current_api_key_name_state)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -185,7 +186,14 @@ def invoke_nexus_agent(*args: Any) -> str:
     if user_message_parts:
         messages.append(HumanMessage(content=user_message_parts))
 
-    initial_state = { "messages": messages, "character_name": current_character_name, "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY, "model_name": current_model_name }
+    initial_state = {
+        "messages": messages,
+        "character_name": current_character_name,
+        "api_key": api_key,
+        "tavily_api_key": config_manager.TAVILY_API_KEY,
+        "model_name": current_model_name,
+        "send_core_memory": send_core_memory_state # ★★★ このキーと値を追加 ★★★
+    }
     try:
         final_state = app.invoke(initial_state)
         final_response_text = final_state['messages'][-1].content
@@ -199,7 +207,8 @@ def count_input_tokens(
     api_history_limit_option: str, api_key_name: str,
     send_notepad_to_api: bool, use_common_prompt: bool,
     add_timestamp: bool,
-    send_thoughts: bool  # ★★★ この引数を追加 ★★★
+    send_thoughts: bool,
+    send_core_memory: bool # ★★★ 引数を追加 ★★★
 ) -> int:
     """
     入力全体のトークン数を計算する【思考過程反映・最終版】。
@@ -220,13 +229,16 @@ def count_input_tokens(
     # (プロンプト構築と履歴構築のロジックは変更なし)
     # --- プロンプト構築 ---
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
-    core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
     character_prompt = ""
     if os.path.exists(char_prompt_path):
         with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
     core_memory = ""
-    if os.path.exists(core_memory_path):
-        with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
+    if send_core_memory: # ★★★ ここからが修正箇所 ★★★
+        core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
+        if os.path.exists(core_memory_path):
+            with open(core_memory_path, 'r', encoding='utf-8') as f:
+                core_memory = f.read().strip()
+    # ★★★ 修正ここまで ★★★
 
     if use_common_prompt:
         tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])

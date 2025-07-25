@@ -50,6 +50,7 @@ if utils.acquire_lock():
             editing_alarm_id_state = gr.State(None)
             send_notepad_state = gr.State(True)
             use_common_prompt_state = gr.State(True)
+            send_core_memory_state = gr.State(True) # ★★★ この行を追加 ★★★
             selected_message_state = gr.State(None)
 
             with gr.Row():
@@ -66,6 +67,7 @@ if utils.acquire_lock():
                         send_thoughts_checkbox = gr.Checkbox(value=config_manager.initial_send_thoughts_to_api_global, label="思考過程をAPIに送信", interactive=True)
                         send_notepad_checkbox = gr.Checkbox(value=True, label="メモ帳の内容をAPIに送信", interactive=True)
                         use_common_prompt_checkbox = gr.Checkbox(value=True, label="共通ツールプロンプトを注入", interactive=True)
+                        send_core_memory_checkbox = gr.Checkbox(value=True, label="コアメモリをAPIに送信", interactive=True) # ★★★ この行を追加 ★★★
                     with gr.Accordion("📗 記憶とログの編集", open=False):
                         with gr.Tabs():
                             with gr.TabItem("記憶 (memory.json)"):
@@ -108,7 +110,8 @@ if utils.acquire_lock():
                 current_model_name, current_api_key_name_state, api_history_limit_state,
                 send_notepad_state, notepad_editor, use_common_prompt_state,
                 add_timestamp_checkbox,
-                send_thoughts_checkbox  # ★★★ この行を追加 ★★★
+                send_thoughts_checkbox,
+                send_core_memory_state # ★★★ この行を追加 ★★★
             ]
             token_calc_outputs = token_count_display
             def setup_token_update_events():
@@ -118,14 +121,15 @@ if utils.acquire_lock():
                 notepad_editor.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs, show_progress=False)
             add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
             demo.load(
-                fn=ui_handlers.handle_initial_load,  # ★★★ 呼び出し先を新しい司令塔に変更 ★★★
+                fn=ui_handlers.handle_initial_load,
                 inputs=[
                     current_character_name,
                     api_history_limit_state,
                     send_notepad_state,
                     use_common_prompt_state,
                     add_timestamp_checkbox,
-                    send_thoughts_state
+                    send_thoughts_state,
+                    send_core_memory_state # ★★★ この行を追加 ★★★
                 ],
                 outputs=[
                     alarm_dataframe, alarm_dataframe_original_data, chatbot_display,
@@ -164,6 +168,18 @@ if utils.acquire_lock():
             )
             send_notepad_checkbox.change(fn=ui_handlers.update_send_notepad_state, inputs=[send_notepad_checkbox], outputs=[send_notepad_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             use_common_prompt_checkbox.change(fn=ui_handlers.update_use_common_prompt_state, inputs=[use_common_prompt_checkbox], outputs=[use_common_prompt_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
+
+            # ★★★ 以下のブロックをまるごと追加 ★★★
+            send_core_memory_checkbox.change(
+                fn=ui_handlers.update_send_core_memory_state,
+                inputs=[send_core_memory_checkbox],
+                outputs=[send_core_memory_state]
+            ).then(
+                fn=ui_handlers.update_token_count,
+                inputs=token_calc_inputs,
+                outputs=token_calc_outputs
+            )
+
             api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             memory_json_editor.change(fn=lambda: gr.update(variant="primary"), inputs=None, outputs=[save_memory_button])
             save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
@@ -172,7 +188,13 @@ if utils.acquire_lock():
             clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_character_name], outputs=[notepad_editor])
             chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, gr.State()])
             chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, token_count_display]
-            chat_inputs = [chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state]
+            chat_inputs = [
+                chat_input_textbox, chatbot_display, current_character_name,
+                current_model_name, current_api_key_name_state, file_upload_button,
+                add_timestamp_checkbox, send_thoughts_state, api_history_limit_state,
+                send_notepad_state, use_common_prompt_state,
+                send_core_memory_state # ★★★ この行を追加 ★★★
+            ]
             chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
             submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
             setup_token_update_events()

@@ -27,7 +27,8 @@ def handle_message_submission(*args: Any):
     (textbox_content, chatbot_history, current_character_name, current_model_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      send_thoughts_state, api_history_limit_state,
-     send_notepad_state, use_common_prompt_state) = args
+     send_notepad_state, use_common_prompt_state,
+     send_core_memory_state) = args # ★★★ 引数を追加 ★★★
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         token_count = update_token_count(None, None, current_character_name, current_model_name, current_api_key_name_state, api_history_limit_state, send_notepad_state, "", use_common_prompt_state)
@@ -254,7 +255,8 @@ def update_token_count(
     notepad_editor_content: str,
     use_common_prompt_state: bool,
     add_timestamp_state: bool,
-    send_thoughts_state: bool  # ★★★ この引数を追加 ★★★
+    send_thoughts_state: bool,
+    send_core_memory_state: bool # ★★★ 引数を追加 ★★★
 ) -> str:
     """入力全体のトークン数を計算し、UI表示用の文字列を返す【思考過程反映版】"""
     import gemini_api
@@ -300,7 +302,8 @@ def update_token_count(
             send_notepad_to_api=send_notepad_state,
             use_common_prompt=use_common_prompt_state,
             add_timestamp=add_timestamp_state,
-            send_thoughts=send_thoughts_state  # ★★★ 新しい引数を渡す ★★★
+            send_thoughts=send_thoughts_state,
+            send_core_memory=send_core_memory_state # ★★★ 引数を渡す ★★★
         )
 
         if token_count == -1: return "入力トークン数: (APIキー/モデルエラー)"
@@ -345,7 +348,8 @@ def handle_initial_load(
     send_notepad_state: bool,
     use_common_prompt_state: bool,
     add_timestamp_state: bool,
-    send_thoughts_state: bool
+    send_thoughts_state: bool,
+    send_core_memory_state: bool # ★★★ 引数を追加 ★★★
 ):
     """
     アプリケーション起動時にUIの全要素を初期化するための司令塔関数。
@@ -365,7 +369,8 @@ def handle_initial_load(
         send_notepad_state, "", # notepad_editor_contentはここで空文字を渡す
         use_common_prompt_state,
         add_timestamp_state,
-        send_thoughts_state
+        send_thoughts_state,
+        send_core_memory_state # ★★★ 引数を渡す ★★★
     )
 
     # 4. Gradioに渡すための全10項目のデータを組み立てて返す
@@ -381,3 +386,8 @@ def handle_initial_load(
         initial_token_str,
         current_notepad_content
     )
+
+def update_send_core_memory_state(checked: bool):
+    # 現状、configへの保存は不要だが、将来のために枠組みだけ用意
+    # config_manager.save_config("last_send_core_memory", bool(checked))
+    return bool(checked)
