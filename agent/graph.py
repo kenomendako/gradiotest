@@ -36,6 +36,7 @@ class AgentState(TypedDict):
     tavily_api_key: str
     model_name: str
     system_prompt: SystemMessage
+    send_core_memory: bool # ★★★ この行を追加 ★★★
 
 # --- 3. モデル初期化 ---
 def get_configured_llm(model_name: str, api_key: str):
@@ -94,13 +95,18 @@ def context_generator_node(state: AgentState):
         print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}")
 
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
-    core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
     character_prompt = ""
     if os.path.exists(char_prompt_path):
         with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
+
+    # ★★★ ここからが修正箇所 ★★★
     core_memory = ""
-    if os.path.exists(core_memory_path):
-        with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
+    if state.get("send_core_memory", True): # stateからフラグを取得。なければデフォルトTrue
+        core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
+        if os.path.exists(core_memory_path):
+            with open(core_memory_path, 'r', encoding='utf-8') as f:
+                core_memory = f.read().strip()
+    # ★★★ 修正ここまで ★★★
 
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
 

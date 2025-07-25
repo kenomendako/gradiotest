@@ -1,4 +1,4 @@
-# nexus_ark.py の内容を、以下のコードで完全に置き換えてください
+# nexus_ark.py をこのコードで完全に置き換えてください
 
 import os
 import sys
@@ -32,7 +32,6 @@ if utils.acquire_lock():
     #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
     """
         with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css) as demo:
-            # (State定義などの前半部分は変更なし)
             character_list_on_startup = character_manager.get_character_list()
             if not character_list_on_startup:
                 character_manager.ensure_character_files("Default"); character_list_on_startup = ["Default"]
@@ -40,6 +39,7 @@ if utils.acquire_lock():
             if not effective_initial_character or effective_initial_character not in character_list_on_startup:
                 new_char = character_list_on_startup[0] if character_list_on_startup else "Default"; print(f"警告: 最後に使用したキャラクター '{effective_initial_character}' が見つからないか無効です。'{new_char}' で起動します。"); effective_initial_character = new_char; config_manager.save_config("last_character", new_char)
                 if new_char == "Default" and "Default" not in character_list_on_startup: character_manager.ensure_character_files("Default"); character_list_on_startup = ["Default"]
+
             current_character_name = gr.State(effective_initial_character)
             current_model_name = gr.State(config_manager.initial_model_global)
             current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -50,10 +50,10 @@ if utils.acquire_lock():
             editing_alarm_id_state = gr.State(None)
             send_notepad_state = gr.State(True)
             use_common_prompt_state = gr.State(True)
+            send_core_memory_state = gr.State(True)
             selected_message_state = gr.State(None)
 
             with gr.Row():
-                # (左カラムのUI定義は変更なし)
                 with gr.Column(scale=1, min_width=300):
                     profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                     gr.Markdown("### キャラクター"); character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
@@ -66,6 +66,7 @@ if utils.acquire_lock():
                         send_thoughts_checkbox = gr.Checkbox(value=config_manager.initial_send_thoughts_to_api_global, label="思考過程をAPIに送信", interactive=True)
                         send_notepad_checkbox = gr.Checkbox(value=True, label="メモ帳の内容をAPIに送信", interactive=True)
                         use_common_prompt_checkbox = gr.Checkbox(value=True, label="共通ツールプロンプトを注入", interactive=True)
+                        send_core_memory_checkbox = gr.Checkbox(value=True, label="コアメモリをAPIに送信", interactive=True)
                     with gr.Accordion("📗 記憶とログの編集", open=False):
                         with gr.Tabs():
                             with gr.TabItem("記憶 (memory.json)"):
@@ -89,7 +90,6 @@ if utils.acquire_lock():
                                 with gr.Column(visible=False) as pomo_timer_ui: pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
                                 timer_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="通知キャラ", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
                 with gr.Column(scale=3):
-                    # (右カラムのUI定義は変更なし)
                     chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True)
                     with gr.Row():
                         delete_selected_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=4)
@@ -102,38 +102,28 @@ if utils.acquire_lock():
                     file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
                     gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
-            # (イベントリスナーの前半部分は変更なし)
             token_calc_inputs = [
                 chat_input_textbox, file_upload_button, current_character_name,
                 current_model_name, current_api_key_name_state, api_history_limit_state,
-                send_notepad_state, notepad_editor, use_common_prompt_state,
-                add_timestamp_checkbox,
-                send_thoughts_checkbox  # ★★★ この行を追加 ★★★
+                send_notepad_state, use_common_prompt_state,
+                add_timestamp_checkbox, send_thoughts_checkbox, send_core_memory_state
             ]
             token_calc_outputs = token_count_display
+
+            chat_inputs = [
+                chat_input_textbox, chatbot_display, current_character_name, current_model_name,
+                current_api_key_name_state, file_upload_button, add_timestamp_checkbox,
+                send_thoughts_state, api_history_limit_state,
+                send_notepad_state, use_common_prompt_state, send_core_memory_state
+            ]
+
             def setup_token_update_events():
                 chat_input_textbox.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs, show_progress=False)
                 file_upload_button.upload(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
                 file_upload_button.clear(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
                 notepad_editor.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs, show_progress=False)
+
             add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-            demo.load(
-                fn=ui_handlers.handle_initial_load,  # ★★★ 呼び出し先を新しい司令塔に変更 ★★★
-                inputs=[
-                    current_character_name,
-                    api_history_limit_state,
-                    send_notepad_state,
-                    use_common_prompt_state,
-                    add_timestamp_checkbox,
-                    send_thoughts_state
-                ],
-                outputs=[
-                    alarm_dataframe, alarm_dataframe_original_data, chatbot_display,
-                    profile_image_display, memory_json_editor, alarm_char_dropdown,
-                    timer_char_dropdown, selection_feedback_markdown,
-                    token_count_display, notepad_editor
-                ]
-            )
             alarm_dataframe.select(fn=ui_handlers.handle_alarm_selection_and_feedback, inputs=[alarm_dataframe_original_data], outputs=[selected_alarm_ids_state, selection_feedback_markdown], show_progress='hidden').then(fn=ui_handlers.load_alarm_to_form, inputs=[selected_alarm_ids_state], outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
             enable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
             disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
@@ -143,27 +133,11 @@ if utils.acquire_lock():
             timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
             model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
-            add_timestamp_checkbox.change(
-                fn=ui_handlers.update_timestamp_state,
-                inputs=[add_timestamp_checkbox],
-                outputs=[]
-            ).then(  # ★★★ この .then() 以下を追記 ★★★
-                fn=ui_handlers.update_token_count,
-                inputs=token_calc_inputs,
-                outputs=token_calc_outputs
-            )
-
-            send_thoughts_checkbox.change(
-                fn=ui_handlers.update_send_thoughts_state,
-                inputs=[send_thoughts_checkbox],
-                outputs=[send_thoughts_state]
-            ).then(  # ★★★ この .then() 以下を追記 ★★★
-                fn=ui_handlers.update_token_count,
-                inputs=token_calc_inputs,
-                outputs=token_calc_outputs
-            )
+            add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
+            send_thoughts_checkbox.change(fn=ui_handlers.update_send_thoughts_state, inputs=[send_thoughts_checkbox], outputs=[send_thoughts_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             send_notepad_checkbox.change(fn=ui_handlers.update_send_notepad_state, inputs=[send_notepad_checkbox], outputs=[send_notepad_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             use_common_prompt_checkbox.change(fn=ui_handlers.update_use_common_prompt_state, inputs=[use_common_prompt_checkbox], outputs=[use_common_prompt_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
+            send_core_memory_checkbox.change(fn=ui_handlers.update_send_core_memory_state, inputs=[send_core_memory_checkbox], outputs=[send_core_memory_state]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             memory_json_editor.change(fn=lambda: gr.update(variant="primary"), inputs=None, outputs=[save_memory_button])
             save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
@@ -172,12 +146,10 @@ if utils.acquire_lock():
             clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_character_name], outputs=[notepad_editor])
             chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, gr.State()])
             chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, token_count_display]
-            chat_inputs = [chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state]
             chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
             submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
             setup_token_update_events()
 
-            # ★★★ 変更点: timer_submit_button の inputs を修正 ★★★
             timer_submit_button.click(
                 fn=ui_handlers.handle_timer_submission,
                 inputs=[
@@ -192,6 +164,20 @@ if utils.acquire_lock():
             core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
             chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[chatbot_display], outputs=[selected_message_state, delete_selected_button], show_progress=False)
             delete_selected_button.click(fn=ui_handlers.handle_delete_selected_messages, inputs=[current_character_name, selected_message_state, api_history_limit_state], outputs=[chatbot_display, selected_message_state, delete_selected_button])
+            demo.load(
+                fn=ui_handlers.handle_initial_load,
+                inputs=[
+                    current_character_name, api_history_limit_state, send_notepad_state,
+                    use_common_prompt_state, add_timestamp_checkbox,
+                    send_thoughts_state, send_core_memory_state
+                ],
+                outputs=[
+                    alarm_dataframe, alarm_dataframe_original_data, chatbot_display,
+                    profile_image_display, memory_json_editor, alarm_char_dropdown,
+                    timer_char_dropdown, selection_feedback_markdown,
+                    token_count_display, notepad_editor
+                ]
+            )
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 
         if __name__ == "__main__":
