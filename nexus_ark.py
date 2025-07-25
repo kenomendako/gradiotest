@@ -117,6 +117,23 @@ if utils.acquire_lock():
                 file_upload_button.clear(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
                 notepad_editor.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs, show_progress=False)
             add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
+            demo.load(
+                fn=ui_handlers.handle_initial_load,  # ★★★ 呼び出し先を新しい司令塔に変更 ★★★
+                inputs=[
+                    current_character_name,
+                    api_history_limit_state,
+                    send_notepad_state,
+                    use_common_prompt_state,
+                    add_timestamp_checkbox,
+                    send_thoughts_state
+                ],
+                outputs=[
+                    alarm_dataframe, alarm_dataframe_original_data, chatbot_display,
+                    profile_image_display, memory_json_editor, alarm_char_dropdown,
+                    timer_char_dropdown, selection_feedback_markdown,
+                    token_count_display, notepad_editor
+                ]
+            )
             alarm_dataframe.select(fn=ui_handlers.handle_alarm_selection_and_feedback, inputs=[alarm_dataframe_original_data], outputs=[selected_alarm_ids_state, selection_feedback_markdown], show_progress='hidden').then(fn=ui_handlers.load_alarm_to_form, inputs=[selected_alarm_ids_state], outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
             enable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
             disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])

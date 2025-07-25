@@ -338,3 +338,46 @@ def handle_delete_selected_messages(character_name: str, selected_message: Dict[
         gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
     new_chat_history, _ = reload_chat_log(character_name, api_history_limit)
     return new_chat_history, None, gr.update(value=default_button_text)
+
+def handle_initial_load(
+    char_name_to_load: str,
+    api_history_limit: str,
+    send_notepad_state: bool,
+    use_common_prompt_state: bool,
+    add_timestamp_state: bool,
+    send_thoughts_state: bool
+):
+    """
+    アプリケーション起動時にUIの全要素を初期化するための司令塔関数。
+    """
+    # 1. アラームデータを準備する
+    df_with_ids = render_alarms_as_dataframe()
+    display_df = get_display_df(df_with_ids)
+
+    # 2. キャラクター依存のUI要素（チャット履歴、プロフィール画像など）を準備する
+    (returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str,
+     alarm_dd_char_val, timer_dd_char_val, current_notepad_content) = update_ui_on_character_change(char_name_to_load, api_history_limit)
+
+    # 3. 初期のトークン数を計算する
+    initial_token_str = update_token_count(
+        None, None, returned_char_name, config_manager.initial_model_global,
+        config_manager.initial_api_key_name_global, api_history_limit,
+        send_notepad_state, "", # notepad_editor_contentはここで空文字を渡す
+        use_common_prompt_state,
+        add_timestamp_state,
+        send_thoughts_state
+    )
+
+    # 4. Gradioに渡すための全10項目のデータを組み立てて返す
+    return (
+        display_df,
+        df_with_ids,
+        current_chat_hist,
+        current_profile_img,
+        current_mem_str,
+        alarm_dd_char_val,
+        timer_dd_char_val,
+        "アラームを選択してください",
+        initial_token_str,
+        current_notepad_content
+    )
