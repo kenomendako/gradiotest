@@ -301,3 +301,12 @@ def release_lock():
                 if json.load(f).get('pid') == os.getpid():
                     LOCK_FILE_PATH.unlink(); print("\nグローバル・ロックを解放しました。")
         except Exception as e: print(f"\n警告: ロックファイル解放エラー: {e}")
+
+
+def remove_thoughts_from_text(text: str) -> str:
+    """テキストから【Thoughts】...【/Thoughts】ブロックを削除する。"""
+    if not text:
+        return ""
+    # 正規表現で、大文字小文字を区別せず、改行を含む複数行に対応して検索・置換
+    thoughts_pattern = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
+    return thoughts_pattern.sub("", text).strip()

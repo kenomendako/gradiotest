@@ -253,9 +253,10 @@ def update_token_count(
     send_notepad_state: bool,
     notepad_editor_content: str,
     use_common_prompt_state: bool,
-    add_timestamp_state: bool  # ★★★ この引数を追加 ★★★
+    add_timestamp_state: bool,
+    send_thoughts_state: bool  # ★★★ この引数を追加 ★★★
 ) -> str:
-    """入力全体のトークン数を計算し、UI表示用の文字列を返す【タイムスタンプ対応版】"""
+    """入力全体のトークン数を計算し、UI表示用の文字列を返す【思考過程反映版】"""
     import gemini_api
     import filetype
     import base64
@@ -298,7 +299,8 @@ def update_token_count(
             api_key_name=current_api_key_name_state,
             send_notepad_to_api=send_notepad_state,
             use_common_prompt=use_common_prompt_state,
-            add_timestamp=add_timestamp_state  # ★★★ 新しい引数を渡す ★★★
+            add_timestamp=add_timestamp_state,
+            send_thoughts=send_thoughts_state  # ★★★ 新しい引数を渡す ★★★
         )
 
         if token_count == -1: return "入力トークン数: (APIキー/モデルエラー)"

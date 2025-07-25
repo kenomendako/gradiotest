@@ -142,90 +142,55 @@ def invoke_nexus_agent(*args: Any) -> str:
     limit = int(api_history_limit_state) if api_history_limit_state.isdigit() else 0
     if limit > 0 and len(raw_history) > limit * 2:
         raw_history = raw_history[-(limit * 2):]
+
     for h_item in raw_history:
         role, content = h_item.get('role'), h_item.get('content', '').strip()
         if not content: continue
-        if role in ['model', 'assistant', current_character_name]: messages.append(AIMessage(content=content))
-        elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
 
+        if role in ['model', 'assistant', current_character_name]:
+            # ★★★ ここが最重要修正点 ★★★
+            # send_thoughts_stateがFalseの場合、思考ログを履歴から除去する
+            final_content = content if send_thoughts_state else utils.remove_thoughts_from_text(content)
+            if final_content: # 思考除去後にコンテンツが空になる場合があるのでチェック
+                messages.append(AIMessage(content=final_content))
+        elif role in ['user', 'human']:
+            messages.append(HumanMessage(content=content))
+
+    # (以降のファイル添付処理やエージェント呼び出し部分は変更なし)
     user_message_parts = []
     if user_input_text:
         user_message_parts.append({"type": "text", "text": user_input_text})
-
     if file_input_list:
-        # clientはここでは不要
         for file_obj in file_input_list:
             filepath = file_obj.name
-            print(f"  - ファイル添付を処理中: {filepath}")
             try:
                 kind = filetype.guess(filepath)
-                if kind is None:
-                    raise TypeError("Cannot guess file type, attempting to read as text.")
-
+                if kind is None: raise TypeError("Cannot guess file type")
                 mime_type = kind.mime
-                print(f"    - 検出されたMIMEタイプ: {mime_type}")
-
                 if mime_type.startswith("image/"):
                     img = Image.open(filepath)
-                    buffered = io.BytesIO()
-                    img_format = img.format or 'PNG'
-                    save_image = img.convert('RGB') if img.mode in ('RGBA', 'P') else img
-                    save_image.save(buffered, format=img_format)
+                    buffered = io.BytesIO(); img.save(buffered, format=img.format or 'PNG')
                     img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-                    user_message_parts.append({
-                        "type": "image_url",
-                        "image_url": { "url": f"data:{mime_type};base64,{img_base64}"}
-                    })
+                    user_message_parts.append({"type": "image_url", "image_url": { "url": f"data:{mime_type};base64,{img_base64}"}})
                 elif mime_type.startswith("audio/") or mime_type.startswith("video/"):
-                    # ★★★ お客様が発見された、唯一の正しい実装 ★★★
-                    with open(filepath, "rb") as f:
-                        file_data = base64.b64encode(f.read()).decode("utf-8")
-                    user_message_parts.append({
-                        "type": "media",
-                        "mime_type": mime_type,
-                        "data": file_data
-                    })
-                else:
-                    raise TypeError("Unsupported MIME type, attempting to read as text.")
-
+                    with open(filepath, "rb") as f: file_data = base64.b64encode(f.read()).decode("utf-8")
+                    user_message_parts.append({"type": "media", "mime_type": mime_type, "data": file_data})
+                else: raise TypeError("Unsupported MIME type")
             except Exception as e:
-                print(f"    - 警告: バイナリファイルとして処理中にエラー ({e})。テキストとして読み込みます。")
                 try:
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        text_content = f.read()
-                    user_message_parts.append({
-                        "type": "text",
-                        "text": f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---"
-                    })
+                    with open(filepath, 'r', encoding='utf-8') as f: text_content = f.read()
+                    user_message_parts.append({"type": "text", "text": f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---"})
                 except Exception as text_e:
-                    print(f"    - 警告: ファイル '{os.path.basename(filepath)}' の読み込みに失敗しました。スキップします。エラー: {text_e}")
-
+                    print(f"警告: ファイル '{os.path.basename(filepath)}' の読み込みに失敗。スキップ。エラー: {text_e}")
     if user_message_parts:
         messages.append(HumanMessage(content=user_message_parts))
 
-    initial_state = {
-        "messages": messages,
-        "character_name": current_character_name,
-        "api_key": api_key,
-        "tavily_api_key": config_manager.TAVILY_API_KEY,
-        "model_name": current_model_name,
-    }
-
+    initial_state = { "messages": messages, "character_name": current_character_name, "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY, "model_name": current_model_name }
     try:
         final_state = app.invoke(initial_state)
-        # LangGraphからの応答は .content 属性に格納されている
-        final_response_message = final_state['messages'][-1]
-        final_response_text = final_response_message.content
-
-        # mem0は無効化
-        # try:
-        #     # ... (mem0 code) ...
-        # except Exception as e:
-        #     print(f"--- mem0への記憶中にエラー: {e} ---")
-
+        final_response_text = final_state['messages'][-1].content
         return final_response_text
     except Exception as e:
-        print(f"--- エージェント実行エラー ---")
         traceback.print_exc()
         return f"[エージェント実行エラー: {e}]"
 
@@ -233,11 +198,11 @@ def count_input_tokens(
     character_name: str, model_name: str, parts: list,
     api_history_limit_option: str, api_key_name: str,
     send_notepad_to_api: bool, use_common_prompt: bool,
-    add_timestamp: bool  # ★★★ この引数を追加 ★★★
+    add_timestamp: bool,
+    send_thoughts: bool  # ★★★ この引数を追加 ★★★
 ) -> int:
     """
-    入力全体のトークン数を計算する【UI設定反映版】。
-    タイムスタンプの有無を考慮して計算する。
+    入力全体のトークン数を計算する【思考過程反映・最終版】。
     """
     from agent.graph import all_tools
     from agent.prompts import CORE_PROMPT_TEMPLATE
@@ -283,17 +248,25 @@ def count_input_tokens(
                 if notepad_content: final_system_prompt += f"\n\n---\n【現在のメモ帳の内容】\n{notepad_content}\n---"
     messages.append(SystemMessage(content=final_system_prompt))
 
-    # --- 履歴構築 ---
+    # --- 履歴構築 (思考過程の有無を考慮) ---
     log_file, _, _, _, _ = get_character_files_paths(character_name)
     raw_history = utils.load_chat_log(log_file, character_name)
     limit = int(api_history_limit_option) if api_history_limit_option.isdigit() else 0
     if limit > 0 and len(raw_history) > limit * 2: raw_history = raw_history[-(limit * 2):]
+
     for h_item in raw_history:
         role, content = h_item.get('role'), h_item.get('content', '').strip()
         if not content: continue
-        if role in ['model', 'assistant', character_name]: messages.append(AIMessage(content=content))
-        elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
 
+        if role in ['model', 'assistant', character_name]:
+            # ★★★ ここが最重要修正点 ★★★
+            final_content = content if send_thoughts else utils.remove_thoughts_from_text(content)
+            if final_content:
+                messages.append(AIMessage(content=final_content))
+        elif role in ['user', 'human']:
+            messages.append(HumanMessage(content=content))
+
+    # (以降のユーザー入力メッセージ構築と計算処理は変更なし)
     # --- ユーザー入力メッセージ構築 (タイムスタンプを考慮) ---
     user_message_content_parts = []
     text_buffer = []

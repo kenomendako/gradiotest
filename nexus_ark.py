@@ -107,7 +107,8 @@ if utils.acquire_lock():
                 chat_input_textbox, file_upload_button, current_character_name,
                 current_model_name, current_api_key_name_state, api_history_limit_state,
                 send_notepad_state, notepad_editor, use_common_prompt_state,
-                add_timestamp_checkbox  # ★★★ この行を追加 ★★★
+                add_timestamp_checkbox,
+                send_thoughts_checkbox  # ★★★ この行を追加 ★★★
             ]
             token_calc_outputs = token_count_display
             def setup_token_update_events():
