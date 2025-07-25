@@ -189,24 +189,21 @@ if utils.acquire_lock():
             )
             chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[chatbot_display], outputs=[selected_message_state, delete_selected_button], show_progress=False)
             delete_selected_button.click(fn=ui_handlers.handle_delete_selected_messages, inputs=[current_character_name, selected_message_state, api_history_limit_state], outputs=[chatbot_display, selected_message_state, delete_selected_button])
-            demo.load(
-                fn=ui_handlers.handle_initial_load,
-                inputs=[
-                    current_character_name, api_history_limit_state, send_notepad_state,
-                    use_common_prompt_state, add_timestamp_checkbox,
-                    send_thoughts_state, send_core_memory_state, send_scenery_state
-                ],
-                outputs=[
-                    alarm_dataframe, alarm_dataframe_original_data, chatbot_display,
-                    profile_image_display, memory_json_editor, alarm_char_dropdown,
-                    timer_char_dropdown, selection_feedback_markdown,
-                    token_count_display, notepad_editor
-                ]
-            ).then(
-                fn=ui_handlers.get_location_list_for_ui,
-                inputs=[current_character_name],
-                outputs=[location_dropdown]
-            )
+    demo.load(
+        fn=ui_handlers.handle_initial_load,
+        inputs=[
+            current_character_name, api_history_limit_state, send_notepad_state,
+            use_common_prompt_state, add_timestamp_checkbox,
+            send_thoughts_state, send_core_memory_state
+        ],
+        outputs=[ # ★★★ outputsのリストを更新 ★★★
+            alarm_dataframe, alarm_dataframe_original_data, chatbot_display,
+            profile_image_display, memory_json_editor, alarm_char_dropdown,
+            timer_char_dropdown, selection_feedback_markdown,
+            token_count_display, notepad_editor,
+            location_dropdown # ★★★ この行を追加 ★★★
+        ]
+    )
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 
         if __name__ == "__main__":

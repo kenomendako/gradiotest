@@ -310,3 +310,14 @@ def remove_thoughts_from_text(text: str) -> str:
     # 正規表現で、大文字小文字を区別せず、改行を含む複数行に対応して検索・置換
     thoughts_pattern = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
     return thoughts_pattern.sub("", text).strip()
+
+def get_current_location(character_name: str) -> Optional[str]:
+    """キャラクターの現在地ファイルから現在の場所IDを読み込む。"""
+    try:
+        location_file_path = os.path.join("characters", character_name, "current_location.txt")
+        if os.path.exists(location_file_path):
+            with open(location_file_path, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+    except Exception as e:
+        print(f"警告: 現在地ファイルの読み込みに失敗しました: {e}")
+    return None

@@ -428,23 +428,39 @@ def update_send_core_memory_state(checked: bool): return bool(checked)
 def handle_initial_load(
     char_name_to_load: str, api_history_limit: str, send_notepad_state: bool,
     use_common_prompt_state: bool, add_timestamp_state: bool,
-    send_thoughts_state: bool, send_core_memory_state: bool, send_scenery_state: bool
+    send_thoughts_state: bool, send_core_memory_state: bool
 ):
+    """
+    アプリケーション起動時にUIの全要素を一度に初期化するための【最終版】司令塔関数。
+    """
+    # 1. アラームデータを準備する
     df_with_ids = render_alarms_as_dataframe()
     display_df = get_display_df(df_with_ids)
+
+    # 2. キャラクター依存のUI要素（チャット履歴、プロフィール画像など）を準備する
     (returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str,
      alarm_dd_char_val, timer_dd_char_val, current_notepad_content) = update_ui_on_character_change(char_name_to_load, api_history_limit)
+
+    # ★★★ ここからが修正点 ★★★
+    # 3. 場所リストをここで直接取得する
+    locations = get_location_list_for_ui(returned_char_name)
+    # 現在地ファイルから現在の場所を取得し、ドロップダウンの初期値に設定
+    current_location_id = utils.get_current_location(returned_char_name)
+
+    # 4. 初期のトークン数を計算する
     initial_token_str = update_token_count(
         None, None, returned_char_name, config_manager.initial_model_global,
         config_manager.initial_api_key_name_global, api_history_limit,
         send_notepad_state, use_common_prompt_state,
-        add_timestamp_state, send_thoughts_state, send_core_memory_state,
-        send_scenery_state
+        add_timestamp_state, send_thoughts_state, send_core_memory_state
     )
+
+    # 5. Gradioに渡すための全12項目のデータを組み立てて返す
     return (
         display_df, df_with_ids, current_chat_hist, current_profile_img,
         current_mem_str, alarm_dd_char_val, timer_dd_char_val,
-        "アラームを選択してください", initial_token_str, current_notepad_content
+        "アラームを選択してください", initial_token_str, current_notepad_content,
+        gr.update(choices=locations, value=current_location_id), # ★★★ 場所ドロップダウン用のデータを追加 ★★★
     )
 
 def update_send_scenery_state(checked: bool):
