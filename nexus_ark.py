@@ -117,50 +117,6 @@ if utils.acquire_lock():
                 file_upload_button.clear(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
                 notepad_editor.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs, show_progress=False)
             add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-def initial_load(
-    char_name_to_load: str,
-    api_history_limit: str,
-    current_send_notepad_state: bool,
-    use_common_prompt_state: bool,
-    add_timestamp_value: bool,
-    send_thoughts_value: bool  # ★★★ 1. 新しい引数を受け取る ★★★
-):
-    df_with_ids = ui_handlers.render_alarms_as_dataframe()
-    display_df = ui_handlers.get_display_df(df_with_ids)
-    (returned_char_name, current_chat_hist, _, current_profile_img, current_mem_str,
-     alarm_dd_char_val, timer_dd_char_val, current_notepad_content) = ui_handlers.update_ui_on_character_change(char_name_to_load, api_history_limit)
-
-    # ★★★ 2. update_token_count に新しい引数を渡す ★★★
-    initial_token_str = ui_handlers.update_token_count(
-        None, None, returned_char_name, config_manager.initial_model_global,
-        config_manager.initial_api_key_name_global, api_history_limit,
-        current_send_notepad_state, current_notepad_content,
-        use_common_prompt_state,
-        add_timestamp_value,
-        send_thoughts_value  # ★★★ 渡す値を追加 ★★★
-    )
-    return (display_df, df_with_ids, current_chat_hist, current_profile_img,
-            current_mem_str, alarm_dd_char_val, timer_dd_char_val,
-            "アラームを選択してください", initial_token_str, current_notepad_content)
-
-demo.load(
-    fn=initial_load,
-    inputs=[  # ★★★ inputs リストを更新 ★★★
-        current_character_name,
-        api_history_limit_state,
-        send_notepad_state,
-        use_common_prompt_state,
-        add_timestamp_checkbox,
-        send_thoughts_state  # ★★★ この行を追加 ★★★
-    ],
-    outputs=[
-        alarm_dataframe, alarm_dataframe_original_data, chatbot_display,
-        profile_image_display, memory_json_editor, alarm_char_dropdown,
-        timer_char_dropdown, selection_feedback_markdown,
-        token_count_display, notepad_editor
-    ]
-)
-
             alarm_dataframe.select(fn=ui_handlers.handle_alarm_selection_and_feedback, inputs=[alarm_dataframe_original_data], outputs=[selected_alarm_ids_state, selection_feedback_markdown], show_progress='hidden').then(fn=ui_handlers.load_alarm_to_form, inputs=[selected_alarm_ids_state], outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
             enable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
             disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data]).then(fn=lambda df: ui_handlers.get_display_df(df), inputs=[alarm_dataframe_original_data], outputs=[alarm_dataframe])
