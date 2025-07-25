@@ -76,8 +76,7 @@ def context_generator_node(state: AgentState):
             location_to_describe = "living_space"
             print(f"  - 場所が特定できなかったため、デフォルトの '{location_to_describe}' を使用します。")
 
-        # 注意：プロジェクトのガイドラインに基づき、モデルを gemini-2.5-flash に統一しています
-        llm_flash = get_configured_llm("gemini-1.5-flash", api_key)
+        llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
 
         found_id_result = find_location_id_by_name.invoke({"location_name": location_to_describe, "character_name": character_name})
         id_to_use = location_to_describe
@@ -88,8 +87,6 @@ def context_generator_node(state: AgentState):
 
         if not space_def.startswith("【Error】") and not space_def.startswith("Error:"):
             now = datetime.now()
-
-            # ★★★ あなたが修正した、新しい情景描写プロンプトをここに統合しました ★★★
             scenery_prompt = (
                 f"空間定義:{space_def}\n"
                 f"時刻:{now.strftime('%H:%M')} / 季節:{now.month}月\n\n"
@@ -99,7 +96,6 @@ def context_generator_node(state: AgentState):
                 "- 1〜2文の簡潔な文章にまとめてください。\n"
                 "- 気温、湿度、光と影、音、香り、空気の質感など、五感に訴えかける具体的な描写を重視してください。"
             )
-
             scenery_text = llm_flash.invoke(scenery_prompt).content
             print(f"  - 生成された情景描写: {scenery_text}")
         else:
@@ -133,10 +129,8 @@ def context_generator_node(state: AgentState):
         'tools_list': tools_list_str
     }
 
-    # agent/prompts.py から正しいテンプレートを読み込んで使用
     formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
 
-    # ★★★ 新機能：最終的なシステムプロンプトに場所の定義・設定を追加 ★★★
     final_system_prompt_text = (
         f"{formatted_core_prompt}\n"
         "---\n"
@@ -144,6 +138,12 @@ def context_generator_node(state: AgentState):
         f"【現在の場所の定義・設定】\n{space_def}\n"
         "---"
     )
+
+    # ★★★ ここからが修正箇所 ★★★
+    # 最終的なシステムプロンプトをログに出力して、内容を確認できるようにする
+    prompt_to_log = (final_system_prompt_text[:500] + '...') if len(final_system_prompt_text) > 500 else final_system_prompt_text
+    print(f"  - 生成された最終システムプロンプト (一部):\n```\n{prompt_to_log}\n```")
+    # ★★★ 修正ここまで ★★★
 
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
