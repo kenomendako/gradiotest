@@ -78,41 +78,46 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
     """
-    LangChainメッセージリストからトークン数を計算する【最新API仕様版】。
-    システムメッセージを `system_instruction` を使って正しく処理します。
+    LangChainメッセージリストからトークン数を計算する【互換性最優先・最終版】。
+    system_instructionを使わず、全モデルで安定動作する方法に統一する。
     """
     if not messages:
         return 0
     try:
         client = genai.Client(api_key=api_key)
-        system_instruction_content = None
 
-        if messages and isinstance(messages[0], SystemMessage):
-            system_instruction_content = messages[0].content
-            # ユーザーメッセージとモデルメッセージのみを contents に含める
-            contents_for_api = _convert_lc_to_gg_for_count(messages[1:])
+        # LangChainメッセージ形式をGoogle SDKが理解できる形式に変換
+        contents_for_api = _convert_lc_to_gg_for_count(messages)
+
+        # ★★★ ここが最重要修正点 ★★★
+        # system_instruction を使うのをやめ、システムプロンプトを
+        # 「ユーザーからの指示」と「モデルの承諾("OK")」のペアに変換する方式に統一。
+        # これにより、モデルのサポート状況を問わず、一貫した動作を保証する。
+        final_contents_for_api = []
+        if contents_for_api and contents_for_api[0]['role'] == 'user' and isinstance(messages[0], SystemMessage):
+            # 最初のメッセージがSystemMessageから変換されたものか確認
+            system_instruction_parts = contents_for_api[0]['parts']
+
+            # システム指示をユーザーロールとして追加
+            final_contents_for_api.append({"role": "user", "parts": system_instruction_parts})
+            # モデルの承諾をモデルロールとして追加
+            final_contents_for_api.append({"role": "model", "parts": [{"text": "OK"}]})
+
+            # 残りのメッセージを追加
+            final_contents_for_api.extend(contents_for_api[1:])
         else:
-            contents_for_api = _convert_lc_to_gg_for_count(messages)
+            # システムメッセージがない場合は、そのまま使う
+            final_contents_for_api = contents_for_api
 
-        # APIを呼び出し
+        # 警告の原因となっていた system_instruction パラメータを完全に削除してAPIを呼び出す
         result = client.models.count_tokens(
             model=f"models/{model_name}",
-            contents=contents_for_api,
-            system_instruction=system_instruction_content
+            contents=final_contents_for_api
         )
         return result.total_tokens
+
     except Exception as e:
-        if "system_instruction" in str(e) or "System instructions are not supported" in str(e):
-             print(f"警告: モデル '{model_name}' は system_instruction をサポートしていません。従来の計算方法にフォールバックします。")
-             try:
-                 # フォールバックロジック: system_instructionを通常のユーザーメッセージとして扱う
-                 contents_for_api_fallback = _convert_lc_to_gg_for_count(messages)
-                 result = client.models.count_tokens(model=f"models/{model_name}", contents=contents_for_api_fallback)
-                 return result.total_tokens
-             except Exception as fallback_e:
-                 print(f"フォールバック計算エラー: {fallback_e}")
-                 traceback.print_exc()
-                 return -1
+        # 汎用的なエラーハンドリング
         print(f"トークン計算エラー: {e}")
         traceback.print_exc()
         return -1
