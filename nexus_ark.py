@@ -194,7 +194,7 @@ if utils.acquire_lock():
                 inputs=[
                     current_character_name, api_history_limit_state, send_notepad_state,
                     use_common_prompt_state, add_timestamp_checkbox,
-                    send_thoughts_state, send_core_memory_state
+                    send_thoughts_state, send_core_memory_state, send_scenery_state
                 ],
                 outputs=[ # ★★★ outputsのリストを更新 ★★★
                     alarm_dataframe, alarm_dataframe_original_data, chatbot_display,
@@ -209,5 +209,8 @@ if utils.acquire_lock():
         if __name__ == "__main__":
             print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(""); print(f"  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(""); print("  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
             demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
+    except Exception as e:
+        print(f"アプリケーションの起動中に致命的なエラーが発生しました: {e}")
+        traceback.print_exc()
     finally:
         utils.release_lock()
