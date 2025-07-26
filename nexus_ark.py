@@ -58,10 +58,13 @@ if utils.acquire_lock():
                 with gr.Column(scale=1, min_width=300):
                     profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                     gr.Markdown("### キャラクター"); character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
-                    with gr.Row(equal_height=True):
+                    with gr.Row():
                         location_dropdown = gr.Dropdown(label="現在地を変更", interactive=True, scale=3)
                         change_location_button = gr.Button("移動", scale=1)
-                    with gr.Row(): new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3); add_character_button = gr.Button("迎える", variant="secondary", scale=1)
+                    with gr.Accordion("新しいキャラクターを迎える", open=False):
+                        with gr.Row():
+                            new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3)
+                            add_character_button = gr.Button("迎える", variant="secondary", scale=1)
                     with gr.Accordion("⚙️ 基本設定", open=False):
                         model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
                         api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True)
