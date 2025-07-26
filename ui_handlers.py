@@ -495,3 +495,14 @@ def handle_initial_load(
         "アラームを選択してください", initial_token_str, current_notepad_content,
         gr.update(choices=locations, value=current_location_id),
     )
+
+def handle_reload_memory(character_name: str) -> str:
+    """指定されたキャラクターのmemory.jsonを再読み込みして、UIに反映する。"""
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return ""
+
+    _, _, _, mem_p, _ = get_character_files_paths(character_name)
+    memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
+    gr.Info(f"「{character_name}」の記憶を再読み込みしました。")
+    return memory_str

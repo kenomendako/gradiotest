@@ -61,10 +61,6 @@ if utils.acquire_lock():
                     with gr.Row():
                         location_dropdown = gr.Dropdown(label="現在地を変更", interactive=True, scale=3)
                         change_location_button = gr.Button("移動", scale=1)
-                    with gr.Accordion("新しいキャラクターを迎える", open=False):
-                        with gr.Row():
-                            new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3)
-                            add_character_button = gr.Button("迎える", variant="secondary", scale=1)
                     with gr.Accordion("⚙️ 基本設定", open=False):
                         model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
                         api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True)
@@ -75,11 +71,15 @@ if utils.acquire_lock():
                         use_common_prompt_checkbox = gr.Checkbox(value=True, label="共通ツールプロンプトを注入", interactive=True)
                         send_core_memory_checkbox = gr.Checkbox(value=True, label="コアメモリをAPIに送信", interactive=True)
                         send_scenery_checkbox = gr.Checkbox(value=True, label="空間描写・設定をAPIに送信", interactive=True) # ★★★ この行を追加 ★★★
-                    with gr.Accordion("📗 記憶とログの編集", open=False):
+                    with gr.Accordion("📗 記憶とメモ帳の編集", open=False):
                         with gr.Tabs():
                             with gr.TabItem("記憶 (memory.json)"):
                                 memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code")
-                                with gr.Row(): save_memory_button = gr.Button(value="想いを綴る", variant="secondary"); core_memory_update_button = gr.Button(value="コアメモリを更新", variant="primary"); rag_update_button = gr.Button(value="手帳の索引を更新", variant="secondary")
+                                with gr.Row():
+                                    save_memory_button = gr.Button(value="想いを綴る", variant="secondary")
+                                    reload_memory_button = gr.Button(value="更新", variant="secondary")
+                                    core_memory_update_button = gr.Button(value="コアメモリを更新", variant="primary")
+                                    rag_update_button = gr.Button(value="手帳の索引を更新", variant="secondary")
                             with gr.TabItem("メモ帳 (notepad.md)"):
                                 notepad_editor = gr.Textbox(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code", lines=15, autoscroll=True)
                                 with gr.Row(): save_notepad_button = gr.Button(value="メモ帳を保存", variant="secondary"); reload_notepad_button = gr.Button(value="再読込", variant="secondary"); clear_notepad_button = gr.Button(value="メモ帳を全削除", variant="stop")
@@ -97,6 +97,10 @@ if utils.acquire_lock():
                                 with gr.Column(visible=True) as normal_timer_ui: timer_duration_number = gr.Number(label="タイマー時間 (分)", value=10, minimum=1, step=1); normal_timer_theme_input = gr.Textbox(label="通常タイマーのテーマ", placeholder="例: タイマー終了！")
                                 with gr.Column(visible=False) as pomo_timer_ui: pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
                                 timer_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="通知キャラ", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
+                    with gr.Accordion("新しいキャラクターを迎える", open=False):
+                        with gr.Row():
+                            new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3)
+                            add_character_button = gr.Button("迎える", variant="secondary", scale=1)
                 with gr.Column(scale=3):
                     chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True)
                     with gr.Row():
@@ -164,6 +168,11 @@ if utils.acquire_lock():
             api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=token_calc_outputs)
             memory_json_editor.change(fn=lambda: gr.update(variant="primary"), inputs=None, outputs=[save_memory_button])
             save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
+            reload_memory_button.click(
+                fn=ui_handlers.handle_reload_memory,
+                inputs=[current_character_name],
+                outputs=[memory_json_editor]
+            )
             save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_character_name, notepad_editor], outputs=[notepad_editor])
             reload_notepad_button.click(fn=ui_handlers.handle_reload_notepad, inputs=[current_character_name], outputs=[notepad_editor])
             clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_character_name], outputs=[notepad_editor])
