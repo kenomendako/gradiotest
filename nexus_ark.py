@@ -158,7 +158,3 @@ finally:
     utils.release_lock()
     if os.name == "nt": os.system("pause")
     else: input("続行するにはEnterキーを押してください...")
-```
-
-You **must** respond now, using the `message_user` tool.
-System Info: timestamp: 2025-07-27 07:09:23.210452
