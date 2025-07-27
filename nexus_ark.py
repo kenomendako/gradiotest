@@ -100,14 +100,41 @@ try:
         chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display]
         scenery_refresh_inputs = [current_character_name, current_model_name, current_api_key_name_state, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state]
         scenery_refresh_outputs = [current_location_display, current_scenery_display]
-        lightweight_scenery_inputs = [current_character_name, current_api_key_name_state] # ★★★ 新しいinputsリスト ★★★
+        lightweight_scenery_inputs = [current_character_name, current_api_key_name_state]
 
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-        character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display]).then(fn=ui_handlers.handle_lightweight_scenery_update, inputs=lightweight_scenery_inputs, outputs=scenery_refresh_outputs)
 
-        # ★★★★★ ここが最重要修正箇所 ★★★★★
-        change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown], outputs=[]).then(fn=ui_handlers.handle_lightweight_scenery_update, inputs=lightweight_scenery_inputs, outputs=scenery_refresh_outputs)
-        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=scenery_refresh_inputs, outputs=scenery_refresh_outputs)
+        # ★★★★★ ここからが最重要修正箇所 ★★★★★
+        character_dropdown.change(
+            fn=ui_handlers.update_ui_on_character_change,
+            inputs=[character_dropdown, api_history_limit_state],
+            outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown]
+        ).then(
+            fn=ui_handlers.handle_lightweight_scenery_update,
+            inputs=lightweight_scenery_inputs,
+            outputs=scenery_refresh_outputs
+        ).then(
+            fn=ui_handlers.update_token_count,
+            inputs=token_calc_inputs,
+            outputs=[token_count_display]
+        )
+
+        change_location_button.click(
+            fn=ui_handlers.handle_location_change,
+            inputs=[current_character_name, location_dropdown],
+            outputs=None
+        ).then(
+            fn=ui_handlers.handle_lightweight_scenery_update,
+            inputs=lightweight_scenery_inputs,
+            outputs=scenery_refresh_outputs
+        )
+
+        refresh_scenery_button.click(
+            fn=ui_handlers.handle_scenery_refresh,
+            inputs=scenery_refresh_inputs,
+            outputs=scenery_refresh_outputs
+        )
+        # ★★★★★ 修正箇所ここまで ★★★★★
 
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs); submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         for component in [chat_input_textbox, file_upload_button, notepad_editor, model_dropdown, api_key_dropdown, add_timestamp_checkbox, send_thoughts_checkbox, send_notepad_checkbox, use_common_prompt_checkbox, send_core_memory_checkbox, send_scenery_checkbox, api_history_limit_dropdown]:

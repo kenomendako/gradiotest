@@ -100,18 +100,12 @@ def handle_scenery_refresh(character_name, model_name, api_key_name, send_though
     location = response_data.get("location_name", "（場所の取得に失敗しました）"); scenery = response_data.get("scenery", "（情景の取得に失敗しました）")
     gr.Info("情景を更新しました。"); return location, scenery
 
-# ★★★★★ 新しい軽量ハンドラを追加 ★★★★★
 def handle_lightweight_scenery_update(character_name: str, api_key_name: str) -> Tuple[str, str]:
-    """
-    UIからの場所移動後など、AIの思考が不要な場合に呼び出す軽量な情景更新ハンドラ。
-    """
-    if not character_name or not api_key_name:
-        return "（エラー）", "（キャラ/APIキー未設定）"
+    if not character_name or not api_key_name: return "（エラー）", "（キャラ/APIキー未設定）"
     gr.Info(f"「{character_name}」の場所情報を軽量に更新しています...")
     api_key = config_manager.API_KEYS.get(api_key_name)
     loc, scen = _generate_initial_scenery(character_name, api_key)
-    gr.Info("場所情報を更新しました。")
-    return loc, scen
+    gr.Info("場所情報を更新しました。"); return loc, scen
 
 def handle_location_change(character_name: str, location_id: str):
     from tools.space_tools import set_current_location
@@ -148,7 +142,9 @@ def handle_add_new_character(character_name: str):
 def _get_display_history_count(api_history_limit_value: str) -> int:
     return int(api_history_limit_value) if api_history_limit_value.isdigit() else config_manager.UI_HISTORY_MAX_LIMIT
 
+# ★★★★★ ここが最重要修正箇所 ★★★★★
 def update_ui_on_character_change(character_name: Optional[str], api_history_limit_value: str):
+    """キャラクター変更時のUI更新。この関数自体は情景描写を生成しない。"""
     if not character_name:
         all_chars = character_manager.get_character_list(); character_name = all_chars[0] if all_chars else "Default"
     config_manager.save_config("last_character", character_name)
@@ -160,6 +156,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     notepad_content = load_notepad_content(character_name)
     locations = get_location_list_for_ui(character_name)
     current_location_id = utils.get_current_location(character_name)
+    # 情景描写のテキストボックスは、ここでは更新せず、後続の軽量ハンドラに任せる
     return (character_name, chat_history, "", profile_image, memory_str, character_name, character_name, notepad_content, gr.update(choices=locations, value=current_location_id))
 
 def handle_initial_load():
@@ -314,7 +311,7 @@ def update_timestamp_state(checked): config_manager.save_config("add_timestamp",
 def update_send_thoughts_state(checked): config_manager.save_config("last_send_thoughts_to_api", bool(checked)); return bool(checked)
 def update_send_notepad_state(checked: bool): return checked
 def update_use_common_prompt_state(checked: bool): return checked
-def update_send_core_memory_state(checked: bool): return checked
+def update_send_core_memory_state(checked: bool): return bool(checked)
 def update_send_scenery_state(checked: bool): return bool(checked)
 
 def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
