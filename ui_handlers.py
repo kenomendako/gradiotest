@@ -1,3 +1,5 @@
+# ui_handlers.py を、このコードで完全に置き換えてください
+
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple
 import gradio as gr
@@ -98,6 +100,19 @@ def handle_scenery_refresh(character_name, model_name, api_key_name, send_though
     location = response_data.get("location_name", "（場所の取得に失敗しました）"); scenery = response_data.get("scenery", "（情景の取得に失敗しました）")
     gr.Info("情景を更新しました。"); return location, scenery
 
+# ★★★★★ 新しい軽量ハンドラを追加 ★★★★★
+def handle_lightweight_scenery_update(character_name: str, api_key_name: str) -> Tuple[str, str]:
+    """
+    UIからの場所移動後など、AIの思考が不要な場合に呼び出す軽量な情景更新ハンドラ。
+    """
+    if not character_name or not api_key_name:
+        return "（エラー）", "（キャラ/APIキー未設定）"
+    gr.Info(f"「{character_name}」の場所情報を軽量に更新しています...")
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    loc, scen = _generate_initial_scenery(character_name, api_key)
+    gr.Info("場所情報を更新しました。")
+    return loc, scen
+
 def handle_location_change(character_name: str, location_id: str):
     from tools.space_tools import set_current_location
     if not character_name or not location_id: gr.Warning("キャラクターと移動先の場所を選択してください。"); return
@@ -147,37 +162,21 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     current_location_id = utils.get_current_location(character_name)
     return (character_name, chat_history, "", profile_image, memory_str, character_name, character_name, notepad_content, gr.update(choices=locations, value=current_location_id))
 
-# ★★★★★ handle_initial_loadを「自己完結型」に修正 ★★★★★
 def handle_initial_load():
-    """
-    【自己完結型】起動時にUIを初期化する。外部からの入力に依存しない。
-    """
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
-    # 必要な初期値をconfig_managerから直接取得
-    char_name = config_manager.initial_character_global
-    model_name = config_manager.initial_model_global
-    api_key_name = config_manager.initial_api_key_name_global
-    api_history_limit = config_manager.initial_api_history_limit_option_global
-    
-    # UIの基本部分を更新
+    char_name = config_manager.initial_character_global; model_name = config_manager.initial_model_global
+    api_key_name = config_manager.initial_api_key_name_global; api_history_limit = config_manager.initial_api_history_limit_option_global
     df_with_ids = render_alarms_as_dataframe(); display_df = get_display_df(df_with_ids)
     (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char, note_cont, loc_dd) = \
         update_ui_on_character_change(char_name, api_history_limit)
-    
-    # 軽量な初期情景生成を呼び出し
     api_key = config_manager.API_KEYS.get(api_key_name)
     loc, scen = _generate_initial_scenery(ret_char, api_key)
-    
-    # トークン数を計算
     token_count = update_token_count(
         ret_char, model_name, None, None, api_history_limit, api_key_name,
         True, True, config_manager.initial_add_timestamp_global,
         config_manager.initial_send_thoughts_to_api_global, True, True
     )
-    
-    return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char,
-            "アラームを選択してください", token_count, note_cont, loc_dd,
-            loc, scen)
+    return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, loc, scen)
     
 def handle_save_memory_click(character_name, json_string_data):
     if not character_name: gr.Warning("キャラクターが選択されていません。"); return gr.update()
@@ -315,7 +314,7 @@ def update_timestamp_state(checked): config_manager.save_config("add_timestamp",
 def update_send_thoughts_state(checked): config_manager.save_config("last_send_thoughts_to_api", bool(checked)); return bool(checked)
 def update_send_notepad_state(checked: bool): return checked
 def update_use_common_prompt_state(checked: bool): return checked
-def update_send_core_memory_state(checked: bool): return bool(checked)
+def update_send_core_memory_state(checked: bool): return checked
 def update_send_scenery_state(checked: bool): return bool(checked)
 
 def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
