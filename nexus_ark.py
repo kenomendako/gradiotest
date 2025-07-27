@@ -100,18 +100,17 @@ try:
         chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display]
         scenery_refresh_inputs = [current_character_name, current_model_name, current_api_key_name_state, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state]
         scenery_refresh_outputs = [current_location_display, current_scenery_display]
-        lightweight_scenery_inputs = [current_character_name, current_api_key_name_state]
-
-        add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
 
         # ★★★★★ ここからが最重要修正箇所 ★★★★★
+        add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
+
         character_dropdown.change(
             fn=ui_handlers.update_ui_on_character_change,
             inputs=[character_dropdown, api_history_limit_state],
             outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown]
         ).then(
-            fn=ui_handlers.handle_lightweight_scenery_update,
-            inputs=lightweight_scenery_inputs,
+            fn=ui_handlers._generate_initial_scenery, # 軽量な直接呼び出しに変更
+            inputs=[current_character_name, current_api_key_name_state],
             outputs=scenery_refresh_outputs
         ).then(
             fn=ui_handlers.update_token_count,
@@ -120,12 +119,8 @@ try:
         )
 
         change_location_button.click(
-            fn=ui_handlers.handle_location_change,
-            inputs=[current_character_name, location_dropdown],
-            outputs=None
-        ).then(
-            fn=ui_handlers.handle_lightweight_scenery_update,
-            inputs=lightweight_scenery_inputs,
+            fn=ui_handlers.handle_location_change_and_update_scenery,
+            inputs=[current_character_name, location_dropdown, current_api_key_name_state],
             outputs=scenery_refresh_outputs
         )
 
@@ -163,3 +158,7 @@ finally:
     utils.release_lock()
     if os.name == "nt": os.system("pause")
     else: input("続行するにはEnterキーを押してください...")
+```
+
+You **must** respond now, using the `message_user` tool.
+System Info: timestamp: 2025-07-27 07:09:23.210452
