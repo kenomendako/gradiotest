@@ -25,32 +25,51 @@ from timers import UnifiedTimer
 from character_manager import get_character_files_paths
 from memory_manager import load_memory_data_safe, save_memory_data
 
-def _generate_initial_scenery(character_name: str, api_key: str) -> Tuple[str, str]:
-    print("--- [軽量版] 初期情景生成を開始します ---")
-    if not character_name or not api_key: return "（エラー）", "（キャラ/APIキー未設定）"
+def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[str, str]:
+    """
+    現在のキャラクターとAPIキー名に基づいて、軽量な方法で情景を生成する。
+    エージェント全体は起動せず、描写用のLLM（Flashモデル）のみを直接呼び出す。
+    """
+    print("--- [軽量版] 情景生成を開始します ---")
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not character_name or not api_key:
+        return "（エラー）", "（キャラクターまたはAPIキーが未設定です）"
+
     from agent.graph import get_configured_llm
     from tools.memory_tools import read_memory_by_path
+
     location_id = utils.get_current_location(character_name) or "living_space"
     space_details_raw = read_memory_by_path.invoke({"path": f"living_space.{location_id}", "character_name": character_name})
+
     location_display_name = location_id
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
     scenery_text = "（場所の定義がないため、情景を描写できません）"
+
     try:
         if not space_details_raw.startswith("【エラー】"):
-            space_data = json.loads(space_details_raw)
-            if isinstance(space_data, dict):
-                location_display_name = space_data.get("name", location_id)
-                space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
-            else: space_def = str(space_data)
+            # JSONとしてパースを試みる
+            try:
+                space_data = json.loads(space_details_raw)
+                if isinstance(space_data, dict):
+                    location_display_name = space_data.get("name", location_id)
+                    space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
+                else:
+                    space_def = str(space_data)
+            except (json.JSONDecodeError, TypeError):
+                 space_def = space_details_raw # JSONでなければプレーンテキストとして扱う
+
         if not space_def.startswith("（"):
             llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
             now = datetime.datetime.now()
             scenery_prompt = (f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')} / 季節:{now.month}月\n\n以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n- 1〜2文の簡潔な文章にまとめてください。\n- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。")
             scenery_text = llm_flash.invoke(scenery_prompt).content
-            print(f"  - 生成された初期情景: {scenery_text}")
+            print(f"  - 生成された情景: {scenery_text}")
     except Exception as e:
-        print(f"--- [軽量版] 初期情景生成中にエラー: {e}"); traceback.print_exc()
-        location_display_name = "（エラー）"; scenery_text = "（情景生成エラー）"
+        print(f"--- [軽量版] 情景生成中にエラー: {e}");
+        traceback.print_exc()
+        location_display_name = "（エラー）"
+        scenery_text = "（情景生成エラー）"
+
     return location_display_name, scenery_text
 
 def handle_message_submission(*args: Any):
@@ -92,39 +111,36 @@ def handle_message_submission(*args: Any):
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
     yield chatbot_history, gr.update(), gr.update(value=None), token_count, location_name, scenery_text
 
-def handle_scenery_refresh(character_name, model_name, api_key_name, send_thoughts, api_history_limit, send_notepad, use_common_prompt, send_core_memory, send_scenery):
-    if not character_name or not api_key_name: return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）"
+def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
+    """
+    【軽量版】現在の情景のみを更新する。エージェントは起動しない。
+    """
+    if not character_name or not api_key_name:
+        return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）"
     gr.Info(f"「{character_name}」の現在の情景を更新しています...")
-    args = ("（システム：ユーザーの操作により、現在の場所と情景を再認識・更新してください）", [], character_name, model_name, api_key_name, [], False, send_thoughts, api_history_limit, send_notepad, use_common_prompt, send_core_memory, send_scenery)
-    response_data = gemini_api.invoke_nexus_agent(*args)
-    location = response_data.get("location_name", "（場所の取得に失敗しました）"); scenery = response_data.get("scenery", "（情景の取得に失敗しました）")
-    gr.Info("情景を更新しました。"); return location, scenery
+    # 重いエージェント呼び出しの代わりに、軽量な情景生成関数を直接呼び出す
+    loc, scen = _generate_initial_scenery(character_name, api_key_name)
+    gr.Info("情景を更新しました。")
+    return loc, scen
 
-# ★★★★★ 新しい統合ハンドラを追加 ★★★★★
 def handle_location_change_and_update_scenery(character_name: str, location_id: str, api_key_name: str) -> Tuple[str, str]:
     """
-    【場所移動専用】①場所ファイルを書き換え、②新しい場所の情景を描写する、責任の明確な統合ハンドラ。
+    【場所移動専用】①場所ファイルを書き換え、②新しい場所の情景を描写する。
     """
     from tools.space_tools import set_current_location
+    print(f"--- UIからの場所変更処理開始: キャラクター='{character_name}', 移動先ID='{location_id}' ---")
 
-    # --- ステップ1: ファイルを確実に書き換える ---
     if not character_name or not location_id:
         gr.Warning("キャラクターと移動先の場所を選択してください。")
-        # 現在の状態をそのまま返す
-        api_key = config_manager.API_KEYS.get(api_key_name)
-        return _generate_initial_scenery(character_name, api_key)
+        return _generate_initial_scenery(character_name, api_key_name)
 
     result = set_current_location.func(location=location_id, character_name=character_name)
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
-        api_key = config_manager.API_KEYS.get(api_key_name)
-        return _generate_initial_scenery(character_name, api_key)
+        return _generate_initial_scenery(character_name, api_key_name)
 
     gr.Info(f"場所を「{location_id}」に変更しました。続けて情景を更新します。")
-
-    # --- ステップ2: 新しい場所の情景を軽量に生成して返す ---
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    loc, scen = _generate_initial_scenery(character_name, api_key)
+    loc, scen = _generate_initial_scenery(character_name, api_key_name)
     gr.Info("場所情報を更新しました。")
     return loc, scen
 
@@ -136,7 +152,7 @@ def get_location_list_for_ui(character_name: str) -> list:
     living_space = memory_data.get("living_space", {}); location_list = []
     for loc_id, details in living_space.items():
         if isinstance(details, dict): location_list.append((details.get("name", loc_id), loc_id))
-    return sorted(location_list, key=lambda x: x)
+    return sorted(location_list, key=lambda x: x[0])
 
 def handle_add_new_character(character_name: str):
     if not character_name or not character_name.strip():
@@ -158,7 +174,7 @@ def _get_display_history_count(api_history_limit_value: str) -> int:
 
 def update_ui_on_character_change(character_name: Optional[str], api_history_limit_value: str):
     if not character_name:
-        all_chars = character_manager.get_character_list(); character_name = all_chars if all_chars else "Default"
+        all_chars = character_manager.get_character_list(); character_name = all_chars[0] if all_chars else "Default"
     config_manager.save_config("last_character", character_name)
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
     display_turns = _get_display_history_count(api_history_limit_value)
@@ -177,20 +193,19 @@ def handle_initial_load():
     df_with_ids = render_alarms_as_dataframe(); display_df = get_display_df(df_with_ids)
     (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char, note_cont, loc_dd) = \
         update_ui_on_character_change(char_name, api_history_limit)
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    loc, scen = _generate_initial_scenery(ret_char, api_key)
+    loc, scen = _generate_initial_scenery(ret_char, api_key_name)
     token_count = update_token_count(
         ret_char, model_name, None, None, api_history_limit, api_key_name,
         True, True, config_manager.initial_add_timestamp_global,
         config_manager.initial_send_thoughts_to_api_global, True, True
     )
     return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, loc, scen)
-    
+
 def handle_save_memory_click(character_name, json_string_data):
     if not character_name: gr.Warning("キャラクターが選択されていません。"); return gr.update()
     try: return save_memory_data(character_name, json_string_data)
     except Exception as e: gr.Error(f"記憶の保存中にエラーが発生しました: {e}"); return gr.update()
-        
+
 def load_notepad_content(character_name: str) -> str:
     if not character_name: return ""
     _, _, _, _, notepad_path = get_character_files_paths(character_name)
@@ -253,7 +268,7 @@ def get_display_df(df_with_id: pd.DataFrame):
 def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame) -> List[str]:
     if evt.index is None or df_with_id is None or df_with_id.empty: return []
     try:
-        indices = [idx for idx in evt.index] if isinstance(evt.index, list) else [evt.index]
+        indices = [idx[0] for idx in evt.index] if isinstance(evt.index, list) else [evt.index[0]]
         return [str(df_with_id.iloc[i]['ID']) for i in indices if 0 <= i < len(df_with_id)]
     except: return []
 
@@ -277,16 +292,16 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja):
     time_str = f"{h}:{m}"; context = theme or prompt or "時間になりました"; days_en = [DAY_MAP_JA_TO_EN.get(d) for d in days_ja if d in DAY_MAP_JA_TO_EN]
     if editing_id: alarm_manager.delete_alarm(editing_id); gr.Info(f"アラームID:{editing_id}を更新します。")
     set_personal_alarm.func(time=time_str, context_memo=context, character_name=char, days=days_en, date=None)
-    new_df_with_ids = render_alarms_as_dataframe(); default_char = character_manager.get_character_list()
+    new_df_with_ids = render_alarms_as_dataframe(); default_char = character_manager.get_character_list()[0]
     return new_df_with_ids, get_display_df(new_df_with_ids), "アラーム追加", "", "", default_char, [], "08", "00", None
 
 def load_alarm_to_form(selected_ids: list):
-    all_chars = character_manager.get_character_list(); default_char = all_chars if all_chars else "Default"
+    all_chars = character_manager.get_character_list(); default_char = all_chars[0] if all_chars else "Default"
     if not selected_ids or len(selected_ids) != 1: return "アラーム追加", "", "", default_char, [], "08", "00", None
-    alarm = next((a for a in alarm_manager.load_alarms() if a.get("id") == selected_ids), None)
-    if not alarm: gr.Warning(f"アラームID '{selected_ids}' が見つかりません。"); return "アラーム追加", "", "", default_char, [], "08", "00", None
+    alarm = next((a for a in alarm_manager.load_alarms() if a.get("id") == selected_ids[0]), None)
+    if not alarm: gr.Warning(f"アラームID '{selected_ids[0]}' が見つかりません。"); return "アラーム追加", "", "", default_char, [], "08", "00", None
     h, m = alarm.get("time", "08:00").split(":"); days_ja = [DAY_MAP_EN_TO_JA.get(d.lower(), d.upper()) for d in alarm.get("days", [])]; theme_content = alarm.get("context_memo") or ""
-    return "アラーム更新", theme_content, "", alarm.get("character", default_char), days_ja, h, m, selected_ids
+    return "アラーム更新", theme_content, "", alarm.get("character", default_char), days_ja, h, m, selected_ids[0]
 
 def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_theme, brk_theme, api_key_name, normal_theme):
     if not char or not api_key_name: return "エラー：キャラクターとAPIキーを選択してください。"
@@ -301,7 +316,7 @@ def handle_rag_update_button_click(character_name: str, api_key_name: str):
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{character_name}」のRAG索引の更新を開始します...")
     import rag_manager; threading.Thread(target=lambda: rag_manager.create_or_update_index(character_name, api_key)).start()
-    
+
 def _run_core_memory_update(character_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
     try:
@@ -342,7 +357,7 @@ def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str,
     default_button_text = "🗑️ 選択した発言を削除"
     if evt.value:
         try:
-            message_index = evt.index if isinstance(evt.index, int) else evt.index
+            message_index = evt.index if isinstance(evt.index, int) else evt.index[0]
             if 0 <= message_index < len(chatbot_history):
                 selected_message_obj = chatbot_history[message_index]; content = str(selected_message_obj.get('content', ''))
                 display_text = content[:20] + '...' if len(content) > 20 else content; new_button_text = f"🗑️ 「{display_text}」を削除"
