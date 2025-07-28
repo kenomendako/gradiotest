@@ -341,44 +341,40 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
     history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):])
     return history
 
+# ★★★ 修正点3: 削除フローの関数を更新・追加 ★★★
 def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str, str]]):
-    default_button = gr.update(value="🗑️ 選択した発言を削除", variant="stop")
-    # ★★★ 修正点1: 選択解除時の処理を追加 ★★★
-    if not evt.value:
-        # 選択が解除された場合（空の領域をクリックなど）
-        print("--- 発言選択解除 ---")
-        return None, default_button, False
+    if evt.value:
+        try:
+            message_index = evt.index if isinstance(evt.index, int) else evt.index[0]
+            if 0 <= message_index < len(chatbot_history):
+                selected_message_obj = chatbot_history[message_index]
+                content = str(selected_message_obj.get('content', ''))
+                display_text = content[:20] + '...' if len(content) > 20 else content
+                print(f"--- 発言選択: Index={message_index}, Content='{content[:50]}...' ---")
+                return (
+                    selected_message_obj,
+                    gr.update(visible=True),
+                    gr.update(value=f"🗑️ 「{display_text}」を削除"),
+                    False  # 確認状態をリセット
+                )
+        except Exception as e:
+            print(f"発言選択処理でエラー: {e}")
+    
+    # 選択が外れた場合やエラー時
+    return None, gr.update(visible=False), gr.update(value="🗑️ 選択した発言を削除"), False
 
-    try:
-        message_index = evt.index if isinstance(evt.index, int) else evt.index[0]
-        if 0 <= message_index < len(chatbot_history):
-            selected_message_obj = chatbot_history[message_index]
-            content = str(selected_message_obj.get('content', ''))
-            display_text = content[:20] + '...' if len(content) > 20 else content
-            new_button_text = f"🗑️ 「{display_text}」を削除"
-            print(f"--- 発言選択: Index={message_index}, Content='{content[:50]}...' ---")
-            # 選択時は、ボタンをデフォルト状態に戻し、確認状態をFalseにする
-            return selected_message_obj, gr.update(value=new_button_text, variant="stop"), False
-    except Exception as e:
-        print(f"発言選択処理でエラー: {e}")
-
-    return None, default_button, False
-
-# ★★★ 修正点2: 新しい削除ボタンハンドラを追加 ★★★
 def handle_delete_button_click(
     confirmation_state: bool,
     character_name: str,
     selected_message: Dict[str, str],
     api_history_limit: str
 ):
-    default_button = gr.update(value="🗑️ 選択した発言を削除", variant="stop")
-    
     if not selected_message:
         gr.Warning("削除する発言が選択されていません。")
-        return gr.update(), None, default_button, False
+        return gr.update(), None, gr.update(visible=False), gr.update(), False
 
     if confirmation_state:
-        # --- 2回目のクリック：削除を実行 ---
+        # 2回目のクリック：削除を実行
         print("--- 削除を確定、実行します ---")
         log_f, _, _, _, _ = get_character_files_paths(character_name)
         success = utils.delete_message_from_log(log_f, selected_message)
@@ -387,14 +383,18 @@ def handle_delete_button_click(
         else:
             gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
         
-        # 状態をリセットしてUIを更新
         new_chat_history = reload_chat_log(character_name, api_history_limit)
-        return new_chat_history, None, default_button, False
+        return new_chat_history, None, gr.update(visible=False), gr.update(value="🗑️ 選択した発言を削除"), False
     else:
-        # --- 1回目のクリック：確認状態へ移行 ---
+        # 1回目のクリック：確認状態へ移行
         print("--- 削除の確認状態に移行しました ---")
         confirm_button = gr.update(value="⚠️【削除を確認】もう一度クリック", variant="stop")
-        return gr.update(), selected_message, confirm_button, True
+        return gr.update(), selected_message, gr.update(visible=True), confirm_button, True
+
+def handle_cancel_delete():
+    """キャンセルボタンが押されたときの処理"""
+    print("--- 削除をキャンセルしました ---")
+    return None, gr.update(visible=False), gr.update(value="🗑️ 選択した発言を削除"), False
 
 def update_token_count(*args):
     (current_character_name, current_model_name, textbox_content, file_input_list, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_state, send_thoughts_state, send_core_memory_state, send_scenery_state) = args
