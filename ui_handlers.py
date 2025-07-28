@@ -26,28 +26,19 @@ from character_manager import get_character_files_paths
 from memory_manager import load_memory_data_safe, save_memory_data
 
 def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[str, str]:
-    """
-    現在のキャラクターとAPIキー名に基づいて、軽量な方法で情景を生成する。
-    エージェント全体は起動せず、描写用のLLM（Flashモデル）のみを直接呼び出す。
-    """
     print("--- [軽量版] 情景生成を開始します ---")
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not character_name or not api_key:
         return "（エラー）", "（キャラクターまたはAPIキーが未設定です）"
-
     from agent.graph import get_configured_llm
     from tools.memory_tools import read_memory_by_path
-
     location_id = utils.get_current_location(character_name) or "living_space"
     space_details_raw = read_memory_by_path.invoke({"path": f"living_space.{location_id}", "character_name": character_name})
-
     location_display_name = location_id
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
     scenery_text = "（場所の定義がないため、情景を描写できません）"
-
     try:
         if not space_details_raw.startswith("【エラー】"):
-            # JSONとしてパースを試みる
             try:
                 space_data = json.loads(space_details_raw)
                 if isinstance(space_data, dict):
@@ -56,8 +47,7 @@ def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[s
                 else:
                     space_def = str(space_data)
             except (json.JSONDecodeError, TypeError):
-                 space_def = space_details_raw # JSONでなければプレーンテキストとして扱う
-
+                 space_def = space_details_raw
         if not space_def.startswith("（"):
             llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
             now = datetime.datetime.now()
@@ -69,7 +59,6 @@ def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[s
         traceback.print_exc()
         location_display_name = "（エラー）"
         scenery_text = "（情景生成エラー）"
-
     return location_display_name, scenery_text
 
 def handle_message_submission(*args: Any):
@@ -112,33 +101,23 @@ def handle_message_submission(*args: Any):
     yield chatbot_history, gr.update(), gr.update(value=None), token_count, location_name, scenery_text
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
-    """
-    【軽量版】現在の情景のみを更新する。エージェントは起動しない。
-    """
     if not character_name or not api_key_name:
         return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）"
     gr.Info(f"「{character_name}」の現在の情景を更新しています...")
-    # 重いエージェント呼び出しの代わりに、軽量な情景生成関数を直接呼び出す
     loc, scen = _generate_initial_scenery(character_name, api_key_name)
     gr.Info("情景を更新しました。")
     return loc, scen
 
 def handle_location_change_and_update_scenery(character_name: str, location_id: str, api_key_name: str) -> Tuple[str, str]:
-    """
-    【場所移動専用】①場所ファイルを書き換え、②新しい場所の情景を描写する。
-    """
     from tools.space_tools import set_current_location
     print(f"--- UIからの場所変更処理開始: キャラクター='{character_name}', 移動先ID='{location_id}' ---")
-
     if not character_name or not location_id:
         gr.Warning("キャラクターと移動先の場所を選択してください。")
         return _generate_initial_scenery(character_name, api_key_name)
-
     result = set_current_location.func(location=location_id, character_name=character_name)
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
         return _generate_initial_scenery(character_name, api_key_name)
-
     gr.Info(f"場所を「{location_id}」に変更しました。続けて情景を更新します。")
     loc, scen = _generate_initial_scenery(character_name, api_key_name)
     gr.Info("場所情報を更新しました。")
@@ -205,6 +184,18 @@ def handle_save_memory_click(character_name, json_string_data):
     if not character_name: gr.Warning("キャラクターが選択されていません。"); return gr.update()
     try: return save_memory_data(character_name, json_string_data)
     except Exception as e: gr.Error(f"記憶の保存中にエラーが発生しました: {e}"); return gr.update()
+        
+def handle_reload_memory(character_name: str) -> str:
+    """
+    指定されたキャラクターのmemory.jsonを再読み込みし、その内容を返す。
+    """
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return "{}"
+    gr.Info(f"「{character_name}」の記憶を再読み込みしました。")
+    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
+    memory_data = load_memory_data_safe(memory_json_path)
+    return json.dumps(memory_data, indent=2, ensure_ascii=False)
 
 def load_notepad_content(character_name: str) -> str:
     if not character_name: return ""
