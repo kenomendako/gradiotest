@@ -1,6 +1,3 @@
-# agent/prompts.py の CORE_PROMPT_TEMPLATE を置き換えてください
-
-# ★★★ あなたが修正した、新しいCORE_PROMPT_TEMPLATEをここに統合しました ★★★
 CORE_PROMPT_TEMPLATE = """
 ## 思考の表現ルール
 あなたは、LangGraphという思考の骨格（フレームワーク）を通じて思考し、応答を生成します。
