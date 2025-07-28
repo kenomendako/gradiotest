@@ -441,4 +441,4 @@ def update_token_count(*args):
         limit_info = gemini_api.get_model_token_limits(current_model_name, api_key)
         if limit_info and 'input' in limit_info: return f"入力トークン数: {token_count} / {limit_info['input']}"
         else: return f"入力トークン数: {token_count}"
-    except Exception as e: print(f"トークン数計算UIハンドラエラー: {e}"); traceback.print_exc(); return "入力トークン数: (例外発生)"```
+    except Exception as e: print(f"トークン数計算UIハンドラエラー: {e}"); traceback.print_exc(); return "入力トークン数: (例外発生)"
