@@ -1,3 +1,5 @@
+# agent/graph.py を、このコードで完全に置き換えてください
+
 import os
 import re
 import traceback
@@ -41,11 +43,18 @@ class AgentState(TypedDict):
     location_name: str
     scenery_text: str
 
-# --- 4. 正しいモデル初期化関数の定義 ---
+# --- 4. モデル初期化関数の修正 ---
 def get_configured_llm(model_name: str, api_key: str):
-    return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key, convert_system_message_to_human=False)
+    # ★★★ ここが修正点です ★★★
+    # レート制限エラーに対応するため、リトライ回数を増やす
+    return ChatGoogleGenerativeAI(
+        model=model_name,
+        google_api_key=api_key,
+        convert_system_message_to_human=False,
+        max_retries=6 # デフォルト(2)から増やすことで、待機時間が長くなりエラーを回避しやすくなる
+    )
 
-# --- 5. context_generator_node (★★★★★ 最終確定版 ★★★★★) ---
+# --- 5. context_generator_node (変更なし) ---
 def context_generator_node(state: AgentState):
     if not state.get("send_scenery", True):
         char_prompt_path = os.path.join("characters", state['character_name'], "SystemPrompt.txt")
@@ -77,14 +86,12 @@ def context_generator_node(state: AgentState):
 
     try:
         location_id_to_process = None
-        # 最新のメッセージから場所の変更を検知
         last_tool_message = next((msg for msg in reversed(state['messages']) if isinstance(msg, ToolMessage)), None)
         if last_tool_message and "Success: Current location has been set to" in last_tool_message.content:
             match = re.search(r"'(.*?)'", last_tool_message.content)
             if match:
                 location_id_to_process = match.group(1); print(f"  - ツール実行結果から最新の場所ID '{location_id_to_process}' を特定しました。")
         
-        # ファイルから場所を読み込み
         if not location_id_to_process:
             location_file_path = os.path.join("characters", character_name, "current_location.txt")
             if os.path.exists(location_file_path):
@@ -92,35 +99,26 @@ def context_generator_node(state: AgentState):
                     content = f.read().strip()
                     if content: location_id_to_process = content; print(f"  - ファイルから現在の場所ID '{location_id_to_process}' を読み込みました。")
         
-        # デフォルトの場所にフォールバック
         if not location_id_to_process:
             location_id_to_process = "living_space"; print(f"  - 場所が特定できなかったため、デフォルトの '{location_id_to_process}' を使用します。")
 
-        # 記憶から場所のデータを取得
         space_details_raw = read_memory_by_path.invoke({"path": f"living_space.{location_id_to_process}", "character_name": character_name})
 
-        # ★★★★★ ここからが、オブジェクト全体を定義として扱うための修正ロジックです ★★★★★
         if not space_details_raw.startswith("【エラー】"):
             try:
-                # まずJSONオブジェクトとして解釈を試みる
                 space_data = json.loads(space_details_raw)
                 if isinstance(space_data, dict):
-                    # 辞書の場合：'name'をUI表示用に取得し、オブジェクト全体を定義として使用
                     location_display_name = space_data.get("name", location_id_to_process)
-                    # 読みやすく整形したJSON文字列全体を「定義」とする
                     space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
                     print(f"  - 場所ID '{location_id_to_process}' の表示名: '{location_display_name}' を特定しました。")
                 else:
-                    # JSONだが辞書ではない場合（文字列、リストなど）は、そのまま定義として扱う
                     location_display_name = location_id_to_process
                     space_def = str(space_data)
             except (json.JSONDecodeError, TypeError):
-                # JSONとして解釈できなかった場合は、プレーンテキストとしてそのまま定義として扱う
                 location_display_name = location_id_to_process
                 space_def = space_details_raw
         
         print(f"  - 最終的に空間定義として使用される内容:\n```json\n{space_def[:300]}...\n```")
-        # ★★★★★ 修正ロジックここまで ★★★★★
 
         if not space_def.startswith("（"):
             llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
@@ -135,7 +133,6 @@ def context_generator_node(state: AgentState):
     except Exception as e:
         print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}"); location_display_name = "（エラー）"; scenery_text = "（情景描写の生成中にエラーが発生しました）"
 
-    # --- システムプロンプトの構築 ---
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
     character_prompt = "";
