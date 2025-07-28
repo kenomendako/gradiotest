@@ -97,8 +97,37 @@ def handle_message_submission(*args: Any):
     if final_response_text: utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
     chatbot_history.pop()
     if final_response_text: chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(final_response_text)})
+    
+    # ★★★ ここからが修正点 ★★★
+    # JavaScriptを実行して、最後のメッセージの先頭にスクロールする
+    # Gradioは直接DOM操作を推奨しないため、gr.HTMLなどの見えないコンポーネントに
+    # JavaScriptを仕込むハックを使うよりも、Chatbotのpostprocessで処理するのが正攻法。
+    # ただし、現状のGradioの `yield` ベースのストリーミングでは直接的なDOM操作が難しい。
+    # そこで、Chatbot自体にスクロールを指示する特別な更新オブジェクトを返す。
+    chatbot_update = gr.update(value=chatbot_history)
+    chatbot_update._js = """
+    () => {
+        setTimeout(() => {
+            const chat_output_area = document.querySelector('#chat_output_area');
+            if (chat_output_area) {
+                const scrollable_div = chat_output_area.querySelector('.wrap');
+                const messages = scrollable_div.querySelectorAll('.message-row');
+                if (messages.length > 0) {
+                    const lastMessage = messages[messages.length - 1];
+                    // スクロール可能なコンテナの上端から、最後のメッセージの上端までの距離を計算
+                    const scrollTop = lastMessage.offsetTop - scrollable_div.offsetTop;
+                    scrollable_div.scrollTo({ top: scrollTop, behavior: 'smooth' });
+                }
+            }
+        }, 100); // レンダリングが完了するのを少し待つ
+    }
+    """
+    
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
-    yield chatbot_history, gr.update(), gr.update(value=None), token_count, location_name, scenery_text
+    
+    # chatbot_update を chatbot_history の代わりに使用する
+    yield chatbot_update, gr.update(), gr.update(value=None), token_count, location_name, scenery_text
+    # ★★★ 修正ここまで ★★★
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
     if not character_name or not api_key_name:
@@ -341,7 +370,6 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
     history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):])
     return history
 
-# ★★★ 修正点3: 削除フローの関数を更新・追加 ★★★
 def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str, str]]):
     if evt.value:
         try:
@@ -355,12 +383,10 @@ def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str,
                     selected_message_obj,
                     gr.update(visible=True),
                     gr.update(value=f"🗑️ 「{display_text}」を削除"),
-                    False  # 確認状態をリセット
+                    False
                 )
         except Exception as e:
             print(f"発言選択処理でエラー: {e}")
-    
-    # 選択が外れた場合やエラー時
     return None, gr.update(visible=False), gr.update(value="🗑️ 選択した発言を削除"), False
 
 def handle_delete_button_click(
@@ -374,7 +400,6 @@ def handle_delete_button_click(
         return gr.update(), None, gr.update(visible=False), gr.update(), False
 
     if confirmation_state:
-        # 2回目のクリック：削除を実行
         print("--- 削除を確定、実行します ---")
         log_f, _, _, _, _ = get_character_files_paths(character_name)
         success = utils.delete_message_from_log(log_f, selected_message)
@@ -386,13 +411,11 @@ def handle_delete_button_click(
         new_chat_history = reload_chat_log(character_name, api_history_limit)
         return new_chat_history, None, gr.update(visible=False), gr.update(value="🗑️ 選択した発言を削除"), False
     else:
-        # 1回目のクリック：確認状態へ移行
         print("--- 削除の確認状態に移行しました ---")
         confirm_button = gr.update(value="⚠️【削除を確認】もう一度クリック", variant="stop")
         return gr.update(), selected_message, gr.update(visible=True), confirm_button, True
 
 def handle_cancel_delete():
-    """キャンセルボタンが押されたときの処理"""
     print("--- 削除をキャンセルしました ---")
     return None, gr.update(visible=False), gr.update(value="🗑️ 選択した発言を削除"), False
 
@@ -418,4 +441,4 @@ def update_token_count(*args):
         limit_info = gemini_api.get_model_token_limits(current_model_name, api_key)
         if limit_info and 'input' in limit_info: return f"入力トークン数: {token_count} / {limit_info['input']}"
         else: return f"入力トークン数: {token_count}"
-    except Exception as e: print(f"トークン数計算UIハンドラエラー: {e}"); traceback.print_exc(); return "入力トークン数: (例外発生)"
+    except Exception as e: print(f"トークン数計算UIハンドラエラー: {e}"); traceback.print_exc(); return "入力トークン数: (例外発生)"```
