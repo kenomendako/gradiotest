@@ -98,36 +98,10 @@ def handle_message_submission(*args: Any):
     chatbot_history.pop()
     if final_response_text: chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(final_response_text)})
     
-    # ★★★ ここからが修正点 ★★★
-    # JavaScriptを実行して、最後のメッセージの先頭にスクロールする
-    # Gradioは直接DOM操作を推奨しないため、gr.HTMLなどの見えないコンポーネントに
-    # JavaScriptを仕込むハックを使うよりも、Chatbotのpostprocessで処理するのが正攻法。
-    # ただし、現状のGradioの `yield` ベースのストリーミングでは直接的なDOM操作が難しい。
-    # そこで、Chatbot自体にスクロールを指示する特別な更新オブジェクトを返す。
-    chatbot_update = gr.update(value=chatbot_history)
-    chatbot_update._js = """
-    () => {
-        setTimeout(() => {
-            const chat_output_area = document.querySelector('#chat_output_area');
-            if (chat_output_area) {
-                const scrollable_div = chat_output_area.querySelector('.wrap');
-                const messages = scrollable_div.querySelectorAll('.message-row');
-                if (messages.length > 0) {
-                    const lastMessage = messages[messages.length - 1];
-                    // スクロール可能なコンテナの上端から、最後のメッセージの上端までの距離を計算
-                    const scrollTop = lastMessage.offsetTop - scrollable_div.offsetTop;
-                    scrollable_div.scrollTo({ top: scrollTop, behavior: 'smooth' });
-                }
-            }
-        }, 100); // レンダリングが完了するのを少し待つ
-    }
-    """
-    
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
     
-    # chatbot_update を chatbot_history の代わりに使用する
-    yield chatbot_update, gr.update(), gr.update(value=None), token_count, location_name, scenery_text
-    # ★★★ 修正ここまで ★★★
+    # ★★★ エラーの原因となっていたJavaScript関連のコードを完全に削除 ★★★
+    yield chatbot_history, gr.update(), gr.update(value=None), token_count, location_name, scenery_text
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
     if not character_name or not api_key_name:
@@ -373,7 +347,7 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
 def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str, str]]):
     if evt.value:
         try:
-            message_index = evt.index if isinstance(evt.index, int) else evt.index[0]
+            message_index = evt.index if isinstance(evt.index, int) else evt.index
             if 0 <= message_index < len(chatbot_history):
                 selected_message_obj = chatbot_history[message_index]
                 content = str(selected_message_obj.get('content', ''))
