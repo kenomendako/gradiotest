@@ -21,7 +21,6 @@ try:
     config_manager.load_config()
     alarm_manager.load_alarms()
 
-    # ★★★ 修正点1: 正しいスクロール用JavaScriptを定義 ★★★
     js_scroll_to_latest_message = """
     () => {
         const chat_output_area = document.querySelector('#chat_output_area');
@@ -122,7 +121,6 @@ try:
             with gr.Column(scale=3):
                 chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True);
                 
-                # ★★★ 修正点2: ボタンのレイアウトを更新 ★★★
                 with gr.Row():
                     delete_button_row = gr.Row(visible=False, scale=4)
                     with delete_button_row:
@@ -172,8 +170,9 @@ try:
             outputs=scenery_refresh_outputs
         )
         
-        # ★★★ 修正点3: 新しいスクロールボタンにJavaScriptを接続 ★★★
-        scroll_to_latest_button.click(fn=None, _js=js_scroll_to_latest_message)
+        # ★★★ ここが修正点です ★★★
+        # `_js` を `js` に修正
+        scroll_to_latest_button.click(fn=None, js=js_scroll_to_latest_message)
 
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs); submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         for component in [chat_input_textbox, file_upload_button, notepad_editor, model_dropdown, api_key_dropdown, add_timestamp_checkbox, send_thoughts_checkbox, send_notepad_checkbox, use_common_prompt_checkbox, send_core_memory_checkbox, send_scenery_checkbox, api_history_limit_dropdown]:
