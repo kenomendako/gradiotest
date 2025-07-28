@@ -61,17 +61,16 @@ try:
             with gr.Column(scale=1, min_width=300):
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                 gr.Markdown("### キャラクター"); character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
-
-                # ★★★ ここからがレイアウト修正箇所 ★★★
+                
                 with gr.Accordion("空間認識・移動", open=True):
                     current_location_display = gr.Textbox(label="現在地", interactive=False)
                     current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, autoscroll=False)
                     refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
                     with gr.Row():
-                        location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True, scale=3)
+                        # ★★★ ここを修正しました ★★★
+                        location_dropdown = gr.Dropdown(show_label=False, placeholder="移動先を選択", interactive=True, scale=3)
                         change_location_button = gr.Button("移動", scale=1)
-                # ★★★ レイアウト修正ここまで ★★★
-
+                
                 with gr.Accordion("新しいキャラクターを迎える", open=False):
                     with gr.Row(): new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3); add_character_button = gr.Button("迎える", variant="secondary", scale=1)
                 with gr.Accordion("⚙️ 基本設定", open=False):
