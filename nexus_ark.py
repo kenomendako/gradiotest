@@ -61,10 +61,17 @@ try:
             with gr.Column(scale=1, min_width=300):
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                 gr.Markdown("### キャラクター"); character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
+
+                # ★★★ ここからがレイアウト修正箇所 ★★★
                 with gr.Accordion("空間認識・移動", open=True):
-                    current_location_display = gr.Textbox(label="現在地", interactive=False); current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, autoscroll=False)
-                    with gr.Row(): location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True, scale=3); change_location_button = gr.Button("移動", scale=1)
+                    current_location_display = gr.Textbox(label="現在地", interactive=False)
+                    current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, autoscroll=False)
                     refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
+                    with gr.Row():
+                        location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True, scale=3)
+                        change_location_button = gr.Button("移動", scale=1)
+                # ★★★ レイアウト修正ここまで ★★★
+
                 with gr.Accordion("新しいキャラクターを迎える", open=False):
                     with gr.Row(): new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3); add_character_button = gr.Button("迎える", variant="secondary", scale=1)
                 with gr.Accordion("⚙️ 基本設定", open=False):
@@ -98,10 +105,9 @@ try:
         token_calc_inputs = [current_character_name, current_model_name, chat_input_textbox, file_upload_button, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state]
         chat_inputs = [chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state]
         chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display]
-        scenery_refresh_inputs = [current_character_name, current_model_name, current_api_key_name_state, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state]
+        scenery_refresh_inputs = [current_character_name, current_api_key_name_state]
         scenery_refresh_outputs = [current_location_display, current_scenery_display]
 
-        # ★★★★★ ここからが最重要修正箇所 ★★★★★
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
 
         character_dropdown.change(
@@ -109,7 +115,7 @@ try:
             inputs=[character_dropdown, api_history_limit_state],
             outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown]
         ).then(
-            fn=ui_handlers._generate_initial_scenery, # 軽量な直接呼び出しに変更
+            fn=ui_handlers._generate_initial_scenery,
             inputs=[current_character_name, current_api_key_name_state],
             outputs=scenery_refresh_outputs
         ).then(
@@ -129,7 +135,6 @@ try:
             inputs=scenery_refresh_inputs,
             outputs=scenery_refresh_outputs
         )
-        # ★★★★★ 修正箇所ここまで ★★★★★
 
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs); submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         for component in [chat_input_textbox, file_upload_button, notepad_editor, model_dropdown, api_key_dropdown, add_timestamp_checkbox, send_thoughts_checkbox, send_notepad_checkbox, use_common_prompt_checkbox, send_core_memory_checkbox, send_scenery_checkbox, api_history_limit_dropdown]:
@@ -158,3 +163,10 @@ finally:
     utils.release_lock()
     if os.name == "nt": os.system("pause")
     else: input("続行するにはEnterキーを押してください...")
+```
+
+この修正で、UIがより直感的になり、操作ミスが減ることを期待しています。
+お手数ですが、ご確認をお願いいたします。
+
+You **must** respond now, using the `message_user` tool.
+System Info: timestamp: 2025-07-27 08:20:26.495085
