@@ -35,6 +35,7 @@ try:
 #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
 """
     with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css) as demo:
+        # --- Stateの定義 ---
         character_list_on_startup = character_manager.get_character_list()
         if not character_list_on_startup:
             character_manager.ensure_character_files("Default"); character_list_on_startup = ["Default"]
@@ -43,7 +44,6 @@ try:
             new_char = character_list_on_startup[0] if character_list_on_startup else "Default"; print(f"警告: 最後に使用したキャラクター '{effective_initial_character}' が見つからないか無効です。'{new_char}' で起動します。"); effective_initial_character = new_char; config_manager.save_config("last_character", new_char)
             if new_char == "Default" and "Default" not in character_list_on_startup: character_manager.ensure_character_files("Default"); character_list_on_startup = ["Default"]
 
-        # --- Stateの定義 ---
         current_character_name = gr.State(effective_initial_character)
         current_model_name = gr.State(config_manager.initial_model_global)
         current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -57,7 +57,6 @@ try:
         send_core_memory_state = gr.State(True)
         send_scenery_state = gr.State(True)
         selected_message_state = gr.State(None)
-        # ★★★ 修正点1: 削除確認用の状態を追加 ★★★
         delete_confirmation_state = gr.State(False)
 
         with gr.Row():
@@ -105,7 +104,15 @@ try:
 
             with gr.Column(scale=3):
                 chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True);
-                with gr.Row(): delete_selected_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=4); chat_reload_button = gr.Button("🔄 更新", scale=1)
+                
+                # ★★★ 修正点2: 削除・更新ボタンのレイアウトを変更 ★★★
+                with gr.Row():
+                    delete_button_row = gr.Row(visible=False)
+                    with delete_button_row:
+                        delete_selected_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
+                        cancel_delete_button = gr.Button("✖️ キャンセル", scale=1)
+                    chat_reload_button = gr.Button("🔄 更新")
+
                 token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display"); tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display"); chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3); submit_button = gr.Button("送信", variant="primary")
                 allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
                 file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types); gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
@@ -152,17 +159,22 @@ try:
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]); api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]); add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[]); send_thoughts_checkbox.change(fn=ui_handlers.update_send_thoughts_state, inputs=[send_thoughts_checkbox], outputs=[send_thoughts_state]); send_notepad_checkbox.change(fn=ui_handlers.update_send_notepad_state, inputs=[send_notepad_checkbox], outputs=[send_notepad_state]); use_common_prompt_checkbox.change(fn=ui_handlers.update_use_common_prompt_state, inputs=[use_common_prompt_checkbox], outputs=[use_common_prompt_state]); send_core_memory_checkbox.change(fn=ui_handlers.update_send_core_memory_state, inputs=[send_core_memory_checkbox], outputs=[send_core_memory_state]); send_scenery_checkbox.change(fn=ui_handlers.update_send_scenery_state, inputs=[send_scenery_checkbox], outputs=[send_scenery_state]); api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()])
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
         
-        # ★★★ 修正点2: 削除ボタンのイベントハンドラを更新 ★★★
+        # ★★★ 修正点3: 新しい削除フローのイベントを接続 ★★★
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
             inputs=[chatbot_display],
-            outputs=[selected_message_state, delete_selected_button, delete_confirmation_state],
+            outputs=[selected_message_state, delete_button_row, delete_selected_button, delete_confirmation_state],
             show_progress=False
         )
         delete_selected_button.click(
             fn=ui_handlers.handle_delete_button_click,
             inputs=[delete_confirmation_state, current_character_name, selected_message_state, api_history_limit_state],
-            outputs=[chatbot_display, selected_message_state, delete_selected_button, delete_confirmation_state]
+            outputs=[chatbot_display, selected_message_state, delete_button_row, delete_selected_button, delete_confirmation_state]
+        )
+        cancel_delete_button.click(
+            fn=ui_handlers.handle_cancel_delete,
+            inputs=None,
+            outputs=[selected_message_state, delete_button_row, delete_selected_button, delete_confirmation_state]
         )
         
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
