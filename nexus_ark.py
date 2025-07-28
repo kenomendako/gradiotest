@@ -163,12 +163,3 @@ finally:
     utils.release_lock()
     if os.name == "nt": os.system("pause")
     else: input("続行するにはEnterキーを押してください...")
-```
-
-この修正で、UIがより直感的になり、操作ミスが減ることを期待しています。
-お手数ですが、ご確認をお願いいたします。
-
-You **must** respond now, using the `message_user` tool.
-System Info: timestamp: 2025-07-27 08:20:26.495085
-
-[end of nexus_ark.py]
