@@ -64,16 +64,12 @@ try:
                 
                 with gr.Accordion("空間認識・移動", open=True):
                     current_location_display = gr.Textbox(label="現在地", interactive=False)
-                    current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, autoscroll=False)
+                    # ★★★ 修正点1: max_lines を追加 ★★★
+                    current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10, autoscroll=False)
                     refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
-                    # ★★★ ここからがレイアウト修正箇所 ★★★
-                    # Rowをなくし、縦に並べることで分かりやすさを向上
                     location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True)
                     change_location_button = gr.Button("移動")
-                    # ★★★ レイアウト修正ここまで ★★★
                 
-                with gr.Accordion("新しいキャラクターを迎える", open=False):
-                    with gr.Row(): new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3); add_character_button = gr.Button("迎える", variant="secondary", scale=1)
                 with gr.Accordion("⚙️ 基本設定", open=False):
                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True); api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True); api_history_limit_dropdown = gr.Dropdown(choices=list(config_manager.API_HISTORY_LIMIT_OPTIONS.values()), value=config_manager.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True); add_timestamp_checkbox = gr.Checkbox(value=config_manager.initial_add_timestamp_global, label="メッセージにタイムスタンプを追加", interactive=True); send_thoughts_checkbox = gr.Checkbox(value=config_manager.initial_send_thoughts_to_api_global, label="思考過程をAPIに送信", interactive=True); send_notepad_checkbox = gr.Checkbox(value=True, label="メモ帳の内容をAPIに送信", interactive=True); use_common_prompt_checkbox = gr.Checkbox(value=True, label="共通ツールプロンプトを注入", interactive=True); send_core_memory_checkbox = gr.Checkbox(value=True, label="コアメモリをAPIに送信", interactive=True); send_scenery_checkbox = gr.Checkbox(value=True, label="空間描写・設定をAPIに送信", interactive=True)
                 with gr.Accordion("📗 記憶とログの編集", open=False):
@@ -95,6 +91,11 @@ try:
                             with gr.Column(visible=True) as normal_timer_ui: timer_duration_number = gr.Number(label="タイマー時間 (分)", value=10, minimum=1, step=1); normal_timer_theme_input = gr.Textbox(label="通常タイマーのテーマ", placeholder="例: タイマー終了！")
                             with gr.Column(visible=False) as pomo_timer_ui: pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
                             timer_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="通知キャラ", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
+                
+                # ★★★ 修正点2: アコーディオンを一番下に移動 ★★★
+                with gr.Accordion("新しいキャラクターを迎える", open=False):
+                    with gr.Row(): new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3); add_character_button = gr.Button("迎える", variant="secondary", scale=1)
+
             with gr.Column(scale=3):
                 chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True);
                 with gr.Row(): delete_selected_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=4); chat_reload_button = gr.Button("🔄 更新", scale=1)
