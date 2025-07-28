@@ -21,6 +21,23 @@ try:
     config_manager.load_config()
     alarm_manager.load_alarms()
 
+    # ★★★ 修正点1: 正しいスクロール用JavaScriptを定義 ★★★
+    js_scroll_to_latest_message = """
+    () => {
+        const chat_output_area = document.querySelector('#chat_output_area');
+        if (chat_output_area) {
+            const scrollable_div = chat_output_area.querySelector('.wrap');
+            const messages = scrollable_div.querySelectorAll('.message-row');
+            if (messages.length > 0) {
+                const lastMessage = messages[messages.length - 1];
+                const scrollTop = lastMessage.offsetTop - scrollable_div.offsetTop;
+                scrollable_div.scrollTo({ top: scrollTop, behavior: 'smooth' });
+            }
+        }
+        return [];
+    }
+    """
+
     custom_css = """
 #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
 #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word !important; }
@@ -105,13 +122,16 @@ try:
             with gr.Column(scale=3):
                 chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True);
                 
-                # ★★★ 修正点2: 削除・更新ボタンのレイアウトを変更 ★★★
+                # ★★★ 修正点2: ボタンのレイアウトを更新 ★★★
                 with gr.Row():
-                    delete_button_row = gr.Row(visible=False)
+                    delete_button_row = gr.Row(visible=False, scale=4)
                     with delete_button_row:
                         delete_selected_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
                         cancel_delete_button = gr.Button("✖️ キャンセル", scale=1)
-                    chat_reload_button = gr.Button("🔄 更新")
+                    
+                    with gr.Row(elem_id="chat_control_buttons", scale=1):
+                        scroll_to_latest_button = gr.Button("⬆️ 最新へ")
+                        chat_reload_button = gr.Button("🔄 更新")
 
                 token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display"); tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display"); chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3); submit_button = gr.Button("送信", variant="primary")
                 allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
@@ -151,6 +171,9 @@ try:
             inputs=scenery_refresh_inputs,
             outputs=scenery_refresh_outputs
         )
+        
+        # ★★★ 修正点3: 新しいスクロールボタンにJavaScriptを接続 ★★★
+        scroll_to_latest_button.click(fn=None, _js=js_scroll_to_latest_message)
 
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs); submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         for component in [chat_input_textbox, file_upload_button, notepad_editor, model_dropdown, api_key_dropdown, add_timestamp_checkbox, send_thoughts_checkbox, send_notepad_checkbox, use_common_prompt_checkbox, send_core_memory_checkbox, send_scenery_checkbox, api_history_limit_dropdown]:
@@ -159,7 +182,6 @@ try:
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]); api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]); add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[]); send_thoughts_checkbox.change(fn=ui_handlers.update_send_thoughts_state, inputs=[send_thoughts_checkbox], outputs=[send_thoughts_state]); send_notepad_checkbox.change(fn=ui_handlers.update_send_notepad_state, inputs=[send_notepad_checkbox], outputs=[send_notepad_state]); use_common_prompt_checkbox.change(fn=ui_handlers.update_use_common_prompt_state, inputs=[use_common_prompt_checkbox], outputs=[use_common_prompt_state]); send_core_memory_checkbox.change(fn=ui_handlers.update_send_core_memory_state, inputs=[send_core_memory_checkbox], outputs=[send_core_memory_state]); send_scenery_checkbox.change(fn=ui_handlers.update_send_scenery_state, inputs=[send_scenery_checkbox], outputs=[send_scenery_state]); api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()])
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
         
-        # ★★★ 修正点3: 新しい削除フローのイベントを接続 ★★★
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
             inputs=[chatbot_display],
