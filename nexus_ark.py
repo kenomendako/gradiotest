@@ -66,10 +66,11 @@ try:
                     current_location_display = gr.Textbox(label="現在地", interactive=False)
                     current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, autoscroll=False)
                     refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
-                    with gr.Row():
-                        # ★★★ ここを修正しました ★★★
-                        location_dropdown = gr.Dropdown(show_label=False, placeholder="移動先を選択", interactive=True, scale=3)
-                        change_location_button = gr.Button("移動", scale=1)
+                    # ★★★ ここからがレイアウト修正箇所 ★★★
+                    # Rowをなくし、縦に並べることで分かりやすさを向上
+                    location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True)
+                    change_location_button = gr.Button("移動")
+                    # ★★★ レイアウト修正ここまで ★★★
                 
                 with gr.Accordion("新しいキャラクターを迎える", open=False):
                     with gr.Row(): new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3); add_character_button = gr.Button("迎える", variant="secondary", scale=1)
