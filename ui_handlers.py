@@ -100,7 +100,6 @@ def handle_message_submission(*args: Any):
     
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
     
-    # ★★★ エラーの原因となっていたJavaScript関連のコードを完全に削除 ★★★
     yield chatbot_history, gr.update(), gr.update(value=None), token_count, location_name, scenery_text
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
@@ -347,7 +346,7 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
 def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str, str]]):
     if evt.value:
         try:
-            message_index = evt.index if isinstance(evt.index, int) else evt.index
+            message_index = evt.index if isinstance(evt.index, int) else evt.index[0]
             if 0 <= message_index < len(chatbot_history):
                 selected_message_obj = chatbot_history[message_index]
                 content = str(selected_message_obj.get('content', ''))
