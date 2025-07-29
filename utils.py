@@ -10,6 +10,7 @@ import psutil
 from pathlib import Path
 import json
 import time
+import uuid
 
 # --- モデル情報キャッシュ ---
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
@@ -138,18 +139,64 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
 
 
 def format_response_for_display(response_text: Optional[str]) -> str:
-    if not response_text: return ""
+    if not response_text:
+        return ""
+
+    # 1. 各応答にユニークなIDを生成
+    message_id = f"msg_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+
+    # 2. スクロールを実行するJavaScriptを定義
+    js_scroll_function = (
+        f"document.getElementById('{message_id}').scrollIntoView({{ behavior: 'smooth', block: 'start' }});"
+    )
+
+    # 3. 「この応答の先頭へ」ボタンのHTMLを生成
+    #    本文との間に適切な余白(margin-top)を持たせる
+    scroll_button_html = (
+        f"<a href='javascript:void(0);' "
+        f"onclick=\"{js_scroll_function}\" "
+        f"style='display: inline-block; padding: 2px 8px; margin-top: 12px; font-size: 0.8em; background-color: #e0e0e0; color: #333; border-radius: 12px; text-decoration: none;'>"
+        "▲ この応答の先頭へ"
+        "</a>"
+    )
+
+    # 4. 思考ログを処理 (既存ロジック)
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-    match = thoughts_pattern.search(response_text)
-    if match:
-        thoughts_content = match.group(1).strip()
+    thought_match = thoughts_pattern.search(response_text)
+    thought_html_block = ""
+    if thought_match:
+        thoughts_content = thought_match.group(1).strip()
         escaped_content = html.escape(thoughts_content)
         content_with_breaks = escaped_content.replace('\n', '<br>')
         thought_html_block = f"<div class='thoughts'>{content_with_breaks}</div>"
         main_response_text = thoughts_pattern.sub("", response_text).strip()
-        return f"{thought_html_block}\n\n{main_response_text}" if main_response_text else thought_html_block
     else:
-        return response_text.strip()
+        main_response_text = response_text.strip()
+
+    # 5. ★★★ 最終的なHTMLの組み立て順序を修正 ★★★
+    #    - 全体をユニークIDを持つdivで囲む
+    #    - 思考ログと本文を先に配置
+    #    - 最後にスクロールボタンを配置
+    final_html_parts = [
+        f"<div id='{message_id}'>",
+    ]
+
+    # 思考ログと本文を先に追加
+    if thought_html_block:
+        final_html_parts.append(thought_html_block)
+
+    if main_response_text:
+        if thought_html_block:
+             final_html_parts.append("<br>") # 思考ログと本文の間にスペース
+        final_html_parts.append(main_response_text)
+
+    # 応答内容がある場合のみ、末尾にスクロールボタンを追加
+    if thought_html_block or main_response_text:
+        final_html_parts.append(scroll_button_html)
+
+    final_html_parts.append("</div>")
+
+    return "\n".join(final_html_parts)
 
 def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, Union[str, tuple, None]]]:
     if not messages:
