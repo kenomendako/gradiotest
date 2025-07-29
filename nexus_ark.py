@@ -110,23 +110,31 @@ try:
                     with gr.Row(): new_character_name_textbox = gr.Textbox(placeholder="新しいキャラクター名", show_label=False, scale=3); add_character_button = gr.Button("迎える", variant="secondary", scale=1)
 
             with gr.Column(scale=3):
-                chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True);
-                
-        with gr.Group(visible=False) as deletion_confirmation_group:
-            gr.Markdown("<div style='text-align: center;'>---</div>") # ★ 修正点1: HTMLを直接埋め込む
-            deletion_target_markdown = gr.Markdown("⚠️ **「...」**を本当に削除しますか？")
-            with gr.Row():
-                confirm_delete_button = gr.Button("はい、削除します", variant="stop")
-                cancel_delete_button = gr.Button("いいえ、やめます") # ★ 修正点2: 名前をシンプルに
-            gr.Markdown("<div style='text-align: center;'>---</div>") # ★ 修正点1: こちらも同様に修正
+                chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True)
 
-                # ★★★ 修正点: スクロールボタンを削除し、レイアウトを簡素化 ★★★
+                # --- 削除確認エリア (チャット欄のすぐ下) ---
+                with gr.Group(visible=False) as deletion_confirmation_group:
+                    gr.Markdown("<div style='text-align: center;'>---</div>")
+                    deletion_target_markdown = gr.Markdown("⚠️ **「...」**を本当に削除しますか？")
+                    with gr.Row():
+                        confirm_delete_button = gr.Button("はい、削除します", variant="stop")
+                        cancel_delete_button = gr.Button("いいえ、やめます")
+                    gr.Markdown("<div style='text-align: center;'>---</div>")
+
+                # --- チャット操作ボタン ---
                 with gr.Row():
                     chat_reload_button = gr.Button("🔄 更新")
 
-                token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display"); tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display"); chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3); submit_button = gr.Button("送信", variant="primary")
+                # --- トークン数表示とチャット入力欄 ---
+                token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
+                tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
+                chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
+                submit_button = gr.Button("送信", variant="primary")
+
+                # --- ファイル添付エリア ---
                 allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
-                file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types); gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
+                file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
+                gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
         
         # --- イベントハンドラの定義 ---
         token_calc_inputs = [current_character_name, current_model_name, chat_input_textbox, file_upload_button, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state]
