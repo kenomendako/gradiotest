@@ -97,7 +97,10 @@ def handle_message_submission(*args: Any):
     if final_response_text: utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
     chatbot_history.pop()
     if final_response_text: chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(final_response_text)})
+    
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
+    
+    # ★★★ エラーの原因となっていたJavaScript関連のコードを完全に削除 ★★★
     yield chatbot_history, gr.update(), gr.update(value=None), token_count, location_name, scenery_text
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
@@ -186,9 +189,6 @@ def handle_save_memory_click(character_name, json_string_data):
     except Exception as e: gr.Error(f"記憶の保存中にエラーが発生しました: {e}"); return gr.update()
         
 def handle_reload_memory(character_name: str) -> str:
-    """
-    指定されたキャラクターのmemory.jsonを再読み込みし、その内容を返す。
-    """
     if not character_name:
         gr.Warning("キャラクターが選択されていません。")
         return "{}"
@@ -345,27 +345,53 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
     return history
 
 def handle_chatbot_selection(evt: gr.SelectData, chatbot_history: List[Dict[str, str]]):
-    default_button_text = "🗑️ 選択した発言を削除"
     if evt.value:
         try:
-            message_index = evt.index if isinstance(evt.index, int) else evt.index[0]
+            message_index = evt.index if isinstance(evt.index, int) else evt.index
             if 0 <= message_index < len(chatbot_history):
-                selected_message_obj = chatbot_history[message_index]; content = str(selected_message_obj.get('content', ''))
-                display_text = content[:20] + '...' if len(content) > 20 else content; new_button_text = f"🗑️ 「{display_text}」を削除"
+                selected_message_obj = chatbot_history[message_index]
+                content = str(selected_message_obj.get('content', ''))
+                display_text = content[:20] + '...' if len(content) > 20 else content
                 print(f"--- 発言選択: Index={message_index}, Content='{content[:50]}...' ---")
-                return selected_message_obj, gr.update(value=new_button_text)
-        except: pass
-    return None, gr.update(value=default_button_text)
+                return (
+                    selected_message_obj,
+                    gr.update(visible=True),
+                    gr.update(value=f"🗑️ 「{display_text}」を削除"),
+                    False
+                )
+        except Exception as e:
+            print(f"発言選択処理でエラー: {e}")
+    return None, gr.update(visible=False), gr.update(value="🗑️ 選択した発言を削除"), False
 
-def handle_delete_selected_messages(character_name: str, selected_message: Dict[str, str], api_history_limit: str):
-    default_button_text = "🗑️ 選択した発言を削除"
-    if not character_name or not selected_message:
-        gr.Warning("キャラクターが選択されていないか、削除する発言が選択されていません。"); return reload_chat_log(character_name, api_history_limit), None, gr.update(value=default_button_text)
-    log_f, _, _, _, _ = get_character_files_paths(character_name)
-    success = utils.delete_message_from_log(log_f, selected_message)
-    if success: gr.Info("選択された発言をログから削除しました。")
-    else: gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
-    return reload_chat_log(character_name, api_history_limit), None, gr.update(value=default_button_text)
+def handle_delete_button_click(
+    confirmation_state: bool,
+    character_name: str,
+    selected_message: Dict[str, str],
+    api_history_limit: str
+):
+    if not selected_message:
+        gr.Warning("削除する発言が選択されていません。")
+        return gr.update(), None, gr.update(visible=False), gr.update(), False
+
+    if confirmation_state:
+        print("--- 削除を確定、実行します ---")
+        log_f, _, _, _, _ = get_character_files_paths(character_name)
+        success = utils.delete_message_from_log(log_f, selected_message)
+        if success:
+            gr.Info("選択された発言をログから削除しました。")
+        else:
+            gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
+        
+        new_chat_history = reload_chat_log(character_name, api_history_limit)
+        return new_chat_history, None, gr.update(visible=False), gr.update(value="🗑️ 選択した発言を削除"), False
+    else:
+        print("--- 削除の確認状態に移行しました ---")
+        confirm_button = gr.update(value="⚠️【削除を確認】もう一度クリック", variant="stop")
+        return gr.update(), selected_message, gr.update(visible=True), confirm_button, True
+
+def handle_cancel_delete():
+    print("--- 削除をキャンセルしました ---")
+    return None, gr.update(visible=False), gr.update(value="🗑️ 選択した発言を削除"), False
 
 def update_token_count(*args):
     (current_character_name, current_model_name, textbox_content, file_input_list, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_state, send_thoughts_state, send_core_memory_state, send_scenery_state) = args
