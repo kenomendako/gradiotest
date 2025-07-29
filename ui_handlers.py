@@ -13,6 +13,7 @@ import threading
 import filetype
 import base64
 import io
+import html
 
 # --- Nexus Ark モジュールのインポート ---
 import gemini_api
