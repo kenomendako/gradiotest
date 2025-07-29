@@ -55,11 +55,11 @@ try:
         use_common_prompt_state = gr.State(True)
         send_core_memory_state = gr.State(True)
         send_scenery_state = gr.State(True)
-        primed_for_deletion_state = gr.State(-1) # ★★★ 削除対象のインデックスを保持するState
+        selected_message_state = gr.State(None) # ★★★ 削除対象の「メッセージオブジェクト」を保持するState
 
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
-                # (左側のUI定義 ... 変更なし)
+                # ... (左側のUI定義は変更なし) ...
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                 gr.Markdown("### キャラクター"); character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
                 with gr.Accordion("空間認識・移動", open=True):
@@ -87,14 +87,10 @@ try:
             with gr.Column(scale=3):
                 chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True)
 
-                # ★★★ 新しいグローバル削除確認エリア ★★★
-                with gr.Group(visible=False) as deletion_confirmation_group:
-                    gr.Markdown("<div style='text-align: center;'>---</div>")
-                    deletion_target_markdown = gr.Markdown("⚠️ **「...」**を本当に削除しますか？")
-                    with gr.Row():
-                        confirm_delete_button = gr.Button("はい、削除します", variant="stop")
-                        cancel_delete_button = gr.Button("いいえ、やめます")
-                    gr.Markdown("<div style='text-align: center;'>---</div>")
+                # ★★★ 新しいグローバル削除ボタンエリア ★★★
+                with gr.Row(visible=False) as deletion_button_group:
+                    delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
+                    cancel_selection_button = gr.Button("✖️ 選択をキャンセル", scale=1)
 
                 with gr.Row():
                     chat_reload_button = gr.Button("🔄 更新")
@@ -119,21 +115,24 @@ try:
         
         # ★★★ 新しい削除フローのイベント接続 ★★★
         chatbot_display.select(
-            fn=ui_handlers.handle_prime_for_deletion,
+            fn=ui_handlers.handle_chatbot_selection,
             inputs=[chatbot_display],
-            outputs=[primed_for_deletion_state, deletion_confirmation_group, deletion_target_markdown],
+            outputs=[selected_message_state, deletion_button_group],
             show_progress=False
         )
-        confirm_delete_button.click(
-            fn=ui_handlers.handle_confirm_delete,
-            inputs=[primed_for_deletion_state, current_character_name, api_history_limit_state],
-            outputs=[chatbot_display, deletion_confirmation_group, primed_for_deletion_state]
+
+        delete_selection_button.click(
+            fn=ui_handlers.handle_delete_button_click,
+            inputs=[selected_message_state, current_character_name, api_history_limit_state],
+            outputs=[chatbot_display, selected_message_state, deletion_button_group]
         )
-        cancel_delete_button.click(
-            fn=ui_handlers.handle_cancel_delete,
+
+        cancel_selection_button.click(
+            fn=lambda: (None, gr.update(visible=False)),
             inputs=None,
-            outputs=[deletion_confirmation_group, primed_for_deletion_state]
+            outputs=[selected_message_state, deletion_button_group]
         )
+        # ... (残りのイベント定義は変更なし) ...
         
         # (残りのイベントハンドラ定義 ... 変更なし)
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button]); reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_character_name], outputs=[memory_json_editor]); save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_character_name, notepad_editor], outputs=[notepad_editor]); reload_notepad_button.click(fn=ui_handlers.handle_reload_notepad, inputs=[current_character_name], outputs=[notepad_editor]); clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_character_name], outputs=[notepad_editor]); alarm_dataframe.select(fn=ui_handlers.handle_alarm_selection_and_feedback, inputs=[alarm_dataframe, alarm_dataframe_original_data], outputs=[selected_alarm_ids_state, selection_feedback_markdown], show_progress=False).then(fn=ui_handlers.load_alarm_to_form, inputs=[selected_alarm_ids_state], outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state]); enable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data, alarm_dataframe]); disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data, alarm_dataframe]); delete_alarm_button.click(fn=ui_handlers.handle_delete_selected_alarms, inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data, alarm_dataframe]).then(fn=lambda: ([], "アラームを選択してください"), outputs=[selected_alarm_ids_state, selection_feedback_markdown]); alarm_add_button.click(fn=ui_handlers.handle_add_or_update_alarm, inputs=[editing_alarm_id_state, alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup], outputs=[alarm_dataframe_original_data, alarm_dataframe, alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state]); timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output]); timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output]); rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None); core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
