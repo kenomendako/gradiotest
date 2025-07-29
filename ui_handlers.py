@@ -95,13 +95,24 @@ def handle_message_submission(*args: Any):
     if final_log_message:
         user_header = utils._get_user_header_from_log(log_f, current_character_name); utils.save_message_to_log(log_f, user_header, final_log_message)
     if final_response_text: utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
+    # 応答をchatbot_historyから一旦取り除く
     chatbot_history.pop()
-    if final_response_text: chatbot_history.append({"role": "assistant", "content": utils.format_response_for_display(final_response_text)})
-    
-    token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
-    
-    # ★★★ エラーの原因となっていたJavaScript関連のコードを完全に削除 ★★★
-    yield chatbot_history, gr.update(), gr.update(value=None), token_count, location_name, scenery_text
+
+    # 新しいAIの応答（生データ）を履歴に追加
+    if final_response_text:
+        chatbot_history.append({"role": "assistant", "content": final_response_text})
+
+    # ★★★ 会話履歴全体を、新しいフォーマット関数で再処理する ★★★
+    formatted_history = utils.format_history_for_gradio(chatbot_history)
+
+    token_count = update_token_count(
+        current_character_name, current_model_name, None, None, api_history_limit_state,
+        current_api_key_name_state, send_notepad_state, use_common_prompt_state,
+        add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state
+    )
+
+    # yieldでフォーマット済みの履歴を返す
+    yield formatted_history, gr.update(), gr.update(value=None), token_count, location_name, scenery_text
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
     if not character_name or not api_key_name:
