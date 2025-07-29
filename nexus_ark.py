@@ -112,13 +112,13 @@ try:
             with gr.Column(scale=3):
                 chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True);
                 
-                with gr.Group(visible=False) as deletion_confirmation_group:
-                    gr.Markdown("---", style="text-align: center;")
-                    deletion_target_markdown = gr.Markdown("⚠️ **「...」**を本当に削除しますか？")
-                    with gr.Row():
-                        confirm_delete_button = gr.Button("はい、削除します", variant="stop")
-                        cancel_delete_button_2 = gr.Button("いいえ、やめます") # cancel_delete_button は既にあるかもしれないので _2
-                    gr.Markdown("---")
+        with gr.Group(visible=False) as deletion_confirmation_group:
+            gr.Markdown("<div style='text-align: center;'>---</div>") # ★ 修正点1: HTMLを直接埋め込む
+            deletion_target_markdown = gr.Markdown("⚠️ **「...」**を本当に削除しますか？")
+            with gr.Row():
+                confirm_delete_button = gr.Button("はい、削除します", variant="stop")
+                cancel_delete_button = gr.Button("いいえ、やめます") # ★ 修正点2: 名前をシンプルに
+            gr.Markdown("<div style='text-align: center;'>---</div>") # ★ 修正点1: こちらも同様に修正
 
                 # ★★★ 修正点: スクロールボタンを削除し、レイアウトを簡素化 ★★★
                 with gr.Row():
@@ -184,7 +184,7 @@ try:
             outputs=[chatbot_display, deletion_confirmation_group, primed_for_deletion_state]
         )
 
-        cancel_delete_button_2.click(
+        cancel_delete_button.click( # ★ 修正点: ボタン名と合わせる
             fn=ui_handlers.handle_cancel_delete,
             inputs=None,
             outputs=[deletion_confirmation_group, primed_for_deletion_state]
