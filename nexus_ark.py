@@ -56,7 +56,6 @@ try:
         use_common_prompt_state = gr.State(True)
         send_core_memory_state = gr.State(True)
         send_scenery_state = gr.State(True)
-        selected_message_state = gr.State(None)
         primed_for_deletion_state = gr.State(-1) # 削除確認中のメッセージの「インデックス」を保持 (-1は無し)
 
         with gr.Row():
@@ -113,6 +112,14 @@ try:
             with gr.Column(scale=3):
                 chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True);
                 
+                with gr.Group(visible=False) as deletion_confirmation_group:
+                    gr.Markdown("---", style="text-align: center;")
+                    deletion_target_markdown = gr.Markdown("⚠️ **「...」**を本当に削除しますか？")
+                    with gr.Row():
+                        confirm_delete_button = gr.Button("はい、削除します", variant="stop")
+                        cancel_delete_button_2 = gr.Button("いいえ、やめます") # cancel_delete_button は既にあるかもしれないので _2
+                    gr.Markdown("---")
+
                 # ★★★ 修正点: スクロールボタンを削除し、レイアウトを簡素化 ★★★
                 with gr.Row():
                     chat_reload_button = gr.Button("🔄 更新")
@@ -164,10 +171,23 @@ try:
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
         
         chatbot_display.select(
-            fn=ui_handlers.handle_chatbot_selection_for_deletion,
-            inputs=[chatbot_display, primed_for_deletion_state, current_character_name, api_history_limit_state],
-            outputs=[chatbot_display, primed_for_deletion_state],
+            fn=ui_handlers.handle_prime_for_deletion,
+            inputs=[chatbot_display],
+            outputs=[primed_for_deletion_state, deletion_confirmation_group, deletion_target_markdown],
             show_progress=False
+        )
+
+        # 新しい確認ボタンのイベントを追加
+        confirm_delete_button.click(
+            fn=ui_handlers.handle_confirm_delete,
+            inputs=[primed_for_deletion_state, current_character_name, api_history_limit_state],
+            outputs=[chatbot_display, deletion_confirmation_group, primed_for_deletion_state]
+        )
+
+        cancel_delete_button_2.click(
+            fn=ui_handlers.handle_cancel_delete,
+            inputs=None,
+            outputs=[deletion_confirmation_group, primed_for_deletion_state]
         )
         
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])

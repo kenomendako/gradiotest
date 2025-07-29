@@ -138,10 +138,7 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
     return messages
 
 
-def format_history_for_gradio(
-    messages: List[Dict[str, str]],
-    primed_index: int = -1
-) -> List[Dict[str, Union[str, tuple, None]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, Union[str, tuple, None]]]:
     if not messages:
         return []
 
@@ -151,35 +148,20 @@ def format_history_for_gradio(
     tag_pattern = re.compile(r"(\[Generated Image: .*?\]|\[ファイル添付: .*?\])")
 
     for i, msg in enumerate(messages):
-        # ★★★ 削除確認UIのレンダリング（インデックスで判定） ★★★
-        if i == primed_index:
-            # 視認性を改善したCSSと、識別用アンカーを埋め込んだHTML
-            confirm_html = (
-                "<div>"
-                "  <div style='background-color: #fff0f0; border: 1px solid #ffb0b0; border-radius: 8px; padding: 12px; text-align: center; color: #333;'>"
-                "    <p style='margin: 0 0 8px 0; font-weight: bold;'>⚠️ この発言を本当に削除しますか？</p>"
-                "    <a href='#delete_confirm_YES_{i}' title='はい、この発言を削除します' style='color: #d9534f; text-decoration: none; font-weight: bold;'>[はい、削除する]</a>"
-                "    <span style='margin: 0 8px;'>|</span>"
-                "    <a href='#delete_cancel_NO_{i}' title='いいえ、キャンセルします' style='color: #555; text-decoration: none;'>[いいえ]</a>"
-                "  </div>"
-                "</div>"
-            )
-            gradio_history.append({"role": msg.get("role"), "content": confirm_html})
-            continue
-
         role = "assistant" if msg.get("role") == "model" else "user"
         content = msg.get("content", "").strip()
         if not content: continue
 
         current_anchor_id = anchor_ids[i]
 
-        # ... (ボタンと本文のHTML生成ロジックは変更なし) ...
+        # ボタンHTMLの生成 (削除確認ロジックは不要になった)
         up_button = f"<a href='#{current_anchor_id}' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▲</a>"
         down_button = ""
         if i < len(messages) - 1:
             next_anchor_id = anchor_ids[i+1]
             down_button = f"<a href='#{next_anchor_id}' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▼</a>"
 
+        # 削除ボタンはクリック可能なアンカーとして設置
         delete_button = f"<a href='#' title='この発言を削除' style='padding: 1px 6px; font-size: 1.0em; text-decoration: none; color: #555;'>🗑️</a>"
 
         button_container = (
@@ -187,6 +169,8 @@ def format_history_for_gradio(
             f"{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_button}"
             "</div>"
         )
+
+        # 本文の処理
         thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
         parts = tag_pattern.split(content)
         final_content_parts = [f"<span id='{current_anchor_id}'></span>"]
@@ -194,6 +178,7 @@ def format_history_for_gradio(
         for part in parts:
             part = part.strip()
             if not part: continue
+
             thought_match = thoughts_pattern.search(part)
             is_image_tag = part.startswith("[Generated Image:") and part.endswith("]")
             is_file_tag = part.startswith("[ファイル添付:") and part.endswith("]")

@@ -356,64 +356,73 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
     return history
 
 
-def handle_chatbot_selection_for_deletion(
+
+def handle_prime_for_deletion(
     chatbot_history: List[Dict[str, str]],
-    primed_index: int,
-    character_name: str,
-    api_history_limit: str,
     evt: gr.SelectData
 ):
-    """
-    チャットメッセージの選択を処理し、インラインでの削除フローを管理する。
-    インデックスとマジックストリングを使用して、確実な操作を実現する。
-    """
+    """🗑️アイコンクリックを検知し、削除の準備（プライミング）を行う。"""
     if not evt.value:
-        return chatbot_history, -1
+        return -1, gr.update(visible=False), ""
 
     try:
         clicked_index = evt.index if isinstance(evt.index, int) else evt.index[0]
-        clicked_value_html = evt.value
 
-        # --- フロー分岐 ---
-        # 1. 削除「確定」または「キャンセル」の処理
-        if primed_index == clicked_index:
-            display_turns = _get_display_history_count(api_history_limit)
-            raw_history = utils.load_chat_log(character_manager.get_character_files_paths(character_name)[0], character_name)
+        # contentからHTMLタグを除去してプレビューを作成
+        raw_content = chatbot_history[clicked_index].get('content', '')
+        preview_content = re.sub('<[^<]+?>', '', raw_content).strip()
+        preview_text = (preview_content[:20] + '...') if len(preview_content) > 20 else preview_content
 
-            # 確定YESがクリックされたか
-            if '#delete_confirm_YES' in clicked_value_html:
-                log_offset = len(raw_history) - len(chatbot_history)
-                target_log_index = clicked_index + log_offset
+        # 確認エリアを表示し、対象テキストを設定
+        confirmation_text = f"⚠️ **「{html.escape(preview_text)}」**を本当に削除しますか？"
 
-                if 0 <= target_log_index < len(raw_history):
-                    message_to_delete_from_log = raw_history[target_log_index]
-                    log_f, _, _, _, _ = get_character_files_paths(character_name)
-                    success = utils.delete_message_from_log(log_f, message_to_delete_from_log)
-                    if success: gr.Info("発言を削除しました。")
-                    else: gr.Error("発言の削除に失敗しました。")
-                else:
-                    gr.Error("削除対象の特定に失敗しました。")
-
-            # NOがクリックされた場合、または予期せぬクリックの場合はキャンセルとみなす
-            else:
-                gr.Info("削除をキャンセルしました。")
-
-            # UIを再描画し、プライム状態をリセット
-            new_raw_history = utils.load_chat_log(character_manager.get_character_files_paths(character_name)[0], character_name)
-            new_display_history = utils.format_history_for_gradio(new_raw_history[-(display_turns*2):], primed_index=-1)
-            return new_display_history, -1
-
-        # 2. 削除の「準備」（プライミング）処理
-        else:
-            # 新しくメッセージが選択されたので、それを削除確認状態にする
-            new_history = utils.format_history_for_gradio(chatbot_history, primed_index=clicked_index)
-            # クリックされたインデックスをプライム状態として保存
-            return new_history, clicked_index
+        # プライム状態として「インデックス」を返す
+        return clicked_index, gr.update(visible=True), confirmation_text
 
     except Exception as e:
-        print(f"削除処理中にエラー: {e}")
-        traceback.print_exc()
-        return chatbot_history, -1
+        print(f"削除準備中にエラー: {e}")
+        return -1, gr.update(visible=False), ""
+
+
+def handle_confirm_delete(
+    primed_index: int,
+    character_name: str,
+    api_history_limit: str
+):
+    """「はい、削除します」ボタンの処理。"""
+    if primed_index < 0:
+        return gr.update(), gr.update(visible=False), -1
+
+    log_f, _, _, _, _ = get_character_files_paths(character_name)
+    raw_history = utils.load_chat_log(log_f, character_name)
+    display_turns = _get_display_history_count(api_history_limit)
+    visible_history_len = len(raw_history[-(display_turns*2):])
+
+    # 表示されている履歴のインデックスから、ログ全体のインデックスを計算
+    log_offset = len(raw_history) - visible_history_len
+    target_log_index = primed_index + log_offset
+
+    if 0 <= target_log_index < len(raw_history):
+        message_to_delete = raw_history[target_log_index]
+        success = utils.delete_message_from_log(log_f, message_to_delete)
+        if success: gr.Info("発言を削除しました。")
+        else: gr.Error("発言の削除に失敗しました。")
+    else:
+        gr.Error("削除対象の特定に失敗しました。")
+
+    # 履歴を再読み込み・再フォーマットしてUIを更新
+    new_raw_history = utils.load_chat_log(log_f, character_name)
+    new_display_history = utils.format_history_for_gradio(new_raw_history[-(display_turns*2):])
+
+    # 確認エリアを非表示にし、プライム状態をリセット
+    return new_display_history, gr.update(visible=False), -1
+
+
+def handle_cancel_delete():
+    """「いいえ、やめます」ボタンの処理。"""
+    gr.Info("削除をキャンセルしました。")
+    # 確認エリアを非表示にし、プライム状態をリセットするだけ
+    return gr.update(visible=False), -1
 
 def update_token_count(*args):
     (current_character_name, current_model_name, textbox_content, file_input_list, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_state, send_thoughts_state, send_core_memory_state, send_scenery_state) = args
