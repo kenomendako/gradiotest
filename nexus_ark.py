@@ -21,22 +21,6 @@ try:
     config_manager.load_config()
     alarm_manager.load_alarms()
 
-    js_scroll_to_latest_message = """
-    () => {
-        const chat_output_area = document.querySelector('#chat_output_area');
-        if (chat_output_area) {
-            const scrollable_div = chat_output_area.querySelector('.wrap');
-            if (scrollable_div) {
-                const messages = scrollable_div.querySelectorAll('.message-row');
-                if (messages.length > 0) {
-                    const lastMessage = messages[messages.length - 1];
-                    lastMessage.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-            }
-        }
-    }
-    """
-
     custom_css = """
 #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
 #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word !important; }
@@ -94,7 +78,6 @@ try:
                     add_timestamp_checkbox = gr.Checkbox(value=config_manager.initial_add_timestamp_global, label="メッセージにタイムスタンプを追加", interactive=True)
                     send_thoughts_checkbox = gr.Checkbox(value=config_manager.initial_send_thoughts_to_api_global, label="思考過程をAPIに送信", interactive=True)
                     send_notepad_checkbox = gr.Checkbox(value=True, label="メモ帳の内容をAPIに送信", interactive=True)
-                    # ★★★ 修正点: 削除されていたこの一行を復活させました ★★★
                     use_common_prompt_checkbox = gr.Checkbox(value=True, label="共通ツールプロンプトを注入", interactive=True)
                     send_core_memory_checkbox = gr.Checkbox(value=True, label="コアメモリをAPIに送信", interactive=True)
                     send_scenery_checkbox = gr.Checkbox(value=True, label="空間描写・設定をAPIに送信", interactive=True)
@@ -130,15 +113,13 @@ try:
             with gr.Column(scale=3):
                 chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True);
                 
+                # ★★★ 修正点: スクロールボタンを削除し、レイアウトを簡素化 ★★★
                 with gr.Row():
                     delete_button_row = gr.Row(visible=False, scale=4)
                     with delete_button_row:
                         delete_selected_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
                         cancel_delete_button = gr.Button("✖️ キャンセル", scale=1)
-                    
-                    with gr.Row(elem_id="chat_control_buttons", scale=1):
-                        scroll_to_latest_button = gr.Button("⬆️ 最新へ")
-                        chat_reload_button = gr.Button("🔄 更新")
+                    chat_reload_button = gr.Button("🔄 更新", scale=1)
 
                 token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display"); tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display"); chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3); submit_button = gr.Button("送信", variant="primary")
                 allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
@@ -179,8 +160,6 @@ try:
             outputs=scenery_refresh_outputs
         )
         
-        scroll_to_latest_button.click(fn=None, js=js_scroll_to_latest_message)
-
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs); submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         for component in [chat_input_textbox, file_upload_button, notepad_editor, model_dropdown, api_key_dropdown, add_timestamp_checkbox, send_thoughts_checkbox, send_notepad_checkbox, use_common_prompt_checkbox, send_core_memory_checkbox, send_scenery_checkbox, api_history_limit_dropdown]:
             if isinstance(component, (gr.Textbox, gr.Checkbox, gr.Dropdown, gr.Radio)): component.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display], show_progress=False)
