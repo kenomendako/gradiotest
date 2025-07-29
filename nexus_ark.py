@@ -57,7 +57,7 @@ try:
         send_core_memory_state = gr.State(True)
         send_scenery_state = gr.State(True)
         selected_message_state = gr.State(None)
-        primed_for_deletion_state = gr.State(None) # 削除確認中のメッセージを保持
+        primed_for_deletion_state = gr.State(-1) # 削除確認中のメッセージの「インデックス」を保持 (-1は無し)
 
         with gr.Row():
             with gr.Column(scale=1, min_width=300):

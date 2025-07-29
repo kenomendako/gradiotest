@@ -358,73 +358,62 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
 
 def handle_chatbot_selection_for_deletion(
     chatbot_history: List[Dict[str, str]],
-    primed_message: Optional[Dict[str, str]],
+    primed_index: int,
     character_name: str,
     api_history_limit: str,
     evt: gr.SelectData
 ):
     """
     チャットメッセージの選択を処理し、インラインでの削除フローを管理する。
+    インデックスとマジックストリングを使用して、確実な操作を実現する。
     """
     if not evt.value:
-        # 選択が解除された場合など
-        return chatbot_history, None
+        return chatbot_history, -1
 
     try:
-        # 選択されたメッセージオブジェクトを取得
-        selected_index = evt.index if isinstance(evt.index, int) else evt.index[0]
-        selected_message = chatbot_history[selected_index]
+        clicked_index = evt.index if isinstance(evt.index, int) else evt.index[0]
+        clicked_value_html = evt.value
 
-        # 1. 削除の確定処理
-        if primed_message and primed_message['content'] == selected_message['content']:
-            # 確認プロンプト内の「はい」がクリックされたと判断
-            # （実際にはメッセージ全体がクリックされるが、primed_messageと一致することで確定とみなす）
-            # ここでは削除対象の生データを渡す必要があるため、UI表示用のHTMLから元のメッセージを探す
+        # --- フロー分岐 ---
+        # 1. 削除「確定」または「キャンセル」の処理
+        if primed_index == clicked_index:
+            display_turns = _get_display_history_count(api_history_limit)
             raw_history = utils.load_chat_log(character_manager.get_character_files_paths(character_name)[0], character_name)
 
-            # primed_messageから元のメッセージを特定する
-            # ※この方法はUIのHTML構造に依存するため、より堅牢な方法として
-            # 　primed_messageに元のメッセージのインデックスやユニークIDを含めるのが望ましいが、
-            # 　まずはシンプルさを優先する。
+            # 確定YESがクリックされたか
+            if '#delete_confirm_YES' in clicked_value_html:
+                log_offset = len(raw_history) - len(chatbot_history)
+                target_log_index = clicked_index + log_offset
 
-            # 削除処理の簡略化のため、ここでは「最後にプライムされたメッセージ」を削除する
-            # より正確に行うには、プライム時にメッセージの一意な識別子を保存する必要がある
-            # ここではSelectDataのインデックスから元のログを探しにいく
-
-            display_turns = _get_display_history_count(api_history_limit)
-            log_offset = len(raw_history) - len(chatbot_history)
-            target_log_index = selected_index + log_offset
-
-            if 0 <= target_log_index < len(raw_history):
-                message_to_delete_from_log = raw_history[target_log_index]
-
-                log_f, _, _, _, _ = get_character_files_paths(character_name)
-                success = utils.delete_message_from_log(log_f, message_to_delete_from_log)
-                if success:
-                    gr.Info("発言を削除しました。")
+                if 0 <= target_log_index < len(raw_history):
+                    message_to_delete_from_log = raw_history[target_log_index]
+                    log_f, _, _, _, _ = get_character_files_paths(character_name)
+                    success = utils.delete_message_from_log(log_f, message_to_delete_from_log)
+                    if success: gr.Info("発言を削除しました。")
+                    else: gr.Error("発言の削除に失敗しました。")
                 else:
-                    gr.Error("発言の削除に失敗しました。")
+                    gr.Error("削除対象の特定に失敗しました。")
+
+            # NOがクリックされた場合、または予期せぬクリックの場合はキャンセルとみなす
             else:
-                gr.Error("削除対象の特定に失敗しました。")
+                gr.Info("削除をキャンセルしました。")
 
-
-            # 履歴を再フォーマットしてUIを更新
+            # UIを再描画し、プライム状態をリセット
             new_raw_history = utils.load_chat_log(character_manager.get_character_files_paths(character_name)[0], character_name)
-            new_display_history = utils.format_history_for_gradio(new_raw_history[-(display_turns*2):])
-            return new_display_history, None
+            new_display_history = utils.format_history_for_gradio(new_raw_history[-(display_turns*2):], primed_index=-1)
+            return new_display_history, -1
 
-        # 2. 削除の準備（プライミング）処理
+        # 2. 削除の「準備」（プライミング）処理
         else:
             # 新しくメッセージが選択されたので、それを削除確認状態にする
-            # チャット履歴を再生成し、選択されたメッセージだけ見た目を変える
-            new_history = utils.format_history_for_gradio(chatbot_history, primed_message_to_render=selected_message)
-            return new_history, selected_message
+            new_history = utils.format_history_for_gradio(chatbot_history, primed_index=clicked_index)
+            # クリックされたインデックスをプライム状態として保存
+            return new_history, clicked_index
 
     except Exception as e:
         print(f"削除処理中にエラー: {e}")
         traceback.print_exc()
-        # エラー発生時は状態をリセット
-        return chatbot_history, None
+        return chatbot_history, -1
 
 def update_token_count(*args):
     (current_character_name, current_model_name, textbox_content, file_input_list, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_state, send_thoughts_state, send_core_memory_state, send_scenery_state) = args

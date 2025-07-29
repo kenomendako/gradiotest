@@ -140,33 +140,32 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
 
 def format_history_for_gradio(
     messages: List[Dict[str, str]],
-    primed_message_to_render: Optional[Dict[str, str]] = None
+    primed_index: int = -1
 ) -> List[Dict[str, Union[str, tuple, None]]]:
     if not messages:
         return []
 
-    # 1. 全メッセージのアンカーIDを事前に一括生成
     anchor_ids = [f"msg-anchor-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}-{i}" for i, _ in enumerate(messages)]
     gradio_history = []
 
     tag_pattern = re.compile(r"(\[Generated Image: .*?\]|\[ファイル添付: .*?\])")
 
     for i, msg in enumerate(messages):
-        # ★★★ 削除確認UIのレンダリング ★★★
-        if primed_message_to_render and msg['content'] == primed_message_to_render['content']:
+        # ★★★ 削除確認UIのレンダリング（インデックスで判定） ★★★
+        if i == primed_index:
+            # 視認性を改善したCSSと、識別用アンカーを埋め込んだHTML
             confirm_html = (
                 "<div>"
-                "  <div style='background-color: #ffe0e0; border: 1px solid #ffb0b0; border-radius: 8px; padding: 12px; text-align: center;'>"
-                "    <p style='margin: 0 0 8px 0;'><strong>⚠️ この発言を本当に削除しますか？</strong></p>"
-                "    <a href='#' title='はい、この発言を削除します' style='color: #d9534f; text-decoration: none; font-weight: bold;'>[はい、削除する]</a>"
+                "  <div style='background-color: #fff0f0; border: 1px solid #ffb0b0; border-radius: 8px; padding: 12px; text-align: center; color: #333;'>"
+                "    <p style='margin: 0 0 8px 0; font-weight: bold;'>⚠️ この発言を本当に削除しますか？</p>"
+                "    <a href='#delete_confirm_YES_{i}' title='はい、この発言を削除します' style='color: #d9534f; text-decoration: none; font-weight: bold;'>[はい、削除する]</a>"
                 "    <span style='margin: 0 8px;'>|</span>"
-                "    <a href='#' title='いいえ、キャンセルします' style='text-decoration: none;'>[いいえ]</a>"
+                "    <a href='#delete_cancel_NO_{i}' title='いいえ、キャンセルします' style='color: #555; text-decoration: none;'>[いいえ]</a>"
                 "  </div>"
                 "</div>"
             )
             gradio_history.append({"role": msg.get("role"), "content": confirm_html})
             continue
-        # ★★★ ここまでが追加ブロック ★★★
 
         role = "assistant" if msg.get("role") == "model" else "user"
         content = msg.get("content", "").strip()
@@ -174,14 +173,13 @@ def format_history_for_gradio(
 
         current_anchor_id = anchor_ids[i]
 
-        # 2. ボタンHTMLの生成
+        # ... (ボタンと本文のHTML生成ロジックは変更なし) ...
         up_button = f"<a href='#{current_anchor_id}' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▲</a>"
         down_button = ""
         if i < len(messages) - 1:
             next_anchor_id = anchor_ids[i+1]
             down_button = f"<a href='#{next_anchor_id}' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▼</a>"
 
-        # 削除ボタンを追加
         delete_button = f"<a href='#' title='この発言を削除' style='padding: 1px 6px; font-size: 1.0em; text-decoration: none; color: #555;'>🗑️</a>"
 
         button_container = (
@@ -189,8 +187,6 @@ def format_history_for_gradio(
             f"{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_button}"
             "</div>"
         )
-
-        # 3. メッセージ本文の処理（変更なし）
         thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
         parts = tag_pattern.split(content)
         final_content_parts = [f"<span id='{current_anchor_id}'></span>"]
@@ -198,12 +194,11 @@ def format_history_for_gradio(
         for part in parts:
             part = part.strip()
             if not part: continue
-            # ... (中略: ここの本文処理ロジックは変更ありません) ...
+            thought_match = thoughts_pattern.search(part)
             is_image_tag = part.startswith("[Generated Image:") and part.endswith("]")
             is_file_tag = part.startswith("[ファイル添付:") and part.endswith("]")
-            thought_match = thoughts_pattern.search(part)
+
             if thought_match:
-                # ... (思考ログ処理) ...
                 thoughts_content = thought_match.group(1).strip()
                 escaped_content = html.escape(thoughts_content)
                 content_with_breaks = escaped_content.replace('\n', '<br>')
@@ -212,7 +207,6 @@ def format_history_for_gradio(
                 if main_response_text: final_content_parts.append(f"<div>{main_response_text}</div>")
                 has_content = True
             elif is_image_tag or is_file_tag:
-                # ... (ファイル・画像タグ処理) ...
                 filepath = part[len("[Generated Image:"):-1].strip() if is_image_tag else part[len("[ファイル添付:"):-1].strip()
                 absolute_filepath = os.path.abspath(filepath)
                 filename = os.path.basename(filepath)
@@ -223,7 +217,6 @@ def format_history_for_gradio(
                     final_content_parts.append(f"*[表示エラー: ファイル '{filename}' が見つかりません]*")
                 has_content = True
             elif part:
-                # ... (通常テキスト処理) ...
                 final_content_parts.append(f"<div>{part}</div>")
                 has_content = True
 
