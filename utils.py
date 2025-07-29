@@ -138,7 +138,10 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
     return messages
 
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, Union[str, tuple, None]]]:
+def format_history_for_gradio(
+    messages: List[Dict[str, str]],
+    primed_message_to_render: Optional[Dict[str, str]] = None
+) -> List[Dict[str, Union[str, tuple, None]]]:
     if not messages:
         return []
 
@@ -146,74 +149,70 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
     anchor_ids = [f"msg-anchor-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}-{i}" for i, _ in enumerate(messages)]
     gradio_history = []
 
-    # 正規表現パターンの準備 (ファイル・画像タグ用)
     tag_pattern = re.compile(r"(\[Generated Image: .*?\]|\[ファイル添付: .*?\])")
 
-    # 2. 全メッセージをループしてHTMLを構築
     for i, msg in enumerate(messages):
+        # ★★★ 削除確認UIのレンダリング ★★★
+        if primed_message_to_render and msg['content'] == primed_message_to_render['content']:
+            confirm_html = (
+                "<div>"
+                "  <div style='background-color: #ffe0e0; border: 1px solid #ffb0b0; border-radius: 8px; padding: 12px; text-align: center;'>"
+                "    <p style='margin: 0 0 8px 0;'><strong>⚠️ この発言を本当に削除しますか？</strong></p>"
+                "    <a href='#' title='はい、この発言を削除します' style='color: #d9534f; text-decoration: none; font-weight: bold;'>[はい、削除する]</a>"
+                "    <span style='margin: 0 8px;'>|</span>"
+                "    <a href='#' title='いいえ、キャンセルします' style='text-decoration: none;'>[いいえ]</a>"
+                "  </div>"
+                "</div>"
+            )
+            gradio_history.append({"role": msg.get("role"), "content": confirm_html})
+            continue
+        # ★★★ ここまでが追加ブロック ★★★
+
         role = "assistant" if msg.get("role") == "model" else "user"
         content = msg.get("content", "").strip()
-        if not content:
-            continue
+        if not content: continue
 
         current_anchor_id = anchor_ids[i]
 
-        # 3. ボタンHTMLの生成
-        # ▲ 上へボタン (常に表示)
-        up_button = (
-            f"<a href='#{current_anchor_id}' title='この発言の先頭へ' "
-            f"style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▲</a>"
-        )
-        # ▼ 下へボタン (最後のメッセージ以外で表示)
+        # 2. ボタンHTMLの生成
+        up_button = f"<a href='#{current_anchor_id}' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▲</a>"
         down_button = ""
         if i < len(messages) - 1:
             next_anchor_id = anchor_ids[i+1]
-            down_button = (
-                f"<a href='#{next_anchor_id}' title='次の発言へ' "
-                f"style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▼</a>"
-            )
+            down_button = f"<a href='#{next_anchor_id}' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▼</a>"
 
-        # ボタンをまとめるコンテナ
+        # 削除ボタンを追加
+        delete_button = f"<a href='#' title='この発言を削除' style='padding: 1px 6px; font-size: 1.0em; text-decoration: none; color: #555;'>🗑️</a>"
+
         button_container = (
             f"<div style='text-align: right; margin-top: 8px;'>"
-            f"{up_button} {down_button}"
+            f"{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_button}"
             "</div>"
         )
 
-        # 4. メッセージ本文の処理
-        #    思考ログやファイル表示のロジックはここに集約
+        # 3. メッセージ本文の処理（変更なし）
         thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
         parts = tag_pattern.split(content)
-
-        final_content_parts = []
+        final_content_parts = [f"<span id='{current_anchor_id}'></span>"]
         has_content = False
-
-        # 本文の先頭に目印を設置
-        final_content_parts.append(f"<span id='{current_anchor_id}'></span>")
-
         for part in parts:
             part = part.strip()
             if not part: continue
-
-            # 思考ログの処理
+            # ... (中略: ここの本文処理ロジックは変更ありません) ...
+            is_image_tag = part.startswith("[Generated Image:") and part.endswith("]")
+            is_file_tag = part.startswith("[ファイル添付:") and part.endswith("]")
             thought_match = thoughts_pattern.search(part)
             if thought_match:
+                # ... (思考ログ処理) ...
                 thoughts_content = thought_match.group(1).strip()
                 escaped_content = html.escape(thoughts_content)
                 content_with_breaks = escaped_content.replace('\n', '<br>')
                 final_content_parts.append(f"<div class='thoughts'>{content_with_breaks}</div>")
-                # 思考ログ部分を本文から削除
                 main_response_text = thoughts_pattern.sub("", part).strip()
-                if main_response_text:
-                    final_content_parts.append(f"<div>{main_response_text}</div>")
+                if main_response_text: final_content_parts.append(f"<div>{main_response_text}</div>")
                 has_content = True
-                continue
-
-            # 画像・ファイルタグの処理
-            is_image_tag = part.startswith("[Generated Image:") and part.endswith("]")
-            is_file_tag = part.startswith("[ファイル添付:") and part.endswith("]")
-
-            if is_image_tag or is_file_tag:
+            elif is_image_tag or is_file_tag:
+                # ... (ファイル・画像タグ処理) ...
                 filepath = part[len("[Generated Image:"):-1].strip() if is_image_tag else part[len("[ファイル添付:"):-1].strip()
                 absolute_filepath = os.path.abspath(filepath)
                 filename = os.path.basename(filepath)
@@ -224,15 +223,13 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
                     final_content_parts.append(f"*[表示エラー: ファイル '{filename}' が見つかりません]*")
                 has_content = True
             elif part:
-                # 通常のテキスト
+                # ... (通常テキスト処理) ...
                 final_content_parts.append(f"<div>{part}</div>")
                 has_content = True
 
-        # 応答内容がある場合のみ、末尾にボタンを追加
         if has_content:
             final_content_parts.append(button_container)
 
-        # 全体を1つのdivで囲む
         final_html = f"<div>{''.join(final_content_parts)}</div>"
         gradio_history.append({"role": role, "content": final_html})
 

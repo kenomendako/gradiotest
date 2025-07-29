@@ -57,7 +57,7 @@ try:
         send_core_memory_state = gr.State(True)
         send_scenery_state = gr.State(True)
         selected_message_state = gr.State(None)
-        delete_confirmation_state = gr.State(False)
+        primed_for_deletion_state = gr.State(None) # 削除確認中のメッセージを保持
 
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
@@ -115,11 +115,7 @@ try:
                 
                 # ★★★ 修正点: スクロールボタンを削除し、レイアウトを簡素化 ★★★
                 with gr.Row():
-                    delete_button_row = gr.Row(visible=False, scale=4)
-                    with delete_button_row:
-                        delete_selected_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
-                        cancel_delete_button = gr.Button("✖️ キャンセル", scale=1)
-                    chat_reload_button = gr.Button("🔄 更新", scale=1)
+                    chat_reload_button = gr.Button("🔄 更新")
 
                 token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display"); tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display"); chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3); submit_button = gr.Button("送信", variant="primary")
                 allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
@@ -168,20 +164,10 @@ try:
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
         
         chatbot_display.select(
-            fn=ui_handlers.handle_chatbot_selection,
-            inputs=[chatbot_display],
-            outputs=[selected_message_state, delete_button_row, delete_selected_button, delete_confirmation_state],
+            fn=ui_handlers.handle_chatbot_selection_for_deletion,
+            inputs=[chatbot_display, primed_for_deletion_state, current_character_name, api_history_limit_state],
+            outputs=[chatbot_display, primed_for_deletion_state],
             show_progress=False
-        )
-        delete_selected_button.click(
-            fn=ui_handlers.handle_delete_button_click,
-            inputs=[delete_confirmation_state, current_character_name, selected_message_state, api_history_limit_state],
-            outputs=[chatbot_display, selected_message_state, delete_button_row, delete_selected_button, delete_confirmation_state]
-        )
-        cancel_delete_button.click(
-            fn=ui_handlers.handle_cancel_delete,
-            inputs=None,
-            outputs=[selected_message_state, delete_button_row, delete_selected_button, delete_confirmation_state]
         )
         
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
