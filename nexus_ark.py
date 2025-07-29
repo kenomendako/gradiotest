@@ -21,19 +21,24 @@ try:
     config_manager.load_config()
     alarm_manager.load_alarms()
 
+    # ★★★ 修正点1: 正しいスクロール用JavaScriptを定義 ★★★
     js_scroll_to_latest_message = """
     () => {
         const chat_output_area = document.querySelector('#chat_output_area');
         if (chat_output_area) {
+            // Gradioのチャットボットコンポーネントは、スクロール可能なdivを '.wrap' というクラス名で内包しています
             const scrollable_div = chat_output_area.querySelector('.wrap');
-            const messages = scrollable_div.querySelectorAll('.message-row');
-            if (messages.length > 0) {
-                const lastMessage = messages[messages.length - 1];
-                const scrollTop = lastMessage.offsetTop - scrollable_div.offsetTop;
-                scrollable_div.scrollTo({ top: scrollTop, behavior: 'smooth' });
+            if (scrollable_div) {
+                // 全てのメッセージ要素（.message-row）を取得します
+                const messages = scrollable_div.querySelectorAll('.message-row');
+                if (messages.length > 0) {
+                    // 最後のメッセージ要素（AIの最新の応答）を取得します
+                    const lastMessage = messages[messages.length - 1];
+                    // その要素の位置までスムーズにスクロールします
+                    lastMessage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
             }
         }
-        return [];
     }
     """
 
@@ -88,7 +93,7 @@ try:
                     change_location_button = gr.Button("移動")
                 
                 with gr.Accordion("⚙️ 基本設定", open=False):
-                    model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True); api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True); api_history_limit_dropdown = gr.Dropdown(choices=list(config_manager.API_HISTORY_LIMIT_OPTIONS.values()), value=config_manager.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True); add_timestamp_checkbox = gr.Checkbox(value=config_manager.initial_add_timestamp_global, label="メッセージにタイムスタンプを追加", interactive=True); send_thoughts_checkbox = gr.Checkbox(value=config_manager.initial_send_thoughts_to_api_global, label="思考過程をAPIに送信", interactive=True); send_notepad_checkbox = gr.Checkbox(value=True, label="メモ帳の内容をAPIに送信", interactive=True); use_common_prompt_checkbox = gr.Checkbox(value=True, label="共通ツールプロンプトを注入", interactive=True); send_core_memory_checkbox = gr.Checkbox(value=True, label="コアメモリをAPIに送信", interactive=True); send_scenery_checkbox = gr.Checkbox(value=True, label="空間描写・設定をAPIに送信", interactive=True)
+                    model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True); api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True); api_history_limit_dropdown = gr.Dropdown(choices=list(config_manager.API_HISTORY_LIMIT_OPTIONS.values()), value=config_manager.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True); add_timestamp_checkbox = gr.Checkbox(value=config_manager.initial_add_timestamp_global, label="メッセージにタイムスタンプを追加", interactive=True); send_thoughts_checkbox = gr.Checkbox(value=config_manager.initial_send_thoughts_to_api_global, label="思考過程をAPIに送信", interactive=True); send_notepad_checkbox = gr.Checkbox(value=True, label="メモ帳の内容をAPIに送信", interactive=True); use_common_prompt_state = gr.Checkbox(value=True, label="共通ツールプロンプトを注入", interactive=True); send_core_memory_checkbox = gr.Checkbox(value=True, label="コアメモリをAPIに送信", interactive=True); send_scenery_checkbox = gr.Checkbox(value=True, label="空間描写・設定をAPIに送信", interactive=True)
                 
                 with gr.Accordion("📗 記憶とメモの編集", open=False):
                     with gr.Tabs():
@@ -170,8 +175,6 @@ try:
             outputs=scenery_refresh_outputs
         )
         
-        # ★★★ ここが修正点です ★★★
-        # `_js` を `js` に修正
         scroll_to_latest_button.click(fn=None, js=js_scroll_to_latest_message)
 
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs); submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
