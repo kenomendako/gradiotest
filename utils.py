@@ -66,8 +66,8 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
         if not content: continue
         current_anchor_id = anchor_ids[i]
 
-        # ★★★ ボタンのHTMLをシンプル化 ★★★
-        # スクロールは純粋なhref、削除アイコンはクリックイベントを発火させないようにstyleで調整
+        # --- ボタンHTMLの生成 ---
+        # スクロールボタンは、クリックしてもselectイベントハンドラが反応しないように、hrefに自身のアンカーを指定
         up_button = f"<a href='#{current_anchor_id}' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▲</a>"
         down_button = ""
         if i < len(messages) - 1:
