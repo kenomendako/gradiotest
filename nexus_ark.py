@@ -157,7 +157,7 @@ try:
                         add_character_button = gr.Button("迎える", variant="secondary", scale=1)
 
             with gr.Column(scale=3):
-                chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True)
+                chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
 
                 with gr.Row(visible=False) as deletion_button_group:
                     delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
