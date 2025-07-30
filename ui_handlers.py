@@ -199,16 +199,43 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     if not character_name:
         all_chars = character_manager.get_character_list()
         character_name = all_chars[0] if all_chars else "Default"
+
     config_manager.save_config("last_character", character_name)
+
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
+
     display_turns = _get_display_history_count(api_history_limit_value)
     chat_history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):], character_name)
+
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
+
+    # --- ★★★ ここからが変更箇所 ★★★ ---
+    # 場所の情報を解決
     locations = get_location_list_for_ui(character_name)
     current_location_id = utils.get_current_location(character_name)
-    return (character_name, chat_history, "", profile_image, memory_str, character_name, character_name, notepad_content, gr.update(choices=locations, value=current_location_id))
+    memory_data = load_memory_data_safe(mem_p)
+    current_location_name = memory_data.get("living_space", {}).get(current_location_id, {}).get("name", current_location_id)
+
+    # 情景のプレースホルダーを設定
+    scenery_text = "（AIとの対話開始時に生成されます）"
+    # --- ★★★ 変更箇所ここまで ★★★ ---
+
+    # 返り値に場所と情景を追加
+    return (
+        character_name,
+        chat_history,
+        "",
+        profile_image,
+        memory_str,
+        character_name,
+        character_name,
+        notepad_content,
+        gr.update(choices=locations, value=current_location_id),
+        current_location_name, # ★ 追加
+        scenery_text           # ★ 追加
+    )
 
 def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
