@@ -81,8 +81,6 @@ def handle_message_submission(*args: Any):
         return
 
     log_message_parts = []
-    # ユーザーの入力をUIの履歴に追加
-    # （注：gemini_apiに渡す履歴は、ファイルから読み込んだ生ログを使うので、ここではUI表示用のchatbot_historyだけを更新）
     if user_prompt_from_textbox:
         timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         processed_user_message = user_prompt_from_textbox + timestamp
@@ -94,20 +92,16 @@ def handle_message_submission(*args: Any):
             filepath = file_obj.name
             filename = os.path.basename(filepath)
             safe_filepath = os.path.abspath(filepath).replace("\\", "/")
-            # GradioはMarkdown形式で画像を表示できる
-            md_string = f"![{filename}]({safe_filepath})" if utils.is_image_file(filepath) else f"[{filename}]({safe_filepath})"
+            md_string = f"[{filename}]({safe_filepath})"
             chatbot_history.append({"role": "user", "content": md_string})
             log_message_parts.append(f"[ファイル添付: {filepath}]")
 
-    # AIの応答を待つ間に「思考中...」を表示
     chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
 
-    # 現時点でのトークン数を計算して表示
     token_count = update_token_count(current_character_name, current_model_name, textbox_content, file_input_list, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 
     yield chatbot_history, gr.update(value=""), gr.update(value=None), token_count, gr.update(), gr.update()
 
-    # AIエージェントを呼び出し
     response_data = {}
     try:
         response_data = gemini_api.invoke_nexus_agent(*args)
@@ -119,7 +113,6 @@ def handle_message_submission(*args: Any):
     location_name = response_data.get("location_name", "（取得失敗）")
     scenery_text = response_data.get("scenery", "（取得失敗）")
 
-    # ログファイルに保存
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     final_log_message = "\n\n".join(log_message_parts).strip()
     if final_log_message:
@@ -128,12 +121,10 @@ def handle_message_submission(*args: Any):
     if final_response_text:
         utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
 
-    # ログを再読み込みしてUIを更新
     raw_history = utils.load_chat_log(log_f, current_character_name)
     display_turns = _get_display_history_count(api_history_limit_state)
     formatted_history = utils.format_history_for_gradio(raw_history[-(display_turns*2):])
 
-    # 最終的なトークン数を再計算
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 
     yield formatted_history, gr.update(), gr.update(value=None), token_count, location_name, scenery_text
@@ -231,7 +222,6 @@ def handle_chatbot_selection(chatbot_history: List[Dict[str, str]], evt: gr.Sele
         return None, gr.update(visible=False)
     try:
         clicked_index = evt.index if isinstance(evt.index, int) else evt.index[0]
-        # ログから読み込んだ生のメッセージを保存するために、インデックスではなくメッセージオブジェクトそのものを保存
         selected_raw_message = chatbot_history[clicked_index]
         return selected_raw_message, gr.update(visible=True)
     except Exception as e:
@@ -256,6 +246,7 @@ def handle_delete_button_click(
     # 役割を正しく特定する
     role_from_ui = 'user' if selected_message['role'] == 'user' else 'model'
 
+    # delete_message_from_logは生のメッセージオブジェクトを期待する
     message_to_delete_from_log = {
         'role': role_from_ui,
         'content': raw_content
@@ -269,7 +260,6 @@ def handle_delete_button_click(
 
     new_chat_history = reload_chat_log(character_name, api_history_limit)
 
-    # 削除後は、選択状態を解除し、ボタンを非表示にする
     return new_chat_history, None, gr.update(visible=False)
 
 def handle_save_memory_click(character_name, json_string_data):
@@ -348,6 +338,9 @@ def handle_reload_notepad(character_name: str) -> str:
     content = load_notepad_content(character_name)
     gr.Info(f"「{character_name}」のメモ帳を再読み込みしました。")
     return content
+
+DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
+DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 def render_alarms_as_dataframe():
     alarms = sorted(alarm_manager.load_alarms(), key=lambda x: x.get("time", ""))
@@ -479,27 +472,43 @@ def handle_core_memory_update_click(character_name: str, api_key_name: str):
 def update_model_state(model):
     config_manager.save_config("last_model", model)
     return model
+
 def update_api_key_state(api_key_name):
     config_manager.save_config("last_api_key_name", api_key_name)
     gr.Info(f"APIキーを '{api_key_name}' に設定しました。")
     return api_key_name
+
 def update_timestamp_state(checked):
     config_manager.save_config("add_timestamp", bool(checked))
+
 def update_send_thoughts_state(checked):
     config_manager.save_config("last_send_thoughts_to_api", bool(checked))
     return bool(checked)
+
 def update_send_notepad_state(checked: bool):
     return checked
+
 def update_use_common_prompt_state(checked: bool):
     return checked
+
 def update_send_core_memory_state(checked: bool):
     return bool(checked)
+
 def update_send_scenery_state(checked: bool):
     return bool(checked)
+
 def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
     key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
     config_manager.save_config("last_api_history_limit_option", key)
     return key, reload_chat_log(character_name, key), gr.State()
+
+def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
+    if not character_name: return []
+    log_f,_,_,_,_ = get_character_files_paths(character_name)
+    if not log_f or not os.path.exists(log_f): return []
+    display_turns = _get_display_history_count(api_history_limit_value)
+    history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):])
+    return history
 
 def update_token_count(*args):
     (current_character_name, current_model_name, textbox_content, file_input_list, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_state, send_thoughts_state, send_core_memory_state, send_scenery_state) = args
