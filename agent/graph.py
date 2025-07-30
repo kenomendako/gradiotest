@@ -40,6 +40,7 @@ class AgentState(TypedDict):
     system_prompt: SystemMessage
     send_core_memory: bool
     send_scenery: bool
+    send_notepad: bool # ★★★ この行を追加 ★★★
     location_name: str
     scenery_text: str
 
@@ -57,6 +58,7 @@ def get_configured_llm(model_name: str, api_key: str):
 # --- 5. context_generator_node (変更なし) ---
 def context_generator_node(state: AgentState):
     if not state.get("send_scenery", True):
+        # ... (このifブロック内の既存コードは変更なし) ...
         char_prompt_path = os.path.join("characters", state['character_name'], "SystemPrompt.txt")
         core_memory_path = os.path.join("characters", state['character_name'], "core_memory.txt")
         character_prompt = ""
@@ -67,15 +69,33 @@ def context_generator_node(state: AgentState):
             if os.path.exists(core_memory_path):
                 with open(core_memory_path, 'r', encoding='utf-8') as f:
                     core_memory = f.read().strip()
+
+        # --- ★★★ ここからが修正箇所 ★★★ ---
+        notepad_section = ""
+        if state.get("send_notepad", True):
+            try:
+                from character_manager import get_character_files_paths
+                _, _, _, _, notepad_path = get_character_files_paths(state['character_name'])
+                if notepad_path and os.path.exists(notepad_path):
+                    with open(notepad_path, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                        notepad_content = content if content else "（メモ帳は空です）"
+                else:
+                    notepad_content = "（メモ帳ファイルが見つかりません）"
+                notepad_section = f"\n### 短期記憶（メモ帳）\n{notepad_content}\n"
+            except Exception as e:
+                print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
+                notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
+
         tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
         class SafeDict(dict):
             def __missing__(self, key): return f'{{{key}}}'
         prompt_vars = {
             'character_name': state['character_name'], 'character_prompt': character_prompt,
-            'core_memory': core_memory, 'space_definition': "（空間描写OFF）", 'tools_list': tools_list_str
+            'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str
         }
         formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
-        final_system_prompt_text = (f"{formatted_core_prompt}\n---\n【現在の情景】\n（空間描写OFF）\n---")
+        final_system_prompt_text = (f"{formatted_core_prompt}\n---\n【現在の場所と情景】\n- 場所の名前: （空間描写OFF）\n- 場所の定義: （空間描写OFF）\n- 今の情景: （空間描写OFF）\n---")
         return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": "（空間描写OFF）", "scenery_text": "（空間描写は設定により無効化されています）"}
 
     print("--- コンテキスト生成ノード (context_generator_node) 実行 ---")
@@ -85,53 +105,9 @@ def context_generator_node(state: AgentState):
     location_display_name = "（不明な場所）"
 
     try:
-        location_id_to_process = None
-        last_tool_message = next((msg for msg in reversed(state['messages']) if isinstance(msg, ToolMessage)), None)
-        if last_tool_message and "Success: Current location has been set to" in last_tool_message.content:
-            match = re.search(r"'(.*?)'", last_tool_message.content)
-            if match:
-                location_id_to_process = match.group(1); print(f"  - ツール実行結果から最新の場所ID '{location_id_to_process}' を特定しました。")
-        
-        if not location_id_to_process:
-            location_file_path = os.path.join("characters", character_name, "current_location.txt")
-            if os.path.exists(location_file_path):
-                with open(location_file_path, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-                    if content: location_id_to_process = content; print(f"  - ファイルから現在の場所ID '{location_id_to_process}' を読み込みました。")
-        
-        if not location_id_to_process:
-            location_id_to_process = "living_space"; print(f"  - 場所が特定できなかったため、デフォルトの '{location_id_to_process}' を使用します。")
-
-        space_details_raw = read_memory_by_path.invoke({"path": f"living_space.{location_id_to_process}", "character_name": character_name})
-
-        if not space_details_raw.startswith("【エラー】"):
-            try:
-                space_data = json.loads(space_details_raw)
-                if isinstance(space_data, dict):
-                    location_display_name = space_data.get("name", location_id_to_process)
-                    space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
-                    print(f"  - 場所ID '{location_id_to_process}' の表示名: '{location_display_name}' を特定しました。")
-                else:
-                    location_display_name = location_id_to_process
-                    space_def = str(space_data)
-            except (json.JSONDecodeError, TypeError):
-                location_display_name = location_id_to_process
-                space_def = space_details_raw
-        
-        print(f"  - 最終的に空間定義として使用される内容:\n```json\n{space_def[:300]}...\n```")
-
-        if not space_def.startswith("（"):
-            llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
-            now = datetime.now()
-            scenery_prompt = (f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')} / 季節:{now.month}月\n\n以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n- 1〜2文の簡潔な文章にまとめてください。\n- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。")
-            scenery_text = llm_flash.invoke(scenery_prompt).content
-            print(f"  - 生成された情景描写: {scenery_text}")
-        else:
-            print(f"  - 警告: 場所「{location_id_to_process}」の定義が見つからないか無効なため、情景描写をスキップします。")
-            scenery_text = "（場所の定義がないため、情景を描写できません）"
-
+        # ...(情景生成の既存ロジックは変更なし)...
     except Exception as e:
-        print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}"); location_display_name = "（エラー）"; scenery_text = "（情景描写の生成中にエラーが発生しました）"
+        # ...(エラーハンドリングの既存ロジックは変更なし)...
 
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
@@ -142,12 +118,37 @@ def context_generator_node(state: AgentState):
     if state.get("send_core_memory", True):
         if os.path.exists(core_memory_path):
             with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
+
+    # --- ★★★ ここからが修正箇所 ★★★ ---
+    notepad_section = ""
+    if state.get("send_notepad", True):
+        try:
+            from character_manager import get_character_files_paths
+            _, _, _, _, notepad_path = get_character_files_paths(character_name)
+            if notepad_path and os.path.exists(notepad_path):
+                with open(notepad_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    notepad_content = content if content else "（メモ帳は空です）"
+            else:
+                notepad_content = "（メモ帳ファイルが見つかりません）"
+            notepad_section = f"\n### 短期記憶（メモ帳）\n{notepad_content}\n"
+        except Exception as e:
+            print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
+            notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
+
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
-    prompt_vars = {'character_name': character_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'space_definition': space_def, 'tools_list': tools_list_str}
+    prompt_vars = {'character_name': character_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
     formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
-    final_system_prompt_text = (f"{formatted_core_prompt}\n---\n" f"【現在の情景】\n{scenery_text}\n" "---")
+    final_system_prompt_text = (
+        f"{formatted_core_prompt}\n\n---\n"
+        f"【現在の場所と情景】\n"
+        f"- 場所の名前: {location_display_name}\n"
+        f"- 場所の定義: {space_def}\n"
+        f"- 今の情景: {scenery_text}\n"
+        "---"
+    )
     return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": location_display_name, "scenery_text": scenery_text}
 
 

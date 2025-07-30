@@ -127,7 +127,9 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     initial_state = {
         "messages": messages, "character_name": current_character_name, "api_key": api_key,
         "tavily_api_key": config_manager.TAVILY_API_KEY, "model_name": current_model_name,
-        "send_core_memory": send_core_memory_state, "send_scenery": send_scenery_state,
+        "send_core_memory": send_core_memory_state,
+        "send_scenery": send_scenery_state,
+        "send_notepad": send_notepad_state, # ★★★ この行を追加 ★★★
         "location_name": "（初期化中）", "scenery_text": "（初期化中）"
     }
     try:
