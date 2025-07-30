@@ -140,7 +140,15 @@ def handle_delete_button_click(
         return gr.update(), None, gr.update(visible=False)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
-    success = utils.delete_message_from_log(log_f, selected_message)
+
+    # GradioのChatbotはHTMLとしてcontentを扱うため、生のテキストに戻す必要がある
+    raw_content = utils.extract_raw_text_from_html(selected_message['content'])
+    message_to_delete_from_log = {
+        'role': 'model' if selected_message['role'] == 'assistant' else 'user',
+        'content': raw_content
+    }
+
+    success = utils.delete_message_from_log(log_f, message_to_delete_from_log)
     if success:
         gr.Info("選択された発言をログから削除しました。")
     else:

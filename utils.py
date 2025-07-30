@@ -66,8 +66,8 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
         if not content: continue
         current_anchor_id = anchor_ids[i]
 
-        # --- ボタンHTMLの生成 ---
-        # スクロールボタンは、クリックしてもselectイベントハンドラが反応しないように、hrefに自身のアンカーを指定
+        # ★★★ ボタンのHTMLをシンプル化 ★★★
+        # スクロールは純粋なhref、削除アイコンはクリックイベントを発火させないようにstyleで調整
         up_button = f"<a href='#{current_anchor_id}' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▲</a>"
         down_button = ""
         if i < len(messages) - 1:
@@ -169,3 +169,19 @@ def get_current_location(character_name: str) -> Optional[str]:
             with open(location_file_path, 'r', encoding='utf-8') as f: return f.read().strip()
     except Exception as e: print(f"警告: 現在地ファイルの読み込みに失敗しました: {e}")
     return None
+
+def extract_raw_text_from_html(html_content: str) -> str:
+    """
+    GradioのChatbotに表示されるHTMLから、元の生テキスト（思考ログやボタンを除く）を抽出する。
+    """
+    if not html_content:
+        return ""
+    # ボタンコンテナを削除
+    html_content = re.sub(r"<div style='text-align: right;.*?'>.*?</div>", "", html_content, flags=re.DOTALL)
+    # 思考ログを削除
+    html_content = re.sub(r"<div class='thoughts'>.*?</div>", "", html_content, flags=re.DOTALL)
+    # アンカーを削除
+    html_content = re.sub(r"<span id='msg-anchor-.*?'></span>", "", html_content, flags=re.DOTALL)
+    # 残ったHTMLタグをすべて削除
+    raw_text = re.sub('<[^<]+?>', '', html_content).strip()
+    return raw_text
