@@ -209,7 +209,7 @@ try:
         
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
-            inputs=[chatbot_display],
+            inputs=[chatbot_display, current_character_name], # ★★★ ここに current_character_name を追加 ★★★
             outputs=[selected_message_state, deletion_button_group],
             show_progress=False
         )

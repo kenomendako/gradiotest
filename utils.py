@@ -210,7 +210,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], character_name: st
             final_content_parts.append(button_container)
 
         final_html = f"<div>{''.join(final_content_parts)}</div>"
-        gradio_history.append({"role": role, "name": character_name, "content": final_html}) # nameを追加
+        gradio_history.append({"role": role, "content": final_html})
 
     return gradio_history
 
