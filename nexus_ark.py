@@ -66,7 +66,6 @@ try:
 
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
-                # ... (左側のUI定義は変更なし) ...
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                 gr.Markdown("### キャラクター")
                 character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
@@ -142,7 +141,6 @@ try:
             with gr.Column(scale=3):
                 chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True)
 
-                # ★★★ 新しいグローバル削除ボタンエリア ★★★
                 with gr.Row(visible=False) as deletion_button_group:
                     delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
                     cancel_selection_button = gr.Button("✖️ 選択をキャンセル", scale=1)
@@ -165,7 +163,6 @@ try:
         scenery_refresh_inputs = [current_character_name, current_api_key_name_state]
         scenery_refresh_outputs = [current_location_display, current_scenery_display]
 
-        # (他のイベントハンドラ定義 ... 変更なし)
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
         character_dropdown.change(
             fn=ui_handlers.update_ui_on_character_change,
@@ -210,7 +207,6 @@ try:
         api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()])
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
         
-        # ★★★ 新しい削除フローのイベント接続 ★★★
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
             inputs=[chatbot_display],
@@ -229,9 +225,7 @@ try:
             inputs=None,
             outputs=[selected_message_state, deletion_button_group]
         )
-        # ... (残りのイベント定義は変更なし) ...
         
-        # (残りのイベントハンドラ定義 ... 変更なし)
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
         reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_character_name], outputs=[memory_json_editor])
         save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_character_name, notepad_editor], outputs=[notepad_editor])
