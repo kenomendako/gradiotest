@@ -131,12 +131,14 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
     if not messages:
         return []
 
-    anchor_ids = [f"msg-anchor-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}-{i}" for i, _ in enumerate(messages)]
+    # 各メッセージにユニークなアンカーIDを生成
+    anchor_ids = [f"msg-anchor-{uuid.uuid4().hex[:8]}-{i}" for i, _ in enumerate(messages)]
     gradio_history = []
 
     tag_pattern = re.compile(r"(\[Generated Image: .*?\]|\[ファイル添付: .*?\])")
 
     for i, msg in enumerate(messages):
+        # メッセージの役割と内容を取得
         role = "assistant" if msg.get("role") == "model" else "user"
         content = msg.get("content", "").strip()
         if not content:
@@ -144,39 +146,41 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
 
         current_anchor_id = anchor_ids[i]
 
+        # --- ナビゲーションボタンのHTMLを生成 ---
+        # 上へボタン（常に表示）
         up_button = f"<a href='#{current_anchor_id}' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▲</a>"
+        # 下へボタン（最後のメッセージ以外で表示）
         down_button = ""
         if i < len(messages) - 1:
             next_anchor_id = anchor_ids[i+1]
             down_button = f"<a href='#{next_anchor_id}' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▼</a>"
 
-        delete_icon = "<span title='この発言を削除するには、メッセージをクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
+        # 削除アイコン（クリックイベントを持たない単なる目印）
+        delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
         button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
 
+        # --- メッセージ内容のHTMLを生成 ---
         thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-        parts = tag_pattern.split(content)
+
+        # メッセージの先頭にアンカーを設置
         final_content_parts = [f"<span id='{current_anchor_id}'></span>"]
+
+        # メインのテキスト部分を処理
+        main_text = thoughts_pattern.sub("", content).strip()
+        # ★★★ 改行バグ修正の核心部分 ★★★
+        escaped_text = html.escape(main_text)
+        text_with_breaks = escaped_text.replace('\n', '<br>')
+        # ★★★ ここまで ★★★
+
+        # 画像やファイルのタグを処理
+        parts = tag_pattern.split(text_with_breaks)
         has_content = False
-
         for part in parts:
-            part = part.strip()
             if not part: continue
-
-            thought_match = thoughts_pattern.search(part)
             is_image_tag = part.startswith("[Generated Image:") and part.endswith("]")
             is_file_tag = part.startswith("[ファイル添付:") and part.endswith("]")
 
-            if thought_match:
-                thoughts_content = thought_match.group(1).strip()
-                escaped_content = html.escape(thoughts_content)
-                content_with_breaks = escaped_content.replace('\n', '<br>')
-                final_content_parts.append(f"<div class='thoughts'>{content_with_breaks}</div>")
-
-                main_response_text = thoughts_pattern.sub("", part).strip()
-                if main_response_text:
-                    final_content_parts.append(f"<div>{main_response_text}</div>")
-                has_content = True
-            elif is_image_tag or is_file_tag:
+            if is_image_tag or is_file_tag:
                 filepath = part[len("[Generated Image:"):-1].strip() if is_image_tag else part[len("[ファイル添付:"):-1].strip()
                 absolute_filepath = os.path.abspath(filepath)
                 filename = os.path.basename(filepath)
@@ -188,16 +192,25 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, 
                         final_content_parts.append(f"[{filename}](/file={safe_filepath})")
                 else:
                     final_content_parts.append(f"*[表示エラー: ファイル '{filename}' が見つかりません]*")
-                has_content = True
-            elif part:
+            else:
                 final_content_parts.append(f"<div>{part}</div>")
-                has_content = True
+            has_content = True
 
+        # 思考ログの処理
+        thought_match = thoughts_pattern.search(content)
+        if thought_match:
+            thoughts_content = thought_match.group(1).strip()
+            escaped_thoughts = html.escape(thoughts_content)
+            thoughts_with_breaks = escaped_thoughts.replace('\n', '<br>')
+            final_content_parts.insert(1, f"<div class='thoughts'>{thoughts_with_breaks}</div>") # 思考は先頭に
+            has_content = True
+
+        # コンテンツがあれば、ボタンを追加
         if has_content:
             final_content_parts.append(button_container)
 
         final_html = f"<div>{''.join(final_content_parts)}</div>"
-        gradio_history.append({"role": role, "content": final_html})
+        gradio_history.append({"role": role, "name": character_name, "content": final_html}) # nameを追加
 
     return gradio_history
 
@@ -220,10 +233,6 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
     if not log_file_path or not os.path.exists(log_file_path) or not message_to_delete:
         return False
 
-    content_to_find = message_to_delete.get("content", "").strip()
-    if not content_to_find:
-        return False
-
     try:
         with open(log_file_path, "r", encoding="utf-8") as f:
             original_log_content = f.read()
@@ -232,29 +241,40 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
         new_log_entries = []
         found_and_deleted = False
 
+        # 生の辞書リストを再構築して比較する
+        raw_messages = load_chat_log(log_file_path, "") # HACK: needs a way to get char_name if needed
+
+        # 元のログを走査し、削除対象でないものだけを新しいリストに追加
+        temp_header = ""
         i = 1 if log_entries and log_entries[0] == '' else 0
+        msg_idx = 0
         while i < len(log_entries):
             header = log_entries[i]
-            content_from_log = log_entries[i+1].strip()
+            content = log_entries[i+1]
 
-            if content_from_log == content_to_find and not found_and_deleted:
+            # message_to_delete は role と content のキーを持つはず
+            # raw_messages[msg_idx] も同様
+            if not found_and_deleted and msg_idx < len(raw_messages) and raw_messages[msg_idx] == message_to_delete:
                 found_and_deleted = True
-                print(f"--- ログからメッセージを削除: {content_from_log[:50]}... ---")
+                print(f"--- ログからメッセージを削除: {message_to_delete.get('content', '')[:50]}... ---")
             else:
                 new_log_entries.append(header)
-                new_log_entries.append(log_entries[i+1])
+                new_log_entries.append(content)
+
             i += 2
+            msg_idx += 1
 
         if not found_and_deleted:
-            print(f"警告: ログファイル内に削除対象のメッセージが見つかりませんでした。Content: {content_to_find[:50]}...")
+            print(f"警告: ログファイル内に削除対象のメッセージが見つかりませんでした。")
             return False
 
         new_log_content = "".join(new_log_entries).strip()
         with open(log_file_path, "w", encoding="utf-8") as f:
             f.write(new_log_content)
 
+        # ファイルが空でなければ、末尾に空行を追加して次の追記に備える
         if new_log_content:
-            with open(log_file_path, "a", encoding="utf-8") as f:
+             with open(log_file_path, "a", encoding="utf-8") as f:
                 f.write("\n\n")
 
         return True

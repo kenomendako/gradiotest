@@ -217,36 +217,37 @@ def handle_initial_load():
     return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, loc, scen)
 
 def handle_chatbot_selection(chatbot_history: List[Dict[str, str]], evt: gr.SelectData):
-    """メッセージが選択された時の処理。削除ボタンを表示し、対象をStateに保存する。"""
+    """メッセージが選択された時の処理。スクロールリンクのクリックは無視する。"""
     if not evt.value:
         return None, gr.update(visible=False)
+
+    # <a>タグ（スクロールリンク）のクリックを検知して無視する
+    if isinstance(evt.value, str) and evt.value.strip().startswith('<a href='):
+        return None, gr.update(visible=False)
+
     try:
-        # <a>タグ（スクロール）のクリックではイベントを発火させない
-        # valueがHTML文字列なので、それで判定
-        if evt.value.strip().startswith('<a href='):
-            return None, gr.update(visible=False)
+        # クリックされたメッセージのインデックスを取得
+        clicked_index = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
 
-        clicked_index = evt.index if isinstance(evt.index, int) else evt.index[0]
+        # chatbot_historyはHTMLフォーマット済みのため、生のログファイルから対応するメッセージを特定する
+        # HACK: この方法は、表示されている履歴とログの末尾が一致していることに依存する
+        character_name = chatbot_history[0]['name'] if chatbot_history else config_manager.initial_character_global
+        log_f, _, _, _, _ = get_character_files_paths(character_name)
+        raw_history = utils.load_chat_log(log_f, character_name)
 
-        # ログファイルから対応する生のメッセージを見つけて保存する
-        # chatbot_history はHTMLフォーマット済みなので、直接は使えない
-        # この部分はより堅牢な実装が必要だが、まずはインデックスで対応させる
-        log_f, _, _, _, _ = get_character_files_paths(character_manager.get_character_list()[0]) # HACK: needs current char from state
-        raw_history = utils.load_chat_log(log_f, character_manager.get_character_list()[0])
-        # This is a simplification. A robust solution needs the current character.
-        # Let's assume for now chatbot_history index maps to the end of raw_history
         display_turns = _get_display_history_count(config_manager.initial_api_history_limit_option_global)
-        visible_raw_history = raw_history[-(display_turns*2):]
+        visible_raw_history = raw_history[-(display_turns * 2):]
 
         if 0 <= clicked_index < len(visible_raw_history):
             selected_raw_message = visible_raw_history[clicked_index]
+            # 削除ボタンを表示し、選択された生のメッセージ辞書をStateに保存
             return selected_raw_message, gr.update(visible=True)
         else:
-             # Fallback for safety
-            return chatbot_history[clicked_index], gr.update(visible=True)
-
+            gr.Warning("クリックされたメッセージを特定できませんでした。")
+            return None, gr.update(visible=False)
     except Exception as e:
         print(f"メッセージ選択処理でエラー: {e}")
+        traceback.print_exc()
         return None, gr.update(visible=False)
 
 def handle_delete_button_click(
@@ -261,15 +262,17 @@ def handle_delete_button_click(
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
 
-    # selected_message should now be the raw message object from the log
+    # utils.delete_message_from_log に、特定したメッセージ辞書を渡す
     success = utils.delete_message_from_log(log_f, selected_message)
     if success:
         gr.Info("選択された発言をログから削除しました。")
     else:
         gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
 
+    # チャットログを再読み込みしてUIに反映
     new_chat_history = reload_chat_log(character_name, api_history_limit)
 
+    # 選択状態を解除し、削除ボタンを非表示にする
     return new_chat_history, None, gr.update(visible=False)
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
