@@ -196,8 +196,8 @@ try:
             outputs=[token_count_display]
         )
         change_location_button.click(
-            fn=ui_handlers.handle_location_change_and_update_scenery,
-            inputs=[current_character_name, location_dropdown, current_api_key_name_state],
+            fn=ui_handlers.handle_location_change, # ★ 関数名を変更
+            inputs=[current_character_name, location_dropdown], # ★ 不要なapi_key_nameを削除
             outputs=scenery_refresh_outputs
         )
         refresh_scenery_button.click(

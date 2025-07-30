@@ -137,22 +137,29 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
     gr.Info("情景を更新しました.")
     return loc, scen
 
-def handle_location_change_and_update_scenery(character_name: str, location_id: str, api_key_name: str) -> Tuple[str, str]:
+def handle_location_change(character_name: str, location_id: str) -> Tuple[str, str]:
+    """場所を変更し、情景欄にはアナウンスのみ表示する新しいハンドラ。"""
     from tools.space_tools import set_current_location
     print(f"--- UIからの場所変更処理開始: キャラクター='{character_name}', 移動先ID='{location_id}' ---")
     if not character_name or not location_id:
         gr.Warning("キャラクターと移動先の場所を選択してください。")
-        return _generate_initial_scenery(character_name, api_key_name)
+        current_loc_id = utils.get_current_location(character_name)
+        return current_loc_id, "（場所の変更に失敗しました）"
 
     result = set_current_location.func(location=location_id, character_name=character_name)
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
-        return _generate_initial_scenery(character_name, api_key_name)
+        current_loc_id = utils.get_current_location(character_name)
+        return current_loc_id, f"（場所の変更に失敗: {result}）"
 
-    gr.Info(f"場所を「{location_id}」に変更しました。続けて情景を更新します。")
-    loc, scen = _generate_initial_scenery(character_name, api_key_name)
-    gr.Info("場所情報を更新しました。")
-    return loc, scen
+    # 場所IDから表示名を取得
+    memory_data = load_memory_data_safe(get_character_files_paths(character_name)[3])
+    new_location_name = memory_data.get("living_space", {}).get(location_id, {}).get("name", location_id)
+
+    gr.Info(f"場所を「{new_location_name}」に変更しました。")
+    scenery_text = f"（場所を「{new_location_name}」に変更しました。情景は次の対話で生成されます）"
+
+    return new_location_name, scenery_text
 
 def get_location_list_for_ui(character_name: str) -> list:
     if not character_name: return []
@@ -209,12 +216,27 @@ def handle_initial_load():
     model_name = config_manager.initial_model_global
     api_key_name = config_manager.initial_api_key_name_global
     api_history_limit = config_manager.initial_api_history_limit_option_global
+
     df_with_ids = render_alarms_as_dataframe()
     display_df = get_display_df(df_with_ids)
+
     (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char, note_cont, loc_dd) = update_ui_on_character_change(char_name, api_history_limit)
-    loc, scen = _generate_initial_scenery(ret_char, api_key_name)
+
+    # --- ★★★ ここからが変更箇所 ★★★ ---
+    # 起動時の情景生成をスキップし、場所名の解決とプレースホルダーの設定のみを行う
+    location_id = utils.get_current_location(ret_char)
+    location_name = "（不明な場所）"
+    if location_id:
+        # 場所IDから表示名を取得する簡易ロジック
+        memory_data = load_memory_data_safe(get_character_files_paths(ret_char)[3])
+        location_name = memory_data.get("living_space", {}).get(location_id, {}).get("name", location_id)
+
+    scenery_text = "（AIとの対話開始時に生成されます）"
+    # --- ★★★ 変更箇所ここまで ★★★ ---
+
     token_count = update_token_count(ret_char, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
-    return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, loc, scen)
+
+    return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
 
 def handle_chatbot_selection(chatbot_history: List[Dict[str, str]], character_name: str, api_history_limit_state: str, evt: gr.SelectData):
     """メッセージが選択された時の処理。UIの状態と完全に同期してメッセージを特定する。"""
