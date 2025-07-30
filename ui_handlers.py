@@ -218,6 +218,10 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     memory_data = load_memory_data_safe(mem_p)
     current_location_name = memory_data.get("living_space", {}).get(current_location_id, {}).get("name", current_location_id)
 
+    # ドロップダウンに設定する値を検証
+    valid_location_ids = [loc[1] for loc in locations]
+    dropdown_value = current_location_id if current_location_id in valid_location_ids else None
+
     # 情景のプレースホルダーを設定
     scenery_text = "（AIとの対話開始時に生成されます）"
     # --- ★★★ 変更箇所ここまで ★★★ ---
@@ -232,9 +236,9 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
         character_name,
         character_name,
         notepad_content,
-        gr.update(choices=locations, value=current_location_id),
-        current_location_name, # ★ 追加
-        scenery_text           # ★ 追加
+        gr.update(choices=locations, value=dropdown_value), # ★ dropdown_value を使用
+        current_location_name,
+        scenery_text
     )
 
 def handle_initial_load():
