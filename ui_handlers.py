@@ -247,18 +247,14 @@ def handle_initial_load():
     df_with_ids = render_alarms_as_dataframe()
     display_df = get_display_df(df_with_ids)
 
-    (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char, note_cont, loc_dd) = update_ui_on_character_change(char_name, api_history_limit)
-
     # --- ★★★ ここからが変更箇所 ★★★ ---
-    # 起動時の情景生成をスキップし、場所名の解決とプレースホルダーの設定のみを行う
-    location_id = utils.get_current_location(ret_char)
-    location_name = "（不明な場所）"
-    if location_id:
-        # 場所IDから表示名を取得する簡易ロジック
-        memory_data = load_memory_data_safe(get_character_files_paths(ret_char)[3])
-        location_name = memory_data.get("living_space", {}).get(location_id, {}).get("name", location_id)
+    # update_ui_on_character_change から11個の値を受け取るように修正
+    (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char,
+     note_cont, loc_dd, location_name, scenery_text) = update_ui_on_character_change(char_name, api_history_limit)
 
-    scenery_text = "（AIとの対話開始時に生成されます）"
+    # 上記で location_name と scenery_text を受け取るようになったため、
+    # 以下の古いプレースホルダー設定ロジックは不要となり、削除します。
+    # --- (古いコードはここにありました) ---
     # --- ★★★ 変更箇所ここまで ★★★ ---
 
     token_count = update_token_count(ret_char, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
