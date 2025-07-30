@@ -187,9 +187,11 @@ def format_history_for_gradio(messages: List[Dict[str, str]], character_name: st
                 if os.path.exists(absolute_filepath):
                     safe_filepath = absolute_filepath.replace("\\", "/")
                     if is_image_file(filepath):
-                        final_content_parts.append(f"![{filename}](/file={safe_filepath})")
+                        # ★ <img>タグを生成するMarkdownをdivで囲む
+                        final_content_parts.append(f"<div>![{filename}](/file={safe_filepath})</div>")
                     else:
-                        final_content_parts.append(f"[{filename}](/file={safe_filepath})")
+                        # ★ ファイルリンクも同様にdivで囲む
+                        final_content_parts.append(f"<div>[{filename}](/file={safe_filepath})</div>")
                 else:
                     final_content_parts.append(f"*[表示エラー: ファイル '{filename}' が見つかりません]*")
             else:
