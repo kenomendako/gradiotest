@@ -157,3 +157,56 @@ AIが思考を更新する際など、1回のユーザー発言に対して、`l
     *   `gr.Textbox`のテキストエリアは **`<textarea>`**
 
     正しいセレクタ（例: `#my_editor_id .cm-editor`, `#my_textbox_id textarea`）を使うことで、初めて狙い通りのスタイリングが可能になる。CSSのハックに頼る前に、まず適切なコンポーネントを選択すること。これが最も堅牢なUI設計への近道である。
+
+---
+
+### 13. Chatbot内HTMLの罠：`select`イベントの暴走をJavaScriptで制する
+
+*   **問題:**
+    `gr.Chatbot`内に、メッセージ間の移動を目的としたHTMLのアンカーリンク（`<a>`タグ）を設置したところ、そのリンクをクリックしただけで、メッセージ全体を選択したと見なされ、意図しない`select`イベント（メッセージ削除のフロー）が発火してしまった。
+
+*   **原因:**
+    これはGradioの`select`イベントの根源的な仕様に起因する。
+    1.  **イベントの粒度:** `gr.Chatbot`の`select`イベントは、メッセージ内の**どの部分（テキスト、画像、埋め込みHTML）がクリックされたかを区別しない。** そのため、`<a>`タグのクリックも、単なる「メッセージ選択」として扱われてしまう。
+    2.  **セキュリティ:** `onclick`属性などを使ってHTML側でJavaScriptのイベント処理を記述しても、Gradioのセキュリティ機構（サニタイズ）によって**実行前に全て除去されてしまう。**
+
+*   **解決アーキテクチャ：「ブラウザネイティブ」と「Gradioイベント」の完全分離**
+    Python側だけでこの問題を解決しようとするのは非常に困難、かつ不安定である。最も堅牢な解決策は、JavaScriptの力を借りて、役割の異なるクリックイベントを完全に分離することである。
+
+    1.  **スクロール（ブラウザに任せる処理）:**
+        *   `<a>`タグに、JavaScriptから特定するためのCSSクラス（例: `message-nav-link`）を付与する。
+        *   Gradioアプリ起動時に、特定のクラスを持つ要素がクリックされた場合、そのイベントが**Gradio側に伝播するのを止める（`e.stopPropagation()`）** JavaScriptを注入する。
+        *   これにより、`<a>`タグのクリックは純粋なページ内スクロールとしてのみ機能し、Gradioの`select`イベントは発火しなくなる。
+
+    2.  **メッセージ削除（Gradioに任せる処理）:**
+        *   ユーザーが`<a>`タグ**以外**の場所（メッセージ本文や余白）をクリックすると、通常通り`select`イベントが発火する。
+        *   このイベントをトリガーに、チャット欄の外にある**本物の`gr.Button`（削除ボタン）を表示させる。**
+        *   ユーザーがそのボタンを押すことで、`button.click`という明確なイベントが発火し、選択されていたメッセージが安全に削除される。
+
+*   **実装レシピ（`nexus_ark.py`）:**
+    `gr.Blocks()`に`js`引数を渡し、以下のJavaScriptを注入する。
+
+    ```javascript
+    js_stop_nav_link_propagation = """
+    function() {
+        // body全体でクリックイベントを監視
+        document.body.addEventListener('click', function(e) {
+            let target = e.target;
+            // クリックされた要素が 'message-nav-link' クラスを持つかチェック
+            while (target && target !== document.body) {
+                if (target.matches('.message-nav-link')) {
+                    // Gradioのリスナーにイベントが届くのを阻止
+                    e.stopPropagation();
+                    return;
+                }
+                target = target.parentElement;
+            }
+        }, true); // true: キャプチャフェーズで実行し、Gradioより先にイベントを捕捉する
+    }
+    """
+
+    with gr.Blocks(js=js_stop_nav_link_propagation) as demo:
+        # ... UI定義 ...
+    ```
+
+このアーキテクチャは、Gradioのイベントモデルを尊重しつつ、リッチなインタラクションを実現するための、極めて重要な設計パターンである。
