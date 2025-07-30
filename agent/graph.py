@@ -188,31 +188,49 @@ def context_generator_node(state: AgentState):
 
 # --- 6. APIキーを安全に注入する、新しいツール実行ノード ---
 def safe_tool_node(state: AgentState):
+    """
+    AIからのツール呼び出しリクエストを処理する。
+    このノードは、AIが渡せないAPIキーなどの情報を、stateから取得して安全にツールへ注入する。
+    """
+    tool_messages = []
     if not isinstance(state['messages'][-1], AIMessage):
-        return
+        return {"messages": tool_messages}
 
     tool_calls = state['messages'][-1].tool_calls
-    tool_messages = []
     for call in tool_calls:
         tool_name = call["name"]
+        print(f"--- 安全なツール実行ノード (safe_tool_node) 実行: '{tool_name}' ---")
 
         if tool_name not in tool_map:
+            print(f"  - エラー: ツール '{tool_name}' が見つかりません。")
             result_content = f"Error: Tool '{tool_name}' not found."
         else:
             tool_to_invoke = tool_map[tool_name]
-            args = call["args"].copy() # ★ .copy() を追加して安全に操作
+            # AIが渡してきた引数を安全にコピー
+            args = call["args"].copy()
 
-            # ツールが必要とする引数シグネチャを調べて、stateから安全に情報を注入する
-            tool_arg_spec = tool_to_invoke.get_input_schema().model_fields.keys()
+            # ★★★ ここからが修正の核心 ★★★
+            # ツールが実際に持つ引数の一覧を取得
+            try:
+                tool_arg_spec = tool_to_invoke.get_input_schema().model_fields.keys()
+            except AttributeError:
+                # 古いLangChainの可能性があるためフォールバック
+                tool_arg_spec = tool_to_invoke.args.keys()
+
+            # ツールが要求する場合にのみ、stateからキーを注入する
             if 'api_key' in tool_arg_spec:
                 args['api_key'] = state['api_key']
             if 'tavily_api_key' in tool_arg_spec:
                 args['tavily_api_key'] = state['tavily_api_key']
+            # ★★★ 修正の核心ここまで ★★★
 
             try:
+                # 準備が整った引数でツールを実行
                 output = tool_to_invoke.invoke(args)
                 result_content = str(output)
             except Exception as e:
+                print(f"  - エラー: ツール '{tool_name}' の実行中に例外が発生しました: {e}")
+                traceback.print_exc()
                 result_content = f"Error executing tool {tool_name}: {e}"
 
         tool_messages.append(ToolMessage(content=result_content, tool_call_id=call["id"]))

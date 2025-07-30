@@ -15,11 +15,9 @@ def read_url_tool(urls: list[str]) -> str:
 
 # ★ ここに、agent/graph.pyから切り取った関数を貼り付ける
 @tool
-def web_search_tool(query: str) -> str:
+def web_search_tool(query: str, tavily_api_key: str = None) -> str:
     """ユーザーからのクエリに基づいて、最新の情報を得るためにWeb検索を実行します。"""
     print(f"--- Web検索ツール実行 (Query: '{query}') ---")
-
-    tavily_api_key = os.getenv("TAVILY_API_KEY")
 
     if not tavily_api_key:
         return "[エラー：Tavily APIキーが設定されていません]"

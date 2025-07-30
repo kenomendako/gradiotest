@@ -12,7 +12,7 @@ from google.genai import types
 IMAGE_GEN_MODEL = "gemini-2.0-flash-preview-image-generation"
 
 @tool
-def generate_image(prompt: str, character_name: str) -> str:
+def generate_image(prompt: str, character_name: str, api_key: str) -> str:
     """
     ユーザーの要望や会話の文脈に応じて、情景、キャラクター、アイテムなどのイラストを生成する。
     成功した場合は、UIに表示するための特別な画像タグを返す。

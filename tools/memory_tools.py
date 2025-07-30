@@ -96,7 +96,7 @@ def add_secret_diary_entry(entry: str, character_name: str = None) -> str:
         return f"【エラー】秘密の日記への書き込みに失敗しました: {e}"
 
 @tool
-def summarize_and_save_core_memory(character_name: str) -> str:
+def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
     """
     【最終版】現在の記憶から、highest_permission, self_identity, user_profileは原文のまま、
     その他の歴史や感情に関する項目はAIに要約させて、コアメモリとして保存する。
