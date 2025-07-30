@@ -128,93 +128,105 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
     return messages
 
 def format_history_for_gradio(messages: List[Dict[str, str]], character_name: str) -> List[Dict[str, Union[str, tuple, None]]]:
+    """
+    ログデータをGradioのChatbotが解釈できる形式に変換する。
+    画像タグが含まれる場合、テキストと画像のターンを分割する。
+    """
     if not messages:
         return []
 
-    # 各メッセージにユニークなアンカーIDを生成
-    anchor_ids = [f"msg-anchor-{uuid.uuid4().hex[:8]}-{i}" for i, _ in enumerate(messages)]
     gradio_history = []
 
-    tag_pattern = re.compile(r"(\[Generated Image: .*?\]|\[ファイル添付: .*?\])")
+    # 画像タグを検出するための正規表現
+    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
     for i, msg in enumerate(messages):
-        # メッセージの役割と内容を取得
         role = "assistant" if msg.get("role") == "model" else "user"
         content = msg.get("content", "").strip()
         if not content:
             continue
 
-        current_anchor_id = anchor_ids[i]
+        # --- ★★★ ここからが新しいロジック ★★★ ---
+        # 1. メッセージに画像タグが含まれているかチェック
+        image_matches = list(image_tag_pattern.finditer(content))
 
-        # --- ナビゲーションボタンのHTMLを生成 ---
-        # 上へボタン（常に表示）
-        up_button = f"<a href='#{current_anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
-        # 下へボタン（最後のメッセージ以外で表示）
-        down_button = ""
-        if i < len(messages) - 1:
-            next_anchor_id = anchor_ids[i+1]
-            down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>"
+        if not image_matches:
+            # 1-a. 画像なし：従来通りテキストとして処理
+            # 思考ログやボタンは、テキストメッセージにのみ付与する
+            processed_html = _format_text_content_for_gradio(content, character_name, i, len(messages))
+            gradio_history.append({"role": role, "content": processed_html})
+        else:
+            # 1-b. 画像あり：テキストと画像に分割して、複数のターンとして追加
+            last_index = 0
+            # 最初のテキスト部分を処理
+            first_text_chunk = content[:image_matches[0].start()].strip()
+            if first_text_chunk:
+                processed_html = _format_text_content_for_gradio(first_text_chunk, character_name, i, len(messages))
+                gradio_history.append({"role": role, "content": processed_html})
 
-        # 削除アイコン（クリックイベントを持たない単なる目印）
-        delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
-        button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
-
-        # --- メッセージ内容のHTMLを生成 ---
-        thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-
-        # メッセージの先頭にアンカーを設置
-        final_content_parts = [f"<span id='{current_anchor_id}'></span>"]
-
-        # メインのテキスト部分を処理
-        main_text = thoughts_pattern.sub("", content).strip()
-        # ★★★ 改行バグ修正の核心部分 ★★★
-        escaped_text = html.escape(main_text)
-        text_with_breaks = escaped_text.replace('\n', '<br>')
-        # ★★★ ここまで ★★★
-
-        # 画像やファイルのタグを処理
-        parts = tag_pattern.split(text_with_breaks)
-        has_content = False
-        for part in parts:
-            if not part: continue
-            is_image_tag = part.startswith("[Generated Image:") and part.endswith("]")
-            is_file_tag = part.startswith("[ファイル添付:") and part.endswith("]")
-
-            if is_image_tag or is_file_tag:
-                filepath = part[len("[Generated Image:"):-1].strip() if is_image_tag else part[len("[ファイル添付:"):-1].strip()
-                absolute_filepath = os.path.abspath(filepath)
+            # 画像と、その後のテキストを処理
+            for match_idx, match in enumerate(image_matches):
+                # 画像をタプル形式で追加
+                filepath = match.group(1).strip()
                 filename = os.path.basename(filepath)
-                if os.path.exists(absolute_filepath):
-                    safe_filepath = absolute_filepath.replace("\\", "/")
-                    if is_image_file(filepath):
-                        # ★ <img>タグを生成するMarkdownをdivで囲む
-                        final_content_parts.append(f"<div>![{filename}](/file={safe_filepath})</div>")
-                    else:
-                        # ★ ファイルリンクも同様にdivで囲む
-                        final_content_parts.append(f"<div>[{filename}](/file={safe_filepath})</div>")
-                else:
-                    final_content_parts.append(f"*[表示エラー: ファイル '{filename}' が見つかりません]*")
-            else:
-                final_content_parts.append(f"<div>{part}</div>")
-            has_content = True
+                # Gradioが最も安定して解釈できるタプル形式
+                image_tuple = (filepath, filename)
+                gradio_history.append({"role": "assistant", "content": image_tuple})
 
-        # 思考ログの処理
-        thought_match = thoughts_pattern.search(content)
-        if thought_match:
-            thoughts_content = thought_match.group(1).strip()
-            escaped_thoughts = html.escape(thoughts_content)
-            thoughts_with_breaks = escaped_thoughts.replace('\n', '<br>')
-            final_content_parts.insert(1, f"<div class='thoughts'>{thoughts_with_breaks}</div>") # 思考は先頭に
-            has_content = True
-
-        # コンテンツがあれば、ボタンを追加
-        if has_content:
-            final_content_parts.append(button_container)
-
-        final_html = f"<div>{''.join(final_content_parts)}</div>"
-        gradio_history.append({"role": role, "content": final_html})
+                # 画像の後のテキスト部分を処理
+                start_of_next_chunk = match.end()
+                end_of_this_chunk = image_matches[match_idx + 1].start() if match_idx + 1 < len(image_matches) else len(content)
+                text_chunk = content[start_of_next_chunk:end_of_this_chunk].strip()
+                if text_chunk:
+                    processed_html = _format_text_content_for_gradio(text_chunk, character_name, i, len(messages))
+                    # 2つ目以降の要素は、必ずAIの発言として追加
+                    gradio_history.append({"role": "assistant", "content": processed_html})
 
     return gradio_history
+
+def _format_text_content_for_gradio(content: str, character_name: str, msg_index: int, total_msgs: int) -> str:
+    """
+    テキストコンテンツをHTMLにフォーマットする補助関数。
+    思考ログの処理、改行の反映、ナビゲーションボタンの追加を行う。
+    """
+    # アンカーIDを生成
+    # NOTE: この方法は複数ターン分割時に同じIDが振られる可能性があるが、
+    # 連続したメッセージなので実用上の問題は少ない
+    anchor_id = f"msg-anchor-{uuid.uuid4().hex[:8]}-{msg_index}"
+
+    # ナビゲーションボタン
+    up_button = f"<a href='#{anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
+    down_button = ""
+    if msg_index < total_msgs - 1:
+        # 次のメッセージのアンカーを指すようにする（簡易的な方法）
+        next_anchor_id = f"msg-anchor-{uuid.uuid4().hex[:8]}-{msg_index+1}"
+        down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>"
+    delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
+    button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
+
+    # 思考ログの処理
+    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
+    thought_match = thoughts_pattern.search(content)
+
+    final_parts = [f"<span id='{anchor_id}'></span>"]
+
+    if thought_match:
+        thoughts_content = thought_match.group(1).strip()
+        escaped_thoughts = html.escape(thoughts_content)
+        thoughts_with_breaks = escaped_thoughts.replace('\n', '<br>')
+        final_parts.append(f"<div class='thoughts'>{thoughts_with_breaks}</div>")
+
+    # メインテキストの処理
+    main_text = thoughts_pattern.sub("", content).strip()
+    escaped_text = html.escape(main_text)
+    text_with_breaks = escaped_text.replace('\n', '<br>')
+    final_parts.append(f"<div>{text_with_breaks}</div>")
+
+    # ボタンを追加
+    final_parts.append(button_container)
+
+    return "".join(final_parts)
+
 
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
     if not all([log_file_path, header, text_content, text_content.strip()]):
