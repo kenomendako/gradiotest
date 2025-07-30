@@ -185,12 +185,15 @@ try:
         character_dropdown.change(
             fn=ui_handlers.update_ui_on_character_change,
             inputs=[character_dropdown, api_history_limit_state],
-            outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown]
+            # ★★★ 返り値の受け取り先(outputs)を更新 ★★★
+            outputs=[
+                current_character_name, chatbot_display, chat_input_textbox,
+                profile_image_display, memory_json_editor, alarm_char_dropdown,
+                timer_char_dropdown, notepad_editor, location_dropdown,
+                current_location_display, current_scenery_display # ★ 追加
+            ]
         ).then(
-            fn=ui_handlers._generate_initial_scenery,
-            inputs=[current_character_name, current_api_key_name_state],
-            outputs=scenery_refresh_outputs
-        ).then(
+            # ★★★ 情景生成の.then()を削除し、トークン計算のみ残す ★★★
             fn=ui_handlers.update_token_count,
             inputs=token_calc_inputs,
             outputs=[token_count_display]

@@ -199,16 +199,47 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     if not character_name:
         all_chars = character_manager.get_character_list()
         character_name = all_chars[0] if all_chars else "Default"
+
     config_manager.save_config("last_character", character_name)
+
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
+
     display_turns = _get_display_history_count(api_history_limit_value)
     chat_history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):], character_name)
+
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
+
+    # --- ★★★ ここからが変更箇所 ★★★ ---
+    # 場所の情報を解決
     locations = get_location_list_for_ui(character_name)
     current_location_id = utils.get_current_location(character_name)
-    return (character_name, chat_history, "", profile_image, memory_str, character_name, character_name, notepad_content, gr.update(choices=locations, value=current_location_id))
+    memory_data = load_memory_data_safe(mem_p)
+    current_location_name = memory_data.get("living_space", {}).get(current_location_id, {}).get("name", current_location_id)
+
+    # ドロップダウンに設定する値を検証
+    valid_location_ids = [loc[1] for loc in locations]
+    dropdown_value = current_location_id if current_location_id in valid_location_ids else None
+
+    # 情景のプレースホルダーを設定
+    scenery_text = "（AIとの対話開始時に生成されます）"
+    # --- ★★★ 変更箇所ここまで ★★★ ---
+
+    # 返り値に場所と情景を追加
+    return (
+        character_name,
+        chat_history,
+        "",
+        profile_image,
+        memory_str,
+        character_name,
+        character_name,
+        notepad_content,
+        gr.update(choices=locations, value=dropdown_value), # ★ dropdown_value を使用
+        current_location_name,
+        scenery_text
+    )
 
 def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
@@ -220,18 +251,14 @@ def handle_initial_load():
     df_with_ids = render_alarms_as_dataframe()
     display_df = get_display_df(df_with_ids)
 
-    (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char, note_cont, loc_dd) = update_ui_on_character_change(char_name, api_history_limit)
-
     # --- ★★★ ここからが変更箇所 ★★★ ---
-    # 起動時の情景生成をスキップし、場所名の解決とプレースホルダーの設定のみを行う
-    location_id = utils.get_current_location(ret_char)
-    location_name = "（不明な場所）"
-    if location_id:
-        # 場所IDから表示名を取得する簡易ロジック
-        memory_data = load_memory_data_safe(get_character_files_paths(ret_char)[3])
-        location_name = memory_data.get("living_space", {}).get(location_id, {}).get("name", location_id)
+    # update_ui_on_character_change から11個の値を受け取るように修正
+    (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char,
+     note_cont, loc_dd, location_name, scenery_text) = update_ui_on_character_change(char_name, api_history_limit)
 
-    scenery_text = "（AIとの対話開始時に生成されます）"
+    # 上記で location_name と scenery_text を受け取るようになったため、
+    # 以下の古いプレースホルダー設定ロジックは不要となり、削除します。
+    # --- (古いコードはここにありました) ---
     # --- ★★★ 変更箇所ここまで ★★★ ---
 
     token_count = update_token_count(ret_char, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
