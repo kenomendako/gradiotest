@@ -216,20 +216,15 @@ def handle_initial_load():
     token_count = update_token_count(ret_char, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
     return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, loc, scen)
 
-def handle_chatbot_selection(chatbot_history: List[Dict[str, str]], character_name: str, evt: gr.SelectData):
-    """メッセージが選択された時の処理。スクロールリンクのクリックは無視する。"""
+def handle_chatbot_selection(chatbot_history: List[Dict[str, str]], character_name: str, api_history_limit_state: str, evt: gr.SelectData):
+    """メッセージが選択された時の処理。UIの状態と完全に同期してメッセージを特定する。"""
     if not evt.value or not character_name:
         return None, gr.update(visible=False)
 
-    # <a>タグ（スクロールリンク）のクリックを検知して無視する
-    if isinstance(evt.value, str) and evt.value.strip().startswith('<a href='):
-        return None, gr.update(visible=False)
 
     try:
-        # クリックされたメッセージのインデックスを取得
         clicked_index = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
 
-        # character_name は引数で直接渡されるので、historyから無理に取得する必要はない
         log_f, _, _, _, _ = get_character_files_paths(character_name)
         if not log_f:
             gr.Warning(f"キャラクター'{character_name}'のログファイルが見つかりません。")
@@ -237,14 +232,12 @@ def handle_chatbot_selection(chatbot_history: List[Dict[str, str]], character_na
 
         raw_history = utils.load_chat_log(log_f, character_name)
 
-        # 表示されている履歴は、ログ全体の末尾と一致するはず
-        display_turns = _get_display_history_count(config_manager.initial_api_history_limit_option_global) # NOTE: これはUIの状態と同期している必要がある
+        # ★ 引数で渡されたUIの状態を正として履歴の表示件数を計算
+        display_turns = _get_display_history_count(api_history_limit_state)
         visible_raw_history = raw_history[-(display_turns * 2):]
 
         if 0 <= clicked_index < len(visible_raw_history):
-            # 削除対象の生のメッセージ辞書を特定
             selected_raw_message = visible_raw_history[clicked_index]
-            # 削除ボタンを表示し、選択された生のメッセージ辞書をStateに保存
             return selected_raw_message, gr.update(visible=True)
         else:
             gr.Warning("クリックされたメッセージを特定できませんでした。")

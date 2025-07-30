@@ -34,7 +34,25 @@ try:
 #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
 #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
 """
-    with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css) as demo:
+    # JavaScriptを定義
+    js_stop_nav_link_propagation = """
+    function() {
+        document.body.addEventListener('click', function(e) {
+            let target = e.target;
+            // クリックされた要素が .message-nav-link か、その子孫要素でないかチェック
+            while (target && target !== document.body) {
+                if (target.matches('.message-nav-link')) {
+                    // Gradioのイベントリスナーへの伝播を停止
+                    e.stopPropagation();
+                    return;
+                }
+                target = target.parentElement;
+            }
+        }, true); // イベントキャプチャフェーズでリスナーを登録
+    }
+    """
+
+    with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, js=js_stop_nav_link_propagation) as demo:
         # --- Stateの定義 ---
         character_list_on_startup = character_manager.get_character_list()
         if not character_list_on_startup:
@@ -209,7 +227,7 @@ try:
         
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
-            inputs=[chatbot_display, current_character_name], # ★★★ ここに current_character_name を追加 ★★★
+            inputs=[chatbot_display, current_character_name, api_history_limit_state], # ★ api_history_limit_state を追加
             outputs=[selected_message_state, deletion_button_group],
             show_progress=False
         )

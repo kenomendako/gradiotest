@@ -148,12 +148,12 @@ def format_history_for_gradio(messages: List[Dict[str, str]], character_name: st
 
         # --- ナビゲーションボタンのHTMLを生成 ---
         # 上へボタン（常に表示）
-        up_button = f"<a href='#{current_anchor_id}' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▲</a>"
+        up_button = f"<a href='#{current_anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▲</a>"
         # 下へボタン（最後のメッセージ以外で表示）
         down_button = ""
         if i < len(messages) - 1:
             next_anchor_id = anchor_ids[i+1]
-            down_button = f"<a href='#{next_anchor_id}' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▼</a>"
+            down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #555;'>▼</a>"
 
         # 削除アイコン（クリックイベントを持たない単なる目印）
         delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
