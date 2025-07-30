@@ -127,7 +127,7 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
 
     return messages
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Dict[str, Union[str, tuple, None]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]], character_name: str) -> List[Dict[str, Union[str, tuple, None]]]:
     if not messages:
         return []
 

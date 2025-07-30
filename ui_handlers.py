@@ -123,7 +123,7 @@ def handle_message_submission(*args: Any):
 
     raw_history = utils.load_chat_log(log_f, current_character_name)
     display_turns = _get_display_history_count(api_history_limit_state)
-    formatted_history = utils.format_history_for_gradio(raw_history[-(display_turns*2):])
+    formatted_history = utils.format_history_for_gradio(raw_history[-(display_turns*2):], current_character_name)
 
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 
@@ -195,7 +195,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     config_manager.save_config("last_character", character_name)
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
     display_turns = _get_display_history_count(api_history_limit_value)
-    chat_history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):])
+    chat_history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):], character_name)
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
@@ -280,7 +280,7 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
     log_f,_,_,_,_ = get_character_files_paths(character_name)
     if not log_f or not os.path.exists(log_f): return []
     display_turns = _get_display_history_count(api_history_limit_value)
-    history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):])
+    history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name)
     return history
 
 def handle_save_memory_click(character_name, json_string_data):
