@@ -56,16 +56,8 @@ def get_configured_llm(model_name: str, api_key: str):
     )
 
 def context_generator_node(state: AgentState):
-    # --- ★★★ 診断コード 1: 受け取ったstateの内容を全て表示 ★★★ ---
-    print("\n" + "="*50)
-    print("--- context_generator_node 実行開始 ---")
-    print(f"受け取ったState: {state}")
-    print("="*50 + "\n")
-    # --- 診断コードここまで ---
-
     # --- パス1: 空間描写がOFFの場合 ---
     if not state.get("send_scenery", True):
-        # (このブロックは変更ありませんが、念のため全体を記載します)
         char_prompt_path = os.path.join("characters", state['character_name'], "SystemPrompt.txt")
         core_memory_path = os.path.join("characters", state['character_name'], "core_memory.txt")
         character_prompt = ""
@@ -78,10 +70,7 @@ def context_generator_node(state: AgentState):
                     core_memory = f.read().strip()
 
         notepad_section = ""
-        # --- ★★★ 診断コード 2: メモ帳処理の条件分岐をチェック ★★★ ---
-        print(f"[診断] send_notepad の値: {state.get('send_notepad', 'キーが存在しない')}")
         if state.get("send_notepad", True):
-            print("[診断] メモ帳を読み込みます...")
             try:
                 from character_manager import get_character_files_paths
                 _, _, _, _, notepad_path = get_character_files_paths(state['character_name'])
@@ -91,13 +80,10 @@ def context_generator_node(state: AgentState):
                         notepad_content = content if content else "（メモ帳は空です）"
                 else:
                     notepad_content = "（メモ帳ファイルが見つかりません）"
-
                 notepad_section = f"\n### 短期記憶（メモ帳）\n{notepad_content}\n"
             except Exception as e:
                 print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
                 notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
-        # --- ★★★ 診断コード 3: 生成されたメモ帳セクションの内容を表示 ★★★ ---
-        print(f"[診断] 生成された notepad_section:\n---\n{notepad_section}\n---")
 
         tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
         class SafeDict(dict):
@@ -108,8 +94,6 @@ def context_generator_node(state: AgentState):
         }
         formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
         final_system_prompt_text = (f"{formatted_core_prompt}\n\n---\n" f"【現在の場所と情景】\n" f"- 場所の名前: （空間描写OFF）\n" f"- 場所の定義: （空間描写OFF）\n" f"- 今の情景: （空間描写OFF）\n" "---")
-
-        print(f"--- システムプロンプト生成完了 (空間描写OFF) ---\n{final_system_prompt_text}\n--------------------")
         return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": "（空間描写OFF）", "scenery_text": "（空間描写は設定により無効化されています）"}
 
     # --- パス2: 空間描写がONの場合 ---
@@ -173,10 +157,7 @@ def context_generator_node(state: AgentState):
             with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
     notepad_section = ""
-    # --- ★★★ 診断コード 2 (パス2用): メモ帳処理の条件分岐をチェック ★★★ ---
-    print(f"[診断] send_notepad の値: {state.get('send_notepad', 'キーが存在しない')}")
     if state.get("send_notepad", True):
-        print("[診断] メモ帳を読み込みます...")
         try:
             from character_manager import get_character_files_paths
             _, _, _, _, notepad_path = get_character_files_paths(character_name)
@@ -190,9 +171,6 @@ def context_generator_node(state: AgentState):
         except Exception as e:
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
-    # --- ★★★ 診断コード 3 (パス2用): 生成されたメモ帳セクションの内容を表示 ★★★ ---
-    print(f"[診断] 生成された notepad_section:\n---\n{notepad_section}\n---")
-
 
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
     class SafeDict(dict):
@@ -208,7 +186,6 @@ def context_generator_node(state: AgentState):
         "---"
     )
 
-    print(f"--- システムプロンプト生成完了 (空間描写ON) ---\n{final_system_prompt_text}\n--------------------")
     return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": location_display_name, "scenery_text": scenery_text}
 
 # --- 6. 残りのノードとグラフ構築 (変更なし) ---
