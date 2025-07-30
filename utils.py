@@ -229,58 +229,53 @@ def save_message_to_log(log_file_path: str, header: str, text_content: str) -> N
         print(f"エラー: ログファイル '{log_file_path}' 書き込みエラー: {e}")
         traceback.print_exc()
 
-def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str]) -> bool:
+def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str], character_name: str) -> bool:
+    """
+    ログファイルから指定されたメッセージ辞書と完全に一致するエントリを一つ削除する。
+    より堅牢な再構築ベースのロジック。
+    """
     if not log_file_path or not os.path.exists(log_file_path) or not message_to_delete:
         return False
 
     try:
-        with open(log_file_path, "r", encoding="utf-8") as f:
-            original_log_content = f.read()
+        # 1. まず、現在のログを正しいキャラクター名で完全に解析する
+        all_messages = load_chat_log(log_file_path, character_name)
 
-        log_entries = re.split(r'(^## .*?:$)', original_log_content, flags=re.MULTILINE)
-        new_log_entries = []
-        found_and_deleted = False
-
-        # 生の辞書リストを再構築して比較する
-        raw_messages = load_chat_log(log_file_path, "") # HACK: needs a way to get char_name if needed
-
-        # 元のログを走査し、削除対象でないものだけを新しいリストに追加
-        temp_header = ""
-        i = 1 if log_entries and log_entries[0] == '' else 0
-        msg_idx = 0
-        while i < len(log_entries):
-            header = log_entries[i]
-            content = log_entries[i+1]
-
-            # message_to_delete は role と content のキーを持つはず
-            # raw_messages[msg_idx] も同様
-            if not found_and_deleted and msg_idx < len(raw_messages) and raw_messages[msg_idx] == message_to_delete:
-                found_and_deleted = True
-                print(f"--- ログからメッセージを削除: {message_to_delete.get('content', '')[:50]}... ---")
-            else:
-                new_log_entries.append(header)
-                new_log_entries.append(content)
-
-            i += 2
-            msg_idx += 1
-
-        if not found_and_deleted:
+        # 2. 削除対象のメッセージと完全に一致するものを探し、リストから削除する
+        try:
+            # message_to_delete は {'role': '...', 'content': '...'} という辞書
+            all_messages.remove(message_to_delete)
+        except ValueError:
+            # リストに要素が見つからなかった場合
             print(f"警告: ログファイル内に削除対象のメッセージが見つかりませんでした。")
+            traceback.print_exc() # デバッグ用に詳細を出力
             return False
 
-        new_log_content = "".join(new_log_entries).strip()
+        # 3. 変更後のメッセージリストから、ログファイル全体を再構築する
+        log_content_parts = []
+        user_header = _get_user_header_from_log(log_file_path, character_name)
+        ai_header = f"## {character_name}:"
+
+        for msg in all_messages:
+            header = ai_header if msg['role'] == 'model' else user_header
+            content = msg['content'].strip()
+            log_content_parts.append(f"{header}\n{content}")
+
+        # ログファイルに書き込む
+        new_log_content = "\n\n".join(log_content_parts)
         with open(log_file_path, "w", encoding="utf-8") as f:
             f.write(new_log_content)
 
-        # ファイルが空でなければ、末尾に空行を追加して次の追記に備える
+        # ファイルが空でなければ、次の追記のために末尾に改行を追加
         if new_log_content:
-             with open(log_file_path, "a", encoding="utf-8") as f:
+            with open(log_file_path, "a", encoding="utf-8") as f:
                 f.write("\n\n")
 
+        print(f"--- ログからメッセージを正常に削除しました ---")
         return True
 
     except Exception as e:
-        print(f"エラー: ログからのメッセージ削除中にエラーが発生しました: {e}")
+        print(f"エラー: ログからのメッセージ削除中に予期せぬエラーが発生しました: {e}")
         traceback.print_exc()
         return False
 

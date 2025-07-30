@@ -260,7 +260,7 @@ def handle_delete_button_click(
     log_f, _, _, _, _ = get_character_files_paths(character_name)
 
     # utils.delete_message_from_log に、特定したメッセージ辞書を渡す
-    success = utils.delete_message_from_log(log_f, selected_message)
+    success = utils.delete_message_from_log(log_f, selected_message, character_name)
     if success:
         gr.Info("選択された発言をログから削除しました。")
     else:
