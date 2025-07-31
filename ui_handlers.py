@@ -268,40 +268,29 @@ def handle_initial_load():
     return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
 
 def handle_chatbot_selection(evt: gr.SelectData):
-    """メッセージが選択された時の処理。クリックされた行のインデックスを返す。"""
-    # 選択された行（ペア）のインデックスを返す
-    return evt.index[0], evt.value, gr.update(visible=True)
-
+    """メッセージが選択された時の処理。選択されたペアの内容とインデックスを返す。"""
+    # 選択されたペアの内容（[user_msg, bot_msg]）と、そのインデックスを返す
+    return evt.value, evt.index[0], gr.update(visible=True)
 
 def handle_delete_button_click(
     character_name: str,
     api_history_limit: str,
+    selection_value: list,
     selection_index: int
 ):
-    """選択されたインデックスに基づいて、ログから対応するメッセージを削除する。"""
-    if selection_index is None:
+    if not selection_value:
         gr.Warning("削除する発言が選択されていません。")
         return gr.update(), None, None, gr.update(visible=False)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
 
-    # UIの表示履歴を再生成して、クリックされたのがどのメッセージかを特定
-    raw_history = utils.load_chat_log(log_f, character_name)
-    display_turns = _get_display_history_count(api_history_limit)
-    visible_history = raw_history[-(display_turns * 2):]
+    # 選択されたのがユーザー発言かAI発言かを判定
+    clicked_content_html = selection_value[0] or selection_value[1]
 
-    # どのログメッセージがUIのどのペア（インデックス）を生成したかをマッピングする
-    # これは複雑なので、簡略化されたアプローチを取る：
-    # 選択されたペアが、ログファイルのどのメッセージに対応するかを探す
-    # この例では、ペアのインデックスが、ログのユーザー発言のインデックスに対応すると仮定
-    # TODO: このマッピングは、画像によるターン分割で不正確になる可能性があるため、将来的により堅牢な方法に改善する必要がある
-    log_index_to_delete = selection_index * 2
+    # HTMLから元の純粋なテキストを抽出
+    content_to_find = utils.extract_raw_text_from_html(clicked_content_html)
 
-    success = utils.delete_message_from_log_by_index(log_f, log_index_to_delete)
-    # AIの応答も削除
-    if (log_index_to_delete + 1) < len(raw_history):
-        utils.delete_message_from_log_by_index(log_f, log_index_to_delete + 1)
-
+    success = utils.delete_message_from_log_by_content(log_f, content_to_find, character_name)
 
     if success:
         gr.Info("選択された発言をログから削除しました。")

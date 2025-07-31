@@ -80,9 +80,8 @@ try:
         use_common_prompt_state = gr.State(True)
         send_core_memory_state = gr.State(True)
         send_scenery_state = gr.State(True)
-        selected_message_state = gr.State(None) # ★★★ 削除対象の「メッセージオブジェクト」を保持するState
         selected_turn_index_state = gr.State(None)
-        selected_turn_value_state = gr.State(None)
+        selected_turn_value_state = gr.State(None) # valueを復活
 
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
@@ -233,20 +232,20 @@ try:
         
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
-            inputs=None, # evtから直接受け取るのでinputsは不要
-            outputs=[selected_turn_index_state, selected_turn_value_state, deletion_button_group]
+            inputs=None,
+            outputs=[selected_turn_value_state, selected_turn_index_state, deletion_button_group]
         )
 
         delete_selection_button.click(
             fn=ui_handlers.handle_delete_button_click,
-            inputs=[current_character_name, api_history_limit_state, selected_turn_index_state], # ★ value_stateを削除
-            outputs=[chatbot_display, selected_turn_index_state, selected_turn_value_state, deletion_button_group]
-        ).then(lambda: (None, None), outputs=[selected_turn_index_state, selected_turn_value_state])
+            inputs=[current_character_name, api_history_limit_state, selected_turn_value_state, selected_turn_index_state],
+            outputs=[chatbot_display, selected_turn_value_state, selected_turn_index_state, deletion_button_group]
+        )
 
         cancel_selection_button.click(
             fn=lambda: (None, None, gr.update(visible=False)),
             inputs=None,
-            outputs=[selected_turn_index_state, selected_turn_value_state, deletion_button_group]
+            outputs=[selected_turn_value_state, selected_turn_index_state, deletion_button_group]
         )
         
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])

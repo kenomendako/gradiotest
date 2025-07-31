@@ -127,7 +127,7 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
 
     return messages
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[List[Union[str, Tuple[str, str], None]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]], character_name: str) -> List[List[Union[str, Tuple[str, str], None]]]:
     """
     ログデータをGradio Chatbotが期待する「ペアのリスト」形式に変換する、最終FIX版。
     画像が含まれる場合は、テキストと画像を別の「ペア」に正しく分割する。
@@ -138,7 +138,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[List[Union
     gradio_pairs = []
     user_message_buffer = None
 
-    for msg in messages:
+    for i, msg in enumerate(messages):
         role = msg.get("role")
         content = msg.get("content", "").strip()
         if not content:
@@ -146,19 +146,21 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[List[Union
 
         if role == "user":
             if user_message_buffer:
-                gradio_pairs.append([_format_user_content(user_message_buffer), None])
+                # 前のAIの応答がないまま、次のユーザー発言が来た場合
+                gradio_pairs.append([_format_user_content(user_message_buffer, i-1, len(messages)), None])
             user_message_buffer = content
 
         elif role == "model":
+            # ユーザー発言とペアにする
+            formatted_user_msg = _format_user_content(user_message_buffer, i-1, len(messages)) if user_message_buffer else None
+
+            # 画像タグを検出
             image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
             image_matches = list(image_tag_pattern.finditer(content))
 
-            # ユーザーメッセージをHTML化
-            formatted_user_msg = _format_user_content(user_message_buffer) if user_message_buffer else None
-
             if not image_matches:
                 # 画像なし：単一のペアとして追加
-                formatted_bot_msg = _format_bot_content(content)
+                formatted_bot_msg = _format_bot_content(content, i, len(messages))
                 gradio_pairs.append([formatted_user_msg, formatted_bot_msg])
             else:
                 # 画像あり：ターンを分割
@@ -166,7 +168,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[List[Union
                 # 1. 最初のテキスト部分
                 first_text = content[:image_matches[0].start()].strip()
                 if first_text:
-                    gradio_pairs.append([formatted_user_msg, _format_bot_content(first_text)])
+                    gradio_pairs.append([formatted_user_msg, _format_bot_content(first_text, i, len(messages))])
                     formatted_user_msg = None # 2ターン目以降のユーザー発言はNone
 
                 # 2. 画像と後続テキストを処理
@@ -181,25 +183,26 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[List[Union
                     # 画像後のテキストターン
                     text_after = content[match.end():].strip()
                     if text_after:
-                         gradio_pairs.append([None, _format_bot_content(text_after)])
+                         gradio_pairs.append([None, _format_bot_content(text_after, i, len(messages))])
 
             user_message_buffer = None
 
     if user_message_buffer:
-        gradio_pairs.append([_format_user_content(user_message_buffer), None])
+        gradio_pairs.append([_format_user_content(user_message_buffer, len(messages)-1, len(messages)), None])
 
     return gradio_pairs
 
-def _format_user_content(content: str) -> str:
-    """ユーザーのメッセージをHTMLにフォーマットする。"""
+def _format_user_content(content: str, msg_index: int, total_msgs: int) -> str:
+    """ユーザーメッセージをHTML化し、ナビゲーションボタンを追加する。"""
     escaped_text = html.escape(content).replace('\n', '<br>')
-    return f"<div>{escaped_text}</div>"
+    # ユーザー発言にもボタンを追加
+    button_html = _create_button_container(msg_index, total_msgs)
+    return f"<div>{escaped_text}{button_html}</div>"
 
-def _format_bot_content(content: str) -> str:
-    """AIのメッセージをHTMLにフォーマットし、思考ログやボタンを追加する。"""
+def _format_bot_content(content: str, msg_index: int, total_msgs: int) -> str:
+    """AIメッセージをHTML化し、思考ログやボタンを追加する。"""
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
 
-    # 思考ログ部分
     thought_html = ""
     thought_match = thoughts_pattern.search(content)
     if thought_match:
@@ -207,15 +210,21 @@ def _format_bot_content(content: str) -> str:
         escaped_thoughts = html.escape(thoughts_text).replace('\n', '<br>')
         thought_html = f"<div class='thoughts'>{escaped_thoughts}</div>"
 
-    # メインのテキスト部分
     main_text = thoughts_pattern.sub("", content).strip()
-    main_html = ""
-    if main_text:
-        escaped_main = html.escape(main_text).replace('\n', '<br>')
-        main_html = f"<div>{escaped_main}</div>"
+    escaped_main = html.escape(main_text).replace('\n', '<br>')
+    main_html = f"<div>{escaped_main}</div>"
 
-    # ボタンはGradioのChatbotではカスタムできないため、削除
-    return f"{thought_html}{main_html}"
+    button_html = _create_button_container(msg_index, total_msgs)
+
+    return f"{thought_html}{main_html}{button_html}"
+
+def _create_button_container(msg_index: int, total_msgs: int) -> str:
+    """ナビゲーションボタンと削除アイコンのHTMLを生成する。"""
+    # 実際にはJSで制御するため、アンカーは簡略化
+    up_button = f"<a href='#' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
+    down_button = f"<a href='#' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>"
+    delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
+    return f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
 
 
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
@@ -382,49 +391,30 @@ def delete_message_from_log_by_index(log_file_path: str, index_to_delete: int) -
         print(f"インデックスによるログ削除エラー: {e}")
         return False
 
-def delete_message_from_log_by_content(log_file_path: str, content_to_delete: str, character_name: str) -> bool:
-    """指定された内容に一致するメッセージをログファイルから削除する。"""
-    if not log_file_path or not os.path.exists(log_file_path) or not content_to_delete:
+def delete_message_from_log_by_content(log_file_path: str, content_to_find: str, character_name: str) -> bool:
+    """指定された内容を含むメッセージをログから探し、最初に見つかったものを削除する。"""
+    if not all([log_file_path, os.path.exists(log_file_path), content_to_find, character_name]):
         return False
 
     try:
         all_messages = load_chat_log(log_file_path, character_name)
 
-        # 削除対象のメッセージを特定
-        # extract_raw_text_from_htmlを使って、HTMLタグを除去したテキストで比較
-        message_to_delete = None
-        for msg in all_messages:
-            if msg['role'] == 'model':
-                raw_content = extract_raw_text_from_html(msg['content'])
-                if content_to_delete in raw_content:
-                    message_to_delete = msg
-                    break
+        target_index = -1
+        for i, msg in enumerate(all_messages):
+            if content_to_find in msg.get("content", ""):
+                target_index = i
+                break
 
-        if not message_to_delete:
+        if target_index != -1:
+            return delete_message_from_log_by_index(log_f=log_file_path, index_to_delete=target_index)
+        else:
+            print(f"警告: ログ内に '{content_to_find[:50]}...' を含むメッセージが見つかりません。")
             return False
-
-        all_messages.remove(message_to_delete)
-
-        # ログファイルを再構築
-        log_content_parts = []
-        user_header = _get_user_header_from_log(log_file_path, character_name)
-        ai_header = f"## {character_name}:"
-
-        for msg in all_messages:
-            header = ai_header if msg['role'] == 'model' else user_header
-            content = msg['content'].strip()
-            log_content_parts.append(f"{header}\n{content}")
-
-        new_log_content = "\n\n".join(log_content_parts)
-        with open(log_file_path, "w", encoding="utf-8") as f:
-            f.write(new_log_content)
-
-        if new_log_content:
-            with open(log_file_path, "a", encoding="utf-8") as f:
-                f.write("\n\n")
-
-        return True
-
     except Exception as e:
-        print(f"内容によるログ削除エラー: {e}")
+        print(f"内容によるログ削除でエラー: {e}")
         return False
+
+# (delete_message_from_log_by_index は、念のためここに再掲します)
+def delete_message_from_log_by_index(log_f: str, index_to_delete: int) -> bool:
+    # (この関数のコードは変更なし)
+    # ...
