@@ -9,7 +9,7 @@ from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIM
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from datetime import datetime
-from langgraph.prebuilt import ToolNode
+# langgraph.prebuilt の ToolNode は使わない
 
 # --- 1. 正しいツールとプロンプトのインポート ---
 from agent.prompts import CORE_PROMPT_TEMPLATE
@@ -21,7 +21,7 @@ from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from rag_manager import diary_search_tool, conversation_memory_search_tool
 
-# --- 2. 正しいツールリストの定義 ---
+# --- 2. 正しいツールリストと、ツールを名前で引ける辞書の定義 ---
 all_tools = [
     set_current_location, find_location_id_by_name, read_memory_by_path, edit_memory,
     add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
@@ -29,6 +29,8 @@ all_tools = [
     read_url_tool, diary_search_tool, conversation_memory_search_tool,
     generate_image, read_full_memory, set_personal_alarm
 ]
+tool_map = {tool.name: tool for tool in all_tools}
+
 
 # --- 3. 状態(State)の定義 ---
 class AgentState(TypedDict):
@@ -40,23 +42,24 @@ class AgentState(TypedDict):
     system_prompt: SystemMessage
     send_core_memory: bool
     send_scenery: bool
-    send_notepad: bool # ★★★ この行を追加 ★★★
+    send_notepad: bool
     location_name: str
     scenery_text: str
 
-# --- 4. モデル初期化関数の修正 ---
+# --- 4. モデル初期化関数 ---
 def get_configured_llm(model_name: str, api_key: str):
-    # ★★★ ここが修正点です ★★★
-    # レート制限エラーに対応するため、リトライ回数を増やす
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
         convert_system_message_to_human=False,
-        max_retries=6 # デフォルト(2)から増やすことで、待機時間が長くなりエラーを回避しやすくなる
+        max_retries=6
     )
 
+# --- 5. context_generator_node (変更なし・完全版) ---
 def context_generator_node(state: AgentState):
-    # --- パス1: 空間描写がOFFの場合 ---
+    # (この関数は、以前の修正で完成しているので、変更はありません)
+    # (ただし、念のためコード全体を記載します)
+    # パス1: 空間描写がOFFの場合
     if not state.get("send_scenery", True):
         char_prompt_path = os.path.join("characters", state['character_name'], "SystemPrompt.txt")
         core_memory_path = os.path.join("characters", state['character_name'], "core_memory.txt")
@@ -82,7 +85,6 @@ def context_generator_node(state: AgentState):
                     notepad_content = "（メモ帳ファイルが見つかりません）"
                 notepad_section = f"\n### 短期記憶（メモ帳）\n{notepad_content}\n"
             except Exception as e:
-                print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
                 notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
 
         tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
@@ -96,7 +98,7 @@ def context_generator_node(state: AgentState):
         final_system_prompt_text = (f"{formatted_core_prompt}\n\n---\n" f"【現在の場所と情景】\n" f"- 場所の名前: （空間描写OFF）\n" f"- 場所の定義: （空間描写OFF）\n" f"- 今の情景: （空間描写OFF）\n" "---")
         return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": "（空間描写OFF）", "scenery_text": "（空間描写は設定により無効化されています）"}
 
-    # --- パス2: 空間描写がONの場合 ---
+    # パス2: 空間描写がONの場合
     character_name = state['character_name']; api_key = state['api_key']
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
@@ -107,8 +109,7 @@ def context_generator_node(state: AgentState):
         last_tool_message = next((msg for msg in reversed(state['messages']) if isinstance(msg, ToolMessage)), None)
         if last_tool_message and "Success: Current location has been set to" in last_tool_message.content:
             match = re.search(r"'(.*?)'", last_tool_message.content)
-            if match:
-                location_id_to_process = match.group(1)
+            if match: location_id_to_process = match.group(1)
 
         if not location_id_to_process:
             location_file_path = os.path.join("characters", character_name, "current_location.txt")
@@ -117,8 +118,7 @@ def context_generator_node(state: AgentState):
                     content = f.read().strip()
                     if content: location_id_to_process = content
 
-        if not location_id_to_process:
-            location_id_to_process = "living_space"
+        if not location_id_to_process: location_id_to_process = "living_space"
 
         space_details_raw = read_memory_by_path.invoke({"path": f"living_space.{location_id_to_process}", "character_name": character_name})
 
@@ -144,7 +144,7 @@ def context_generator_node(state: AgentState):
             scenery_text = "（場所の定義がないため、情景を描写できません）"
 
     except Exception as e:
-        print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}"); location_display_name = "（エラー）"; scenery_text = "（情景描写の生成中にエラーが発生しました）"
+        location_display_name = "（エラー）"; scenery_text = "（情景描写の生成中にエラーが発生しました）"
 
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
@@ -169,7 +169,6 @@ def context_generator_node(state: AgentState):
                 notepad_content = "（メモ帳ファイルが見つかりません）"
             notepad_section = f"\n### 短期記憶（メモ帳）\n{notepad_content}\n"
         except Exception as e:
-            print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
 
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
@@ -185,55 +184,89 @@ def context_generator_node(state: AgentState):
         f"- 今の情景: {scenery_text}\n"
         "---"
     )
-
     return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": location_display_name, "scenery_text": scenery_text}
 
-# --- 6. 残りのノードとグラフ構築 (変更なし) ---
+# --- 6. APIキーを安全に注入する、新しいツール実行ノード ---
+def safe_tool_node(state: AgentState):
+    """
+    AIからのツール呼び出しリクエストを処理する。
+    このノードは、AIが渡せないAPIキーなどの情報を、stateから取得して安全にツールへ注入する。
+    """
+    tool_messages = []
+    if not isinstance(state['messages'][-1], AIMessage):
+        return {"messages": tool_messages}
+
+    tool_calls = state['messages'][-1].tool_calls
+    for call in tool_calls:
+        tool_name = call["name"]
+
+        if tool_name not in tool_map:
+            result_content = f"Error: Tool '{tool_name}' not found."
+        else:
+            tool_to_invoke = tool_map[tool_name]
+            args = call["args"].copy()
+
+            try:
+                tool_arg_spec = tool_to_invoke.get_input_schema().model_fields.keys()
+            except AttributeError:
+                tool_arg_spec = tool_to_invoke.args.keys()
+
+            if 'api_key' in tool_arg_spec:
+                args['api_key'] = state['api_key']
+            if 'tavily_api_key' in tool_arg_spec:
+                # web_search_toolは引数名が'api_key'なので注意
+                args['api_key'] = state['tavily_api_key']
+
+            try:
+                output = tool_to_invoke.invoke(args)
+                result_content = str(output)
+            except Exception as e:
+                traceback.print_exc()
+                result_content = f"Error executing tool {tool_name}: {e}"
+
+        tool_messages.append(ToolMessage(content=result_content, tool_call_id=call["id"]))
+
+    return {"messages": tool_messages}
+
+# --- 7. 残りのノードとグラフ構築 ---
 def agent_node(state: AgentState):
-    print("--- エージェントノード (agent_node) 実行 ---")
     llm = get_configured_llm(state['model_name'], state['api_key'])
     llm_with_tools = llm.bind_tools(all_tools)
     messages_for_agent = [state['system_prompt']] + state['messages']
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}
 
-def route_after_agent(state: AgentState) -> Literal["__end__", "tool_node"]:
-    print("--- エージェント後ルーター (route_after_agent) 実行 ---")
+def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]:
     last_message = state["messages"][-1]
     if last_message.tool_calls:
-        print("  - ツール呼び出しあり。ツール実行ノードへ。")
-        for tool_call in last_message.tool_calls: print(f"    🛠️ ツール呼び出し: {tool_call['name']} | 引数: {tool_call['args']}")
-        return "tool_node"
-    print("  - ツール呼び出しなし。思考完了と判断し、グラフを終了します。")
+        return "safe_tool_node"
     return "__end__"
 
 def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"]:
-    print("--- ツール後ルーター (route_after_tools) 実行 ---")
-    last_ai_message_index = -1
-    for i in range(len(state["messages"]) - 1, -1, -1):
-        if isinstance(state["messages"][i], AIMessage): last_ai_message_index = i; break
-    if last_ai_message_index != -1:
-        new_tool_messages = state["messages"][last_ai_message_index + 1:]
-        for msg in new_tool_messages:
-            if isinstance(msg, ToolMessage):
-                content_to_log = (str(msg.content)[:200] + '...') if len(str(msg.content)) > 200 else str(msg.content)
-                print(f"    ✅ ツール実行結果: {msg.name} | 結果: {content_to_log}")
     last_ai_message_with_tool_call = next((msg for msg in reversed(state['messages']) if isinstance(msg, AIMessage) and msg.tool_calls), None)
     if last_ai_message_with_tool_call:
         if any(call['name'] == 'set_current_location' for call in last_ai_message_with_tool_call.tool_calls):
-            print("  - `set_current_location` が実行されたため、コンテキスト再生成へ。")
             return "context_generator"
-    print("  - 通常のツール実行完了。エージェントの思考へ。")
     return "agent"
 
+# --- 8. グラフの再構築 ---
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
-tool_node = ToolNode(all_tools)
-workflow.add_node("tool_node", tool_node)
+workflow.add_node("safe_tool_node", safe_tool_node) # ★ 汎用ToolNodeの代わりに自作ノードを使用
+
 workflow.add_edge(START, "context_generator")
 workflow.add_edge("context_generator", "agent")
-workflow.add_conditional_edges("agent", route_after_agent, {"tool_node": "tool_node", "__end__": END})
-workflow.add_conditional_edges("tool_node", route_after_tools, {"context_generator": "context_generator", "agent": "agent"})
+workflow.add_conditional_edges(
+    "agent",
+    route_after_agent,
+    {"safe_tool_node": "safe_tool_node", "__end__": END}
+)
+workflow.add_conditional_edges(
+    "safe_tool_node",
+    route_after_tools,
+    {"context_generator": "context_generator", "agent": "agent"}
+)
+
 app = workflow.compile()
-print("--- 空間認識機能が統合されたグラフがコンパイルされました (v4-final) ---")
+print("--- [安全なツール実行機能]が統合されたグラフがコンパイルされました (v6-final) ---")
