@@ -127,105 +127,59 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
 
     return messages
 
-def format_history_for_gradio(messages: List[Dict[str, str]], character_name: str) -> List[Dict[str, Union[str, tuple, None]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]], character_name: str) -> List[Dict[str, str]]:
     """
-    ログデータをGradioのChatbotが解釈できる形式に変換する。
-    画像タグが含まれる場合、テキストと画像のターンを分割する。
+    ログデータをGradio Chatbot(type="messages")用の辞書リストに変換する最終FIX版。
+    思考ログ、画像タグ、ナビゲーションボタンをすべてHTMLとしてcontentに含める。
     """
-    if not messages:
-        return []
-
     gradio_history = []
-
-    # 画像タグを検出するための正規表現
-    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
-
     for i, msg in enumerate(messages):
         role = "assistant" if msg.get("role") == "model" else "user"
         content = msg.get("content", "").strip()
-        if not content:
-            continue
+        if not content: continue
 
-        # --- ★★★ ここからが新しいロジック ★★★ ---
-        # 1. メッセージに画像タグが含まれているかチェック
-        image_matches = list(image_tag_pattern.finditer(content))
+        # --- アンカーとナビゲーションボタン ---
+        anchor_id = f"msg-anchor-{uuid.uuid4().hex[:8]}-{i}"
+        up_button = f"<a href='#{anchor_id}' class='message-nav-link' title='この発言の先頭へ'>▲</a>"
+        down_button = ""
+        if i < len(messages) - 1:
+            next_anchor_id = f"msg-anchor-{uuid.uuid4().hex[:8]}-{i+1}"
+            down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ'>▼</a>"
+        delete_icon = "<span>🗑️</span>"
+        button_container = f"<div class='message-buttons'>{up_button}{down_button}{delete_icon}</div>"
 
-        if not image_matches:
-            # 1-a. 画像なし：従来通りテキストとして処理
-            # 思考ログやボタンは、テキストメッセージにのみ付与する
-            processed_html = _format_text_content_for_gradio(content, character_name, i, len(messages))
-            gradio_history.append({"role": role, "content": processed_html})
-        else:
-            # 1-b. 画像あり：テキストと画像に分割して、複数のターンとして追加
-            last_index = 0
-            # 最初のテキスト部分を処理
-            first_text_chunk = content[:image_matches[0].start()].strip()
-            if first_text_chunk:
-                processed_html = _format_text_content_for_gradio(first_text_chunk, character_name, i, len(messages))
-                gradio_history.append({"role": role, "content": processed_html})
+        # --- コンテンツ全体のHTMLを構築 ---
+        final_parts = [f"<span id='{anchor_id}'></span>"]
 
-            # 画像と、その後のテキストを処理
-            for match_idx, match in enumerate(image_matches):
-                # 画像をタプル形式で追加
-                filepath = match.group(1).strip()
-                filename = os.path.basename(filepath)
-                # Gradioが最も安定して解釈できるタプル形式
-                image_tuple = (filepath, filename)
-                gradio_history.append({"role": "assistant", "content": image_tuple})
+        # --- 思考ログ ---
+        thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
+        thought_match = thoughts_pattern.search(content)
+        if thought_match:
+            thoughts_text = thought_match.group(1).strip()
+            escaped_thoughts = html.escape(thoughts_text).replace('\n', '<br>')
+            final_parts.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
 
-                # 画像の後のテキスト部分を処理
-                start_of_next_chunk = match.end()
-                end_of_this_chunk = image_matches[match_idx + 1].start() if match_idx + 1 < len(image_matches) else len(content)
-                text_chunk = content[start_of_next_chunk:end_of_this_chunk].strip()
-                if text_chunk:
-                    processed_html = _format_text_content_for_gradio(text_chunk, character_name, i, len(messages))
-                    # 2つ目以降の要素は、必ずAIの発言として追加
-                    gradio_history.append({"role": "assistant", "content": processed_html})
+        # --- テキストと画像 ---
+        text_without_thoughts = thoughts_pattern.sub("", content).strip()
+        image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
+        last_end = 0
+        for match in image_tag_pattern.finditer(text_without_thoughts):
+            text_chunk = text_without_thoughts[last_end:match.start()].strip()
+            if text_chunk:
+                final_parts.append(f"<div>{html.escape(text_chunk).replace('
+', '<br>')}</div>")
+            filepath = match.group(1).strip().replace("\\", "/")
+            final_parts.append(f"<div><img src='/file={filepath}' alt='Generated Image' class='generated-image'></div>")
+            last_end = match.end()
+        remaining_text = text_without_thoughts[last_end:].strip()
+        if remaining_text:
+            final_parts.append(f"<div>{html.escape(remaining_text).replace('
+', '<br>')}</div>")
+
+        final_parts.append(button_container)
+        gradio_history.append({"role": role, "content": "".join(final_parts)})
 
     return gradio_history
-
-def _format_text_content_for_gradio(content: str, character_name: str, msg_index: int, total_msgs: int) -> str:
-    """
-    テキストコンテンツをHTMLにフォーマットする補助関数。
-    思考ログの処理、改行の反映、ナビゲーションボタンの追加を行う。
-    """
-    # アンカーIDを生成
-    # NOTE: この方法は複数ターン分割時に同じIDが振られる可能性があるが、
-    # 連続したメッセージなので実用上の問題は少ない
-    anchor_id = f"msg-anchor-{uuid.uuid4().hex[:8]}-{msg_index}"
-
-    # ナビゲーションボタン
-    up_button = f"<a href='#{anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
-    down_button = ""
-    if msg_index < total_msgs - 1:
-        # 次のメッセージのアンカーを指すようにする（簡易的な方法）
-        next_anchor_id = f"msg-anchor-{uuid.uuid4().hex[:8]}-{msg_index+1}"
-        down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>"
-    delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
-    button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
-
-    # 思考ログの処理
-    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-    thought_match = thoughts_pattern.search(content)
-
-    final_parts = [f"<span id='{anchor_id}'></span>"]
-
-    if thought_match:
-        thoughts_content = thought_match.group(1).strip()
-        escaped_thoughts = html.escape(thoughts_content)
-        thoughts_with_breaks = escaped_thoughts.replace('\n', '<br>')
-        final_parts.append(f"<div class='thoughts'>{thoughts_with_breaks}</div>")
-
-    # メインテキストの処理
-    main_text = thoughts_pattern.sub("", content).strip()
-    escaped_text = html.escape(main_text)
-    text_with_breaks = escaped_text.replace('\n', '<br>')
-    final_parts.append(f"<div>{text_with_breaks}</div>")
-
-    # ボタンを追加
-    final_parts.append(button_container)
-
-    return "".join(final_parts)
 
 
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
