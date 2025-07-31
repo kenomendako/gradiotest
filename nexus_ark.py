@@ -182,34 +182,37 @@ try:
         scenery_refresh_outputs = [current_location_display, current_scenery_display]
 
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
+
         character_dropdown.change(
             fn=ui_handlers.update_ui_on_character_change,
             inputs=[character_dropdown, api_history_limit_state],
-            # ★★★ 返り値の受け取り先(outputs)を更新 ★★★
             outputs=[
                 current_character_name, chatbot_display, chat_input_textbox,
                 profile_image_display, memory_json_editor, alarm_char_dropdown,
                 timer_char_dropdown, notepad_editor, location_dropdown,
-                current_location_display, current_scenery_display # ★ 追加
+                current_location_display, current_scenery_display
             ]
         ).then(
-            # ★★★ 情景生成の.then()を削除し、トークン計算のみ残す ★★★
             fn=ui_handlers.update_token_count,
             inputs=token_calc_inputs,
             outputs=[token_count_display]
         )
+
         change_location_button.click(
-            fn=ui_handlers.handle_location_change, # ★ 関数名を変更
-            inputs=[current_character_name, location_dropdown], # ★ 不要なapi_key_nameを削除
+            fn=ui_handlers.handle_location_change,
+            inputs=[current_character_name, location_dropdown],
             outputs=scenery_refresh_outputs
         )
+
         refresh_scenery_button.click(
             fn=ui_handlers.handle_scenery_refresh,
             inputs=scenery_refresh_inputs,
             outputs=scenery_refresh_outputs
         )
+
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
+
         for component in [chat_input_textbox, file_upload_button, notepad_editor, model_dropdown, api_key_dropdown, add_timestamp_checkbox, send_thoughts_checkbox, send_notepad_checkbox, use_common_prompt_checkbox, send_core_memory_checkbox, send_scenery_checkbox, api_history_limit_dropdown]:
             if isinstance(component, (gr.Textbox, gr.Checkbox, gr.Dropdown, gr.Radio)):
                 component.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display], show_progress=False)
@@ -225,41 +228,46 @@ try:
         use_common_prompt_checkbox.change(fn=ui_handlers.update_use_common_prompt_state, inputs=[use_common_prompt_checkbox], outputs=[use_common_prompt_state])
         send_core_memory_checkbox.change(fn=ui_handlers.update_send_core_memory_state, inputs=[send_core_memory_checkbox], outputs=[send_core_memory_state])
         send_scenery_checkbox.change(fn=ui_handlers.update_send_scenery_state, inputs=[send_scenery_checkbox], outputs=[send_scenery_state])
-        api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()])
+        api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display])
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
         
-    chatbot_display.select(
-        fn=ui_handlers.handle_chatbot_selection,
-        inputs=None,
-        outputs=[selected_turn_value_state, deletion_button_group]
-    )
+        # --- ここからが削除機能のイベント接続 ---
+        selected_turn_value_state = gr.State(None)
 
-    delete_selection_button.click(
-        fn=ui_handlers.handle_delete_button_click,
-        inputs=[current_character_name, api_history_limit_state, selected_turn_value_state],
-        outputs=[chatbot_display, selected_turn_value_state, deletion_button_group]
-    )
+        chatbot_display.select(
+            fn=ui_handlers.handle_chatbot_selection,
+            inputs=None,
+            outputs=[selected_turn_value_state, deletion_button_group]
+        )
 
-    cancel_selection_button.click(
-        fn=lambda: (None, gr.update(visible=False)),
-        inputs=None,
-        outputs=[selected_turn_value_state, deletion_button_group]
-    )
-        
-        save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
+        delete_selection_button.click(
+            fn=ui_handlers.handle_delete_button_click,
+            inputs=[current_character_name, api_history_limit_state, selected_turn_value_state],
+            outputs=[chatbot_display, selected_turn_value_state, deletion_button_group]
+        )
+
+        cancel_selection_button.click(
+            fn=lambda: (None, gr.update(visible=False)),
+            inputs=None,
+            outputs=[selected_turn_value_state, deletion_button_group]
+        )
+        # --- 削除機能ここまで ---
+
+        save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor])
         reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_character_name], outputs=[memory_json_editor])
         save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_character_name, notepad_editor], outputs=[notepad_editor])
         reload_notepad_button.click(fn=ui_handlers.handle_reload_notepad, inputs=[current_character_name], outputs=[notepad_editor])
         clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_character_name], outputs=[notepad_editor])
-        alarm_dataframe.select(fn=ui_handlers.handle_alarm_selection_and_feedback, inputs=[alarm_dataframe_original_data], outputs=[selected_alarm_ids_state, selection_feedback_markdown], show_progress=False).then(fn=ui_handlers.load_alarm_to_form, inputs=[selected_alarm_ids_state], outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
-        enable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data, alarm_dataframe])
-        disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data, alarm_dataframe])
+        alarm_dataframe.select(fn=ui_handlers.handle_alarm_selection_and_feedback, inputs=[alarm_dataframe_original_data], outputs=[selected_alarm_ids_state, selection_feedback_markdown], show_progress=False).then(fn=ui_handlers.load_alarm_to_form, inputs=[selected_alarm_ids_state], outputs=[alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state, alarm_is_emergency_checkbox])
+        enable_button.click(fn=ui_handlers.toggle_selected_alarms_status, inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data, alarm_dataframe], show_progress=False)
+        disable_button.click(fn=ui_handlers.toggle_selected_alarms_status, inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data, alarm_dataframe], show_progress=False)
         delete_alarm_button.click(fn=ui_handlers.handle_delete_selected_alarms, inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data, alarm_dataframe]).then(fn=lambda: ([], "アラームを選択してください"), outputs=[selected_alarm_ids_state, selection_feedback_markdown])
-        alarm_add_button.click(fn=ui_handlers.handle_add_or_update_alarm, inputs=[editing_alarm_id_state, alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup], outputs=[alarm_dataframe_original_data, alarm_dataframe, alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state])
+        alarm_add_button.click(fn=ui_handlers.handle_add_or_update_alarm, inputs=[editing_alarm_id_state, alarm_hour_dropdown, alarm_minute_dropdown, alarm_char_dropdown, alarm_theme_input, alarm_prompt_input, alarm_days_checkboxgroup, alarm_is_emergency_checkbox], outputs=[alarm_dataframe_original_data, alarm_dataframe, alarm_add_button, alarm_theme_input, alarm_prompt_input, alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown, alarm_minute_dropdown, editing_alarm_id_state, alarm_is_emergency_checkbox])
         timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
         timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
         rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
+
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor, location_dropdown, current_location_display, current_scenery_display])
         demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 
