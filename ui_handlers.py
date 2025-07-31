@@ -123,7 +123,7 @@ def handle_message_submission(*args: Any):
 
     raw_history = utils.load_chat_log(log_f, current_character_name)
     display_turns = _get_display_history_count(api_history_limit_state)
-    formatted_history = utils.format_history_for_gradio(raw_history[-(display_turns*2):], current_character_name)
+    formatted_history, _ = utils.format_history_for_gradio(raw_history[-(display_turns*2):], current_character_name)
 
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 
@@ -205,7 +205,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
 
     display_turns = _get_display_history_count(api_history_limit_value)
-    chat_history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):], character_name)
+    chat_history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):], character_name)
 
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
@@ -265,27 +265,39 @@ def handle_initial_load():
 
     return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
 
-def handle_chatbot_selection(chatbot_history: List[Tuple], character_name: str, api_history_limit_state: str, evt: gr.SelectData):
-    """メッセージが選択された時の処理。UIのインデックスを基に、元のログ辞書を特定する。"""
+def handle_chatbot_selection(character_name: str, api_history_limit_state: str, evt: gr.SelectData):
+    """
+    Handles the selection of a message in the chatbot UI.
+    Identifies the message by creating an index map and retrieving the original log entry.
+    """
     if not character_name or evt.index is None:
         return None, gr.update(visible=False)
 
     try:
-        clicked_index = evt.index
+        clicked_ui_index = evt.index
 
+        # Re-create the exact history and the index map
         log_f, _, _, _, _ = get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_f, character_name)
         display_turns = _get_display_history_count(api_history_limit_state)
         visible_raw_history = raw_history[-(display_turns * 2):]
 
-        if 0 <= clicked_index < len(visible_raw_history):
-            # ★★★ 生の辞書オブジェクトをそのまま取得 ★★★
-            selected_raw_message = visible_raw_history[clicked_index]
-            # ★★★ 選択された辞書をStateに保存 ★★★
+        _, mapping_list = utils.format_history_for_gradio(visible_raw_history, character_name)
+
+        if not (0 <= clicked_ui_index < len(mapping_list)):
+            gr.Warning("Could not identify the clicked message (UI index out of bounds).")
+            return None, gr.update(visible=False)
+
+        # Use the map to find the true index in the original log list
+        original_log_index = mapping_list[clicked_ui_index]
+
+        if 0 <= original_log_index < len(visible_raw_history):
+            selected_raw_message = visible_raw_history[original_log_index]
             return selected_raw_message, gr.update(visible=True)
         else:
-            gr.Warning("クリックされたメッセージを特定できませんでした。")
+            gr.Warning("Could not identify the clicked message (Original log index out of bounds).")
             return None, gr.update(visible=False)
+
     except Exception as e:
         print(f"Error during chatbot selection: {e}")
         traceback.print_exc()
@@ -325,11 +337,11 @@ def handle_delete_button_click(
     return new_chat_history, None, gr.update(visible=False)
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
-    if not character_name: return []
+    if not character_name: return [], []
     log_f,_,_,_,_ = get_character_files_paths(character_name)
-    if not log_f or not os.path.exists(log_f): return []
+    if not log_f or not os.path.exists(log_f): return [], []
     display_turns = _get_display_history_count(api_history_limit_value)
-    history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name)
+    history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name)
     return history
 
 def handle_save_memory_click(character_name, json_string_data):

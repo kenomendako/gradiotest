@@ -127,84 +127,68 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
 
     return messages
 
-def format_history_for_gradio(messages: List[Dict[str, str]], character_name: str) -> List[Dict[str, Union[str, tuple, None]]]:
-    if not messages:
-        return []
+def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name: str) -> Tuple[List[Dict[str, Union[str, tuple, None]]], List[int]]:
+    if not raw_history:
+        return [], []
 
-    # --- Stage 1: Create Intermediate Representation ---
-    intermediate_list = []
+    gradio_history = []
+    mapping_list = []
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
-    for msg in messages:
+    for i, msg in enumerate(raw_history):
         role = "assistant" if msg.get("role") == "model" else "user"
         content = msg.get("content", "").strip()
         if not content:
             continue
 
-        matches = list(image_tag_pattern.finditer(content))
-        if not matches:
-            intermediate_list.append({
-                "type": "text",
-                "content": content,
-                "role": role,
-                "anchor_id": f"msg-anchor-{uuid.uuid4().hex[:8]}"
-            })
-        else:
-            last_index = 0
-            for i, match in enumerate(matches):
-                # Add text part before the image
-                text_chunk = content[last_index:match.start()].strip()
-                if text_chunk:
-                    intermediate_list.append({
-                        "type": "text",
-                        "content": text_chunk,
-                        "role": role,
-                        "anchor_id": f"msg-anchor-{uuid.uuid4().hex[:8]}"
-                    })
+        parts = []
+        last_end = 0
+        for match in image_tag_pattern.finditer(content):
+            if match.start() > last_end:
+                parts.append(("text", content[last_end:match.start()].strip()))
+            parts.append(("image", match.group(1).strip()))
+            last_end = match.end()
+        if last_end < len(content):
+            parts.append(("text", content[last_end:].strip()))
 
-                # Add image part
-                filepath = match.group(1).strip()
-                intermediate_list.append({
-                    "type": "image",
-                    "content": filepath,
-                    "role": "assistant", # Images are always from the assistant
-                    "anchor_id": f"msg-anchor-{uuid.uuid4().hex[:8]}"
-                })
-                last_index = match.end()
+        if not parts:
+             parts.append(("text", content))
 
-            # Add any remaining text part after the last image
-            remaining_text = content[last_index:].strip()
-            if remaining_text:
-                intermediate_list.append({
-                    "type": "text",
-                    "content": remaining_text,
-                    "role": role,
-                    "anchor_id": f"msg-anchor-{uuid.uuid4().hex[:8]}"
+        # Assign unique anchor IDs to all text parts first
+        part_data = []
+        for part_type, part_content in parts:
+            if part_content:
+                part_data.append({
+                    "type": part_type,
+                    "content": part_content,
+                    "anchor_id": f"msg-anchor-{uuid.uuid4().hex[:8]}" if part_type == "text" else None
                 })
 
-    # --- Stage 2: Generate Gradio History from Intermediate List ---
-    gradio_history = []
-    for i, item in enumerate(intermediate_list):
-        if item["type"] == "image":
-            filepath = item["content"]
-            filename = os.path.basename(filepath)
-            gradio_history.append({"role": item["role"], "content": (filepath, filename)})
+        text_anchor_ids = [p["anchor_id"] for p in part_data if p["type"] == "text"]
 
-        elif item["type"] == "text":
-            current_anchor = item["anchor_id"]
-            # Find previous and next text anchors for navigation
-            prev_anchor = next((intermediate_list[j]["anchor_id"] for j in range(i - 1, -1, -1) if intermediate_list[j]["type"] == "text"), None)
-            next_anchor = next((intermediate_list[j]["anchor_id"] for j in range(i + 1, len(intermediate_list)) if intermediate_list[j]["type"] == "text"), None)
+        text_part_counter = 0
+        for p_data in part_data:
+            if p_data["type"] == "text":
+                prev_anchor = text_anchor_ids[text_part_counter - 1] if text_part_counter > 0 else None
+                next_anchor = text_anchor_ids[text_part_counter + 1] if text_part_counter < len(text_anchor_ids) - 1 else None
 
-            processed_html = _format_text_content_for_gradio(
-                content=item["content"],
-                current_anchor_id=current_anchor,
-                prev_anchor_id=prev_anchor,
-                next_anchor_id=next_anchor
-            )
-            gradio_history.append({"role": item["role"], "content": processed_html})
+                html_content = _format_text_content_for_gradio(
+                    p_data["content"],
+                    p_data["anchor_id"],
+                    prev_anchor,
+                    next_anchor
+                )
+                gradio_history.append({"role": role, "content": html_content})
+                mapping_list.append(i)
+                text_part_counter += 1
 
-    return gradio_history
+            elif p_data["type"] == "image":
+                filepath = p_data["content"]
+                filename = os.path.basename(filepath)
+                gradio_history.append({"role": "assistant", "content": (filepath, filename)})
+                mapping_list.append(i)
+
+    return gradio_history, mapping_list
 
 def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
     """
