@@ -188,7 +188,7 @@ def context_generator_node(state: AgentState):
 
     return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": location_display_name, "scenery_text": scenery_text}
 
-# --- 6. 残りのノードとグラフ構築 (変更なし) ---
+# --- 6. ノードの定義 ---
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
     llm = get_configured_llm(state['model_name'], state['api_key'])
@@ -197,13 +197,54 @@ def agent_node(state: AgentState):
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}
 
-def route_after_agent(state: AgentState) -> Literal["__end__", "tool_node"]:
+def safe_tool_executor(state: AgentState):
+    """stateからAPIキーを取得し、安全にツールを実行するカスタムノード"""
+    print("--- カスタムツール実行ノード (safe_tool_executor) 実行 ---")
+    messages = state['messages']
+    last_message = messages[-1]
+    tool_invocations = last_message.tool_calls
+
+    api_key = state.get('api_key')
+    tavily_api_key = state.get('tavily_api_key')
+
+    tool_outputs = []
+    for tool_call in tool_invocations:
+        tool_name = tool_call["name"]
+        print(f"  - 準備中のツール: {tool_name} | 引数: {tool_call['args']}")
+
+        # APIキーを必要とするツールに自動でキーを渡す
+        if tool_name == 'generate_image' or tool_name == 'summarize_and_save_core_memory':
+            tool_call['args']['api_key'] = api_key
+            print(f"    - 'api_key' を引数に追加しました。")
+        elif tool_name == 'web_search_tool':
+            tool_call['args']['api_key'] = tavily_api_key
+            print(f"    - 'tavily_api_key' を引数に追加しました。")
+
+        # all_toolsリストからツールを名前で検索
+        selected_tool = next((t for t in all_tools if t.name == tool_name), None)
+        if not selected_tool:
+            output = f"Error: Tool '{tool_name}' not found."
+        else:
+            try:
+                output = selected_tool.invoke(tool_call['args'])
+            except Exception as e:
+                output = f"Error executing tool '{tool_name}': {e}"
+                traceback.print_exc()
+
+        tool_outputs.append(
+            ToolMessage(content=str(output), tool_call_id=tool_call["id"])
+        )
+
+    return {"messages": tool_outputs}
+
+# --- 7. ルーターの定義 ---
+def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
     last_message = state["messages"][-1]
     if last_message.tool_calls:
         print("  - ツール呼び出しあり。ツール実行ノードへ。")
         for tool_call in last_message.tool_calls: print(f"    🛠️ ツール呼び出し: {tool_call['name']} | 引数: {tool_call['args']}")
-        return "tool_node"
+        return "safe_tool_node"
     print("  - ツール呼び出しなし。思考完了と判断し、グラフを終了します。")
     return "__end__"
 
@@ -226,14 +267,28 @@ def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"
     print("  - 通常のツール実行完了。エージェントの思考へ。")
     return "agent"
 
+# --- 8. グラフの構築 ---
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
-tool_node = ToolNode(all_tools)
-workflow.add_node("tool_node", tool_node)
+workflow.add_node("safe_tool_node", safe_tool_executor) # 変更点：ToolNodeの代わりにカスタム関数を使用
+
 workflow.add_edge(START, "context_generator")
 workflow.add_edge("context_generator", "agent")
-workflow.add_conditional_edges("agent", route_after_agent, {"tool_node": "tool_node", "__end__": END})
-workflow.add_conditional_edges("tool_node", route_after_tools, {"context_generator": "context_generator", "agent": "agent"})
+
+workflow.add_conditional_edges(
+    "agent",
+    route_after_agent,
+    {
+        "safe_tool_node": "safe_tool_node", # 変更点：参照先を新しいノード名に
+        "__end__": END,
+    },
+)
+workflow.add_conditional_edges(
+    "safe_tool_node", # 変更点：参照元を新しいノード名に
+    route_after_tools,
+    {"context_generator": "context_generator", "agent": "agent"},
+)
+
 app = workflow.compile()
-print("--- 空間認識機能が統合されたグラフがコンパイルされました (v4-final) ---")
+print("--- 統合グラフ(v5)がコンパイルされました ---")

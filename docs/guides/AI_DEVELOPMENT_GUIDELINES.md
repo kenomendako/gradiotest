@@ -39,12 +39,18 @@ The combination of models used in this application is not arbitrary. It is a car
 | Purpose / Node (目的／ノード) | Mandatory Model (必須モデル) | Reason / Notes (理由／注記) |
 | :--- | :--- | :--- |
 | **Context Generation** (`context_generator_node`) | `gemini-2.5-flash` | For high-speed, efficient generation of environmental context. (高速で効率的な、情景コンテキスト生成のため) |
-| **Main Agent / Final Response** (`agent_node`) | `gemini-2.5-pro` | For high-quality reasoning, tool use, and final response generation. (高品質な推論、ツール使用、最終応答生成のため) |
+| **Main Agent / Final Response** (`agent_node`) | **`gemini-2.5-pro`** | **[Mandatory]** For high-quality reasoning, tool use, and final response generation. (高品質な推論、ツール使用、最終応答生成のため) |
 | **Image Generation** (`generate_image` tool) | `gemini-2.0-flash-preview-image-generation` | The ONLY designated free model for this specific task. (このタスクのために指定された、唯一の、無料モデル) |
 
-#### **The Forbidden Model: `gemini-1.5-pro` (禁じられたモデル)**
-Under **NO circumstances** should the `gemini-1.5-pro` model be used for the primary agent loop (`agent_node`). Its use has repeatedly caused critical `429 ResourceExhausted` errors and is against the established project policy. Any suggestion to use this model is a regression and must be rejected.
-**いかなる、状況においても、`gemini-1.5-pro`モデルを、主要な、エージェントループ(`agent_node`)に、使用してはなりません。** このモデルの、使用は、致命的な、`429 ResourceExhausted`エラーを、繰り返し、引き起こし、確立された、プロジェクトの方針に、反します。このモデルの、使用を、提案する、いかなる、発想も、過去への、退行であり、却下されなければなりません。
+#### **The Forbidden Model: `gemini-1.5-pro` (禁止モデル)**
+The `gemini-1.5-pro` model is **strictly prohibited** for use in the `agent_node`. Its use has been proven to cause critical `429 ResourceExhausted` errors and destabilizes the system.
+`gemini-1.5-pro` モデルを `agent_node` で使用することは**固く禁止**されています。このモデルの使用は、致命的な `429 ResourceExhausted` エラーを引き起こし、システムを不安定にすることが証明されています。
+
+- **Mandatory model for `agent_node`**: **`gemini-2.5-pro`**
+- **Prohibited model for `agent_node`**: **`gemini-1.5-pro`**
+
+Any suggestion to use `gemini-1.5-pro` is a regression and must be rejected.
+いかなる、`gemini-1.5-pro` の使用提案も、過去への退行であり、却下されなければなりません。
 
 ---
 
