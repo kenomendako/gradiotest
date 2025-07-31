@@ -242,31 +242,23 @@ def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]
         return "safe_tool_node"
     return "__end__"
 
-def route_after_tools(state: AgentState) -> Literal["context_generator", "agent", "__end__"]:
+def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"]:
     print("--- ツール後ルーター (route_after_tools) 実行 ---")
 
     # どのツールが呼ばれたかを取得
     last_ai_message_with_tool_call = next((msg for msg in reversed(state['messages']) if isinstance(msg, AIMessage) and msg.tool_calls), None)
     if not last_ai_message_with_tool_call or not last_ai_message_with_tool_call.tool_calls:
-         # 通常はありえないが、安全のためエージェントに戻す
-        return "agent"
+        return "agent" # 安全のためエージェントに戻す
 
-    # 呼ばれたツール名を取得（簡単のため最初のもの）
     called_tool_name = last_ai_message_with_tool_call.tool_calls[0]['name']
     print(f"  - 実行されたツール: '{called_tool_name}'")
 
-    # --- ここからが交通整理 ---
-    # 1. 場所変更ツールなら、コンテキストを再生成
+    # 場所変更ツールなら、コンテキストを再生成
     if called_tool_name == 'set_current_location':
         print("  - 経路判断: `set_current_location` -> コンテキスト再生成へ")
         return "context_generator"
 
-    # 2. 画像生成ツールなら、そこで思考を完了
-    if called_tool_name == 'generate_image':
-        print("  - 経路判断: `generate_image` -> 思考完了へ")
-        return "__end__"
-
-    # 3. それ以外の全てのツール（情報収集など）なら、AIにもう一度考えさせる
+    # それ以外の全てのツール（画像生成含む）なら、AIにもう一度考えさせる
     print(f"  - 経路判断: '{called_tool_name}' -> AIの再思考へ")
     return "agent"
 
@@ -286,7 +278,7 @@ workflow.add_conditional_edges(
 workflow.add_conditional_edges(
     "safe_tool_node",
     route_after_tools,
-    {"context_generator": "context_generator", "agent": "agent", "__end__": END}
+    {"context_generator": "context_generator", "agent": "agent"}
 )
 
 app = workflow.compile()

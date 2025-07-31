@@ -136,27 +136,11 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
         final_state = app.invoke(initial_state)
 
         final_response_text = ""
+        # 状態の最後にあるはずの、AIの最終的な応答メッセージを探す
+        if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
+            final_response_text = final_state['messages'][-1].content
 
-        # 最後のAIメッセージを探す
-        last_ai_message = next((msg for msg in reversed(final_state['messages']) if isinstance(msg, AIMessage)), None)
-
-        if last_ai_message:
-            # AIの言葉（テキスト部分）を取得
-            ai_text_content = last_ai_message.content if isinstance(last_ai_message.content, str) else ""
-
-            # 最後のツールメッセージ（もしあれば）を探す
-            last_tool_message = next((msg for msg in reversed(final_state['messages']) if isinstance(msg, ToolMessage)), None)
-
-            # ★★★ ここが修正の核心 ★★★
-            # 画像生成のように、AIの言葉とツールの結果を結合する必要がある場合
-            if last_tool_message and last_ai_message.tool_calls and any(call['name'] == 'generate_image' for call in last_ai_message.tool_calls):
-                 # .name を ['name'] に修正
-                final_response_text = f"{ai_text_content}\n\n{last_tool_message.content}".strip()
-            else:
-                # それ以外の場合は、最後のAIメッセージのテキスト部分を最終応答とする
-                final_response_text = ai_text_content
-
-        # is_internal_call の場合は応答を抑制
+        # 内部呼び出しの場合は、ユーザーへの応答は不要
         if is_internal_call:
             final_response_text = ""
 
