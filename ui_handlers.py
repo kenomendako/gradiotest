@@ -274,7 +274,7 @@ def handle_chatbot_selection(chatbot_history: List[Dict], character_name: str, a
         return None, gr.update(visible=False)
 
     try:
-        clicked_index = evt.index[0]
+        clicked_index = evt.index
 
         # Re-create the exact history displayed in the UI
         log_f, _, _, _, _ = get_character_files_paths(character_name)
