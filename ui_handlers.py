@@ -265,7 +265,7 @@ def handle_initial_load():
 
     return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
 
-def handle_chatbot_selection(character_name: str, api_history_limit_state: str, evt: gr.SelectData):
+def handle_chatbot_selection(chatbot_history: List[Dict], character_name: str, api_history_limit_state: str, evt: gr.SelectData):
     """
     Handles the selection of a message in the chatbot UI.
     Identifies the message by recreating the displayed history and extracting a unique key.
