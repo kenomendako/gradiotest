@@ -265,61 +265,7 @@ def handle_initial_load():
 
     return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
 
-def handle_chatbot_selection(chatbot_history: List[Dict[str, str]], character_name: str, api_history_limit_state: str, evt: gr.SelectData):
-    """メッセージが選択された時の処理。UIの状態と完全に同期してメッセージを特定する。"""
-    if not evt.value or not character_name:
-        return None, gr.update(visible=False)
-
-
-    try:
-        clicked_index = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
-
-        log_f, _, _, _, _ = get_character_files_paths(character_name)
-        if not log_f:
-            gr.Warning(f"キャラクター'{character_name}'のログファイルが見つかりません。")
-            return None, gr.update(visible=False)
-
-        raw_history = utils.load_chat_log(log_f, character_name)
-
-        # ★ 引数で渡されたUIの状態を正として履歴の表示件数を計算
-        display_turns = _get_display_history_count(api_history_limit_state)
-        visible_raw_history = raw_history[-(display_turns * 2):]
-
-        if 0 <= clicked_index < len(visible_raw_history):
-            selected_raw_message = visible_raw_history[clicked_index]
-            return selected_raw_message, gr.update(visible=True)
-        else:
-            gr.Warning("クリックされたメッセージを特定できませんでした。")
-            return None, gr.update(visible=False)
-    except Exception as e:
-        print(f"メッセージ選択処理でエラー: {e}")
-        traceback.print_exc()
-        return None, gr.update(visible=False)
-
-def handle_delete_button_click(
-    selected_message: Optional[Dict[str, str]],
-    character_name: str,
-    api_history_limit: str
-):
-    """「選択した発言を削除」ボタンが押された時の処理。"""
-    if not selected_message:
-        gr.Warning("削除する発言が選択されていません。")
-        return gr.update(), None, gr.update(visible=False)
-
-    log_f, _, _, _, _ = get_character_files_paths(character_name)
-
-    # utils.delete_message_from_log に、特定したメッセージ辞書を渡す
-    success = utils.delete_message_from_log(log_f, selected_message, character_name)
-    if success:
-        gr.Info("選択された発言をログから削除しました。")
-    else:
-        gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
-
-    # チャットログを再読み込みしてUIに反映
-    new_chat_history = reload_chat_log(character_name, api_history_limit)
-
-    # 選択状態を解除し、削除ボタンを非表示にする
-    return new_chat_history, None, gr.update(visible=False)
+# This space is intentionally left blank to delete the old functions.
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
     if not character_name: return []
@@ -602,3 +548,49 @@ def update_token_count(*args):
         print(f"トークン数計算UIハンドラエラー: {e}")
         traceback.print_exc()
         return "入力トークン数: (例外発生)"
+
+def handle_chatbot_selection(evt: gr.SelectData):
+    """メッセージが選択された時の処理。選択されたペアの内容とインデックスを返す。"""
+    return evt.value, evt.index[0], gr.update(visible=True)
+
+def handle_delete_button_click(
+    character_name: str,
+    api_history_limit: str,
+    selection_value: list,
+    selection_index: int
+):
+    """選択された内容とインデックスに基づいて、ログからメッセージを削除する。"""
+    if not selection_value:
+        gr.Warning("削除する発言が選択されていません。")
+        return gr.update(), None, None, gr.update(visible=False)
+
+    log_f, _, _, _, _ = get_character_files_paths(character_name)
+
+    # 選択されたのがユーザー発言かAI発言かを判定し、その内容を取得
+    # selection_valueは [user_msg, bot_msg] のペア
+    # bot_msgはテキストか、画像の場合はタプル
+    is_bot_message = selection_value[1] is not None
+
+    # 削除のキーとなる、元のログに含まれるべきテキストを探す
+    content_to_find = ""
+    if is_bot_message and isinstance(selection_value[1], str):
+         # AIのテキスト発言の場合
+        content_to_find = utils.extract_raw_text_from_html(selection_value[1])
+    elif not is_bot_message and isinstance(selection_value[0], str):
+        # ユーザーの発言の場合
+        content_to_find = utils.extract_raw_text_from_html(selection_value[0])
+
+    # 画像のみのターンの場合は、削除が困難なため、今はユーザー発言ごと削除する
+    # TODO: 将来的に、画像のみのターンも正確に削除できるロジックに改善
+
+    success = False
+    if content_to_find:
+        success = utils.delete_message_from_log_by_content(log_f, content_to_find, character_name)
+
+    if success:
+        gr.Info("選択された発言をログから削除しました。")
+    else:
+        gr.Warning("発言の削除に失敗したか、画像のみのターンは削除できません。")
+
+    new_chat_history = reload_chat_log(character_name, api_history_limit)
+    return new_chat_history, None, None, gr.update(visible=False)

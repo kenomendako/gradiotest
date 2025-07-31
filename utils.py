@@ -327,36 +327,61 @@ def get_current_location(character_name: str) -> Optional[str]:
         print(f"警告: 現在地ファイルの読み込みに失敗しました: {e}")
     return None
 
-def extract_raw_text_from_html(html_content: str) -> str:
-    if not html_content:
-        return ""
+def delete_message_from_log_by_content(log_file_path: str, content_to_find: str, character_name: str) -> bool:
+    """指定された内容を含むメッセージをログから探し、最初に見つかったものを削除する。"""
+    if not all([log_file_path, os.path.exists(log_file_path), content_to_find, character_name]):
+        return False
+    try:
+        all_messages = load_chat_log(log_file_path, character_name)
+        target_index = -1
+        for i, msg in enumerate(all_messages):
+            if content_to_find in msg.get("content", ""):
+                target_index = i
+                break
 
-    # 1. ボタンコンテナを削除
-    html_content = re.sub(r"<div style='text-align: right;.*?'>.*?</div>", "", html_content, flags=re.DOTALL)
-
-    # 2. 思考ログを削除
-    html_content = re.sub(r"<div class='thoughts'>.*?</div>", "", html_content, flags=re.DOTALL)
-
-    # 3. アンカーを削除
-    html_content = re.sub(r"<span id='msg-anchor-.*?'></span>", "", html_content)
-
-    # 4. 画像やファイルのMarkdownリンクを元のタグ形式に戻す
-    # ![filename](/file=...) -> [Generated Image: filepath]
-    # [filename](/file=...) -> [ファイル添付: filepath]
-    def restore_tags(match):
-        text = match.group(1)
-        path = match.group(2)
-        if match.group(0).startswith('!'):
-            return f"[Generated Image: {path}]"
+        if target_index != -1:
+            # ユーザーの発言がクリックされた場合は、後続のAIの発言も削除する
+            if all_messages[target_index]['role'] == 'user' and (target_index + 1) < len(all_messages):
+                delete_message_from_log_by_index(log_file_path, target_index + 1)
+            return delete_message_from_log_by_index(log_file_path, target_index)
         else:
-            return f"[ファイル添付: {path}]"
+            return False
+    except Exception as e:
+        print(f"内容によるログ削除でエラー: {e}")
+        return False
 
-    html_content = re.sub(r'!?\[(.*?)\]\(\/file=(.*?)\)', restore_tags, html_content)
+def delete_message_from_log_by_index(log_file_path: str, index_to_delete: int) -> bool:
+    """指定されたインデックスのメッセージをログファイルから削除する、安全な再構築版。"""
+    if not log_file_path or not os.path.exists(log_file_path) or index_to_delete < 0:
+        return False
+    try:
+        character_name = os.path.basename(os.path.dirname(log_file_path))
+        all_messages = load_chat_log(log_file_path, character_name)
 
-    # 5. 残ったHTMLタグ (<div>など) を削除
+        if 0 <= index_to_delete < len(all_messages):
+            all_messages.pop(index_to_delete)
+            log_content_parts = []
+            user_header = _get_user_header_from_log(log_file_path, character_name)
+            ai_header = f"## {character_name}:"
+            for msg in all_messages:
+                header = ai_header if msg['role'] == 'model' else user_header
+                content = msg['content'].strip()
+                log_content_parts.append(f"{header}\n{content}")
+            new_log_content = "\n\n".join(log_content_parts)
+            with open(log_file_path, "w", encoding="utf-8") as f:
+                f.write(new_log_content)
+            if new_log_content:
+                with open(log_file_path, "a", encoding="utf-8") as f:
+                    f.write("\n\n")
+            return True
+        else:
+            return False
+    except Exception as e:
+        print(f"インデックスによるログ削除でエラー: {e}")
+        return False
+
+# extract_raw_text_from_html は、念のためここに再掲します。
+def extract_raw_text_from_html(html_content: str) -> str:
+    if not html_content: return ""
     raw_text = re.sub('<[^<]+?>', '', html_content)
-
-    # 6. HTMLエンティティをデコード（例: &lt; -> <）
-    raw_text = html.unescape(raw_text)
-
-    return raw_text.strip()
+    return html.unescape(raw_text).strip()
