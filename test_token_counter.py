@@ -32,15 +32,18 @@ class TestTokenCounter(unittest.TestCase):
 
         # update_token_countを呼び出す
         result = ui_handlers.update_token_count(
-            textbox_content="こんにちは",
-            file_input_list=[],
-            current_character_name=self.character_name,
-            current_model_name="gemini-1.5-flash",
-            current_api_key_name_state="default",
-            api_history_limit_state="10",
-            send_notepad_state=False,
-            notepad_editor_content="",
-            use_common_prompt_state=False
+            self.character_name,
+            "gemini-1.5-flash",
+            "こんにちは",
+            [],
+            "10",
+            "default",
+            False, # send_notepad_state
+            False, # use_common_prompt_state
+            False, # add_timestamp_state
+            True,  # send_thoughts_state
+            True,  # send_core_memory_state
+            True   # send_scenery_state
         )
 
         # 想定される返り値
