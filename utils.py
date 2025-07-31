@@ -263,54 +263,20 @@ def save_message_to_log(log_file_path: str, header: str, text_content: str) -> N
         print(f"エラー: ログファイル '{log_file_path}' 書き込みエラー: {e}")
         traceback.print_exc()
 
-def delete_message_from_log(log_file_path: str, message_key: Dict[str, str], character_name: str) -> bool:
-    """
-    Deletes a message from the log file based on its raw text content and role.
-    """
-    if not all([log_file_path, os.path.exists(log_file_path), message_key]):
+def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str], character_name: str) -> bool:
+    """ログファイルから、指定されたメッセージ辞書と完全に一致するエントリを一つ削除する。"""
+    if not log_file_path or not os.path.exists(log_file_path) or not message_to_delete:
         return False
-
-    target_raw_text = message_key.get("raw_text", "").strip()
-    target_role = message_key.get("role") # 'user' or 'assistant'
-    if not target_raw_text or not target_role:
-        return False
-
-    # The role in the log file is 'user' or 'model'
-    target_log_role = "model" if target_role == "assistant" else "user"
-
-    def get_raw_text_from_log_content(log_content: str) -> str:
-        """A simplified raw text extractor for log content."""
-        # Remove image tags
-        text = re.sub(r"\[Generated Image: .*?\]", "", log_content)
-        # Remove thoughts
-        text = remove_thoughts_from_text(text)
-        # Remove timestamps
-        text = re.sub(r"\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}", "", text)
-        return text.strip()
 
     try:
         all_messages = load_chat_log(log_file_path, character_name)
 
-        message_to_remove_index = -1
-        for i, msg in enumerate(all_messages):
-            log_role = msg.get("role")
-            log_content = msg.get("content", "")
-
-            log_raw_text = get_raw_text_from_log_content(log_content)
-
-            if log_role == target_log_role and log_raw_text == target_raw_text:
-                message_to_remove_index = i
-                break
-
-        if message_to_remove_index == -1:
-            print("Warning: Could not find the message to delete in the log file.")
-            # For debugging, let's see what was compared
-            print(f"  - Target Role: '{target_log_role}'")
-            print(f"  - Target Text: '{target_raw_text}'")
+        try:
+            all_messages.remove(message_to_delete)
+        except ValueError:
+            print(f"警告: ログファイル内に削除対象のメッセージが見つかりませんでした。")
+            print(f"  - 検索対象: {message_to_delete}")
             return False
-
-        # Remove the found message
-        all_messages.pop(message_to_remove_index)
 
         # Rebuild the entire log file from the modified message list
         log_content_parts = []
@@ -334,7 +300,7 @@ def delete_message_from_log(log_file_path: str, message_key: Dict[str, str], cha
         return True
 
     except Exception as e:
-        print(f"Error during message deletion from log: {e}")
+        print(f"エラー: ログからのメッセージ削除中に予期せぬエラー: {e}")
         traceback.print_exc()
         return False
 

@@ -265,48 +265,27 @@ def handle_initial_load():
 
     return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
 
-def handle_chatbot_selection(chatbot_history: List[Dict], character_name: str, api_history_limit_state: str, evt: gr.SelectData):
-    """
-    Handles the selection of a message in the chatbot UI.
-    Identifies the message by recreating the displayed history and extracting a unique key.
-    """
-    if not evt.value or not character_name:
+def handle_chatbot_selection(chatbot_history: List[Tuple], character_name: str, api_history_limit_state: str, evt: gr.SelectData):
+    """メッセージが選択された時の処理。UIのインデックスを基に、元のログ辞書を特定する。"""
+    if not character_name or evt.index is None:
         return None, gr.update(visible=False)
 
     try:
         clicked_index = evt.index
 
-        # Re-create the exact history displayed in the UI
         log_f, _, _, _, _ = get_character_files_paths(character_name)
+        raw_history = utils.load_chat_log(log_f, character_name)
         display_turns = _get_display_history_count(api_history_limit_state)
-        raw_logs = utils.load_chat_log(log_f, character_name)
-        visible_logs = raw_logs[-(display_turns * 2):]
+        visible_raw_history = raw_history[-(display_turns * 2):]
 
-        # This gives us the list of dicts/tuples exactly as rendered
-        rendered_history = utils.format_history_for_gradio(visible_logs, character_name)
-
-        if not (0 <= clicked_index < len(rendered_history)):
-            gr.Warning("Could not identify the clicked message (index out of bounds).")
+        if 0 <= clicked_index < len(visible_raw_history):
+            # ★★★ 生の辞書オブジェクトをそのまま取得 ★★★
+            selected_raw_message = visible_raw_history[clicked_index]
+            # ★★★ 選択された辞書をStateに保存 ★★★
+            return selected_raw_message, gr.update(visible=True)
+        else:
+            gr.Warning("クリックされたメッセージを特定できませんでした。")
             return None, gr.update(visible=False)
-
-        clicked_item = rendered_history[clicked_index]
-
-        # We can only delete text messages, not images
-        if not isinstance(clicked_item, dict) or not isinstance(clicked_item.get("content"), str):
-            gr.Info("画像の削除は現在サポートされていません。")
-            return None, gr.update(visible=False)
-
-        html_content = clicked_item["content"]
-        raw_text = utils.extract_raw_text_from_html(html_content)
-
-        # The role in the rendered item is 'user' or 'assistant'
-        role = clicked_item["role"]
-
-        # This dictionary becomes the unique key for deletion
-        message_key = {"raw_text": raw_text, "role": role}
-
-        return message_key, gr.update(visible=True)
-
     except Exception as e:
         print(f"Error during chatbot selection: {e}")
         traceback.print_exc()
