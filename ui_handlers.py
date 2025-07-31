@@ -549,48 +549,32 @@ def update_token_count(*args):
         traceback.print_exc()
         return "入力トークン数: (例外発生)"
 
-def handle_chatbot_selection(evt: gr.SelectData):
-    """メッセージが選択された時の処理。選択されたペアの内容とインデックスを返す。"""
-    return evt.value, evt.index[0], gr.update(visible=True)
+def handle_chatbot_selection(chatbot_history: List[Dict[str, str]], character_name: str, api_history_limit_state: str, evt: gr.SelectData):
+    """メッセージが選択された時の処理。生のメッセージ辞書を特定して返す。"""
+    if not evt.value:
+        return None, gr.update(visible=False)
+    try:
+        clicked_index = evt.index
+        log_f, _, _, _, _ = get_character_files_paths(character_name)
+        raw_history = utils.load_chat_log(log_f, character_name)
+        display_turns = _get_display_history_count(api_history_limit_state)
+        visible_raw_history = raw_history[-(display_turns * 2):]
 
-def handle_delete_button_click(
-    character_name: str,
-    api_history_limit: str,
-    selection_value: list,
-    selection_index: int
-):
-    """選択された内容とインデックスに基づいて、ログからメッセージを削除する。"""
-    if not selection_value:
-        gr.Warning("削除する発言が選択されていません。")
-        return gr.update(), None, None, gr.update(visible=False)
+        if 0 <= clicked_index < len(visible_raw_history):
+            return visible_raw_history[clicked_index], gr.update(visible=True)
+        else:
+            return None, gr.update(visible=False)
+    except Exception:
+        return None, gr.update(visible=False)
 
+def handle_delete_button_click(selected_message: Optional[Dict[str, str]], character_name: str, api_history_limit: str):
+    if not selected_message:
+        return gr.update(), None, gr.update(visible=False)
     log_f, _, _, _, _ = get_character_files_paths(character_name)
-
-    # 選択されたのがユーザー発言かAI発言かを判定し、その内容を取得
-    # selection_valueは [user_msg, bot_msg] のペア
-    # bot_msgはテキストか、画像の場合はタプル
-    is_bot_message = selection_value[1] is not None
-
-    # 削除のキーとなる、元のログに含まれるべきテキストを探す
-    content_to_find = ""
-    if is_bot_message and isinstance(selection_value[1], str):
-         # AIのテキスト発言の場合
-        content_to_find = utils.extract_raw_text_from_html(selection_value[1])
-    elif not is_bot_message and isinstance(selection_value[0], str):
-        # ユーザーの発言の場合
-        content_to_find = utils.extract_raw_text_from_html(selection_value[0])
-
-    # 画像のみのターンの場合は、削除が困難なため、今はユーザー発言ごと削除する
-    # TODO: 将来的に、画像のみのターンも正確に削除できるロジックに改善
-
-    success = False
-    if content_to_find:
-        success = utils.delete_message_from_log_by_content(log_f, content_to_find, character_name)
-
+    success = utils.delete_message_from_log(log_f, selected_message, character_name)
     if success:
         gr.Info("選択された発言をログから削除しました。")
     else:
-        gr.Warning("発言の削除に失敗したか、画像のみのターンは削除できません。")
-
+        gr.Error("発言の削除に失敗しました。")
     new_chat_history = reload_chat_log(character_name, api_history_limit)
-    return new_chat_history, None, None, gr.update(visible=False)
+    return new_chat_history, None, gr.update(visible=False)
