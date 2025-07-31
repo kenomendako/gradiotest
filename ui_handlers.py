@@ -478,7 +478,7 @@ def handle_delete_selected_alarms(selected_ids: list):
     new_df_with_ids = render_alarms_as_dataframe()
     return new_df_with_ids, get_display_df(new_df_with_ids)
 
-def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja):
+def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja, is_emergency):
     from tools.alarm_tools import set_personal_alarm
     time_str = f"{h}:{m}"
     context = theme or prompt or "時間になりました"
@@ -486,24 +486,38 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja):
     if editing_id:
         alarm_manager.delete_alarm(editing_id)
         gr.Info(f"アラームID:{editing_id}を更新します。")
-    set_personal_alarm.func(time=time_str, context_memo=context, character_name=char, days=days_en, date=None)
+
+    # ツールを呼び出す際に is_emergency を渡す
+    set_personal_alarm.func(
+        time=time_str,
+        context_memo=context,
+        character_name=char,
+        days=days_en,
+        date=None,
+        is_emergency=is_emergency
+    )
+
     new_df_with_ids = render_alarms_as_dataframe()
-    default_char = character_manager.get_character_list()[0]
-    return new_df_with_ids, get_display_df(new_df_with_ids), "アラーム追加", "", "", default_char, [], "08", "00", None
+    all_chars = character_manager.get_character_list()
+    default_char = all_chars[0] if all_chars else "Default"
+
+    # 戻り値に緊急通知チェックボックスのデフォルト値(False)を追加
+    return new_df_with_ids, get_display_df(new_df_with_ids), "アラーム追加", "", "", default_char, [], "08", "00", None, False
 
 def load_alarm_to_form(selected_ids: list):
     all_chars = character_manager.get_character_list()
     default_char = all_chars[0] if all_chars else "Default"
     if not selected_ids or len(selected_ids) != 1:
-        return "アラーム追加", "", "", default_char, [], "08", "00", None
+        return "アラーム追加", "", "", default_char, [], "08", "00", None, False
     alarm = next((a for a in alarm_manager.load_alarms() if a.get("id") == selected_ids[0]), None)
     if not alarm:
         gr.Warning(f"アラームID '{selected_ids[0]}' が見つかりません。")
-        return "アラーム追加", "", "", default_char, [], "08", "00", None
+        return "アラーム追加", "", "", default_char, [], "08", "00", None, False
     h, m = alarm.get("time", "08:00").split(":")
     days_ja = [DAY_MAP_EN_TO_JA.get(d.lower(), d.upper()) for d in alarm.get("days", [])]
     theme_content = alarm.get("context_memo") or ""
-    return "アラーム更新", theme_content, "", alarm.get("character", default_char), days_ja, h, m, selected_ids[0]
+    is_emergency = alarm.get("is_emergency", False)
+    return "アラーム更新", theme_content, "", alarm.get("character", default_char), days_ja, h, m, selected_ids[0], is_emergency
 
 def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_theme, brk_theme, api_key_name, normal_theme):
     if not char or not api_key_name:

@@ -40,7 +40,8 @@ def set_personal_alarm(
     context_memo: str,
     character_name: str,
     date: str = None,
-    days: List[str] = None # ★ 変更点2: `list` を `List[str]` に変更
+    days: List[str] = None,
+    is_emergency: bool = False
 ) -> str:
     """
     ユーザーとの対話の中で、未来の特定の日時に送信するためのアラームを設定する。
@@ -49,6 +50,7 @@ def set_personal_alarm(
     character_name: アラームを設定するキャラクター名。
     date: "YYYY-MM-DD"や"tomorrow"など、アラームを設定する単発の日付。
     days: ["Monday", "Friday"]など、アラームを繰り返す曜日のリスト。
+    is_emergency: Trueの場合、緊急通知として送信する。
     """
     try:
         alarm_dt_obj = parse(time)
@@ -59,7 +61,8 @@ def set_personal_alarm(
             "time": time_str,
             "character": character_name,
             "context_memo": context_memo,
-            "enabled": True
+            "enabled": True,
+            "is_emergency": is_emergency
         }
 
         if days and isinstance(days, list) and len(days) > 0:

@@ -79,7 +79,7 @@ def _send_discord_notification(webhook_url, message_text):
     except Exception as e:
         print(f"Discord/Slack形式のWebhook通知送信エラー: {e}")
 
-def _send_pushover_notification(app_token, user_key, message_text, char_name):
+def _send_pushover_notification(app_token, user_key, message_text, char_name, alarm_config):
     if not app_token or not user_key: return
     payload = {
         "token": app_token,
@@ -87,6 +87,11 @@ def _send_pushover_notification(app_token, user_key, message_text, char_name):
         "title": f"{char_name} ⏰",
         "message": message_text
     }
+    if alarm_config.get("is_emergency", False):
+        print("  - 緊急通知として送信します。")
+        payload["priority"] = 2
+        payload["retry"] = 60
+        payload["expire"] = 3600
     try:
         response = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=10)
         response.raise_for_status()
@@ -94,7 +99,7 @@ def _send_pushover_notification(app_token, user_key, message_text, char_name):
     except Exception as e:
         print(f"Pushover通知送信エラー: {e}")
 
-def send_notification(char_name, message_text):
+def send_notification(char_name, message_text, alarm_config):
     """設定に応じて適切な通知サービスを呼び出す司令塔"""
     service = config_manager.NOTIFICATION_SERVICE_GLOBAL
 
@@ -103,7 +108,8 @@ def send_notification(char_name, message_text):
             config_manager.PUSHOVER_APP_TOKEN_GLOBAL,
             config_manager.PUSHOVER_USER_KEY_GLOBAL,
             message_text,
-            char_name
+            char_name,
+            alarm_config
         )
     else: # デフォルトはdiscord/slack形式
         notification_message = f"⏰  {char_name}\n\n{message_text}\n"
@@ -163,7 +169,7 @@ def trigger_alarm(alarm_config, current_api_key_name):
             print(f"アラームログ記録完了 (ID:{alarm_id})")
 
             # 通知を送信
-            send_notification(char_name, response_text)
+            send_notification(char_name, response_text, alarm_config)
 
             if PLYER_AVAILABLE:
                 try:
