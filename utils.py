@@ -127,228 +127,117 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
 
     return messages
 
-def format_history_for_gradio(messages: List[Dict[str, str]], character_name: str) -> List[Dict[str, Union[str, tuple, None]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[List[Union[str, Tuple[str, str], None]]]:
     """
-    ログデータをGradio Chatbot(type="messages")用の辞書リストに変換する最終FIX版。
-    思考ログ、画像タグ、ナビゲーションボタンをすべてHTMLとしてcontentに含める。
+    ログデータをGradio Chatbotが期待する「ペアのリスト」形式に変換する、最終FIX版。
+    思考ログはプレーンテキストとして本文に含め、画像は正しくターンを分割する。
+    カスタムHTMLは一切使用しない。
     """
     if not messages:
         return []
 
-    gradio_history = []
+    gradio_pairs = []
+    user_message_buffer = None
 
-    for i, msg in enumerate(messages):
-        role = "assistant" if msg.get("role") == "model" else "user"
+    for msg in messages:
+        role = msg.get("role")
         content = msg.get("content", "").strip()
         if not content:
             continue
 
-        # --- アンカーとナビゲーションボタンの生成 ---
-        anchor_id = f"msg-anchor-{uuid.uuid4().hex[:8]}-{i}"
-        up_button = f"<a href='#{anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
-        down_button = ""
-        if i < len(messages) - 1:
-            next_anchor_id = f"msg-anchor-{uuid.uuid4().hex[:8]}-{i+1}"
-            down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>"
-        delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
-        button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
+        if role == "user":
+            if user_message_buffer:
+                gradio_pairs.append([user_message_buffer, None])
+            user_message_buffer = content
 
-        # --- コンテンツ全体のHTMLを構築 ---
-        final_parts = [f"<span id='{anchor_id}'></span>"]
+        elif role == "model":
+            image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
+            image_matches = list(image_tag_pattern.finditer(content))
 
-        # 思考ログの処理
-        thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-        thought_match = thoughts_pattern.search(content)
-        if thought_match:
-            thoughts_text = thought_match.group(1).strip()
-            escaped_thoughts = html.escape(thoughts_text).replace('\n', '<br>')
-            final_parts.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
+            if not image_matches:
+                gradio_pairs.append([user_message_buffer, content])
+            else:
+                last_end = 0
+                first_text = content[:image_matches[0].start()].strip()
+                if first_text:
+                    gradio_pairs.append([user_message_buffer, first_text])
+                    user_message_buffer = None
 
-        # テキストと画像を処理
-        text_without_thoughts = thoughts_pattern.sub("", content).strip()
-        image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
+                for i, match in enumerate(image_matches):
+                    filepath = match.group(1).strip()
+                    filename = os.path.basename(filepath)
+                    image_tuple = (filepath, filename)
+                    gradio_pairs.append([user_message_buffer if i == 0 and not first_text else None, image_tuple])
 
-        last_end = 0
-        for match in image_tag_pattern.finditer(text_without_thoughts):
-            # 画像の前のテキスト
-            text_chunk = text_without_thoughts[last_end:match.start()].strip()
-            if text_chunk:
-                final_parts.append(f"<div>{html.escape(text_chunk).replace('\n', '<br>')}</div>")
+                    text_after = content[match.end():].strip()
+                    # 複数の画像に対応するため、次の画像までのテキストを切り出す
+                    next_match_start = image_matches[i+1].start() if i + 1 < len(image_matches) else len(content)
+                    text_chunk = content[match.end():next_match_start].strip()
+                    if text_chunk:
+                         gradio_pairs.append([None, text_chunk])
 
-            # 画像
-            filepath = match.group(1).strip()
-            filename = os.path.basename(filepath)
-            final_parts.append(f"<div><img src='/file={filepath}' alt='{filename}' style='max-width: 100%; height: auto;'></div>")
+            user_message_buffer = None
 
-            last_end = match.end()
+    if user_message_buffer:
+        gradio_pairs.append([user_message_buffer, None])
 
-        # 最後の画像の後ろのテキスト
-        remaining_text = text_without_thoughts[last_end:].strip()
-        if remaining_text:
-            final_parts.append(f"<div>{html.escape(remaining_text).replace('\n', '<br>')}</div>")
-
-        # ボタンを追加
-        final_parts.append(button_container)
-
-        gradio_history.append({"role": role, "content": "".join(final_parts)})
-
-    return gradio_history
-
-
-def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
-    if not all([log_file_path, header, text_content, text_content.strip()]):
-        return
-    try:
-        if not os.path.exists(log_file_path) or os.path.getsize(log_file_path) == 0:
-            content_to_append = f"{header}\n{text_content.strip()}"
-        else:
-            content_to_append = f"\n\n{header}\n{text_content.strip()}"
-
-        with open(log_file_path, "a", encoding="utf-8") as f:
-            f.write(content_to_append)
-    except Exception as e:
-        print(f"エラー: ログファイル '{log_file_path}' 書き込みエラー: {e}")
-        traceback.print_exc()
-
-def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str], character_name: str) -> bool:
-    """
-    ログファイルから指定されたメッセージ辞書と完全に一致するエントリを一つ削除する。
-    より堅牢な再構築ベースのロジック。
-    """
-    if not log_file_path or not os.path.exists(log_file_path) or not message_to_delete:
-        return False
-
-    try:
-        # 1. まず、現在のログを正しいキャラクター名で完全に解析する
-        all_messages = load_chat_log(log_file_path, character_name)
-
-        # 2. 削除対象のメッセージと完全に一致するものを探し、リストから削除する
-        try:
-            # message_to_delete は {'role': '...', 'content': '...'} という辞書
-            all_messages.remove(message_to_delete)
-        except ValueError:
-            # リストに要素が見つからなかった場合
-            print(f"警告: ログファイル内に削除対象のメッセージが見つかりませんでした。")
-            traceback.print_exc() # デバッグ用に詳細を出力
-            return False
-
-        # 3. 変更後のメッセージリストから、ログファイル全体を再構築する
-        log_content_parts = []
-        user_header = _get_user_header_from_log(log_file_path, character_name)
-        ai_header = f"## {character_name}:"
-
-        for msg in all_messages:
-            header = ai_header if msg['role'] == 'model' else user_header
-            content = msg['content'].strip()
-            log_content_parts.append(f"{header}\n{content}")
-
-        # ログファイルに書き込む
-        new_log_content = "\n\n".join(log_content_parts)
-        with open(log_file_path, "w", encoding="utf-8") as f:
-            f.write(new_log_content)
-
-        # ファイルが空でなければ、次の追記のために末尾に改行を追加
-        if new_log_content:
-            with open(log_file_path, "a", encoding="utf-8") as f:
-                f.write("\n\n")
-
-        print(f"--- ログからメッセージを正常に削除しました ---")
-        return True
-
-    except Exception as e:
-        print(f"エラー: ログからのメッセージ削除中に予期せぬエラーが発生しました: {e}")
-        traceback.print_exc()
-        return False
-
-def _get_user_header_from_log(log_file_path: str, ai_character_name: str) -> str:
-    default_user_header = "## ユーザー:"
-    if not log_file_path or not os.path.exists(log_file_path):
-        return default_user_header
-
-    last_identified_user_header = default_user_header
-    try:
-        with open(log_file_path, "r", encoding="utf-8") as f:
-            for line in f:
-                stripped_line = line.strip()
-                if stripped_line.startswith("## ") and stripped_line.endswith(":"):
-                    if not stripped_line.startswith(f"## {ai_character_name}:") and not stripped_line.startswith("## システム("):
-                        last_identified_user_header = stripped_line
-        return last_identified_user_header
-    except Exception as e:
-        print(f"エラー: ユーザーヘッダー取得エラー: {e}")
-        return default_user_header
-
-def remove_thoughts_from_text(text: str) -> str:
-    if not text:
-        return ""
-    thoughts_pattern = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
-    return thoughts_pattern.sub("", text).strip()
-
-def get_current_location(character_name: str) -> Optional[str]:
-    try:
-        location_file_path = os.path.join("characters", character_name, "current_location.txt")
-        if os.path.exists(location_file_path):
-            with open(location_file_path, 'r', encoding='utf-8') as f:
-                return f.read().strip()
-    except Exception as e:
-        print(f"警告: 現在地ファイルの読み込みに失敗しました: {e}")
-    return None
+    return gradio_pairs
 
 def delete_message_from_log_by_content(log_file_path: str, content_to_find: str, character_name: str) -> bool:
-    """指定された内容を含むメッセージをログから探し、最初に見つかったものを削除する。"""
+    """内容（思考ログを除く）に基づいてログからメッセージを削除する。"""
     if not all([log_file_path, os.path.exists(log_file_path), content_to_find, character_name]):
         return False
     try:
         all_messages = load_chat_log(log_file_path, character_name)
+
         target_index = -1
+        # 思考ログを除いた純粋なテキストで比較
+        clean_content_to_find = remove_thoughts_from_text(content_to_find)
+
         for i, msg in enumerate(all_messages):
-            if content_to_find in msg.get("content", ""):
+            clean_log_content = remove_thoughts_from_text(msg.get("content", ""))
+            if clean_content_to_find == clean_log_content:
                 target_index = i
                 break
 
         if target_index != -1:
             # ユーザーの発言がクリックされた場合は、後続のAIの発言も削除する
-            if all_messages[target_index]['role'] == 'user' and (target_index + 1) < len(all_messages):
-                delete_message_from_log_by_index(log_file_path, target_index + 1)
-            return delete_message_from_log_by_index(log_file_path, target_index)
-        else:
-            return False
+            indices_to_delete = [target_index]
+            if all_messages[target_index]['role'] == 'user' and (target_index + 1) < len(all_messages) and all_messages[target_index + 1]['role'] == 'model':
+                indices_to_delete.append(target_index + 1)
+
+            # 後ろから削除
+            for index in sorted(indices_to_delete, reverse=True):
+                delete_message_from_log_by_index(log_file_path, index)
+            return True
+        return False
     except Exception as e:
-        print(f"内容によるログ削除でエラー: {e}")
+        print(f"内容によるログ削除エラー: {e}")
         return False
 
 def delete_message_from_log_by_index(log_file_path: str, index_to_delete: int) -> bool:
-    """指定されたインデックスのメッセージをログファイルから削除する、安全な再構築版。"""
+    """指定されたインデックスのメッセージをログファイルから削除する。"""
     if not log_file_path or not os.path.exists(log_file_path) or index_to_delete < 0:
         return False
     try:
         character_name = os.path.basename(os.path.dirname(log_file_path))
         all_messages = load_chat_log(log_file_path, character_name)
-
         if 0 <= index_to_delete < len(all_messages):
             all_messages.pop(index_to_delete)
+            # (ログファイル再構築ロジックは変更なし)
             log_content_parts = []
             user_header = _get_user_header_from_log(log_file_path, character_name)
             ai_header = f"## {character_name}:"
             for msg in all_messages:
                 header = ai_header if msg['role'] == 'model' else user_header
-                content = msg['content'].strip()
-                log_content_parts.append(f"{header}\n{content}")
+                log_content_parts.append(f"{header}\n{msg['content'].strip()}")
             new_log_content = "\n\n".join(log_content_parts)
             with open(log_file_path, "w", encoding="utf-8") as f:
                 f.write(new_log_content)
             if new_log_content:
-                with open(log_file_path, "a", encoding="utf-8") as f:
-                    f.write("\n\n")
+                with open(log_file_path, "a", encoding="utf-8") as f: f.write("\n\n")
             return True
-        else:
-            return False
-    except Exception as e:
-        print(f"インデックスによるログ削除でエラー: {e}")
         return False
-
-# extract_raw_text_from_html は、念のためここに再掲します。
-def extract_raw_text_from_html(html_content: str) -> str:
-    if not html_content: return ""
-    raw_text = re.sub('<[^<]+?>', '', html_content)
-    return html.unescape(raw_text).strip()
+    except Exception as e:
+        print(f"インデックスによるログ削除エラー: {e}")
+        return False

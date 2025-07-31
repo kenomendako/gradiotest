@@ -80,7 +80,7 @@ try:
         use_common_prompt_state = gr.State(True)
         send_core_memory_state = gr.State(True)
         send_scenery_state = gr.State(True)
-        selected_message_state = gr.State(None) # ★ これが正しいState
+        selected_turn_value_state = gr.State(None) # ★ value_stateのみ残す
 
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
@@ -157,7 +157,7 @@ try:
                         add_character_button = gr.Button("迎える", variant="secondary", scale=1)
 
             with gr.Column(scale=3):
-                chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
+                chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
 
                 with gr.Row(visible=False) as deletion_button_group:
                     delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
@@ -228,23 +228,23 @@ try:
         api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()])
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
         
-        chatbot_display.select(
-            fn=ui_handlers.handle_chatbot_selection,
-            inputs=[chatbot_display, current_character_name, api_history_limit_state],
-            outputs=[selected_message_state, deletion_button_group]
-        )
+    chatbot_display.select(
+        fn=ui_handlers.handle_chatbot_selection,
+        inputs=None,
+        outputs=[selected_turn_value_state, deletion_button_group]
+    )
 
-        delete_selection_button.click(
-            fn=ui_handlers.handle_delete_button_click,
-            inputs=[selected_message_state, current_character_name, api_history_limit_state],
-            outputs=[chatbot_display, selected_message_state, deletion_button_group]
-        )
+    delete_selection_button.click(
+        fn=ui_handlers.handle_delete_button_click,
+        inputs=[current_character_name, api_history_limit_state, selected_turn_value_state],
+        outputs=[chatbot_display, selected_turn_value_state, deletion_button_group]
+    )
 
-        cancel_selection_button.click(
-            fn=lambda: (None, gr.update(visible=False)),
-            inputs=None,
-            outputs=[selected_message_state, deletion_button_group]
-        )
+    cancel_selection_button.click(
+        fn=lambda: (None, gr.update(visible=False)),
+        inputs=None,
+        outputs=[selected_turn_value_state, deletion_button_group]
+    )
         
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
         reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_character_name], outputs=[memory_json_editor])
