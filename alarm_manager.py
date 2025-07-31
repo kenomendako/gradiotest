@@ -79,14 +79,26 @@ def _send_discord_notification(webhook_url, message_text):
     except Exception as e:
         print(f"Discord/Slack形式のWebhook通知送信エラー: {e}")
 
-def _send_pushover_notification(app_token, user_key, message_text, char_name):
+def _send_pushover_notification(app_token, user_key, message_text, char_name, is_emergency=False):
     if not app_token or not user_key: return
+
+    # 基本のペイロード
     payload = {
         "token": app_token,
         "user": user_key,
         "title": f"{char_name} ⏰",
         "message": message_text
     }
+
+    # ★★★ ここからが修正の核心 ★★★
+    if is_emergency:
+        print("  - 緊急通知モードでPushoverに送信します。")
+        payload["priority"] = 2  # 緊急度を2（Emergency）に設定
+        payload["retry"] = 60    # 60秒ごとに再通知
+        payload["expire"] = 3600 # 3600秒（1時間）後に再通知を停止
+        payload["sound"] = "persistent" # 繰り返し鳴る専用サウンド
+    # ★★★ 修正ここまで ★★★
+
     try:
         response = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=10)
         response.raise_for_status()
@@ -94,7 +106,7 @@ def _send_pushover_notification(app_token, user_key, message_text, char_name):
     except Exception as e:
         print(f"Pushover通知送信エラー: {e}")
 
-def send_notification(char_name, message_text):
+def send_notification(char_name, message_text, is_emergency=False): # ★ is_emergency引数を追加
     """設定に応じて適切な通知サービスを呼び出す司令塔"""
     service = config_manager.NOTIFICATION_SERVICE_GLOBAL
 
@@ -103,7 +115,8 @@ def send_notification(char_name, message_text):
             config_manager.PUSHOVER_APP_TOKEN_GLOBAL,
             config_manager.PUSHOVER_USER_KEY_GLOBAL,
             message_text,
-            char_name
+            char_name,
+            is_emergency # ★ is_emergencyを渡す
         )
     else: # デフォルトはdiscord/slack形式
         notification_message = f"⏰  {char_name}\n\n{message_text}\n"
@@ -152,7 +165,8 @@ def trigger_alarm(alarm_config, current_api_key_name):
         ]
 
         # 4. エージェントを呼び出し
-        response_text = gemini_api.invoke_nexus_agent(*agent_args)
+        response_data = gemini_api.invoke_nexus_agent(*agent_args)
+        response_text = response_data.get("response", "")
 
         # ★★★ 修正ここまで ★★★
 
@@ -163,7 +177,8 @@ def trigger_alarm(alarm_config, current_api_key_name):
             print(f"アラームログ記録完了 (ID:{alarm_id})")
 
             # 通知を送信
-            send_notification(char_name, response_text)
+            is_emergency = alarm_config.get("is_emergency", False) # ★ 緊急フラグを取得
+            send_notification(char_name, response_text, is_emergency) # ★ is_emergencyを渡す
 
             if PLYER_AVAILABLE:
                 try:

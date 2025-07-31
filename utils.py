@@ -360,3 +360,6 @@ def extract_raw_text_from_html(html_content: str) -> str:
     raw_text = html.unescape(raw_text)
 
     return raw_text.strip()
+
+DAY_MAP_JA_TO_EN = {"月": "mon", "火": "tue", "水": "wed", "木": "thu", "金": "fri", "土": "sat", "日": "sun"}
+DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}

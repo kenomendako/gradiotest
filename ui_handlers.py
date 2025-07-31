@@ -16,8 +16,10 @@ import io
 import html
 
 # --- Nexus Ark モジュールのインポート ---
+import uuid
 import gemini_api, config_manager, alarm_manager, character_manager, utils
 from tools import memory_tools
+from utils import DAY_MAP_JA_TO_EN, DAY_MAP_EN_TO_JA
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
 from memory_manager import load_memory_data_safe, save_memory_data
@@ -463,32 +465,57 @@ def handle_delete_selected_alarms(selected_ids: list):
     new_df_with_ids = render_alarms_as_dataframe()
     return new_df_with_ids, get_display_df(new_df_with_ids)
 
-def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja):
+def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja, is_emergency):
     from tools.alarm_tools import set_personal_alarm
+    # 新しいアラームデータを作成
     time_str = f"{h}:{m}"
     context = theme or prompt or "時間になりました"
     days_en = [DAY_MAP_JA_TO_EN.get(d) for d in days_ja if d in DAY_MAP_JA_TO_EN]
+
+    # 新しいアラーム辞書
+    new_alarm_data = {
+        "id": editing_id or str(uuid.uuid4()),
+        "time": time_str,
+        "character": char,
+        "context_memo": context,
+        "enabled": True,
+        "is_emergency": is_emergency # ★ 緊急フラグを追加
+    }
+    if days_en:
+        new_alarm_data["days"] = days_en
+    else:
+        new_alarm_data["date"] = (datetime.date.today() + datetime.timedelta(days=1 if datetime.datetime.now().strftime("%H:%M") > time_str else 0)).strftime("%Y-%m-%d")
+
+    # 既存のアラームがあれば削除し、新しいものを追加
     if editing_id:
         alarm_manager.delete_alarm(editing_id)
         gr.Info(f"アラームID:{editing_id}を更新します。")
-    set_personal_alarm.func(time=time_str, context_memo=context, character_name=char, days=days_en, date=None)
+
+    alarm_manager.add_alarm_entry(new_alarm_data)
+
+    # UIを更新してフォームをリセット
     new_df_with_ids = render_alarms_as_dataframe()
     default_char = character_manager.get_character_list()[0]
-    return new_df_with_ids, get_display_df(new_df_with_ids), "アラーム追加", "", "", default_char, [], "08", "00", None
+    return new_df_with_ids, get_display_df(new_df_with_ids), "アラーム追加", "", "", default_char, [], "08", "00", None, False # ★ チェックボックスをFalseにリセット
 
 def load_alarm_to_form(selected_ids: list):
     all_chars = character_manager.get_character_list()
     default_char = all_chars[0] if all_chars else "Default"
+    # 選択がない、または複数選択の場合はフォームをリセット
     if not selected_ids or len(selected_ids) != 1:
-        return "アラーム追加", "", "", default_char, [], "08", "00", None
+        return "アラーム追加", "", "", default_char, [], "08", "00", None, False
+
     alarm = next((a for a in alarm_manager.load_alarms() if a.get("id") == selected_ids[0]), None)
     if not alarm:
         gr.Warning(f"アラームID '{selected_ids[0]}' が見つかりません。")
-        return "アラーム追加", "", "", default_char, [], "08", "00", None
+        return "アラーム追加", "", "", default_char, [], "08", "00", None, False
+
     h, m = alarm.get("time", "08:00").split(":")
     days_ja = [DAY_MAP_EN_TO_JA.get(d.lower(), d.upper()) for d in alarm.get("days", [])]
     theme_content = alarm.get("context_memo") or ""
-    return "アラーム更新", theme_content, "", alarm.get("character", default_char), days_ja, h, m, selected_ids[0]
+    is_emergency = alarm.get("is_emergency", False) # ★ 緊急フラグを読み込む
+
+    return "アラーム更新", theme_content, "", alarm.get("character", default_char), days_ja, h, m, selected_ids[0], is_emergency # ★ 返り値に追加
 
 def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_theme, brk_theme, api_key_name, normal_theme):
     if not char or not api_key_name:
