@@ -363,34 +363,6 @@ def extract_raw_text_from_html(html_content: str) -> str:
 DAY_MAP_JA_TO_EN = {"月": "mon", "火": "tue", "水": "wed", "木": "thu", "金": "fri", "土": "sat", "日": "sun"}
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 
-def delete_message_from_log_by_index(log_file_path: str, index_to_delete: int) -> bool:
-    """指定されたインデックスのメッセージをログファイルから削除する。"""
-    if not log_file_path or not os.path.exists(log_file_path) or index_to_delete < 0:
-        return False
-
-    try:
-        with open(log_file_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-
-        # メッセージの開始位置（"## ...:"）を見つける
-        msg_indices = [i for i, line in enumerate(lines) if line.startswith("## ")]
-
-        if index_to_delete < len(msg_indices):
-            start_line = msg_indices[index_to_delete]
-            end_line = msg_indices[index_to_delete + 1] if index_to_delete + 1 < len(msg_indices) else len(lines)
-
-            # 削除する行範囲を特定
-            del lines[start_line:end_line]
-
-            with open(log_file_path, "w", encoding="utf-8") as f:
-                f.writelines(lines)
-            return True
-        else:
-            return False
-    except Exception as e:
-        print(f"インデックスによるログ削除エラー: {e}")
-        return False
-
 def delete_message_from_log_by_content(log_file_path: str, content_to_find: str, character_name: str) -> bool:
     """指定された内容を含むメッセージをログから探し、最初に見つかったものを削除する。"""
     if not all([log_file_path, os.path.exists(log_file_path), content_to_find, character_name]):
@@ -401,12 +373,15 @@ def delete_message_from_log_by_content(log_file_path: str, content_to_find: str,
 
         target_index = -1
         for i, msg in enumerate(all_messages):
-            if content_to_find in msg.get("content", ""):
+            # ログの内容と、探したい内容の両方から思考ログを除去して比較する
+            clean_log_content = re.sub(r"【Thoughts】.*?【/Thoughts】\s*", "", msg.get("content", ""), flags=re.DOTALL).strip()
+            if content_to_find in clean_log_content:
                 target_index = i
                 break
 
         if target_index != -1:
-            return delete_message_from_log_by_index(log_f=log_file_path, index_to_delete=target_index)
+            # インデックスで削除する関数を呼び出す
+            return delete_message_from_log_by_index(log_file_path, target_index)
         else:
             print(f"警告: ログ内に '{content_to_find[:50]}...' を含むメッセージが見つかりません。")
             return False
@@ -414,7 +389,59 @@ def delete_message_from_log_by_content(log_file_path: str, content_to_find: str,
         print(f"内容によるログ削除でエラー: {e}")
         return False
 
-# (delete_message_from_log_by_index は、念のためここに再掲します)
-def delete_message_from_log_by_index(log_f: str, index_to_delete: int) -> bool:
-    # (この関数のコードは変更なし)
-    # ...
+def delete_message_from_log_by_index(log_file_path: str, index_to_delete: int) -> bool:
+    """指定されたインデックスのメッセージをログファイルから削除する、より安全な再構築版。"""
+    if not log_file_path or not os.path.exists(log_file_path) or index_to_delete < 0:
+        return False
+
+    try:
+        # キャラクター名をファイルパスから推測（ヘッダー再構築に必要）
+        character_name = os.path.basename(os.path.dirname(log_file_path))
+        all_messages = load_chat_log(log_file_path, character_name)
+
+        if 0 <= index_to_delete < len(all_messages):
+            # 指定されたインデックスのメッセージをリストから削除
+            deleted_msg = all_messages.pop(index_to_delete)
+            print(f"--- ログリストからメッセージを削除 (Index: {index_to_delete}): {deleted_msg['content'][:50]}... ---")
+
+            # 変更後のメッセージリストから、ログファイル全体を再構築する
+            log_content_parts = []
+            user_header = _get_user_header_from_log(log_file_path, character_name)
+            ai_header = f"## {character_name}:"
+
+            for msg in all_messages:
+                header = ai_header if msg['role'] == 'model' else user_header
+                content = msg['content'].strip()
+                log_content_parts.append(f"{header}\n{content}")
+
+            new_log_content = "\n\n".join(log_content_parts)
+
+            with open(log_file_path, "w", encoding="utf-8") as f:
+                f.write(new_log_content)
+
+            # ファイルが空でなければ、次の追記のために末尾に改行を追加
+            if new_log_content:
+                with open(log_file_path, "a", encoding="utf-8") as f:
+                    f.write("\n\n")
+
+            return True
+        else:
+            print(f"警告: 削除対象のインデックス {index_to_delete} が範囲外です。")
+            return False
+
+    except Exception as e:
+        print(f"インデックスによるログ削除でエラー: {e}")
+        return False
+
+# (extract_raw_text_from_html は、念のためここに再掲します。内容に変更はありません)
+def extract_raw_text_from_html(html_content: str) -> str:
+    if not html_content: return ""
+    # ボタンコンテナを削除
+    html_content = re.sub(r"<div style='text-align: right;.*?'>.*?</div>", "", html_content, flags=re.DOTALL)
+    # 思考ログを削除
+    html_content = re.sub(r"<div class='thoughts'>.*?</div>", "", html_content, flags=re.DOTALL)
+    # 残ったHTMLタグを削除
+    raw_text = re.sub('<[^<]+?>', '', html_content)
+    # HTMLエンティティをデコード
+    raw_text = html.unescape(raw_text)
+    return raw_text.strip()
