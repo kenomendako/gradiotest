@@ -305,23 +305,23 @@ def handle_chatbot_selection(character_name: str, api_history_limit_state: str, 
 
 
 def handle_delete_button_click(
-    message_key: Optional[Dict[str, str]],
+    message_to_delete: Optional[Dict[str, str]],
     character_name: str,
     api_history_limit: str
 ):
     """
     Handles the delete button click, using the key created by handle_chatbot_selection.
     """
-    if not message_key:
+    if not message_to_delete:
         gr.Warning("No message selected for deletion.")
         return gr.update(), None, gr.update(visible=False)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
 
-    # Pass the raw_text and role to the deletion function
+    # Pass the message dictionary to the deletion function
     success = utils.delete_message_from_log(
         log_file_path=log_f,
-        message_key=message_key,
+        message_to_delete=message_to_delete,
         character_name=character_name
     )
 
