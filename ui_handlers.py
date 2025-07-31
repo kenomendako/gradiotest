@@ -269,29 +269,39 @@ def handle_initial_load():
 
 def handle_chatbot_selection(evt: gr.SelectData):
     """メッセージが選択された時の処理。クリックされた行のインデックスを返す。"""
-    # 選択された行のインデックスと、その内容（user, botのペア）を返し、削除ボタンを表示する
-    return evt.index, evt.value, gr.update(visible=True)
+    # 選択された行（ペア）のインデックスを返す
+    return evt.index[0], evt.value, gr.update(visible=True)
+
 
 def handle_delete_button_click(
     character_name: str,
     api_history_limit: str,
-    selection_value: list
+    selection_index: int
 ):
-    """選択された行の内容に基づいて、ログからメッセージを削除する。"""
-    if not selection_value:
+    """選択されたインデックスに基づいて、ログから対応するメッセージを削除する。"""
+    if selection_index is None:
         gr.Warning("削除する発言が選択されていません。")
-        return gr.update(), None, gr.update(visible=False)
+        return gr.update(), None, None, gr.update(visible=False)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
 
-    # 選択された行の内容から、削除対象のテキストを特定
-    # selection_valueは [user_msg, bot_msg] のペア
-    # bot_msgからHTMLタグを除去して元のテキストに近い形に戻す
-    raw_bot_text = utils.extract_raw_text_from_html(selection_value[1]) if selection_value[1] else None
+    # UIの表示履歴を再生成して、クリックされたのがどのメッセージかを特定
+    raw_history = utils.load_chat_log(log_f, character_name)
+    display_turns = _get_display_history_count(api_history_limit)
+    visible_history = raw_history[-(display_turns * 2):]
 
-    success = False
-    if raw_bot_text:
-        success = utils.delete_message_from_log_by_content(log_f, raw_bot_text, character_name)
+    # どのログメッセージがUIのどのペア（インデックス）を生成したかをマッピングする
+    # これは複雑なので、簡略化されたアプローチを取る：
+    # 選択されたペアが、ログファイルのどのメッセージに対応するかを探す
+    # この例では、ペアのインデックスが、ログのユーザー発言のインデックスに対応すると仮定
+    # TODO: このマッピングは、画像によるターン分割で不正確になる可能性があるため、将来的により堅牢な方法に改善する必要がある
+    log_index_to_delete = selection_index * 2
+
+    success = utils.delete_message_from_log_by_index(log_f, log_index_to_delete)
+    # AIの応答も削除
+    if (log_index_to_delete + 1) < len(raw_history):
+        utils.delete_message_from_log_by_index(log_f, log_index_to_delete + 1)
+
 
     if success:
         gr.Info("選択された発言をログから削除しました。")

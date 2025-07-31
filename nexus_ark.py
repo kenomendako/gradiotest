@@ -160,7 +160,7 @@ try:
                         add_character_button = gr.Button("迎える", variant="secondary", scale=1)
 
             with gr.Column(scale=3):
-                chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
+                chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
 
                 with gr.Row(visible=False) as deletion_button_group:
                     delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
@@ -239,7 +239,7 @@ try:
 
         delete_selection_button.click(
             fn=ui_handlers.handle_delete_button_click,
-            inputs=[current_character_name, api_history_limit_state, selected_turn_value_state],
+            inputs=[current_character_name, api_history_limit_state, selected_turn_index_state], # ★ value_stateを削除
             outputs=[chatbot_display, selected_turn_index_state, selected_turn_value_state, deletion_button_group]
         ).then(lambda: (None, None), outputs=[selected_turn_index_state, selected_turn_value_state])
 

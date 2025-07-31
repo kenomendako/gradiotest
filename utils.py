@@ -129,85 +129,93 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
 
 def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[List[Union[str, Tuple[str, str], None]]]:
     """
-    ログデータをGradioのChatbotが期待する「ペアのリスト」形式に変換する。
-    画像タグが含まれる場合、テキストと画像のターンを正しく分割する。
+    ログデータをGradio Chatbotが期待する「ペアのリスト」形式に変換する、最終FIX版。
+    画像が含まれる場合は、テキストと画像を別の「ペア」に正しく分割する。
     """
     if not messages:
         return []
 
     gradio_pairs = []
-    user_message = None
+    user_message_buffer = None
 
     for msg in messages:
+        role = msg.get("role")
         content = msg.get("content", "").strip()
         if not content:
             continue
 
-        if msg.get("role") == "user":
-            # 以前のbotメッセージがなければ、ペアを閉じる
-            if user_message is not None:
-                gradio_pairs.append([user_message, None])
+        if role == "user":
+            if user_message_buffer:
+                gradio_pairs.append([_format_user_content(user_message_buffer), None])
+            user_message_buffer = content
 
-            # ユーザーメッセージをHTMLに変換（ボタンなどは不要）
-            escaped_text = html.escape(content).replace('\n', '<br>')
-            user_message = f"<div>{escaped_text}</div>"
-
-        elif msg.get("role") == "model":
-            # 思考ログを抽出して削除
-            thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-            thought_match = thoughts_pattern.search(content)
-
-            # 思考ログ部分を除いた純粋な応答テキスト
-            clean_content = thoughts_pattern.sub("", content).strip()
-
-            # 画像タグを検出
+        elif role == "model":
             image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
-            image_matches = list(image_tag_pattern.finditer(clean_content))
+            image_matches = list(image_tag_pattern.finditer(content))
+
+            # ユーザーメッセージをHTML化
+            formatted_user_msg = _format_user_content(user_message_buffer) if user_message_buffer else None
 
             if not image_matches:
-                # --- 画像なしの場合 ---
-                bot_html = html.escape(clean_content).replace('\n', '<br>')
-                if thought_match:
-                    thoughts_html = html.escape(thought_match.group(1).strip()).replace('\n', '<br>')
-                    bot_html = f"<div class='thoughts'>{thoughts_html}</div><div>{bot_html}</div>"
-
-                gradio_pairs.append([user_message, bot_html])
-                user_message = None # ペアを完了
+                # 画像なし：単一のペアとして追加
+                formatted_bot_msg = _format_bot_content(content)
+                gradio_pairs.append([formatted_user_msg, formatted_bot_msg])
             else:
-                # --- 画像ありの場合：ターンを分割 ---
+                # 画像あり：ターンを分割
                 last_end = 0
                 # 1. 最初のテキスト部分
-                first_text = clean_content[:image_matches[0].start()].strip()
+                first_text = content[:image_matches[0].start()].strip()
                 if first_text:
-                    bot_html = html.escape(first_text).replace('\n', '<br>')
-                    if thought_match:
-                         thoughts_html = html.escape(thought_match.group(1).strip()).replace('\n', '<br>')
-                         bot_html = f"<div class='thoughts'>{thoughts_html}</div><div>{bot_html}</div>"
-                    gradio_pairs.append([user_message, bot_html])
-                    user_message = None # 最初のペアを完了
+                    gradio_pairs.append([formatted_user_msg, _format_bot_content(first_text)])
+                    formatted_user_msg = None # 2ターン目以降のユーザー発言はNone
 
-                # 2. 画像と、その後のテキストを処理
-                for i, match in enumerate(image_matches):
+                # 2. 画像と後続テキストを処理
+                for match in image_matches:
                     # 画像ターン
                     filepath = match.group(1).strip()
                     filename = os.path.basename(filepath)
                     image_tuple = (filepath, filename)
-                    # 最初の画像ターンは前のユーザー発言とペアにする
-                    gradio_pairs.append([user_message if i == 0 and not first_text else None, image_tuple])
+                    gradio_pairs.append([formatted_user_msg, image_tuple])
+                    formatted_user_msg = None
 
                     # 画像後のテキストターン
-                    text_after_image = clean_content[match.end():].strip()
-                    if text_after_image:
-                        bot_html = html.escape(text_after_image).replace('\n', '<br>')
-                        gradio_pairs.append([None, bot_html])
+                    text_after = content[match.end():].strip()
+                    if text_after:
+                         gradio_pairs.append([None, _format_bot_content(text_after)])
 
-                user_message = None # 全てのペアを完了
+            user_message_buffer = None
 
-    # 最後のユーザーメッセージが残っていれば、ペアとして追加
-    if user_message is not None:
-        gradio_pairs.append([user_message, None])
+    if user_message_buffer:
+        gradio_pairs.append([_format_user_content(user_message_buffer), None])
 
     return gradio_pairs
+
+def _format_user_content(content: str) -> str:
+    """ユーザーのメッセージをHTMLにフォーマットする。"""
+    escaped_text = html.escape(content).replace('\n', '<br>')
+    return f"<div>{escaped_text}</div>"
+
+def _format_bot_content(content: str) -> str:
+    """AIのメッセージをHTMLにフォーマットし、思考ログやボタンを追加する。"""
+    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
+
+    # 思考ログ部分
+    thought_html = ""
+    thought_match = thoughts_pattern.search(content)
+    if thought_match:
+        thoughts_text = thought_match.group(1).strip()
+        escaped_thoughts = html.escape(thoughts_text).replace('\n', '<br>')
+        thought_html = f"<div class='thoughts'>{escaped_thoughts}</div>"
+
+    # メインのテキスト部分
+    main_text = thoughts_pattern.sub("", content).strip()
+    main_html = ""
+    if main_text:
+        escaped_main = html.escape(main_text).replace('\n', '<br>')
+        main_html = f"<div>{escaped_main}</div>"
+
+    # ボタンはGradioのChatbotではカスタムできないため、削除
+    return f"{thought_html}{main_html}"
 
 
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
