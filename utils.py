@@ -373,3 +373,50 @@ def delete_message_from_log_by_index(log_file_path: str, index_to_delete: int) -
     except Exception as e:
         print(f"インデックスによるログ削除エラー: {e}")
         return False
+
+def delete_message_from_log_by_content(log_file_path: str, content_to_delete: str, character_name: str) -> bool:
+    """指定された内容に一致するメッセージをログファイルから削除する。"""
+    if not log_file_path or not os.path.exists(log_file_path) or not content_to_delete:
+        return False
+
+    try:
+        all_messages = load_chat_log(log_file_path, character_name)
+
+        # 削除対象のメッセージを特定
+        # extract_raw_text_from_htmlを使って、HTMLタグを除去したテキストで比較
+        message_to_delete = None
+        for msg in all_messages:
+            if msg['role'] == 'model':
+                raw_content = extract_raw_text_from_html(msg['content'])
+                if content_to_delete in raw_content:
+                    message_to_delete = msg
+                    break
+
+        if not message_to_delete:
+            return False
+
+        all_messages.remove(message_to_delete)
+
+        # ログファイルを再構築
+        log_content_parts = []
+        user_header = _get_user_header_from_log(log_file_path, character_name)
+        ai_header = f"## {character_name}:"
+
+        for msg in all_messages:
+            header = ai_header if msg['role'] == 'model' else user_header
+            content = msg['content'].strip()
+            log_content_parts.append(f"{header}\n{content}")
+
+        new_log_content = "\n\n".join(log_content_parts)
+        with open(log_file_path, "w", encoding="utf-8") as f:
+            f.write(new_log_content)
+
+        if new_log_content:
+            with open(log_file_path, "a", encoding="utf-8") as f:
+                f.write("\n\n")
+
+        return True
+
+    except Exception as e:
+        print(f"内容によるログ削除エラー: {e}")
+        return False

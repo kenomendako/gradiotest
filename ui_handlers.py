@@ -19,7 +19,7 @@ import html
 import uuid
 import gemini_api, config_manager, alarm_manager, character_manager, utils
 from tools import memory_tools
-from utils import DAY_MAP_JA_TO_EN, DAY_MAP_EN_TO_JA
+from utils import DAY_MAP_JA_TO_EN, DAY_MAP_EN_TO_JA, delete_message_from_log_by_index
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
 from memory_manager import load_memory_data_safe, save_memory_data
@@ -125,7 +125,7 @@ def handle_message_submission(*args: Any):
 
     raw_history = utils.load_chat_log(log_f, current_character_name)
     display_turns = _get_display_history_count(api_history_limit_state)
-    formatted_history = utils.format_history_for_gradio(raw_history[-(display_turns*2):], current_character_name)
+    formatted_history = utils.format_history_for_gradio(raw_history[-(display_turns*2):])
 
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 
@@ -207,7 +207,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
 
     display_turns = _get_display_history_count(api_history_limit_value)
-    chat_history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):], character_name)
+    chat_history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):])
 
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
@@ -269,42 +269,29 @@ def handle_initial_load():
 
 def handle_chatbot_selection(evt: gr.SelectData):
     """メッセージが選択された時の処理。クリックされた行のインデックスを返す。"""
-    # 選択された行のインデックスと、その内容（user, botのペア）を返す
-    return evt.index, evt.value
+    # 選択された行のインデックスと、その内容（user, botのペア）を返し、削除ボタンを表示する
+    return evt.index, evt.value, gr.update(visible=True)
 
 def handle_delete_button_click(
     character_name: str,
     api_history_limit: str,
-    selection_index: int,
     selection_value: list
 ):
-    """選択されたインデックスに基づいて、ログからメッセージを削除する。"""
-    if selection_index is None:
+    """選択された行の内容に基づいて、ログからメッセージを削除する。"""
+    if not selection_value:
         gr.Warning("削除する発言が選択されていません。")
         return gr.update(), None, gr.update(visible=False)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
-    raw_history = utils.load_chat_log(log_f, character_name)
 
-    # ユーザー発言かAI発言かを判定
-    clicked_is_user = selection_value[0] is not None
-
-    # UIのインデックスから、実際のログファイルのインデックスを特定する
-    # (このロジックは簡略化されており、改善の余地がある)
-    # ここでは、UIのペアのインデックスが、ログのユーザー発言のインデックスに対応すると仮定
-    log_index_user = selection_index * 2
-    log_index_bot = log_index_user + 1
+    # 選択された行の内容から、削除対象のテキストを特定
+    # selection_valueは [user_msg, bot_msg] のペア
+    # bot_msgからHTMLタグを除去して元のテキストに近い形に戻す
+    raw_bot_text = utils.extract_raw_text_from_html(selection_value[1]) if selection_value[1] else None
 
     success = False
-    if clicked_is_user:
-        # ユーザー発言とその後のAI発言を両方削除するのが一般的
-        if log_index_bot < len(raw_history):
-             # 後ろから消さないとインデックスがずれる
-            utils.delete_message_from_log_by_index(log_f, log_index_bot)
-        success = utils.delete_message_from_log_by_index(log_f, log_index_user)
-    else:
-        success = utils.delete_message_from_log_by_index(log_f, log_index_bot)
-
+    if raw_bot_text:
+        success = utils.delete_message_from_log_by_content(log_f, raw_bot_text, character_name)
 
     if success:
         gr.Info("選択された発言をログから削除しました。")
@@ -312,14 +299,14 @@ def handle_delete_button_click(
         gr.Error("発言の削除に失敗しました。")
 
     new_chat_history = reload_chat_log(character_name, api_history_limit)
-    return new_chat_history, None, gr.update(visible=False)
+    return new_chat_history, None, None, gr.update(visible=False)
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
     if not character_name: return []
     log_f,_,_,_,_ = get_character_files_paths(character_name)
     if not log_f or not os.path.exists(log_f): return []
     display_turns = _get_display_history_count(api_history_limit_value)
-    history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name)
+    history = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):])
     return history
 
 def handle_save_memory_click(character_name, json_string_data):

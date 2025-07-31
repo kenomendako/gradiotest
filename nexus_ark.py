@@ -239,14 +239,14 @@ try:
 
         delete_selection_button.click(
             fn=ui_handlers.handle_delete_button_click,
-            inputs=[current_character_name, api_history_limit_state, selected_turn_index_state, selected_turn_value_state],
-            outputs=[chatbot_display, selected_message_state, deletion_button_group]
-        )
+            inputs=[current_character_name, api_history_limit_state, selected_turn_value_state],
+            outputs=[chatbot_display, selected_turn_index_state, selected_turn_value_state, deletion_button_group]
+        ).then(lambda: (None, None), outputs=[selected_turn_index_state, selected_turn_value_state])
 
         cancel_selection_button.click(
-            fn=lambda: (None, gr.update(visible=False)),
+            fn=lambda: (None, None, gr.update(visible=False)),
             inputs=None,
-            outputs=[selected_message_state, deletion_button_group]
+            outputs=[selected_turn_index_state, selected_turn_value_state, deletion_button_group]
         )
         
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
