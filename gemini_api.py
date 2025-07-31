@@ -8,7 +8,7 @@ import google.genai as genai
 import filetype
 
 from agent.graph import app
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 import config_manager
 import utils
 from character_manager import get_character_files_paths
@@ -135,7 +135,6 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     try:
         final_state = app.invoke(initial_state)
 
-        # --- ★★★ ここからが新しい応答組み立てロジック ★★★ ---
         final_response_text = ""
 
         # 最後のAIメッセージを探す
@@ -146,12 +145,12 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
             ai_text_content = last_ai_message.content if isinstance(last_ai_message.content, str) else ""
 
             # 最後のツールメッセージ（もしあれば）を探す
-            from langchain_core.messages import ToolMessage
             last_tool_message = next((msg for msg in reversed(final_state['messages']) if isinstance(msg, ToolMessage)), None)
 
+            # ★★★ ここが修正の核心 ★★★
             # 画像生成のように、AIの言葉とツールの結果を結合する必要がある場合
-            if last_tool_message and last_ai_message.tool_calls and any(call.name == 'generate_image' for call in last_ai_message.tool_calls):
-                 # テキストと画像タグを結合して最終応答とする
+            if last_tool_message and last_ai_message.tool_calls and any(call['name'] == 'generate_image' for call in last_ai_message.tool_calls):
+                 # .name を ['name'] に修正
                 final_response_text = f"{ai_text_content}\n\n{last_tool_message.content}".strip()
             else:
                 # それ以外の場合は、最後のAIメッセージのテキスト部分を最終応答とする
@@ -160,7 +159,6 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
         # is_internal_call の場合は応答を抑制
         if is_internal_call:
             final_response_text = ""
-        # --- ★★★ 応答組み立てロジックここまで ★★★ ---
 
         location_name = final_state.get('location_name', '（場所不明）')
         scenery_text = final_state.get('scenery_text', '（情景不明）')
