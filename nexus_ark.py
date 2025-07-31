@@ -230,7 +230,7 @@ try:
         
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
-            inputs=[chatbot_display, current_character_name, api_history_limit_state], # ★ api_history_limit_state を追加
+            inputs=[current_character_name, api_history_limit_state],
             outputs=[selected_message_state, deletion_button_group],
             show_progress=False
         )
