@@ -265,60 +265,84 @@ def handle_initial_load():
 
     return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
 
-def handle_chatbot_selection(chatbot_history: List[Dict[str, str]], character_name: str, api_history_limit_state: str, evt: gr.SelectData):
-    """メッセージが選択された時の処理。UIの状態と完全に同期してメッセージを特定する。"""
+def handle_chatbot_selection(character_name: str, api_history_limit_state: str, evt: gr.SelectData):
+    """
+    Handles the selection of a message in the chatbot UI.
+    Identifies the message by recreating the displayed history and extracting a unique key.
+    """
     if not evt.value or not character_name:
         return None, gr.update(visible=False)
 
-
     try:
-        clicked_index = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
+        clicked_index = evt.index[0]
 
+        # Re-create the exact history displayed in the UI
         log_f, _, _, _, _ = get_character_files_paths(character_name)
-        if not log_f:
-            gr.Warning(f"キャラクター'{character_name}'のログファイルが見つかりません。")
-            return None, gr.update(visible=False)
-
-        raw_history = utils.load_chat_log(log_f, character_name)
-
-        # ★ 引数で渡されたUIの状態を正として履歴の表示件数を計算
         display_turns = _get_display_history_count(api_history_limit_state)
-        visible_raw_history = raw_history[-(display_turns * 2):]
+        raw_logs = utils.load_chat_log(log_f, character_name)
+        visible_logs = raw_logs[-(display_turns * 2):]
 
-        if 0 <= clicked_index < len(visible_raw_history):
-            selected_raw_message = visible_raw_history[clicked_index]
-            return selected_raw_message, gr.update(visible=True)
-        else:
-            gr.Warning("クリックされたメッセージを特定できませんでした。")
+        # This gives us the list of dicts/tuples exactly as rendered
+        rendered_history = utils.format_history_for_gradio(visible_logs, character_name)
+
+        if not (0 <= clicked_index < len(rendered_history)):
+            gr.Warning("Could not identify the clicked message (index out of bounds).")
             return None, gr.update(visible=False)
+
+        clicked_item = rendered_history[clicked_index]
+
+        # We can only delete text messages, not images
+        if not isinstance(clicked_item, dict) or not isinstance(clicked_item.get("content"), str):
+            gr.Info("画像の削除は現在サポートされていません。")
+            return None, gr.update(visible=False)
+
+        html_content = clicked_item["content"]
+        raw_text = utils.extract_raw_text_from_html(html_content)
+
+        # The role in the rendered item is 'user' or 'assistant'
+        role = clicked_item["role"]
+
+        # This dictionary becomes the unique key for deletion
+        message_key = {"raw_text": raw_text, "role": role}
+
+        return message_key, gr.update(visible=True)
+
     except Exception as e:
-        print(f"メッセージ選択処理でエラー: {e}")
+        print(f"Error during chatbot selection: {e}")
         traceback.print_exc()
         return None, gr.update(visible=False)
 
+
 def handle_delete_button_click(
-    selected_message: Optional[Dict[str, str]],
+    message_key: Optional[Dict[str, str]],
     character_name: str,
     api_history_limit: str
 ):
-    """「選択した発言を削除」ボタンが押された時の処理。"""
-    if not selected_message:
-        gr.Warning("削除する発言が選択されていません。")
+    """
+    Handles the delete button click, using the key created by handle_chatbot_selection.
+    """
+    if not message_key:
+        gr.Warning("No message selected for deletion.")
         return gr.update(), None, gr.update(visible=False)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
 
-    # utils.delete_message_from_log に、特定したメッセージ辞書を渡す
-    success = utils.delete_message_from_log(log_f, selected_message, character_name)
-    if success:
-        gr.Info("選択された発言をログから削除しました。")
-    else:
-        gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
+    # Pass the raw_text and role to the deletion function
+    success = utils.delete_message_from_log(
+        log_file_path=log_f,
+        message_key=message_key,
+        character_name=character_name
+    )
 
-    # チャットログを再読み込みしてUIに反映
+    if success:
+        gr.Info("Successfully deleted the message from the log.")
+    else:
+        gr.Error("Failed to delete the message. Check terminal for details.")
+
+    # Reload chat log to reflect the change
     new_chat_history = reload_chat_log(character_name, api_history_limit)
 
-    # 選択状態を解除し、削除ボタンを非表示にする
+    # Reset selection state and hide buttons
     return new_chat_history, None, gr.update(visible=False)
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):

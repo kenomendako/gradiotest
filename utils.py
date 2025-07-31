@@ -128,87 +128,108 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
     return messages
 
 def format_history_for_gradio(messages: List[Dict[str, str]], character_name: str) -> List[Dict[str, Union[str, tuple, None]]]:
-    """
-    ログデータをGradioのChatbotが解釈できる形式に変換する。
-    画像タグが含まれる場合、テキストと画像のターンを分割する。
-    """
     if not messages:
         return []
 
-    gradio_history = []
-
-    # 画像タグを検出するための正規表現
+    # --- Stage 1: Create Intermediate Representation ---
+    intermediate_list = []
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
-    for i, msg in enumerate(messages):
+    for msg in messages:
         role = "assistant" if msg.get("role") == "model" else "user"
         content = msg.get("content", "").strip()
         if not content:
             continue
 
-        # --- ★★★ ここからが新しいロジック ★★★ ---
-        # 1. メッセージに画像タグが含まれているかチェック
-        image_matches = list(image_tag_pattern.finditer(content))
-
-        if not image_matches:
-            # 1-a. 画像なし：従来通りテキストとして処理
-            # 思考ログやボタンは、テキストメッセージにのみ付与する
-            processed_html = _format_text_content_for_gradio(content, character_name, i, len(messages))
-            gradio_history.append({"role": role, "content": processed_html})
+        matches = list(image_tag_pattern.finditer(content))
+        if not matches:
+            intermediate_list.append({
+                "type": "text",
+                "content": content,
+                "role": role,
+                "anchor_id": f"msg-anchor-{uuid.uuid4().hex[:8]}"
+            })
         else:
-            # 1-b. 画像あり：テキストと画像に分割して、複数のターンとして追加
             last_index = 0
-            # 最初のテキスト部分を処理
-            first_text_chunk = content[:image_matches[0].start()].strip()
-            if first_text_chunk:
-                processed_html = _format_text_content_for_gradio(first_text_chunk, character_name, i, len(messages))
-                gradio_history.append({"role": role, "content": processed_html})
-
-            # 画像と、その後のテキストを処理
-            for match_idx, match in enumerate(image_matches):
-                # 画像をタプル形式で追加
-                filepath = match.group(1).strip()
-                filename = os.path.basename(filepath)
-                # Gradioが最も安定して解釈できるタプル形式
-                image_tuple = (filepath, filename)
-                gradio_history.append({"role": "assistant", "content": image_tuple})
-
-                # 画像の後のテキスト部分を処理
-                start_of_next_chunk = match.end()
-                end_of_this_chunk = image_matches[match_idx + 1].start() if match_idx + 1 < len(image_matches) else len(content)
-                text_chunk = content[start_of_next_chunk:end_of_this_chunk].strip()
+            for i, match in enumerate(matches):
+                # Add text part before the image
+                text_chunk = content[last_index:match.start()].strip()
                 if text_chunk:
-                    processed_html = _format_text_content_for_gradio(text_chunk, character_name, i, len(messages))
-                    # 2つ目以降の要素は、必ずAIの発言として追加
-                    gradio_history.append({"role": "assistant", "content": processed_html})
+                    intermediate_list.append({
+                        "type": "text",
+                        "content": text_chunk,
+                        "role": role,
+                        "anchor_id": f"msg-anchor-{uuid.uuid4().hex[:8]}"
+                    })
+
+                # Add image part
+                filepath = match.group(1).strip()
+                intermediate_list.append({
+                    "type": "image",
+                    "content": filepath,
+                    "role": "assistant", # Images are always from the assistant
+                    "anchor_id": f"msg-anchor-{uuid.uuid4().hex[:8]}"
+                })
+                last_index = match.end()
+
+            # Add any remaining text part after the last image
+            remaining_text = content[last_index:].strip()
+            if remaining_text:
+                intermediate_list.append({
+                    "type": "text",
+                    "content": remaining_text,
+                    "role": role,
+                    "anchor_id": f"msg-anchor-{uuid.uuid4().hex[:8]}"
+                })
+
+    # --- Stage 2: Generate Gradio History from Intermediate List ---
+    gradio_history = []
+    for i, item in enumerate(intermediate_list):
+        if item["type"] == "image":
+            filepath = item["content"]
+            filename = os.path.basename(filepath)
+            gradio_history.append({"role": item["role"], "content": (filepath, filename)})
+
+        elif item["type"] == "text":
+            current_anchor = item["anchor_id"]
+            # Find previous and next text anchors for navigation
+            prev_anchor = next((intermediate_list[j]["anchor_id"] for j in range(i - 1, -1, -1) if intermediate_list[j]["type"] == "text"), None)
+            next_anchor = next((intermediate_list[j]["anchor_id"] for j in range(i + 1, len(intermediate_list)) if intermediate_list[j]["type"] == "text"), None)
+
+            processed_html = _format_text_content_for_gradio(
+                content=item["content"],
+                current_anchor_id=current_anchor,
+                prev_anchor_id=prev_anchor,
+                next_anchor_id=next_anchor
+            )
+            gradio_history.append({"role": item["role"], "content": processed_html})
 
     return gradio_history
 
-def _format_text_content_for_gradio(content: str, character_name: str, msg_index: int, total_msgs: int) -> str:
+def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
     """
-    テキストコンテンツをHTMLにフォーマットする補助関数。
-    思考ログの処理、改行の反映、ナビゲーションボタンの追加を行う。
+    Formats text content into HTML with stable navigation links.
     """
-    # アンカーIDを生成
-    # NOTE: この方法は複数ターン分割時に同じIDが振られる可能性があるが、
-    # 連続したメッセージなので実用上の問題は少ない
-    anchor_id = f"msg-anchor-{uuid.uuid4().hex[:8]}-{msg_index}"
+    # Up button
+    up_button = ""
+    if prev_anchor_id:
+        up_button = f"<a href='#{prev_anchor_id}' class='message-nav-link' title='前の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
+    else:
+        up_button = f"<a href='#{current_anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
 
-    # ナビゲーションボタン
-    up_button = f"<a href='#{anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
+    # Down button
     down_button = ""
-    if msg_index < total_msgs - 1:
-        # 次のメッセージのアンカーを指すようにする（簡易的な方法）
-        next_anchor_id = f"msg-anchor-{uuid.uuid4().hex[:8]}-{msg_index+1}"
+    if next_anchor_id:
         down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>"
+
     delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
     button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
 
-    # 思考ログの処理
+    # Process thoughts
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     thought_match = thoughts_pattern.search(content)
 
-    final_parts = [f"<span id='{anchor_id}'></span>"]
+    final_parts = [f"<span id='{current_anchor_id}'></span>"]
 
     if thought_match:
         thoughts_content = thought_match.group(1).strip()
@@ -216,13 +237,12 @@ def _format_text_content_for_gradio(content: str, character_name: str, msg_index
         thoughts_with_breaks = escaped_thoughts.replace('\n', '<br>')
         final_parts.append(f"<div class='thoughts'>{thoughts_with_breaks}</div>")
 
-    # メインテキストの処理
+    # Process main text
     main_text = thoughts_pattern.sub("", content).strip()
     escaped_text = html.escape(main_text)
     text_with_breaks = escaped_text.replace('\n', '<br>')
     final_parts.append(f"<div>{text_with_breaks}</div>")
 
-    # ボタンを追加
     final_parts.append(button_container)
 
     return "".join(final_parts)
@@ -243,29 +263,56 @@ def save_message_to_log(log_file_path: str, header: str, text_content: str) -> N
         print(f"エラー: ログファイル '{log_file_path}' 書き込みエラー: {e}")
         traceback.print_exc()
 
-def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str], character_name: str) -> bool:
+def delete_message_from_log(log_file_path: str, message_key: Dict[str, str], character_name: str) -> bool:
     """
-    ログファイルから指定されたメッセージ辞書と完全に一致するエントリを一つ削除する。
-    より堅牢な再構築ベースのロジック。
+    Deletes a message from the log file based on its raw text content and role.
     """
-    if not log_file_path or not os.path.exists(log_file_path) or not message_to_delete:
+    if not all([log_file_path, os.path.exists(log_file_path), message_key]):
         return False
 
+    target_raw_text = message_key.get("raw_text", "").strip()
+    target_role = message_key.get("role") # 'user' or 'assistant'
+    if not target_raw_text or not target_role:
+        return False
+
+    # The role in the log file is 'user' or 'model'
+    target_log_role = "model" if target_role == "assistant" else "user"
+
+    def get_raw_text_from_log_content(log_content: str) -> str:
+        """A simplified raw text extractor for log content."""
+        # Remove image tags
+        text = re.sub(r"\[Generated Image: .*?\]", "", log_content)
+        # Remove thoughts
+        text = remove_thoughts_from_text(text)
+        # Remove timestamps
+        text = re.sub(r"\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}", "", text)
+        return text.strip()
+
     try:
-        # 1. まず、現在のログを正しいキャラクター名で完全に解析する
         all_messages = load_chat_log(log_file_path, character_name)
 
-        # 2. 削除対象のメッセージと完全に一致するものを探し、リストから削除する
-        try:
-            # message_to_delete は {'role': '...', 'content': '...'} という辞書
-            all_messages.remove(message_to_delete)
-        except ValueError:
-            # リストに要素が見つからなかった場合
-            print(f"警告: ログファイル内に削除対象のメッセージが見つかりませんでした。")
-            traceback.print_exc() # デバッグ用に詳細を出力
+        message_to_remove_index = -1
+        for i, msg in enumerate(all_messages):
+            log_role = msg.get("role")
+            log_content = msg.get("content", "")
+
+            log_raw_text = get_raw_text_from_log_content(log_content)
+
+            if log_role == target_log_role and log_raw_text == target_raw_text:
+                message_to_remove_index = i
+                break
+
+        if message_to_remove_index == -1:
+            print("Warning: Could not find the message to delete in the log file.")
+            # For debugging, let's see what was compared
+            print(f"  - Target Role: '{target_log_role}'")
+            print(f"  - Target Text: '{target_raw_text}'")
             return False
 
-        # 3. 変更後のメッセージリストから、ログファイル全体を再構築する
+        # Remove the found message
+        all_messages.pop(message_to_remove_index)
+
+        # Rebuild the entire log file from the modified message list
         log_content_parts = []
         user_header = _get_user_header_from_log(log_file_path, character_name)
         ai_header = f"## {character_name}:"
@@ -275,21 +322,19 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
             content = msg['content'].strip()
             log_content_parts.append(f"{header}\n{content}")
 
-        # ログファイルに書き込む
         new_log_content = "\n\n".join(log_content_parts)
         with open(log_file_path, "w", encoding="utf-8") as f:
             f.write(new_log_content)
 
-        # ファイルが空でなければ、次の追記のために末尾に改行を追加
         if new_log_content:
             with open(log_file_path, "a", encoding="utf-8") as f:
                 f.write("\n\n")
 
-        print(f"--- ログからメッセージを正常に削除しました ---")
+        print("--- Successfully deleted message from log ---")
         return True
 
     except Exception as e:
-        print(f"エラー: ログからのメッセージ削除中に予期せぬエラーが発生しました: {e}")
+        print(f"Error during message deletion from log: {e}")
         traceback.print_exc()
         return False
 
