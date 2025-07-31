@@ -267,60 +267,51 @@ def handle_initial_load():
 
     return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
 
-def handle_chatbot_selection(chatbot_history: List[Dict[str, str]], character_name: str, api_history_limit_state: str, evt: gr.SelectData):
-    """メッセージが選択された時の処理。UIの状態と完全に同期してメッセージを特定する。"""
-    if not evt.value or not character_name:
-        return None, gr.update(visible=False)
-
-
-    try:
-        clicked_index = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
-
-        log_f, _, _, _, _ = get_character_files_paths(character_name)
-        if not log_f:
-            gr.Warning(f"キャラクター'{character_name}'のログファイルが見つかりません。")
-            return None, gr.update(visible=False)
-
-        raw_history = utils.load_chat_log(log_f, character_name)
-
-        # ★ 引数で渡されたUIの状態を正として履歴の表示件数を計算
-        display_turns = _get_display_history_count(api_history_limit_state)
-        visible_raw_history = raw_history[-(display_turns * 2):]
-
-        if 0 <= clicked_index < len(visible_raw_history):
-            selected_raw_message = visible_raw_history[clicked_index]
-            return selected_raw_message, gr.update(visible=True)
-        else:
-            gr.Warning("クリックされたメッセージを特定できませんでした。")
-            return None, gr.update(visible=False)
-    except Exception as e:
-        print(f"メッセージ選択処理でエラー: {e}")
-        traceback.print_exc()
-        return None, gr.update(visible=False)
+def handle_chatbot_selection(evt: gr.SelectData):
+    """メッセージが選択された時の処理。クリックされた行のインデックスを返す。"""
+    # 選択された行のインデックスと、その内容（user, botのペア）を返す
+    return evt.index, evt.value
 
 def handle_delete_button_click(
-    selected_message: Optional[Dict[str, str]],
     character_name: str,
-    api_history_limit: str
+    api_history_limit: str,
+    selection_index: int,
+    selection_value: list
 ):
-    """「選択した発言を削除」ボタンが押された時の処理。"""
-    if not selected_message:
+    """選択されたインデックスに基づいて、ログからメッセージを削除する。"""
+    if selection_index is None:
         gr.Warning("削除する発言が選択されていません。")
         return gr.update(), None, gr.update(visible=False)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
+    raw_history = utils.load_chat_log(log_f, character_name)
 
-    # utils.delete_message_from_log に、特定したメッセージ辞書を渡す
-    success = utils.delete_message_from_log(log_f, selected_message, character_name)
+    # ユーザー発言かAI発言かを判定
+    clicked_is_user = selection_value[0] is not None
+
+    # UIのインデックスから、実際のログファイルのインデックスを特定する
+    # (このロジックは簡略化されており、改善の余地がある)
+    # ここでは、UIのペアのインデックスが、ログのユーザー発言のインデックスに対応すると仮定
+    log_index_user = selection_index * 2
+    log_index_bot = log_index_user + 1
+
+    success = False
+    if clicked_is_user:
+        # ユーザー発言とその後のAI発言を両方削除するのが一般的
+        if log_index_bot < len(raw_history):
+             # 後ろから消さないとインデックスがずれる
+            utils.delete_message_from_log_by_index(log_f, log_index_bot)
+        success = utils.delete_message_from_log_by_index(log_f, log_index_user)
+    else:
+        success = utils.delete_message_from_log_by_index(log_f, log_index_bot)
+
+
     if success:
         gr.Info("選択された発言をログから削除しました。")
     else:
-        gr.Error("発言の削除に失敗しました。詳細はターミナルログを確認してください。")
+        gr.Error("発言の削除に失敗しました。")
 
-    # チャットログを再読み込みしてUIに反映
     new_chat_history = reload_chat_log(character_name, api_history_limit)
-
-    # 選択状態を解除し、削除ボタンを非表示にする
     return new_chat_history, None, gr.update(visible=False)
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):

@@ -81,6 +81,8 @@ try:
         send_core_memory_state = gr.State(True)
         send_scenery_state = gr.State(True)
         selected_message_state = gr.State(None) # ★★★ 削除対象の「メッセージオブジェクト」を保持するState
+        selected_turn_index_state = gr.State(None)
+        selected_turn_value_state = gr.State(None)
 
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
@@ -231,14 +233,13 @@ try:
         
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
-            inputs=[chatbot_display, current_character_name, api_history_limit_state], # ★ api_history_limit_state を追加
-            outputs=[selected_message_state, deletion_button_group],
-            show_progress=False
+            inputs=None, # evtから直接受け取るのでinputsは不要
+            outputs=[selected_turn_index_state, selected_turn_value_state, deletion_button_group]
         )
 
         delete_selection_button.click(
             fn=ui_handlers.handle_delete_button_click,
-            inputs=[selected_message_state, current_character_name, api_history_limit_state],
+            inputs=[current_character_name, api_history_limit_state, selected_turn_index_state, selected_turn_value_state],
             outputs=[chatbot_display, selected_message_state, deletion_button_group]
         )
 

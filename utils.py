@@ -127,70 +127,87 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
 
     return messages
 
-def format_history_for_gradio(messages: List[Dict[str, str]], character_name: str) -> List[Dict[str, Union[str, tuple, None]]]:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[List[Union[str, Tuple[str, str], None]]]:
     """
-    ログデータをGradioのChatbotが解釈できる形式に変換する。
-    単一のメッセージ内に含まれるテキスト、思考、画像タグを正しくHTMLに変換する。
+    ログデータをGradioのChatbotが期待する「ペアのリスト」形式に変換する。
+    画像タグが含まれる場合、テキストと画像のターンを正しく分割する。
     """
     if not messages:
         return []
 
-    gradio_history = []
+    gradio_pairs = []
+    user_message = None
 
-    # 正規表現パターンの定義
-    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
-    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-
-    for i, msg in enumerate(messages):
-        role = "assistant" if msg.get("role") == "model" else "user"
+    for msg in messages:
         content = msg.get("content", "").strip()
         if not content:
             continue
 
-        # --- アンカーとナビゲーションボタンの生成 ---
-        anchor_id = f"msg-anchor-{uuid.uuid4().hex[:8]}-{i}"
-        up_button = f"<a href='#{anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
-        down_button = ""
-        # 最後のメッセージには▼ボタンを表示しない
-        if i < len(messages) - 1:
-            # 次のメッセージのアンカーIDを予測してリンクを設定
-            next_anchor_id = f"msg-anchor-{uuid.uuid4().hex[:8]}-{i+1}"
-            down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>"
-        delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
-        button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
+        if msg.get("role") == "user":
+            # 以前のbotメッセージがなければ、ペアを閉じる
+            if user_message is not None:
+                gradio_pairs.append([user_message, None])
 
-        # --- コンテンツのHTMLへの変換 ---
-        final_parts = [f"<span id='{anchor_id}'></span>"]
+            # ユーザーメッセージをHTMLに変換（ボタンなどは不要）
+            escaped_text = html.escape(content).replace('\n', '<br>')
+            user_message = f"<div>{escaped_text}</div>"
 
-        # 思考ログを抽出してHTML化
-        thought_match = thoughts_pattern.search(content)
-        if thought_match:
-            thoughts_content = thought_match.group(1).strip()
-            escaped_thoughts = html.escape(thoughts_content).replace('\n', '<br>')
-            final_parts.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
+        elif msg.get("role") == "model":
+            # 思考ログを抽出して削除
+            thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
+            thought_match = thoughts_pattern.search(content)
 
-        # 思考ログと画像タグを除いた、メインのテキスト部分を取得
-        main_text = thoughts_pattern.sub("", content)
-        main_text = image_tag_pattern.sub("", main_text).strip()
-        if main_text:
-            escaped_text = html.escape(main_text).replace('\n', '<br>')
-            final_parts.append(f"<div>{escaped_text}</div>")
+            # 思考ログ部分を除いた純粋な応答テキスト
+            clean_content = thoughts_pattern.sub("", content).strip()
 
-        # 画像タグを抽出し、画像表示用のHTMLを生成
-        image_match = image_tag_pattern.search(content)
-        if image_match:
-            filepath = image_match.group(1).strip()
-            filename = os.path.basename(filepath)
-            # 画像はMarkdown形式のままdivで囲むのが最も安定する
-            final_parts.append(f"<div>![{filename}](/file={filepath})</div>")
+            # 画像タグを検出
+            image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
+            image_matches = list(image_tag_pattern.finditer(clean_content))
 
-        # ボタンコンテナを追加
-        final_parts.append(button_container)
+            if not image_matches:
+                # --- 画像なしの場合 ---
+                bot_html = html.escape(clean_content).replace('\n', '<br>')
+                if thought_match:
+                    thoughts_html = html.escape(thought_match.group(1).strip()).replace('\n', '<br>')
+                    bot_html = f"<div class='thoughts'>{thoughts_html}</div><div>{bot_html}</div>"
 
-        final_html = "".join(final_parts)
-        gradio_history.append({"role": role, "content": final_html})
+                gradio_pairs.append([user_message, bot_html])
+                user_message = None # ペアを完了
+            else:
+                # --- 画像ありの場合：ターンを分割 ---
+                last_end = 0
+                # 1. 最初のテキスト部分
+                first_text = clean_content[:image_matches[0].start()].strip()
+                if first_text:
+                    bot_html = html.escape(first_text).replace('\n', '<br>')
+                    if thought_match:
+                         thoughts_html = html.escape(thought_match.group(1).strip()).replace('\n', '<br>')
+                         bot_html = f"<div class='thoughts'>{thoughts_html}</div><div>{bot_html}</div>"
+                    gradio_pairs.append([user_message, bot_html])
+                    user_message = None # 最初のペアを完了
 
-    return gradio_history
+                # 2. 画像と、その後のテキストを処理
+                for i, match in enumerate(image_matches):
+                    # 画像ターン
+                    filepath = match.group(1).strip()
+                    filename = os.path.basename(filepath)
+                    image_tuple = (filepath, filename)
+                    # 最初の画像ターンは前のユーザー発言とペアにする
+                    gradio_pairs.append([user_message if i == 0 and not first_text else None, image_tuple])
+
+                    # 画像後のテキストターン
+                    text_after_image = clean_content[match.end():].strip()
+                    if text_after_image:
+                        bot_html = html.escape(text_after_image).replace('\n', '<br>')
+                        gradio_pairs.append([None, bot_html])
+
+                user_message = None # 全てのペアを完了
+
+    # 最後のユーザーメッセージが残っていれば、ペアとして追加
+    if user_message is not None:
+        gradio_pairs.append([user_message, None])
+
+    return gradio_pairs
 
 
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
@@ -328,3 +345,31 @@ def extract_raw_text_from_html(html_content: str) -> str:
 
 DAY_MAP_JA_TO_EN = {"月": "mon", "火": "tue", "水": "wed", "木": "thu", "金": "fri", "土": "sat", "日": "sun"}
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
+
+def delete_message_from_log_by_index(log_file_path: str, index_to_delete: int) -> bool:
+    """指定されたインデックスのメッセージをログファイルから削除する。"""
+    if not log_file_path or not os.path.exists(log_file_path) or index_to_delete < 0:
+        return False
+
+    try:
+        with open(log_file_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        # メッセージの開始位置（"## ...:"）を見つける
+        msg_indices = [i for i, line in enumerate(lines) if line.startswith("## ")]
+
+        if index_to_delete < len(msg_indices):
+            start_line = msg_indices[index_to_delete]
+            end_line = msg_indices[index_to_delete + 1] if index_to_delete + 1 < len(msg_indices) else len(lines)
+
+            # 削除する行範囲を特定
+            del lines[start_line:end_line]
+
+            with open(log_file_path, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+            return True
+        else:
+            return False
+    except Exception as e:
+        print(f"インデックスによるログ削除エラー: {e}")
+        return False
