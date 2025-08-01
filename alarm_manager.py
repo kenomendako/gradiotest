@@ -159,7 +159,8 @@ def trigger_alarm(alarm_config, current_api_key_name):
         ]
 
         # 4. エージェントを呼び出し
-        response_text = gemini_api.invoke_nexus_agent(*agent_args)
+        response_data = gemini_api.invoke_nexus_agent(*agent_args)
+        response_text = response_data.get('response', '') # 辞書から応答テキストを安全に抽出
 
         # ★★★ 修正ここまで ★★★
 

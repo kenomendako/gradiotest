@@ -178,7 +178,16 @@ try:
         # --- イベントハンドラの定義 ---
         token_calc_inputs = [current_character_name, current_model_name, chat_input_textbox, file_upload_button, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state]
         chat_inputs = [chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state]
-        chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display]
+        chat_submit_outputs = [
+            chatbot_display,
+            chat_input_textbox,
+            file_upload_button,
+            token_count_display,
+            current_location_display,
+            current_scenery_display,
+            alarm_dataframe_original_data, # ★ 追加
+            alarm_dataframe                # ★ 追加
+        ]
         scenery_refresh_inputs = [current_character_name, current_api_key_name_state]
         scenery_refresh_outputs = [current_location_display, current_scenery_display]
 

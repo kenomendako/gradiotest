@@ -127,7 +127,21 @@ def handle_message_submission(*args: Any):
 
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 
-    yield formatted_history, gr.update(), gr.update(value=None), token_count, location_name, scenery_text
+    # ★★★ 以下の3行を追加 ★★★
+    new_alarm_df_with_ids = render_alarms_as_dataframe()
+    new_display_df = get_display_df(new_alarm_df_with_ids)
+
+    # ★★★ yield の返り値にアラームDFを追加 ★★★
+    yield (
+        formatted_history,
+        gr.update(),
+        gr.update(value=None),
+        token_count,
+        location_name,
+        scenery_text,
+        new_alarm_df_with_ids, # ★ 追加
+        new_display_df         # ★ 追加
+    )
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
     if not character_name or not api_key_name:
