@@ -175,9 +175,12 @@ def trigger_alarm(alarm_config, current_api_key_name):
 
             if PLYER_AVAILABLE:
                 try:
+                    # メッセージが長すぎる場合に省略する
+                    display_message = (response_text[:250] + '...') if len(response_text) > 250 else response_text
+
                     notification.notify(
                         title=f"{char_name} ⏰",
-                        message=response_text,
+                        message=display_message, # 省略したメッセージを使用
                         app_name="Nexus Ark",
                         timeout=20
                     )

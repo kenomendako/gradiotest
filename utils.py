@@ -116,11 +116,10 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
             header = part
         elif header:
             # ユーザーの役割を判定
-            is_ai_message = header == ai_header
-            is_system_message = header == alarm_header
-
-            # AIでもシステムでもないヘッダーはユーザーとみなす
-            role = "model" if is_ai_message or is_system_message else "user"
+            if header == ai_header:
+                role = 'model'
+            else: # ユーザーヘッダーとシステムヘッダーの両方を 'user' として扱う
+                role = 'user'
 
             messages.append({"role": role, "content": part})
             header = None
