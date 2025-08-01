@@ -22,6 +22,11 @@ from timers import UnifiedTimer
 from character_manager import get_character_files_paths
 from memory_manager import load_memory_data_safe, save_memory_data
 
+# --- 定数定義 ---
+DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
+DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
+
+
 def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[str, str]:
     print("--- [軽量版] 情景生成を開始します ---")
     api_key = config_manager.API_KEYS.get(api_key_name)
@@ -77,7 +82,7 @@ def handle_message_submission(*args: Any):
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
-        yield chatbot_history, gr.update(), gr.update(), token_count, gr.update(), gr.update()
+        yield chatbot_history, gr.update(), gr.update(), token_count, gr.update(), gr.update(), gr.update(), gr.update()
         return
 
     log_message_parts = []
@@ -136,11 +141,9 @@ def handle_message_submission(*args: Any):
 
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 
-    # ★★★ 以下の3行を追加 ★★★
     new_alarm_df_with_ids = render_alarms_as_dataframe()
     new_display_df = get_display_df(new_alarm_df_with_ids)
 
-    # ★★★ yield の返り値にアラームDFを追加 ★★★
     yield (
         formatted_history,
         gr.update(),
@@ -148,8 +151,8 @@ def handle_message_submission(*args: Any):
         token_count,
         location_name,
         scenery_text,
-        new_alarm_df_with_ids, # ★ 追加
-        new_display_df         # ★ 追加
+        new_alarm_df_with_ids,
+        new_display_df
     )
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
@@ -161,7 +164,6 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
     return loc, scen
 
 def handle_location_change(character_name: str, location_id: str) -> Tuple[str, str]:
-    """場所を変更し、情景欄にはアナウンスのみ表示する新しいハンドラ。"""
     from tools.space_tools import set_current_location
     print(f"--- UIからの場所変更処理開始: キャラクター='{character_name}', 移動先ID='{location_id}' ---")
     if not character_name or not location_id:
@@ -175,7 +177,6 @@ def handle_location_change(character_name: str, location_id: str) -> Tuple[str, 
         current_loc_id = utils.get_current_location(character_name)
         return current_loc_id, f"（場所の変更に失敗: {result}）"
 
-    # 場所IDから表示名を取得
     memory_data = load_memory_data_safe(get_character_files_paths(character_name)[3])
     new_location_name = memory_data.get("living_space", {}).get(location_id, {}).get("name", location_id)
 
@@ -234,22 +235,16 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
 
-    # --- ★★★ ここからが変更箇所 ★★★ ---
-    # 場所の情報を解決
     locations = get_location_list_for_ui(character_name)
     current_location_id = utils.get_current_location(character_name)
     memory_data = load_memory_data_safe(mem_p)
     current_location_name = memory_data.get("living_space", {}).get(current_location_id, {}).get("name", current_location_id)
 
-    # ドロップダウンに設定する値を検証
     valid_location_ids = [loc[1] for loc in locations]
     dropdown_value = current_location_id if current_location_id in valid_location_ids else None
 
-    # 情景のプレースホルダーを設定
     scenery_text = "（AIとの対話開始時に生成されます）"
-    # --- ★★★ 変更箇所ここまで ★★★ ---
 
-    # 返り値に場所と情景を追加
     return (
         character_name,
         chat_history,
@@ -259,7 +254,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
         character_name,
         character_name,
         notepad_content,
-        gr.update(choices=locations, value=dropdown_value), # ★ dropdown_value を使用
+        gr.update(choices=locations, value=dropdown_value),
         current_location_name,
         scenery_text
     )
@@ -274,32 +269,20 @@ def handle_initial_load():
     df_with_ids = render_alarms_as_dataframe()
     display_df = get_display_df(df_with_ids)
 
-    # --- ★★★ ここからが変更箇所 ★★★ ---
-    # update_ui_on_character_change から11個の値を受け取るように修正
     (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char,
      note_cont, loc_dd, location_name, scenery_text) = update_ui_on_character_change(char_name, api_history_limit)
-
-    # 上記で location_name と scenery_text を受け取るようになったため、
-    # 以下の古いプレースホルダー設定ロジックは不要となり、削除します。
-    # --- (古いコードはここにありました) ---
-    # --- ★★★ 変更箇所ここまで ★★★ ---
 
     token_count = update_token_count(ret_char, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
 
     return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
 
 def handle_chatbot_selection(character_name: str, api_history_limit_state: str, evt: gr.SelectData):
-    """
-    Handles the selection of a message in the chatbot UI.
-    Identifies the message by creating an index map and retrieving the original log entry.
-    """
     if not character_name or evt.index is None:
         return None, gr.update(visible=False)
 
     try:
         clicked_ui_index = evt.index
 
-        # Re-create the exact history and the index map
         log_f, _, _, _, _ = get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_f, character_name)
         display_turns = _get_display_history_count(api_history_limit_state)
@@ -311,7 +294,6 @@ def handle_chatbot_selection(character_name: str, api_history_limit_state: str, 
             gr.Warning("Could not identify the clicked message (UI index out of bounds).")
             return None, gr.update(visible=False)
 
-        # Use the map to find the true index in the original log list
         original_log_index = mapping_list[clicked_ui_index]
 
         if 0 <= original_log_index < len(visible_raw_history):
@@ -332,16 +314,12 @@ def handle_delete_button_click(
     character_name: str,
     api_history_limit: str
 ):
-    """
-    Handles the delete button click, using the key created by handle_chatbot_selection.
-    """
     if not message_to_delete:
         gr.Warning("No message selected for deletion.")
         return gr.update(), None, gr.update(visible=False)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
 
-    # Pass the message dictionary to the deletion function
     success = utils.delete_message_from_log(
         log_file_path=log_f,
         message_to_delete=message_to_delete,
@@ -353,10 +331,8 @@ def handle_delete_button_click(
     else:
         gr.Error("Failed to delete the message. Check terminal for details.")
 
-    # Reload chat log to reflect the change
     new_chat_history = reload_chat_log(character_name, api_history_limit)
 
-    # Reset selection state and hide buttons
     return new_chat_history, None, gr.update(visible=False)
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
@@ -490,9 +466,44 @@ def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame) -> List
 
     return selected_ids
 
-def handle_alarm_selection_and_feedback(evt: gr.SelectData, df_with_id: pd.DataFrame):
+def handle_alarm_selection_for_all_updates(evt: gr.SelectData, df_with_id: pd.DataFrame):
+    """
+    アラーム選択時に、IDの特定、フィードバック表示、フォームへのロードを
+    一度に行う、統合された新しいイベントハンドラ。
+    """
+    # --- ステップ1: 選択されたIDを特定する ---
     selected_ids = handle_alarm_selection(evt, df_with_id)
-    return selected_ids, "アラームを選択してください" if not selected_ids else f"{len(selected_ids)} 件のアラームを選択中"
+
+    # --- ステップ2: フィードバックテキストを生成する ---
+    feedback_text = "アラームを選択してください" if not selected_ids else f"{len(selected_ids)} 件のアラームを選択中"
+
+    # --- ステップ3: フォームにロードする値を決定する (旧load_alarm_to_formのロジック) ---
+    all_chars = character_manager.get_character_list()
+    default_char = all_chars[0] if all_chars else "Default"
+
+    # 1件だけ選択されている場合のみ、フォームに値をロードする
+    if len(selected_ids) == 1:
+        alarm_id_to_load = selected_ids[0]
+        alarm = next((a for a in alarm_manager.load_alarms() if a.get("id") == alarm_id_to_load), None)
+        if alarm:
+            h, m = alarm.get("time", "08:00").split(":")
+            days_list = alarm.get("days", [])
+            # DAY_MAP_EN_TO_JA を ui_handlers.py の先頭で定義する必要があるかもしれません
+            days_ja = [DAY_MAP_EN_TO_JA.get(d.lower(), d.upper()) for d in days_list]
+            theme_content = alarm.get("context_memo", "")
+            is_emergency = alarm.get("is_emergency", False)
+
+            form_updates = (
+                "アラーム更新", theme_content, "", alarm.get("character", default_char),
+                days_ja, is_emergency, h, m, alarm_id_to_load
+            )
+        else: # 念のためのフォールバック
+            form_updates = ("アラーム追加", "", "", default_char, [], False, "08", "00", None)
+    else: # 選択されていないか、複数選択されている場合は、フォームを初期状態に戻す
+        form_updates = ("アラーム追加", "", "", default_char, [], False, "08", "00", None)
+
+    # --- ステップ4: すべての返り値を一つのタプルにまとめて返す ---
+    return (selected_ids, feedback_text) + form_updates
 
 def toggle_selected_alarms_status(selected_ids: list, target_status: bool):
     if not selected_ids:
@@ -540,7 +551,6 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja, i
         alarm_manager.delete_alarm(editing_id)
         gr.Info(f"アラームID:{editing_id}を更新します。")
 
-    # ツールを呼び出す際に is_emergency を渡す
     set_personal_alarm.func(
         time=time_str,
         context_memo=context,
@@ -554,23 +564,7 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja, i
     all_chars = character_manager.get_character_list()
     default_char = all_chars[0] if all_chars else "Default"
 
-    # 戻り値に緊急通知チェックボックスのデフォルト値(False)を追加
     return new_df_with_ids, get_display_df(new_df_with_ids), "アラーム追加", "", "", default_char, [], "08", "00", None, False
-
-def load_alarm_to_form(selected_ids: list):
-    all_chars = character_manager.get_character_list()
-    default_char = all_chars[0] if all_chars else "Default"
-    if not selected_ids or len(selected_ids) != 1:
-        return "アラーム追加", "", "", default_char, [], "08", "00", None, False
-    alarm = next((a for a in alarm_manager.load_alarms() if a.get("id") == selected_ids[0]), None)
-    if not alarm:
-        gr.Warning(f"アラームID '{selected_ids[0]}' が見つかりません。")
-        return "アラーム追加", "", "", default_char, [], "08", "00", None, False
-    h, m = alarm.get("time", "08:00").split(":")
-    days_ja = [DAY_MAP_EN_TO_JA.get(d.lower(), d.upper()) for d in alarm.get("days", [])]
-    theme_content = alarm.get("context_memo") or ""
-    is_emergency = alarm.get("is_emergency", False)
-    return "アラーム更新", theme_content, "", alarm.get("character", default_char), days_ja, h, m, selected_ids[0], is_emergency
 
 def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_theme, brk_theme, api_key_name, normal_theme):
     if not char or not api_key_name:
@@ -684,3 +678,5 @@ def update_token_count(*args):
         print(f"トークン数計算UIハンドラエラー: {e}")
         traceback.print_exc()
         return "入力トークン数: (例外発生)"
+
+[end of ui_handlers.py]

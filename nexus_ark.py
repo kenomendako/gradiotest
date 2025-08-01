@@ -263,18 +263,23 @@ try:
         reload_notepad_button.click(fn=ui_handlers.handle_reload_notepad, inputs=[current_character_name], outputs=[notepad_editor])
         clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_character_name], outputs=[notepad_editor])
         alarm_dataframe.select(
-            fn=ui_handlers.handle_alarm_selection_and_feedback,
+            fn=ui_handlers.handle_alarm_selection_for_all_updates, # 新しい統合関数を呼び出す
             inputs=[alarm_dataframe_original_data],
-            outputs=[selected_alarm_ids_state, selection_feedback_markdown],
-            show_progress=False
-        ).then(
-            fn=ui_handlers.load_alarm_to_form,
-            inputs=[selected_alarm_ids_state],
+            # すべての更新対象コンポーネントを一つのoutputsリストにまとめる
             outputs=[
-                alarm_add_button, alarm_theme_input, alarm_prompt_input,
-                alarm_char_dropdown, alarm_days_checkboxgroup, alarm_hour_dropdown,
-                alarm_minute_dropdown, editing_alarm_id_state, alarm_emergency_checkbox
-            ]
+                selected_alarm_ids_state,
+                selection_feedback_markdown,
+                alarm_add_button,
+                alarm_theme_input,
+                alarm_prompt_input,
+                alarm_char_dropdown,
+                alarm_days_checkboxgroup,
+                alarm_emergency_checkbox, # 緊急通知チェックボックスもoutputsに追加
+                alarm_hour_dropdown,
+                alarm_minute_dropdown,
+                editing_alarm_id_state
+            ],
+            show_progress=False
         )
         enable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, True), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data, alarm_dataframe])
         disable_button.click(fn=lambda ids: ui_handlers.toggle_selected_alarms_status(ids, False), inputs=[selected_alarm_ids_state], outputs=[alarm_dataframe_original_data, alarm_dataframe])
