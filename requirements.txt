@@ -41,3 +41,6 @@ plyer
 
 # For file type detection
 filetype
+
+# For HTML parsing in utils
+beautifulsoup4

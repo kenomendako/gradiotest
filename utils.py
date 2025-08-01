@@ -1,4 +1,4 @@
-# utils.py を、この最終確定版コードで完全に置き換えてください
+# utils.py (完全最終版)
 
 import os
 import re
@@ -13,6 +13,7 @@ from pathlib import Path
 import json
 import time
 import uuid
+from bs4 import BeautifulSoup
 
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
@@ -82,13 +83,6 @@ def release_lock():
     except Exception as e:
         print(f"\n警告: ロックファイルの解放中にエラーが発生しました: {e}")
 
-def is_image_file(filepath: str) -> bool:
-    """Check if the file is an image based on its extension."""
-    if not filepath:
-        return False
-    image_extensions = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.gif']
-    return any(filepath.lower().endswith(ext) for ext in image_extensions)
-
 def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
     messages: List[Dict[str, str]] = []
     if not character_name or not file_path or not os.path.exists(file_path):
@@ -115,19 +109,15 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
         if part.startswith("## ") and part.endswith(":"):
             header = part
         elif header:
-            # ユーザーの役割を判定
-            is_ai_message = header == ai_header
-            is_system_message = header == alarm_header
-
-            # AIでもシステムでもないヘッダーはユーザーとみなす
-            role = "model" if is_ai_message or is_system_message else "user"
-
+            if header == ai_header:
+                role = 'model'
+            else: # ユーザーヘッダーとシステムヘッダーの両方を 'user' として扱う
+                role = 'user'
             messages.append({"role": role, "content": part})
             header = None
-
     return messages
 
-def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name: str) -> Tuple[List[Dict[str, Union[str, tuple, None]]], List[int]]:
+def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name: str) -> Tuple[List[Tuple[Union[str, Tuple, None], Union[str, Tuple, None]]], List[int]]:
     if not raw_history:
         return [], []
 
@@ -135,81 +125,64 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
     mapping_list = []
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
+    intermediate_list = []
     for i, msg in enumerate(raw_history):
-        role = "assistant" if msg.get("role") == "model" else "user"
         content = msg.get("content", "").strip()
-        if not content:
-            continue
+        if not content: continue
 
-        parts = []
         last_end = 0
+        # 画像タグでテキストを分割
         for match in image_tag_pattern.finditer(content):
+            # 画像タグの前のテキスト部分
             if match.start() > last_end:
-                parts.append(("text", content[last_end:match.start()].strip()))
-            parts.append(("image", match.group(1).strip()))
+                intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:match.start()].strip(), "original_index": i})
+            # 画像タグ部分
+            intermediate_list.append({"type": "image", "role": "model", "content": match.group(1).strip(), "original_index": i})
             last_end = match.end()
+        # 最後の画像タグの後ろのテキスト部分
         if last_end < len(content):
-            parts.append(("text", content[last_end:].strip()))
+            intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:].strip(), "original_index": i})
 
-        if not parts:
-             parts.append(("text", content))
+    # ナビゲーション用のアンカーIDを先にすべて生成
+    text_parts_with_anchors = []
+    for item in intermediate_list:
+        if item["type"] == "text" and item["content"]:
+            item["anchor_id"] = f"msg-anchor-{uuid.uuid4().hex[:8]}"
+            text_parts_with_anchors.append(item)
 
-        # Assign unique anchor IDs to all text parts first
-        part_data = []
-        for part_type, part_content in parts:
-            if part_content:
-                part_data.append({
-                    "type": part_type,
-                    "content": part_content,
-                    "anchor_id": f"msg-anchor-{uuid.uuid4().hex[:8]}" if part_type == "text" else None
-                })
+    # 最終的なタプルリストを生成
+    text_part_index = 0
+    for item in intermediate_list:
+        if not item["content"]: continue
 
-        text_anchor_ids = [p["anchor_id"] for p in part_data if p["type"] == "text"]
+        if item["type"] == "text":
+            prev_anchor = text_parts_with_anchors[text_part_index - 1]["anchor_id"] if text_part_index > 0 else None
+            next_anchor = text_parts_with_anchors[text_part_index + 1]["anchor_id"] if text_part_index < len(text_parts_with_anchors) - 1 else None
 
-        text_part_counter = 0
-        for p_data in part_data:
-            if p_data["type"] == "text":
-                prev_anchor = text_anchor_ids[text_part_counter - 1] if text_part_counter > 0 else None
-                next_anchor = text_anchor_ids[text_part_counter + 1] if text_part_counter < len(text_anchor_ids) - 1 else None
+            html_content = _format_text_content_for_gradio(item["content"], item["anchor_id"], prev_anchor, next_anchor)
 
-                html_content = _format_text_content_for_gradio(
-                    p_data["content"],
-                    p_data["anchor_id"],
-                    prev_anchor,
-                    next_anchor
-                )
-                gradio_history.append({"role": role, "content": html_content})
-                mapping_list.append(i)
-                text_part_counter += 1
+            if item["role"] == "user":
+                gradio_history.append((html_content, None))
+            else: # model
+                gradio_history.append((None, html_content))
 
-            elif p_data["type"] == "image":
-                filepath = p_data["content"]
-                filename = os.path.basename(filepath)
-                gradio_history.append({"role": "assistant", "content": (filepath, filename)})
-                mapping_list.append(i)
+            mapping_list.append(item["original_index"])
+            text_part_index += 1
+
+        elif item["type"] == "image":
+            filepath = item["content"]
+            filename = os.path.basename(filepath)
+            gradio_history.append((None, (filepath, filename)))
+            mapping_list.append(item["original_index"])
 
     return gradio_history, mapping_list
 
 def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
-    """
-    Formats text content into HTML with stable navigation links.
-    """
-    # Up button
-    up_button = ""
-    if prev_anchor_id:
-        up_button = f"<a href='#{prev_anchor_id}' class='message-nav-link' title='前の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
-    else:
-        up_button = f"<a href='#{current_anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
-
-    # Down button
-    down_button = ""
-    if next_anchor_id:
-        down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>"
-
+    up_button = f"<a href='#{prev_anchor_id or current_anchor_id}' class='message-nav-link' title='前の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
+    down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
     delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
     button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
 
-    # Process thoughts
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     thought_match = thoughts_pattern.search(content)
 
@@ -217,20 +190,16 @@ def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_a
 
     if thought_match:
         thoughts_content = thought_match.group(1).strip()
-        escaped_thoughts = html.escape(thoughts_content)
-        thoughts_with_breaks = escaped_thoughts.replace('\n', '<br>')
-        final_parts.append(f"<div class='thoughts'>{thoughts_with_breaks}</div>")
+        escaped_thoughts = html.escape(thoughts_content).replace('\n', '<br>')
+        final_parts.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
 
-    # Process main text
     main_text = thoughts_pattern.sub("", content).strip()
-    escaped_text = html.escape(main_text)
-    text_with_breaks = escaped_text.replace('\n', '<br>')
-    final_parts.append(f"<div>{text_with_breaks}</div>")
+    escaped_text = html.escape(main_text).replace('\n', '<br>')
+    final_parts.append(f"<div>{escaped_text}</div>")
 
     final_parts.append(button_container)
 
     return "".join(final_parts)
-
 
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
     if not all([log_file_path, header, text_content, text_content.strip()]):
@@ -248,7 +217,6 @@ def save_message_to_log(log_file_path: str, header: str, text_content: str) -> N
         traceback.print_exc()
 
 def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str], character_name: str) -> bool:
-    """ログファイルから、指定されたメッセージ辞書と完全に一致するエントリを一つ削除する。"""
     if not log_file_path or not os.path.exists(log_file_path) or not message_to_delete:
         return False
 
@@ -262,7 +230,6 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
             print(f"  - 検索対象: {message_to_delete}")
             return False
 
-        # Rebuild the entire log file from the modified message list
         log_content_parts = []
         user_header = _get_user_header_from_log(log_file_path, character_name)
         ai_header = f"## {character_name}:"
@@ -282,7 +249,6 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
 
         print("--- Successfully deleted message from log ---")
         return True
-
     except Exception as e:
         print(f"エラー: ログからのメッセージ削除中に予期せぬエラー: {e}")
         traceback.print_exc()
@@ -322,36 +288,24 @@ def get_current_location(character_name: str) -> Optional[str]:
         print(f"警告: 現在地ファイルの読み込みに失敗しました: {e}")
     return None
 
-def extract_raw_text_from_html(html_content: str) -> str:
-    if not html_content:
+def extract_raw_text_from_html(html_content: Union[str, tuple, None]) -> str:
+    if not html_content or not isinstance(html_content, str):
         return ""
 
-    # 1. ボタンコンテナを削除
-    html_content = re.sub(r"<div style='text-align: right;.*?'>.*?</div>", "", html_content, flags=re.DOTALL)
+    soup = BeautifulSoup(html_content, 'html.parser')
 
-    # 2. 思考ログを削除
-    html_content = re.sub(r"<div class='thoughts'>.*?</div>", "", html_content, flags=re.DOTALL)
+    thoughts_text = ""
+    thoughts_div = soup.find('div', class_='thoughts')
+    if thoughts_div:
+        for br in thoughts_div.find_all("br"): br.replace_with("\n")
+        thoughts_content = thoughts_div.get_text()
+        if thoughts_content: thoughts_text = f"【Thoughts】\n{thoughts_content.strip()}\n【/Thoughts】\n\n"
+        thoughts_div.decompose()
 
-    # 3. アンカーを削除
-    html_content = re.sub(r"<span id='msg-anchor-.*?'></span>", "", html_content)
+    for nav_div in soup.find_all('div', style=lambda v: v and 'text-align: right' in v): nav_div.decompose()
+    for anchor_span in soup.find_all('span', id=lambda v: v and v.startswith('msg-anchor-')): anchor_span.decompose()
 
-    # 4. 画像やファイルのMarkdownリンクを元のタグ形式に戻す
-    # ![filename](/file=...) -> [Generated Image: filepath]
-    # [filename](/file=...) -> [ファイル添付: filepath]
-    def restore_tags(match):
-        text = match.group(1)
-        path = match.group(2)
-        if match.group(0).startswith('!'):
-            return f"[Generated Image: {path}]"
-        else:
-            return f"[ファイル添付: {path}]"
+    for br in soup.find_all("br"): br.replace_with("\n")
+    main_text = soup.get_text()
 
-    html_content = re.sub(r'!?\[(.*?)\]\(\/file=(.*?)\)', restore_tags, html_content)
-
-    # 5. 残ったHTMLタグ (<div>など) を削除
-    raw_text = re.sub('<[^<]+?>', '', html_content)
-
-    # 6. HTMLエンティティをデコード（例: &lt; -> <）
-    raw_text = html.unescape(raw_text)
-
-    return raw_text.strip()
+    return (thoughts_text + main_text).strip()
