@@ -497,8 +497,28 @@ def handle_alarm_selection_and_feedback(evt: gr.SelectData, df_with_id: pd.DataF
 def toggle_selected_alarms_status(selected_ids: list, target_status: bool):
     if not selected_ids:
         gr.Warning("状態を変更するアラームが選択されていません。")
-    for alarm_id in selected_ids:
-        alarm_manager.toggle_alarm_status(alarm_id, target_status)
+        # 変更がない場合も、現在の状態を返す
+        df_with_ids = render_alarms_as_dataframe()
+        return df_with_ids, get_display_df(df_with_ids)
+
+    # 1. 現在のアラームデータをすべてロードする
+    current_alarms = alarm_manager.load_alarms()
+
+    # 2. ロードしたリストをループし、選択されたIDと一致するアラームの状態を書き換える
+    modified = False
+    for alarm in current_alarms:
+        if alarm.get("id") in selected_ids:
+            alarm["enabled"] = target_status
+            modified = True
+
+    # 3. 変更があった場合のみ、アラームファイル全体を保存する
+    if modified:
+        # alarm_manager はグローバル変数でデータを保持しているので、それを直接書き換えて保存する
+        alarm_manager.alarms_data_global = current_alarms
+        alarm_manager.save_alarms()
+        gr.Info(f"{len(selected_ids)}件のアラームの状態を「{ '有効' if target_status else '無効' }」に変更しました。")
+
+    # 4. 最後に、更新された内容でUIのデータフレームを再生成して返す
     new_df_with_ids = render_alarms_as_dataframe()
     return new_df_with_ids, get_display_df(new_df_with_ids)
 
