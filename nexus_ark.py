@@ -4,36 +4,43 @@ import os
 import sys
 import utils
 
+# アプリケーションの多重起動を防ぐためのロックを取得
 if not utils.acquire_lock():
     print("ロックが取得できなかったため、アプリケーションを終了します。")
     if os.name == "nt": os.system("pause")
     else: input("続行するにはEnterキーを押してください...")
     sys.exit(1)
 
+# Mem0のテレメトリを無効化
 os.environ["MEM0_TELEMETRY_ENABLED"] = "false"
 
+# ★★★ ここからがプログラムの本体。全体をtry...except...finallyで囲む ★★★
 try:
+    # 必要なライブラリをインポート
     import gradio as gr
     import traceback
     import pandas as pd
     import config_manager, character_manager, alarm_manager, ui_handlers
     
+    # 設定ファイルとアラームデータをロード
     config_manager.load_config()
     alarm_manager.load_alarms()
 
+    # UIのカスタムCSS
     custom_css = """
-#chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
-#chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word !important; }
-#memory_json_editor_code .cm-editor { max-height: 300px !important; overflow-y: auto !important; overflow-x: hidden !important; white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: break-word !important; }
-#notepad_editor_code textarea { max-height: 300px !important; overflow-y: auto !important; white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: break-word !important; box-sizing: border-box; }
-#memory_json_editor_code, #notepad_editor_code { max-height: 310px; border: 1px solid #ccc; border-radius: 5px; padding: 0; }
-#alarm_dataframe_display { border-radius: 8px !important; } #alarm_dataframe_display table { width: 100% !important; }
-#alarm_dataframe_display th, #alarm_dataframe_display td { text-align: left !important; padding: 4px 8px !important; white-space: normal !important; font-size: 0.95em; }
-#alarm_dataframe_display th:nth-child(1), #alarm_dataframe_display td:nth-child(1) { width: 50px !important; text-align: center !important; }
-#selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
-#token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
-#tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
-"""
+    #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
+    #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word !important; }
+    #memory_json_editor_code .cm-editor { max-height: 300px !important; overflow-y: auto !important; overflow-x: hidden !important; white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: break-word !important; }
+    #notepad_editor_code textarea { max-height: 300px !important; overflow-y: auto !important; white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: break-word !important; box-sizing: border-box; }
+    #memory_json_editor_code, #notepad_editor_code { max-height: 310px; border: 1px solid #ccc; border-radius: 5px; padding: 0; }
+    #alarm_dataframe_display { border-radius: 8px !important; } #alarm_dataframe_display table { width: 100% !important; }
+    #alarm_dataframe_display th, #alarm_dataframe_display td { text-align: left !important; padding: 4px 8px !important; white-space: normal !important; font-size: 0.95em; }
+    #alarm_dataframe_display th:nth-child(1), #alarm_dataframe_display td:nth-child(1) { width: 50px !important; text-align: center !important; }
+    #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
+    #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
+    #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
+    """
+    # チャット内のリンククリックが選択イベントを誤発火させないようにするJavaScript
     js_stop_nav_link_propagation = """
     function() {
         document.body.addEventListener('click', function(e) {
@@ -49,7 +56,9 @@ try:
     }
     """
 
+    # GradioのUIブロックを定義
     with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, js=js_stop_nav_link_propagation) as demo:
+        # --- 起動時の初期値設定 ---
         character_list_on_startup = character_manager.get_character_list()
         if not character_list_on_startup:
             character_manager.ensure_character_files("Default")
@@ -64,6 +73,7 @@ try:
                 character_manager.ensure_character_files("Default")
                 character_list_on_startup = ["Default"]
 
+        # --- Stateオブジェクトの定義 ---
         current_character_name = gr.State(effective_initial_character)
         current_model_name = gr.State(config_manager.initial_model_global)
         current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -78,6 +88,7 @@ try:
         send_scenery_state = gr.State(True)
         selected_message_state = gr.State(None)
 
+        # --- UIレイアウトの定義 ---
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
@@ -260,6 +271,22 @@ try:
 
             demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor, location_dropdown, current_location_display, current_scenery_display])
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
+
+        # ★★★ ここが修正箇所。if __name__ == "__main__": をtryブロックの内側に入れる ★★★
+        if __name__ == "__main__":
+            print("\n" + "="*60)
+            print("アプリケーションを起動します...")
+            print(f"起動後、以下のURLでアクセスしてください。")
+            print("")
+            print(f"  【PCからアクセスする場合】")
+            print(f"  http://127.0.0.1:7860")
+            print("")
+            print("  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】")
+            print(f"  http://<お使いのPCのIPアドレス>:7860")
+            print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで")
+            print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)")
+            print("="*60 + "\n")
+            demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
 
     except Exception as e:
         print("\n" + "X"*60)
