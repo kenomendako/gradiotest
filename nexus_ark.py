@@ -261,21 +261,6 @@ try:
             demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor, location_dropdown, current_location_display, current_scenery_display])
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 
-        if __name__ == "__main__":
-            print("\n" + "="*60)
-            print("アプリケーションを起動します...")
-            print(f"起動後、以下のURLでアクセスしてください。")
-            print("")
-            print(f"  【PCからアクセスする場合】")
-            print(f"  http://127.0.0.1:7860")
-            print("")
-            print("  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】")
-            print(f"  http://<お使いのPCのIPアドレス>:7860")
-            print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで")
-            print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)")
-            print("="*60 + "\n")
-            demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
-
     except Exception as e:
         print("\n" + "X"*60)
         print("!!! [致命的エラー] アプリケーションの起動中に、予期せぬ例外が発生しました。")
