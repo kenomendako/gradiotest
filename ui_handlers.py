@@ -472,13 +472,23 @@ def get_display_df(df_with_id: pd.DataFrame):
     return df_with_id[["状態", "時刻", "予定", "キャラ", "内容"]] if 'ID' in df_with_id.columns else df_with_id
 
 def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame) -> List[str]:
-    if evt.index is None or df_with_id is None or df_with_id.empty:
+    """
+    Gradio Dataframeからの選択イベントを正しく処理する。
+    evt.indexは選択された行番号のリスト (e.g., [0, 2]) である。
+    """
+    if not evt.index or df_with_id is None or df_with_id.empty:
         return []
-    try:
-        indices = [idx[0] for idx in evt.index] if isinstance(evt.index, list) else [evt.index[0]]
-        return [str(df_with_id.iloc[i]['ID']) for i in indices if 0 <= i < len(df_with_id)]
-    except:
-        return []
+
+    selected_ids = []
+    # Gradioから送られてくる行番号のリストを直接ループする
+    for row_index in evt.index:
+        # 念のため、インデックスが有効な範囲にあるかチェック
+        if 0 <= row_index < len(df_with_id):
+            # .ilocで行を特定し、その行の 'ID' 列の値を取得する
+            alarm_id = df_with_id.iloc[row_index]['ID']
+            selected_ids.append(str(alarm_id))
+
+    return selected_ids
 
 def handle_alarm_selection_and_feedback(evt: gr.SelectData, df_with_id: pd.DataFrame):
     selected_ids = handle_alarm_selection(evt, df_with_id)
