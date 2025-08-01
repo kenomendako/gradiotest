@@ -154,7 +154,8 @@ def trigger_alarm(alarm_config, current_api_key_name):
             config_manager.initial_api_history_limit_option_global,
             True,                               # send_notepad_state
             True,                               # use_common_prompt_state
-            True                                # send_core_memory_state
+            True,                               # send_core_memory_state
+            True                                # send_scenery_state
         ]
 
         # 4. エージェントを呼び出し
