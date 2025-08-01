@@ -136,7 +136,7 @@ def trigger_alarm(alarm_config, current_api_key_name):
         # ★★★ ここからが修正点 ★★★
 
         # 1. AIに意図を伝えるための、内部的なプロンプト
-        synthesized_user_message_for_agent = f"（システムアラーム：時間です。コンテキスト「{context_to_use}」について、何か伝えてください）"
+        synthesized_user_message_for_agent = f"（システムアラーム：時間です。コンテキスト「{context_to_use}」について、アラームメッセージを伝えてください）"
 
         # 2. ログファイルとUIに表示するための、シンプルなメッセージ
         message_for_log = f"（システムアラーム：{alarm_time}）"
