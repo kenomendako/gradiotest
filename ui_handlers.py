@@ -91,19 +91,17 @@ def handle_message_submission(*args: Any):
     if user_prompt_from_textbox:
         timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         processed_user_message = user_prompt_from_textbox + timestamp
-        chatbot_history.append({"role": "user", "content": processed_user_message})
+        chatbot_history.append((processed_user_message, None)) # ★ 辞書からタプルに変更
         log_message_parts.append(processed_user_message)
 
     if file_input_list:
         for file_obj in file_input_list:
             filepath = file_obj.name
             filename = os.path.basename(filepath)
-            safe_filepath = os.path.abspath(filepath).replace("\\", "/")
-            md_string = f"[{filename}]({safe_filepath})"
-            chatbot_history.append({"role": "user", "content": md_string})
+            chatbot_history.append(((filepath, filename), None)) # ★ ファイルもタプル形式に変更
             log_message_parts.append(f"[ファイル添付: {filepath}]")
 
-    chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
+    chatbot_history.append((None, "思考中... ▌"))
 
     token_count = update_token_count(current_character_name, current_model_name, textbox_content, file_input_list, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 
@@ -139,6 +137,7 @@ def handle_message_submission(*args: Any):
 
     raw_history = utils.load_chat_log(log_f, current_character_name)
     display_turns = _get_display_history_count(api_history_limit_state)
+    # ★ 返り値が2つになったことに注意
     formatted_history, _ = utils.format_history_for_gradio(raw_history[-(display_turns*2):], current_character_name)
 
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)

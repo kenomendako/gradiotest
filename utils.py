@@ -131,20 +131,26 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
         if not content: continue
 
         last_end = 0
+        # 画像タグでテキストを分割
         for match in image_tag_pattern.finditer(content):
+            # 画像タグの前のテキスト部分
             if match.start() > last_end:
                 intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:match.start()].strip(), "original_index": i})
+            # 画像タグ部分
             intermediate_list.append({"type": "image", "role": "model", "content": match.group(1).strip(), "original_index": i})
             last_end = match.end()
+        # 最後の画像タグの後ろのテキスト部分
         if last_end < len(content):
             intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:].strip(), "original_index": i})
 
+    # ナビゲーション用のアンカーIDを先にすべて生成
     text_parts_with_anchors = []
     for item in intermediate_list:
         if item["type"] == "text" and item["content"]:
             item["anchor_id"] = f"msg-anchor-{uuid.uuid4().hex[:8]}"
             text_parts_with_anchors.append(item)
 
+    # 最終的なタプルリストを生成
     text_part_index = 0
     for item in intermediate_list:
         if not item["content"]: continue
