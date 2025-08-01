@@ -263,9 +263,8 @@ try:
         reload_notepad_button.click(fn=ui_handlers.handle_reload_notepad, inputs=[current_character_name], outputs=[notepad_editor])
         clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_character_name], outputs=[notepad_editor])
         alarm_dataframe.select(
-            fn=ui_handlers.handle_alarm_selection_for_all_updates, # 新しい統合関数を呼び出す
+            fn=ui_handlers.handle_alarm_selection_for_all_updates,
             inputs=[alarm_dataframe_original_data],
-            # すべての更新対象コンポーネントを一つのoutputsリストにまとめる
             outputs=[
                 selected_alarm_ids_state,
                 selection_feedback_markdown,
@@ -274,7 +273,7 @@ try:
                 alarm_prompt_input,
                 alarm_char_dropdown,
                 alarm_days_checkboxgroup,
-                alarm_emergency_checkbox, # 緊急通知チェックボックスもoutputsに追加
+                alarm_emergency_checkbox,
                 alarm_hour_dropdown,
                 alarm_minute_dropdown,
                 editing_alarm_id_state
