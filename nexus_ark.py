@@ -272,7 +272,7 @@ try:
             demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor, location_dropdown, current_location_display, current_scenery_display])
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 
-        # ★★★ ここが修正箇所。if __name__ == "__main__": をtryブロックの内側に入れる ★★★
+        # ★★★ ここが正しい構造。if __name__ == "__main__": はtryブロックの外側には来ない ★★★
         if __name__ == "__main__":
             print("\n" + "="*60)
             print("アプリケーションを起動します...")
@@ -288,14 +288,14 @@ try:
             print("="*60 + "\n")
             demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
 
-    except Exception as e:
-        print("\n" + "X"*60)
-        print("!!! [致命的エラー] アプリケーションの起動中に、予期せぬ例外が発生しました。")
-        print("X"*60)
-        traceback.print_exc()
-    finally:
-        utils.release_lock()
-        if os.name == "nt":
-            os.system("pause")
-        else:
-            input("続行するにはEnterキーを押してください...")
+except Exception as e:
+    print("\n" + "X"*60)
+    print("!!! [致命的エラー] アプリケーションの起動中に、予期せぬ例外が発生しました。")
+    print("X"*60)
+    traceback.print_exc()
+finally:
+    utils.release_lock()
+    if os.name == "nt":
+        os.system("pause")
+    else:
+        input("続行するにはEnterキーを押してください...")
