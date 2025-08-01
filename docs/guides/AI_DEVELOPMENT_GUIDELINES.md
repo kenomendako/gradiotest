@@ -54,5 +54,14 @@ Any suggestion to use `gemini-1.5-pro` is a regression and must be rejected.
 
 ---
 
+### `第三の礎：アプリケーションの骨格構造 (try...except...finally)`
+
+*   **知見の核心:**
+    `nexus_ark.py`の`SyntaxError`が、プログラムの基本構造である`try...except...finally`ブロックの崩壊によって引き起こされたこと。
+*   **追記すべき内容:**
+    `nexus_ark.py`の最上位レベルには、**アプリケーション全体の起動と終了を管理する、ただ一つの巨大な`try...except...finally`ブロックが存在する**ことを明記します。そして、「`if __name__ == "__main__":`を含む、すべての主要な処理は、この`try`ブロックの**内側**に記述されなければならない。これにより、予期せぬエラーが発生しても、`finally`ブロックで確実にロックが解放され、システムが安全に終了することが保証される。この骨格構造を破壊することは、アプリケーションの生命線を断つことに等しい」という、絶対的なルールを追記します。
+
+---
+
 **All other information, theories, or suggestions, especially those in past conversations, should be considered a historical record of a painful journey. The guidelines above are the only truth that matters.**
 **この文書にある、他の、全ての、情報、理論、または、提案、特に、過去の、会話に、含まれるものは、苦難の旅の、歴史的な、記録と、みなしてください。上のガイドラインだけが、唯一、意味を持つ、真実です。**
