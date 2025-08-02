@@ -78,38 +78,34 @@ def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[s
 
 # --- チャット処理 ---
 def handle_message_submission(*args: Any):
-    (textbox_content, chat_messages, chat_buttons, current_character_name, current_model_name, current_api_key_name_state, file_input_list, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state) = args
+    (textbox_content, chatbot_history, current_character_name, current_model_name, current_api_key_name_state, file_input_list, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state) = args
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
-        yield chat_messages, chat_buttons, gr.update(), gr.update(), token_count, gr.update(), gr.update(), gr.update(), gr.update()
+        yield chatbot_history, gr.update(), gr.update(), token_count, gr.update(), gr.update(), gr.update(), gr.update()
         return
 
     log_message_parts = []
     if user_prompt_from_textbox:
         timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         processed_user_message = user_prompt_from_textbox + timestamp
-        chat_messages.append({"role": "user", "content": processed_user_message})
-        chat_buttons.append((processed_user_message, None))
+        chatbot_history.append((processed_user_message, None))
         log_message_parts.append(processed_user_message)
 
     if file_input_list:
         for file_obj in file_input_list:
             filepath = file_obj.name
             filename = os.path.basename(filepath)
-            chat_messages.append({"role": "user", "content": (filepath, filename)})
-            chat_buttons.append(((filepath, filename), None))
+            chatbot_history.append(((filepath, filename), None))
             log_message_parts.append(f"[ファイル添付: {filepath}]")
 
-    chat_messages.append({"role": "assistant", "content": "思考中... ▌"})
-    chat_buttons.append((None, "思考中... ▌"))
+    chatbot_history.append((None, "思考中... ▌"))
 
     token_count = update_token_count(current_character_name, current_model_name, textbox_content, file_input_list, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 
     yield (
-        chat_messages,
-        chat_buttons,
+        chatbot_history,
         gr.update(value=""),
         gr.update(value=None),
         token_count,
@@ -122,7 +118,7 @@ def handle_message_submission(*args: Any):
     response_data = {}
     try:
         agent_args = (
-            textbox_content, chat_messages, current_character_name,
+            textbox_content, chatbot_history, current_character_name,
             current_api_key_name_state, file_input_list, add_timestamp_checkbox,
             api_history_limit_state
         )
@@ -145,7 +141,7 @@ def handle_message_submission(*args: Any):
 
     raw_history = utils.load_chat_log(log_f, current_character_name)
     display_turns = _get_display_history_count(api_history_limit_state)
-    messages_history, buttons_history, _ = utils.format_history_for_gradio(raw_history[-(display_turns*2):], current_character_name)
+    formatted_history, _ = utils.format_history_for_gradio(raw_history[-(display_turns*2):], current_character_name)
 
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 
@@ -153,8 +149,7 @@ def handle_message_submission(*args: Any):
     new_display_df = get_display_df(new_alarm_df_with_ids)
 
     yield (
-        messages_history,
-        buttons_history,
+        formatted_history,
         gr.update(),
         gr.update(value=None),
         token_count,
@@ -163,6 +158,7 @@ def handle_message_submission(*args: Any):
         new_alarm_df_with_ids,
         new_display_df
     )
+
 
 # --- UI更新ハンドラ ---
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
@@ -239,7 +235,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
 
     display_turns = _get_display_history_count(api_history_limit_value)
-    messages_history, buttons_history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):], character_name)
+    chat_history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):], character_name)
 
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
@@ -257,8 +253,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
 
     return (
         character_name,
-        messages_history,
-        buttons_history,
+        chat_history, # 変更点： messages_history を chat_history に
         "",
         profile_image,
         memory_str,
@@ -280,14 +275,12 @@ def handle_initial_load():
     df_with_ids = render_alarms_as_dataframe()
     display_df = get_display_df(df_with_ids)
 
-    # ★★★ ここが最後の修正箇所です ★★★
-    # 12個の値を正しく受け取るために、( )で囲み、先頭に変数 `ret_char` を追加します
-    (ret_char, messages_history, buttons_history, _, prof_img, mem_str, al_char,
-     tm_char, note_cont, loc_dd, location_name, scenery_text) = update_ui_on_character_change(char_name, api_history_limit)
+    (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char,
+     note_cont, loc_dd, location_name, scenery_text) = update_ui_on_character_change(char_name, api_history_limit)
 
     token_count = update_token_count(char_name, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
 
-    return (display_df, df_with_ids, messages_history, buttons_history, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
+    return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
 
 # --- チャットメッセージの削除 ---
 def handle_chatbot_selection(character_name: str, api_history_limit_state: str, evt: gr.SelectData):
@@ -302,7 +295,7 @@ def handle_chatbot_selection(character_name: str, api_history_limit_state: str, 
         display_turns = _get_display_history_count(api_history_limit_state)
         visible_raw_history = raw_history[-(display_turns * 2):]
 
-        _, _, mapping_list = utils.format_history_for_gradio(visible_raw_history, character_name)
+        _, mapping_list = utils.format_history_for_gradio(visible_raw_history, character_name)
 
         if not (0 <= clicked_ui_index < len(mapping_list)):
             gr.Warning("Could not identify the clicked message (UI index out of bounds).")
@@ -324,7 +317,7 @@ def handle_chatbot_selection(character_name: str, api_history_limit_state: str, 
 def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], character_name: str, api_history_limit: str):
     if not message_to_delete:
         gr.Warning("No message selected for deletion.")
-        return gr.update(), gr.update(), None, gr.update(visible=False)
+        return gr.update(), None, gr.update(visible=False)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
 
@@ -339,17 +332,16 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], char
     else:
         gr.Error("Failed to delete the message. Check terminal for details.")
 
-    messages_history, buttons_history = reload_chat_log(character_name, api_history_limit)
-
-    return messages_history, buttons_history, None, gr.update(visible=False)
+    new_chat_history = reload_chat_log(character_name, api_history_limit) # 変更
+    return new_chat_history, None, gr.update(visible=False) # 変更
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
-    if not character_name: return [], []
+    if not character_name: return []
     log_f,_,_,_,_ = get_character_files_paths(character_name)
-    if not log_f or not os.path.exists(log_f): return [], []
+    if not log_f or not os.path.exists(log_f): return []
     display_turns = _get_display_history_count(api_history_limit_value)
-    messages_history, buttons_history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name)
-    return messages_history, buttons_history
+    history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name) # 変更
+    return history # 変更
 
 # --- 記憶とメモ帳 ---
 def handle_save_memory_click(character_name, json_string_data):
@@ -670,33 +662,39 @@ def update_token_count(*args):
         traceback.print_exc()
         return "入力トークン数: (例外発生)"
 
-# ★★★ ここから追加 ★★★
-def handle_audio_playback_request(text_to_speak: str, character_name: str, api_key_name: str):
-    """UIからの音声再生リクエストを処理する司令塔。"""
-    if not text_to_speak or not character_name or not api_key_name:
-        return gr.update()
+def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], character_name: str, api_key_name: str):
+    """外部コントロールパネルの再生ボタンが押されたときの処理"""
+    if not selected_message:
+        gr.Warning("再生するメッセージが選択されていません。")
+        return None
 
-    # 1. このキャラクターの有効な設定（特に声ID）を取得
+    # 選択されたメッセージ辞書から、HTMLではない生のテキストを抽出
+    raw_text = utils.extract_raw_text_from_html(selected_message.get("content"))
+    # 思考ログは再生しない
+    text_to_speak = utils.remove_thoughts_from_text(raw_text)
+
+    if not text_to_speak:
+        gr.Info("このメッセージには音声で再生できるテキストがありません。")
+        return None
+
+    # キャラクターの有効な設定（特に声ID）を取得
     effective_settings = config_manager.get_effective_settings(character_name)
-    voice_id = effective_settings.get("voice_id", "ja-JP-Wavenet-D") # フォールバック
+    voice_id = effective_settings.get("voice_id", "ja-JP-Wavenet-D")
     api_key = config_manager.API_KEYS.get(api_key_name)
 
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return gr.update()
+        return None
 
-    # 2. 新しい audio_manager を使って音声を生成
-    # (この時点では audio_manager は未作成なので、直接 gemini_api を呼ぶか、
-    #  audio_manager.py を作成してそこに関数を移す)
-    # 今回は audio_manager.py を作成する方針で進める
+    # audio_managerを使って音声を生成
     from audio_manager import generate_audio_from_text
-
+    gr.Info(f"「{character_name}」の声で音声を生成しています...")
     audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id)
 
-    # 3. 生成された音声ファイルのパスで、非表示のAudioプレイヤーを更新
+    # 生成された音声ファイルのパスを返し、Audioコンポーネントで再生
     if audio_filepath:
-        return gr.update(value=audio_filepath)
+        gr.Info("再生します。")
+        return audio_filepath
     else:
-        gr.Warning("音声の生成に失敗しました。")
-        return gr.update()
-# ★★★ ここまで追加 ★★★
+        gr.Error("音声の生成に失敗しました。")
+        return None

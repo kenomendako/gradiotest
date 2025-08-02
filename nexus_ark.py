@@ -47,33 +47,12 @@ try:
         width: 100%;
         height: 100%;
     }
-    .transparent_chatbot .message-bubble {
-        background-color: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-    }
-    .transparent_chatbot .message-text {
-        color: transparent !important;
-    }
     """
     js_stop_nav_link_propagation = """
     function() {
         document.body.addEventListener('click', function(e) {
             let target = e.target;
             while (target && target !== document.body) {
-                if (target.matches('.play-audio-button')) {
-                    e.stopPropagation();
-                    const text = target.dataset.text;
-                    const gradio_app = document.querySelector('gradio-app');
-                    if (gradio_app) {
-                        const hidden_textbox = gradio_app.shadowRoot.querySelector('#text_for_audio_input textarea');
-                        if (hidden_textbox) {
-                            hidden_textbox.value = text;
-                            hidden_textbox.dispatchEvent(new Event('input', { bubbles: true }));
-                        }
-                    }
-                    return;
-                }
                 if (target.matches('.message-nav-link')) {
                     e.stopPropagation();
                     return;
@@ -190,23 +169,12 @@ try:
                         add_character_button = gr.Button("迎える", variant="secondary", scale=1)
 
             with gr.Column(scale=3):
-                with gr.Blocks(elem_id="chat_container"):
-                    chatbot_display_messages = gr.Chatbot(
-                        type="messages",
-                        height=600,
-                        elem_id="chat_output_messages",
-                        show_copy_button=True,
-                        show_label=False
-                    )
-                    chatbot_display_buttons = gr.Chatbot(
-                        height=600,
-                        elem_id="chat_output_buttons",
-                        show_label=False,
-                        elem_classes=["transparent_chatbot"]
-                    )
-                with gr.Row(visible=False) as deletion_button_group:
-                    delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
-                    cancel_selection_button = gr.Button("✖️ 選択をキャンセル", scale=1)
+                chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
+                with gr.Row(visible=False) as action_button_group:
+                    play_audio_button = gr.Button("🔊 選択した発言を再生")
+                    delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
+                    cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
+
                 with gr.Row():
                     chat_reload_button = gr.Button("🔄 更新")
                 token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
@@ -215,17 +183,17 @@ try:
                 submit_button = gr.Button("送信", variant="primary")
                 allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
                 file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
-                text_for_audio_trigger = gr.Textbox(elem_id="text_for_audio_input", visible=False)
                 gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
+            # --- イベントハンドラ定義 ---
             token_calc_inputs = [current_character_name, current_model_name, chat_input_textbox, file_upload_button, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state]
-            chat_inputs = [chat_input_textbox, chatbot_display_messages, chatbot_display_buttons, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state]
-            chat_submit_outputs = [chatbot_display_messages, chatbot_display_buttons, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe]
+            chat_inputs = [chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state]
+            chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe]
             scenery_refresh_inputs = [current_character_name, current_api_key_name_state]
             scenery_refresh_outputs = [current_location_display, current_scenery_display]
 
             add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-            character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display_messages, chatbot_display_buttons, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown, current_location_display, current_scenery_display]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display])
+            character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown, current_location_display, current_scenery_display]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display])
             change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown], outputs=scenery_refresh_outputs)
             refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=scenery_refresh_inputs, outputs=scenery_refresh_outputs)
             chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
@@ -246,12 +214,15 @@ try:
             use_common_prompt_checkbox.change(fn=ui_handlers.update_use_common_prompt_state, inputs=[use_common_prompt_checkbox], outputs=[use_common_prompt_state])
             send_core_memory_checkbox.change(fn=ui_handlers.update_send_core_memory_state, inputs=[send_core_memory_checkbox], outputs=[send_core_memory_state])
             send_scenery_checkbox.change(fn=ui_handlers.update_send_scenery_state, inputs=[send_scenery_checkbox], outputs=[send_scenery_state])
-            api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display_messages, chatbot_display_buttons, gr.State()])
-            chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display_messages, chatbot_display_buttons])
-            chatbot_display_buttons.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state], outputs=[selected_message_state, deletion_button_group], show_progress=False)
-            delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display_messages, chatbot_display_buttons, selected_message_state, deletion_button_group])
-            cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, deletion_button_group])
+            api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()])
+            chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
 
+            # --- ここからがアクションボタンのイベント定義 ---
+            chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state], outputs=[selected_message_state, action_button_group], show_progress=False)
+            play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player])
+            delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, selected_message_state, action_button_group])
+            cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
+            # (以降のイベント定義は変更なし)
             save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
             reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_character_name], outputs=[memory_json_editor])
             save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_character_name, notepad_editor], outputs=[notepad_editor])
@@ -303,13 +274,8 @@ try:
             timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
             rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
             core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
-            text_for_audio_trigger.change(
-                fn=ui_handlers.handle_audio_playback_request,
-                inputs=[text_for_audio_trigger, current_character_name, current_api_key_name_state],
-                outputs=[audio_player]
-            )
 
-            demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display_messages, chatbot_display_buttons, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor, location_dropdown, current_location_display, current_scenery_display])
+            demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor, location_dropdown, current_location_display, current_scenery_display])
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 
         if __name__ == "__main__":
