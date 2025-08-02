@@ -117,11 +117,12 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
             header = None
     return messages
 
-def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name: str) -> Tuple[List[Dict[str, any]], List[int]]:
+def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name: str) -> Tuple[List[Dict[str, any]], List[Tuple[Union[str, None], Union[str, None]]], List[int]]:
     if not raw_history:
-        return [], []
+        return [], [], []
 
-    gradio_history = []
+    messages_history = []
+    buttons_history = []
     mapping_list = []
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
@@ -130,28 +131,27 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
         content = msg.get("content", "").strip()
         if not content: continue
 
-        # 画像タグでテキストを分割
-        last_end = 0
-        for match in image_tag_pattern.finditer(content):
-            # 画像前のテキスト部分
-            text_part = content[last_end:match.start()].strip()
-            if text_part:
-                gradio_history.append({"role": role, "content": text_part})
-                mapping_list.append(i)
+        # --- 2つのリストを同時に構築 ---
 
-            # 画像部分
-            filepath = match.group(1).strip()
-            gradio_history.append({"role": "assistant", "content": (filepath, os.path.basename(filepath))})
-            mapping_list.append(i)
-            last_end = match.end()
+        # 1. messages_history (画像 + テキスト)
+        messages_history.append({"role": role, "content": content})
 
-        # 残りのテキスト部分
-        remaining_text = content[last_end:].strip()
-        if remaining_text:
-            gradio_history.append({"role": role, "content": remaining_text})
-            mapping_list.append(i)
+        # 2. buttons_history (HTMLボタン + 空の画像代替)
+        # 画像タグを空文字列に置換
+        button_content_text = image_tag_pattern.sub("", content).strip()
 
-    return gradio_history, mapping_list
+        # HTMLボタンを生成
+        html_with_buttons = _format_text_content_for_gradio(button_content_text, f"msg-anchor-{i}", None, None) # Anchor IDは暫定
+
+        if role == "user":
+            buttons_history.append((html_with_buttons, None))
+        else: # assistant
+            buttons_history.append((None, html_with_buttons))
+
+        # 3. mapping_list
+        mapping_list.append(i)
+
+    return messages_history, buttons_history, mapping_list
 
 def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
     up_button = f"<a href='#{prev_anchor_id or current_anchor_id}' class='message-nav-link' title='前の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"

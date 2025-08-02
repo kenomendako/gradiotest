@@ -79,34 +79,38 @@ def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[s
 
 # --- チャット処理 ---
 def handle_message_submission(*args: Any):
-    # (この関数の内容は変更ありません)
-    (textbox_content, chatbot_history, current_character_name, current_model_name, current_api_key_name_state, file_input_list, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state) = args
+    (textbox_content, chat_messages, chat_buttons, current_character_name, current_model_name, current_api_key_name_state, file_input_list, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state) = args
+
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
-        yield chatbot_history, gr.update(), gr.update(), token_count, gr.update(), gr.update(), gr.update(), gr.update()
+        yield chat_messages, chat_buttons, gr.update(), gr.update(), token_count, gr.update(), gr.update(), gr.update(), gr.update()
         return
 
     log_message_parts = []
     if user_prompt_from_textbox:
         timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         processed_user_message = user_prompt_from_textbox + timestamp
-        chatbot_history.append((processed_user_message, None)) # ★ 辞書からタプルに変更
+        chat_messages.append({"role": "user", "content": processed_user_message})
+        chat_buttons.append((processed_user_message, None))
         log_message_parts.append(processed_user_message)
 
     if file_input_list:
         for file_obj in file_input_list:
             filepath = file_obj.name
             filename = os.path.basename(filepath)
-            chatbot_history.append(((filepath, filename), None)) # ★ ファイルもタプル形式に変更
+            chat_messages.append({"role": "user", "content": (filepath, filename)})
+            chat_buttons.append(((filepath, filename), None))
             log_message_parts.append(f"[ファイル添付: {filepath}]")
 
-    chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
+    chat_messages.append({"role": "assistant", "content": "思考中... ▌"})
+    chat_buttons.append((None, "思考中... ▌"))
 
     token_count = update_token_count(current_character_name, current_model_name, textbox_content, file_input_list, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 
     yield (
-        chatbot_history,
+        chat_messages,
+        chat_buttons,
         gr.update(value=""),
         gr.update(value=None),
         token_count,
@@ -118,15 +122,12 @@ def handle_message_submission(*args: Any):
 
     response_data = {}
     try:
-        # ★★★ ここからが修正箇所 ★★★
-        # *args（すべての引数）を渡すのではなく、必要な7つだけを厳選して渡す
         agent_args = (
-            textbox_content, chatbot_history, current_character_name,
+            textbox_content, chat_messages, current_character_name,
             current_api_key_name_state, file_input_list, add_timestamp_checkbox,
             api_history_limit_state
         )
         response_data = gemini_api.invoke_nexus_agent(*agent_args)
-        # ★★★ ここまで ★★★
     except Exception as e:
         traceback.print_exc()
         response_data = {"response": f"[UIハンドラエラー: {e}]", "location_name": "（エラー）", "scenery": "（エラー）"}
@@ -145,8 +146,7 @@ def handle_message_submission(*args: Any):
 
     raw_history = utils.load_chat_log(log_f, current_character_name)
     display_turns = _get_display_history_count(api_history_limit_state)
-    # ★ 返り値が2つになったことに注意
-    formatted_history, _ = utils.format_history_for_gradio(raw_history[-(display_turns*2):], current_character_name)
+    messages_history, buttons_history, _ = utils.format_history_for_gradio(raw_history[-(display_turns*2):], current_character_name)
 
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 
@@ -154,7 +154,8 @@ def handle_message_submission(*args: Any):
     new_display_df = get_display_df(new_alarm_df_with_ids)
 
     yield (
-        formatted_history,
+        messages_history,
+        buttons_history,
         gr.update(),
         gr.update(value=None),
         token_count,

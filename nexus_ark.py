@@ -39,6 +39,25 @@ try:
     #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
     #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
+
+    /* ★★★ ここから追加 ★★★ */
+    #chat_container { position: relative; }
+    #chat_output_buttons {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+    }
+    .transparent_chatbot .message-bubble {
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+    .transparent_chatbot .message-text {
+        color: transparent !important; /* テキストも見えなくする */
+    }
+    /* ★★★ ここまで追加 ★★★ */
     """
     # チャット内のリンククリックが選択イベントを誤発火させないようにするJavaScript
     js_stop_nav_link_propagation = """
@@ -193,7 +212,25 @@ try:
                         add_character_button = gr.Button("迎える", variant="secondary", scale=1)
 
             with gr.Column(scale=3):
-                chatbot_display = gr.Chatbot(type="messages", height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
+                # ★★★ ここからが修正箇所 ★★★
+                with gr.Blocks(elem_id="chat_container"): # position: relative のため
+                    # 下層：画像表示専用チャットボット（メッセージ形式）
+                    chatbot_display_messages = gr.Chatbot(
+                        type="messages",
+                        height=600,
+                        elem_id="chat_output_messages",
+                        show_copy_button=True,
+                        show_label=False
+                    )
+                    # 上層：ボタン表示専用チャットボット（タプル形式）
+                    chatbot_display_buttons = gr.Chatbot(
+                        height=600,
+                        elem_id="chat_output_buttons",
+                        show_label=False,
+                        # CSSで透明にし、クリックイベントだけを拾う
+                        elem_classes=["transparent_chatbot"]
+                    )
+                # ★★★ ここまで ★★★
                 with gr.Row(visible=False) as deletion_button_group:
                     delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
                     cancel_selection_button = gr.Button("✖️ 選択をキャンセル", scale=1)
