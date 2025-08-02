@@ -59,8 +59,10 @@ def ensure_character_files(character_name):
                 "last_updated": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 "override_settings": {
                     "model_name": None,
-                    # ★★★ ここを修正 ★★★
-                    "voice_id": "vindemiatrix", # 新規キャラクターのデフォルトも変更
+                    "voice_id": "vindemiatrix",
+                    # ★★★ ここからが追加箇所 ★★★
+                    "voice_tone_prompt": "（デフォルトのトーン）",
+                    # ★★★ 追加箇所ここまで ★★★
                     "send_thoughts": None,
                     "send_notepad": None,
                     "use_common_prompt": None,
