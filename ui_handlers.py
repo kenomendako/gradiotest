@@ -670,3 +670,34 @@ def update_token_count(*args):
         print(f"トークン数計算UIハンドラエラー: {e}")
         traceback.print_exc()
         return "入力トークン数: (例外発生)"
+
+# ★★★ ここから追加 ★★★
+def handle_audio_playback_request(text_to_speak: str, character_name: str, api_key_name: str):
+    """UIからの音声再生リクエストを処理する司令塔。"""
+    if not text_to_speak or not character_name or not api_key_name:
+        return gr.update()
+
+    # 1. このキャラクターの有効な設定（特に声ID）を取得
+    effective_settings = config_manager.get_effective_settings(character_name)
+    voice_id = effective_settings.get("voice_id", "ja-JP-Wavenet-D") # フォールバック
+    api_key = config_manager.API_KEYS.get(api_key_name)
+
+    if not api_key:
+        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+        return gr.update()
+
+    # 2. 新しい audio_manager を使って音声を生成
+    # (この時点では audio_manager は未作成なので、直接 gemini_api を呼ぶか、
+    #  audio_manager.py を作成してそこに関数を移す)
+    # 今回は audio_manager.py を作成する方針で進める
+    from audio_manager import generate_audio_from_text
+
+    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id)
+
+    # 3. 生成された音声ファイルのパスで、非表示のAudioプレイヤーを更新
+    if audio_filepath:
+        return gr.update(value=audio_filepath)
+    else:
+        gr.Warning("音声の生成に失敗しました。")
+        return gr.update()
+# ★★★ ここまで追加 ★★★
