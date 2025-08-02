@@ -699,3 +699,5 @@ def handle_audio_playback_request(text_to_speak: str, character_name: str, api_k
 # ★★★ ここまで追加 ★★★
 
 [end of ui_handlers.py]
+
+[end of ui_handlers.py]
