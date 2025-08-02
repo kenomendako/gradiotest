@@ -87,11 +87,7 @@ try:
         send_core_memory_state = gr.State(True)
         send_scenery_state = gr.State(True)
         selected_message_state = gr.State(None)
-
-        # ★★★ ここから追加 ★★★
-        text_for_audio_state = gr.State("") # elem_idを削除
         audio_player = gr.Audio(visible=False, autoplay=True)
-        # ★★★ ここまで追加 ★★★
 
         # --- UIレイアウトの定義 ---
         with gr.Row():
@@ -184,10 +180,7 @@ try:
                 submit_button = gr.Button("送信", variant="primary")
                 allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
                 file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
-
-                # ★★★ ここにtext_for_audio_stateを接続する ★★★
                 text_for_audio_trigger = gr.Textbox(elem_id="text_for_audio_input", visible=False)
-
                 gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
             # --- イベントハンドラ定義 ---
@@ -277,35 +270,25 @@ try:
             timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
             rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
             core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
-
-            # ★★★ トリガーをStateからTextboxに変更 ★★★
             text_for_audio_trigger.change(
                 fn=ui_handlers.handle_audio_playback_request,
-                inputs=[text_for_audio_trigger, current_character_name, current_api_key_name_state], # inputもTextboxに変更
+                inputs=[text_for_audio_trigger, current_character_name, current_api_key_name_state],
                 outputs=[audio_player]
             )
-
-            # 2. (UIの更新) UIが再描画されたら、再生ボタンにクリックイベントを設定するJSを実行
             chatbot_display.change(
                 fn=None,
                 js="""
                 (history) => {
-                    // すべての再生ボタン（<span>タグ）を探す
                     const buttons = document.querySelectorAll('.play-audio-button');
                     buttons.forEach(button => {
                         if (!button.dataset.listenerAttached) {
                             button.addEventListener('click', (e) => {
-                                e.stopPropagation(); // 他のGradioイベントへの伝播を阻止
-
+                                e.stopPropagation();
                                 const text = e.currentTarget.dataset.text;
-
-                                // ★★★ 見えないテキストボックスを直接操作する ★★★
                                 const gradio_container = document.querySelector('gradio-app').shadowRoot;
                                 const hidden_textbox = gradio_container.querySelector('#text_for_audio_input textarea');
                                 if (hidden_textbox) {
-                                    // テキストボックスの値を更新
                                     hidden_textbox.value = text;
-                                    // Gradioに値の変更を通知するための'input'イベントを発火させる
                                     const event = new Event('input', { bubbles: true });
                                     hidden_textbox.dispatchEvent(event);
                                 }
@@ -317,12 +300,10 @@ try:
                 }
                 """
             )
-            # ★★★ ここまで追加 ★★★
 
             demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor, location_dropdown, current_location_display, current_scenery_display])
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 
-        # ★★★ ここが正しい構造。if __name__ == "__main__": はtryブロックの外側には来ない ★★★
         if __name__ == "__main__":
             print("\n" + "="*60)
             print("アプリケーションを起動します...")

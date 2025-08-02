@@ -185,7 +185,9 @@ def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_a
     # ★★★ ここからが修正箇所 ★★★
     # html.escapeでテキストを安全にデータ属性として埋め込む
     escaped_content = html.escape(content, quote=True)
-    play_button = f"<span class='play-audio-button' data-text='{escaped_content}' title='この発言を音声で再生する' style='padding: 1px 6px; font-size: 1.0em; color: #AAA; cursor: pointer;'>🔊</span>"
+
+    # JavaScriptが認識するためのCSSクラス `play-audio-button` を付与する
+    play_button = f"<span class='play-audio-button message-nav-link' data-text='{escaped_content}' title='この発言を音声で再生する' style='padding: 1px 6px; font-size: 1.0em; color: #AAA; cursor: pointer;'>🔊</span>"
 
     button_container = f"<div style='text-align: right; margin-top: 8px;'>{play_button}<span style='margin: 0 4px;'></span>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
     # ★★★ ここまで ★★★
