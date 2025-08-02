@@ -196,6 +196,10 @@ def context_generator_node(state: AgentState):
 # --- 6. ノードの定義 ---
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
+    # ★★★ ここから2行追加 ★★★
+    print(f"  - 使用モデル: {state['model_name']}")
+    print(f"  - システムプロンプト長: {len(state['system_prompt'].content)} 文字")
+    # ★★★ ここまで ★★★
     llm = get_configured_llm(state['model_name'], state['api_key'])
     llm_with_tools = llm.bind_tools(all_tools)
     messages_for_agent = [state['system_prompt']] + state['messages']

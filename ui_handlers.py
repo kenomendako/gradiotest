@@ -118,7 +118,15 @@ def handle_message_submission(*args: Any):
 
     response_data = {}
     try:
-        response_data = gemini_api.invoke_nexus_agent(*args)
+        # ★★★ ここからが修正箇所 ★★★
+        # *args（すべての引数）を渡すのではなく、必要な7つだけを厳選して渡す
+        agent_args = (
+            textbox_content, chatbot_history, current_character_name,
+            current_api_key_name_state, file_input_list, add_timestamp_checkbox,
+            api_history_limit_state
+        )
+        response_data = gemini_api.invoke_nexus_agent(*agent_args)
+        # ★★★ ここまで ★★★
     except Exception as e:
         traceback.print_exc()
         response_data = {"response": f"[UIハンドラエラー: {e}]", "location_name": "（エラー）", "scenery": "（エラー）"}

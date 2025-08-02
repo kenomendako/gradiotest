@@ -75,13 +75,22 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 
 # ★★★★★ ここからが最重要修正箇所 ★★★★★
 def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
-    (textbox_content, chatbot_history, current_character_name, current_model_name,
+    (textbox_content, chatbot_history, current_character_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
-     send_thoughts_state, api_history_limit_state,
-     send_notepad_state, use_common_prompt_state,
-     send_core_memory_state, send_scenery_state) = args
+     api_history_limit_state) = args
+
+    # ★★★ ここからが新しい設定読み込み処理 ★★★
+    effective_settings = config_manager.get_effective_settings(current_character_name)
+
+    current_model_name = effective_settings["model_name"]
+    send_thoughts_state = effective_settings["send_thoughts"]
+    send_notepad_state = effective_settings["send_notepad"]
+    use_common_prompt_state = effective_settings["use_common_prompt"]
+    send_core_memory_state = effective_settings["send_core_memory"]
+    send_scenery_state = effective_settings["send_scenery"]
 
     api_key = config_manager.API_KEYS.get(current_api_key_name_state)
+    # ★★★ ここまで ★★★
     is_internal_call = textbox_content and textbox_content.startswith("（システム：")
     default_error_response = {"response": "", "location_name": "（エラー）", "scenery": "（エラー）"}
     
