@@ -89,12 +89,13 @@ def handle_save_char_settings(
     send_thoughts: bool, send_notepad: bool, use_common_prompt: bool,
     send_core_memory: bool, send_scenery: bool
 ):
-    """キャラクター個別設定を一度に保存する司令塔ハンドラ"""
+    """【改修版】キャラクター個別設定を安全に保存する司令塔ハンドラ"""
     if not character_name:
         gr.Warning("設定を保存するキャラクターが選択されていません。")
         return
 
-    settings_to_save = {
+    # ★★★ ここからがJSON破損を防ぐ修正 ★★★
+    new_settings = {
         "model_name": model_name if model_name != "デフォルト" else None,
         "voice_id": next((k for k, v in config_manager.SUPPORTED_VOICES.items() if v == voice_name), None),
         "send_thoughts": bool(send_thoughts),
@@ -111,13 +112,13 @@ def handle_save_char_settings(
             with open(char_config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
 
-        # override_settingsがなければ作成
         if "override_settings" not in config:
             config["override_settings"] = {}
 
-        # 取得した設定で上書き
-        config["override_settings"] = settings_to_save
+        # 既存の設定を保持しつつ、新しい設定で更新する
+        config["override_settings"].update(new_settings)
         config["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # ★★★ 修正箇所ここまで ★★★
 
         with open(char_config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
