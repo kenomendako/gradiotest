@@ -101,7 +101,7 @@ def handle_message_submission(*args: Any):
             chatbot_history.append(((filepath, filename), None)) # ★ ファイルもタプル形式に変更
             log_message_parts.append(f"[ファイル添付: {filepath}]")
 
-    chatbot_history.append((None, "思考中... ▌"))
+    chatbot_history.append({"role": "assistant", "content": "思考中... ▌"})
 
     token_count = update_token_count(current_character_name, current_model_name, textbox_content, file_input_list, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
 

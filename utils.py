@@ -117,7 +117,7 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
             header = None
     return messages
 
-def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name: str) -> Tuple[List[Tuple[Union[str, Tuple, None], Union[str, Tuple, None]]], List[int]]:
+def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name: str) -> Tuple[List[Dict[str, any]], List[int]]:
     if not raw_history:
         return [], []
 
@@ -125,55 +125,31 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
     mapping_list = []
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
-    intermediate_list = []
     for i, msg in enumerate(raw_history):
+        role = "assistant" if msg["role"] == "model" else "user"
         content = msg.get("content", "").strip()
         if not content: continue
 
-        last_end = 0
         # 画像タグでテキストを分割
+        last_end = 0
         for match in image_tag_pattern.finditer(content):
-            # 画像タグの前のテキスト部分
-            if match.start() > last_end:
-                intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:match.start()].strip(), "original_index": i})
-            # 画像タグ部分
-            intermediate_list.append({"type": "image", "role": "model", "content": match.group(1).strip(), "original_index": i})
+            # 画像前のテキスト部分
+            text_part = content[last_end:match.start()].strip()
+            if text_part:
+                gradio_history.append({"role": role, "content": text_part})
+                mapping_list.append(i)
+
+            # 画像部分
+            filepath = match.group(1).strip()
+            gradio_history.append({"role": "assistant", "content": (filepath, os.path.basename(filepath))})
+            mapping_list.append(i)
             last_end = match.end()
-        # 最後の画像タグの後ろのテキスト部分
-        if last_end < len(content):
-            intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:].strip(), "original_index": i})
 
-    # ナビゲーション用のアンカーIDを先にすべて生成
-    text_parts_with_anchors = []
-    for item in intermediate_list:
-        if item["type"] == "text" and item["content"]:
-            item["anchor_id"] = f"msg-anchor-{uuid.uuid4().hex[:8]}"
-            text_parts_with_anchors.append(item)
-
-    # 最終的なタプルリストを生成
-    text_part_index = 0
-    for item in intermediate_list:
-        if not item["content"]: continue
-
-        if item["type"] == "text":
-            prev_anchor = text_parts_with_anchors[text_part_index - 1]["anchor_id"] if text_part_index > 0 else None
-            next_anchor = text_parts_with_anchors[text_part_index + 1]["anchor_id"] if text_part_index < len(text_parts_with_anchors) - 1 else None
-
-            html_content = _format_text_content_for_gradio(item["content"], item["anchor_id"], prev_anchor, next_anchor)
-
-            if item["role"] == "user":
-                gradio_history.append((html_content, None))
-            else: # model
-                gradio_history.append((None, html_content))
-
-            mapping_list.append(item["original_index"])
-            text_part_index += 1
-
-        elif item["type"] == "image":
-            filepath = item["content"]
-            filename = os.path.basename(filepath)
-            gradio_history.append((None, (filepath, filename)))
-            mapping_list.append(item["original_index"])
+        # 残りのテキスト部分
+        remaining_text = content[last_end:].strip()
+        if remaining_text:
+            gradio_history.append({"role": role, "content": remaining_text})
+            mapping_list.append(i)
 
     return gradio_history, mapping_list
 
