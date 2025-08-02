@@ -89,7 +89,7 @@ try:
         selected_message_state = gr.State(None)
 
         # ★★★ ここから追加 ★★★
-        text_for_audio_state = gr.State("", elem_id="text_for_audio_state")
+        text_for_audio_state = gr.State("") # elem_idを削除
         audio_player = gr.Audio(visible=False, autoplay=True)
         # ★★★ ここまで追加 ★★★
 
@@ -185,8 +185,8 @@ try:
                 allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
                 file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
 
-                # ★★★ この一行を追加 ★★★
-                gr.Textbox(elem_id="text_for_audio_input", visible=False)
+                # ★★★ ここにtext_for_audio_stateを接続する ★★★
+                text_for_audio_trigger = gr.Textbox(elem_id="text_for_audio_input", visible=False)
 
                 gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
@@ -278,11 +278,10 @@ try:
             rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
             core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
 
-            # ★★★ ここから追加 ★★★
-            # 1. (JavaScriptからのトリガー) text_for_audio_stateが変更されたら、UIハンドラを呼び出す
-            text_for_audio_state.change(
+            # ★★★ トリガーをStateからTextboxに変更 ★★★
+            text_for_audio_trigger.change(
                 fn=ui_handlers.handle_audio_playback_request,
-                inputs=[text_for_audio_state, current_character_name, current_api_key_name_state],
+                inputs=[text_for_audio_trigger, current_character_name, current_api_key_name_state], # inputもTextboxに変更
                 outputs=[audio_player]
             )
 
@@ -294,24 +293,23 @@ try:
                     // すべての再生ボタン（<span>タグ）を探す
                     const buttons = document.querySelectorAll('.play-audio-button');
                     buttons.forEach(button => {
-                        // ★★★ 既にイベントリスナーが設定されていないか確認 ★★★
                         if (!button.dataset.listenerAttached) {
                             button.addEventListener('click', (e) => {
-                                e.stopPropagation(); // 他のGradioイベント（選択など）への伝播を完全に阻止
+                                e.stopPropagation(); // 他のGradioイベントへの伝播を阻止
 
                                 const text = e.currentTarget.dataset.text;
 
-                                // GradioのPython関数を呼び出すための、公式の内部APIを利用する
-                                const gradio_app = document.querySelector('gradio-app');
-                                if (gradio_app) {
-                                    // text_for_audio_state (State) に値をセットする
-                                    gradio_app.dispatch('gradio.input', {
-                                        "value": text,
-                                        "target": "text_for_audio_state" // Stateオブジェクトの内部ID
-                                    });
+                                // ★★★ 見えないテキストボックスを直接操作する ★★★
+                                const gradio_container = document.querySelector('gradio-app').shadowRoot;
+                                const hidden_textbox = gradio_container.querySelector('#text_for_audio_input textarea');
+                                if (hidden_textbox) {
+                                    // テキストボックスの値を更新
+                                    hidden_textbox.value = text;
+                                    // Gradioに値の変更を通知するための'input'イベントを発火させる
+                                    const event = new Event('input', { bubbles: true });
+                                    hidden_textbox.dispatchEvent(event);
                                 }
                             });
-                            // ★★★ イベントリスナーを二重に設定しないよう、目印を付ける ★★★
                             button.dataset.listenerAttached = 'true';
                         }
                     });
