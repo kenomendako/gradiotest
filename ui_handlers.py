@@ -234,13 +234,6 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
 
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
 
-    # ★★★ ここから追加 ★★★
-    # キャラクターの有効な設定を読み込む
-    effective_settings = config_manager.get_effective_settings(character_name)
-    # 設定されている voice_id から、UIに表示する名前を取得
-    voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings["voice_id"], "Vindemiatrix (女性)")
-    # ★★★ ここまで追加 ★★★
-
     display_turns = _get_display_history_count(api_history_limit_value)
     chat_history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):], character_name)
 
@@ -252,25 +245,40 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     current_location_id = utils.get_current_location(character_name)
     memory_data = load_memory_data_safe(mem_p)
     current_location_name = memory_data.get("living_space", {}).get(current_location_id, {}).get("name", current_location_id)
-
     valid_location_ids = [loc[1] for loc in locations]
     dropdown_value = current_location_id if current_location_id in valid_location_ids else None
-
     scenery_text = "（AIとの対話開始時に生成されます）"
 
+    # --- ★★★ ここからが新しい設定反映ロジック ★★★ ---
+    effective_settings = config_manager.get_effective_settings(character_name)
+
+    # モデルドロップダウンの選択肢と値
+    all_models = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL
+    model_val = effective_settings["model_name"] if effective_settings["model_name"] != config_manager.initial_model_global else "デフォルト"
+
+    # 声ドロップダウンの値
+    voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings["voice_id"], "Vindemiatrix (女性)")
+
+    # 各種チェックボックスの値
+    send_thoughts_val = effective_settings["send_thoughts"]
+    send_notepad_val = effective_settings["send_notepad"]
+    use_common_prompt_val = effective_settings["use_common_prompt"]
+    send_core_memory_val = effective_settings["send_core_memory"]
+    send_scenery_val = effective_settings["send_scenery"]
+
+    # UIのMarkdownを更新するためのJavaScript
+    char_name_js = f"<span id='char-setting-name'>{character_name}</span>"
+
     return (
-        character_name,
-        chat_history,
-        "",
-        profile_image,
-        memory_str,
-        character_name,
-        character_name,
-        notepad_content,
-        gr.update(choices=locations, value=dropdown_value),
-        current_location_name,
-        scenery_text,
-        voice_display_name, # ★★★ 返り値に追加 ★★★
+        character_name, chat_history, "", profile_image, memory_str, character_name,
+        character_name, notepad_content, gr.update(choices=locations, value=dropdown_value),
+        current_location_name, scenery_text,
+        # --- 新しいUIへの返り値 ---
+        gr.update(choices=all_models, value=model_val),
+        voice_display_name,
+        send_thoughts_val, send_notepad_val, use_common_prompt_val,
+        send_core_memory_val, send_scenery_val,
+        gr.Markdown(value=f"ℹ️ *現在選択中のキャラクター「{character_name}」にのみ適用される設定です。*")
     )
 
 def handle_initial_load():
@@ -716,18 +724,21 @@ def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], c
         gr.Error("音声の生成に失敗しました。")
         return None
 
-def handle_voice_change(character_name: str, selected_voice_name: str):
-    """声のドロップダウンが変更されたときに設定を保存するハンドラ"""
-    if not character_name or not selected_voice_name:
+def handle_char_setting_change(character_name: str, setting_key: str, value: Any):
+    """キャラクター個別設定の変更を保存する汎用ハンドラ"""
+    if not character_name or not setting_key:
         return
 
-    # 表示名からシステムのvoice_idを逆引き
-    voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
-    if not voice_id:
-        gr.Warning(f"無効な声が選択されました: {selected_voice_name}")
-        return
+    # UIからの値から、保存する値を決定
+    save_value = None
+    if setting_key == "model_name":
+        save_value = value if value != "デフォルト" else None
+    elif setting_key == "voice_id":
+        save_value = next((k for k, v in config_manager.SUPPORTED_VOICES.items() if v == value), None)
+    else: # チェックボックス系
+        save_value = bool(value)
 
-    # character_config.json を読み書きする
+    # character_config.json を読み書き
     try:
         char_config_path = os.path.join(config_manager.CHARACTERS_DIR, character_name, "character_config.json")
         config = {}
@@ -735,19 +746,18 @@ def handle_voice_change(character_name: str, selected_voice_name: str):
             with open(char_config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
 
-        if "override_settings" not in config:
-            config["override_settings"] = {}
+        if "override_settings" not in config: config["override_settings"] = {}
 
-        config["override_settings"]["voice_id"] = voice_id
+        config["override_settings"][setting_key] = save_value
         config["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         with open(char_config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
 
-        gr.Info(f"「{character_name}」の声を「{selected_voice_name}」に変更しました。")
+        gr.Info(f"「{character_name}」の設定 '{setting_key}' を更新しました。")
 
     except Exception as e:
-        gr.Error(f"声の設定の保存中にエラーが発生しました: {e}")
+        gr.Error(f"設定 '{setting_key}' の保存中にエラーが発生しました: {e}")
         traceback.print_exc()
 
 def handle_voice_preview(selected_voice_name: str, text_to_speak: str, api_key_name: str):

@@ -104,35 +104,32 @@ try:
                     refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
                     location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True)
                     change_location_button = gr.Button("移動")
-                with gr.Accordion("⚙️ 基本設定", open=False):
-                    model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
-                    api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True)
+                with gr.Accordion("⚙️ 設定", open=False): # ラベルを「基本設定」から「設定」に変更
+                    with gr.Tabs():
+                        with gr.TabItem("キャラクター個別設定"):
+                            gr.Markdown("ℹ️ *現在選択中のキャラクター「<span id='char-setting-name'></span>」にのみ適用される設定です。*")
+                            char_model_dropdown = gr.Dropdown(label="使用するAIモデル（個別）", interactive=True)
+                            char_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
+                            with gr.Row():
+                                char_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
+                                char_preview_voice_button = gr.Button("試聴", scale=1)
 
-                    # ★★★ ここからが追加・修正箇所 ★★★
-                    gr.Markdown("---") # 区切り線
-                    gr.Markdown("#### 声の設定")
-                    voice_dropdown = gr.Dropdown(
-                        choices=list(config_manager.SUPPORTED_VOICES.values()),
-                        label="声を選択",
-                        interactive=True
-                    )
-                    with gr.Row():
-                        preview_text_textbox = gr.Textbox(
-                            value="こんにちは、Nexus Arkです。これは音声のテストです。",
-                            show_label=False,
-                            scale=3
-                        )
-                        preview_voice_button = gr.Button("試聴", scale=1)
-                    gr.Markdown("---") # 区切り線
-                    # ★★★ ここまで ★★★
+                            gr.Markdown("---")
+                            char_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
+                            char_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
+                            char_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
+                            char_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
+                            char_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
 
-                    api_history_limit_dropdown = gr.Dropdown(choices=list(config_manager.API_HISTORY_LIMIT_OPTIONS.values()), value=config_manager.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
-                    add_timestamp_checkbox = gr.Checkbox(value=config_manager.initial_add_timestamp_global, label="メッセージにタイムスタンプを追加", interactive=True)
-                    send_thoughts_checkbox = gr.Checkbox(value=config_manager.initial_send_thoughts_to_api_global, label="思考過程をAPIに送信", interactive=True)
-                    send_notepad_checkbox = gr.Checkbox(value=True, label="メモ帳の内容をAPIに送信", interactive=True)
-                    use_common_prompt_checkbox = gr.Checkbox(value=True, label="共通ツールプロンプトを注入", interactive=True)
-                    send_core_memory_checkbox = gr.Checkbox(value=True, label="コアメモリをAPIに送信", interactive=True)
-                    send_scenery_checkbox = gr.Checkbox(value=True, label="空間描写・設定をAPIに送信", interactive=True)
+                            gr.Markdown("---")
+                            gr.Markdown("ℹ️ *設定をデフォルトに戻したい場合は、一度チェックを入れてから外してください。*")
+
+                        with gr.TabItem("共通設定"):
+                            gr.Markdown("ℹ️ *アプリケーション全体のデフォルト設定です。*")
+                            model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
+                            api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True)
+                            api_history_limit_dropdown = gr.Dropdown(choices=list(config_manager.API_HISTORY_LIMIT_OPTIONS.values()), value=config_manager.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
+                            add_timestamp_checkbox = gr.Checkbox(value=config_manager.initial_add_timestamp_global, label="メッセージにタイムスタンプを追加", interactive=True)
                 with gr.Accordion("📗 記憶とメモの編集", open=False):
                     with gr.Tabs():
                         with gr.TabItem("記憶 (memory.json)"):
@@ -211,7 +208,7 @@ try:
             scenery_refresh_inputs = [current_character_name, current_api_key_name_state]
             scenery_refresh_outputs = [current_location_display, current_scenery_display]
 
-            add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
+            # --- キャラクター選択時のUI一括更新 ---
             character_dropdown.change(
                 fn=ui_handlers.update_ui_on_character_change,
                 inputs=[character_dropdown, api_history_limit_state],
@@ -220,50 +217,49 @@ try:
                     profile_image_display, memory_json_editor, alarm_char_dropdown,
                     timer_char_dropdown, notepad_editor, location_dropdown,
                     current_location_display, current_scenery_display,
-                    voice_dropdown # ★★★ 出力先に追加 ★★★
+                    char_model_dropdown, char_voice_dropdown, char_send_thoughts_checkbox,
+                    char_send_notepad_checkbox, char_use_common_prompt_checkbox,
+                    char_send_core_memory_checkbox, char_send_scenery_checkbox,
+                    gr.Markdown() # ダミーの出力先
                 ]
             ).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display])
+
+            # --- キャラクター個別設定のイベント ---
+            char_model_dropdown.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "model_name", val), inputs=[current_character_name, char_model_dropdown], outputs=None)
+            char_voice_dropdown.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "voice_id", val), inputs=[current_character_name, char_voice_dropdown], outputs=None)
+            char_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[char_voice_dropdown, char_preview_text_textbox, api_key_dropdown], outputs=[audio_player])
+            char_send_thoughts_checkbox.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "send_thoughts", val), inputs=[current_character_name, char_send_thoughts_checkbox], outputs=None)
+            char_send_notepad_checkbox.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "send_notepad", val), inputs=[current_character_name, char_send_notepad_checkbox], outputs=None)
+            char_use_common_prompt_checkbox.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "use_common_prompt", val), inputs=[current_character_name, char_use_common_prompt_checkbox], outputs=None)
+            char_send_core_memory_checkbox.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "send_core_memory", val), inputs=[current_character_name, char_send_core_memory_checkbox], outputs=None)
+            char_send_scenery_checkbox.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "send_scenery", val), inputs=[current_character_name, char_send_scenery_checkbox], outputs=None)
+
+            # --- 共通設定のイベント ---
+            model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name])
+            api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state])
+            add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[])
+            api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()])
+
+            # (以降のイベント定義は、前回までの実装から変更なし)
+            # ... add_character_button.click から demo.load まで ...
+            add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
             change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown], outputs=scenery_refresh_outputs)
             refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=scenery_refresh_inputs, outputs=scenery_refresh_outputs)
             chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
             submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
 
-            for component in [chat_input_textbox, file_upload_button, notepad_editor, model_dropdown, api_key_dropdown, add_timestamp_checkbox, send_thoughts_checkbox, send_notepad_checkbox, use_common_prompt_checkbox, send_core_memory_checkbox, send_scenery_checkbox, api_history_limit_dropdown]:
+            for component in [chat_input_textbox, file_upload_button, notepad_editor, model_dropdown, api_key_dropdown, add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox, api_history_limit_dropdown, char_model_dropdown]:
                 if isinstance(component, (gr.Textbox, gr.Checkbox, gr.Dropdown, gr.Radio)):
                     component.change(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display], show_progress=False)
                 elif isinstance(component, gr.Files):
                     component.upload(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display])
                     component.clear(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display])
 
-            model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name])
-            api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state])
-            add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=[])
-            send_thoughts_checkbox.change(fn=ui_handlers.update_send_thoughts_state, inputs=[send_thoughts_checkbox], outputs=[send_thoughts_state])
-            send_notepad_checkbox.change(fn=ui_handlers.update_send_notepad_state, inputs=[send_notepad_checkbox], outputs=[send_notepad_state])
-            use_common_prompt_checkbox.change(fn=ui_handlers.update_use_common_prompt_state, inputs=[use_common_prompt_checkbox], outputs=[use_common_prompt_state])
-            send_core_memory_checkbox.change(fn=ui_handlers.update_send_core_memory_state, inputs=[send_core_memory_checkbox], outputs=[send_core_memory_state])
-            send_scenery_checkbox.change(fn=ui_handlers.update_send_scenery_state, inputs=[send_scenery_checkbox], outputs=[send_scenery_state])
-            api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()])
             chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
-
-            # ★★★ 以下の2つのイベント接続を、chat_reload_button.click(...) の後あたりに追加 ★★★
-            voice_dropdown.change(
-                fn=ui_handlers.handle_voice_change,
-                inputs=[current_character_name, voice_dropdown],
-                outputs=None
-            )
-            preview_voice_button.click(
-                fn=ui_handlers.handle_voice_preview,
-                inputs=[voice_dropdown, preview_text_textbox, api_key_dropdown],
-                outputs=[audio_player]
-            )
-
-            # --- ここからがアクションボタンのイベント定義 ---
             chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state], outputs=[selected_message_state, action_button_group], show_progress=False)
             play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player])
             delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, selected_message_state, action_button_group])
             cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
-            # (以降のイベント定義は変更なし)
             save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
             reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_character_name], outputs=[memory_json_editor])
             save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_character_name, notepad_editor], outputs=[notepad_editor])
