@@ -286,6 +286,11 @@ def handle_chatbot_selection(character_name: str, api_history_limit_state: str, 
     try:
         clicked_ui_index = evt.index
 
+        # ★★★ この一行を追加 ★★★
+        # もしリストで来た場合は、最初の要素だけを使う
+        if isinstance(clicked_ui_index, list):
+            clicked_ui_index = clicked_ui_index[0]
+
         log_f, _, _, _, _ = get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_f, character_name)
         display_turns = _get_display_history_count(api_history_limit_state)
