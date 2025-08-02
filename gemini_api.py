@@ -1,14 +1,17 @@
-# gemini_api.py の invoke_nexus_agent と count_input_tokens を置き換えてください
-
-from typing import Dict, Any, List
-import google.generativeai as genai
-from google.generativeai import types
-import config_manager, utils, character_manager
+import traceback
+from typing import Any, List, Union, Optional, Dict
 import os
-from PIL import Image
-import filetype
+import io
 import base64
-from agent.graph import get_graph_for_character
+from PIL import Image
+import google.genai as genai
+import filetype
+
+from agent.graph import app
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+import config_manager
+import utils
+from character_manager import get_character_files_paths
 
 def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     # ★★★ UIから渡す引数を7つに削減 ★★★
@@ -61,6 +64,7 @@ def count_input_tokens(character_name: str, api_key_name: str, parts: list):
         send_scenery_to_api=send_scenery
     )
 
+    genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
 
     processed_parts = []
