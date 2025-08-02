@@ -89,7 +89,7 @@ try:
         selected_message_state = gr.State(None)
 
         # ★★★ ここから追加 ★★★
-        text_for_audio_state = gr.State("")
+        text_for_audio_state = gr.State("", elem_id="text_for_audio_state")
         audio_player = gr.Audio(visible=False, autoplay=True)
         # ★★★ ここまで追加 ★★★
 
@@ -291,21 +291,29 @@ try:
                 fn=None,
                 js="""
                 (history) => {
-                    // すべての再生ボタンにクリックイベントを設定する
+                    // すべての再生ボタン（<span>タグ）を探す
                     const buttons = document.querySelectorAll('.play-audio-button');
                     buttons.forEach(button => {
-                        button.onclick = (e) => {
-                            e.stopPropagation(); // イベントの伝播を停止
-                            const text = e.currentTarget.dataset.text;
-                            // gr.Stateを更新するための見えないTextboxを探して値を設定し、changeイベントを発火させる
-                            const gradio_container = document.querySelector('gradio-app').shadowRoot;
-                            const hidden_textbox = gradio_container.querySelector('#text_for_audio_input textarea');
-                            if (hidden_textbox) {
-                                hidden_textbox.value = text;
-                                const event = new Event('input', { bubbles: true });
-                                hidden_textbox.dispatchEvent(event);
-                            }
-                        };
+                        // ★★★ 既にイベントリスナーが設定されていないか確認 ★★★
+                        if (!button.dataset.listenerAttached) {
+                            button.addEventListener('click', (e) => {
+                                e.stopPropagation(); // 他のGradioイベント（選択など）への伝播を完全に阻止
+
+                                const text = e.currentTarget.dataset.text;
+
+                                // GradioのPython関数を呼び出すための、公式の内部APIを利用する
+                                const gradio_app = document.querySelector('gradio-app');
+                                if (gradio_app) {
+                                    // text_for_audio_state (State) に値をセットする
+                                    gradio_app.dispatch('gradio.input', {
+                                        "value": text,
+                                        "target": "text_for_audio_state" // Stateオブジェクトの内部ID
+                                    });
+                                }
+                            });
+                            // ★★★ イベントリスナーを二重に設定しないよう、目印を付ける ★★★
+                            button.dataset.listenerAttached = 'true';
+                        }
                     });
                     return history;
                 }
