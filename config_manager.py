@@ -5,6 +5,44 @@ import os
 import traceback
 from google.genai import types
 
+# ★★★ ここから追加 ★★★
+SUPPORTED_VOICES = {
+    # 女性的な声
+    "achird": "Achird (女性)",
+    "alcyone": "Alcyone (女性)",
+    "callirrhoe": "Callirrhoe (女性)",
+    "despina": "Despina (女性)",
+    "erinome": "Erinome (女性)",
+    "kore": "Kore (女性)",
+    "laomedeia": "Laomedeia (女性)",
+    "leda": "Leda (女性)",
+    "pulcherrima": "Pulcherrima (女性)",
+    "sadachbia": "Sadachbia (女性)",
+    "schedar": "Schedar (女性)",
+    "sulafat": "Sulafat (女性)",
+    "umbriel": "Umbriel (女性)",
+    "vindemiatrix": "Vindemiatrix (女性)",
+    "zephyr": "Zephyr (女性)",
+    # 男性的な声
+    "achernar": "Achernar (男性)",
+    "algenib": "Algenib (男性)",
+    "algieba": "Algieba (男性)",
+    "alnilam": "Alnilam (男性)",
+    "aoede": "Aoede (男性)",
+    "autonoe": "Autonoe (男性)",
+    "charon": "Charon (男性)",
+    "enceladus": "Enceladus (男性)",
+    "fenrir": "Fenrir (男性)",
+    "gacrux": "Gacrux (男性)",
+    "iapetus": "Iapetus (男性)",
+    "orus": "Orus (男性)",
+    "puck": "Puck (男性)",
+    "rasalgethi": "Rasalgethi (男性)",
+    "sadaltager": "Sadaltager (男性)",
+    "zubenelgenubi": "Zubenelgenubi (男性)",
+}
+# ★★★ ここまで追加 ★★★
+
 # --- 設定関連定数 ---
 CONFIG_FILE = "config.json"
 ALARMS_FILE = "alarms.json"
