@@ -15,7 +15,7 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str) -> Optional
     """
     指定されたテキストと声IDを使って音声を生成し、
     一時ファイルとして保存して、そのファイルパスを返す。
-    【プロジェクト規律準拠・パラメータ名修正版】
+    【公式サンプル準拠・最終確定版】
     """
     # 安全のため、長すぎるテキストは250文字に丸める
     text_to_speak = (text[:250] + '...') if len(text) > 250 else text
@@ -24,15 +24,19 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str) -> Optional
         print(f"--- 音声生成開始 (Voice: {voice_id}) ---")
 
         client = genai.Client(api_key=api_key)
+        # Client経由で呼び出せるプレビューモデルを指定
         model_name = "models/gemini-2.5-flash-preview-tts"
 
-        # ★★★ ここが最後の、そして真の修正箇所です ★★★
+        # ★★★ ここが公式サンプルに準拠した、真の修正箇所です ★★★
         generation_config = types.GenerationConfig(
-            response_mime_type="audio/mpeg",
+            response_mime_type="audio/mpeg", # mp3形式を要求
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
-                    # エラーの原因だった 'voice' を、正しいパラメータ名 'name' に変更
-                    name=voice_id
+                    # 正しい構造: VoiceConfig -> prebuilt_voice_config -> PrebuiltVoiceConfig
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        # 正しいパラメータ名は 'voice_name'
+                        voice_name=voice_id
+                    )
                 )
             )
         )
