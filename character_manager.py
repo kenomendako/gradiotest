@@ -3,6 +3,7 @@
 import os
 import json
 import traceback
+import datetime
 from config_manager import CHARACTERS_DIR, PROFILE_IMAGE_FILENAME, MEMORY_FILENAME
 
 NOTEPAD_FILENAME = "notepad.md"
@@ -49,6 +50,30 @@ def ensure_character_files(character_name):
 
         if not os.path.exists(notepad_file):
             open(notepad_file, "w", encoding="utf-8").close()
+
+        # ★★★ ここから追加 ★★★
+        config_file = os.path.join(base_path, "character_config.json")
+        if not os.path.exists(config_file):
+            default_char_config = {
+                "version": 1,
+                "last_updated": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "override_settings": {
+                    "model_name": None,
+                    "voice_id": None,
+                    "send_thoughts": None,
+                    "send_notepad": None,
+                    "use_common_prompt": None,
+                    "send_core_memory": None,
+                    "send_scenery": None
+                }
+            }
+            try:
+                with open(config_file, "w", encoding="utf-8") as f:
+                    json.dump(default_char_config, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                print(f"エラー: キャラクター設定ファイル '{config_file}' の作成に失敗: {e}")
+                return False
+        # ★★★ ここまで追加 ★★★
 
         location_file = os.path.join(base_path, "current_location.txt")
         if not os.path.exists(location_file):

@@ -122,3 +122,38 @@ def save_config(key, value):
         config[key] = value
         with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(config, f, indent=2, ensure_ascii=False)
     except Exception as e: print(f"設定の保存エラー ({key}): {e}")
+
+# ★★★ ここから追加 ★★★
+def get_effective_settings(character_name: str) -> dict:
+    """共通設定とキャラクター個別設定をマージして、有効な設定セットを返す。"""
+
+    # 1. ベースとなる共通設定を準備
+    effective_settings = {
+        "model_name": initial_model_global,
+        "api_key_name": initial_api_key_name_global,
+        "send_thoughts": initial_send_thoughts_to_api_global,
+        "send_notepad": True, # UIのデフォルト値に合わせる
+        "use_common_prompt": True, # UIのデフォルト値に合わせる
+        "send_core_memory": True, # UIのデフォルト値に合わせる
+        "send_scenery": True, # UIのデフォルト値に合わせる
+        "voice_id": "ja-JP-Wavenet-D" # デフォルトの音声ID
+    }
+
+    # 2. キャラクター個別設定ファイルが存在すれば、それで上書きする
+    if character_name:
+        char_config_path = os.path.join(CHARACTERS_DIR, character_name, "character_config.json")
+        if os.path.exists(char_config_path):
+            try:
+                with open(char_config_path, "r", encoding="utf-8") as f:
+                    char_config = json.load(f)
+
+                override = char_config.get("override_settings", {})
+                for key, value in override.items():
+                    # 値がNoneでない項目だけを上書き
+                    if value is not None:
+                        effective_settings[key] = value
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"警告: '{char_config_path}' の読み込みに失敗しました: {e}")
+
+    return effective_settings
+# ★★★ ここまで追加 ★★★
