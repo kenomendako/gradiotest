@@ -4,6 +4,7 @@ import os
 import re
 import traceback
 import json
+import pytz
 from typing import TypedDict, Annotated, List, Literal
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -137,8 +138,12 @@ def context_generator_node(state: AgentState):
 
         if not space_def.startswith("（"):
             llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
-            now = datetime.now()
-            scenery_prompt = (f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')} / 季節:{now.month}月\n\n以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n- 1〜2文の簡潔な文章にまとめてください。\n- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。")
+
+            # ★★★ UTCで現在時刻を取得し、日本時間に変換 ★★★
+            utc_now = datetime.now(pytz.utc)
+            jst_now = utc_now.astimezone(pytz.timezone('Asia/Tokyo'))
+
+            scenery_prompt = (f"空間定義:{space_def}\n時刻:{jst_now.strftime('%H:%M')} / 季節:{jst_now.month}月\n\n以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n- 1〜2文の簡潔な文章にまとめてください。\n- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。")
             scenery_text = llm_flash.invoke(scenery_prompt).content
         else:
             scenery_text = "（場所の定義がないため、情景を描写できません）"
