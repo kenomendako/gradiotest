@@ -15,7 +15,7 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str) -> Optional
     """
     指定されたテキストと声IDを使って音声を生成し、
     一時ファイルとして保存して、そのファイルパスを返す。
-    【引数名修正・真の最終確定版】
+    【公式サンプル完全準拠・最終版】
     """
     # 安全のため、長すぎるテキストは250文字に丸める
     text_to_speak = (text[:250] + '...') if len(text) > 250 else text
@@ -26,9 +26,11 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str) -> Optional
         client = genai.Client(api_key=api_key)
         model_name = "models/gemini-2.5-flash-preview-tts"
 
-        # 正しい入れ子構造で設定オブジェクトを構築
+        # ★★★ ここが公式サンプルに準拠した、真の修正箇所です ★★★
         generation_config_object = types.GenerateContentConfig(
-            response_mime_type="audio/mpeg",
+            # エラーの原因だった'response_mime_type'を削除し、
+            # 公式サンプル通り'response_modalities'を使用します。
+            response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -38,7 +40,6 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str) -> Optional
             )
         )
 
-        # client.models.generate_content を呼び出す
         response = client.models.generate_content(
             model=model_name,
             contents=[
@@ -48,8 +49,6 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str) -> Optional
                     ]
                 )
             ],
-            # ★★★ ここが最後の修正点です ★★★
-            # 'generation_config=' ではなく、公式サンプル通り 'config=' を使用します。
             config=generation_config_object
         )
 
@@ -59,6 +58,7 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str) -> Optional
              return None
 
         audio_data = audio_part.inline_data.data
+        # ★★★ 修正箇所ここまで ★★★
 
         filename = f"{uuid.uuid4()}.mp3"
         filepath = os.path.join(AUDIO_CACHE_DIR, filename)
