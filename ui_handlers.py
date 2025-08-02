@@ -341,3 +341,27 @@ def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_
     reloaded_history = reload_chat_log(character_name, key)
 
     return key, reloaded_history, gr.State()
+
+def handle_add_new_character(character_name: str):
+    """新しいキャラクターを追加するハンドラ"""
+    if not character_name or not character_name.strip():
+        gr.Warning("キャラクター名が入力されていません。")
+        char_list = character_manager.get_character_list()
+        # 戻り値の数を合わせる
+        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), ""
+
+    safe_name = re.sub(r'[\\/*?:"<>|]', "", character_name).strip()
+    if not safe_name:
+        gr.Warning("無効なキャラクター名です。")
+        char_list = character_manager.get_character_list()
+        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), character_name
+
+    if character_manager.ensure_character_files(safe_name):
+        gr.Info(f"新しいキャラクター「{safe_name}」さんを迎えました！")
+        new_char_list = character_manager.get_character_list()
+        # 4つのUIコンポーネントを更新する
+        return gr.update(choices=new_char_list, value=safe_name), gr.update(choices=new_char_list, value=safe_name), gr.update(choices=new_char_list, value=safe_name), ""
+    else:
+        gr.Error(f"キャラクター「{safe_name}」の準備に失敗しました。")
+        char_list = character_manager.get_character_list()
+        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), character_name
