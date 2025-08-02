@@ -280,7 +280,10 @@ def handle_initial_load():
     df_with_ids = render_alarms_as_dataframe()
     display_df = get_display_df(df_with_ids)
 
-    messages_history, buttons_history, _, prof_img, mem_str, al_char, tm_char, note_cont, loc_dd, location_name, scenery_text = update_ui_on_character_change(char_name, api_history_limit)
+    # ★★★ ここが最後の修正箇所です ★★★
+    # 12個の値を正しく受け取るために、( )で囲み、先頭に変数 `ret_char` を追加します
+    (ret_char, messages_history, buttons_history, _, prof_img, mem_str, al_char,
+     tm_char, note_cont, loc_dd, location_name, scenery_text) = update_ui_on_character_change(char_name, api_history_limit)
 
     token_count = update_token_count(char_name, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
 
