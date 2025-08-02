@@ -111,7 +111,7 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
         elif header:
             if header == ai_header:
                 role = 'model'
-            else: # ユーザーヘッダーとシステムヘッダーの両方を 'user' として扱う
+            else:
                 role = 'user'
             messages.append({"role": role, "content": part})
             header = None
@@ -137,18 +137,15 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
         messages_history.append({"role": role, "content": content})
 
         # 2. buttons_history (HTMLボタン + 空の画像代替)
-        # 画像タグを空文字列に置換
         button_content_text = image_tag_pattern.sub("", content).strip()
 
-        # HTMLボタンを生成
-        html_with_buttons = _format_text_content_for_gradio(button_content_text, f"msg-anchor-{i}", None, None) # Anchor IDは暫定
+        html_with_buttons = _format_text_content_for_gradio(button_content_text, f"msg-anchor-{i}", None, None)
 
         if role == "user":
             buttons_history.append((html_with_buttons, None))
-        else: # assistant
+        else:
             buttons_history.append((None, html_with_buttons))
 
-        # 3. mapping_list
         mapping_list.append(i)
 
     return messages_history, buttons_history, mapping_list
@@ -158,14 +155,10 @@ def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_a
     down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
     delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
 
-    # ★★★ ここからが修正箇所 ★★★
     escaped_content = html.escape(content, quote=True)
-
-    # JavaScriptによって後から「ボタン化」されるための、無害な印を付ける
     play_button = f"<span class='play-audio-button' data-text='{escaped_content}' title='この発言を音声で再生する' style='padding: 1px 6px; font-size: 1.0em; color: #AAA; cursor: pointer;'>🔊</span>"
 
     button_container = f"<div style='text-align: right; margin-top: 8px;'>{play_button}<span style='margin: 0 4px;'></span>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
-    # ★★★ ここまで ★★★
 
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     thought_match = thoughts_pattern.search(content)

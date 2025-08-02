@@ -27,7 +27,6 @@ DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 # --- 情景生成 ---
 def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[str, str]:
-    # (この関数の内容は変更ありません)
     print("--- [軽量版] 情景生成を開始します ---")
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not character_name or not api_key:
@@ -240,7 +239,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
 
     display_turns = _get_display_history_count(api_history_limit_value)
-    chat_history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):], character_name)
+    messages_history, buttons_history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):], character_name)
 
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
@@ -258,7 +257,8 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
 
     return (
         character_name,
-        chat_history,
+        messages_history,
+        buttons_history,
         "",
         profile_image,
         memory_str,
@@ -280,12 +280,11 @@ def handle_initial_load():
     df_with_ids = render_alarms_as_dataframe()
     display_df = get_display_df(df_with_ids)
 
-    (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char,
-     note_cont, loc_dd, location_name, scenery_text) = update_ui_on_character_change(char_name, api_history_limit)
+    messages_history, buttons_history, _, prof_img, mem_str, al_char, tm_char, note_cont, loc_dd, location_name, scenery_text = update_ui_on_character_change(char_name, api_history_limit)
 
-    token_count = update_token_count(ret_char, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
+    token_count = update_token_count(char_name, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
 
-    return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
+    return (display_df, df_with_ids, messages_history, buttons_history, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
 
 # --- チャットメッセージの削除 ---
 def handle_chatbot_selection(character_name: str, api_history_limit_state: str, evt: gr.SelectData):
@@ -293,19 +292,14 @@ def handle_chatbot_selection(character_name: str, api_history_limit_state: str, 
         return None, gr.update(visible=False)
 
     try:
-        clicked_ui_index = evt.index
-
-        # ★★★ この一行を追加 ★★★
-        # もしリストで来た場合は、最初の要素だけを使う
-        if isinstance(clicked_ui_index, list):
-            clicked_ui_index = clicked_ui_index[0]
+        clicked_ui_index = evt.index[0]
 
         log_f, _, _, _, _ = get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_f, character_name)
         display_turns = _get_display_history_count(api_history_limit_state)
         visible_raw_history = raw_history[-(display_turns * 2):]
 
-        _, mapping_list = utils.format_history_for_gradio(visible_raw_history, character_name)
+        _, _, mapping_list = utils.format_history_for_gradio(visible_raw_history, character_name)
 
         if not (0 <= clicked_ui_index < len(mapping_list)):
             gr.Warning("Could not identify the clicked message (UI index out of bounds).")
@@ -327,7 +321,7 @@ def handle_chatbot_selection(character_name: str, api_history_limit_state: str, 
 def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], character_name: str, api_history_limit: str):
     if not message_to_delete:
         gr.Warning("No message selected for deletion.")
-        return gr.update(), None, gr.update(visible=False)
+        return gr.update(), gr.update(), None, gr.update(visible=False)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
 
@@ -342,17 +336,17 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], char
     else:
         gr.Error("Failed to delete the message. Check terminal for details.")
 
-    new_chat_history = reload_chat_log(character_name, api_history_limit)
+    messages_history, buttons_history = reload_chat_log(character_name, api_history_limit)
 
-    return new_chat_history, None, gr.update(visible=False)
+    return messages_history, buttons_history, None, gr.update(visible=False)
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
     if not character_name: return [], []
     log_f,_,_,_,_ = get_character_files_paths(character_name)
     if not log_f or not os.path.exists(log_f): return [], []
     display_turns = _get_display_history_count(api_history_limit_value)
-    history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name)
-    return history
+    messages_history, buttons_history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name)
+    return messages_history, buttons_history
 
 # --- 記憶とメモ帳 ---
 def handle_save_memory_click(character_name, json_string_data):
@@ -702,3 +696,5 @@ def handle_audio_playback_request(text_to_speak: str, character_name: str, api_k
         gr.Warning("音声の生成に失敗しました。")
         return gr.update()
 # ★★★ ここまで追加 ★★★
+
+[end of ui_handlers.py]

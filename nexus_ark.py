@@ -39,8 +39,6 @@ try:
     #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
     #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
-
-    /* ★★★ ここから追加 ★★★ */
     #chat_container { position: relative; }
     #chat_output_buttons {
         position: absolute;
@@ -55,56 +53,38 @@ try:
         box-shadow: none !important;
     }
     .transparent_chatbot .message-text {
-        color: transparent !important; /* テキストも見えなくする */
+        color: transparent !important;
     }
-    /* ★★★ ここまで追加 ★★★ */
     """
-    # チャット内のリンククリックが選択イベントを誤発火させないようにするJavaScript
     js_stop_nav_link_propagation = """
     function() {
-        // body全体でクリックイベントを監視する（キャプチャフェーズで、Gradioより先に動く）
         document.body.addEventListener('click', function(e) {
-
-            // クリックされた要素が、どのボタン（またはその子孫）であるかを探す
             let target = e.target;
             while (target && target !== document.body) {
-
-                // ★★★ 仕事1：再生ボタンが押された場合の処理 ★★★
                 if (target.matches('.play-audio-button')) {
-                    // Gradioのイベント（選択など）へ伝播するのを、ここで完全に止める！
                     e.stopPropagation();
-
-                    // ★★★ 仕事2：Pythonに音声再生を依頼する ★★★
                     const text = target.dataset.text;
                     const gradio_app = document.querySelector('gradio-app');
                     if (gradio_app) {
-                        // 見えないテキストボックス経由で、Pythonの関数を呼び出す
                         const hidden_textbox = gradio_app.shadowRoot.querySelector('#text_for_audio_input textarea');
                         if (hidden_textbox) {
                             hidden_textbox.value = text;
                             hidden_textbox.dispatchEvent(new Event('input', { bubbles: true }));
                         }
                     }
-                    return; // 処理完了
+                    return;
                 }
-
-                // ★★★ 仕事3：ナビゲーションボタンが押された場合の処理 ★★★
                 if (target.matches('.message-nav-link')) {
-                    // Gradioのイベント（選択など）へ伝播するのを、ここで完全に止める！
                     e.stopPropagation();
-                    // (ナビゲーションは<a>タグのデフォルト動作で行われるので、依頼は不要)
-                    return; // 処理完了
+                    return;
                 }
-
                 target = target.parentElement;
             }
         }, true);
     }
     """
 
-    # GradioのUIブロックを定義
     with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, js=js_stop_nav_link_propagation) as demo:
-        # --- 起動時の初期値設定 ---
         character_list_on_startup = character_manager.get_character_list()
         if not character_list_on_startup:
             character_manager.ensure_character_files("Default")
@@ -119,7 +99,6 @@ try:
                 character_manager.ensure_character_files("Default")
                 character_list_on_startup = ["Default"]
 
-        # --- Stateオブジェクトの定義 ---
         current_character_name = gr.State(effective_initial_character)
         current_model_name = gr.State(config_manager.initial_model_global)
         current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -135,7 +114,6 @@ try:
         selected_message_state = gr.State(None)
         audio_player = gr.Audio(visible=False, autoplay=True)
 
-        # --- UIレイアウトの定義 ---
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
@@ -212,9 +190,7 @@ try:
                         add_character_button = gr.Button("迎える", variant="secondary", scale=1)
 
             with gr.Column(scale=3):
-                # ★★★ ここからが修正箇所 ★★★
-                with gr.Blocks(elem_id="chat_container"): # position: relative のため
-                    # 下層：画像表示専用チャットボット（メッセージ形式）
+                with gr.Blocks(elem_id="chat_container"):
                     chatbot_display_messages = gr.Chatbot(
                         type="messages",
                         height=600,
@@ -222,22 +198,17 @@ try:
                         show_copy_button=True,
                         show_label=False
                     )
-                    # 上層：ボタン表示専用チャットボット（タプル形式）
                     chatbot_display_buttons = gr.Chatbot(
                         height=600,
                         elem_id="chat_output_buttons",
                         show_label=False,
-                        # CSSで透明にし、クリックイベントだけを拾う
                         elem_classes=["transparent_chatbot"]
                     )
-                # ★★★ ここまで ★★★
                 with gr.Row(visible=False) as deletion_button_group:
                     delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
                     cancel_selection_button = gr.Button("✖️ 選択をキャンセル", scale=1)
-
                 with gr.Row():
                     chat_reload_button = gr.Button("🔄 更新")
-
                 token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
                 tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
                 chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
@@ -247,15 +218,14 @@ try:
                 text_for_audio_trigger = gr.Textbox(elem_id="text_for_audio_input", visible=False)
                 gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
-            # --- イベントハンドラ定義 ---
             token_calc_inputs = [current_character_name, current_model_name, chat_input_textbox, file_upload_button, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state]
-            chat_inputs = [chat_input_textbox, chatbot_display, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state]
-            chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe]
+            chat_inputs = [chat_input_textbox, chatbot_display_messages, chatbot_display_buttons, current_character_name, current_model_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state]
+            chat_submit_outputs = [chatbot_display_messages, chatbot_display_buttons, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe]
             scenery_refresh_inputs = [current_character_name, current_api_key_name_state]
             scenery_refresh_outputs = [current_location_display, current_scenery_display]
 
             add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-            character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown, current_location_display, current_scenery_display]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display])
+            character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display_messages, chatbot_display_buttons, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown, current_location_display, current_scenery_display]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display])
             change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown], outputs=scenery_refresh_outputs)
             refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=scenery_refresh_inputs, outputs=scenery_refresh_outputs)
             chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
@@ -276,11 +246,10 @@ try:
             use_common_prompt_checkbox.change(fn=ui_handlers.update_use_common_prompt_state, inputs=[use_common_prompt_checkbox], outputs=[use_common_prompt_state])
             send_core_memory_checkbox.change(fn=ui_handlers.update_send_core_memory_state, inputs=[send_core_memory_checkbox], outputs=[send_core_memory_state])
             send_scenery_checkbox.change(fn=ui_handlers.update_send_scenery_state, inputs=[send_scenery_checkbox], outputs=[send_scenery_state])
-            api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()])
-            chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
-
-            chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state], outputs=[selected_message_state, deletion_button_group], show_progress=False)
-            delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, selected_message_state, deletion_button_group])
+            api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display_messages, chatbot_display_buttons, gr.State()])
+            chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display_messages, chatbot_display_buttons])
+            chatbot_display_buttons.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state], outputs=[selected_message_state, deletion_button_group], show_progress=False)
+            delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display_messages, chatbot_display_buttons, selected_message_state, deletion_button_group])
             cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, deletion_button_group])
 
             save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
@@ -340,43 +309,7 @@ try:
                 outputs=[audio_player]
             )
 
-            # ★★★ ここからが新しいイベントハンドラ ★★★
-            chatbot_display.change(
-                fn=None,
-                inputs=None,
-                outputs=None,
-                js="""
-                (history) => {
-                    // 遅延実行することで、Gradioの描画が完了するのを待つ
-                    setTimeout(() => {
-                        const buttons = document.querySelectorAll('.play-audio-button');
-                        buttons.forEach(button => {
-                            // 二重にイベントを設定しないためのチェック
-                            if (!button.dataset.listenerAttached) {
-                                button.addEventListener('click', (e) => {
-                                    e.stopPropagation(); // これが最重要！ selectイベントを止める
-
-                                    const text = e.currentTarget.dataset.text;
-
-                                    // 見えないTextboxを操作してPythonを呼び出す
-                                    const gradio_container = document.querySelector('gradio-app').shadowRoot;
-                                    const hidden_textbox = gradio_container.querySelector('#text_for_audio_input textarea');
-                                    if (hidden_textbox) {
-                                        hidden_textbox.value = text;
-                                        hidden_textbox.dispatchEvent(new Event('input', { bubbles: true }));
-                                    }
-                                });
-                                button.dataset.listenerAttached = 'true';
-                            }
-                        });
-                    }, 100); // 100ミリ秒の遅延
-                    return history;
-                }
-                """
-            )
-            # ★★★ ここまで ★★★
-
-            demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor, location_dropdown, current_location_display, current_scenery_display])
+            demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display_messages, chatbot_display_buttons, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor, location_dropdown, current_location_display, current_scenery_display])
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 
         if __name__ == "__main__":
