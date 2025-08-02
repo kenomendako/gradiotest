@@ -7,7 +7,6 @@ import google.genai as genai
 from google.genai import types
 import traceback
 
-# 生成された音声ファイル（MP3）を一時的に保存するディレクトリ
 AUDIO_CACHE_DIR = os.path.join("temp", "audio_cache")
 os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
@@ -15,21 +14,17 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str) -> Optional
     """
     指定されたテキストと声IDを使って音声を生成し、
     一時ファイルとして保存して、そのファイルパスを返す。
-    【公式サンプル完全準拠・最終版】
     """
-    # 安全のため、長すぎるテキストは250文字に丸める
     text_to_speak = (text[:250] + '...') if len(text) > 250 else text
 
     try:
-        print(f"--- 音声生成開始 (Voice: {voice_id}) ---")
+        # ★★★ voice_idは、サポートされているリスト内のものを指定する必要がある ★★★
+        print(f"--- 音声生成開始 (Model: models/gemini-2.5-flash-preview-tts, Voice: {voice_id}) ---")
 
         client = genai.Client(api_key=api_key)
         model_name = "models/gemini-2.5-flash-preview-tts"
 
-        # ★★★ ここが公式サンプルに準拠した、真の修正箇所です ★★★
         generation_config_object = types.GenerateContentConfig(
-            # エラーの原因だった'response_mime_type'を削除し、
-            # 公式サンプル通り'response_modalities'を使用します。
             response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
@@ -42,23 +37,14 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str) -> Optional
 
         response = client.models.generate_content(
             model=model_name,
-            contents=[
-                types.Content(
-                    parts=[
-                        types.Part(text=text_to_speak),
-                    ]
-                )
-            ],
+            contents=[types.Content(parts=[types.Part(text=text_to_speak)])],
             config=generation_config_object
         )
 
-        audio_part = response.candidates[0].content.parts[0]
-        if not audio_part.inline_data or not audio_part.inline_data.data:
+        audio_data = response.candidates[0].content.parts[0].inline_data.data
+        if not audio_data:
              print("--- エラー: API応答に音声データが含まれていません ---")
              return None
-
-        audio_data = audio_part.inline_data.data
-        # ★★★ 修正箇所ここまで ★★★
 
         filename = f"{uuid.uuid4()}.mp3"
         filepath = os.path.join(AUDIO_CACHE_DIR, filename)
