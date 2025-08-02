@@ -292,19 +292,24 @@ def handle_initial_load():
     display_df = get_display_df(df_with_ids)
 
     # ★★★ ここからが修正箇所 ★★★
-    # update_ui_on_character_changeから返される12個の値を、12個の変数で正しく受け取る
+    # update_ui_on_character_changeから返される値を正しい数の変数で受け取る
     (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char,
-     note_cont, loc_dd, location_name, scenery_text, voice_dd_val) = update_ui_on_character_change(char_name, api_history_limit)
-    # ★★★ 修正箇所ここまで ★★★
+     note_cont, loc_dd, location_name, scenery_text,
+     char_model_val, char_voice_val, char_thoughts_val, char_notepad_val,
+     char_common_prompt_val, char_core_mem_val, char_scenery_val,
+     char_name_md) = update_ui_on_character_change(char_name, api_history_limit)
 
     token_count = update_token_count(ret_char, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
 
-    # ★★★ ここも修正箇所 ★★★
-    # nexus_ark.pyのdemo.loadが期待する14個の値を、正しい順番で返す
+    # nexus_ark.pyのdemo.loadが期待する21個の値を、正しい順番で返す
     return (
         display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char,
         tm_char, "アラームを選択してください", token_count, note_cont, loc_dd,
-        location_name, scenery_text, voice_dd_val
+        location_name, scenery_text,
+        # キャラクター個別設定UIに渡す値
+        char_model_val, char_voice_val, char_thoughts_val, char_notepad_val,
+        char_common_prompt_val, char_core_mem_val, char_scenery_val,
+        char_name_md
     )
 
 # --- チャットメッセージの削除 ---
