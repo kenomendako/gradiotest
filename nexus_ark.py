@@ -112,6 +112,11 @@ try:
                             char_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
                             char_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
                             char_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
+
+                            # ★★★ ここからが修正箇所 ★★★
+                            gr.Markdown("---")
+                            save_char_settings_button = gr.Button("このキャラクターの設定を保存", variant="primary")
+                            # ★★★ 修正箇所ここまで ★★★
                         with gr.TabItem("共通設定"):
                             # (共通設定タブの中身は変更なし)
                             model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
@@ -231,15 +236,17 @@ try:
         )
 
         # キャラクター個別設定のイベント
-        # ★★★ 注目： inputsにgr.Stateを追加することで、常に最新のキャラクター名を参照する ★★★
-        char_model_dropdown.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "model_name", val), inputs=[current_character_name, char_model_dropdown], outputs=None)
-        char_voice_dropdown.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "voice_id", val), inputs=[current_character_name, char_voice_dropdown], outputs=None)
         char_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[char_voice_dropdown, char_preview_text_textbox, api_key_dropdown], outputs=[audio_player])
-        char_send_thoughts_checkbox.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "send_thoughts", val), inputs=[current_character_name, char_send_thoughts_checkbox], outputs=None)
-        char_send_notepad_checkbox.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "send_notepad", val), inputs=[current_character_name, char_send_notepad_checkbox], outputs=None)
-        char_use_common_prompt_checkbox.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "use_common_prompt", val), inputs=[current_character_name, char_use_common_prompt_checkbox], outputs=None)
-        char_send_core_memory_checkbox.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "send_core_memory", val), inputs=[current_character_name, char_send_core_memory_checkbox], outputs=None)
-        char_send_scenery_checkbox.change(lambda char, val: ui_handlers.handle_char_setting_change(char, "send_scenery", val), inputs=[current_character_name, char_send_scenery_checkbox], outputs=None)
+            save_char_settings_button.click(
+                fn=ui_handlers.handle_save_char_settings,
+                inputs=[
+                    current_character_name, char_model_dropdown, char_voice_dropdown,
+                    char_send_thoughts_checkbox, char_send_notepad_checkbox,
+                    char_use_common_prompt_checkbox, char_send_core_memory_checkbox,
+                    char_send_scenery_checkbox
+                ],
+                outputs=None # 保存するだけなので出力はなし
+            )
 
         # (以降のイベント定義は、前回までの実装から変更なし)
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])

@@ -84,38 +84,48 @@ def handle_character_change(character_name: str):
         f"ℹ️ *現在選択中のキャラクター「{character_name}」にのみ適用される設定です。*"
     )
 
-def handle_char_setting_change(character_name: str, setting_key: str, value: Any):
-    """【改修版】キャラクター個別設定の変更を安全に保存する"""
-    if not character_name or not setting_key: return
+def handle_save_char_settings(
+    character_name: str, model_name: str, voice_name: str,
+    send_thoughts: bool, send_notepad: bool, use_common_prompt: bool,
+    send_core_memory: bool, send_scenery: bool
+):
+    """キャラクター個別設定を一度に保存する司令塔ハンドラ"""
+    if not character_name:
+        gr.Warning("設定を保存するキャラクターが選択されていません。")
+        return
 
-    save_value = None
-    if setting_key == "model_name":
-        save_value = value if value != "デフォルト" else None
-    elif setting_key == "voice_id":
-        save_value = next((k for k, v in config_manager.SUPPORTED_VOICES.items() if v == value), None)
-    else:
-        save_value = bool(value)
+    settings_to_save = {
+        "model_name": model_name if model_name != "デフォルト" else None,
+        "voice_id": next((k for k, v in config_manager.SUPPORTED_VOICES.items() if v == voice_name), None),
+        "send_thoughts": bool(send_thoughts),
+        "send_notepad": bool(send_notepad),
+        "use_common_prompt": bool(use_common_prompt),
+        "send_core_memory": bool(send_core_memory),
+        "send_scenery": bool(send_scenery),
+    }
 
     try:
         char_config_path = os.path.join(config_manager.CHARACTERS_DIR, character_name, "character_config.json")
         config = {}
-        # ★★★ ここがJSONDecodeErrorを防ぐ修正 ★★★
         if os.path.exists(char_config_path) and os.path.getsize(char_config_path) > 0:
             with open(char_config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
 
-        if "override_settings" not in config: config["override_settings"] = {}
+        # override_settingsがなければ作成
+        if "override_settings" not in config:
+            config["override_settings"] = {}
 
-        config["override_settings"][setting_key] = save_value
+        # 取得した設定で上書き
+        config["override_settings"] = settings_to_save
         config["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         with open(char_config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
 
-        gr.Info(f"「{character_name}」の設定 '{setting_key}' を更新しました。")
+        gr.Info(f"「{character_name}」の個別設定を保存しました。")
 
     except Exception as e:
-        gr.Error(f"設定 '{setting_key}' の保存中にエラーが発生しました: {e}")
+        gr.Error(f"個別設定の保存中にエラーが発生しました: {e}")
         traceback.print_exc()
 
 # --- トークン計算ハンドラの簡素化 ---
