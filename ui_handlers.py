@@ -298,4 +298,46 @@ def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], c
 # ... (the rest of the handler functions are assumed to be here, unchanged) ...
 def _get_display_history_count(api_history_limit_value: str) -> int:
     return int(api_history_limit_value) if api_history_limit_value.isdigit() else config_manager.UI_HISTORY_MAX_LIMIT
-# (and so on for all other handlers)
+
+def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
+    """チャットログを再読み込みしてUI用の形式で返す"""
+    if not character_name:
+        return [], []
+    log_f, _, _, _, _ = get_character_files_paths(character_name)
+    if not log_f or not os.path.exists(log_f):
+        return [], []
+
+    display_turns = _get_display_history_count(api_history_limit_value)
+    raw_history = utils.load_chat_log(log_f, character_name)
+    visible_history = raw_history[-(display_turns * 2):]
+
+    # utils.pyの返り値は2つ (history, mapping_list)
+    formatted_history, _ = utils.format_history_for_gradio(visible_history, character_name)
+
+    return formatted_history
+
+def update_model_state(model):
+    """共通設定のモデル名を保存する"""
+    config_manager.save_config("last_model", model)
+    # Gradioはgr.Stateを更新するために値を返す必要がある
+    return model
+
+def update_api_key_state(api_key_name):
+    """共通設定のAPIキー名を保存する"""
+    config_manager.save_config("last_api_key_name", api_key_name)
+    gr.Info(f"共通APIキーを '{api_key_name}' に設定しました。")
+    return api_key_name
+
+def update_timestamp_state(checked):
+    """共通設定のタイムスタンプ追加設定を保存する"""
+    config_manager.save_config("add_timestamp", bool(checked))
+
+def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
+    """共通設定の履歴長を保存し、チャットをリロードする"""
+    key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
+    config_manager.save_config("last_api_history_limit_option", key)
+
+    # チャットのリロード処理
+    reloaded_history = reload_chat_log(character_name, key)
+
+    return key, reloaded_history, gr.State()
