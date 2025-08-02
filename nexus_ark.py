@@ -43,13 +43,40 @@ try:
     # チャット内のリンククリックが選択イベントを誤発火させないようにするJavaScript
     js_stop_nav_link_propagation = """
     function() {
+        // body全体でクリックイベントを監視する（キャプチャフェーズで、Gradioより先に動く）
         document.body.addEventListener('click', function(e) {
+
+            // クリックされた要素が、どのボタン（またはその子孫）であるかを探す
             let target = e.target;
             while (target && target !== document.body) {
-                if (target.matches('.message-nav-link')) {
+
+                // ★★★ 仕事1：再生ボタンが押された場合の処理 ★★★
+                if (target.matches('.play-audio-button')) {
+                    // Gradioのイベント（選択など）へ伝播するのを、ここで完全に止める！
                     e.stopPropagation();
-                    return;
+
+                    // ★★★ 仕事2：Pythonに音声再生を依頼する ★★★
+                    const text = target.dataset.text;
+                    const gradio_app = document.querySelector('gradio-app');
+                    if (gradio_app) {
+                        // 見えないテキストボックス経由で、Pythonの関数を呼び出す
+                        const hidden_textbox = gradio_app.shadowRoot.querySelector('#text_for_audio_input textarea');
+                        if (hidden_textbox) {
+                            hidden_textbox.value = text;
+                            hidden_textbox.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                    }
+                    return; // 処理完了
                 }
+
+                // ★★★ 仕事3：ナビゲーションボタンが押された場合の処理 ★★★
+                if (target.matches('.message-nav-link')) {
+                    // Gradioのイベント（選択など）へ伝播するのを、ここで完全に止める！
+                    e.stopPropagation();
+                    // (ナビゲーションは<a>タグのデフォルト動作で行われるので、依頼は不要)
+                    return; // 処理完了
+                }
+
                 target = target.parentElement;
             }
         }, true);
