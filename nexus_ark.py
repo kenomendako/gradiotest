@@ -316,7 +316,17 @@ try:
             rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
             core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
 
-            demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor, location_dropdown, current_location_display, current_scenery_display])
+            demo.load(
+                fn=ui_handlers.handle_initial_load,
+                inputs=None,
+                outputs=[
+                    alarm_dataframe, alarm_dataframe_original_data, chatbot_display,
+                    profile_image_display, memory_json_editor, alarm_char_dropdown,
+                    timer_char_dropdown, selection_feedback_markdown, token_count_display,
+                    notepad_editor, location_dropdown, current_location_display,
+                    current_scenery_display, voice_dropdown # ★★★ 不足していた出力先を追加 ★★★
+                ]
+            )
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 
         if __name__ == "__main__":

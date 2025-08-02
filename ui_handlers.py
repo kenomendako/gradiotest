@@ -283,12 +283,21 @@ def handle_initial_load():
     df_with_ids = render_alarms_as_dataframe()
     display_df = get_display_df(df_with_ids)
 
+    # ★★★ ここからが修正箇所 ★★★
+    # update_ui_on_character_changeから返される12個の値を、12個の変数で正しく受け取る
     (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char,
-     note_cont, loc_dd, location_name, scenery_text) = update_ui_on_character_change(char_name, api_history_limit)
+     note_cont, loc_dd, location_name, scenery_text, voice_dd_val) = update_ui_on_character_change(char_name, api_history_limit)
+    # ★★★ 修正箇所ここまで ★★★
 
-    token_count = update_token_count(char_name, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
+    token_count = update_token_count(ret_char, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
 
-    return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
+    # ★★★ ここも修正箇所 ★★★
+    # nexus_ark.pyのdemo.loadが期待する14個の値を、正しい順番で返す
+    return (
+        display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char,
+        tm_char, "アラームを選択してください", token_count, note_cont, loc_dd,
+        location_name, scenery_text, voice_dd_val
+    )
 
 # --- チャットメッセージの削除 ---
 def handle_chatbot_selection(character_name: str, api_history_limit_state: str, evt: gr.SelectData):
