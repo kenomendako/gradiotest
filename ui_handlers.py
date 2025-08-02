@@ -234,6 +234,13 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
 
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
 
+    # ★★★ ここから追加 ★★★
+    # キャラクターの有効な設定を読み込む
+    effective_settings = config_manager.get_effective_settings(character_name)
+    # 設定されている voice_id から、UIに表示する名前を取得
+    voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings["voice_id"], "Vindemiatrix (女性)")
+    # ★★★ ここまで追加 ★★★
+
     display_turns = _get_display_history_count(api_history_limit_value)
     chat_history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns * 2):], character_name)
 
@@ -253,7 +260,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
 
     return (
         character_name,
-        chat_history, # 変更点： messages_history を chat_history に
+        chat_history,
         "",
         profile_image,
         memory_str,
@@ -262,7 +269,8 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
         notepad_content,
         gr.update(choices=locations, value=dropdown_value),
         current_location_name,
-        scenery_text
+        scenery_text,
+        voice_display_name, # ★★★ 返り値に追加 ★★★
     )
 
 def handle_initial_load():
@@ -694,6 +702,65 @@ def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], c
     # 生成された音声ファイルのパスを返し、Audioコンポーネントで再生
     if audio_filepath:
         gr.Info("再生します。")
+        return audio_filepath
+    else:
+        gr.Error("音声の生成に失敗しました。")
+        return None
+
+def handle_voice_change(character_name: str, selected_voice_name: str):
+    """声のドロップダウンが変更されたときに設定を保存するハンドラ"""
+    if not character_name or not selected_voice_name:
+        return
+
+    # 表示名からシステムのvoice_idを逆引き
+    voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
+    if not voice_id:
+        gr.Warning(f"無効な声が選択されました: {selected_voice_name}")
+        return
+
+    # character_config.json を読み書きする
+    try:
+        char_config_path = os.path.join(config_manager.CHARACTERS_DIR, character_name, "character_config.json")
+        config = {}
+        if os.path.exists(char_config_path):
+            with open(char_config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+
+        if "override_settings" not in config:
+            config["override_settings"] = {}
+
+        config["override_settings"]["voice_id"] = voice_id
+        config["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        with open(char_config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+
+        gr.Info(f"「{character_name}」の声を「{selected_voice_name}」に変更しました。")
+
+    except Exception as e:
+        gr.Error(f"声の設定の保存中にエラーが発生しました: {e}")
+        traceback.print_exc()
+
+def handle_voice_preview(selected_voice_name: str, text_to_speak: str, api_key_name: str):
+    """試聴ボタンが押されたときの処理"""
+    if not selected_voice_name or not text_to_speak or not api_key_name:
+        gr.Warning("声、テキスト、APIキーがすべて選択されている必要があります。")
+        return None
+
+    # 表示名からシステムのvoice_idを逆引き
+    voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
+    api_key = config_manager.API_KEYS.get(api_key_name)
+
+    if not voice_id or not api_key:
+        gr.Warning("声またはAPIキーが無効です。")
+        return None
+
+    from audio_manager import generate_audio_from_text
+    gr.Info(f"声「{selected_voice_name}」で音声を生成しています...")
+    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id)
+
+    if audio_filepath:
+        gr.Info("プレビューを再生します。")
         return audio_filepath
     else:
         gr.Error("音声の生成に失敗しました。")

@@ -107,6 +107,25 @@ try:
                 with gr.Accordion("⚙️ 基本設定", open=False):
                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True)
+
+                    # ★★★ ここからが追加・修正箇所 ★★★
+                    gr.Markdown("---") # 区切り線
+                    gr.Markdown("#### 声の設定")
+                    voice_dropdown = gr.Dropdown(
+                        choices=list(config_manager.SUPPORTED_VOICES.values()),
+                        label="声を選択",
+                        interactive=True
+                    )
+                    with gr.Row():
+                        preview_text_textbox = gr.Textbox(
+                            value="こんにちは、Nexus Arkです。これは音声のテストです。",
+                            show_label=False,
+                            scale=3
+                        )
+                        preview_voice_button = gr.Button("試聴", scale=1)
+                    gr.Markdown("---") # 区切り線
+                    # ★★★ ここまで ★★★
+
                     api_history_limit_dropdown = gr.Dropdown(choices=list(config_manager.API_HISTORY_LIMIT_OPTIONS.values()), value=config_manager.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
                     add_timestamp_checkbox = gr.Checkbox(value=config_manager.initial_add_timestamp_global, label="メッセージにタイムスタンプを追加", interactive=True)
                     send_thoughts_checkbox = gr.Checkbox(value=config_manager.initial_send_thoughts_to_api_global, label="思考過程をAPIに送信", interactive=True)
@@ -193,7 +212,17 @@ try:
             scenery_refresh_outputs = [current_location_display, current_scenery_display]
 
             add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-            character_dropdown.change(fn=ui_handlers.update_ui_on_character_change, inputs=[character_dropdown, api_history_limit_state], outputs=[current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown, current_location_display, current_scenery_display]).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display])
+            character_dropdown.change(
+                fn=ui_handlers.update_ui_on_character_change,
+                inputs=[character_dropdown, api_history_limit_state],
+                outputs=[
+                    current_character_name, chatbot_display, chat_input_textbox,
+                    profile_image_display, memory_json_editor, alarm_char_dropdown,
+                    timer_char_dropdown, notepad_editor, location_dropdown,
+                    current_location_display, current_scenery_display,
+                    voice_dropdown # ★★★ 出力先に追加 ★★★
+                ]
+            ).then(fn=ui_handlers.update_token_count, inputs=token_calc_inputs, outputs=[token_count_display])
             change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown], outputs=scenery_refresh_outputs)
             refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=scenery_refresh_inputs, outputs=scenery_refresh_outputs)
             chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
@@ -216,6 +245,18 @@ try:
             send_scenery_checkbox.change(fn=ui_handlers.update_send_scenery_state, inputs=[send_scenery_checkbox], outputs=[send_scenery_state])
             api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()])
             chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
+
+            # ★★★ 以下の2つのイベント接続を、chat_reload_button.click(...) の後あたりに追加 ★★★
+            voice_dropdown.change(
+                fn=ui_handlers.handle_voice_change,
+                inputs=[current_character_name, voice_dropdown],
+                outputs=None
+            )
+            preview_voice_button.click(
+                fn=ui_handlers.handle_voice_preview,
+                inputs=[voice_dropdown, preview_text_textbox, api_key_dropdown],
+                outputs=[audio_player]
+            )
 
             # --- ここからがアクションボタンのイベント定義 ---
             chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state], outputs=[selected_message_state, action_button_group], show_progress=False)
