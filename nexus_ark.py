@@ -302,31 +302,42 @@ try:
                 inputs=[text_for_audio_trigger, current_character_name, current_api_key_name_state],
                 outputs=[audio_player]
             )
+
+            # ★★★ ここからが新しいイベントハンドラ ★★★
             chatbot_display.change(
                 fn=None,
+                inputs=None,
+                outputs=None,
                 js="""
                 (history) => {
-                    const buttons = document.querySelectorAll('.play-audio-button');
-                    buttons.forEach(button => {
-                        if (!button.dataset.listenerAttached) {
-                            button.addEventListener('click', (e) => {
-                                e.stopPropagation();
-                                const text = e.currentTarget.dataset.text;
-                                const gradio_container = document.querySelector('gradio-app').shadowRoot;
-                                const hidden_textbox = gradio_container.querySelector('#text_for_audio_input textarea');
-                                if (hidden_textbox) {
-                                    hidden_textbox.value = text;
-                                    const event = new Event('input', { bubbles: true });
-                                    hidden_textbox.dispatchEvent(event);
-                                }
-                            });
-                            button.dataset.listenerAttached = 'true';
-                        }
-                    });
+                    // 遅延実行することで、Gradioの描画が完了するのを待つ
+                    setTimeout(() => {
+                        const buttons = document.querySelectorAll('.play-audio-button');
+                        buttons.forEach(button => {
+                            // 二重にイベントを設定しないためのチェック
+                            if (!button.dataset.listenerAttached) {
+                                button.addEventListener('click', (e) => {
+                                    e.stopPropagation(); // これが最重要！ selectイベントを止める
+
+                                    const text = e.currentTarget.dataset.text;
+
+                                    // 見えないTextboxを操作してPythonを呼び出す
+                                    const gradio_container = document.querySelector('gradio-app').shadowRoot;
+                                    const hidden_textbox = gradio_container.querySelector('#text_for_audio_input textarea');
+                                    if (hidden_textbox) {
+                                        hidden_textbox.value = text;
+                                        hidden_textbox.dispatchEvent(new Event('input', { bubbles: true }));
+                                    }
+                                });
+                                button.dataset.listenerAttached = 'true';
+                            }
+                        });
+                    }, 100); // 100ミリ秒の遅延
                     return history;
                 }
                 """
             )
+            # ★★★ ここまで ★★★
 
             demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor, location_dropdown, current_location_display, current_scenery_display])
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
