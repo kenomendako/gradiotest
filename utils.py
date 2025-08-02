@@ -111,7 +111,7 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
         elif header:
             if header == ai_header:
                 role = 'model'
-            else: # ユーザーヘッダーとシステムヘッダーの両方を 'user' として扱う
+            else:
                 role = 'user'
             messages.append({"role": role, "content": part})
             header = None
@@ -131,26 +131,20 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
         if not content: continue
 
         last_end = 0
-        # 画像タグでテキストを分割
         for match in image_tag_pattern.finditer(content):
-            # 画像タグの前のテキスト部分
             if match.start() > last_end:
                 intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:match.start()].strip(), "original_index": i})
-            # 画像タグ部分
             intermediate_list.append({"type": "image", "role": "model", "content": match.group(1).strip(), "original_index": i})
             last_end = match.end()
-        # 最後の画像タグの後ろのテキスト部分
         if last_end < len(content):
             intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:].strip(), "original_index": i})
 
-    # ナビゲーション用のアンカーIDを先にすべて生成
     text_parts_with_anchors = []
     for item in intermediate_list:
         if item["type"] == "text" and item["content"]:
             item["anchor_id"] = f"msg-anchor-{uuid.uuid4().hex[:8]}"
             text_parts_with_anchors.append(item)
 
-    # 最終的なタプルリストを生成
     text_part_index = 0
     for item in intermediate_list:
         if not item["content"]: continue
@@ -163,7 +157,7 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
 
             if item["role"] == "user":
                 gradio_history.append((html_content, None))
-            else: # model
+            else:
                 gradio_history.append((None, html_content))
 
             mapping_list.append(item["original_index"])
@@ -181,6 +175,7 @@ def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_a
     up_button = f"<a href='#{prev_anchor_id or current_anchor_id}' class='message-nav-link' title='前の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
     down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
     delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
+
     button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
 
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)

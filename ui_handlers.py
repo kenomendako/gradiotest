@@ -27,7 +27,6 @@ DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 # --- 情景生成 ---
 def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[str, str]:
-    # (この関数の内容は変更ありません)
     print("--- [軽量版] 情景生成を開始します ---")
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not character_name or not api_key:
@@ -79,8 +78,8 @@ def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[s
 
 # --- チャット処理 ---
 def handle_message_submission(*args: Any):
-    # (この関数の内容は変更ありません)
     (textbox_content, chatbot_history, current_character_name, current_model_name, current_api_key_name_state, file_input_list, add_timestamp_checkbox, send_thoughts_state, api_history_limit_state, send_notepad_state, use_common_prompt_state, send_core_memory_state, send_scenery_state) = args
+
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
@@ -91,14 +90,14 @@ def handle_message_submission(*args: Any):
     if user_prompt_from_textbox:
         timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         processed_user_message = user_prompt_from_textbox + timestamp
-        chatbot_history.append((processed_user_message, None)) # ★ 辞書からタプルに変更
+        chatbot_history.append((processed_user_message, None))
         log_message_parts.append(processed_user_message)
 
     if file_input_list:
         for file_obj in file_input_list:
             filepath = file_obj.name
             filename = os.path.basename(filepath)
-            chatbot_history.append(((filepath, filename), None)) # ★ ファイルもタプル形式に変更
+            chatbot_history.append(((filepath, filename), None))
             log_message_parts.append(f"[ファイル添付: {filepath}]")
 
     chatbot_history.append((None, "思考中... ▌"))
@@ -118,15 +117,12 @@ def handle_message_submission(*args: Any):
 
     response_data = {}
     try:
-        # ★★★ ここからが修正箇所 ★★★
-        # *args（すべての引数）を渡すのではなく、必要な7つだけを厳選して渡す
         agent_args = (
             textbox_content, chatbot_history, current_character_name,
             current_api_key_name_state, file_input_list, add_timestamp_checkbox,
             api_history_limit_state
         )
         response_data = gemini_api.invoke_nexus_agent(*agent_args)
-        # ★★★ ここまで ★★★
     except Exception as e:
         traceback.print_exc()
         response_data = {"response": f"[UIハンドラエラー: {e}]", "location_name": "（エラー）", "scenery": "（エラー）"}
@@ -145,7 +141,6 @@ def handle_message_submission(*args: Any):
 
     raw_history = utils.load_chat_log(log_f, current_character_name)
     display_turns = _get_display_history_count(api_history_limit_state)
-    # ★ 返り値が2つになったことに注意
     formatted_history, _ = utils.format_history_for_gradio(raw_history[-(display_turns*2):], current_character_name)
 
     token_count = update_token_count(current_character_name, current_model_name, None, None, api_history_limit_state, current_api_key_name_state, send_notepad_state, use_common_prompt_state, add_timestamp_checkbox, send_thoughts_state, send_core_memory_state, send_scenery_state)
@@ -163,6 +158,7 @@ def handle_message_submission(*args: Any):
         new_alarm_df_with_ids,
         new_display_df
     )
+
 
 # --- UI更新ハンドラ ---
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
@@ -257,7 +253,7 @@ def update_ui_on_character_change(character_name: Optional[str], api_history_lim
 
     return (
         character_name,
-        chat_history,
+        chat_history, # 変更点： messages_history を chat_history に
         "",
         profile_image,
         memory_str,
@@ -282,7 +278,7 @@ def handle_initial_load():
     (ret_char, chat_hist, _, prof_img, mem_str, al_char, tm_char,
      note_cont, loc_dd, location_name, scenery_text) = update_ui_on_character_change(char_name, api_history_limit)
 
-    token_count = update_token_count(ret_char, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
+    token_count = update_token_count(char_name, model_name, None, None, api_history_limit, api_key_name, True, True, config_manager.initial_add_timestamp_global, config_manager.initial_send_thoughts_to_api_global, True, True)
 
     return (display_df, df_with_ids, chat_hist, prof_img, mem_str, al_char, tm_char, "アラームを選択してください", token_count, note_cont, loc_dd, location_name, scenery_text)
 
@@ -292,12 +288,7 @@ def handle_chatbot_selection(character_name: str, api_history_limit_state: str, 
         return None, gr.update(visible=False)
 
     try:
-        clicked_ui_index = evt.index
-
-        # ★★★ この一行を追加 ★★★
-        # もしリストで来た場合は、最初の要素だけを使う
-        if isinstance(clicked_ui_index, list):
-            clicked_ui_index = clicked_ui_index[0]
+        clicked_ui_index = evt.index[0]
 
         log_f, _, _, _, _ = get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_f, character_name)
@@ -341,17 +332,16 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], char
     else:
         gr.Error("Failed to delete the message. Check terminal for details.")
 
-    new_chat_history = reload_chat_log(character_name, api_history_limit)
-
-    return new_chat_history, None, gr.update(visible=False)
+    new_chat_history = reload_chat_log(character_name, api_history_limit) # 変更
+    return new_chat_history, None, gr.update(visible=False) # 変更
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
-    if not character_name: return [], []
+    if not character_name: return []
     log_f,_,_,_,_ = get_character_files_paths(character_name)
-    if not log_f or not os.path.exists(log_f): return [], []
+    if not log_f or not os.path.exists(log_f): return []
     display_turns = _get_display_history_count(api_history_limit_value)
-    history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name)
-    return history
+    history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name) # 変更
+    return history # 変更
 
 # --- 記憶とメモ帳 ---
 def handle_save_memory_click(character_name, json_string_data):
@@ -542,6 +532,7 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja, i
     all_chars = character_manager.get_character_list()
     default_char = all_chars[0] if all_chars else "Default"
 
+    # ★★★ これが正しいreturn文の形です ★★★
     return (
         new_df_with_ids,
         get_display_df(new_df_with_ids),
@@ -670,3 +661,40 @@ def update_token_count(*args):
         print(f"トークン数計算UIハンドラエラー: {e}")
         traceback.print_exc()
         return "入力トークン数: (例外発生)"
+
+def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], character_name: str, api_key_name: str):
+    """外部コントロールパネルの再生ボタンが押されたときの処理"""
+    if not selected_message:
+        gr.Warning("再生するメッセージが選択されていません。")
+        return None
+
+    # 選択されたメッセージ辞書から、HTMLではない生のテキストを抽出
+    raw_text = utils.extract_raw_text_from_html(selected_message.get("content"))
+    # 思考ログは再生しない
+    text_to_speak = utils.remove_thoughts_from_text(raw_text)
+
+    if not text_to_speak:
+        gr.Info("このメッセージには音声で再生できるテキストがありません。")
+        return None
+
+    # キャラクターの有効な設定（特に声ID）を取得
+    effective_settings = config_manager.get_effective_settings(character_name)
+    voice_id = effective_settings.get("voice_id", "ja-JP-Wavenet-D")
+    api_key = config_manager.API_KEYS.get(api_key_name)
+
+    if not api_key:
+        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+        return None
+
+    # audio_managerを使って音声を生成
+    from audio_manager import generate_audio_from_text
+    gr.Info(f"「{character_name}」の声で音声を生成しています...")
+    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id)
+
+    # 生成された音声ファイルのパスを返し、Audioコンポーネントで再生
+    if audio_filepath:
+        gr.Info("再生します。")
+        return audio_filepath
+    else:
+        gr.Error("音声の生成に失敗しました。")
+        return None

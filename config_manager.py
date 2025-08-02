@@ -136,7 +136,8 @@ def get_effective_settings(character_name: str) -> dict:
         "use_common_prompt": True, # UIのデフォルト値に合わせる
         "send_core_memory": True, # UIのデフォルト値に合わせる
         "send_scenery": True, # UIのデフォルト値に合わせる
-        "voice_id": "ja-JP-Wavenet-D" # デフォルトの音声ID
+        # ★★★ ここを修正 ★★★
+        "voice_id": "vindemiatrix" # デフォルトをサポートされている声に変更
     }
 
     # 2. キャラクター個別設定ファイルが存在すれば、それで上書きする

@@ -39,8 +39,15 @@ try:
     #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
     #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
+    #chat_container { position: relative; }
+    #chat_output_buttons {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+    }
     """
-    # チャット内のリンククリックが選択イベントを誤発火させないようにするJavaScript
     js_stop_nav_link_propagation = """
     function() {
         document.body.addEventListener('click', function(e) {
@@ -56,9 +63,7 @@ try:
     }
     """
 
-    # GradioのUIブロックを定義
     with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, js=js_stop_nav_link_propagation) as demo:
-        # --- 起動時の初期値設定 ---
         character_list_on_startup = character_manager.get_character_list()
         if not character_list_on_startup:
             character_manager.ensure_character_files("Default")
@@ -73,7 +78,6 @@ try:
                 character_manager.ensure_character_files("Default")
                 character_list_on_startup = ["Default"]
 
-        # --- Stateオブジェクトの定義 ---
         current_character_name = gr.State(effective_initial_character)
         current_model_name = gr.State(config_manager.initial_model_global)
         current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -87,8 +91,8 @@ try:
         send_core_memory_state = gr.State(True)
         send_scenery_state = gr.State(True)
         selected_message_state = gr.State(None)
+        audio_player = gr.Audio(visible=False, autoplay=True)
 
-        # --- UIレイアウトの定義 ---
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
@@ -166,13 +170,13 @@ try:
 
             with gr.Column(scale=3):
                 chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
-                with gr.Row(visible=False) as deletion_button_group:
-                    delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop", scale=3)
-                    cancel_selection_button = gr.Button("✖️ 選択をキャンセル", scale=1)
+                with gr.Row(visible=False) as action_button_group:
+                    play_audio_button = gr.Button("🔊 選択した発言を再生")
+                    delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
+                    cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
 
                 with gr.Row():
                     chat_reload_button = gr.Button("🔄 更新")
-
                 token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
                 tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
                 chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
@@ -213,10 +217,12 @@ try:
             api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()])
             chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
 
-            chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state], outputs=[selected_message_state, deletion_button_group], show_progress=False)
-            delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, selected_message_state, deletion_button_group])
-            cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, deletion_button_group])
-
+            # --- ここからがアクションボタンのイベント定義 ---
+            chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state], outputs=[selected_message_state, action_button_group], show_progress=False)
+            play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player])
+            delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, selected_message_state, action_button_group])
+            cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
+            # (以降のイベント定義は変更なし)
             save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
             reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_character_name], outputs=[memory_json_editor])
             save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_character_name, notepad_editor], outputs=[notepad_editor])
@@ -272,7 +278,6 @@ try:
             demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=[alarm_dataframe, alarm_dataframe_original_data, chatbot_display, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, selection_feedback_markdown, token_count_display, notepad_editor, location_dropdown, current_location_display, current_scenery_display])
             demo.load(fn=alarm_manager.start_alarm_scheduler_thread, inputs=None, outputs=None)
 
-        # ★★★ ここが正しい構造。if __name__ == "__main__": はtryブロックの外側には来ない ★★★
         if __name__ == "__main__":
             print("\n" + "="*60)
             print("アプリケーションを起動します...")
