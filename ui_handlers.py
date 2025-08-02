@@ -537,6 +537,7 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja, i
     all_chars = character_manager.get_character_list()
     default_char = all_chars[0] if all_chars else "Default"
 
+    # ★★★ これが正しいreturn文の形です ★★★
     return (
         new_df_with_ids,
         get_display_df(new_df_with_ids),
