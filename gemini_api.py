@@ -1,4 +1,4 @@
-# gemini_api.py (リファクタリング完了版)
+# gemini_api.py (堅牢化対応版)
 
 import traceback
 from typing import Any, List, Union, Optional, Dict
@@ -8,6 +8,7 @@ import base64
 from PIL import Image
 import google.genai as genai
 import filetype
+import httpx  # エラーハンドリングのためにインポート
 
 from agent.graph import app
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -30,6 +31,7 @@ def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, 
     except Exception as e: print(f"モデル情報の取得中にエラー: {e}"); return None
 
 def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> List[Dict]:
+    # (この関数の中身は変更ありません)
     contents = []
     for msg in messages:
         role = "model" if isinstance(msg, AIMessage) else "user"
@@ -53,22 +55,22 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
     return contents
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
+    # (この関数の中身は変更ありませんが、呼び出し元でエラーが捕捉されるようになります)
     if not messages: return 0
-    try:
-        client = genai.Client(api_key=api_key)
-        contents_for_api = _convert_lc_to_gg_for_count(messages)
-        final_contents_for_api = []
-        if contents_for_api and contents_for_api[0]['role'] == 'user' and isinstance(messages[0], SystemMessage):
-            system_instruction_parts = contents_for_api[0]['parts']
-            final_contents_for_api.append({"role": "user", "parts": system_instruction_parts})
-            final_contents_for_api.append({"role": "model", "parts": [{"text": "OK"}]})
-            final_contents_for_api.extend(contents_for_api[1:])
-        else: final_contents_for_api = contents_for_api
-        result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
-        return result.total_tokens
-    except Exception as e: print(f"トークン計算エラー: {e}"); traceback.print_exc(); return -1
+    client = genai.Client(api_key=api_key)
+    contents_for_api = _convert_lc_to_gg_for_count(messages)
+    final_contents_for_api = []
+    if contents_for_api and contents_for_api[0]['role'] == 'user' and isinstance(messages[0], SystemMessage):
+        system_instruction_parts = contents_for_api[0]['parts']
+        final_contents_for_api.append({"role": "user", "parts": system_instruction_parts})
+        final_contents_for_api.append({"role": "model", "parts": [{"text": "OK"}]})
+        final_contents_for_api.extend(contents_for_api[1:])
+    else: final_contents_for_api = contents_for_api
+    result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
+    return result.total_tokens
 
 def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
+    # (この関数の中身は変更ありません)
     (textbox_content, current_character_name,
      current_api_key_name_state, file_input_list,
      api_history_limit_state) = args
@@ -89,16 +91,10 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     messages = []
     log_file, _, _, _, _ = get_character_files_paths(current_character_name)
     raw_history = utils.load_chat_log(log_file, current_character_name)
-
-    # ▼▼▼ 修正箇所 ▼▼▼
-    # api_history_limit_stateは'10', '20', 'all'のようなキー文字列なので、それを基に数値に変換する
     limit = 0
     if api_history_limit_state.isdigit():
         limit = int(api_history_limit_state)
-    # ▲▲▲ 修正ここまで ▲▲▲
-
     if limit > 0 and len(raw_history) > limit * 2: raw_history = raw_history[-(limit * 2):]
-
     for h_item in raw_history:
         role, content = h_item.get('role'), h_item.get('content', '').strip()
         if not content: continue
@@ -144,10 +140,13 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     except Exception as e:
         traceback.print_exc(); return {**default_error_response, "response": f"[エージェント実行エラー: {e}]"}
 
+# ▼▼▼ この関数全体を、以下のコードで完全に置き換えてください ▼▼▼
 def count_input_tokens(**kwargs):
     character_name, api_key_name, parts = kwargs.get("character_name"), kwargs.get("api_key_name"), kwargs.get("parts", [])
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return "トークン数: (APIキーエラー)"
+
+    # --- ここからが修正箇所 ---
     try:
         effective_settings = config_manager.get_effective_settings(character_name)
         if kwargs.get("add_timestamp") is not None: effective_settings["add_timestamp"] = kwargs["add_timestamp"]
@@ -220,5 +219,12 @@ def count_input_tokens(**kwargs):
         limit_info = get_model_token_limits(model_name, api_key)
         if limit_info and 'input' in limit_info: return f"入力トークン数: {total_tokens} / {limit_info['input']}"
         else: return f"入力トークン数: {total_tokens}"
+
+    except httpx.ConnectError as e:
+        print(f"トークン計算中にAPI接続エラー: {e}")
+        return "トークン数: (API接続エラー)"
     except Exception as e:
-        traceback.print_exc(); return "トークン数: (例外発生)"
+        print(f"トークン計算中に予期せぬエラー: {e}")
+        traceback.print_exc()
+        return "トークン数: (例外発生)"
+    # --- 修正箇所ここまで ---
