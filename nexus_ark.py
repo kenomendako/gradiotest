@@ -52,14 +52,18 @@ try:
     with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, js=js_stop_nav_link_propagation) as demo:
         character_list_on_startup = character_manager.get_character_list()
         if not character_list_on_startup:
+            # 誰もいなければDefaultを作成
             character_manager.ensure_character_files("Default")
             character_list_on_startup = ["Default"]
+
+        # configから読み込んだ最後のキャラクターが、実際に存在するかをここで検証する
         effective_initial_character = config_manager.initial_character_global
         if not effective_initial_character or effective_initial_character not in character_list_on_startup:
             new_char = character_list_on_startup[0] if character_list_on_startup else "Default"
             print(f"警告: 最後に使用したキャラクター '{effective_initial_character}' が見つからないか無効です。'{new_char}' で起動します。")
             effective_initial_character = new_char
             config_manager.save_config("last_character", new_char)
+            # Defaultすらないという万一の状況に対応
             if new_char == "Default" and "Default" not in character_list_on_startup:
                 character_manager.ensure_character_files("Default")
                 character_list_on_startup = ["Default"]

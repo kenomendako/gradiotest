@@ -55,8 +55,7 @@ def load_config():
     AVAILABLE_MODELS_GLOBAL = config.get("available_models", ["gemini-2.5-pro"])
     DEFAULT_MODEL_GLOBAL = config.get("default_model", "gemini-2.5-pro")
 
-    # ▼▼▼ 修正箇所 ▼▼▼
-    # get_character_list()の呼び出しと、それに関連する検証ロジックを削除
+    # ▼▼▼ 修正箇所：キャラクターの検証ロジックを削除 ▼▼▼
     initial_api_key_name_global = config.get("last_api_key_name") or config.get("default_api_key_name") or (list(API_KEYS.keys())[0] if API_KEYS else None)
     initial_character_global = config.get("last_character", "Default")
     # ▲▲▲ 修正ここまで ▲▲▲
