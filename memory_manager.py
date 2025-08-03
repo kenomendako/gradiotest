@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
+# memory_manager.py (リファクタリング版)
 import json
 import os
 import traceback
 import datetime
-import gradio as gr # Gradio UI関連の応答を返すため
+import gradio as gr
 from character_manager import get_character_files_paths
-from config_manager import MEMORY_FILENAME # 定義をconfig_managerに集約
+import constants  # config_managerの代わりにconstantsをインポート
 
-# --- 記憶データ管理関数 ---
 def save_memory_data(character_name, json_string_data):
     if not character_name: gr.Error("キャラクター名未指定"); return gr.update()
     _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
@@ -31,4 +30,4 @@ def load_memory_data_safe(memory_json_path):
             return {"error": "JSON Decode Error", "message": f"記憶ファイルのJSON形式が正しくありません: {e}"}
         except Exception as e:
             return {"error": "Read Error", "message": f"記憶ファイルの読み込み中にエラーが発生しました: {e}"}
-    return {} # ファイルがない場合は空の辞書
+    return {}

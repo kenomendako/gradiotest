@@ -1,4 +1,4 @@
-# gemini_api.py の内容を、このコードで完全に置き換えてください
+# gemini_api.py (堅牢化対応版)
 
 import traceback
 from typing import Any, List, Union, Optional, Dict
@@ -8,10 +8,12 @@ import base64
 from PIL import Image
 import google.genai as genai
 import filetype
+import httpx  # エラーハンドリングのためにインポート
 
 from agent.graph import app
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import config_manager
+import constants
 import utils
 from character_manager import get_character_files_paths
 
@@ -29,6 +31,7 @@ def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, 
     except Exception as e: print(f"モデル情報の取得中にエラー: {e}"); return None
 
 def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> List[Dict]:
+    # (この関数の中身は変更ありません)
     contents = []
     for msg in messages:
         role = "model" if isinstance(msg, AIMessage) else "user"
@@ -52,37 +55,45 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
     return contents
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
+    # (この関数の中身は変更ありませんが、呼び出し元でエラーが捕捉されるようになります)
     if not messages: return 0
-    try:
-        client = genai.Client(api_key=api_key)
-        contents_for_api = _convert_lc_to_gg_for_count(messages)
-        final_contents_for_api = []
-        if contents_for_api and contents_for_api[0]['role'] == 'user' and isinstance(messages[0], SystemMessage):
-            system_instruction_parts = contents_for_api[0]['parts']
-            final_contents_for_api.append({"role": "user", "parts": system_instruction_parts})
-            final_contents_for_api.append({"role": "model", "parts": [{"text": "OK"}]})
-            final_contents_for_api.extend(contents_for_api[1:])
-        else: final_contents_for_api = contents_for_api
-        result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
-        return result.total_tokens
-    except Exception as e: print(f"トークン計算エラー: {e}"); traceback.print_exc(); return -1
+    client = genai.Client(api_key=api_key)
+    contents_for_api = _convert_lc_to_gg_for_count(messages)
+    final_contents_for_api = []
+    if contents_for_api and contents_for_api[0]['role'] == 'user' and isinstance(messages[0], SystemMessage):
+        system_instruction_parts = contents_for_api[0]['parts']
+        final_contents_for_api.append({"role": "user", "parts": system_instruction_parts})
+        final_contents_for_api.append({"role": "model", "parts": [{"text": "OK"}]})
+        final_contents_for_api.extend(contents_for_api[1:])
+    else: final_contents_for_api = contents_for_api
+    result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
+    return result.total_tokens
 
 def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
-    (textbox_content, current_character_name, current_api_key_name_state, file_input_list, add_timestamp_checkbox, api_history_limit_state) = args
+    # (この関数の中身は変更ありません)
+    (textbox_content, current_character_name,
+     current_api_key_name_state, file_input_list,
+     api_history_limit_state) = args
+
     effective_settings = config_manager.get_effective_settings(current_character_name)
     current_model_name, send_thoughts_state = effective_settings["model_name"], effective_settings["send_thoughts"]
     api_key = config_manager.API_KEYS.get(current_api_key_name_state)
     is_internal_call = textbox_content and textbox_content.startswith("（システム")
     default_error_response = {"response": "", "location_name": "（エラー）", "scenery": "（エラー）"}
+
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return {**default_error_response, "response": f"[エラー: APIキー '{current_api_key_name_state}' が有効ではありません。]"}
+
     user_input_text = textbox_content.strip() if textbox_content else ""
     if not user_input_text and not file_input_list and not is_internal_call:
          return {**default_error_response, "response": "[エラー: テキスト入力またはファイル添付がありません]"}
+
     messages = []
     log_file, _, _, _, _ = get_character_files_paths(current_character_name)
     raw_history = utils.load_chat_log(log_file, current_character_name)
-    limit = int(api_history_limit_state) if api_history_limit_state.isdigit() else 0
+    limit = 0
+    if api_history_limit_state.isdigit():
+        limit = int(api_history_limit_state)
     if limit > 0 and len(raw_history) > limit * 2: raw_history = raw_history[-(limit * 2):]
     for h_item in raw_history:
         role, content = h_item.get('role'), h_item.get('content', '').strip()
@@ -91,6 +102,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
             final_content = content if send_thoughts_state else utils.remove_thoughts_from_text(content)
             if final_content: messages.append(AIMessage(content=final_content))
         elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
+
     user_message_parts = []
     if user_input_text: user_message_parts.append({"type": "text", "text": user_input_text})
     if file_input_list:
@@ -109,6 +121,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
                     user_message_parts.append({"type": "text", "text": f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---"})
             except Exception as e: print(f"警告: ファイル '{os.path.basename(filepath)}' の処理に失敗。スキップ。エラー: {e}")
     if user_message_parts: messages.append(HumanMessage(content=user_message_parts))
+
     initial_state = {
         "messages": messages, "character_name": current_character_name, "api_key": api_key,
         "tavily_api_key": config_manager.TAVILY_API_KEY, "model_name": current_model_name,
@@ -127,19 +140,18 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     except Exception as e:
         traceback.print_exc(); return {**default_error_response, "response": f"[エージェント実行エラー: {e}]"}
 
-# ★★★ ここからが修正箇所です ★★★
+# ▼▼▼ この関数全体を、以下のコードで完全に置き換えてください ▼▼▼
 def count_input_tokens(**kwargs):
-    character_name = kwargs.get("character_name")
-    api_key_name = kwargs.get("api_key_name")
-    parts = kwargs.get("parts", [])
+    character_name, api_key_name, parts = kwargs.get("character_name"), kwargs.get("api_key_name"), kwargs.get("parts", [])
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return "トークン数: (APIキーエラー)"
+
+    # --- ここからが修正箇所 ---
     try:
         effective_settings = config_manager.get_effective_settings(character_name)
-        # UIから渡されたチェックボックスの状態で、ファイルから読み込んだ設定を上書き
+        if kwargs.get("add_timestamp") is not None: effective_settings["add_timestamp"] = kwargs["add_timestamp"]
         if kwargs.get("send_thoughts") is not None: effective_settings["send_thoughts"] = kwargs["send_thoughts"]
         if kwargs.get("send_notepad") is not None: effective_settings["send_notepad"] = kwargs["send_notepad"]
-        # `use_common_prompt` はプロンプトテンプレート自体に含まれるので、直接の条件分岐は不要
         if kwargs.get("send_core_memory") is not None: effective_settings["send_core_memory"] = kwargs["send_core_memory"]
         if kwargs.get("send_scenery") is not None: effective_settings["send_scenery"] = kwargs["send_scenery"]
 
@@ -148,17 +160,17 @@ def count_input_tokens(**kwargs):
 
         from agent.prompts import CORE_PROMPT_TEMPLATE
         from agent.graph import all_tools
-        char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
+        char_prompt_path = os.path.join(constants.CHARACTERS_DIR, character_name, "SystemPrompt.txt")
         character_prompt = ""
         if os.path.exists(char_prompt_path):
             with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
         core_memory = ""
-        if effective_settings.get("send_core_memory", True): # 更新された設定を使用
-            core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
+        if effective_settings.get("send_core_memory", True):
+            core_memory_path = os.path.join(constants.CHARACTERS_DIR, character_name, "core_memory.txt")
             if os.path.exists(core_memory_path):
                 with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
         notepad_section = ""
-        if effective_settings.get("send_notepad", True): # 更新された設定を使用
+        if effective_settings.get("send_notepad", True):
             _, _, _, _, notepad_path = get_character_files_paths(character_name)
             if notepad_path and os.path.exists(notepad_path):
                 with open(notepad_path, 'r', encoding='utf-8') as f:
@@ -174,7 +186,7 @@ def count_input_tokens(**kwargs):
             'notepad_section': notepad_section, 'tools_list': tools_list_str
         }
         system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
-        if effective_settings.get("send_scenery", True): # 更新された設定を使用
+        if effective_settings.get("send_scenery", True):
             system_prompt_text += "\n\n---\n【現在の場所と情景】\n（トークン計算ではAPIコールを避けるため、実際の情景は含めず、存在することを示すプレースホルダのみ考慮）\n- 場所の名前: サンプル\n- 場所の定義: サンプル\n- 今の情景: サンプル\n---"
         messages.append(SystemMessage(content=system_prompt_text))
 
@@ -184,7 +196,6 @@ def count_input_tokens(**kwargs):
             role, content = h_item.get('role'), h_item.get('content', '').strip()
             if not content: continue
             if role in ['model', 'assistant', character_name]:
-                # 思考過程を含めるかどうかの分岐
                 final_content = content if effective_settings.get("send_thoughts", True) else utils.remove_thoughts_from_text(content)
                 if final_content: messages.append(AIMessage(content=final_content))
             elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
@@ -208,6 +219,12 @@ def count_input_tokens(**kwargs):
         limit_info = get_model_token_limits(model_name, api_key)
         if limit_info and 'input' in limit_info: return f"入力トークン数: {total_tokens} / {limit_info['input']}"
         else: return f"入力トークン数: {total_tokens}"
+
+    except httpx.ConnectError as e:
+        print(f"トークン計算中にAPI接続エラー: {e}")
+        return "トークン数: (API接続エラー)"
     except Exception as e:
-        traceback.print_exc(); return "トークン数: (例外発生)"
-# ★★★ 修正箇所ここまで ★★★
+        print(f"トークン計算中に予期せぬエラー: {e}")
+        traceback.print_exc()
+        return "トークン数: (例外発生)"
+    # --- 修正箇所ここまで ---

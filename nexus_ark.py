@@ -1,4 +1,4 @@
-# nexus_ark.py の内容を、このコードで完全に置き換えてください
+# nexus_ark.py (リファクタリング完了版)
 
 import os
 import sys
@@ -15,8 +15,8 @@ try:
     import gradio as gr
     import traceback
     import pandas as pd
-    import config_manager, character_manager, alarm_manager, ui_handlers
-    
+    import config_manager, character_manager, alarm_manager, ui_handlers, constants
+
     config_manager.load_config()
     alarm_manager.load_alarms()
 
@@ -54,6 +54,7 @@ try:
         if not character_list_on_startup:
             character_manager.ensure_character_files("Default")
             character_list_on_startup = ["Default"]
+
         effective_initial_character = config_manager.initial_character_global
         if not effective_initial_character or effective_initial_character not in character_list_on_startup:
             new_char = character_list_on_startup[0] if character_list_on_startup else "Default"
@@ -94,7 +95,6 @@ try:
                             with gr.Row():
                                 char_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
                                 char_preview_voice_button = gr.Button("試聴", scale=1)
-                            # ★★★ ここからが変更箇所 ★★★
                             char_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
                             char_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
                             char_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
@@ -106,9 +106,7 @@ try:
                         with gr.TabItem("共通設定"):
                             model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
                             api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True)
-                            api_history_limit_dropdown = gr.Dropdown(choices=list(config_manager.API_HISTORY_LIMIT_OPTIONS.values()), value=config_manager.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
-                            # タイムスタンプチェックボックスをここから削除
-                            # ★★★ 変更箇所ここまで ★★★
+                            api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
                 with gr.Accordion("📗 記憶とメモの編集", open=False):
                     with gr.Tabs():
                         with gr.TabItem("記憶"):
@@ -154,7 +152,6 @@ try:
                 file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
                 gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
-        # ★★★ ここからがイベントハンドラ定義の変更箇所 ★★★
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
         context_token_calc_inputs = [current_character_name, current_api_key_name_state] + context_checkboxes
 
@@ -202,9 +199,8 @@ try:
         file_upload_button.upload(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
         file_upload_button.clear(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
 
-        # (以降のイベントハンドラは変更なし)
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-        change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown], outputs=[current_location_display, current_scenery_display])
+        change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display])
         refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_character_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display])
         chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state], outputs=[selected_message_state, action_button_group], show_progress=False)
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player])
