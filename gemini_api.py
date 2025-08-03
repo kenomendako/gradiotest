@@ -75,9 +75,7 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     except Exception as e:
         print(f"トークン計算エラー: {e}"); traceback.print_exc(); return -1
 
-# ★★★ ここからが修正箇所です ★★★
 def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
-    # 引数リストから chatbot_history を削除
     (textbox_content, current_character_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      api_history_limit_state) = args
@@ -86,7 +84,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     current_model_name = effective_settings["model_name"]
     send_thoughts_state = effective_settings["send_thoughts"]
     api_key = config_manager.API_KEYS.get(current_api_key_name_state)
-    is_internal_call = textbox_content and textbox_content.startswith("（システム") # 判定を少し緩やかに
+    is_internal_call = textbox_content and textbox_content.startswith("（システム")
     default_error_response = {"response": "", "location_name": "（エラー）", "scenery": "（エラー）"}
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -96,7 +94,6 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     if not user_input_text and not file_input_list and not is_internal_call:
          return {**default_error_response, "response": "[エラー: テキスト入力またはファイル添付がありません]"}
 
-    # 履歴は常にログファイルから読み込む
     messages = []
     log_file, _, _, _, _ = get_character_files_paths(current_character_name)
     raw_history = utils.load_chat_log(log_file, current_character_name)
@@ -110,7 +107,6 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
             if final_content: messages.append(AIMessage(content=final_content))
         elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
 
-    # 新しいユーザーメッセージを履歴の最後に追加
     user_message_parts = []
     if user_input_text: user_message_parts.append({"type": "text", "text": user_input_text})
     if file_input_list:
@@ -124,13 +120,12 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
                 elif mime_type.startswith(("audio/", "video/")):
                      with open(filepath, "rb") as f: file_data = base64.b64encode(f.read()).decode("utf-8")
                      user_message_parts.append({"type": "media", "mime_type": mime_type, "data": file_data})
-                else: # テキストファイルなど
+                else:
                     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f: text_content = f.read()
                     user_message_parts.append({"type": "text", "text": f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---"})
             except Exception as e: print(f"警告: ファイル '{os.path.basename(filepath)}' の処理に失敗。スキップ。エラー: {e}")
     if user_message_parts: messages.append(HumanMessage(content=user_message_parts))
 
-    # LangGraphエージェントを呼び出す
     initial_state = {
         "messages": messages, "character_name": current_character_name, "api_key": api_key,
         "tavily_api_key": config_manager.TAVILY_API_KEY, "model_name": current_model_name,
@@ -142,7 +137,6 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     try:
         final_state = app.invoke(initial_state)
         final_response_text = ""
-        # 内部呼び出しでない場合のみ、最後のメッセージを応答として採用
         if not is_internal_call and final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
             final_response_text = final_state['messages'][-1].content
         location_name = final_state.get('location_name', '（場所不明）')
@@ -151,10 +145,9 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     except Exception as e:
         traceback.print_exc(); return {**default_error_response, "response": f"[エージェント実行エラー: {e}]"}
 
-# ★★★ ここまでが修正箇所です ★★★
-
+# ★★★ ここからが修正箇所です ★★★
 def count_input_tokens(**kwargs):
-    """【最終確定版】キーワード引数を受け取れるように修正"""
+    """【v3】Pillow画像オブジェクトをLangChainが理解できる形式に変換する。"""
     character_name = kwargs.get("character_name")
     api_key_name = kwargs.get("api_key_name")
     parts = kwargs.get("parts", [])
@@ -167,7 +160,6 @@ def count_input_tokens(**kwargs):
         model_name = effective_settings.get("model_name") or config_manager.DEFAULT_MODEL_GLOBAL
         messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
-        # --- プロンプト構築 (agent.graph.context_generator_node とロジックを統一) ---
         from agent.prompts import CORE_PROMPT_TEMPLATE
         from agent.graph import all_tools
         char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
@@ -191,14 +183,13 @@ def count_input_tokens(**kwargs):
         class SafeDict(dict):
             def __missing__(self, key): return f'{{{key}}}'
         prompt_vars = {
-            'character_name': character_name, 'character_prompt': character_prompt,
-            'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str
+            'character_name': character_name, 'character_prompt': character_prompt, 'core_memory': core_memory,
+            'notepad_section': notepad_section, 'tools_list': tools_list_str
         }
         system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
         system_prompt_text += "\n\n---\n【現在の場所と情景】\n（トークン計算では省略）\n---"
         messages.append(SystemMessage(content=system_prompt_text))
 
-        # --- 履歴と入力の追加 ---
         log_file, _, _, _, _ = get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_file, character_name)
         for h_item in raw_history:
@@ -206,8 +197,30 @@ def count_input_tokens(**kwargs):
             if not content: continue
             if role in ['model', 'assistant', character_name]: messages.append(AIMessage(content=content))
             elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
+
         if parts:
-            messages.append(HumanMessage(content=parts))
+            formatted_parts = []
+            for part in parts:
+                if isinstance(part, str):
+                    formatted_parts.append({"type": "text", "text": part})
+                elif isinstance(part, Image.Image):
+                    # Pillow ImageオブジェクトをBase64エンコードされた辞書に変換
+                    try:
+                        mime_type = Image.MIME.get(part.format, 'image/png')
+                        buffered = io.BytesIO()
+                        part.save(buffered, format=part.format or "PNG")
+                        encoded_string = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                        formatted_parts.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
+                        })
+                    except Exception as img_e:
+                        print(f"画像変換エラー（トークン計算中）: {img_e}")
+                        # 変換に失敗した場合は、テキストとしてプレースホルダを追加
+                        formatted_parts.append({"type": "text", "text": "[画像変換エラー]"})
+
+            if formatted_parts:
+                messages.append(HumanMessage(content=formatted_parts))
 
         total_tokens = count_tokens_from_lc_messages(messages, model_name, api_key)
         if total_tokens == -1: return "トークン数: (計算エラー)"
@@ -220,3 +233,4 @@ def count_input_tokens(**kwargs):
     except Exception as e:
         traceback.print_exc()
         return "トークン数: (例外発生)"
+# ★★★ 修正箇所ここまで ★★★
