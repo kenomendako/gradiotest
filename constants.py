@@ -1,0 +1,22 @@
+# constants.py
+# アプリケーション全体で共有される定数を定義するファイル
+
+import os
+
+# --- ディレクトリとファイル名 ---
+CHARACTERS_DIR = "characters"
+PROFILE_IMAGE_FILENAME = "profile.png"
+MEMORY_FILENAME = "memory.json"
+NOTEPAD_FILENAME = "notepad.md"
+CONFIG_FILE = "config.json"
+ALARMS_FILE = "alarms.json"
+
+# --- UIとAPIの挙動に関する定数 ---
+# GradioのUIに一度に表示する最大の履歴数
+UI_HISTORY_MAX_LIMIT = 200
+# APIに渡す履歴の長さの選択肢
+API_HISTORY_LIMIT_OPTIONS = {"10": "10往復", "20": "20往復", "30": "30往復", "40": "40往復", "50": "50往復", "60": "60往復", "70": "70往復", "80": "80往復", "90": "90往復", "100": "100往復", "all": "全ログ"}
+# API履歴のデフォルト設定
+DEFAULT_API_HISTORY_LIMIT_OPTION = "all"
+# アラーム機能が内部でAPIを呼び出す際の履歴数
+DEFAULT_ALARM_API_HISTORY_TURNS = 10
