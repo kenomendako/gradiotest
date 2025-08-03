@@ -1,3 +1,5 @@
+# gemini_api.py の内容を、このコードで完全に置き換えてください
+
 import traceback
 from typing import Any, List, Union, Optional, Dict
 import os
@@ -73,8 +75,10 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     except Exception as e:
         print(f"トークン計算エラー: {e}"); traceback.print_exc(); return -1
 
+# ★★★ ここからが修正箇所です ★★★
 def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
-    (textbox_content, chatbot_history, current_character_name,
+    # 引数リストから chatbot_history を削除
+    (textbox_content, current_character_name,
      current_api_key_name_state, file_input_list, add_timestamp_checkbox,
      api_history_limit_state) = args
 
@@ -82,7 +86,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     current_model_name = effective_settings["model_name"]
     send_thoughts_state = effective_settings["send_thoughts"]
     api_key = config_manager.API_KEYS.get(current_api_key_name_state)
-    is_internal_call = textbox_content and textbox_content.startswith("（システム：")
+    is_internal_call = textbox_content and textbox_content.startswith("（システム") # 判定を少し緩やかに
     default_error_response = {"response": "", "location_name": "（エラー）", "scenery": "（エラー）"}
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -92,6 +96,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     if not user_input_text and not file_input_list and not is_internal_call:
          return {**default_error_response, "response": "[エラー: テキスト入力またはファイル添付がありません]"}
 
+    # 履歴は常にログファイルから読み込む
     messages = []
     log_file, _, _, _, _ = get_character_files_paths(current_character_name)
     raw_history = utils.load_chat_log(log_file, current_character_name)
@@ -105,33 +110,39 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
             if final_content: messages.append(AIMessage(content=final_content))
         elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
 
+    # 新しいユーザーメッセージを履歴の最後に追加
     user_message_parts = []
     if user_input_text: user_message_parts.append({"type": "text", "text": user_input_text})
     if file_input_list:
         for file_obj in file_input_list:
             filepath = file_obj.name
             try:
-                kind = filetype.guess(filepath); mime_type = kind.mime if kind else None
-                if mime_type and (mime_type.startswith("image/") or mime_type.startswith("audio/") or mime_type.startswith("video/")):
+                kind = filetype.guess(filepath); mime_type = kind.mime if kind else "application/octet-stream"
+                if mime_type.startswith("image/"):
                     with open(filepath, "rb") as f: file_data = base64.b64encode(f.read()).decode("utf-8")
-                    if mime_type.startswith("image/"):
-                         user_message_parts.append({"type": "image_url", "image_url": { "url": f"data:{mime_type};base64,{file_data}"}})
-                    else:
-                         user_message_parts.append({"type": "media", "mime_type": mime_type, "data": file_data})
-                else:
-                    with open(filepath, 'r', encoding='utf-8') as f: text_content = f.read()
+                    user_message_parts.append({"type": "image_url", "image_url": { "url": f"data:{mime_type};base64,{file_data}"}})
+                elif mime_type.startswith(("audio/", "video/")):
+                     with open(filepath, "rb") as f: file_data = base64.b64encode(f.read()).decode("utf-8")
+                     user_message_parts.append({"type": "media", "mime_type": mime_type, "data": file_data})
+                else: # テキストファイルなど
+                    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f: text_content = f.read()
                     user_message_parts.append({"type": "text", "text": f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---"})
             except Exception as e: print(f"警告: ファイル '{os.path.basename(filepath)}' の処理に失敗。スキップ。エラー: {e}")
     if user_message_parts: messages.append(HumanMessage(content=user_message_parts))
 
+    # LangGraphエージェントを呼び出す
     initial_state = {
         "messages": messages, "character_name": current_character_name, "api_key": api_key,
         "tavily_api_key": config_manager.TAVILY_API_KEY, "model_name": current_model_name,
+        "send_core_memory": effective_settings.get("send_core_memory", True),
+        "send_scenery": effective_settings.get("send_scenery", True),
+        "send_notepad": effective_settings.get("send_notepad", True),
         "location_name": "（初期化中）", "scenery_text": "（初期化中）"
     }
     try:
         final_state = app.invoke(initial_state)
         final_response_text = ""
+        # 内部呼び出しでない場合のみ、最後のメッセージを応答として採用
         if not is_internal_call and final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
             final_response_text = final_state['messages'][-1].content
         location_name = final_state.get('location_name', '（場所不明）')
@@ -140,47 +151,34 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     except Exception as e:
         traceback.print_exc(); return {**default_error_response, "response": f"[エージェント実行エラー: {e}]"}
 
-def count_input_tokens(character_name: str, api_key_name: str, parts: list):
+# ★★★ ここまでが修正箇所です ★★★
+
+def count_input_tokens(**kwargs):
     """【最終確定版】キーワード引数を受け取れるように修正"""
-    import config_manager
-    from character_manager import get_character_files_paths
-    import os
-    from PIL import Image
-    import io
-    import base64
-    import filetype
-    from agent.graph import all_tools
-    from agent.prompts import CORE_PROMPT_TEMPLATE
-    from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-    import datetime
-    import traceback
-    import utils
-    import google.genai as genai
+    character_name = kwargs.get("character_name")
+    api_key_name = kwargs.get("api_key_name")
+    parts = kwargs.get("parts", [])
 
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return "トークン数: (APIキーエラー)"
-
     try:
         effective_settings = config_manager.get_effective_settings(character_name)
         model_name = effective_settings.get("model_name") or config_manager.DEFAULT_MODEL_GLOBAL
-
         messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
-        # --- プロンプト構築 ---
+        # --- プロンプト構築 (agent.graph.context_generator_node とロジックを統一) ---
+        from agent.prompts import CORE_PROMPT_TEMPLATE
+        from agent.graph import all_tools
         char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
         character_prompt = ""
         if os.path.exists(char_prompt_path):
-            with open(char_prompt_path, 'r', encoding='utf-8') as f:
-                character_prompt = f.read().strip()
-
+            with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
         core_memory = ""
         if effective_settings.get("send_core_memory", True):
             core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
             if os.path.exists(core_memory_path):
-                with open(core_memory_path, 'r', encoding='utf-8') as f:
-                    core_memory = f.read().strip()
-
+                with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
         notepad_section = ""
         if effective_settings.get("send_notepad", True):
             _, _, _, _, notepad_path = get_character_files_paths(character_name)
@@ -189,12 +187,9 @@ def count_input_tokens(character_name: str, api_key_name: str, parts: list):
                     content = f.read().strip()
                     notepad_content = content if content else "（メモ帳は空です）"
                     notepad_section = f"\n### 短期記憶（メモ帳）\n{notepad_content}\n"
-
         tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
-
         class SafeDict(dict):
             def __missing__(self, key): return f'{{{key}}}'
-
         prompt_vars = {
             'character_name': character_name, 'character_prompt': character_prompt,
             'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str
@@ -204,20 +199,24 @@ def count_input_tokens(character_name: str, api_key_name: str, parts: list):
         messages.append(SystemMessage(content=system_prompt_text))
 
         # --- 履歴と入力の追加 ---
-        # (この部分は元のロジックをベースにしていますが、簡潔にするためpartsの処理は省略)
-        # 起動時の計算ではpartsは空なので、このままで正常に動作します。
+        log_file, _, _, _, _ = get_character_files_paths(character_name)
+        raw_history = utils.load_chat_log(log_file, character_name)
+        for h_item in raw_history:
+            role, content = h_item.get('role'), h_item.get('content', '').strip()
+            if not content: continue
+            if role in ['model', 'assistant', character_name]: messages.append(AIMessage(content=content))
+            elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
+        if parts:
+            messages.append(HumanMessage(content=parts))
 
         total_tokens = count_tokens_from_lc_messages(messages, model_name, api_key)
-
-        if total_tokens == -1:
-            return "トークン数: (計算エラー)"
+        if total_tokens == -1: return "トークン数: (計算エラー)"
 
         limit_info = get_model_token_limits(model_name, api_key)
         if limit_info and 'input' in limit_info:
             return f"入力トークン数: {total_tokens} / {limit_info['input']}"
         else:
             return f"入力トークン数: {total_tokens}"
-
     except Exception as e:
         traceback.print_exc()
         return "トークン数: (例外発生)"

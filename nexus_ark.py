@@ -85,10 +85,9 @@ try:
         selected_message_state = gr.State(None)
         audio_player = gr.Audio(visible=False, autoplay=True)
 
-        # ★★★ ここからがUIレイアウトの再定義 ★★★
+        # (UIレイアウト定義は変更なし)
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
-                # (左カラムのUI定義は変更なし)
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                 character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
                 with gr.Accordion("空間認識・移動", open=True):
@@ -114,7 +113,6 @@ try:
                             gr.Markdown("---")
                             save_char_settings_button = gr.Button("このキャラクターの設定を保存", variant="primary")
                         with gr.TabItem("共通設定"):
-                            # (共通設定タブの中身は変更なし)
                             model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
                             api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True)
                             api_history_limit_dropdown = gr.Dropdown(choices=list(config_manager.API_HISTORY_LIMIT_OPTIONS.values()), value=config_manager.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
@@ -174,7 +172,6 @@ try:
                         add_character_button = gr.Button("迎える", variant="secondary", scale=1)
 
             with gr.Column(scale=3):
-                # (右カラムのUI定義は変更なし)
                 chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
                 with gr.Row(visible=False) as action_button_group:
                     play_audio_button = gr.Button("🔊 選択した発言を再生")
@@ -190,7 +187,7 @@ try:
                 file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
                 gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
-        # ★★★ ここからがイベントハンドラ定義の再構築 ★★★
+        # --- ★★★ ここからがイベントハンドラ定義の再構築 ★★★ ---
 
         # --- 司令塔となる入力・出力リスト ---
         char_change_outputs = [
@@ -258,8 +255,16 @@ try:
         api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()]).then(fn=ui_handlers.update_token_count_from_state, inputs=[current_character_name, current_api_key_name_state], outputs=token_count_display)
 
         # --- チャット関連イベント ---
-        chat_inputs = [chat_input_textbox, chatbot_display, current_character_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, api_history_limit_state]
-        chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe]
+        # ★★★ 変更点: chat_inputsからchatbot_displayを削除 ★★★
+        chat_inputs = [
+            chat_input_textbox, current_character_name, current_api_key_name_state,
+            file_upload_button, add_timestamp_checkbox, api_history_limit_state
+        ]
+        chat_submit_outputs = [
+            chatbot_display, chat_input_textbox, file_upload_button,
+            token_count_display, current_location_display, current_scenery_display,
+            alarm_dataframe_original_data, alarm_dataframe
+        ]
 
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
@@ -272,7 +277,7 @@ try:
         file_upload_button.upload(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
         file_upload_button.clear(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
 
-        # --- その他のイベント ---
+        # --- その他のイベント (変更なし) ---
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
         change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown], outputs=[current_location_display, current_scenery_display])
         refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_character_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display])
@@ -282,7 +287,6 @@ try:
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, selected_message_state, action_button_group])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
 
-        # (記憶、メモ、アラーム、タイマー関連のイベントは変更なし)
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
         reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_character_name], outputs=[memory_json_editor])
         save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_character_name, notepad_editor], outputs=[notepad_editor])
@@ -312,6 +316,7 @@ try:
         print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで")
         print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)")
         print("="*60 + "\n")
+        # 起動時の allowed_paths にカレントディレクトリを追加
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
 
 except Exception as e:
