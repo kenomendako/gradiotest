@@ -166,8 +166,14 @@ try:
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
-        character_dropdown.change(fn=ui_handlers.handle_character_change, inputs=[character_dropdown], outputs=char_change_outputs).then(
-            fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
+        character_dropdown.change(
+            fn=ui_handlers.handle_character_change,
+            inputs=[character_dropdown, api_key_dropdown], # 修正点：api_key_dropdown を追加
+            outputs=char_change_outputs
+        ).then(
+            fn=ui_handlers.handle_context_settings_change,
+            inputs=context_token_calc_inputs,
+            outputs=token_count_display
         )
         save_char_settings_button.click(
             fn=ui_handlers.handle_save_char_settings,
