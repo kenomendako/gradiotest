@@ -181,24 +181,41 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
     if audio_filepath: gr.Info("プレビューを再生します。"); return audio_filepath
     else: gr.Error("音声の生成に失敗しました。"); return None
 def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[str, str]:
-    print("--- [軽量版] 情景生成を開始します ---"); api_key = config_manager.API_KEYS.get(api_key_name)
-    if not character_name or not api_key: return "（エラー）", "（キャラクターまたはAPIキーが未設定です）"
-    from agent.graph import get_configured_llm; from tools.memory_tools import read_memory_by_path
+    print("--- [軽量版] 情景生成を開始します ---")
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not character_name or not api_key:
+        return "（エラー）", "（キャラクターまたはAPIキーが未設定です）"
+
+    from agent.graph import get_configured_llm
+
     location_id = utils.get_current_location(character_name) or "living_space"
-    space_details_raw = read_memory_by_path.invoke({"path": f"living_space.{location_id}", "character_name": character_name})
-    location_display_name, space_def, scenery_text = location_id, "（現在の場所の定義・設定は、取得できませんでした）", "（場所の定義がないため、情景を描写できません）"
+
+    # ▼▼▼ 修正箇所 ▼▼▼
+    # memory.jsonではなく、world_settings.jsonを参照するように変更
+    world_settings_path = character_manager.get_world_settings_path(character_name)
+    world_data = load_memory_data_safe(world_settings_path)
+    # ▲▲▲ 修正ここまで ▲▲▲
+
+    space_data = world_data.get(location_id, {}) if "error" not in world_data else {}
+    location_display_name = location_id
+    space_def = "（現在の場所の定義・設定は、取得できませんでした）"
+    scenery_text = "（場所の定義がないため、情景を描写できません）"
+
     try:
-        if not space_details_raw.startswith("【エラー】"):
-            try:
-                space_data = json.loads(space_details_raw)
-                if isinstance(space_data, dict): location_display_name, space_def = space_data.get("name", location_id), json.dumps(space_data, ensure_ascii=False, indent=2)
-                else: space_def = str(space_data)
-            except (json.JSONDecodeError, TypeError): space_def = space_details_raw
-            if not space_def.startswith("（"):
-                llm_flash = get_configured_llm("gemini-2.5-flash", api_key); now = datetime.datetime.now()
-                scenery_prompt = (f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')} / 季節:{now.month}月\n\n以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n- 1〜2文の簡潔な文章にまとめてください。\n- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。")
-                scenery_text = llm_flash.invoke(scenery_prompt).content
-    except Exception as e: print(f"--- [軽量版] 情景生成中にエラー: {e}"); traceback.print_exc(); location_display_name, scenery_text = "（エラー）", "（情景生成エラー）"
+        if space_data and isinstance(space_data, dict):
+            location_display_name = space_data.get("name", location_id)
+            space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
+
+            llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
+            now = datetime.datetime.now()
+            scenery_prompt = (f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')} / 季節:{now.month}月\n\n以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n- 1〜2文の簡潔な文章にまとめてください。\n- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。")
+            scenery_text = llm_flash.invoke(scenery_prompt).content
+    except Exception as e:
+        print(f"--- [軽量版] 情景生成中にエラー: {e}")
+        traceback.print_exc()
+        location_display_name = "（エラー）"
+        scenery_text = "（情景生成エラー）"
+
     return location_display_name, scenery_text
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
     if not character_name or not api_key_name: return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）"
@@ -234,11 +251,18 @@ def handle_location_change(character_name: str, location_id: str, api_key_name: 
     return new_location_name, new_scenery
 def get_location_list_for_ui(character_name: str) -> list:
     if not character_name: return []
-    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
-    memory_data = load_memory_data_safe(memory_json_path)
-    if "error" in memory_data or "living_space" not in memory_data: return []
-    living_space = memory_data.get("living_space", {})
-    return sorted([(details.get("name", loc_id), loc_id) for loc_id, details in living_space.items() if isinstance(details, dict)], key=lambda x: x[0])
+    # ▼▼▼ 修正箇所 ▼▼▼
+    # memory.jsonではなく、world_settings.jsonを参照するように変更
+    world_settings_path = character_manager.get_world_settings_path(character_name)
+    world_data = load_memory_data_safe(world_settings_path)
+    # ▲▲▲ 修正ここまで ▲▲▲
+    if "error" in world_data: return []
+    location_list = []
+    for loc_id, details in world_data.items():
+        if isinstance(details, dict):
+            # プルダウンには「表示名」と「内部ID」のタプルを渡す
+            location_list.append((details.get("name", loc_id), loc_id))
+    return sorted(location_list, key=lambda x: x[0])
 def handle_add_new_character(character_name: str):
     char_list = character_manager.get_character_list()
     if not character_name or not character_name.strip():
