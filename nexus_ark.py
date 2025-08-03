@@ -78,7 +78,8 @@ try:
             with gr.Column(scale=1, min_width=300):
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                 character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
-                with gr.Accordion("空間認識・移動", open=True):
+                # ★★★ 変更点1: open=False に変更 ★★★
+                with gr.Accordion("空間認識・移動", open=False):
                     current_location_display = gr.Textbox(label="現在地", interactive=False)
                     current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
                     refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
@@ -108,11 +109,12 @@ try:
                             add_timestamp_checkbox = gr.Checkbox(value=config_manager.initial_add_timestamp_global, label="メッセージにタイムスタンプを追加", interactive=True)
                 with gr.Accordion("📗 記憶とメモの編集", open=False):
                     with gr.Tabs():
-                        with gr.TabItem("記憶 (memory.json)"):
+                        # ★★★ 変更点2: タブ名を短縮 ★★★
+                        with gr.TabItem("記憶"):
                             memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code")
                             with gr.Row():
                                 save_memory_button = gr.Button(value="想いを綴る", variant="secondary"); reload_memory_button = gr.Button(value="再読込", variant="secondary"); core_memory_update_button = gr.Button(value="コアメモリを更新", variant="primary"); rag_update_button = gr.Button(value="手帳の索引を更新", variant="secondary")
-                        with gr.TabItem("メモ帳 (notepad.md)"):
+                        with gr.TabItem("メモ帳"):
                             notepad_editor = gr.Textbox(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code", lines=15, autoscroll=True)
                             with gr.Row():
                                 save_notepad_button = gr.Button(value="メモ帳を保存", variant="secondary"); reload_notepad_button = gr.Button(value="再読込", variant="secondary"); clear_notepad_button = gr.Button(value="メモ帳を全削除", variant="stop")
@@ -151,18 +153,15 @@ try:
                 file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
                 gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
-        # ★★★ ここからがイベントハンドラ定義の変更箇所 ★★★
+        # (イベントハンドラ定義は変更なし)
         context_checkboxes = [char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
         context_token_calc_inputs = [current_character_name, current_api_key_name_state] + context_checkboxes
-
         char_change_outputs = [
             current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor,
             alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown, current_location_display,
             current_scenery_display, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox
         ] + context_checkboxes + [char_settings_info]
-
         initial_load_outputs = [alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown] + char_change_outputs
-
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
@@ -177,14 +176,10 @@ try:
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
         char_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[char_voice_dropdown, char_voice_style_prompt_textbox, char_preview_text_textbox, api_key_dropdown], outputs=[audio_player])
-
         for checkbox in context_checkboxes:
             checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-        # ★★★ 変更箇所ここまで ★★★
-
         add_timestamp_checkbox.change(fn=ui_handlers.update_timestamp_state, inputs=[add_timestamp_checkbox], outputs=None)
         api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         chat_inputs = [chat_input_textbox, current_character_name, current_api_key_name_state, file_upload_button, add_timestamp_checkbox, api_history_limit_state]
