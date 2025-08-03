@@ -67,16 +67,13 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
         return result.total_tokens
     except Exception as e: print(f"トークン計算エラー: {e}"); traceback.print_exc(); return -1
 
-# ★★★ ここからが修正箇所です ★★★
 def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
-    # add_timestamp_checkbox を削除し、引数を5つに修正
     (textbox_content, current_character_name,
      current_api_key_name_state, file_input_list,
      api_history_limit_state) = args
 
     effective_settings = config_manager.get_effective_settings(current_character_name)
-    current_model_name = effective_settings["model_name"]
-    send_thoughts_state = effective_settings["send_thoughts"]
+    current_model_name, send_thoughts_state = effective_settings["model_name"], effective_settings["send_thoughts"]
     api_key = config_manager.API_KEYS.get(current_api_key_name_state)
     is_internal_call = textbox_content and textbox_content.startswith("（システム")
     default_error_response = {"response": "", "location_name": "（エラー）", "scenery": "（エラー）"}

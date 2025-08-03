@@ -16,6 +16,7 @@ import io
 import uuid
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils
+from tools import memory_tools
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
@@ -184,19 +185,6 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
     gr.Info(f"「{character_name}」の現在の情景を更新しています...")
     loc, scen = _generate_initial_scenery(character_name, api_key_name)
     gr.Info("情景を更新しました."); return loc, scen
-
-def handle_location_change(character_name: str, location_id: str) -> Tuple[str, str]:
-    from tools.space_tools import set_current_location
-    print(f"--- UIからの場所変更処理開始: キャラクター='{character_name}', 移動先ID='{location_id}' ---")
-    if not character_name or not location_id:
-        gr.Warning("キャラクターと移動先の場所を選択してください。"); current_loc_id = utils.get_current_location(character_name); return current_loc_id, "（場所の変更に失敗しました）"
-    result = set_current_location.func(location=location_id, character_name=character_name)
-    if "Success" not in result:
-        gr.Error(f"場所の変更に失敗しました: {result}"); current_loc_id = utils.get_current_location(character_name); return current_loc_id, f"（場所の変更に失敗: {result}）"
-    world_settings_path = get_world_settings_path(character_name)
-    world_data = load_memory_data_safe(world_settings_path)
-    new_location_name = world_data.get(location_id, {}).get("name", location_id) if "error" not in world_data and isinstance(world_data.get(location_id), dict) else location_id
-    gr.Info(f"場所を「{new_location_name}」に変更しました。"); return new_location_name, f"（場所を「{new_location_name}」に変更しました。情景は次の対話で生成されます）"
 
 def handle_add_new_character(character_name: str):
     char_list = character_manager.get_character_list()
@@ -377,15 +365,6 @@ def handle_core_memory_update_click(character_name: str, api_key_name: str):
     threading.Thread(target=_run_core_memory_update, args=(character_name, api_key)).start()
 
 def update_model_state(model): config_manager.save_config("last_model", model); return model
-
-def update_api_key_state(api_key_name):
-    config_manager.save_config("last_api_key_name", api_key_name)
-    gr.Info(f"APIキーを '{api_key_name}' に設定しました。")
-    return api_key_name
-
-def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
-    key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
-    config_manager.save_config("last_api_history_limit_option", key); return key, reload_chat_log(character_name, key), gr.State()
 
 def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], character_name: str, api_key_name: str):
     if not selected_message: gr.Warning("再生するメッセージが選択されていません。"); return None

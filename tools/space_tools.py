@@ -16,8 +16,8 @@ def find_location_id_by_name(location_name: str, character_name: str = None) -> 
         return "【Error】Location name and character name are required."
 
     world_settings_path = get_world_settings_path(character_name)
-    if not world_settings_path:
-        return f"【Error】Could not find world settings file path for character '{character_name}'."
+    if not world_settings_path or not os.path.exists(world_settings_path):
+        return f"【Error】Could not find world settings file for character '{character_name}'."
 
     world_data = load_memory_data_safe(world_settings_path)
     if "error" in world_data:
