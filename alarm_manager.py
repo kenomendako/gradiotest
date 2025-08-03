@@ -2,7 +2,6 @@
 
 import os
 import json
-import re
 import uuid
 import threading
 import schedule
@@ -23,11 +22,9 @@ except ImportError:
     print(" -> pip install plyer でインストールできます。")
     PLYER_AVAILABLE = False
 
-# --- アラーム関連グローバル変数 ---
 alarms_data_global = []
 alarm_thread_stop_event = threading.Event()
 
-# --- アラームデータ管理関数 ---
 def load_alarms():
     global alarms_data_global
     if not os.path.exists(config_manager.ALARMS_FILE):
@@ -66,8 +63,6 @@ def delete_alarm(alarm_id: str):
         return True
     return False
 
-# ★★★ ここからが通知機能の改修箇所 ★★★
-
 def _send_discord_notification(webhook_url, message_text):
     if not webhook_url: return
     headers = {'Content-Type': 'application/json'}
@@ -81,17 +76,10 @@ def _send_discord_notification(webhook_url, message_text):
 
 def _send_pushover_notification(app_token, user_key, message_text, char_name, alarm_config):
     if not app_token or not user_key: return
-    payload = {
-        "token": app_token,
-        "user": user_key,
-        "title": f"{char_name} ⏰",
-        "message": message_text
-    }
+    payload = {"token": app_token, "user": user_key, "title": f"{char_name} ⏰", "message": message_text}
     if alarm_config.get("is_emergency", False):
         print("  - 緊急通知として送信します。")
-        payload["priority"] = 2
-        payload["retry"] = 60
-        payload["expire"] = 3600
+        payload["priority"] = 2; payload["retry"] = 60; payload["expire"] = 3600
     try:
         response = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=10)
         response.raise_for_status()
@@ -102,124 +90,84 @@ def _send_pushover_notification(app_token, user_key, message_text, char_name, al
 def send_notification(char_name, message_text, alarm_config):
     """設定に応じて適切な通知サービスを呼び出す司令塔"""
     service = config_manager.NOTIFICATION_SERVICE_GLOBAL
-
     if service == "pushover":
-        _send_pushover_notification(
-            config_manager.PUSHOVER_APP_TOKEN_GLOBAL,
-            config_manager.PUSHOVER_USER_KEY_GLOBAL,
-            message_text,
-            char_name,
-            alarm_config
-        )
-    else: # デフォルトはdiscord/slack形式
+        _send_pushover_notification(config_manager.PUSHOVER_APP_TOKEN_GLOBAL, config_manager.PUSHOVER_USER_KEY_GLOBAL, message_text, char_name, alarm_config)
+    else:
         notification_message = f"⏰  {char_name}\n\n{message_text}\n"
-        _send_discord_notification(
-            config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL,
-            notification_message
-        )
+        _send_discord_notification(config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL, notification_message)
 
-# ★★★ 通知機能の改修ここまで ★★★
-
+# ★★★ ここからが修正箇所です ★★★
 def trigger_alarm(alarm_config, current_api_key_name):
-        char_name = alarm_config.get("character")
-        alarm_id = alarm_config.get("id")
-        alarm_time = alarm_config.get("time", "指定時刻") # ログ表示用に時刻を取得
-        context_to_use = alarm_config.get("context_memo", "時間になりました")
+    char_name = alarm_config.get("character")
+    alarm_id = alarm_config.get("id")
+    alarm_time = alarm_config.get("time", "指定時刻")
+    context_to_use = alarm_config.get("context_memo", "時間になりました")
 
-        print(f"⏰ アラーム発火. ID: {alarm_id}, キャラクター: {char_name}, コンテキスト: '{context_to_use}'")
+    print(f"⏰ アラーム発火. ID: {alarm_id}, キャラクター: {char_name}, コンテキスト: '{context_to_use}'")
 
-        log_f, _, _, _, _ = get_character_files_paths(char_name)
-        if not log_f or not current_api_key_name:
-            print(f"警告: アラーム (ID:{alarm_id}) のログファイルまたはAPIキーが見つからないため、処理をスキップします。")
-            return
+    log_f, _, _, _, _ = get_character_files_paths(char_name)
+    if not log_f or not current_api_key_name:
+        print(f"警告: アラーム (ID:{alarm_id}) のログファイルまたはAPIキーが見つからないため、処理をスキップします。")
+        return
 
-        # ★★★ ここからが修正点 ★★★
+    # AIに意図を伝えるための、内部的なプロンプト
+    synthesized_user_message = f"（システムアラーム：時間です。コンテキスト「{context_to_use}」について、アラームメッセージを伝えてください）"
+    # ログファイルとUIに表示するための、シンプルなメッセージ
+    message_for_log = f"（システムアラーム：{alarm_time}）"
 
-        # 1. AIに意図を伝えるための、内部的なプロンプト
-        synthesized_user_message_for_agent = f"（システムアラーム：時間です。コンテキスト「{context_to_use}」について、アラームメッセージを伝えてください）"
+    # 新しい `invoke_nexus_agent` の仕様に合わせて引数を構築 (全6引数)
+    agent_args = (
+        synthesized_user_message,                       # textbox_content
+        char_name,                                      # current_character_name
+        current_api_key_name,                           # current_api_key_name_state
+        None,                                           # file_input_list (アラームにはファイル添付はない)
+        False,                                          # add_timestamp_checkbox (アラームには不要)
+        str(config_manager.DEFAULT_ALARM_API_HISTORY_TURNS) # api_history_limit_state
+    )
 
-        # 2. ログファイルとUIに表示するための、シンプルなメッセージ
-        message_for_log = f"（システムアラーム：{alarm_time}）"
+    # エージェントを呼び出し
+    response_data = gemini_api.invoke_nexus_agent(*agent_args)
+    response_text = utils.remove_thoughts_from_text(response_data.get('response', ''))
 
-        # 3. エージェントに渡す引数を構築（プロンプトはこちらを使う）
-        agent_args = [
-            synthesized_user_message_for_agent, # textbox_content
-            [],                                 # chatbot_history
-            char_name,                          # current_character_name
-            config_manager.initial_model_global, # current_model_name
-            current_api_key_name,               # current_api_key_name_state
-            None,                               # file_input_list
-            False,                              # add_timestamp_checkbox
-            config_manager.initial_send_thoughts_to_api_global,
-            config_manager.initial_api_history_limit_option_global,
-            True,                               # send_notepad_state
-            True,                               # use_common_prompt_state
-            True,                               # send_core_memory_state
-            True                                # send_scenery_state
-        ]
-
-        # 4. エージェントを呼び出し
-        response_data = gemini_api.invoke_nexus_agent(*agent_args)
-        response_text = response_data.get('response', '') # 辞書から応答テキストを安全に抽出
-
-        # ★★★ 修正ここまで ★★★
-
-        if response_text and not response_text.startswith("[エラー"):
-            # 5. ログにはシンプルなメッセージを記録
-            utils.save_message_to_log(log_f, "## システム(アラーム):", message_for_log)
-            utils.save_message_to_log(log_f, f"## {char_name}:", response_text)
-            print(f"アラームログ記録完了 (ID:{alarm_id})")
-
-            # 通知を送信
-            send_notification(char_name, response_text, alarm_config)
-
-            if PLYER_AVAILABLE:
-                try:
-                    # メッセージが長すぎる場合に省略する
-                    display_message = (response_text[:250] + '...') if len(response_text) > 250 else response_text
-
-                    notification.notify(
-                        title=f"{char_name} ⏰",
-                        message=display_message, # 省略したメッセージを使用
-                        app_name="Nexus Ark",
-                        timeout=20
-                    )
-                    print("PCデスクトップ通知を送信しました。")
-                except Exception as e:
-                    print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
-        else:
-            print(f"警告: アラーム応答の生成に失敗 (ID:{alarm_id}). 応答: {response_text}")
+    if response_text and not response_text.startswith("[エラー"):
+        utils.save_message_to_log(log_f, "## システム(アラーム):", message_for_log)
+        utils.save_message_to_log(log_f, f"## {char_name}:", response_data.get('response', '')) # 思考過程もログには残す
+        print(f"アラームログ記録完了 (ID:{alarm_id})")
+        send_notification(char_name, response_text, alarm_config)
+        if PLYER_AVAILABLE:
+            try:
+                display_message = (response_text[:250] + '...') if len(response_text) > 250 else response_text
+                notification.notify(title=f"{char_name} ⏰", message=display_message, app_name="Nexus Ark", timeout=20)
+                print("PCデスクトップ通知を送信しました。")
+            except Exception as e:
+                print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
+    else:
+        print(f"警告: アラーム応答の生成に失敗 (ID:{alarm_id}). 応答: {response_text}")
+# ★★★ 修正箇所ここまで ★★★
 
 def check_alarms():
     now_dt = datetime.datetime.now()
-    now_t = now_dt.strftime("%H:%M")
-    current_day_short = now_dt.strftime('%a').lower()
+    now_t, current_day_short = now_dt.strftime("%H:%M"), now_dt.strftime('%a').lower()
     current_api_key = config_manager.initial_api_key_name_global
-
     current_alarms = load_alarms()
-    alarms_to_trigger = []
-    remaining_alarms = list(current_alarms)
+    alarms_to_trigger, remaining_alarms = [], list(current_alarms)
 
     for i in range(len(current_alarms) - 1, -1, -1):
         a = current_alarms[i]
-        alarm_time = a.get("time")
         is_enabled = a.get("enabled", True)
-        alarm_days = [d.lower() for d in a.get("days", [])]
+        if not is_enabled or a.get("time") != now_t: continue
 
         is_today = False
-        alarm_date_str = a.get("date")
-        if alarm_date_str:
-            try:
-                if datetime.datetime.strptime(alarm_date_str, "%Y-%m-%d").date() == now_dt.date():
-                    is_today = True
-            except (ValueError, TypeError):
-                 is_today = not alarm_days or current_day_short in alarm_days
+        if a.get("date"):
+            try: is_today = datetime.datetime.strptime(a["date"], "%Y-%m-%d").date() == now_dt.date()
+            except (ValueError, TypeError): pass
         else:
-             is_today = not alarm_days or current_day_short in alarm_days
+            alarm_days = [d.lower() for d in a.get("days", [])]
+            is_today = not alarm_days or current_day_short in alarm_days
 
-        if is_enabled and alarm_time == now_t and is_today:
+        if is_today:
             alarms_to_trigger.append(a)
-            if not a.get("days"): # 繰り返しでない単発アラームなら削除
+            if not a.get("days"):
                 print(f"  - 単発アラーム {a.get('id')} は実行後に削除されます。")
                 remaining_alarms.pop(i)
 
@@ -228,12 +176,10 @@ def check_alarms():
         alarms_data_global = remaining_alarms
         save_alarms()
 
-    if not current_api_key: return
+    if current_api_key:
+        for alarm_to_run in alarms_to_trigger:
+            trigger_alarm(alarm_to_run, current_api_key)
 
-    for alarm_to_run in alarms_to_trigger:
-        trigger_alarm(alarm_to_run, current_api_key)
-
-# (schedule_thread_function, start/stop_alarm_scheduler_thread は変更不要)
 def schedule_thread_function():
     global alarm_thread_stop_event
     print("アラームスケジューラスレッドを開始します.")
@@ -241,6 +187,7 @@ def schedule_thread_function():
     while not alarm_thread_stop_event.is_set():
         schedule.run_pending(); time.sleep(1)
     print("アラームスケジューラスレッドが停止しました.")
+
 def start_alarm_scheduler_thread():
     global alarm_thread_stop_event
     alarm_thread_stop_event.clear()
@@ -250,6 +197,10 @@ def start_alarm_scheduler_thread():
         thread.start()
         start_alarm_scheduler_thread.scheduler_thread = thread
         print("アラームスケジューラスレッドを起動しました.")
+
 def stop_alarm_scheduler_thread():
-    # (実装は省略)
-    pass
+    global alarm_thread_stop_event
+    if hasattr(start_alarm_scheduler_thread, "scheduler_thread") and start_alarm_scheduler_thread.scheduler_thread.is_alive():
+        alarm_thread_stop_event.set()
+        start_alarm_scheduler_thread.scheduler_thread.join()
+        print("アラームスケジューラスレッドの停止を要求しました。")
