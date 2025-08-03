@@ -27,50 +27,49 @@ DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
-    display_df = get_display_df(df_with_ids)
-    feedback_text = "アラームを選択してください"
+    display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
     char_dependent_outputs = handle_character_change(config_manager.initial_character_global)
     return (display_df, df_with_ids, feedback_text) + char_dependent_outputs
 
+# ★★★ ここからが変更箇所 ★★★
 def handle_character_change(character_name: str):
     if not character_name: character_name = character_manager.get_character_list()[0]
     print(f"--- UI更新司令塔(handle_character_change)実行: {character_name} ---")
     config_manager.save_config("last_character", character_name)
     log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
     chat_history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(config_manager.UI_HISTORY_MAX_LIMIT * 2):], character_name)
-    memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
-    profile_image = img_p if img_p and os.path.exists(img_p) else None
-    notepad_content = load_notepad_content(character_name)
-    locations = get_location_list_for_ui(character_name)
-    current_location_id = utils.get_current_location(character_name)
-    memory_data = load_memory_data_safe(mem_p)
+    memory_str, profile_image = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False), img_p if img_p and os.path.exists(img_p) else None
+    notepad_content, locations = load_notepad_content(character_name), get_location_list_for_ui(character_name)
+    current_location_id, memory_data = utils.get_current_location(character_name), load_memory_data_safe(mem_p)
     current_location_name = memory_data.get("living_space", {}).get(current_location_id, {}).get("name", current_location_id)
-    valid_location_ids = [loc[1] for loc in locations]
-    location_dd_val = current_location_id if current_location_id in valid_location_ids else None
+    valid_location_ids, location_dd_val = [loc[1] for loc in locations], current_location_id if current_location_id in [loc[1] for loc in locations] else None
     scenery_text = "（AIとの対話開始時に生成されます）"
     effective_settings = config_manager.get_effective_settings(character_name)
-    all_models = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL
-    model_val = effective_settings["model_name"] if effective_settings["model_name"] != config_manager.initial_model_global else "デフォルト"
+    all_models, model_val = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL, effective_settings["model_name"] if effective_settings["model_name"] != config_manager.initial_model_global else "デフォルト"
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "vindemiatrix"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
+
     return (
         character_name, chat_history, "", profile_image, memory_str, character_name,
         character_name, notepad_content, gr.update(choices=locations, value=location_dd_val),
         current_location_name, scenery_text, gr.update(choices=all_models, value=model_val),
-        voice_display_name, voice_style_prompt_val, effective_settings["send_thoughts"],
-        effective_settings["send_notepad"], effective_settings["use_common_prompt"],
-        effective_settings["send_core_memory"], effective_settings["send_scenery"],
-        f"ℹ️ *現在選択中のキャラクター「{character_name}」にのみ適用される設定です。*"
+        voice_display_name, voice_style_prompt_val,
+        effective_settings["add_timestamp"], # ★★★ タイムスタンプ設定を返す
+        effective_settings["send_thoughts"], effective_settings["send_notepad"],
+        effective_settings["use_common_prompt"], effective_settings["send_core_memory"],
+        effective_settings["send_scenery"], f"ℹ️ *現在選択中のキャラクター「{character_name}」にのみ適用される設定です。*"
     )
 
-def handle_save_char_settings(character_name: str, model_name: str, voice_name: str, voice_style_prompt: str, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
+def handle_save_char_settings(character_name: str, model_name: str, voice_name: str, voice_style_prompt: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
     if not character_name: gr.Warning("設定を保存するキャラクターが選択されていません。"); return
     new_settings = {
         "model_name": model_name if model_name != "デフォルト" else None,
         "voice_id": next((k for k, v in config_manager.SUPPORTED_VOICES.items() if v == voice_name), None),
-        "voice_style_prompt": voice_style_prompt.strip(), "send_thoughts": bool(send_thoughts),
-        "send_notepad": bool(send_notepad), "use_common_prompt": bool(use_common_prompt),
-        "send_core_memory": bool(send_core_memory), "send_scenery": bool(send_scenery),
+        "voice_style_prompt": voice_style_prompt.strip(),
+        "add_timestamp": bool(add_timestamp), # ★★★ タイムスタンプ設定を保存
+        "send_thoughts": bool(send_thoughts), "send_notepad": bool(send_notepad),
+        "use_common_prompt": bool(use_common_prompt), "send_core_memory": bool(send_core_memory),
+        "send_scenery": bool(send_scenery),
     }
     try:
         char_config_path = os.path.join(config_manager.CHARACTERS_DIR, character_name, "character_config.json")
@@ -85,48 +84,16 @@ def handle_save_char_settings(character_name: str, model_name: str, voice_name: 
         gr.Info(f"「{character_name}」の個別設定を保存しました。")
     except Exception as e: gr.Error(f"個別設定の保存中にエラーが発生しました: {e}"); traceback.print_exc()
 
-# ★★★ ここからが変更箇所 ★★★
-def handle_context_settings_change(character_name: str, api_key_name: str, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
-    """【新設】チェックボックスの状態を直接受け取ってトークン数を計算するハンドラ"""
-    if not character_name or not api_key_name: return "入力トークン数: -"
-    return gemini_api.count_input_tokens(
-        character_name=character_name,
-        api_key_name=api_key_name,
-        parts=[],
-        send_thoughts=send_thoughts,
-        send_notepad=send_notepad,
-        use_common_prompt=use_common_prompt,
-        send_core_memory=send_core_memory,
-        send_scenery=send_scenery
-    )
-
-def update_token_count_on_input(character_name: str, api_key_name: str, textbox_content: str, file_list: list, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
-    """テキスト入力やファイル添付時に呼ばれる。現在の入力内容とチェックボックスの状態を含めて計算"""
-    if not character_name or not api_key_name: return "入力トークン数: -"
-    parts_for_api = []
-    if textbox_content: parts_for_api.append(textbox_content)
-    if file_list:
-        for file_obj in file_list:
-            parts_for_api.append(Image.open(file_obj.name))
-    return gemini_api.count_input_tokens(
-        character_name=character_name,
-        api_key_name=api_key_name,
-        parts=parts_for_api,
-        send_thoughts=send_thoughts,
-        send_notepad=send_notepad,
-        use_common_prompt=use_common_prompt,
-        send_core_memory=send_core_memory,
-        send_scenery=send_scenery
-    )
-# ★★★ 変更箇所ここまで ★★★
-
 def handle_message_submission(*args: Any):
-    (textbox_content, current_character_name, current_api_key_name_state, file_input_list, add_timestamp_checkbox, api_history_limit_state) = args
+    (textbox_content, current_character_name, current_api_key_name_state, file_input_list, api_history_limit_state) = args
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         chatbot_history = reload_chat_log(current_character_name, api_history_limit_state)
-        # トークン数計算を削除。UI要素の更新は不要なので、returnをシンプルに
         return chatbot_history, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+
+    effective_settings = config_manager.get_effective_settings(current_character_name) # ★★★ タイムスタンプ設定を取得
+    add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
+
     chatbot_history = reload_chat_log(current_character_name, api_history_limit_state)
     log_message_parts = []
     if user_prompt_from_textbox:
@@ -143,7 +110,8 @@ def handle_message_submission(*args: Any):
     yield (chatbot_history, gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
     response_data = {}
     try:
-        agent_args = (textbox_content, current_character_name, current_api_key_name_state, file_input_list, add_timestamp_checkbox, api_history_limit_state)
+        # add_timestamp_checkbox は agent に直接渡さないので削除
+        agent_args = (textbox_content, current_character_name, current_api_key_name_state, file_input_list, api_history_limit_state)
         response_data = gemini_api.invoke_nexus_agent(*agent_args)
     except Exception as e:
         traceback.print_exc()
@@ -160,14 +128,62 @@ def handle_message_submission(*args: Any):
     formatted_history = reload_chat_log(current_character_name, api_history_limit_state)
     new_alarm_df_with_ids = render_alarms_as_dataframe()
     new_display_df = get_display_df(new_alarm_df_with_ids)
-    # UIに表示するトークン数は、応答後に再計算された値ではないため、空の更新を返す
     yield (formatted_history, gr.update(), gr.update(value=None), gr.update(), location_name, scenery_text, new_alarm_df_with_ids, new_display_df)
 
+def handle_context_settings_change(character_name: str, api_key_name: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
+    if not character_name or not api_key_name: return "入力トークン数: -"
+    return gemini_api.count_input_tokens(
+        character_name=character_name, api_key_name=api_key_name, parts=[],
+        add_timestamp=add_timestamp, send_thoughts=send_thoughts, send_notepad=send_notepad,
+        use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
+    )
+
+def update_token_count_on_input(character_name: str, api_key_name: str, textbox_content: str, file_list: list, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
+    if not character_name or not api_key_name: return "入力トークン数: -"
+    parts_for_api = []
+    if textbox_content: parts_for_api.append(textbox_content)
+    if file_list:
+        for file_obj in file_list: parts_for_api.append(Image.open(file_obj.name))
+    return gemini_api.count_input_tokens(
+        character_name=character_name, api_key_name=api_key_name, parts=parts_for_api,
+        add_timestamp=add_timestamp, send_thoughts=send_thoughts, send_notepad=send_notepad,
+        use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
+    )
+
+# (以降の関数は変更なし)
+def update_api_key_state(api_key_name): config_manager.save_config("last_api_key_name", api_key_name); gr.Info(f"APIキーを '{api_key_name}' に設定しました。"); return api_key_name
+def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
+    key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
+    config_manager.save_config("last_api_history_limit_option", key); return key, reload_chat_log(character_name, key), gr.State()
+# ... (他のすべてのハンドラ関数は、以前のバージョンから変更ありません) ...
+def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], character_name: str, api_key_name: str):
+    if not selected_message: gr.Warning("再生するメッセージが選択されていません。"); return None
+    raw_text = utils.extract_raw_text_from_html(selected_message.get("content"))
+    text_to_speak = utils.remove_thoughts_from_text(raw_text)
+    if not text_to_speak: gr.Info("このメッセージには音声で再生できるテキストがありません。"); return None
+    effective_settings = config_manager.get_effective_settings(character_name)
+    voice_id, voice_style_prompt = effective_settings.get("voice_id", "vindemiatrix"), effective_settings.get("voice_style_prompt", "")
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key: gr.Warning(f"APIキー '{api_key_name}' が見つかりません。"); return None
+    from audio_manager import generate_audio_from_text
+    gr.Info(f"「{character_name}」の声で音声を生成しています...")
+    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
+    if audio_filepath: gr.Info("再生します。"); return audio_filepath
+    else: gr.Error("音声の生成に失敗しました。"); return None
+def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text_to_speak: str, api_key_name: str):
+    if not selected_voice_name or not text_to_speak or not api_key_name: gr.Warning("声、テキスト、APIキーがすべて選択されている必要があります。"); return None
+    voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not voice_id or not api_key: gr.Warning("声またはAPIキーが無効です。"); return None
+    from audio_manager import generate_audio_from_text
+    gr.Info(f"声「{selected_voice_name}」で音声を生成しています...")
+    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
+    if audio_filepath: gr.Info("プレビューを再生します。"); return audio_filepath
+    else: gr.Error("音声の生成に失敗しました。"); return None
 def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[str, str]:
     print("--- [軽量版] 情景生成を開始します ---"); api_key = config_manager.API_KEYS.get(api_key_name)
     if not character_name or not api_key: return "（エラー）", "（キャラクターまたはAPIキーが未設定です）"
-    from agent.graph import get_configured_llm
-    from tools.memory_tools import read_memory_by_path
+    from agent.graph import get_configured_llm; from tools.memory_tools import read_memory_by_path
     location_id = utils.get_current_location(character_name) or "living_space"
     space_details_raw = read_memory_by_path.invoke({"path": f"living_space.{location_id}", "character_name": character_name})
     location_display_name, space_def, scenery_text = location_id, "（現在の場所の定義・設定は、取得できませんでした）", "（場所の定義がないため、情景を描写できません）"
@@ -184,13 +200,11 @@ def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[s
                 scenery_text = llm_flash.invoke(scenery_prompt).content
     except Exception as e: print(f"--- [軽量版] 情景生成中にエラー: {e}"); traceback.print_exc(); location_display_name, scenery_text = "（エラー）", "（情景生成エラー）"
     return location_display_name, scenery_text
-
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
     if not character_name or not api_key_name: return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）"
     gr.Info(f"「{character_name}」の現在の情景を更新しています...")
     loc, scen = _generate_initial_scenery(character_name, api_key_name)
     gr.Info("情景を更新しました."); return loc, scen
-
 def handle_location_change(character_name: str, location_id: str) -> Tuple[str, str]:
     from tools.space_tools import set_current_location
     if not character_name or not location_id:
@@ -201,7 +215,6 @@ def handle_location_change(character_name: str, location_id: str) -> Tuple[str, 
     memory_data = load_memory_data_safe(get_character_files_paths(character_name)[3])
     new_location_name = memory_data.get("living_space", {}).get(location_id, {}).get("name", location_id)
     gr.Info(f"場所を「{new_location_name}」に変更しました。"); return new_location_name, f"（場所を「{new_location_name}」に変更しました。情景は次の対話で生成されます）"
-
 def get_location_list_for_ui(character_name: str) -> list:
     if not character_name: return []
     _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
@@ -209,7 +222,6 @@ def get_location_list_for_ui(character_name: str) -> list:
     if "error" in memory_data or "living_space" not in memory_data: return []
     living_space = memory_data.get("living_space", {})
     return sorted([(details.get("name", loc_id), loc_id) for loc_id, details in living_space.items() if isinstance(details, dict)], key=lambda x: x[0])
-
 def handle_add_new_character(character_name: str):
     char_list = character_manager.get_character_list()
     if not character_name or not character_name.strip():
@@ -221,9 +233,7 @@ def handle_add_new_character(character_name: str):
         gr.Info(f"新しいキャラクター「{safe_name}」さんを迎えました！"); new_char_list = character_manager.get_character_list(); return gr.update(choices=new_char_list, value=safe_name), gr.update(choices=new_char_list, value=safe_name), gr.update(choices=new_char_list, value=safe_name), gr.update(value="")
     else:
         gr.Error(f"キャラクター「{safe_name}」の準備に失敗しました。"); return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), gr.update(value=character_name)
-
 def _get_display_history_count(api_history_limit_value: str) -> int: return int(api_history_limit_value) if api_history_limit_value.isdigit() else config_manager.UI_HISTORY_MAX_LIMIT
-
 def handle_chatbot_selection(character_name: str, api_history_limit_state: str, evt: gr.SelectData):
     if not character_name or evt.index is None: return None, gr.update(visible=False)
     try:
@@ -239,14 +249,12 @@ def handle_chatbot_selection(character_name: str, api_history_limit_state: str, 
         if 0 <= original_log_index < len(visible_raw_history): return visible_raw_history[original_log_index], gr.update(visible=True)
         else: gr.Warning("クリックされたメッセージを特定できませんでした (Original log index out of bounds)."); return None, gr.update(visible=False)
     except Exception as e: print(f"チャットボット選択中のエラー: {e}"); traceback.print_exc(); return None, gr.update(visible=False)
-
 def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], character_name: str, api_history_limit: str):
     if not message_to_delete: gr.Warning("削除対象のメッセージが選択されていません。"); return gr.update(), None, gr.update(visible=False)
     log_f, _, _, _, _ = get_character_files_paths(character_name)
     if utils.delete_message_from_log(log_f, message_to_delete, character_name): gr.Info("ログからメッセージを削除しました。")
     else: gr.Error("メッセージの削除に失敗しました。詳細はターミナルを確認してください。")
     return reload_chat_log(character_name, api_history_limit), None, gr.update(visible=False)
-
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
     if not character_name: return []
     log_f,_,_,_,_ = get_character_files_paths(character_name)
@@ -254,23 +262,19 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
     display_turns = _get_display_history_count(api_history_limit_value)
     history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name)
     return history
-
 def handle_save_memory_click(character_name, json_string_data):
     if not character_name: gr.Warning("キャラクターが選択されていません。"); return gr.update()
     try: return save_memory_data(character_name, json_string_data)
     except Exception as e: gr.Error(f"記憶の保存中にエラーが発生しました: {e}"); return gr.update()
-
 def handle_reload_memory(character_name: str) -> str:
     if not character_name: gr.Warning("キャラクターが選択されていません。"); return "{}"
     gr.Info(f"「{character_name}」の記憶を再読み込みしました。"); _, _, _, memory_json_path, _ = get_character_files_paths(character_name); return json.dumps(load_memory_data_safe(memory_json_path), indent=2, ensure_ascii=False)
-
 def load_notepad_content(character_name: str) -> str:
     if not character_name: return ""
     _, _, _, _, notepad_path = get_character_files_paths(character_name)
     if notepad_path and os.path.exists(notepad_path):
         with open(notepad_path, "r", encoding="utf-8") as f: return f.read()
     return ""
-
 def handle_save_notepad_click(character_name: str, content: str) -> str:
     if not character_name: gr.Warning("キャラクターが選択されていません。"); return content
     _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
@@ -281,7 +285,6 @@ def handle_save_notepad_click(character_name: str, content: str) -> str:
         with open(notepad_path, "w", encoding="utf-8") as f: f.write(final_content + ('\n' if final_content else ''))
         gr.Info(f"「{character_name}」のメモ帳を保存しました。"); return final_content
     except Exception as e: gr.Error(f"メモ帳の保存エラー: {e}"); return content
-
 def handle_clear_notepad_click(character_name: str) -> str:
     if not character_name: gr.Warning("キャラクターが選択されていません。"); return ""
     _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
@@ -290,11 +293,9 @@ def handle_clear_notepad_click(character_name: str) -> str:
         with open(notepad_path, "w", encoding="utf-8") as f: f.write("")
         gr.Info(f"「{character_name}」のメモ帳を空にしました。"); return ""
     except Exception as e: gr.Error(f"メモ帳クリアエラー: {e}"); return f"エラー: {e}"
-
 def handle_reload_notepad(character_name: str) -> str:
     if not character_name: gr.Warning("キャラクターが選択されていません。"); return ""
     content = load_notepad_content(character_name); gr.Info(f"「{character_name}」のメモ帳を再読み込みしました。"); return content
-
 def render_alarms_as_dataframe():
     alarms = sorted(alarm_manager.load_alarms(), key=lambda x: x.get("time", "")); all_rows = []
     for a in alarms:
@@ -309,16 +310,13 @@ def render_alarms_as_dataframe():
         elif a.get("days"): schedule_display = ",".join([DAY_MAP_EN_TO_JA.get(d.lower(), d.upper()) for d in a["days"]])
         all_rows.append({"ID": a.get("id"), "状態": a.get("enabled", False), "時刻": a.get("time"), "予定": schedule_display, "キャラ": a.get("character"), "内容": a.get("context_memo") or ""})
     return pd.DataFrame(all_rows, columns=["ID", "状態", "時刻", "予定", "キャラ", "内容"])
-
 def get_display_df(df_with_id: pd.DataFrame):
     if df_with_id is None or df_with_id.empty: return pd.DataFrame(columns=["状態", "時刻", "予定", "キャラ", "内容"])
     return df_with_id[["状態", "時刻", "予定", "キャラ", "内容"]] if 'ID' in df_with_id.columns else df_with_id
-
 def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame) -> List[str]:
     if not hasattr(evt, 'index') or evt.index is None or df_with_id is None or df_with_id.empty: return []
     indices = evt.index if isinstance(evt.index, list) else [evt.index]
     return [str(df_with_id.iloc[r[0] if isinstance(r, tuple) else r]['ID']) for r in indices if isinstance(r, (int, tuple)) and 0 <= (r[0] if isinstance(r, tuple) else r) < len(df_with_id)]
-
 def handle_alarm_selection_for_all_updates(evt: gr.SelectData, df_with_id: pd.DataFrame):
     selected_ids = handle_alarm_selection(evt, df_with_id)
     feedback_text = "アラームを選択してください" if not selected_ids else f"{len(selected_ids)} 件のアラームを選択中"
@@ -333,7 +331,6 @@ def handle_alarm_selection_for_all_updates(evt: gr.SelectData, df_with_id: pd.Da
         else: form_updates = ("アラーム追加", "", "", default_char, [], False, "08", "00", None)
     else: form_updates = ("アラーム追加", "", "", default_char, [], False, "08", "00", None)
     return (selected_ids, feedback_text) + form_updates
-
 def toggle_selected_alarms_status(selected_ids: list, target_status: bool):
     if not selected_ids: gr.Warning("状態を変更するアラームが選択されていません。")
     else:
@@ -343,13 +340,11 @@ def toggle_selected_alarms_status(selected_ids: list, target_status: bool):
             alarm_manager.alarms_data_global = current_alarms; alarm_manager.save_alarms()
             gr.Info(f"{len(selected_ids)}件のアラームの状態を「{'有効' if target_status else '無効'}」に変更しました。")
     new_df_with_ids = render_alarms_as_dataframe(); return new_df_with_ids, get_display_df(new_df_with_ids)
-
 def handle_delete_selected_alarms(selected_ids: list):
     if not selected_ids: gr.Warning("削除するアラームが選択されていません。")
     else:
         for sid in selected_ids: alarm_manager.delete_alarm(str(sid))
     new_df_with_ids = render_alarms_as_dataframe(); return new_df_with_ids, get_display_df(new_df_with_ids)
-
 def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja, is_emergency):
     from tools.alarm_tools import set_personal_alarm
     context = theme or prompt or "時間になりました"; days_en = [DAY_MAP_JA_TO_EN.get(d) for d in days_ja if d in DAY_MAP_JA_TO_EN]
@@ -358,14 +353,12 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja, i
     new_df_with_ids, all_chars = render_alarms_as_dataframe(), character_manager.get_character_list()
     default_char = all_chars[0] if all_chars else "Default"
     return new_df_with_ids, get_display_df(new_df_with_ids), "アラーム追加", "", "", gr.update(choices=all_chars, value=default_char), [], False, "08", "00", None
-
 def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_theme, brk_theme, api_key_name, normal_theme):
     if not char or not api_key_name: return "エラー：キャラクターとAPIキーを選択してください。"
     try:
         timer = UnifiedTimer(timer_type, float(duration or 0), float(work or 0), float(brk or 0), int(cycles or 0), char, work_theme, brk_theme, api_key_name, normal_theme=normal_theme)
         timer.start(); gr.Info(f"{timer_type}を開始しました。"); return f"{timer_type}を開始しました。"
     except Exception as e: return f"タイマー開始エラー: {e}"
-
 def handle_rag_update_button_click(character_name: str, api_key_name: str):
     if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
     api_key = config_manager.API_KEYS.get(api_key_name)
@@ -373,58 +366,16 @@ def handle_rag_update_button_click(character_name: str, api_key_name: str):
     gr.Info(f"「{character_name}」のRAG索引の更新を開始します...")
     import rag_manager
     threading.Thread(target=lambda: rag_manager.create_or_update_index(character_name, api_key)).start()
-
 def _run_core_memory_update(character_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
     try:
         result = memory_tools.summarize_and_save_core_memory.func(character_name=character_name, api_key=api_key)
         print(f"--- [スレッド終了] コアメモリ更新処理完了 --- 結果: {result}")
     except Exception: print(f"--- [スレッドエラー] コアメモリ更新中に予期せぬエラー ---"); traceback.print_exc()
-
 def handle_core_memory_update_click(character_name: str, api_key_name: str):
     if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{character_name}」のコアメモリ更新をバックグラウンドで開始しました。")
     threading.Thread(target=_run_core_memory_update, args=(character_name, api_key)).start()
-
 def update_model_state(model): config_manager.save_config("last_model", model); return model
-def update_api_key_state(api_key_name): config_manager.save_config("last_api_key_name", api_key_name); gr.Info(f"APIキーを '{api_key_name}' に設定しました。"); return api_key_name
-def update_timestamp_state(checked): config_manager.save_config("add_timestamp", bool(checked))
-def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
-    key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
-    config_manager.save_config("last_api_history_limit_option", key); return key, reload_chat_log(character_name, key), gr.State()
-
-def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text_to_speak: str, api_key_name: str):
-    if not selected_voice_name or not text_to_speak or not api_key_name: gr.Warning("声、テキスト、APIキーがすべて選択されている必要があります。"); return None
-    voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    if not voice_id or not api_key: gr.Warning("声またはAPIキーが無効です。"); return None
-    from audio_manager import generate_audio_from_text
-    gr.Info(f"声「{selected_voice_name}」で音声を生成しています...")
-    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
-    if audio_filepath: gr.Info("プレビューを再生します。"); return audio_filepath
-    else: gr.Error("音声の生成に失敗しました。"); return None
-
-def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], character_name: str, api_key_name: str):
-    if not selected_message:
-        gr.Warning("再生するメッセージが選択されていません。"); return None
-    raw_text = utils.extract_raw_text_from_html(selected_message.get("content"))
-    text_to_speak = utils.remove_thoughts_from_text(raw_text)
-    if not text_to_speak:
-        gr.Info("このメッセージには音声で再生できるテキストがありません。"); return None
-
-    effective_settings = config_manager.get_effective_settings(character_name)
-    voice_id = effective_settings.get("voice_id", "vindemiatrix")
-    voice_style_prompt = effective_settings.get("voice_style_prompt", "")
-    api_key = config_manager.API_KEYS.get(api_key_name)
-
-    if not api_key:
-        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。"); return None
-
-    from audio_manager import generate_audio_from_text
-    gr.Info(f"「{character_name}」の声で音声を生成しています...")
-    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
-
-    if audio_filepath: gr.Info("再生します。"); return audio_filepath
-    else: gr.Error("音声の生成に失敗しました。"); return None
