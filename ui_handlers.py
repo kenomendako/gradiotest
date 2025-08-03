@@ -38,10 +38,13 @@ def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
-    char_dependent_outputs = handle_character_change(config_manager.initial_character_global)
+    # ▼▼▼ 修正箇所 ▼▼▼
+    # handle_character_changeに、不足していたAPIキー名を追加で渡す
+    char_dependent_outputs = handle_character_change(config_manager.initial_character_global, config_manager.initial_api_key_name_global)
+    # ▲▲▲ 修正ここまで ▲▲▲
     return (display_df, df_with_ids, feedback_text) + char_dependent_outputs
 
-def handle_character_change(character_name: str):
+def handle_character_change(character_name: str, api_key_name: str):
     if not character_name: character_name = character_manager.get_character_list()[0]
     print(f"--- UI更新司令塔(handle_character_change)実行: {character_name} ---")
     config_manager.save_config("last_character", character_name)
@@ -234,12 +237,22 @@ def handle_chatbot_selection(character_name: str, api_history_limit_state: str, 
     except Exception as e: print(f"チャットボット選択中のエラー: {e}"); traceback.print_exc(); return None, gr.update(visible=False)
 
 def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], character_name: str, api_history_limit: str):
-    if not message_to_delete: gr.Warning("削除対象のメッセージが選択されていません。"); return gr.update(), None, gr.update(visible=False)
+    if not message_to_delete:
+        # 何も返さないとエラーになるため、現在の状態を維持するためのダミー値を返す
+        return gr.update(), gr.update(), None, gr.update(visible=False)
+
     log_f, _, _, _, _ = get_character_files_paths(character_name)
-    if utils.delete_message_from_log(log_f, message_to_delete, character_name): gr.Info("ログからメッセージを削除しました。")
-    else: gr.Error("メッセージの削除に失敗しました。詳細はターミナルを確認してください。")
-    history, _ = reload_chat_log(character_name, api_history_limit)
-    return history, None, gr.update(visible=False)
+    if utils.delete_message_from_log(log_f, message_to_delete, character_name):
+        gr.Info("ログからメッセージを削除しました。")
+    else:
+        gr.Error("メッセージの削除に失敗しました。詳細はターミナルを確認してください。")
+
+    # ▼▼▼ 修正箇所 ▼▼▼
+    # reload_chat_logが返す2つの値（historyとmapping_list）を両方受け取り、
+    # Gradioのoutputsで定義された4つのコンポーネントに対応する4つの値を返すように修正
+    history, mapping_list = reload_chat_log(character_name, api_history_limit)
+    return history, mapping_list, None, gr.update(visible=False)
+    # ▲▲▲ 修正ここまで ▲▲▲
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
     if not character_name: return [], []
