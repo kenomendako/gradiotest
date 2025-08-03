@@ -31,12 +31,7 @@ API_KEYS, TAVILY_API_KEY, AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL = {}, ""
 NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL = "discord", None
 PUSHOVER_APP_TOKEN_GLOBAL, PUSHOVER_USER_KEY_GLOBAL = None, None
 
-def get_character_list():
-    from character_manager import get_character_list as get_char_list_impl
-    return get_char_list_impl()
-
 def load_config():
-    # ★★★ ここからが変更箇所 ★★★
     global API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global
     global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global
     global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, TAVILY_API_KEY
@@ -59,10 +54,13 @@ def load_config():
     API_KEYS = config.get("api_keys", {})
     AVAILABLE_MODELS_GLOBAL = config.get("available_models", ["gemini-2.5-pro"])
     DEFAULT_MODEL_GLOBAL = config.get("default_model", "gemini-2.5-pro")
+
+    # ▼▼▼ 修正箇所 ▼▼▼
+    # get_character_list()の呼び出しと、それに関連する検証ロジックを削除
     initial_api_key_name_global = config.get("last_api_key_name") or config.get("default_api_key_name") or (list(API_KEYS.keys())[0] if API_KEYS else None)
-    character_list = get_character_list()
     initial_character_global = config.get("last_character", "Default")
-    if initial_character_global not in character_list: initial_character_global = character_list[0] if character_list else "Default"
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     initial_model_global = config.get("last_model", DEFAULT_MODEL_GLOBAL)
     initial_send_thoughts_to_api_global = config.get("last_send_thoughts_to_api", True)
     initial_api_history_limit_option_global = config.get("last_api_history_limit_option", DEFAULT_API_HISTORY_LIMIT_OPTION)
@@ -73,7 +71,6 @@ def load_config():
     PUSHOVER_APP_TOKEN_GLOBAL = config.get("pushover_app_token")
     PUSHOVER_USER_KEY_GLOBAL = config.get("pushover_user_key")
 
-    # タイムスタンプ設定 'add_timestamp' を削除
     if 'add_timestamp' in config:
         del config['add_timestamp']
         save_config(None, config, is_full_config=True)
