@@ -6,26 +6,40 @@ from typing import Optional
 import google.genai as genai
 from google.genai import types
 import traceback
-import wave # ★★★ 全ての答えであった、waveライブラリをインポート ★★★
+import wave
 
 AUDIO_CACHE_DIR = os.path.join("temp", "audio_cache")
 os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
+# ★★★ テキスト長の制限を大幅に緩和 ★★★
+MAX_TEXT_LENGTH = 8000
 
-def generate_audio_from_text(text: str, api_key: str, voice_id: str) -> Optional[str]:
+# ★★★ ここからが変更箇所 ★★★
+def generate_audio_from_text(text: str, api_key: str, voice_id: str, style_prompt: str = None) -> Optional[str]:
     """
-    指定されたテキストと声IDを使って音声を生成し、
+    指定されたテキストと声ID、スタイルプロンプトを使って音声を生成し、
     再生可能なWAVファイルとして保存して、そのファイルパスを返す。
-    【ファイル破損問題解決・真の最終確定版】
+    【v2: スタイル制御・長文対応版】
     """
-    text_to_speak = (text[:250] + '...') if len(text) > 250 else text
+    # 1. テキスト長の制限を適用
+    if len(text) > MAX_TEXT_LENGTH:
+        text_to_speak = text[:MAX_TEXT_LENGTH] + "..."
+        print(f"  - 警告: テキストが長すぎるため、{MAX_TEXT_LENGTH}文字に切り詰めました。")
+    else:
+        text_to_speak = text
+
+    # 2. スタイルプロンプトがあれば、テキストと結合
+    if style_prompt and style_prompt.strip():
+        final_prompt = f"{style_prompt.strip()}: {text_to_speak}"
+    else:
+        final_prompt = text_to_speak
 
     try:
         print(f"--- 音声生成開始 (Voice: {voice_id}) ---")
+        print(f"  - 最終プロンプト: {final_prompt[:100]}...") # 長いので一部のみ表示
 
         client = genai.Client(api_key=api_key)
         model_name = "models/gemini-2.5-flash-preview-tts"
 
-        # configオブジェクトの構造は、前回のもので正しかった
         generation_config_object = types.GenerateContentConfig(
             response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
@@ -37,29 +51,27 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str) -> Optional
             )
         )
 
+        # 3. 最終的なプロンプトをcontentsに渡す
         response = client.models.generate_content(
             model=model_name,
-            contents=[types.Content(parts=[types.Part(text=text_to_speak)])],
+            contents=[types.Content(parts=[types.Part(text=final_prompt)])],
             config=generation_config_object
         )
+        # ★★★ 変更箇所ここまで ★★★
 
         audio_data = response.candidates[0].content.parts[0].inline_data.data
         if not audio_data:
              print("--- エラー: API応答に音声データが含まれていません ---")
              return None
 
-        # ★★★ ここからが、ファイル破損を解決する、真の修正箇所です ★★★
-        # 1. ファイル名を .wav に変更
         filename = f"{uuid.uuid4()}.wav"
         filepath = os.path.join(AUDIO_CACHE_DIR, filename)
 
-        # 2. waveライブラリを使い、正しいWAVファイルとして書き込む
         with wave.open(filepath, "wb") as wf:
-            wf.setnchannels(1)       # モノラル
-            wf.setsampwidth(2)       # 16-bit
-            wf.setframerate(24000)   # サンプリングレート (モデルの仕様)
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(24000)
             wf.writeframes(audio_data)
-        # ★★★ 修正箇所ここまで ★★★
 
         print(f"  - 音声ファイル(WAV)を生成しました: {filepath}")
         return filepath
