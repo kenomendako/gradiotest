@@ -205,16 +205,33 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
     gr.Info(f"「{character_name}」の現在の情景を更新しています...")
     loc, scen = _generate_initial_scenery(character_name, api_key_name)
     gr.Info("情景を更新しました."); return loc, scen
-def handle_location_change(character_name: str, location_id: str) -> Tuple[str, str]:
+def handle_location_change(character_name: str, location_id: str, api_key_name: str) -> Tuple[str, str]:
     from tools.space_tools import set_current_location
+    print(f"--- UIからの場所変更処理開始: キャラクター='{character_name}', 移動先ID='{location_id}' ---")
+
+    # 事前に現在の場所名を取得しておく（失敗時の表示用）
+    current_loc_id_before_change = utils.get_current_location(character_name)
+    world_settings_path = get_character_files_paths(character_name)[3] # memory.json
+    world_data = load_memory_data_safe(world_settings_path)
+    current_loc_name_before_change = "（不明）"
+    if "error" not in world_data and "living_space" in world_data:
+        current_loc_name_before_change = world_data.get("living_space", {}).get(current_loc_id_before_change, {}).get("name", current_loc_id_before_change)
+
     if not character_name or not location_id:
-        gr.Warning("キャラクターと移動先の場所を選択してください。"); current_loc_id = utils.get_current_location(character_name); return current_loc_id, "（場所の変更に失敗しました）"
+        gr.Warning("キャラクターと移動先の場所を選択してください。")
+        return current_loc_name_before_change, "（場所の変更に失敗しました）"
+
+    # 1. バックエンドの現在地情報を更新
     result = set_current_location.func(location=location_id, character_name=character_name)
     if "Success" not in result:
-        gr.Error(f"場所の変更に失敗しました: {result}"); return utils.get_current_location(character_name), f"（場所の変更に失敗: {result}）"
-    memory_data = load_memory_data_safe(get_character_files_paths(character_name)[3])
-    new_location_name = memory_data.get("living_space", {}).get(location_id, {}).get("name", location_id)
-    gr.Info(f"場所を「{new_location_name}」に変更しました。"); return new_location_name, f"（場所を「{new_location_name}」に変更しました。情景は次の対話で生成されます）"
+        gr.Error(f"場所の変更に失敗しました: {result}")
+        return current_loc_name_before_change, f"（場所の変更に失敗: {result}）"
+
+    # 2. 場所変更が成功したため、新しい場所の情景を生成して返す
+    gr.Info(f"場所を変更しました。新しい情景を生成します...")
+    new_location_name, new_scenery = _generate_initial_scenery(character_name, api_key_name)
+
+    return new_location_name, new_scenery
 def get_location_list_for_ui(character_name: str) -> list:
     if not character_name: return []
     _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
