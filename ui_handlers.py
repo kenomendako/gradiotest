@@ -487,5 +487,3 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
     audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
     if audio_filepath: gr.Info("プレビューを再生します。"); return audio_filepath
     else: gr.Error("音声の生成に失敗しました。"); return None
-
-[end of ui_handlers.py]
