@@ -216,7 +216,10 @@ def handle_message_submission(*args: Any):
 
     chatbot_history.append((None, "思考中... ▌"))
 
-    yield (chatbot_history, [], gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+    # ▼▼▼ この yield 文を修正 ▼▼▼
+    # 9個しか返していなかったタプルの最後に、10個目として gr.update() を追加します
+    yield (chatbot_history, [], gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+    # ▲▲▲ 修正ここまで ▲▲▲
 
     response_data = {}
     try:
