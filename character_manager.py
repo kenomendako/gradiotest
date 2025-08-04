@@ -123,19 +123,25 @@ def get_world_settings_path(character_name: str):
 def find_space_data_by_id_recursive(data: dict, target_id: str) -> Optional[dict]:
     """
     ネストされた辞書の中から、指定されたID（キー）を持つ空間データを再帰的に探し出す。
+    トップレベルのキーも検索対象とするように修正。
     """
     if not isinstance(data, dict):
         return None
 
-    # まず、現在の階層で探す
+    # ▼▼▼ 修正の核心 ▼▼▼
+    # 1. まず、渡されたデータ全体の中に、探しているIDがトップレベルのキーとして存在するかチェック
     if target_id in data:
         return data[target_id]
 
-    # 見つからなければ、さらに深い階層を探す
+    # 2. トップレベルになければ、各値を辿って再帰的に探索
     for key, value in data.items():
         if isinstance(value, dict):
+            # 再帰呼び出しの結果を found に格納
             found = find_space_data_by_id_recursive(value, target_id)
-            if found:
+            # もし見つかったら、その結果をすぐに返す
+            if found is not None:
                 return found
 
+    # すべて探しても見つからなかった場合
     return None
+    # ▲▲▲ 修正ここまで ▲▲▲

@@ -31,38 +31,41 @@ def get_location_list_for_ui(character_name: str) -> list:
     if not character_name: return []
 
     world_settings_path = get_world_settings_path(character_name)
-    # ▼▼▼ 修正箇所 ▼▼▼
     from utils import parse_world_markdown
     world_data = parse_world_markdown(world_settings_path)
-    # ▲▲▲ 修正ここまで ▲▲▲
 
-    if "error" in world_data: return [] # world_dataがエラーを返す可能性はなくなったが、念のため残す
+    if not world_data: return []
 
     location_list = []
 
-    def find_locations_recursive(data: dict, parent_key: str = ""):
-        # dataが辞書でない、またはnameキーがない場合は処理しない
-        if not isinstance(data, dict) or "name" not in data:
+    # ▼▼▼ 修正の核心 ▼▼▼
+    def find_locations_recursive(data: dict, parent_key: Optional[str] = None):
+        """
+        再帰的に探索し、'name'キーを持つ全ての辞書の (表示名, ID) をリストに追加する。
+        IDは、その場所の辞書が格納されているキー名とする。
+        """
+        # dataが辞書でない場合は、ここで処理を終了
+        if not isinstance(data, dict):
             return
 
-        # 場所ID (parent_key) と表示名 (data["name"]) をタプルで追加
-        location_list.append((data["name"], parent_key))
+        # data自体が表示すべき場所(nameキーを持つ)かチェック
+        # parent_keyが存在する場合のみ、リストに追加対象とする（トップレベルのコンテナは含めない）
+        if "name" in data and parent_key:
+             location_list.append((data["name"], parent_key))
 
         # さらに深い階層を探索
         for key, value in data.items():
             if isinstance(value, dict):
-                # 再帰呼び出しの際は、そのキーを新しい親キーとして渡す
                 find_locations_recursive(value, key)
 
-    # 読み込んだJSONデータ全体に対して、再帰的な探索を開始
+    # トップレベルの各エリアから再帰探索を開始
     for top_level_key, top_level_value in world_data.items():
-        if isinstance(top_level_value, dict):
-            find_locations_recursive(top_level_value, top_level_key)
+         find_locations_recursive(top_level_value, top_level_key)
+    # ▲▲▲ 修正ここまで ▲▲▲
 
     # 重複を除外し、名前でソートして返す
-    # dict.fromkeysで重複を除去し、再度リストに変換
-    unique_locations = list(dict.fromkeys(location_list))
-    return sorted(unique_locations, key=lambda x: x[0])
+    unique_locations = sorted(list(set(location_list)), key=lambda x: x[0])
+    return unique_locations
 
 def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
