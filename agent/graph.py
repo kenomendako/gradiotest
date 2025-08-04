@@ -50,11 +50,12 @@ class AgentState(TypedDict):
     debug_mode: bool
 
 def get_configured_llm(model_name: str, api_key: str):
+    # レート制限エラー(429)やサーバーエラー(500)に対応するため、リトライ回数を増やす
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
         convert_system_message_to_human=False,
-        max_retries=6
+        max_retries=6 # デフォルト(2)から増やすことで、待機時間が長くなりエラーを回避しやすくなる
     )
 
 # 3. ファイルのクラスや関数定義の前に、新しい「情景生成」関数を追加
