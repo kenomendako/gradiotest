@@ -49,13 +49,7 @@ def handle_character_change(character_name: str, api_key_name: str):
     print(f"--- UI更新司令塔(handle_character_change)実行: {character_name} ---")
     config_manager.save_config("last_character", character_name)
 
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
-    # 欠陥があった独自のログ処理を完全に削除し、
-    # 正常に動作している reload_chat_log 関数を直接呼び出すように変更。
-    # これにより、履歴とUI対応表が常に正しく生成されることを保証する。
-    # 履歴の長さは、configに保存されているグローバルな初期設定値を参照する。
     chat_history, mapping_list = reload_chat_log(character_name, config_manager.initial_api_history_limit_option_global)
-    # ▲▲▲ 修正ここまで ▲▲▲
 
     _, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
 
@@ -79,24 +73,23 @@ def handle_character_change(character_name: str, api_key_name: str):
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "vindemiatrix"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
 
-    # ▼▼▼ 修正の核心：このreturnタプルの順番を、nexus_ark.pyのchar_change_outputsと完全に一致させる ▼▼▼
+    # ▼▼▼ 修正の核心：return文の最後に、欠落していた閉じ括弧 ')' を追加 ▼▼▼
     return (
-        character_name,                       # 1. State: current_character_name
-        chat_history,                         # 2. UI: chatbot_display
-        mapping_list,                         # 3. State: current_log_map_state
-        "",                                   # 4. UI: chat_input_textbox
-        profile_image,                        # 5. UI: profile_image_display
-        memory_str,                           # 6. UI: memory_json_editor
-        character_name,                       # 7. UI: alarm_char_dropdown
-        character_name,                       # 8. UI: timer_char_dropdown
-        notepad_content,                      # 9. UI: notepad_editor
-        gr.update(choices=locations, value=location_dd_val), # 10. UI: location_dropdown
-        current_location_name,                # 11. UI: current_location_display
-        scenery_text,                         # 12. UI: current_scenery_display
-        gr.update(choices=all_models, value=model_val), # 13. UI: char_model_dropdown
-        voice_display_name,                   # 14. UI: char_voice_dropdown
-        voice_style_prompt_val,               # 15. UI: char_voice_style_prompt_textbox
-        # --- ここからチェックボックスと情報欄 ---
+        character_name,
+        chat_history,
+        mapping_list,
+        "",
+        profile_image,
+        memory_str,
+        character_name,
+        character_name,
+        notepad_content,
+        gr.update(choices=locations, value=location_dd_val),
+        current_location_name,
+        scenery_text,
+        gr.update(choices=all_models, value=model_val),
+        voice_display_name,
+        voice_style_prompt_val,
         effective_settings["add_timestamp"],
         effective_settings["send_thoughts"],
         effective_settings["send_notepad"],
