@@ -26,35 +26,6 @@ from memory_manager import load_memory_data_safe, save_memory_data
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
-# 2. 新しい「画像生成トリガー」関数を追加
-def trigger_scenery_image_generation(character_name: str, api_key: str, location_id: str, scenery_text: str):
-    """
-    バックグラウンドで情景画像を生成するスレッドを開始する。
-    """
-    def _generate():
-        print(f"--- [背景処理] 情景画像の生成を開始: {location_id} ---")
-        prompt = f"A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Do not include any people, characters, text, or watermarks. Style: cinematic, detailed, epic. Scene: {scenery_text}"
-
-        now = datetime.datetime.now()
-        filename = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}.png"
-        save_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
-        final_save_path = os.path.join(save_dir, filename)
-
-        # 既存の画像生成ツールを呼び出すが、保存先は一時的なもの
-        result = generate_image_tool_func.func(prompt=prompt, character_name=character_name, api_key=api_key)
-
-        if "Generated Image:" in result:
-             generated_path = result.replace("[Generated Image: ", "").replace("]", "").strip()
-             if os.path.exists(generated_path):
-                 os.rename(generated_path, final_save_path) # 正しい命名規則でリネームして移動
-                 print(f"--- [背景処理] 情景画像を生成し、保存しました: {final_save_path} ---")
-             else:
-                 print(f"--- [背景処理] エラー: 生成されたはずの画像ファイルが見つかりません: {generated_path}")
-        else:
-            print(f"--- [背景処理] エラー: 情景画像の生成に失敗しました。AIの応答: {result}")
-
-    thread = threading.Thread(target=_generate)
-    thread.start()
 
 def get_location_list_for_ui(character_name: str) -> list:
     if not character_name: return []
@@ -240,11 +211,8 @@ def handle_message_submission(*args: Any):
     if not location_name.startswith("（"):
         utils.save_scenery_cache(current_character_name, location_name, scenery_text)
         current_location_id = utils.get_current_location(current_character_name)
+        # ▼▼▼ 修正箇所：探すだけ。なければNoneを返す。 ▼▼▼
         scenery_image_path = utils.find_scenery_image(current_character_name, current_location_id)
-        if not scenery_image_path:
-             gr.Info("新しい場所の情景画像をバックグラウンドで生成します。")
-             api_key = config_manager.API_KEYS.get(current_api_key_name_state)
-             trigger_scenery_image_generation(current_character_name, api_key, current_location_id, scenery_text)
     # ▲▲▲ 修正ここまで ▲▲▲
 
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
@@ -282,11 +250,8 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
         utils.save_scenery_cache(character_name, location_name, scenery_text)
         gr.Info("情景を更新しました。")
         current_location_id = utils.get_current_location(character_name)
+        # ▼▼▼ 修正箇所：探すだけ。なければNoneを返す。 ▼▼▼
         scenery_image_path = utils.find_scenery_image(character_name, current_location_id)
-        if not scenery_image_path:
-            gr.Info("対応する情景画像がないため、バックグラウンドで生成を開始します。")
-            api_key = config_manager.API_KEYS.get(api_key_name)
-            trigger_scenery_image_generation(character_name, api_key, current_location_id, scenery_text)
     else:
         gr.Error("情景の更新に失敗しました。")
         scenery_image_path = None
@@ -581,9 +546,9 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
     if audio_filepath: gr.Info("プレビューを再生します。"); return audio_filepath
     else: gr.Error("音声の生成に失敗しました。"); return None
 
-def handle_regenerate_scenery_image(character_name: str, api_key_name: str) -> Optional[str]:
+def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str) -> Optional[str]:
     """
-    現在の場所と情景に基づいて、情景画像を同期的に再生成し、即時表示する。
+    現在の場所と情景に基づいて、情景画像を同期的に生成または再生成し、即時表示する。
     """
     if not character_name or not api_key_name:
         gr.Warning("キャラクターとAPIキーを選択してください。")
@@ -599,10 +564,11 @@ def handle_regenerate_scenery_image(character_name: str, api_key_name: str) -> O
     scenery_text = scenery_cache.get("scenery_text")
 
     if not location_id or not scenery_text:
-        gr.Warning("再生成の元となる場所の情報または情景描写が見つかりません。")
+        gr.Warning("生成の元となる場所の情報または情景描写が見つかりません。")
         return None
 
-    gr.Info(f"「{location_id}」の情景画像を再生成しています...")
+    # ▼▼▼ 修正箇所：メッセージを汎用的にする ▼▼▼
+    gr.Info(f"「{location_id}」の情景画像を生成/更新しています...")
 
     # --- trigger_scenery_image_generation の中身を、スレッドなしで実行 ---
     prompt = f"A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Do not include any people, characters, text, or watermarks. Style: cinematic, detailed, epic. Scene: {scenery_text}"
@@ -622,11 +588,11 @@ def handle_regenerate_scenery_image(character_name: str, api_key_name: str) -> O
                 os.remove(final_save_path)
             os.rename(generated_path, final_save_path)
             print(f"--- 情景画像を再生成し、保存しました: {final_save_path} ---")
-            gr.Info("画像を再生成しました。")
+            gr.Info("画像を生成/更新しました。") # メッセージを調整
             return final_save_path # 新しい画像のパスをUIに返す
         else:
             gr.Error("画像の生成には成功しましたが、一時ファイルの特定に失敗しました。")
             return None
     else:
-        gr.Error(f"画像の再生成に失敗しました。AIの応答: {result}")
+        gr.Error(f"画像の生成/更新に失敗しました。AIの応答: {result}") # メッセージを調整
         return None

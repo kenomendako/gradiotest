@@ -83,7 +83,7 @@ try:
                 character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
                 with gr.Accordion("空間認識・移動", open=False):
                     scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
-                    regenerate_scenery_image_button = gr.Button("画像を再生成", variant="secondary")
+                    generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary") # ラベルと変数名を変更
                     current_location_display = gr.Textbox(label="現在地", interactive=False)
                     current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
                     refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
@@ -294,8 +294,8 @@ try:
         rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
 
-        regenerate_scenery_image_button.click(
-            fn=ui_handlers.handle_regenerate_scenery_image,
+        generate_scenery_image_button.click( # 変数名を変更
+            fn=ui_handlers.handle_generate_or_regenerate_scenery_image, # 関数名を変更
             inputs=[current_character_name, api_key_dropdown],
             outputs=[scenery_image_display]
         )
