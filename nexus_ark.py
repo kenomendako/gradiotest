@@ -83,6 +83,7 @@ try:
                 character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
                 with gr.Accordion("空間認識・移動", open=False):
                     scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
+                    regenerate_scenery_image_button = gr.Button("画像を再生成", variant="secondary")
                     current_location_display = gr.Textbox(label="現在地", interactive=False)
                     current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
                     refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
@@ -292,6 +293,12 @@ try:
         timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
         rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
+
+        regenerate_scenery_image_button.click(
+            fn=ui_handlers.handle_regenerate_scenery_image,
+            inputs=[current_character_name, api_key_dropdown],
+            outputs=[scenery_image_display]
+        )
 
     if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")

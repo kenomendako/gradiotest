@@ -580,3 +580,53 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
     audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
     if audio_filepath: gr.Info("プレビューを再生します。"); return audio_filepath
     else: gr.Error("音声の生成に失敗しました。"); return None
+
+def handle_regenerate_scenery_image(character_name: str, api_key_name: str) -> Optional[str]:
+    """
+    現在の場所と情景に基づいて、情景画像を同期的に再生成し、即時表示する。
+    """
+    if not character_name or not api_key_name:
+        gr.Warning("キャラクターとAPIキーを選択してください。")
+        return None
+
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key:
+        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+        return None
+
+    location_id = utils.get_current_location(character_name)
+    scenery_cache = utils.load_scenery_cache(character_name)
+    scenery_text = scenery_cache.get("scenery_text")
+
+    if not location_id or not scenery_text:
+        gr.Warning("再生成の元となる場所の情報または情景描写が見つかりません。")
+        return None
+
+    gr.Info(f"「{location_id}」の情景画像を再生成しています...")
+
+    # --- trigger_scenery_image_generation の中身を、スレッドなしで実行 ---
+    prompt = f"A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Do not include any people, characters, text, or watermarks. Style: cinematic, detailed, epic. Scene: {scenery_text}"
+
+    now = datetime.datetime.now()
+    filename = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}.png"
+    save_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
+    final_save_path = os.path.join(save_dir, filename)
+
+    result = generate_image_tool_func.func(prompt=prompt, character_name=character_name, api_key=api_key)
+
+    if "Generated Image:" in result:
+        generated_path = result.replace("[Generated Image: ", "").replace("]", "").strip()
+        if os.path.exists(generated_path):
+            # 既存のファイルを上書きするために、一度削除
+            if os.path.exists(final_save_path):
+                os.remove(final_save_path)
+            os.rename(generated_path, final_save_path)
+            print(f"--- 情景画像を再生成し、保存しました: {final_save_path} ---")
+            gr.Info("画像を再生成しました。")
+            return final_save_path # 新しい画像のパスをUIに返す
+        else:
+            gr.Error("画像の生成には成功しましたが、一時ファイルの特定に失敗しました。")
+            return None
+    else:
+        gr.Error(f"画像の再生成に失敗しました。AIの応答: {result}")
+        return None
