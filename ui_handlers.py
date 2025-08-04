@@ -16,6 +16,7 @@ import io
 import uuid
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
+from agent.graph import generate_scenery_context
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
@@ -216,18 +217,16 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
     if not character_name or not api_key_name:
         return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）"
 
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key:
+        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+        return "（APIキーエラー）", "（APIキーエラー）"
+
     gr.Info(f"「{character_name}」の現在の情景を更新しています...")
 
-    # ▼▼▼ 修正の核心(C)：「軽量版」ではなく、エージェントグラフに直接問い合わせる ▼▼▼
-    # 内部的なシステムメッセージを構築して、エージェントに「情景だけを描写して」と依頼する
-    internal_prompt = "（システムコマンド：現在の場所と情景を描写してください）"
-    # 履歴は応答に影響しないよう最小限(1)に設定
-    agent_args = (internal_prompt, character_name, api_key_name, None, "1")
-    response_data = gemini_api.invoke_nexus_agent(*agent_args)
+    # ▼▼▼ 修正の核心: エージェント全体ではなく、軽量な専用関数を呼び出す ▼▼▼
+    location_name, _, scenery_text = generate_scenery_context(character_name, api_key)
     # ▲▲▲ 修正ここまで ▲▲▲
-
-    location_name = response_data.get("location_name", "（取得失敗）")
-    scenery_text = response_data.get("scenery", "（取得失敗）")
 
     if not location_name.startswith("（"):
         utils.save_scenery_cache(character_name, location_name, scenery_text)
