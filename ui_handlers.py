@@ -14,6 +14,8 @@ import filetype
 import base64
 import io
 import uuid
+from tools.image_tools import generate_image as generate_image_tool_func
+
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
 from agent.graph import generate_scenery_context
@@ -23,6 +25,7 @@ from memory_manager import load_memory_data_safe, save_memory_data
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
+
 
 def get_location_list_for_ui(character_name: str) -> list:
     if not character_name: return []
@@ -89,6 +92,8 @@ def handle_character_change(character_name: str, api_key_name: str):
     scenery_cache = utils.load_scenery_cache(character_name)
     current_location_name = scenery_cache.get("location_name", "（不明な場所）")
     scenery_text = scenery_cache.get("scenery_text", "（AIとの対話開始時に生成されます）")
+
+    scenery_image_path = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
     # ▲▲▲ 修正ここまで ▲▲▲
 
     valid_location_ids = [loc[1] for loc in locations]
@@ -110,7 +115,7 @@ def handle_character_change(character_name: str, api_key_name: str):
         effective_settings["add_timestamp"], effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
         effective_settings["send_core_memory"], effective_settings["send_scenery"],
-        f"ℹ️ *現在選択中のキャラクター「{character_name}」にのみ適用される設定です。*"
+        f"ℹ️ *現在選択中のキャラクター「{character_name}」にのみ適用される設定です。*", scenery_image_path
     )
 
 def handle_save_char_settings(character_name: str, model_name: str, voice_name: str, voice_style_prompt: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
@@ -182,7 +187,10 @@ def handle_message_submission(*args: Any):
 
     chatbot_history.append((None, "思考中... ▌"))
 
-    yield (chatbot_history, [], gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+    # ▼▼▼ この yield 文を修正 ▼▼▼
+    # 9個しか返していなかったタプルの最後に、10個目として gr.update() を追加します
+    yield (chatbot_history, [], gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+    # ▲▲▲ 修正ここまで ▲▲▲
 
     response_data = {}
     try:
@@ -199,8 +207,12 @@ def handle_message_submission(*args: Any):
     location_name, scenery_text = response_data.get("location_name", "（取得失敗）"), response_data.get("scenery", "（取得失敗）")
 
     # ▼▼▼ 修正の核心(B)：AIの応答から得た情景をキャッシュに保存 ▼▼▼
+    scenery_image_path = None
     if not location_name.startswith("（"):
         utils.save_scenery_cache(current_character_name, location_name, scenery_text)
+        current_location_id = utils.get_current_location(current_character_name)
+        # ▼▼▼ 修正箇所：探すだけ。なければNoneを返す。 ▼▼▼
+        scenery_image_path = utils.find_scenery_image(current_character_name, current_location_id)
     # ▲▲▲ 修正ここまで ▲▲▲
 
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
@@ -215,16 +227,18 @@ def handle_message_submission(*args: Any):
     new_alarm_df_with_ids = render_alarms_as_dataframe()
     new_display_df = get_display_df(new_alarm_df_with_ids)
 
-    yield (formatted_history, new_mapping_list, gr.update(), gr.update(value=None), gr.update(), location_name, scenery_text, new_alarm_df_with_ids, new_display_df)
+    yield (formatted_history, new_mapping_list, gr.update(), gr.update(value=None),
+           gr.update(), location_name, scenery_text, new_alarm_df_with_ids,
+           new_display_df, scenery_image_path)
 
-def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
+def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     if not character_name or not api_key_name:
-        return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）"
+        return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）", None
 
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return "（APIキーエラー）", "（APIキーエラー）"
+        return "（APIキーエラー）", "（APIキーエラー）", None
 
     gr.Info(f"「{character_name}」の現在の情景を更新しています...")
 
@@ -235,10 +249,14 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
     if not location_name.startswith("（"):
         utils.save_scenery_cache(character_name, location_name, scenery_text)
         gr.Info("情景を更新しました。")
+        current_location_id = utils.get_current_location(character_name)
+        # ▼▼▼ 修正箇所：探すだけ。なければNoneを返す。 ▼▼▼
+        scenery_image_path = utils.find_scenery_image(character_name, current_location_id)
     else:
         gr.Error("情景の更新に失敗しました。")
+        scenery_image_path = None
 
-    return location_name, scenery_text
+    return location_name, scenery_text, scenery_image_path
 
 def handle_location_change(character_name: str, location_id: str) -> Tuple[str, str]:
     from tools.space_tools import set_current_location
@@ -527,3 +545,54 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
     audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
     if audio_filepath: gr.Info("プレビューを再生します。"); return audio_filepath
     else: gr.Error("音声の生成に失敗しました。"); return None
+
+def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str) -> Optional[str]:
+    """
+    現在の場所と情景に基づいて、情景画像を同期的に生成または再生成し、即時表示する。
+    """
+    if not character_name or not api_key_name:
+        gr.Warning("キャラクターとAPIキーを選択してください。")
+        return None
+
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key:
+        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+        return None
+
+    location_id = utils.get_current_location(character_name)
+    scenery_cache = utils.load_scenery_cache(character_name)
+    scenery_text = scenery_cache.get("scenery_text")
+
+    if not location_id or not scenery_text:
+        gr.Warning("生成の元となる場所の情報または情景描写が見つかりません。")
+        return None
+
+    # ▼▼▼ 修正箇所：メッセージを汎用的にする ▼▼▼
+    gr.Info(f"「{location_id}」の情景画像を生成/更新しています...")
+
+    # --- trigger_scenery_image_generation の中身を、スレッドなしで実行 ---
+    prompt = f"A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Do not include any people, characters, text, or watermarks. Style: cinematic, detailed, epic. Scene: {scenery_text}"
+
+    now = datetime.datetime.now()
+    filename = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}.png"
+    save_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
+    final_save_path = os.path.join(save_dir, filename)
+
+    result = generate_image_tool_func.func(prompt=prompt, character_name=character_name, api_key=api_key)
+
+    if "Generated Image:" in result:
+        generated_path = result.replace("[Generated Image: ", "").replace("]", "").strip()
+        if os.path.exists(generated_path):
+            # 既存のファイルを上書きするために、一度削除
+            if os.path.exists(final_save_path):
+                os.remove(final_save_path)
+            os.rename(generated_path, final_save_path)
+            print(f"--- 情景画像を再生成し、保存しました: {final_save_path} ---")
+            gr.Info("画像を生成/更新しました。") # メッセージを調整
+            return final_save_path # 新しい画像のパスをUIに返す
+        else:
+            gr.Error("画像の生成には成功しましたが、一時ファイルの特定に失敗しました。")
+            return None
+    else:
+        gr.Error(f"画像の生成/更新に失敗しました。AIの応答: {result}") # メッセージを調整
+        return None
