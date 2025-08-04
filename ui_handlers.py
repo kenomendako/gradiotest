@@ -83,13 +83,15 @@ def handle_character_change(character_name: str, api_key_name: str):
 
     locations = get_location_list_for_ui(character_name)
     current_location_id = utils.get_current_location(character_name)
-    world_settings_path = get_world_settings_path(character_name)
-    world_data = load_memory_data_safe(world_settings_path)
-    current_location_name = world_data.get(current_location_id, {}).get("name", current_location_id) if "error" not in world_data else current_location_id
+
+    # ▼▼▼ 修正の核心(A)：API呼び出しをやめ、キャッシュを読み込む ▼▼▼
+    scenery_cache = utils.load_scenery_cache(character_name)
+    current_location_name = scenery_cache.get("location_name", "（不明な場所）")
+    scenery_text = scenery_cache.get("scenery_text", "（AIとの対話開始時に生成されます）")
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     valid_location_ids = [loc[1] for loc in locations]
     location_dd_val = current_location_id if current_location_id in valid_location_ids else None
-
-    _, scenery_text = _generate_initial_scenery(character_name, api_key_name)
 
     effective_settings = config_manager.get_effective_settings(character_name)
     all_models = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL
@@ -98,64 +100,17 @@ def handle_character_change(character_name: str, api_key_name: str):
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
 
     return (
-        character_name,
-        chat_history,
-        mapping_list,
-        "",
-        profile_image,
-        memory_str,
-        character_name,
-        character_name,
-        notepad_content,
+        character_name, chat_history, mapping_list, "", profile_image, memory_str,
+        character_name, character_name, notepad_content,
         gr.update(choices=locations, value=location_dd_val),
-        current_location_name,
-        scenery_text,
+        current_location_name, scenery_text,
         gr.update(choices=all_models, value=model_val),
-        voice_display_name,
-        voice_style_prompt_val,
-        effective_settings["add_timestamp"],
-        effective_settings["send_thoughts"],
-        effective_settings["send_notepad"],
-        effective_settings["use_common_prompt"],
-        effective_settings["send_core_memory"],
-        effective_settings["send_scenery"],
+        voice_display_name, voice_style_prompt_val,
+        effective_settings["add_timestamp"], effective_settings["send_thoughts"],
+        effective_settings["send_notepad"], effective_settings["use_common_prompt"],
+        effective_settings["send_core_memory"], effective_settings["send_scenery"],
         f"ℹ️ *現在選択中のキャラクター「{character_name}」にのみ適用される設定です。*"
     )
-
-def get_location_list_for_ui(character_name: str) -> list:
-    if not character_name: return []
-
-    world_settings_path = get_world_settings_path(character_name)
-    world_data = load_memory_data_safe(world_settings_path)
-
-    if "error" in world_data: return []
-
-    location_list = []
-
-    # ▼▼▼ 修正の核心：再帰的に場所を探索するヘルパー関数を定義 ▼▼▼
-    def find_locations_recursive(data: dict, parent_key: str = ""):
-        # 現在の階層に "name" キーがあれば、それは独立した場所とみなす
-        if "name" in data and isinstance(data["name"], str):
-            # キーが見つからない場合は親キーを使うなどのフォールバックは、ここでは不要
-            # この関数は、あくまで存在する場所をリストアップするため
-            location_list.append((data["name"], parent_key))
-
-        # さらに深い階層を探索
-        for key, value in data.items():
-            # 値が辞書であれば、再帰的に探索を続ける
-            if isinstance(value, dict):
-                find_locations_recursive(value, key)
-    # ▲▲▲ ヘルパー関数の定義ここまで ▲▲▲
-
-    # 読み込んだJSONデータ全体に対して、再帰的な探索を開始
-    for top_level_key, top_level_value in world_data.items():
-        if isinstance(top_level_value, dict):
-            find_locations_recursive(top_level_value, top_level_key)
-
-    # 重複を除外し、名前でソートして返す
-    # dict.fromkeysで重複を除去し、再度リストに変換
-    unique_locations = list(dict.fromkeys(location_list))
-    return sorted(unique_locations, key=lambda x: x[0])
 
 def handle_save_char_settings(character_name: str, model_name: str, voice_name: str, voice_style_prompt: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
     if not character_name: gr.Warning("設定を保存するキャラクターが選択されていません。"); return
@@ -238,6 +193,11 @@ def handle_message_submission(*args: Any):
     final_response_text = response_data.get("response", "")
     location_name, scenery_text = response_data.get("location_name", "（取得失敗）"), response_data.get("scenery", "（取得失敗）")
 
+    # ▼▼▼ 修正の核心(B)：AIの応答から得た情景をキャッシュに保存 ▼▼▼
+    if not location_name.startswith("（"):
+        utils.save_scenery_cache(current_character_name, location_name, scenery_text)
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     final_log_message = "\n\n".join(log_message_parts).strip()
     if final_log_message:
@@ -252,40 +212,30 @@ def handle_message_submission(*args: Any):
 
     yield (formatted_history, new_mapping_list, gr.update(), gr.update(value=None), gr.update(), location_name, scenery_text, new_alarm_df_with_ids, new_display_df)
 
-def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[str, str]:
-    print(f"--- [軽量版] 情景生成を開始します (Character: {character_name}) ---")
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    if not character_name or not api_key:
-        return "（エラー）", "（キャラクターまたはAPIキーが未設定です）"
+def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
+    if not character_name or not api_key_name:
+        return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）"
 
-    from agent.graph import get_configured_llm
-    location_id = utils.get_current_location(character_name) or "living_space"
-    world_settings_path = get_world_settings_path(character_name)
-    world_data = load_memory_data_safe(world_settings_path)
+    gr.Info(f"「{character_name}」の現在の情景を更新しています...")
 
-    # ▼▼▼ 修正の核心：単純な .get() をやめ、新しいマスター探索関数を呼び出す ▼▼▼
-    space_data = character_manager.find_space_data_by_id_recursive(world_data, location_id) if "error" not in world_data else {}
+    # ▼▼▼ 修正の核心(C)：「軽量版」ではなく、エージェントグラフに直接問い合わせる ▼▼▼
+    # 内部的なシステムメッセージを構築して、エージェントに「情景だけを描写して」と依頼する
+    internal_prompt = "（システムコマンド：現在の場所と情景を描写してください）"
+    # 履歴は応答に影響しないよう最小限(1)に設定
+    agent_args = (internal_prompt, character_name, api_key_name, None, "1")
+    response_data = gemini_api.invoke_nexus_agent(*agent_args)
     # ▲▲▲ 修正ここまで ▲▲▲
 
-    location_display_name, space_def, scenery_text = location_id, "（現在の場所の定義・設定は、取得できませんでした）", "（場所の定義がないため、情景を描写できません）"
-    try:
-        if space_data and isinstance(space_data, dict):
-            location_display_name = space_data.get("name", location_id)
-            space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
-            llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
-            now = datetime.datetime.now()
-            scenery_prompt = (f"空間定義:{space_def}\n時刻:{now.strftime('%H:%M')} / 季節:{now.month}月\n\n以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n- 1〜2文の簡潔な文章にまとめてください。\n- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。")
-            scenery_text = llm_flash.invoke(scenery_prompt).content
-    except Exception as e:
-        print(f"--- [軽量版] 情景生成中にエラー: {e}"); traceback.print_exc()
-        location_display_name, scenery_text = "（エラー）", "（情景生成エラー）"
-    return location_display_name, scenery_text
+    location_name = response_data.get("location_name", "（取得失敗）")
+    scenery_text = response_data.get("scenery", "（取得失敗）")
 
-def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str]:
-    if not character_name or not api_key_name: return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）"
-    gr.Info(f"「{character_name}」の現在の情景を更新しています...")
-    loc, scen = _generate_initial_scenery(character_name, api_key_name)
-    gr.Info("情景を更新しました."); return loc, scen
+    if not location_name.startswith("（"):
+        utils.save_scenery_cache(character_name, location_name, scenery_text)
+        gr.Info("情景を更新しました。")
+    else:
+        gr.Error("情景の更新に失敗しました。")
+
+    return location_name, scenery_text
 
 def handle_location_change(character_name: str, location_id: str, api_key_name: str) -> Tuple[str, str]:
     from tools.space_tools import set_current_location
@@ -300,7 +250,7 @@ def handle_location_change(character_name: str, location_id: str, api_key_name: 
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}"); return current_loc_name, f"（場所の変更に失敗: {result}）"
     gr.Info(f"場所を変更しました。新しい情景を生成します...")
-    new_location_name, new_scenery = _generate_initial_scenery(character_name, api_key_name)
+    new_location_name, new_scenery = handle_scenery_refresh(character_name, api_key_name)
     return new_location_name, new_scenery
 
 def handle_add_new_character(character_name: str):
