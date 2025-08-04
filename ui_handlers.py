@@ -28,6 +28,10 @@ DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 
 def get_location_list_for_ui(character_name: str) -> list:
+    """
+    UIの移動先ドロップダウン用のリストを生成する。
+    エリアと部屋の両方をリストに含める。
+    """
     if not character_name: return []
 
     world_settings_path = get_world_settings_path(character_name)
@@ -37,31 +41,19 @@ def get_location_list_for_ui(character_name: str) -> list:
     if not world_data: return []
 
     location_list = []
+    # 2階層のループで、エリアと部屋をすべて探索する
+    for area_id, area_data in world_data.items():
+        if not isinstance(area_data, dict): continue
 
-    # ▼▼▼ 修正の核心 ▼▼▼
-    def find_locations_recursive(data: dict, parent_key: Optional[str] = None):
-        """
-        再帰的に探索し、'name'キーを持つ全ての辞書の (表示名, ID) をリストに追加する。
-        IDは、その場所の辞書が格納されているキー名とする。
-        """
-        # dataが辞書でない場合は、ここで処理を終了
-        if not isinstance(data, dict):
-            return
+        # まず、エリア自体に 'name' があれば、それをリストに追加
+        if 'name' in area_data:
+            location_list.append((area_data['name'], area_id))
 
-        # data自体が表示すべき場所(nameキーを持つ)かチェック
-        # parent_keyが存在する場合のみ、リストに追加対象とする（トップレベルのコンテナは含めない）
-        if "name" in data and parent_key:
-             location_list.append((data["name"], parent_key))
-
-        # さらに深い階層を探索
-        for key, value in data.items():
-            if isinstance(value, dict):
-                find_locations_recursive(value, key)
-
-    # トップレベルの各エリアから再帰探索を開始
-    for top_level_key, top_level_value in world_data.items():
-         find_locations_recursive(top_level_value, top_level_key)
-    # ▲▲▲ 修正ここまで ▲▲▲
+        # 次に、エリア内の各要素をチェック
+        for room_id, room_data in area_data.items():
+            # 値が辞書で、かつ 'name' キーを持つなら、それは部屋だと判断
+            if isinstance(room_data, dict) and 'name' in room_data:
+                location_list.append((room_data['name'], room_id))
 
     # 重複を除外し、名前でソートして返す
     unique_locations = sorted(list(set(location_list)), key=lambda x: x[0])

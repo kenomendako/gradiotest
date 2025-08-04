@@ -396,52 +396,49 @@ def find_scenery_image(character_name: str, location_id: str) -> Optional[str]:
 def parse_world_markdown(file_path: str) -> dict:
     """
     世界設定が記述されたMarkdownファイルを解析し、ネストされた辞書構造に変換する。
-    PyYAMLライブラリを利用して、Markdown/YAMLライクな構造を安全に解析する。
+    見出し(##, ###)でセクションを分割し、各セクションをYAMLとして解析する堅牢な方式。
     """
     if not os.path.exists(file_path):
         return {}
 
-    world_data = {}
-
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # レベル2の見出し(##)で大きなエリアに分割
-    sections = re.split(r'\n## ', content)
+    world_data = {}
 
-    for section in sections[1:]: # 最初の要素は空なので無視
-        lines = section.strip().split('\n')
-        area_key = lines[0].strip()
-        area_content = '\n'.join(lines[1:])
+    # re.splitのキャプチャグループ `()` を使い、見出し(デリミタ)を保持したまま分割する
+    # 結果は ['(空)', '## area1', 'area1の中身', '## area2', 'area2の中身', ...] というリストになる
+    sections = re.split(r'(^## .*)', content, flags=re.MULTILINE)
+
+    # 最初の要素はヘッダー部分なので無視し、2つずつペアで処理する
+    for i in range(1, len(sections), 2):
+        area_key = sections[i][3:].strip()
+        area_content = sections[i+1]
 
         world_data[area_key] = {}
 
-        # さらにレベル3の見出し(###)で部屋に分割
-        sub_sections = re.split(r'\n### ', area_content)
+        # ### でさらに部屋ごとに分割
+        sub_sections = re.split(r'(^### .*)', area_content, flags=re.MULTILINE)
 
-        # ### の前にエリア直下のプロパティがあれば解析
-        area_initial_content = sub_sections[0].strip()
-        if area_initial_content:
+        # ### の前にあるエリア直下のプロパティを解析
+        area_props_content = sub_sections[0].strip()
+        if area_props_content:
             try:
-                # YAMLとして安全に解析
-                area_props = yaml.safe_load(area_initial_content)
+                area_props = yaml.safe_load(area_props_content)
                 if isinstance(area_props, dict):
                     world_data[area_key].update(area_props)
             except yaml.YAMLError as e:
                 print(f"警告: エリア '{area_key}' のプロパティ解析中にエラー: {e}")
 
-        # 各部屋を解析
-        for sub_section in sub_sections[1:]:
-            room_lines = sub_section.strip().split('\n')
-            room_key = room_lines[0].strip()
-            room_content = '\n'.join(room_lines[1:])
-
-            if room_content.strip():
+        # 各部屋のセクションを解析
+        for j in range(1, len(sub_sections), 2):
+            room_key = sub_sections[j][4:].strip()
+            room_content = sub_sections[j+1].strip()
+            if room_content:
                 try:
-                    # YAMLとして安全に解析
                     room_props = yaml.safe_load(room_content)
                     if isinstance(room_props, dict):
-                         world_data[area_key][room_key] = room_props
+                        world_data[area_key][room_key] = room_props
                 except yaml.YAMLError as e:
                     print(f"警告: 部屋 '{room_key}' の解析中にエラー: {e}")
 
