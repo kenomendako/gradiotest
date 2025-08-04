@@ -240,11 +240,11 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
 
     return location_name, scenery_text
 
-def handle_location_change(character_name: str, location_id: str, api_key_name: str) -> Tuple[str, str]:
+def handle_location_change(character_name: str, location_id: str) -> Tuple[str, str]:
     from tools.space_tools import set_current_location
     print(f"--- UIからの場所変更処理開始: キャラクター='{character_name}', 移動先ID='{location_id}' ---")
 
-    # エラー発生時のために、現在の場所の名前を先に取得しておく
+    # --- エラー発生時のために、現在の場所の名前を先に取得しておく ---
     current_loc_name = "（場所不明）"
     scenery_text = "（場所の変更に失敗しました）"
     scenery_cache = utils.load_scenery_cache(character_name)
@@ -256,18 +256,30 @@ def handle_location_change(character_name: str, location_id: str, api_key_name: 
         gr.Warning("キャラクターと移動先の場所を選択してください。")
         return current_loc_name, scenery_text
 
-    # 修正された set_current_location ツールを呼び出す
+    # --- ツールを呼び出して現在地ファイルを更新 ---
     result = set_current_location.func(location=location_id, character_name=character_name)
 
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
-        # 失敗した場合は、現在の情景を維持してUIに返す
         return current_loc_name, scenery_text
 
-    gr.Info(f"場所を変更しました。新しい情景を生成します...")
-    # 成功した場合、新しい情景を生成するために handle_scenery_refresh を呼び出す
-    new_location_name, new_scenery = handle_scenery_refresh(character_name, api_key_name)
-    return new_location_name, new_scenery
+    # --- 成功した場合、APIは呼び出さず、UI表示の更新だけを行う ---
+    gr.Info(f"場所を移動しました。")
+
+    # 新しい場所の名前を取得
+    world_settings_path = get_world_settings_path(character_name)
+    world_data = load_memory_data_safe(world_settings_path)
+    new_location_name = location_id # デフォルト
+    if "error" not in world_data:
+        from character_manager import find_space_data_by_id_recursive
+        space_data = find_space_data_by_id_recursive(world_data, location_id)
+        if space_data and isinstance(space_data, dict):
+            new_location_name = space_data.get("name", location_id)
+
+    # ユーザーに次のアクションを促すメッセージを生成
+    new_scenery_text = f"（場所を「{new_location_name}」に移動しました。「情景を更新」ボタン、またはAIとの対話で新しい景色を確認できます）"
+
+    return new_location_name, new_scenery_text
 
 def handle_add_new_character(character_name: str):
     char_list = character_manager.get_character_list()
