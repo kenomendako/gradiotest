@@ -346,3 +346,48 @@ def save_scenery_cache(character_name: str, location_name: str, scenery_text: st
     except Exception as e:
         print(f"!! エラー: 情景キャッシュの保存に失敗しました: {e}")
 # ▲▲▲ 追加箇所ここまで ▲▲▲
+
+
+def get_season(month: int) -> str:
+    """月情報から季節を返す"""
+    if month in [3, 4, 5]: return "spring"
+    if month in [6, 7, 8]: return "summer"
+    if month in [9, 10, 11]: return "autumn"
+    return "winter"
+
+def get_time_of_day(hour: int) -> str:
+    """時間情報から時間帯を返す"""
+    if 5 <= hour < 10: return "morning"
+    if 10 <= hour < 17: return "daytime"
+    if 17 <= hour < 21: return "evening"
+    return "night"
+
+def find_scenery_image(character_name: str, location_id: str) -> Optional[str]:
+    """
+    指定された場所・季節・時間帯に最適な情景画像を、階層的に検索してパスを返す。
+    """
+    if not character_name or not location_id:
+        return None
+
+    image_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
+    if not os.path.isdir(image_dir):
+        return None
+
+    now = datetime.datetime.now()
+    season = get_season(now.month)
+    time_of_day = get_time_of_day(now.hour)
+
+    potential_filenames = [
+        f"{location_id}_{season}_{time_of_day}.png",
+        f"{location_id}_{season}.png",
+        f"{location_id}.png"
+    ]
+
+    for filename in potential_filenames:
+        filepath = os.path.join(image_dir, filename)
+        if os.path.exists(filepath):
+            print(f"  - 情景画像を発見: {filepath}")
+            return filepath
+
+    print(f"  - 適切な情景画像が見つかりませんでした。")
+    return None

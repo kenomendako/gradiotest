@@ -82,6 +82,7 @@ try:
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                 character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
                 with gr.Accordion("空間認識・移動", open=False):
+                    scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
                     current_location_display = gr.Textbox(label="現在地", interactive=False)
                     current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
                     refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
@@ -177,7 +178,7 @@ try:
             char_model_dropdown,                  # 13. UI: 個別モデル設定
             char_voice_dropdown,                  # 14. UI: 個別音声設定
             char_voice_style_prompt_textbox,      # 15. UI: 個別音声スタイルプロンプト
-        ] + context_checkboxes + [char_settings_info] # 16~: 各種チェックボックスと情報欄
+        ] + context_checkboxes + [char_settings_info, scenery_image_display]
 
         initial_load_outputs = [
             alarm_dataframe,
@@ -230,6 +231,7 @@ try:
 
         chat_inputs = [chat_input_textbox, current_character_name, current_api_key_name_state, file_upload_button, api_history_limit_state, debug_mode_checkbox]
         # メッセージ送信時も、UI対応表(current_log_map_state)を正しく更新する
+        # メッセージ送信時も、UI対応表(current_log_map_state)を正しく更新する
         chat_submit_outputs = [
             chatbot_display,
             current_log_map_state, # handle_message_submissionが返す2番目の値に対応
@@ -239,7 +241,8 @@ try:
             current_location_display,
             current_scenery_display,
             alarm_dataframe_original_data,
-            alarm_dataframe
+            alarm_dataframe,
+            scenery_image_display
         ]
         # ▲▲▲ 配線の修正ここまで ▲▲▲
 
@@ -268,7 +271,11 @@ try:
 
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
         change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown], outputs=[current_location_display, current_scenery_display])
-        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_character_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display])
+        refresh_scenery_button.click(
+            fn=ui_handlers.handle_scenery_refresh,
+            inputs=[current_character_name, api_key_dropdown],
+            outputs=[current_location_display, current_scenery_display, scenery_image_display]
+        )
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])

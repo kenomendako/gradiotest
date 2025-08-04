@@ -17,10 +17,15 @@ def ensure_character_files(character_name):
 
         base_path = os.path.join(constants.CHARACTERS_DIR, character_name)
         image_gen_dir = os.path.join(base_path, "generated_images")
-        spaces_dir = os.path.join(base_path, "spaces")
 
-        for path in [base_path, image_gen_dir, spaces_dir]:
-            if not os.path.exists(path): os.makedirs(path)
+        # ▼▼▼ spaces_dir と scenery_images_dir の定義を追加・修正 ▼▼▼
+        spaces_dir = os.path.join(base_path, "spaces")
+        scenery_images_dir = os.path.join(spaces_dir, "images") # 新しいディレクトリパス
+
+        # 修正: 新しいディレクトリも作成対象に含める
+        for path in [base_path, image_gen_dir, spaces_dir, scenery_images_dir]:
+            if not os.path.exists(path):
+                os.makedirs(path)
 
         files_to_check = {
             os.path.join(base_path, "log.txt"): "",
