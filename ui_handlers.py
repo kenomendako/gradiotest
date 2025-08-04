@@ -50,12 +50,13 @@ def handle_character_change(character_name: str, api_key_name: str):
     print(f"--- UI更新司令塔(handle_character_change)実行: {character_name} ---")
     config_manager.save_config("last_character", character_name)
 
-    log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
+    # ▼▼▼ 修正の核心(1) ▼▼▼
+    # 欠陥があった独自のログ処理を完全に削除し、修正済みのreload_chat_logを呼び出すことでロジックを統一
+    chat_history, mapping_list = reload_chat_log(character_name, config_manager.initial_api_history_limit_option_global)
+    # ▲▲▲ 修正ここまで ▲▲▲
 
-    # チャット履歴とUI対応表を生成
-    chat_history, mapping_list = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(constants.UI_HISTORY_MAX_LIMIT * 2):], character_name)
+    _, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
 
-    # UI部品用のデータを準備
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
@@ -68,7 +69,6 @@ def handle_character_change(character_name: str, api_key_name: str):
     valid_location_ids = [loc[1] for loc in locations]
     location_dd_val = current_location_id if current_location_id in valid_location_ids else None
 
-    # 起動時とキャラ変更時に情景を生成
     _, scenery_text = _generate_initial_scenery(character_name, api_key_name)
 
     effective_settings = config_manager.get_effective_settings(character_name)
@@ -77,23 +77,22 @@ def handle_character_change(character_name: str, api_key_name: str):
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "vindemiatrix"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
 
-    # nexus_ark.pyの `char_change_outputs` の順番と完全に一致させる
     return (
-        character_name,                       # 1. State: キャラクター名
-        chat_history,                         # 2. UI: チャットボット表示
-        mapping_list,                         # 3. State: UI対応表
-        "",                                   # 4. UI: チャット入力欄 (空にする)
-        profile_image,                        # 5. UI: プロフィール画像
-        memory_str,                           # 6. UI: 記憶エディタ
-        character_name,                       # 7. UI: アラームのキャラ選択
-        character_name,                       # 8. UI: タイマーのキャラ選択
-        notepad_content,                      # 9. UI: メモ帳エディタ
-        gr.update(choices=locations, value=location_dd_val), # 10. UI: 移動先リスト
-        current_location_name,                # 11. UI: 現在地表示
-        scenery_text,                         # 12. UI: 情景表示
-        gr.update(choices=all_models, value=model_val), # 13. UI: 個別モデル設定
-        voice_display_name,                   # 14. UI: 個別音声設定
-        voice_style_prompt_val,               # 15. UI: 個別音声スタイルプロンプト
+        character_name,
+        chat_history,
+        mapping_list,
+        "",
+        profile_image,
+        memory_str,
+        character_name,
+        character_name,
+        notepad_content,
+        gr.update(choices=locations, value=location_dd_val),
+        current_location_name,
+        scenery_text,
+        gr.update(choices=all_models, value=model_val),
+        voice_display_name,
+        voice_style_prompt_val,
         effective_settings["add_timestamp"],
         effective_settings["send_thoughts"],
         effective_settings["send_notepad"],
@@ -302,12 +301,28 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], char
     return history, mapping_list, None, gr.update(visible=False)
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
-    if not character_name: return [], []
+    if not character_name:
+        return [], []
+
     log_f,_,_,_,_ = get_character_files_paths(character_name)
-    if not log_f or not os.path.exists(log_f): return [], []
+    if not log_f or not os.path.exists(log_f):
+        return [], []
+
+    # ▼▼▼ 修正の核心(2) ▼▼▼
+    # 1. まずログファイル全体を読み込む
+    full_raw_history = utils.load_chat_log(log_f, character_name)
+
+    # 2. 表示する件数を決定する
     display_turns = _get_display_history_count(api_history_limit_value)
-    history, mapping_list = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name)
+
+    # 3. 表示する件数分だけ、ログの末尾から切り出す (スライスする)
+    visible_history = full_raw_history[-(display_turns * 2):]
+
+    # 4. 切り出した部分だけをUI変換にかけ、その中での座標を持つUI対応表を生成する
+    history, mapping_list = utils.format_history_for_gradio(visible_history, character_name)
+
     return history, mapping_list
+    # ▲▲▲ 修正ここまで ▲▲▲
 
 # (以降の関数は変更なし)
 # ... (handle_save_memory_click から handle_voice_preview まで)

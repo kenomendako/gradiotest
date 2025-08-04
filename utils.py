@@ -126,7 +126,11 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
     intermediate_list = []
+    # ▼▼▼ 修正の核心 ▼▼▼
+    # enumerateは渡されたraw_history(既にスライスされている)に対するインデックス(0, 1, 2...)を返すため、
+    # original_indexは常に「表示されているログの中での」正しい座標になる。
     for i, msg in enumerate(raw_history):
+    # ▲▲▲ 修正ここまで ▲▲▲
         content = msg.get("content", "").strip()
         if not content: continue
 
