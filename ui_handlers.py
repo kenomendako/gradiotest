@@ -31,26 +31,28 @@ def get_location_list_for_ui(character_name: str) -> list:
     if not character_name: return []
 
     world_settings_path = get_world_settings_path(character_name)
-    world_data = load_memory_data_safe(world_settings_path)
+    # ▼▼▼ 修正箇所 ▼▼▼
+    from utils import parse_world_markdown
+    world_data = parse_world_markdown(world_settings_path)
+    # ▲▲▲ 修正ここまで ▲▲▲
 
-    if "error" in world_data: return []
+    if "error" in world_data: return [] # world_dataがエラーを返す可能性はなくなったが、念のため残す
 
     location_list = []
 
-    # ▼▼▼ 修正の核心：再帰的に場所を探索するヘルパー関数を定義 ▼▼▼
     def find_locations_recursive(data: dict, parent_key: str = ""):
-        # 現在の階層に "name" キーがあれば、それは独立した場所とみなす
-        if "name" in data and isinstance(data["name"], str):
-            # キーが見つからない場合は親キーを使うなどのフォールバックは、ここでは不要
-            # この関数は、あくまで存在する場所をリストアップするため
-            location_list.append((data["name"], parent_key))
+        # dataが辞書でない、またはnameキーがない場合は処理しない
+        if not isinstance(data, dict) or "name" not in data:
+            return
+
+        # 場所ID (parent_key) と表示名 (data["name"]) をタプルで追加
+        location_list.append((data["name"], parent_key))
 
         # さらに深い階層を探索
         for key, value in data.items():
-            # 値が辞書であれば、再帰的に探索を続ける
             if isinstance(value, dict):
+                # 再帰呼び出しの際は、そのキーを新しい親キーとして渡す
                 find_locations_recursive(value, key)
-    # ▲▲▲ ヘルパー関数の定義ここまで ▲▲▲
 
     # 読み込んだJSONデータ全体に対して、再帰的な探索を開始
     for top_level_key, top_level_value in world_data.items():
@@ -286,7 +288,10 @@ def handle_location_change(character_name: str, location_id: str) -> Tuple[str, 
 
     # 新しい場所の名前を取得
     world_settings_path = get_world_settings_path(character_name)
-    world_data = load_memory_data_safe(world_settings_path)
+    # ▼▼▼ 修正箇所 ▼▼▼
+    from utils import parse_world_markdown
+    world_data = parse_world_markdown(world_settings_path)
+    # ▲▲▲ 修正ここまで ▲▲▲
     new_location_name = location_id # デフォルト
     if "error" not in world_data:
         from character_manager import find_space_data_by_id_recursive

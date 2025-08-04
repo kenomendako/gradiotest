@@ -44,3 +44,6 @@ filetype
 
 # For HTML parsing in utils
 beautifulsoup4
+
+# For parsing Markdown/YAML-like world files
+PyYAML
