@@ -118,23 +118,19 @@ def context_generator_node(state: AgentState):
                     content = f.read().strip()
                     if content: location_id_to_process = content
 
-        if not location_id_to_process:
-            location_id_to_process = "living_space"
+        if not location_id: location_id = "living_space"
 
-        space_details_raw = read_memory_by_path.invoke({"path": f"living_space.{location_id_to_process}", "character_name": character_name})
+        world_settings_path = get_world_settings_path(character_name)
+        space_data = {}
+        if world_settings_path and os.path.exists(world_settings_path):
+            world_settings = load_memory_data_safe(world_settings_path)
+            if "error" not in world_settings:
+                from character_manager import find_space_data_by_id_recursive
+                space_data = find_space_data_by_id_recursive(world_settings, location_id)
 
-        if not space_details_raw.startswith("【エラー】"):
-            try:
-                space_data = json.loads(space_details_raw)
-                if isinstance(space_data, dict):
-                    location_display_name = space_data.get("name", location_id_to_process)
-                    space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
-                else:
-                    location_display_name = location_id_to_process
-                    space_def = str(space_data)
-            except (json.JSONDecodeError, TypeError):
-                location_display_name = location_id_to_process
-                space_def = space_details_raw
+        if space_data and isinstance(space_data, dict):
+            location_display_name = space_data.get("name", location_id)
+            space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
 
         if not space_def.startswith("（"):
             llm_flash = get_configured_llm("gemini-2.5-flash", api_key)

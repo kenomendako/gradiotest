@@ -25,14 +25,38 @@ DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 def get_location_list_for_ui(character_name: str) -> list:
     if not character_name: return []
+
     world_settings_path = get_world_settings_path(character_name)
     world_data = load_memory_data_safe(world_settings_path)
+
     if "error" in world_data: return []
+
     location_list = []
-    for loc_id, details in world_data.items():
-        if isinstance(details, dict):
-            location_list.append((details.get("name", loc_id), loc_id))
-    return sorted(location_list, key=lambda x: x[0])
+
+    # ▼▼▼ 修正の核心：再帰的に場所を探索するヘルパー関数を定義 ▼▼▼
+    def find_locations_recursive(data: dict, parent_key: str = ""):
+        # 現在の階層に "name" キーがあれば、それは独立した場所とみなす
+        if "name" in data and isinstance(data["name"], str):
+            # キーが見つからない場合は親キーを使うなどのフォールバックは、ここでは不要
+            # この関数は、あくまで存在する場所をリストアップするため
+            location_list.append((data["name"], parent_key))
+
+        # さらに深い階層を探索
+        for key, value in data.items():
+            # 値が辞書であれば、再帰的に探索を続ける
+            if isinstance(value, dict):
+                find_locations_recursive(value, key)
+    # ▲▲▲ ヘルパー関数の定義ここまで ▲▲▲
+
+    # 読み込んだJSONデータ全体に対して、再帰的な探索を開始
+    for top_level_key, top_level_value in world_data.items():
+        if isinstance(top_level_value, dict):
+            find_locations_recursive(top_level_value, top_level_key)
+
+    # 重複を除外し、名前でソートして返す
+    # dict.fromkeysで重複を除去し、再度リストに変換
+    unique_locations = list(dict.fromkeys(location_list))
+    return sorted(unique_locations, key=lambda x: x[0])
 
 def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
@@ -41,7 +65,6 @@ def handle_initial_load():
     char_dependent_outputs = handle_character_change(config_manager.initial_character_global, config_manager.initial_api_key_name_global)
     return (display_df, df_with_ids, feedback_text) + char_dependent_outputs
 
-# ▼▼▼ この関数全体を、以下のコードで完全に置き換えてください ▼▼▼
 def handle_character_change(character_name: str, api_key_name: str):
     if not character_name:
         char_list = character_manager.get_character_list()
@@ -50,10 +73,7 @@ def handle_character_change(character_name: str, api_key_name: str):
     print(f"--- UI更新司令塔(handle_character_change)実行: {character_name} ---")
     config_manager.save_config("last_character", character_name)
 
-    # ▼▼▼ 修正の核心(1) ▼▼▼
-    # 欠陥があった独自のログ処理を完全に削除し、修正済みのreload_chat_logを呼び出すことでロジックを統一
     chat_history, mapping_list = reload_chat_log(character_name, config_manager.initial_api_history_limit_option_global)
-    # ▲▲▲ 修正ここまで ▲▲▲
 
     _, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
 
@@ -102,6 +122,41 @@ def handle_character_change(character_name: str, api_key_name: str):
         f"ℹ️ *現在選択中のキャラクター「{character_name}」にのみ適用される設定です。*"
     )
 
+def get_location_list_for_ui(character_name: str) -> list:
+    if not character_name: return []
+
+    world_settings_path = get_world_settings_path(character_name)
+    world_data = load_memory_data_safe(world_settings_path)
+
+    if "error" in world_data: return []
+
+    location_list = []
+
+    # ▼▼▼ 修正の核心：再帰的に場所を探索するヘルパー関数を定義 ▼▼▼
+    def find_locations_recursive(data: dict, parent_key: str = ""):
+        # 現在の階層に "name" キーがあれば、それは独立した場所とみなす
+        if "name" in data and isinstance(data["name"], str):
+            # キーが見つからない場合は親キーを使うなどのフォールバックは、ここでは不要
+            # この関数は、あくまで存在する場所をリストアップするため
+            location_list.append((data["name"], parent_key))
+
+        # さらに深い階層を探索
+        for key, value in data.items():
+            # 値が辞書であれば、再帰的に探索を続ける
+            if isinstance(value, dict):
+                find_locations_recursive(value, key)
+    # ▲▲▲ ヘルパー関数の定義ここまで ▲▲▲
+
+    # 読み込んだJSONデータ全体に対して、再帰的な探索を開始
+    for top_level_key, top_level_value in world_data.items():
+        if isinstance(top_level_value, dict):
+            find_locations_recursive(top_level_value, top_level_key)
+
+    # 重複を除外し、名前でソートして返す
+    # dict.fromkeysで重複を除去し、再度リストに変換
+    unique_locations = list(dict.fromkeys(location_list))
+    return sorted(unique_locations, key=lambda x: x[0])
+
 def handle_save_char_settings(character_name: str, model_name: str, voice_name: str, voice_style_prompt: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
     if not character_name: gr.Warning("設定を保存するキャラクターが選択されていません。"); return
     new_settings = {
@@ -144,22 +199,18 @@ def update_token_count_on_input(character_name: str, api_key_name: str, textbox_
         use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
     )
 
-# ▼▼▼ この関数全体を、以下のコードで完全に置き換えてください ▼▼▼
 def handle_message_submission(*args: Any):
     (textbox_content, current_character_name, current_api_key_name_state, file_input_list, api_history_limit_state) = args
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
-        # nexus_ark.pyの `chat_submit_outputs` の順番に合わせて値を返す
         return chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
     effective_settings = config_manager.get_effective_settings(current_character_name)
     add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
 
-    # メッセージ送信前のチャット履歴と対応表を取得
     chatbot_history, _ = reload_chat_log(current_character_name, api_history_limit_state)
 
-    # ユーザーの入力をUIに仮表示
     log_message_parts = []
     if user_prompt_from_textbox:
         timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
@@ -174,10 +225,8 @@ def handle_message_submission(*args: Any):
 
     chatbot_history.append((None, "思考中... ▌"))
 
-    # UIを一旦更新（この時点では対応表は不正確で良い）
     yield (chatbot_history, [], gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
 
-    # AIエージェントを呼び出し
     response_data = {}
     try:
         agent_args = (textbox_content, current_character_name, current_api_key_name_state, file_input_list, api_history_limit_state)
@@ -189,7 +238,6 @@ def handle_message_submission(*args: Any):
     final_response_text = response_data.get("response", "")
     location_name, scenery_text = response_data.get("location_name", "（取得失敗）"), response_data.get("scenery", "（取得失敗）")
 
-    # ログファイルに保存
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     final_log_message = "\n\n".join(log_message_parts).strip()
     if final_log_message:
@@ -198,12 +246,10 @@ def handle_message_submission(*args: Any):
     if final_response_text:
         utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
 
-    # AIの応答を含めた最終的なチャット履歴と、正しいUI対応表を再生成
     formatted_history, new_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
     new_alarm_df_with_ids = render_alarms_as_dataframe()
     new_display_df = get_display_df(new_alarm_df_with_ids)
 
-    # nexus_ark.pyの `chat_submit_outputs` の順番に合わせて最終的な値を返す
     yield (formatted_history, new_mapping_list, gr.update(), gr.update(value=None), gr.update(), location_name, scenery_text, new_alarm_df_with_ids, new_display_df)
 
 def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[str, str]:
@@ -211,11 +257,16 @@ def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[s
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not character_name or not api_key:
         return "（エラー）", "（キャラクターまたはAPIキーが未設定です）"
+
     from agent.graph import get_configured_llm
     location_id = utils.get_current_location(character_name) or "living_space"
     world_settings_path = get_world_settings_path(character_name)
     world_data = load_memory_data_safe(world_settings_path)
-    space_data = world_data.get(location_id, {}) if "error" not in world_data else {}
+
+    # ▼▼▼ 修正の核心：単純な .get() をやめ、新しいマスター探索関数を呼び出す ▼▼▼
+    space_data = character_manager.find_space_data_by_id_recursive(world_data, location_id) if "error" not in world_data else {}
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     location_display_name, space_def, scenery_text = location_id, "（現在の場所の定義・設定は、取得できませんでした）", "（場所の定義がないため、情景を描写できません）"
     try:
         if space_data and isinstance(space_data, dict):

@@ -1,9 +1,10 @@
 # tools/space_tools.py
 import os
-import json # ★ jsonをインポート
+import json
+from typing import Optional
 from langchain_core.tools import tool
-from character_manager import get_character_files_paths
-from memory_manager import load_memory_data_safe # ★ 記憶読み込み関数をインポート
+from character_manager import get_world_settings_path
+from memory_manager import load_memory_data_safe
 
 @tool
 def find_location_id_by_name(location_name: str, character_name: str = None) -> str:
@@ -14,22 +15,42 @@ def find_location_id_by_name(location_name: str, character_name: str = None) -> 
     if not location_name or not character_name:
         return "【Error】Location name and character name are required."
 
-    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
-    if not memory_json_path:
-        return f"【Error】Could not find memory file path for character '{character_name}'."
+    world_settings_path = get_world_settings_path(character_name)
+    if not world_settings_path or not os.path.exists(world_settings_path):
+        return f"【Error】Could not find world settings file for character '{character_name}'."
 
-    memory_data = load_memory_data_safe(memory_json_path)
-    if "error" in memory_data or "living_space" not in memory_data:
-        return "【Error】Could not load living_space memory."
+    world_data = load_memory_data_safe(world_settings_path)
+    if "error" in world_data:
+        return f"【Error】Could not load world settings for '{character_name}'."
 
-    living_space = memory_data.get("living_space", {})
-    for location_id, details in living_space.items():
-        if location_id.lower() == location_name.lower():
-            return location_id
-        if isinstance(details, dict) and details.get("name", "").lower() == location_name.lower():
-            return location_id
+    # ▼▼▼ 修正の核心：再帰的に探索するロジックに変更 ▼▼▼
+    def find_id_recursive(data: dict, parent_key: str = "") -> Optional[str]:
+        # 現在の階層に "name" があり、それが探している名前と一致するかチェック
+        if "name" in data and data["name"].lower() == location_name.lower():
+            return parent_key
 
-    return f"【Error】Location '{location_name}' not found. Check for typos or define it first using edit_memory."
+        # さらに深い階層を探索
+        for key, value in data.items():
+            if isinstance(value, dict):
+                found_id = find_id_recursive(value, key)
+                if found_id:
+                    return found_id
+        return None
+
+    # 探索を開始
+    for top_level_key, top_level_value in world_data.items():
+        if isinstance(top_level_value, dict):
+            # まずトップレベルのオブジェクト自身をチェック
+            if "name" in top_level_value and top_level_value["name"].lower() == location_name.lower():
+                return top_level_key
+            # 次に、その中身を再帰的にチェック
+            found_id = find_id_recursive(top_level_value, top_level_key)
+            if found_id:
+                # find_id_recursiveは親キーを返すので、ネストされた場所の場合はそのキーを返す
+                return found_id
+    # ▲▲▲ 修正ここまで ▲▲▲
+
+    return f"【Error】Location '{location_name}' not found. Check for typos or define it first."
 
 
 @tool
