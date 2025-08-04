@@ -41,7 +41,6 @@ def handle_initial_load():
     char_dependent_outputs = handle_character_change(config_manager.initial_character_global, config_manager.initial_api_key_name_global)
     return (display_df, df_with_ids, feedback_text) + char_dependent_outputs
 
-# ▼▼▼ この関数全体を、以下のコードで完全に置き換えてください ▼▼▼
 def handle_character_change(character_name: str, api_key_name: str):
     if not character_name:
         char_list = character_manager.get_character_list()
@@ -50,8 +49,11 @@ def handle_character_change(character_name: str, api_key_name: str):
     print(f"--- UI更新司令塔(handle_character_change)実行: {character_name} ---")
     config_manager.save_config("last_character", character_name)
 
-    # ▼▼▼ 修正の核心(1) ▼▼▼
-    # 欠陥があった独自のログ処理を完全に削除し、修正済みのreload_chat_logを呼び出すことでロジックを統一
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    # 欠陥があった独自のログ処理を完全に削除し、
+    # 正常に動作している reload_chat_log 関数を直接呼び出すように変更。
+    # これにより、履歴とUI対応表が常に正しく生成されることを保証する。
+    # 履歴の長さは、configに保存されているグローバルな初期設定値を参照する。
     chat_history, mapping_list = reload_chat_log(character_name, config_manager.initial_api_history_limit_option_global)
     # ▲▲▲ 修正ここまで ▲▲▲
 
@@ -77,22 +79,24 @@ def handle_character_change(character_name: str, api_key_name: str):
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "vindemiatrix"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
 
+    # ▼▼▼ 修正の核心：このreturnタプルの順番を、nexus_ark.pyのchar_change_outputsと完全に一致させる ▼▼▼
     return (
-        character_name,
-        chat_history,
-        mapping_list,
-        "",
-        profile_image,
-        memory_str,
-        character_name,
-        character_name,
-        notepad_content,
-        gr.update(choices=locations, value=location_dd_val),
-        current_location_name,
-        scenery_text,
-        gr.update(choices=all_models, value=model_val),
-        voice_display_name,
-        voice_style_prompt_val,
+        character_name,                       # 1. State: current_character_name
+        chat_history,                         # 2. UI: chatbot_display
+        mapping_list,                         # 3. State: current_log_map_state
+        "",                                   # 4. UI: chat_input_textbox
+        profile_image,                        # 5. UI: profile_image_display
+        memory_str,                           # 6. UI: memory_json_editor
+        character_name,                       # 7. UI: alarm_char_dropdown
+        character_name,                       # 8. UI: timer_char_dropdown
+        notepad_content,                      # 9. UI: notepad_editor
+        gr.update(choices=locations, value=location_dd_val), # 10. UI: location_dropdown
+        current_location_name,                # 11. UI: current_location_display
+        scenery_text,                         # 12. UI: current_scenery_display
+        gr.update(choices=all_models, value=model_val), # 13. UI: char_model_dropdown
+        voice_display_name,                   # 14. UI: char_voice_dropdown
+        voice_style_prompt_val,               # 15. UI: char_voice_style_prompt_textbox
+        # --- ここからチェックボックスと情報欄 ---
         effective_settings["add_timestamp"],
         effective_settings["send_thoughts"],
         effective_settings["send_notepad"],
@@ -101,6 +105,7 @@ def handle_character_change(character_name: str, api_key_name: str):
         effective_settings["send_scenery"],
         f"ℹ️ *現在選択中のキャラクター「{character_name}」にのみ適用される設定です。*"
     )
+    # ▲▲▲ 修正ここまで ▲▲▲
 
 def handle_save_char_settings(character_name: str, model_name: str, voice_name: str, voice_style_prompt: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
     if not character_name: gr.Warning("設定を保存するキャラクターが選択されていません。"); return
@@ -144,22 +149,18 @@ def update_token_count_on_input(character_name: str, api_key_name: str, textbox_
         use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
     )
 
-# ▼▼▼ この関数全体を、以下のコードで完全に置き換えてください ▼▼▼
 def handle_message_submission(*args: Any):
     (textbox_content, current_character_name, current_api_key_name_state, file_input_list, api_history_limit_state) = args
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
-        # nexus_ark.pyの `chat_submit_outputs` の順番に合わせて値を返す
         return chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
     effective_settings = config_manager.get_effective_settings(current_character_name)
     add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
 
-    # メッセージ送信前のチャット履歴と対応表を取得
     chatbot_history, _ = reload_chat_log(current_character_name, api_history_limit_state)
 
-    # ユーザーの入力をUIに仮表示
     log_message_parts = []
     if user_prompt_from_textbox:
         timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
@@ -174,10 +175,8 @@ def handle_message_submission(*args: Any):
 
     chatbot_history.append((None, "思考中... ▌"))
 
-    # UIを一旦更新（この時点では対応表は不正確で良い）
     yield (chatbot_history, [], gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
 
-    # AIエージェントを呼び出し
     response_data = {}
     try:
         agent_args = (textbox_content, current_character_name, current_api_key_name_state, file_input_list, api_history_limit_state)
@@ -189,7 +188,6 @@ def handle_message_submission(*args: Any):
     final_response_text = response_data.get("response", "")
     location_name, scenery_text = response_data.get("location_name", "（取得失敗）"), response_data.get("scenery", "（取得失敗）")
 
-    # ログファイルに保存
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     final_log_message = "\n\n".join(log_message_parts).strip()
     if final_log_message:
@@ -198,12 +196,10 @@ def handle_message_submission(*args: Any):
     if final_response_text:
         utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
 
-    # AIの応答を含めた最終的なチャット履歴と、正しいUI対応表を再生成
     formatted_history, new_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
     new_alarm_df_with_ids = render_alarms_as_dataframe()
     new_display_df = get_display_df(new_alarm_df_with_ids)
 
-    # nexus_ark.pyの `chat_submit_outputs` の順番に合わせて最終的な値を返す
     yield (formatted_history, new_mapping_list, gr.update(), gr.update(value=None), gr.update(), location_name, scenery_text, new_alarm_df_with_ids, new_display_df)
 
 def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[str, str]:
@@ -498,3 +494,5 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
     audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
     if audio_filepath: gr.Info("プレビューを再生します。"); return audio_filepath
     else: gr.Error("音声の生成に失敗しました。"); return None
+
+[end of ui_handlers.py]
