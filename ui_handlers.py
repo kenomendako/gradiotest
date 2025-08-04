@@ -1,4 +1,4 @@
-# ui_handlers.py (リファクタリング完了版)
+# ui_handlers.py (最終確定版)
 
 import pandas as pd
 import json
@@ -38,17 +38,29 @@ def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
-    char_dependent_outputs = handle_character_change(config_manager.initial_character_global)
+    char_dependent_outputs = handle_character_change(config_manager.initial_character_global, config_manager.initial_api_key_name_global)
     return (display_df, df_with_ids, feedback_text) + char_dependent_outputs
 
-def handle_character_change(character_name: str):
-    if not character_name: character_name = character_manager.get_character_list()[0]
+# ▼▼▼ この関数全体を、以下のコードで完全に置き換えてください ▼▼▼
+def handle_character_change(character_name: str, api_key_name: str):
+    if not character_name:
+        char_list = character_manager.get_character_list()
+        character_name = char_list[0] if char_list else "Default"
+
     print(f"--- UI更新司令塔(handle_character_change)実行: {character_name} ---")
     config_manager.save_config("last_character", character_name)
-    log_f, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
-    chat_history, _ = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(constants.UI_HISTORY_MAX_LIMIT * 2):], character_name)
-    memory_str, profile_image = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False), img_p if img_p and os.path.exists(img_p) else None
+
+    # ▼▼▼ 修正の核心(1) ▼▼▼
+    # 欠陥があった独自のログ処理を完全に削除し、修正済みのreload_chat_logを呼び出すことでロジックを統一
+    chat_history, mapping_list = reload_chat_log(character_name, config_manager.initial_api_history_limit_option_global)
+    # ▲▲▲ 修正ここまで ▲▲▲
+
+    _, _, img_p, mem_p, notepad_p = get_character_files_paths(character_name)
+
+    memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
+    profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
+
     locations = get_location_list_for_ui(character_name)
     current_location_id = utils.get_current_location(character_name)
     world_settings_path = get_world_settings_path(character_name)
@@ -56,19 +68,37 @@ def handle_character_change(character_name: str):
     current_location_name = world_data.get(current_location_id, {}).get("name", current_location_id) if "error" not in world_data else current_location_id
     valid_location_ids = [loc[1] for loc in locations]
     location_dd_val = current_location_id if current_location_id in valid_location_ids else None
-    scenery_text = "（AIとの対話開始時に生成されます）"
+
+    _, scenery_text = _generate_initial_scenery(character_name, api_key_name)
+
     effective_settings = config_manager.get_effective_settings(character_name)
-    all_models, model_val = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL, effective_settings["model_name"] if effective_settings["model_name"] != config_manager.initial_model_global else "デフォルト"
+    all_models = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL
+    model_val = effective_settings["model_name"] if effective_settings["model_name"] != config_manager.initial_model_global else "デフォルト"
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "vindemiatrix"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
+
     return (
-        character_name, chat_history, "", profile_image, memory_str, character_name,
-        character_name, notepad_content, gr.update(choices=locations, value=location_dd_val),
-        current_location_name, scenery_text, gr.update(choices=all_models, value=model_val),
-        voice_display_name, voice_style_prompt_val,
-        effective_settings["add_timestamp"], effective_settings["send_thoughts"],
-        effective_settings["send_notepad"], effective_settings["use_common_prompt"],
-        effective_settings["send_core_memory"], effective_settings["send_scenery"],
+        character_name,
+        chat_history,
+        mapping_list,
+        "",
+        profile_image,
+        memory_str,
+        character_name,
+        character_name,
+        notepad_content,
+        gr.update(choices=locations, value=location_dd_val),
+        current_location_name,
+        scenery_text,
+        gr.update(choices=all_models, value=model_val),
+        voice_display_name,
+        voice_style_prompt_val,
+        effective_settings["add_timestamp"],
+        effective_settings["send_thoughts"],
+        effective_settings["send_notepad"],
+        effective_settings["use_common_prompt"],
+        effective_settings["send_core_memory"],
+        effective_settings["send_scenery"],
         f"ℹ️ *現在選択中のキャラクター「{character_name}」にのみ適用される設定です。*"
     )
 
@@ -114,15 +144,22 @@ def update_token_count_on_input(character_name: str, api_key_name: str, textbox_
         use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
     )
 
+# ▼▼▼ この関数全体を、以下のコードで完全に置き換えてください ▼▼▼
 def handle_message_submission(*args: Any):
     (textbox_content, current_character_name, current_api_key_name_state, file_input_list, api_history_limit_state) = args
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
-        chatbot_history, _ = reload_chat_log(current_character_name, api_history_limit_state)
-        return chatbot_history, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
+        # nexus_ark.pyの `chat_submit_outputs` の順番に合わせて値を返す
+        return chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+
     effective_settings = config_manager.get_effective_settings(current_character_name)
     add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
+
+    # メッセージ送信前のチャット履歴と対応表を取得
     chatbot_history, _ = reload_chat_log(current_character_name, api_history_limit_state)
+
+    # ユーザーの入力をUIに仮表示
     log_message_parts = []
     if user_prompt_from_textbox:
         timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
@@ -134,8 +171,13 @@ def handle_message_submission(*args: Any):
             filepath, filename = file_obj.name, os.path.basename(file_obj.name)
             chatbot_history.append(((filepath, filename), None))
             log_message_parts.append(f"[ファイル添付: {filepath}]")
+
     chatbot_history.append((None, "思考中... ▌"))
-    yield (chatbot_history, gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+
+    # UIを一旦更新（この時点では対応表は不正確で良い）
+    yield (chatbot_history, [], gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+
+    # AIエージェントを呼び出し
     response_data = {}
     try:
         agent_args = (textbox_content, current_character_name, current_api_key_name_state, file_input_list, api_history_limit_state)
@@ -143,8 +185,11 @@ def handle_message_submission(*args: Any):
     except Exception as e:
         traceback.print_exc()
         response_data = {"response": f"[UIハンドラエラー: {e}]", "location_name": "（エラー）", "scenery": "（エラー）"}
+
     final_response_text = response_data.get("response", "")
     location_name, scenery_text = response_data.get("location_name", "（取得失敗）"), response_data.get("scenery", "（取得失敗）")
+
+    # ログファイルに保存
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     final_log_message = "\n\n".join(log_message_parts).strip()
     if final_log_message:
@@ -152,13 +197,17 @@ def handle_message_submission(*args: Any):
         utils.save_message_to_log(log_f, user_header, final_log_message)
     if final_response_text:
         utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
-    formatted_history, _ = reload_chat_log(current_character_name, api_history_limit_state)
+
+    # AIの応答を含めた最終的なチャット履歴と、正しいUI対応表を再生成
+    formatted_history, new_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
     new_alarm_df_with_ids = render_alarms_as_dataframe()
     new_display_df = get_display_df(new_alarm_df_with_ids)
-    yield (formatted_history, gr.update(), gr.update(value=None), gr.update(), location_name, scenery_text, new_alarm_df_with_ids, new_display_df)
+
+    # nexus_ark.pyの `chat_submit_outputs` の順番に合わせて最終的な値を返す
+    yield (formatted_history, new_mapping_list, gr.update(), gr.update(value=None), gr.update(), location_name, scenery_text, new_alarm_df_with_ids, new_display_df)
 
 def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[str, str]:
-    print("--- [軽量版] 情景生成を開始します ---")
+    print(f"--- [軽量版] 情景生成を開始します (Character: {character_name}) ---")
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not character_name or not api_key:
         return "（エラー）", "（キャラクターまたはAPIキーが未設定です）"
@@ -217,38 +266,66 @@ def handle_add_new_character(character_name: str):
 
 def _get_display_history_count(api_history_limit_value: str) -> int: return int(api_history_limit_value) if api_history_limit_value.isdigit() else constants.UI_HISTORY_MAX_LIMIT
 
-def handle_chatbot_selection(character_name: str, api_history_limit_state: str, evt: gr.SelectData):
-    if not character_name or evt.index is None: return None, gr.update(visible=False)
+def handle_chatbot_selection(character_name: str, api_history_limit_state: str, mapping_list: list, evt: gr.SelectData):
+    if not character_name or evt.index is None or not mapping_list: return None, gr.update(visible=False)
     try:
         clicked_ui_index = evt.index[0]
+        if not (0 <= clicked_ui_index < len(mapping_list)):
+            gr.Warning(f"クリックされたメッセージを特定できませんでした (UI index {clicked_ui_index} out of bounds for mapping list size {len(mapping_list)})."); return None, gr.update(visible=False)
+
         log_f, _, _, _, _ = get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_f, character_name)
         display_turns = _get_display_history_count(api_history_limit_state)
         visible_raw_history = raw_history[-(display_turns * 2):]
-        _, mapping_list = utils.format_history_for_gradio(visible_raw_history, character_name)
-        if not (0 <= clicked_ui_index < len(mapping_list)):
-            gr.Warning("クリックされたメッセージを特定できませんでした (UI index out of bounds)."); return None, gr.update(visible=False)
+
         original_log_index = mapping_list[clicked_ui_index]
-        if 0 <= original_log_index < len(visible_raw_history): return visible_raw_history[original_log_index], gr.update(visible=True)
-        else: gr.Warning("クリックされたメッセージを特定できませんでした (Original log index out of bounds)."); return None, gr.update(visible=False)
-    except Exception as e: print(f"チャットボット選択中のエラー: {e}"); traceback.print_exc(); return None, gr.update(visible=False)
+        if 0 <= original_log_index < len(visible_raw_history):
+            return visible_raw_history[original_log_index], gr.update(visible=True)
+        else:
+            gr.Warning(f"クリックされたメッセージを特定できませんでした (Original log index {original_log_index} out of bounds for visible history size {len(visible_raw_history)})."); return None, gr.update(visible=False)
+    except Exception as e:
+        print(f"チャットボット選択中のエラー: {e}"); traceback.print_exc()
+        return None, gr.update(visible=False)
 
 def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], character_name: str, api_history_limit: str):
-    if not message_to_delete: gr.Warning("削除対象のメッセージが選択されていません。"); return gr.update(), None, gr.update(visible=False)
+    if not message_to_delete:
+        return gr.update(), gr.update(), None, gr.update(visible=False)
+
     log_f, _, _, _, _ = get_character_files_paths(character_name)
-    if utils.delete_message_from_log(log_f, message_to_delete, character_name): gr.Info("ログからメッセージを削除しました。")
-    else: gr.Error("メッセージの削除に失敗しました。詳細はターミナルを確認してください。")
-    history, _ = reload_chat_log(character_name, api_history_limit)
-    return history, None, gr.update(visible=False)
+    if utils.delete_message_from_log(log_f, message_to_delete, character_name):
+        gr.Info("ログからメッセージを削除しました。")
+    else:
+        gr.Error("メッセージの削除に失敗しました。詳細はターミナルを確認してください。")
+
+    history, mapping_list = reload_chat_log(character_name, api_history_limit)
+    return history, mapping_list, None, gr.update(visible=False)
 
 def reload_chat_log(character_name: Optional[str], api_history_limit_value: str):
-    if not character_name: return [], []
-    log_f,_,_,_,_ = get_character_files_paths(character_name)
-    if not log_f or not os.path.exists(log_f): return [], []
-    display_turns = _get_display_history_count(api_history_limit_value)
-    history, mapping_list = utils.format_history_for_gradio(utils.load_chat_log(log_f, character_name)[-(display_turns*2):], character_name)
-    return history, mapping_list
+    if not character_name:
+        return [], []
 
+    log_f,_,_,_,_ = get_character_files_paths(character_name)
+    if not log_f or not os.path.exists(log_f):
+        return [], []
+
+    # ▼▼▼ 修正の核心(2) ▼▼▼
+    # 1. まずログファイル全体を読み込む
+    full_raw_history = utils.load_chat_log(log_f, character_name)
+
+    # 2. 表示する件数を決定する
+    display_turns = _get_display_history_count(api_history_limit_value)
+
+    # 3. 表示する件数分だけ、ログの末尾から切り出す (スライスする)
+    visible_history = full_raw_history[-(display_turns * 2):]
+
+    # 4. 切り出した部分だけをUI変換にかけ、その中での座標を持つUI対応表を生成する
+    history, mapping_list = utils.format_history_for_gradio(visible_history, character_name)
+
+    return history, mapping_list
+    # ▲▲▲ 修正ここまで ▲▲▲
+
+# (以降の関数は変更なし)
+# ... (handle_save_memory_click から handle_voice_preview まで)
 def handle_save_memory_click(character_name, json_string_data):
     if not character_name: gr.Warning("キャラクターが選択されていません。"); return gr.update()
     try: return save_memory_data(character_name, json_string_data)
@@ -393,8 +470,8 @@ def update_api_key_state(api_key_name):
 def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
     key = next((k for k, v in constants.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
     config_manager.save_config("last_api_history_limit_option", key)
-    history, _ = reload_chat_log(character_name, key)
-    return key, history, gr.State()
+    history, mapping_list = reload_chat_log(character_name, key)
+    return key, history, mapping_list
 
 def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], character_name: str, api_key_name: str):
     if not selected_message: gr.Warning("再生するメッセージが選択されていません。"); return None

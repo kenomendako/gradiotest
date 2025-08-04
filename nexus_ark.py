@@ -1,4 +1,4 @@
-# nexus_ark.py (リファクタリング完了版)
+# nexus_ark.py (最終確定版)
 
 import os
 import sys
@@ -65,6 +65,7 @@ try:
                 character_manager.ensure_character_files("Default")
                 character_list_on_startup = ["Default"]
 
+        # --- Stateの定義 ---
         current_character_name = gr.State(effective_initial_character)
         current_model_name = gr.State(config_manager.initial_model_global)
         current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -73,6 +74,7 @@ try:
         selected_alarm_ids_state = gr.State([])
         editing_alarm_id_state = gr.State(None)
         selected_message_state = gr.State(None)
+        current_log_map_state = gr.State([])
         audio_player = gr.Audio(visible=False, autoplay=True)
 
         with gr.Row():
@@ -152,23 +154,94 @@ try:
                 file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
                 gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
+        # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
         context_token_calc_inputs = [current_character_name, current_api_key_name_state] + context_checkboxes
 
+        # ▼▼▼ ここからが配線の修正箇所 ▼▼▼
+        # handle_character_change が返す値の順番と、このリストのUI部品の順番を完全に一致させる
         char_change_outputs = [
-            current_character_name, chatbot_display, chat_input_textbox, profile_image_display, memory_json_editor,
-            alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown, current_location_display,
-            current_scenery_display, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox
-        ] + context_checkboxes + [char_settings_info]
+            current_character_name,               # 1. State: キャラクター名
+            chatbot_display,                      # 2. UI: チャットボット表示
+            current_log_map_state,                # 3. State: UI対応表
+            chat_input_textbox,                   # 4. UI: チャット入力欄 (空にするため)
+            profile_image_display,                # 5. UI: プロフィール画像
+            memory_json_editor,                   # 6. UI: 記憶エディタ
+            alarm_char_dropdown,                  # 7. UI: アラームのキャラ選択
+            timer_char_dropdown,                  # 8. UI: タイマーのキャラ選択
+            notepad_editor,                       # 9. UI: メモ帳エディタ
+            location_dropdown,                    # 10. UI: 移動先リスト
+            current_location_display,             # 11. UI: 現在地表示
+            current_scenery_display,              # 12. UI: 情景表示
+            char_model_dropdown,                  # 13. UI: 個別モデル設定
+            char_voice_dropdown,                  # 14. UI: 個別音声設定
+            char_voice_style_prompt_textbox,      # 15. UI: 個別音声スタイルプロンプト
+        ] + context_checkboxes + [char_settings_info] # 16~: 各種チェックボックスと情報欄
 
-        initial_load_outputs = [alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown] + char_change_outputs
+        initial_load_outputs = [
+            alarm_dataframe,
+            alarm_dataframe_original_data,
+            selection_feedback_markdown
+        ] + char_change_outputs
 
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
-        character_dropdown.change(fn=ui_handlers.handle_character_change, inputs=[character_dropdown], outputs=char_change_outputs).then(
-            fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
+
+        character_dropdown.change(
+            fn=ui_handlers.handle_character_change,
+            inputs=[character_dropdown, api_key_dropdown],
+            outputs=char_change_outputs
+        ).then(
+            fn=ui_handlers.handle_context_settings_change,
+            inputs=context_token_calc_inputs,
+            outputs=token_count_display
         )
+
+        chat_reload_button.click(
+            fn=ui_handlers.reload_chat_log,
+            inputs=[current_character_name, api_history_limit_state],
+            outputs=[chatbot_display, current_log_map_state]
+        )
+
+        chatbot_display.select(
+            fn=ui_handlers.handle_chatbot_selection,
+            inputs=[current_character_name, api_history_limit_state, current_log_map_state],
+            outputs=[selected_message_state, action_button_group],
+            show_progress=False
+        )
+
+        delete_selection_button.click(
+            fn=ui_handlers.handle_delete_button_click,
+            inputs=[selected_message_state, current_character_name, api_history_limit_state],
+            outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group]
+        )
+
+        api_history_limit_dropdown.change(
+            fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
+            inputs=[api_history_limit_dropdown, current_character_name],
+            outputs=[api_history_limit_state, chatbot_display, current_log_map_state]
+        ).then(
+            fn=ui_handlers.handle_context_settings_change,
+            inputs=context_token_calc_inputs,
+            outputs=token_count_display
+        )
+
+        chat_inputs = [chat_input_textbox, current_character_name, current_api_key_name_state, file_upload_button, api_history_limit_state]
+        # メッセージ送信時も、UI対応表(current_log_map_state)を正しく更新する
+        chat_submit_outputs = [
+            chatbot_display,
+            current_log_map_state, # handle_message_submissionが返す2番目の値に対応
+            chat_input_textbox,
+            file_upload_button,
+            token_count_display,
+            current_location_display,
+            current_scenery_display,
+            alarm_dataframe_original_data,
+            alarm_dataframe
+        ]
+        # ▲▲▲ 配線の修正ここまで ▲▲▲
+
         save_char_settings_button.click(
             fn=ui_handlers.handle_save_char_settings,
             inputs=[current_character_name, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox] + context_checkboxes,
@@ -184,15 +257,8 @@ try:
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
 
-        api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, gr.State()]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-
-        chat_inputs = [chat_input_textbox, current_character_name, current_api_key_name_state, file_upload_button, api_history_limit_state]
-        chat_submit_outputs = [chatbot_display, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe]
-
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
-
-        chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display])
 
         token_calc_on_input_inputs = [current_character_name, current_api_key_name_state, chat_input_textbox, file_upload_button] + context_checkboxes
         chat_input_textbox.input(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
@@ -202,9 +268,7 @@ try:
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
         change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display])
         refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_character_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display])
-        chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state], outputs=[selected_message_state, action_button_group], show_progress=False)
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player])
-        delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, selected_message_state, action_button_group])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
         reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_character_name], outputs=[memory_json_editor])
