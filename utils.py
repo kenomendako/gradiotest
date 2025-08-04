@@ -7,6 +7,7 @@ import traceback
 import html
 from typing import List, Dict, Optional, Tuple, Union
 import gradio as gr
+import yaml
 import character_manager
 import constants
 import sys
@@ -391,3 +392,54 @@ def find_scenery_image(character_name: str, location_id: str) -> Optional[str]:
 
     print(f"  - 適切な情景画像が見つかりませんでした。")
     return None
+
+def parse_world_markdown(file_path: str) -> dict:
+    """
+    世界設定が記述されたMarkdownファイルを解析し、ネストされた辞書構造に変換する。
+    見出し(##, ###)でセクションを分割し、各セクションをYAMLとして解析する堅牢な方式。
+    """
+    if not os.path.exists(file_path):
+        return {}
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    world_data = {}
+
+    # re.splitのキャプチャグループ `()` を使い、見出し(デリミタ)を保持したまま分割する
+    # 結果は ['(空)', '## area1', 'area1の中身', '## area2', 'area2の中身', ...] というリストになる
+    sections = re.split(r'(^## .*)', content, flags=re.MULTILINE)
+
+    # 最初の要素はヘッダー部分なので無視し、2つずつペアで処理する
+    for i in range(1, len(sections), 2):
+        area_key = sections[i][3:].strip()
+        area_content = sections[i+1]
+
+        world_data[area_key] = {}
+
+        # ### でさらに部屋ごとに分割
+        sub_sections = re.split(r'(^### .*)', area_content, flags=re.MULTILINE)
+
+        # ### の前にあるエリア直下のプロパティを解析
+        area_props_content = sub_sections[0].strip()
+        if area_props_content:
+            try:
+                area_props = yaml.safe_load(area_props_content)
+                if isinstance(area_props, dict):
+                    world_data[area_key].update(area_props)
+            except yaml.YAMLError as e:
+                print(f"警告: エリア '{area_key}' のプロパティ解析中にエラー: {e}")
+
+        # 各部屋のセクションを解析
+        for j in range(1, len(sub_sections), 2):
+            room_key = sub_sections[j][4:].strip()
+            room_content = sub_sections[j+1].strip()
+            if room_content:
+                try:
+                    room_props = yaml.safe_load(room_content)
+                    if isinstance(room_props, dict):
+                        world_data[area_key][room_key] = room_props
+                except yaml.YAMLError as e:
+                    print(f"警告: 部屋 '{room_key}' の解析中にエラー: {e}")
+
+    return world_data

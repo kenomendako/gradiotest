@@ -51,17 +51,22 @@ def ensure_character_files(character_name):
             with open(memory_json_file, "w", encoding="utf-8") as f:
                 json.dump(default_memory_data, f, indent=2, ensure_ascii=False)
 
-        world_settings_file = os.path.join(spaces_dir, "world_settings.json")
+        # world_settings.json の作成ロジックを world_settings.md の作成ロジックに置き換える
+        world_settings_file = os.path.join(spaces_dir, "world_settings.md") # 新しいファイル名
         if not os.path.exists(world_settings_file):
-            default_world_data = {
-                "living_space": {
-                    "name": "共有リビング",
-                    "description": "広々としたリビングルーム。大きな窓からは柔らかな光が差し込み、快適なソファが置かれている。",
-                    "objects": ["ソファ", "ローテーブル", "観葉植物"]
-                }
-            }
+            # ▼▼▼ デフォルトのデータをMarkdown形式で書き込む ▼▼▼
+            default_world_data_md = """
+## 共有リビング
+- name: 共有リビング
+- description: 広々としたリビングルーム。大きな窓からは柔らかな光が差し込み、快適なソファが置かれている。
+- objects:
+    - ソファ
+    - ローテーブル
+    - 観葉植物
+"""
             with open(world_settings_file, "w", encoding="utf-8") as f:
-                json.dump(default_world_data, f, indent=2, ensure_ascii=False)
+                f.write(default_world_data_md.strip())
+            # ▲▲▲ 修正ここまで ▲▲▲
 
         config_file = os.path.join(base_path, "character_config.json")
         if not os.path.exists(config_file):
@@ -112,24 +117,31 @@ def get_character_files_paths(character_name):
 
 def get_world_settings_path(character_name: str):
     if not character_name or not ensure_character_files(character_name): return None
-    return os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "world_settings.json")
+    # ▼▼▼ .json から .md に変更 ▼▼▼
+    return os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "world_settings.md")
 
 def find_space_data_by_id_recursive(data: dict, target_id: str) -> Optional[dict]:
     """
     ネストされた辞書の中から、指定されたID（キー）を持つ空間データを再帰的に探し出す。
+    トップレベルのキーも検索対象とするように修正。
     """
     if not isinstance(data, dict):
         return None
 
-    # まず、現在の階層で探す
+    # ▼▼▼ 修正の核心 ▼▼▼
+    # 1. まず、渡されたデータ全体の中に、探しているIDがトップレベルのキーとして存在するかチェック
     if target_id in data:
         return data[target_id]
 
-    # 見つからなければ、さらに深い階層を探す
+    # 2. トップレベルになければ、各値を辿って再帰的に探索
     for key, value in data.items():
         if isinstance(value, dict):
+            # 再帰呼び出しの結果を found に格納
             found = find_space_data_by_id_recursive(value, target_id)
-            if found:
+            # もし見つかったら、その結果をすぐに返す
+            if found is not None:
                 return found
 
+    # すべて探しても見つからなかった場合
     return None
+    # ▲▲▲ 修正ここまで ▲▲▲

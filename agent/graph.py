@@ -79,12 +79,17 @@ def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, st
                 if content:
                     location_id = content
 
+        # ...
         world_settings_path = get_world_settings_path(character_name)
         space_data = {}
+        # ▼▼▼ この if ブロックを修正 ▼▼▼
         if world_settings_path and os.path.exists(world_settings_path):
-            world_settings = load_memory_data_safe(world_settings_path)
-            if "error" not in world_settings:
+            # JSON読み込みからMarkdown解析に変更
+            from utils import parse_world_markdown # インポートを確認
+            world_settings = parse_world_markdown(world_settings_path)
+            if world_settings: # 解析結果が空でないことを確認
                 space_data = find_space_data_by_id_recursive(world_settings, location_id)
+        # ▲▲▲ 修正ここまで ▲▲▲
 
         if space_data and isinstance(space_data, dict):
             location_display_name = space_data.get("name", location_id)

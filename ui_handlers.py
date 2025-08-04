@@ -28,39 +28,36 @@ DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 
 def get_location_list_for_ui(character_name: str) -> list:
+    """
+    UIの移動先ドロップダウン用のリストを生成する。
+    エリアと部屋の両方をリストに含める。
+    """
     if not character_name: return []
 
     world_settings_path = get_world_settings_path(character_name)
-    world_data = load_memory_data_safe(world_settings_path)
+    from utils import parse_world_markdown
+    world_data = parse_world_markdown(world_settings_path)
 
-    if "error" in world_data: return []
+    if not world_data: return []
 
     location_list = []
+    # 2階層のループで、エリアと部屋をすべて探索する
+    for area_id, area_data in world_data.items():
+        if not isinstance(area_data, dict): continue
 
-    # ▼▼▼ 修正の核心：再帰的に場所を探索するヘルパー関数を定義 ▼▼▼
-    def find_locations_recursive(data: dict, parent_key: str = ""):
-        # 現在の階層に "name" キーがあれば、それは独立した場所とみなす
-        if "name" in data and isinstance(data["name"], str):
-            # キーが見つからない場合は親キーを使うなどのフォールバックは、ここでは不要
-            # この関数は、あくまで存在する場所をリストアップするため
-            location_list.append((data["name"], parent_key))
+        # まず、エリア自体に 'name' があれば、それをリストに追加
+        if 'name' in area_data:
+            location_list.append((area_data['name'], area_id))
 
-        # さらに深い階層を探索
-        for key, value in data.items():
-            # 値が辞書であれば、再帰的に探索を続ける
-            if isinstance(value, dict):
-                find_locations_recursive(value, key)
-    # ▲▲▲ ヘルパー関数の定義ここまで ▲▲▲
-
-    # 読み込んだJSONデータ全体に対して、再帰的な探索を開始
-    for top_level_key, top_level_value in world_data.items():
-        if isinstance(top_level_value, dict):
-            find_locations_recursive(top_level_value, top_level_key)
+        # 次に、エリア内の各要素をチェック
+        for room_id, room_data in area_data.items():
+            # 値が辞書で、かつ 'name' キーを持つなら、それは部屋だと判断
+            if isinstance(room_data, dict) and 'name' in room_data:
+                location_list.append((room_data['name'], room_id))
 
     # 重複を除外し、名前でソートして返す
-    # dict.fromkeysで重複を除去し、再度リストに変換
-    unique_locations = list(dict.fromkeys(location_list))
-    return sorted(unique_locations, key=lambda x: x[0])
+    unique_locations = sorted(list(set(location_list)), key=lambda x: x[0])
+    return unique_locations
 
 def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
@@ -286,7 +283,10 @@ def handle_location_change(character_name: str, location_id: str) -> Tuple[str, 
 
     # 新しい場所の名前を取得
     world_settings_path = get_world_settings_path(character_name)
-    world_data = load_memory_data_safe(world_settings_path)
+    # ▼▼▼ 修正箇所 ▼▼▼
+    from utils import parse_world_markdown
+    world_data = parse_world_markdown(world_settings_path)
+    # ▲▲▲ 修正ここまで ▲▲▲
     new_location_name = location_id # デフォルト
     if "error" not in world_data:
         from character_manager import find_space_data_by_id_recursive
