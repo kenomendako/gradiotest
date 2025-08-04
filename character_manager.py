@@ -4,6 +4,7 @@ import os
 import json
 import traceback
 import datetime
+from typing import Optional
 # ▼▼▼ 修正の核心：config_managerへの依存をなくし、constantsから定数を直接インポートする ▼▼▼
 import constants
 
