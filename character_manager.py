@@ -1,10 +1,11 @@
-# character_manager.py (リファクタリング版)
+# character_manager.py (最終確定版)
 
 import os
 import json
 import traceback
 import datetime
-import constants  # config_managerの代わりにconstantsをインポート
+# ▼▼▼ 修正の核心：config_managerへの依存をなくし、constantsから定数を直接インポートする ▼▼▼
+import constants
 
 def ensure_character_files(character_name):
     if not character_name or not isinstance(character_name, str) or not character_name.strip(): return False
