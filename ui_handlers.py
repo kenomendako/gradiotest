@@ -257,11 +257,16 @@ def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[s
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not character_name or not api_key:
         return "（エラー）", "（キャラクターまたはAPIキーが未設定です）"
+
     from agent.graph import get_configured_llm
     location_id = utils.get_current_location(character_name) or "living_space"
     world_settings_path = get_world_settings_path(character_name)
     world_data = load_memory_data_safe(world_settings_path)
-    space_data = world_data.get(location_id, {}) if "error" not in world_data else {}
+
+    # ▼▼▼ 修正の核心：単純な .get() をやめ、新しいマスター探索関数を呼び出す ▼▼▼
+    space_data = character_manager.find_space_data_by_id_recursive(world_data, location_id) if "error" not in world_data else {}
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     location_display_name, space_def, scenery_text = location_id, "（現在の場所の定義・設定は、取得できませんでした）", "（場所の定義がないため、情景を描写できません）"
     try:
         if space_data and isinstance(space_data, dict):

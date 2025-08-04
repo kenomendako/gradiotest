@@ -99,3 +99,23 @@ def get_character_files_paths(character_name):
 def get_world_settings_path(character_name: str):
     if not character_name or not ensure_character_files(character_name): return None
     return os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "world_settings.json")
+
+def find_space_data_by_id_recursive(data: dict, target_id: str) -> Optional[dict]:
+    """
+    ネストされた辞書の中から、指定されたID（キー）を持つ空間データを再帰的に探し出す。
+    """
+    if not isinstance(data, dict):
+        return None
+
+    # まず、現在の階層で探す
+    if target_id in data:
+        return data[target_id]
+
+    # 見つからなければ、さらに深い階層を探す
+    for key, value in data.items():
+        if isinstance(value, dict):
+            found = find_space_data_by_id_recursive(value, target_id)
+            if found:
+                return found
+
+    return None
