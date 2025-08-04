@@ -156,7 +156,8 @@ def update_token_count_on_input(character_name: str, api_key_name: str, textbox_
     )
 
 def handle_message_submission(*args: Any):
-    (textbox_content, current_character_name, current_api_key_name_state, file_input_list, api_history_limit_state) = args
+    (textbox_content, current_character_name, current_api_key_name_state,
+     file_input_list, api_history_limit_state, debug_mode_state) = args
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
@@ -185,7 +186,10 @@ def handle_message_submission(*args: Any):
 
     response_data = {}
     try:
-        agent_args = (textbox_content, current_character_name, current_api_key_name_state, file_input_list, api_history_limit_state)
+        agent_args = (
+            textbox_content, current_character_name, current_api_key_name_state,
+            file_input_list, api_history_limit_state, debug_mode_state
+        )
         response_data = gemini_api.invoke_nexus_agent(*agent_args)
     except Exception as e:
         traceback.print_exc()

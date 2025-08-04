@@ -47,6 +47,7 @@ class AgentState(TypedDict):
     send_notepad: bool
     location_name: str
     scenery_text: str
+    debug_mode: bool
 
 def get_configured_llm(model_name: str, api_key: str):
     return ChatGoogleGenerativeAI(
@@ -210,6 +211,15 @@ def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
     print(f"  - 使用モデル: {state['model_name']}")
     print(f"  - システムプロンプト長: {len(state['system_prompt'].content)} 文字")
+
+    # デバッグモードがTrueの場合のみ、システムプロンプトの全文を出力する
+    if state.get("debug_mode", False):
+        print("--- [DEBUG MODE] システムプロンプトの内容（AIへの最終指示書） ---")
+        # 出力が長くなりすぎないよう、最初の数千文字などに制限しても良い
+        # print(state['system_prompt'].content[:3000] + "...")
+        print(state['system_prompt'].content)
+        print("----------------------------------------------------------")
+
     llm = get_configured_llm(state['model_name'], state['api_key'])
     llm_with_tools = llm.bind_tools(all_tools)
     messages_for_agent = [state['system_prompt']] + state['messages']

@@ -73,7 +73,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     # (この関数の中身は変更ありません)
     (textbox_content, current_character_name,
      current_api_key_name_state, file_input_list,
-     api_history_limit_state) = args
+     api_history_limit_state, debug_mode_state) = args
 
     effective_settings = config_manager.get_effective_settings(current_character_name)
     current_model_name, send_thoughts_state = effective_settings["model_name"], effective_settings["send_thoughts"]
@@ -128,7 +128,8 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
         "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True),
         "send_notepad": effective_settings.get("send_notepad", True),
-        "location_name": "（初期化中）", "scenery_text": "（初期化中）"
+        "location_name": "（初期化中）", "scenery_text": "（初期化中）",
+        "debug_mode": debug_mode_state
     }
     try:
         final_state = app.invoke(initial_state)
