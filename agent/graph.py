@@ -104,29 +104,41 @@ def context_generator_node(state: AgentState):
     location_display_name = "（不明な場所）"
 
     try:
-        location_id_to_process = None
+        # ▼▼▼ ここからが修正箇所 ▼▼▼
+        location_id = None  # まずNoneで初期化
+
+        # 直前のツール実行結果から場所IDを取得する試み
         last_tool_message = next((msg for msg in reversed(state['messages']) if isinstance(msg, ToolMessage)), None)
         if last_tool_message and "Success: Current location has been set to" in last_tool_message.content:
             match = re.search(r"'(.*?)'", last_tool_message.content)
             if match:
-                location_id_to_process = match.group(1)
+                location_id = match.group(1)
 
-        if not location_id_to_process:
+        # ツール実行結果に場所IDがなければ、ファイルから読み込む
+        if not location_id:
             location_file_path = os.path.join("characters", character_name, "current_location.txt")
             if os.path.exists(location_file_path):
                 with open(location_file_path, 'r', encoding='utf-8') as f:
                     content = f.read().strip()
-                    if content: location_id_to_process = content
+                    if content:
+                        location_id = content
 
-        if not location_id: location_id = "living_space"
+        # それでも場所IDがなければ、デフォルト値を設定
+        if not location_id:
+            location_id = "living_space"
+
+        # 必要なヘルパー関数をここでインポート
+        from character_manager import get_world_settings_path, find_space_data_by_id_recursive
+        from memory_manager import load_memory_data_safe
 
         world_settings_path = get_world_settings_path(character_name)
         space_data = {}
         if world_settings_path and os.path.exists(world_settings_path):
             world_settings = load_memory_data_safe(world_settings_path)
             if "error" not in world_settings:
-                from character_manager import find_space_data_by_id_recursive
+                # 修正されたIDを使って、空間定義を正しく検索する
                 space_data = find_space_data_by_id_recursive(world_settings, location_id)
+        # ▲▲▲ 修正箇所ここまで ▲▲▲
 
         if space_data and isinstance(space_data, dict):
             location_display_name = space_data.get("name", location_id)

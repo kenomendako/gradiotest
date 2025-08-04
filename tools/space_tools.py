@@ -62,15 +62,33 @@ def set_current_location(location: str, character_name: str = None) -> str:
     if not location or not character_name:
         return "【Error】Location and character name are required."
 
-    found_id_result = find_location_id_by_name.func(location_name=location, character_name=character_name)
+    # ▼▼▼ ここからが修正箇所 ▼▼▼
+    world_settings_path = get_world_settings_path(character_name)
+    if not world_settings_path or not os.path.exists(world_settings_path):
+        return f"【Error】Could not find world settings file for character '{character_name}'."
+    world_data = load_memory_data_safe(world_settings_path)
+    if "error" in world_data:
+        return f"【Error】Could not load world settings for '{character_name}'."
 
-    if not found_id_result.startswith("【Error】"):
-        location_to_set = found_id_result
-        print(f"  - Identified location ID '{location_to_set}' from name '{location}'.")
-    else:
+    location_to_set = None
+
+    # 1. 渡された文字列がIDとして有効か、まずチェックする
+    from character_manager import find_space_data_by_id_recursive
+    if find_space_data_by_id_recursive(world_data, location):
         location_to_set = location
-        print(f"  - Using '{location}' directly as location ID.")
+        print(f"  - '{location}' は有効な場所IDとして認識されました。")
 
+    # 2. IDとして見つからなければ、名前として検索を試みる
+    if not location_to_set:
+        print(f"  - '{location}' は直接的なIDではないため、名前として検索します...")
+        found_id_result = find_location_id_by_name.func(location_name=location, character_name=character_name)
+        if not found_id_result.startswith("【Error】"):
+            location_to_set = found_id_result
+            print(f"  - 名前 '{location}' から場所ID '{location_to_set}' を特定しました。")
+
+    # 3. それでも見つからなければ、明確なエラーを返す
+    if not location_to_set:
+        return f"【Error】場所 '{location}' は有効なIDまたは名前として見つかりませんでした。"
 
     try:
         base_path = os.path.join("characters", character_name)
@@ -81,4 +99,5 @@ def set_current_location(location: str, character_name: str = None) -> str:
 
         return f"Success: Current location has been set to '{location_to_set}'."
     except Exception as e:
-        return f"【Error】Failed to set current location: {e}"
+        return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
+    # ▲▲▲ 修正箇所ここまで ▲▲▲
