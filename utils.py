@@ -1,5 +1,6 @@
 # utils.py (完全最終版)
 
+import datetime
 import os
 import re
 import traceback
@@ -7,6 +8,7 @@ import html
 from typing import List, Dict, Optional, Tuple, Union
 import gradio as gr
 import character_manager
+import constants
 import sys
 import psutil
 from pathlib import Path
@@ -308,3 +310,39 @@ def extract_raw_text_from_html(html_content: Union[str, tuple, None]) -> str:
     main_text = soup.get_text()
 
     return (thoughts_text + main_text).strip()
+
+
+# ▼▼▼ ここからが追加箇所（ファイルの一番下） ▼▼▼
+def load_scenery_cache(character_name: str) -> dict:
+    """指定されたキャラクターの情景キャッシュファイルを安全に読み込む。"""
+    if not character_name:
+        return {}
+    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "last_scenery.json")
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                if not content.strip(): return {} # ファイルが空の場合の対策
+                data = json.loads(content)
+                return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, IOError):
+            # ファイルが破損している、または読み取り中にエラーが発生した場合
+            return {}
+    return {}
+
+def save_scenery_cache(character_name: str, location_name: str, scenery_text: str):
+    """指定されたキャラクターの情景キャッシュファイルにデータを保存する。"""
+    if not character_name:
+        return
+    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "last_scenery.json")
+    try:
+        data_to_save = {
+            "location_name": location_name,
+            "scenery_text": scenery_text,
+            "timestamp": datetime.datetime.now().isoformat()
+        }
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(data_to_save, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"!! エラー: 情景キャッシュの保存に失敗しました: {e}")
+# ▲▲▲ 追加箇所ここまで ▲▲▲

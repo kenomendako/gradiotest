@@ -32,6 +32,14 @@ def ensure_character_files(character_name):
             if not os.path.exists(file_path):
                 with open(file_path, "w", encoding="utf-8") as f: f.write(default_content)
 
+        # ▼▼▼ ここからが追加箇所 ▼▼▼
+        # last_scenery.jsonの存在を確認し、なければ空のJSONオブジェクトで作成
+        scenery_cache_file = os.path.join(base_path, "last_scenery.json")
+        if not os.path.exists(scenery_cache_file):
+            with open(scenery_cache_file, "w", encoding="utf-8") as f:
+                json.dump({}, f, indent=2, ensure_ascii=False)
+        # ▲▲▲ 追加箇所ここまで ▲▲▲
+
         memory_json_file = os.path.join(base_path, constants.MEMORY_FILENAME)
         if not os.path.exists(memory_json_file):
             default_memory_data = {"last_updated": None, "user_profile": {}, "self_identity": {"name": character_name}}
