@@ -25,14 +25,38 @@ DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 def get_location_list_for_ui(character_name: str) -> list:
     if not character_name: return []
+
     world_settings_path = get_world_settings_path(character_name)
     world_data = load_memory_data_safe(world_settings_path)
+
     if "error" in world_data: return []
+
     location_list = []
-    for loc_id, details in world_data.items():
-        if isinstance(details, dict):
-            location_list.append((details.get("name", loc_id), loc_id))
-    return sorted(location_list, key=lambda x: x[0])
+
+    # ▼▼▼ 修正の核心：再帰的に場所を探索するヘルパー関数を定義 ▼▼▼
+    def find_locations_recursive(data: dict, parent_key: str = ""):
+        # 現在の階層に "name" キーがあれば、それは独立した場所とみなす
+        if "name" in data and isinstance(data["name"], str):
+            # キーが見つからない場合は親キーを使うなどのフォールバックは、ここでは不要
+            # この関数は、あくまで存在する場所をリストアップするため
+            location_list.append((data["name"], parent_key))
+
+        # さらに深い階層を探索
+        for key, value in data.items():
+            # 値が辞書であれば、再帰的に探索を続ける
+            if isinstance(value, dict):
+                find_locations_recursive(value, key)
+    # ▲▲▲ ヘルパー関数の定義ここまで ▲▲▲
+
+    # 読み込んだJSONデータ全体に対して、再帰的な探索を開始
+    for top_level_key, top_level_value in world_data.items():
+        if isinstance(top_level_value, dict):
+            find_locations_recursive(top_level_value, top_level_key)
+
+    # 重複を除外し、名前でソートして返す
+    # dict.fromkeysで重複を除去し、再度リストに変換
+    unique_locations = list(dict.fromkeys(location_list))
+    return sorted(unique_locations, key=lambda x: x[0])
 
 def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
@@ -46,12 +70,7 @@ def handle_character_change(character_name: str, api_key_name: str):
         char_list = character_manager.get_character_list()
         character_name = char_list[0] if char_list else "Default"
 
-    # ▼▼▼ ここから診断コード ▼▼▼
-    print("\n" + "="*50)
-    print("--- [DIAGNOSTIC MODE] handle_character_change ---")
-    print(f"--- 1. キャラクター '{character_name}' のUI更新を開始します。 ---")
-    # ▲▲▲ 診断コードここまで ▲▲▲
-
+    print(f"--- UI更新司令塔(handle_character_change)実行: {character_name} ---")
     config_manager.save_config("last_character", character_name)
 
     chat_history, mapping_list = reload_chat_log(character_name, config_manager.initial_api_history_limit_option_global)
@@ -62,12 +81,7 @@ def handle_character_change(character_name: str, api_key_name: str):
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
 
-    # ▼▼▼ ここから診断コード ▼▼▼
-    print("--- 2. 移動先リスト生成のため、get_location_list_for_ui を呼び出します。 ---")
     locations = get_location_list_for_ui(character_name)
-    print(f"--- 6. get_location_list_for_ui から戻りました。生成されたリスト: {locations} ---")
-    # ▲▲▲ 診断コードここまで ▲▲▲
-
     current_location_id = utils.get_current_location(character_name)
     world_settings_path = get_world_settings_path(character_name)
     world_data = load_memory_data_safe(world_settings_path)
@@ -82,12 +96,6 @@ def handle_character_change(character_name: str, api_key_name: str):
     model_val = effective_settings["model_name"] if effective_settings["model_name"] != config_manager.initial_model_global else "デフォルト"
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "vindemiatrix"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
-
-    # ▼▼▼ ここから診断コード ▼▼▼
-    print(f"--- 7. UI更新のための最終データを準備しました。Dropdown choices: {[loc[0] for loc in locations]} ---")
-    print("--- [DIAGNOSTIC MODE] END ---")
-    print("="*50 + "\n")
-    # ▲▲▲ 診断コードここまで ▲▲▲
 
     return (
         character_name,
@@ -117,37 +125,37 @@ def handle_character_change(character_name: str, api_key_name: str):
 def get_location_list_for_ui(character_name: str) -> list:
     if not character_name: return []
 
-    # ▼▼▼ ここから診断コード ▼▼▼
-    print("--- 3. get_location_list_for_ui の内部処理を開始します。 ---")
     world_settings_path = get_world_settings_path(character_name)
-    print(f"    - 取得した world_settings.json のパス: {world_settings_path}")
-
-    if world_settings_path and os.path.exists(world_settings_path):
-        print(f"    - os.path.exists の結果: True (ファイルは存在します)")
-    else:
-        print(f"    - os.path.exists の結果: False (ファイルが存在しません！)")
-    # ▲▲▲ 診断コードここまで ▲▲▲
-
     world_data = load_memory_data_safe(world_settings_path)
 
-    # ▼▼▼ ここから診断コード ▼▼▼
-    print(f"--- 4. load_memory_data_safe で読み込んだデータ(先頭300文字): {str(world_data)[:300]}... ---")
-    # ▲▲▲ 診断コードここまで ▲▲▲
-
-    if "error" in world_data:
-        print("    - 読み込みデータに 'error' キーが含まれていたため、空のリストを返します。")
-        return []
+    if "error" in world_data: return []
 
     location_list = []
-    for loc_id, details in world_data.items():
-        if isinstance(details, dict):
-            location_list.append((details.get("name", loc_id), loc_id))
 
-    # ▼▼▼ ここから診断コード ▼▼▼
-    print(f"--- 5. JSONデータから生成した場所リスト: {location_list} ---")
-    # ▲▲▲ 診断コードここまで ▲▲▲
+    # ▼▼▼ 修正の核心：再帰的に場所を探索するヘルパー関数を定義 ▼▼▼
+    def find_locations_recursive(data: dict, parent_key: str = ""):
+        # 現在の階層に "name" キーがあれば、それは独立した場所とみなす
+        if "name" in data and isinstance(data["name"], str):
+            # キーが見つからない場合は親キーを使うなどのフォールバックは、ここでは不要
+            # この関数は、あくまで存在する場所をリストアップするため
+            location_list.append((data["name"], parent_key))
 
-    return sorted(location_list, key=lambda x: x[0])
+        # さらに深い階層を探索
+        for key, value in data.items():
+            # 値が辞書であれば、再帰的に探索を続ける
+            if isinstance(value, dict):
+                find_locations_recursive(value, key)
+    # ▲▲▲ ヘルパー関数の定義ここまで ▲▲▲
+
+    # 読み込んだJSONデータ全体に対して、再帰的な探索を開始
+    for top_level_key, top_level_value in world_data.items():
+        if isinstance(top_level_value, dict):
+            find_locations_recursive(top_level_value, top_level_key)
+
+    # 重複を除外し、名前でソートして返す
+    # dict.fromkeysで重複を除去し、再度リストに変換
+    unique_locations = list(dict.fromkeys(location_list))
+    return sorted(unique_locations, key=lambda x: x[0])
 
 def handle_save_char_settings(character_name: str, model_name: str, voice_name: str, voice_style_prompt: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
     if not character_name: gr.Warning("設定を保存するキャラクターが選択されていません。"); return
