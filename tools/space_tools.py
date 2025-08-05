@@ -9,8 +9,7 @@ from memory_manager import load_memory_data_safe
 @tool
 def find_location_id_by_name(location_name: str, character_name: str = None) -> str:
     """
-    「書斎」や「屋上テラス」といった日本語の場所名から、システムが使うための正式なID（例: "study", "rooftop_terrace"）を検索して返す。
-    location_name: ユーザーが言及した場所の日本語名。
+    「書斎」や「屋上テラス」といった日本語の場所名から、システムが使うための正式なID（例: "study", "Rooftop Terrace"）を検索して返す。
     """
     if not location_name or not character_name:
         return "【Error】Location name and character name are required."
@@ -19,38 +18,37 @@ def find_location_id_by_name(location_name: str, character_name: str = None) -> 
     if not world_settings_path or not os.path.exists(world_settings_path):
         return f"【Error】Could not find world settings file for character '{character_name}'."
 
-    world_data = load_memory_data_safe(world_settings_path)
-    if "error" in world_data:
-        return f"【Error】Could not load world settings for '{character_name}'."
+    from utils import parse_world_markdown
+    world_data = parse_world_markdown(world_settings_path)
+    if not world_data:
+        return f"【Error】Could not load or parse world settings for '{character_name}'."
 
-    # ▼▼▼ 修正の核心：再帰的に探索するロジックに変更 ▼▼▼
-    def find_id_recursive(data: dict, parent_key: str = "") -> Optional[str]:
-        # 現在の階層に "name" があり、それが探している名前と一致するかチェック
-        if "name" in data and data["name"].lower() == location_name.lower():
-            return parent_key
+    # ▼▼▼ 新しい、堅牢な再帰検索ロジック ▼▼▼
+    def find_id_recursive(data: dict) -> Optional[str]:
+        # data自体が辞書でない場合は探索終了
+        if not isinstance(data, dict):
+            return None
 
-        # さらに深い階層を探索
         for key, value in data.items():
-            if isinstance(value, dict):
-                found_id = find_id_recursive(value, key)
-                if found_id:
-                    return found_id
+            # 値が辞書であり、'name'キーが探している名前と一致する場合
+            if isinstance(value, dict) and value.get("name", "").lower() == location_name.lower():
+                return key # IDであるキーを返す
+
+            # さらに深い階層を探索
+            found_id = find_id_recursive(value)
+            if found_id:
+                return found_id
+
         return None
 
-    # 探索を開始
-    for top_level_key, top_level_value in world_data.items():
-        if isinstance(top_level_value, dict):
-            # まずトップレベルのオブジェクト自身をチェック
-            if "name" in top_level_value and top_level_value["name"].lower() == location_name.lower():
-                return top_level_key
-            # 次に、その中身を再帰的にチェック
-            found_id = find_id_recursive(top_level_value, top_level_key)
-            if found_id:
-                # find_id_recursiveは親キーを返すので、ネストされた場所の場合はそのキーを返す
-                return found_id
+    # トップレベルから探索を開始
+    found_location_id = find_id_recursive(world_data)
     # ▲▲▲ 修正ここまで ▲▲▲
 
-    return f"【Error】Location '{location_name}' not found. Check for typos or define it first."
+    if found_location_id:
+        return found_location_id
+    else:
+        return f"【Error】Location '{location_name}' not found. Check for typos or define it first."
 
 
 @tool

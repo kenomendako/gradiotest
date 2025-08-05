@@ -208,9 +208,7 @@ def handle_message_submission(*args: Any):
     if not location_name.startswith("（"):
         utils.save_scenery_cache(current_character_name, location_name, scenery_text)
         current_location_id = utils.get_current_location(current_character_name)
-        # ▼▼▼ 修正箇所：探すだけ。なければNoneを返す。 ▼▼▼
         scenery_image_path = utils.find_scenery_image(current_character_name, current_location_id)
-    # ▲▲▲ 修正ここまで ▲▲▲
 
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     final_log_message = "\n\n".join(log_message_parts).strip()
