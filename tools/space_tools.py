@@ -55,47 +55,44 @@ def find_location_id_by_name(location_name: str, character_name: str = None) -> 
 def set_current_location(location: str, character_name: str = None) -> str:
     """
     AIの現在地を設定する。この世界のどこにいるかを宣言するための、唯一の公式な手段。
-    location: "study"のような場所のID、または"書斎"のような日本語名を指定。日本語名が指定された場合、自動でIDを検索します。
+    location: "study"のような場所のID、または"書斎"のような日本語名を指定。
     """
     if not location or not character_name:
         return "【Error】Location and character name are required."
 
-    # ▼▼▼ ここからが修正箇所 ▼▼▼
+    # --- 世界設定を読み込む ---
     world_settings_path = get_world_settings_path(character_name)
     if not world_settings_path or not os.path.exists(world_settings_path):
         return f"【Error】Could not find world settings file for character '{character_name}'."
-    world_data = load_memory_data_safe(world_settings_path)
-    if "error" in world_data:
-        return f"【Error】Could not load world settings for '{character_name}'."
+    from utils import parse_world_markdown
+    world_data = parse_world_markdown(world_settings_path)
+    if not world_data:
+        return f"【Error】Could not load or parse world settings for '{character_name}'."
 
-    location_to_set = None
+    final_id_to_set = None
 
-    # 1. 渡された文字列がIDとして有効か、まずチェックする
+    # --- 1. まず、渡された文字列が有効な「ID」として存在するかチェック ---
     from character_manager import find_space_data_by_id_recursive
-    if find_space_data_by_id_recursive(world_data, location):
-        location_to_set = location
-        print(f"  - '{location}' は有効な場所IDとして認識されました。")
+    if find_space_data_by_id_recursive(world_data, location) is not None:
+        final_id_to_set = location
+        print(f"  - 入力 '{location}' は有効な場所IDとして直接認識されました。")
+    else:
+        # --- 2. IDとして見つからなければ、「名前」として検索を試みる ---
+        print(f"  - 入力 '{location}' は直接的なIDではないため、名前として検索します...")
+        id_from_name = find_location_id_by_name.func(location_name=location, character_name=character_name)
+        if not id_from_name.startswith("【Error】"):
+            final_id_to_set = id_from_name
+            print(f"  - 名前 '{location}' から場所ID '{final_id_to_set}' を特定しました。")
 
-    # 2. IDとして見つからなければ、名前として検索を試みる
-    if not location_to_set:
-        print(f"  - '{location}' は直接的なIDではないため、名前として検索します...")
-        found_id_result = find_location_id_by_name.func(location_name=location, character_name=character_name)
-        if not found_id_result.startswith("【Error】"):
-            location_to_set = found_id_result
-            print(f"  - 名前 '{location}' から場所ID '{location_to_set}' を特定しました。")
-
-    # 3. それでも見つからなければ、明確なエラーを返す
-    if not location_to_set:
+    # --- 3. IDが確定したらファイルに書き込み、さもなければエラーを返す ---
+    if final_id_to_set:
+        try:
+            base_path = os.path.join("characters", character_name)
+            location_file_path = os.path.join(base_path, "current_location.txt")
+            with open(location_file_path, "w", encoding="utf-8") as f:
+                f.write(final_id_to_set.strip())
+            return f"Success: Current location has been set to '{final_id_to_set}'."
+        except Exception as e:
+            return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
+    else:
         return f"【Error】場所 '{location}' は有効なIDまたは名前として見つかりませんでした。"
-
-    try:
-        base_path = os.path.join("characters", character_name)
-        location_file_path = os.path.join(base_path, "current_location.txt")
-
-        with open(location_file_path, "w", encoding="utf-8") as f:
-            f.write(location_to_set.strip())
-
-        return f"Success: Current location has been set to '{location_to_set}'."
-    except Exception as e:
-        return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
-    # ▲▲▲ 修正箇所ここまで ▲▲▲

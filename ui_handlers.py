@@ -253,49 +253,54 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
 
     return location_name, scenery_text, scenery_image_path
 
-def handle_location_change(character_name: str, location_id: str) -> Tuple[str, str]:
+def handle_location_change(character_name: str, location_id: str) -> Tuple[str, str, Optional[str]]:
     from tools.space_tools import set_current_location
     print(f"--- UIからの場所変更処理開始: キャラクター='{character_name}', 移動先ID='{location_id}' ---")
 
-    # --- エラー発生時のために、現在の場所の名前を先に取得しておく ---
+    # --- エラー発生時のために、現在の状態を先に取得しておく ---
     current_loc_name = "（場所不明）"
     scenery_text = "（場所の変更に失敗しました）"
+    current_image_path = None
     scenery_cache = utils.load_scenery_cache(character_name)
     if scenery_cache:
         current_loc_name = scenery_cache.get("location_name", current_loc_name)
         scenery_text = scenery_cache.get("scenery_text", scenery_text)
 
+    # 現在の画像も取得しておく
+    current_location_id_before_move = utils.get_current_location(character_name)
+    current_image_path = utils.find_scenery_image(character_name, current_location_id_before_move)
+
     if not character_name or not location_id:
         gr.Warning("キャラクターと移動先の場所を選択してください。")
-        return current_loc_name, scenery_text
+        return current_loc_name, scenery_text, current_image_path
 
     # --- ツールを呼び出して現在地ファイルを更新 ---
     result = set_current_location.func(location=location_id, character_name=character_name)
 
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
-        return current_loc_name, scenery_text
+        return current_loc_name, scenery_text, current_image_path
 
-    # --- 成功した場合、APIは呼び出さず、UI表示の更新だけを行う ---
-    gr.Info(f"場所を移動しました。")
+    # --- 成功した場合、UI表示の更新を行う ---
+    gr.Info(f"場所を「{location_id}」に移動しました。")
 
     # 新しい場所の名前を取得
     world_settings_path = get_world_settings_path(character_name)
-    # ▼▼▼ 修正箇所 ▼▼▼
     from utils import parse_world_markdown
     world_data = parse_world_markdown(world_settings_path)
-    # ▲▲▲ 修正ここまで ▲▲▲
     new_location_name = location_id # デフォルト
-    if "error" not in world_data:
+    if world_data:
         from character_manager import find_space_data_by_id_recursive
         space_data = find_space_data_by_id_recursive(world_data, location_id)
         if space_data and isinstance(space_data, dict):
             new_location_name = space_data.get("name", location_id)
 
-    # ユーザーに次のアクションを促すメッセージを生成
     new_scenery_text = f"（場所を「{new_location_name}」に移動しました。「情景を更新」ボタン、またはAIとの対話で新しい景色を確認できます）"
 
-    return new_location_name, new_scenery_text
+    # ▼▼▼ 修正の核心: 新しい場所の画像を探して返す ▼▼▼
+    new_image_path = utils.find_scenery_image(character_name, location_id)
+
+    return new_location_name, new_scenery_text, new_image_path
 
 def handle_add_new_character(character_name: str):
     char_list = character_manager.get_character_list()
