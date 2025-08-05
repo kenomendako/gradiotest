@@ -159,7 +159,12 @@ try:
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
-        context_token_calc_inputs = [current_character_name, current_api_key_name_state] + context_checkboxes
+        context_token_calc_inputs = [
+            current_character_name,
+            current_api_key_name_state,
+            # ▼▼▼ この行を追加 ▼▼▼
+            api_history_limit_state
+        ] + context_checkboxes
 
         # ▼▼▼ ここからが配線の修正箇所 ▼▼▼
         # handle_character_change が返す値の順番と、このリストのUI部品の順番を完全に一致させる
@@ -265,7 +270,14 @@ try:
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
 
-        token_calc_on_input_inputs = [current_character_name, current_api_key_name_state, chat_input_textbox, file_upload_button] + context_checkboxes
+        token_calc_on_input_inputs = [
+            current_character_name,
+            current_api_key_name_state,
+            # ▼▼▼ この行を追加 ▼▼▼
+            api_history_limit_state,
+            chat_input_textbox,
+            file_upload_button
+        ] + context_checkboxes
         chat_input_textbox.input(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
         file_upload_button.upload(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
         file_upload_button.clear(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
