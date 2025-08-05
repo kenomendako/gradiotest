@@ -137,15 +137,17 @@ def handle_save_char_settings(character_name: str, model_name: str, voice_name: 
         gr.Info(f"「{character_name}」の個別設定を保存しました。")
     except Exception as e: gr.Error(f"個別設定の保存中にエラーが発生しました: {e}"); traceback.print_exc()
 
-def handle_context_settings_change(character_name: str, api_key_name: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
+def handle_context_settings_change(character_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
     if not character_name or not api_key_name: return "入力トークン数: -"
     return gemini_api.count_input_tokens(
         character_name=character_name, api_key_name=api_key_name, parts=[],
+        # ▼▼▼ 引数を追加 ▼▼▼
+        api_history_limit=api_history_limit,
         add_timestamp=add_timestamp, send_thoughts=send_thoughts, send_notepad=send_notepad,
         use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
     )
 
-def update_token_count_on_input(character_name: str, api_key_name: str, textbox_content: str, file_list: list, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
+def update_token_count_on_input(character_name: str, api_key_name: str, api_history_limit: str, textbox_content: str, file_list: list, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
     if not character_name or not api_key_name: return "入力トークン数: -"
     parts_for_api = []
     if textbox_content: parts_for_api.append(textbox_content)
@@ -153,6 +155,8 @@ def update_token_count_on_input(character_name: str, api_key_name: str, textbox_
         for file_obj in file_list: parts_for_api.append(Image.open(file_obj.name))
     return gemini_api.count_input_tokens(
         character_name=character_name, api_key_name=api_key_name, parts=parts_for_api,
+        # ▼▼▼ 引数を追加 ▼▼▼
+        api_history_limit=api_history_limit,
         add_timestamp=add_timestamp, send_thoughts=send_thoughts, send_notepad=send_notepad,
         use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
     )

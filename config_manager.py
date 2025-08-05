@@ -89,13 +89,21 @@ def save_config(key, value, is_full_config=False):
     except Exception as e: print(f"設定保存エラー ({key}): {e}")
 
 def get_effective_settings(character_name: str) -> dict:
+    # 1. まず、グローバル設定のみで基本辞書を構築する
+    #    "add_timestamp" のようなキャラクター個別設定は、ここでは含めない
     effective_settings = {
-        "model_name": initial_model_global, "api_key_name": initial_api_key_name_global,
-        "add_timestamp": False,
-        "send_thoughts": initial_send_thoughts_to_api_global, "send_notepad": True,
-        "use_common_prompt": True, "send_core_memory": True, "send_scenery": True,
-        "voice_id": "vindemiatrix", "voice_style_prompt": ""
+        "model_name": initial_model_global,
+        "api_key_name": initial_api_key_name_global,
+        "send_thoughts": initial_send_thoughts_to_api_global,
+        "send_notepad": True,
+        "use_common_prompt": True,
+        "send_core_memory": True,
+        "send_scenery": True,
+        "voice_id": "vindemiatrix",
+        "voice_style_prompt": ""
     }
+
+    # 2. キャラクター個別の設定ファイルがあれば、それで上書きする
     if character_name:
         char_config_path = os.path.join(constants.CHARACTERS_DIR, character_name, "character_config.json")
         if os.path.exists(char_config_path):
@@ -104,7 +112,13 @@ def get_effective_settings(character_name: str) -> dict:
                     char_config = json.load(f)
                 override = char_config.get("override_settings", {})
                 for key, value in override.items():
-                    if value is not None: effective_settings[key] = value
+                    if value is not None:
+                        effective_settings[key] = value
             except (json.JSONDecodeError, IOError) as e:
                 print(f"警告: '{char_config_path}' の読込失敗: {e}")
+
+    # 3. 最後に、キャラクター個別設定にのみ存在するキーのデフォルト値を設定する
+    #    これにより、キーが存在しない場合でも安全にアクセスできる
+    effective_settings.setdefault("add_timestamp", False)
+
     return effective_settings

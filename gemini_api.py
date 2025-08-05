@@ -141,13 +141,15 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     except Exception as e:
         traceback.print_exc(); return {**default_error_response, "response": f"[エージェント実行エラー: {e}]"}
 
-# ▼▼▼ この関数全体を、以下のコードで完全に置き換えてください ▼▼▼
 def count_input_tokens(**kwargs):
-    character_name, api_key_name, parts = kwargs.get("character_name"), kwargs.get("api_key_name"), kwargs.get("parts", [])
+    character_name = kwargs.get("character_name")
+    api_key_name = kwargs.get("api_key_name")
+    api_history_limit = kwargs.get("api_history_limit") # 新しい引数を受け取る
+    parts = kwargs.get("parts", [])
+
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return "トークン数: (APIキーエラー)"
 
-    # --- ここからが修正箇所 ---
     try:
         effective_settings = config_manager.get_effective_settings(character_name)
         if kwargs.get("add_timestamp") is not None: effective_settings["add_timestamp"] = kwargs["add_timestamp"]
@@ -193,6 +195,18 @@ def count_input_tokens(**kwargs):
 
         log_file, _, _, _, _ = get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_file, character_name)
+
+        # ▼▼▼ ここからが修正の核心 ▼▼▼
+        limit = 0
+        if api_history_limit and api_history_limit.isdigit():
+            limit = int(api_history_limit)
+
+        # 履歴制限を適用する
+        if limit > 0 and len(raw_history) > limit * 2:
+            print(f"  - [Token Count] 履歴を последние {limit} ターンに制限します。")
+            raw_history = raw_history[-(limit * 2):]
+        # ▲▲▲ 修正ここまで ▲▲▲
+
         for h_item in raw_history:
             role, content = h_item.get('role'), h_item.get('content', '').strip()
             if not content: continue
@@ -228,4 +242,3 @@ def count_input_tokens(**kwargs):
         print(f"トークン計算中に予期せぬエラー: {e}")
         traceback.print_exc()
         return "トークン数: (例外発生)"
-    # --- 修正箇所ここまで ---
