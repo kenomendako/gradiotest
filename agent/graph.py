@@ -10,6 +10,7 @@ from datetime import datetime # ★ 追加
 from typing import TypedDict, Annotated, List, Literal, Optional, Tuple # ★ OptionalとTupleを追加
 
 # 2. 既存のインポートの下に、新しいインポートを追加
+from ui_handlers import get_location_list_for_ui
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
@@ -162,15 +163,23 @@ def context_generator_node(state: AgentState):
             'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str
         }
         formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
-        final_system_prompt_text = (f"{formatted_core_prompt}\n\n---\n" f"【現在の場所と情景】\n" f"- 場所の名前: （空間描写OFF）\n" f"- 場所の定義: （空間描写OFF）\n" f"- 今の情景: （空間描写OFF）\n" "---")
+        final_system_prompt_text = (
+            f"{formatted_core_prompt}\n\n---\n"
+            f"【現在の場所と情景】\n"
+            f"- 場所の名前: （空間描写OFF）\n"
+            f"- 場所の定義: （空間描写OFF）\n"
+            f"- 今の情景: （空間描写OFF）\n"
+            f"【移動可能な場所】\n"
+            f"（空間描写OFF）\n"
+            "---"
+        )
         return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": "（空間描写OFF）", "scenery_text": "（空間描写は設定により無効化されています）"}
 
     # --- パス2: 空間描写がONの場合 ---
-    # ▼▼▼ ロジックを新しい関数に置き換え ▼▼▼
+    # location_display_name, space_def, scenery_text = generate_scenery_context(...) の呼び出し部分は変更なし
     location_display_name, space_def, scenery_text = generate_scenery_context(character_name, api_key)
-    # ▲▲▲ 置き換えここまで ▲▲▲
 
-    # --- プロンプト構築部分はそのまま ---
+    # ...（character_prompt や core_memory, notepad_section の読み込み部分は変更なし）...
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
     character_prompt = "";
@@ -197,17 +206,31 @@ def context_generator_node(state: AgentState):
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
 
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    # 移動可能な場所のリストを取得
+    available_locations = get_location_list_for_ui(character_name)
+    if available_locations:
+        # (表示名, ID) のタプルから、AIが理解しやすい形式の文字列リストを作成
+        location_list_str = "\n".join([f"- {name} (ID: `{id}`)" for name, id in available_locations])
+        locations_section = f"【移動可能な場所】\n{location_list_str}\n"
+    else:
+        locations_section = "【移動可能な場所】\n（現在、定義されている移動先はありません）\n"
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
     prompt_vars = {'character_name': character_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
     formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+
+    # 最終的なプロンプトテキストに、新しいセクションを追加
     final_system_prompt_text = (
         f"{formatted_core_prompt}\n\n---\n"
         f"【現在の場所と情景】\n"
         f"- 場所の名前: {location_display_name}\n"
         f"- 場所の定義: {space_def}\n"
         f"- 今の情景: {scenery_text}\n"
+        f"{locations_section}" # ← ここに新しいセクションを挿入
         "---"
     )
 
