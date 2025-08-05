@@ -1,21 +1,18 @@
-# agent/graph.py
+# agent/graph.py (最終確定版)
 
-# 1. ファイルの先頭に必要なモジュールを追加
 import os
 import re
 import traceback
 import json
-import pytz # ★ 追加
-from datetime import datetime # ★ 追加
-from typing import TypedDict, Annotated, List, Literal, Optional, Tuple # ★ OptionalとTupleを追加
+import pytz
+from datetime import datetime
+from typing import TypedDict, Annotated, List, Literal, Optional, Tuple
 
-# 2. 既存のインポートの下に、新しいインポートを追加
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langgraph.prebuilt import ToolNode
 
-# --- 必要なモジュールやツールのインポート ---
 from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, find_location_id_by_name
 from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory
@@ -24,7 +21,7 @@ from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from rag_manager import diary_search_tool, conversation_memory_search_tool
-from character_manager import get_world_settings_path, find_space_data_by_id_recursive
+from character_manager import get_world_settings_path, find_space_data_by_id_recursive, get_location_list, get_current_location
 from memory_manager import load_memory_data_safe
 
 all_tools = [
@@ -50,52 +47,32 @@ class AgentState(TypedDict):
     debug_mode: bool
 
 def get_configured_llm(model_name: str, api_key: str):
-    # レート制限エラー(429)やサーバーエラー(500)に対応するため、リトライ回数を増やす
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
         convert_system_message_to_human=False,
-        max_retries=6 # デフォルト(2)から増やすことで、待機時間が長くなりエラーを回避しやすくなる
+        max_retries=6
     )
 
-# 3. ファイルのクラスや関数定義の前に、新しい「情景生成」関数を追加
 def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, str, str]:
-    """
-    指定されたキャラクターの現在の場所に基づいて、情景を描写し、
-    場所の名前、定義、描写テキストのタプルを返す。
-    この関数は gemini-2.5-flash を使用して高速に動作する。
-    """
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
     location_display_name = "（不明な場所）"
-    location_id = "living_space" # デフォルト値
+    location_id = get_current_location(character_name) or "living_space"
 
     try:
-        # ファイルから現在の場所IDを読み込む
-        location_file_path = os.path.join("characters", character_name, "current_location.txt")
-        if os.path.exists(location_file_path):
-            with open(location_file_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                if content:
-                    location_id = content
-
-        # ...
         world_settings_path = get_world_settings_path(character_name)
         space_data = {}
-        # ▼▼▼ この if ブロックを修正 ▼▼▼
         if world_settings_path and os.path.exists(world_settings_path):
-            # JSON読み込みからMarkdown解析に変更
-            from utils import parse_world_markdown # インポートを確認
+            from utils import parse_world_markdown
             world_settings = parse_world_markdown(world_settings_path)
-            if world_settings: # 解析結果が空でないことを確認
+            if world_settings:
                 space_data = find_space_data_by_id_recursive(world_settings, location_id)
-        # ▲▲▲ 修正ここまで ▲▲▲
 
         if space_data and isinstance(space_data, dict):
             location_display_name = space_data.get("name", location_id)
             space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
 
-            # space_defが有効な場合のみAPIを呼び出す
             if not space_def.startswith("（"):
                 llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
                 utc_now = datetime.now(pytz.utc)
@@ -119,13 +96,10 @@ def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, st
 
     return location_display_name, space_def, scenery_text
 
-
-# 4. context_generator_node 関数を、新しい関数を呼び出すように簡略化
 def context_generator_node(state: AgentState):
     character_name = state['character_name']
     api_key = state['api_key']
 
-    # --- パス1: 空間描写がOFFの場合 ---
     if not state.get("send_scenery", True):
         char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
         core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
@@ -135,8 +109,7 @@ def context_generator_node(state: AgentState):
         core_memory = ""
         if state.get("send_core_memory", True):
             if os.path.exists(core_memory_path):
-                with open(core_memory_path, 'r', encoding='utf-8') as f:
-                    core_memory = f.read().strip()
+                with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
 
         notepad_section = ""
         if state.get("send_notepad", True):
@@ -174,7 +147,6 @@ def context_generator_node(state: AgentState):
         )
         return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": "（空間描写OFF）", "scenery_text": "（空間描写は設定により無効化されています）"}
 
-    # --- パス2: 空間描写がONの場合 ---
     location_display_name, space_def, scenery_text = generate_scenery_context(character_name, api_key)
 
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
@@ -203,17 +175,12 @@ def context_generator_node(state: AgentState):
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
 
-    # ▼▼▼【重要】ここからが、欠落していたロジックです ▼▼▼
-    # 移動可能な場所のリストを取得
-    from character_manager import get_location_list
     available_locations = get_location_list(character_name)
     if available_locations:
-        # (表示名, ID) のタプルから、AIが理解しやすい形式の文字列リストを作成
         location_list_str = "\n".join([f"- {name} (ID: `{id}`)" for name, id in available_locations])
         locations_section = f"【移動可能な場所】\n{location_list_str}\n"
     else:
         locations_section = "【移動可能な場所】\n（現在、定義されている移動先はありません）\n"
-    # ▲▲▲ 欠落していたロジックここまで ▲▲▲
 
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
     class SafeDict(dict):
@@ -221,14 +188,13 @@ def context_generator_node(state: AgentState):
     prompt_vars = {'character_name': character_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
     formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
 
-    # 最終的なプロンプトテキストに、新しいセクションを追加
     final_system_prompt_text = (
         f"{formatted_core_prompt}\n\n---\n"
         f"【現在の場所と情景】\n"
         f"- 場所の名前: {location_display_name}\n"
         f"- 場所の定義: {space_def}\n"
         f"- 今の情景: {scenery_text}\n"
-        f"{locations_section}" # ← ここに場所リストセクションを挿入
+        f"{locations_section}"
         "---"
     )
 
@@ -239,11 +205,8 @@ def agent_node(state: AgentState):
     print(f"  - 使用モデル: {state['model_name']}")
     print(f"  - システムプロンプト長: {len(state['system_prompt'].content)} 文字")
 
-    # デバッグモードがTrueの場合のみ、システムプロンプトの全文を出力する
     if state.get("debug_mode", False):
         print("--- [DEBUG MODE] システムプロンプトの内容（AIへの最終指示書） ---")
-        # 出力が長くなりすぎないよう、最初の数千文字などに制限しても良い
-        # print(state['system_prompt'].content[:3000] + "...")
         print(state['system_prompt'].content)
         print("----------------------------------------------------------")
 
