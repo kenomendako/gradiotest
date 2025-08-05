@@ -13,6 +13,7 @@ import google.genai as genai # Clientを直接使うために、インポート�
 # モジュールインポート
 import character_manager
 # import gemini_api # gemini_apiへの依存を削除
+from utils import load_chat_log
 # import config_manager # config_managerへの直接依存を削除
 # import mem0_manager # 二重らせん記憶システムのために追加
 from langchain_core.tools import tool
