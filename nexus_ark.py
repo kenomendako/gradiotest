@@ -271,7 +271,12 @@ try:
         file_upload_button.clear(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
 
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-        change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown], outputs=[current_location_display, current_scenery_display])
+        change_location_button.click(
+            fn=ui_handlers.handle_location_change,
+            inputs=[current_character_name, location_dropdown],
+            # outputsのリストの末尾に scenery_image_display を追加
+            outputs=[current_location_display, current_scenery_display, scenery_image_display]
+        )
         refresh_scenery_button.click(
             fn=ui_handlers.handle_scenery_refresh,
             inputs=[current_character_name, api_key_dropdown],
