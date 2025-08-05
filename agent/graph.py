@@ -5,9 +5,9 @@ import os
 import re
 import traceback
 import json
-import pytz # ★ 追加
-from datetime import datetime # ★ 追加
-from typing import TypedDict, Annotated, List, Literal, Optional, Tuple # ★ OptionalとTupleを追加
+import pytz
+from datetime import datetime
+from typing import TypedDict, Annotated, List, Literal, Optional, Tuple
 
 # 2. 既存のインポートの下に、新しいインポートを追加
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
@@ -24,8 +24,9 @@ from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from rag_manager import diary_search_tool, conversation_memory_search_tool
-from character_manager import get_location_list
-from gemini_api import generate_scenery_context
+from character_manager import get_world_settings_path, find_space_data_by_id_recursive, get_location_list
+from memory_manager import load_memory_data_safe
+
 
 all_tools = [
     set_current_location, find_location_id_by_name, read_memory_by_path, edit_memory,
@@ -57,6 +58,53 @@ def get_configured_llm(model_name: str, api_key: str):
         convert_system_message_to_human=False,
         max_retries=6 # デフォルト(2)から増やすことで、待機時間が長くなりエラーを回避しやすくなる
     )
+
+def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, str, str]:
+    """
+    (gemini_api.py から移動してきた関数の全文をここに貼り付け)
+    """
+    scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
+    space_def = "（現在の場所の定義・設定は、取得できませんでした）"
+    location_display_name = "（不明な場所）"
+
+    from character_manager import get_current_location # ここでインポート
+    location_id = get_current_location(character_name) or "living_space"
+
+    try:
+        world_settings_path = get_world_settings_path(character_name)
+        space_data = {}
+        if world_settings_path and os.path.exists(world_settings_path):
+            from utils import parse_world_markdown
+            world_settings = parse_world_markdown(world_settings_path)
+            if world_settings:
+                space_data = find_space_data_by_id_recursive(world_settings, location_id)
+
+        if space_data and isinstance(space_data, dict):
+            location_display_name = space_data.get("name", location_id)
+            space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
+
+            if not space_def.startswith("（"):
+                llm_flash = get_configured_llm("gemini-2.5-flash", api_key) # get_configured_llm を使うように修正
+                utc_now = datetime.now(pytz.utc)
+                jst_now = utc_now.astimezone(pytz.timezone('Asia/Tokyo'))
+                scenery_prompt = (
+                    f"空間定義:{space_def}\n時刻:{jst_now.strftime('%H:%M')} / 季節:{jst_now.month}月\n\n"
+                    "以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n"
+                    "【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n"
+                    "- 1〜2文の簡潔な文章にまとめてください。\n"
+                    "- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。"
+                )
+                scenery_text = llm_flash.invoke(scenery_prompt).content
+            else:
+                scenery_text = "（場所の定義がないため、情景を描写できません）"
+
+    except Exception as e:
+        print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}")
+        location_display_name = "（エラー）"
+        scenery_text = "（情景描写の生成中にエラーが発生しました）"
+        space_def = "（エラー）"
+
+    return location_display_name, space_def, scenery_text
 
 def context_generator_node(state: AgentState):
     character_name = state['character_name']

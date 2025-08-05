@@ -18,7 +18,6 @@ from tools.image_tools import generate_image as generate_image_tool_func
 
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
-from gemini_api import generate_scenery_context
 from character_manager import get_location_list, load_scenery_cache, find_scenery_image, get_current_location, delete_message_from_log, load_chat_log, save_scenery_cache
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths, get_world_settings_path
@@ -192,24 +191,26 @@ def handle_message_submission(*args: Any):
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     if not character_name or not api_key_name:
-        return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）", None
-
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    if not api_key:
-        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return "（APIキーエラー）", "（APIキーエラー）", None
+        return "（キャラクターまたはAPIキーが未選択です）", "（エラー）", None
 
     gr.Info(f"「{character_name}」の現在の情景を更新しています...")
 
-    location_name, _, scenery_text = generate_scenery_context(character_name, api_key)
+    # ▼▼▼ 修正の核心: 司令塔として、正規の実行エンジンを呼び出す ▼▼▼
+    internal_prompt = "（システムコマンド：現在の場所と情景を描写してください）"
+    agent_args = (internal_prompt, character_name, api_key_name, None, "1", False) # debug_modeをFalseに設定
+    response_data = gemini_api.invoke_nexus_agent(*agent_args)
+    # ▲▲▲ 修正ここまで ▲▲▲
 
+    location_name = response_data.get("location_name", "（取得失敗）")
+    scenery_text = response_data.get("scenery", "（取得失敗）")
+
+    scenery_image_path = None
     if not location_name.startswith("（"):
         save_scenery_cache(character_name, location_name, scenery_text)
-        gr.Info("情景を更新しました。")
         scenery_image_path = find_scenery_image(character_name)
+        gr.Info("情景を更新しました。")
     else:
         gr.Error("情景の更新に失敗しました。")
-        scenery_image_path = None
 
     return location_name, scenery_text, scenery_image_path
 
