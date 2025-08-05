@@ -207,7 +207,25 @@ def handle_message_submission(*args: Any):
     final_response_text = response_data.get("response", "")
     location_name, scenery_text = response_data.get("location_name", "（取得失敗）"), response_data.get("scenery", "（取得失敗）")
 
-    # ▼▼▼ 修正の核心(B)：AIの応答から得た情景をキャッシュに保存 ▼▼▼
+    # ▼▼▼ ここからが修正の核心（安全装置） ▼▼▼
+    # AIからの応答が空文字列、またはNoneの場合、ログ保存や画像生成を行わずに処理を終了する
+    if not final_response_text or not final_response_text.strip():
+        print("--- 警告: AIからの応答が空のため、後続処理をスキップしました ---")
+        # UIを最新の状態に更新して終了
+        formatted_history, new_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
+        new_alarm_df_with_ids = render_alarms_as_dataframe()
+        new_display_df = get_display_df(new_alarm_df_with_ids)
+
+        # scenery_image_path は、この時点で見えているものをそのまま維持
+        current_location_id = utils.get_current_location(current_character_name)
+        scenery_image_path = utils.find_scenery_image(current_character_name, current_location_id)
+
+        yield (formatted_history, new_mapping_list, gr.update(), gr.update(value=None),
+               gr.update(), location_name, scenery_text, new_alarm_df_with_ids,
+               new_display_df, scenery_image_path)
+        return # ★★★ ここで処理を完全に終了させる ★★★
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     scenery_image_path = None
     if not location_name.startswith("（"):
         utils.save_scenery_cache(current_character_name, location_name, scenery_text)
@@ -219,8 +237,9 @@ def handle_message_submission(*args: Any):
     if final_log_message:
         user_header = utils._get_user_header_from_log(log_f, current_character_name)
         utils.save_message_to_log(log_f, user_header, final_log_message)
-    if final_response_text:
-        utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
+
+    # 応答があった場合のみ、その応答をログに保存
+    utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
 
     formatted_history, new_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
     new_alarm_df_with_ids = render_alarms_as_dataframe()
