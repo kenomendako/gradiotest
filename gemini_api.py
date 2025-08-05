@@ -203,7 +203,6 @@ def count_input_tokens(**kwargs):
 
         # 履歴制限を適用する
         if limit > 0 and len(raw_history) > limit * 2:
-            print(f"  - [Token Count] 履歴を последние {limit} ターンに制限します。")
             raw_history = raw_history[-(limit * 2):]
         # ▲▲▲ 修正ここまで ▲▲▲
 
