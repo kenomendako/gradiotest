@@ -1,21 +1,27 @@
-# gemini_api.py (堅牢化対応版)
+# gemini_api.py (循環参照解決版)
 
 import traceback
-from typing import Any, List, Union, Optional, Dict
+from typing import Any, List, Union, Optional, Dict, Tuple
 import os
 import io
 import base64
 from PIL import Image
 import google.genai as genai
 import filetype
-import httpx  # エラーハンドリングのためにインポート
+import httpx
+import pytz
+from langchain_google_genai import ChatGoogleGenerativeAI
+import json
+from datetime import datetime
 
 from agent.graph import app
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import config_manager
 import constants
 import utils
-from character_manager import get_character_files_paths
+import character_manager
+from character_manager import get_character_files_paths, get_world_settings_path, find_space_data_by_id_recursive, get_current_location
+from memory_manager import load_memory_data_safe
 
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
     if model_name in utils._model_token_limits_cache: return utils._model_token_limits_cache[model_name]
@@ -31,7 +37,6 @@ def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, 
     except Exception as e: print(f"モデル情報の取得中にエラー: {e}"); return None
 
 def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> List[Dict]:
-    # (この関数の中身は変更ありません)
     contents = []
     for msg in messages:
         role = "model" if isinstance(msg, AIMessage) else "user"
@@ -55,7 +60,6 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
     return contents
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
-    # (この関数の中身は変更ありませんが、呼び出し元でエラーが捕捉されるようになります)
     if not messages: return 0
     client = genai.Client(api_key=api_key)
     contents_for_api = _convert_lc_to_gg_for_count(messages)
@@ -69,38 +73,17 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
     return result.total_tokens
 
-import pytz
-from typing import Tuple
-from langchain_google_genai import ChatGoogleGenerativeAI
-from character_manager import get_world_settings_path, find_space_data_by_id_recursive
-from memory_manager import load_memory_data_safe
-import json
-from datetime import datetime
-
 def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, str, str]:
-    """
-    指定されたキャラクターの現在の場所に基づいて、情景を描写し、
-    場所の名前、定義、描写テキストのタプルを返す。
-    この関数は gemini-2.5-flash を使用して高速に動作する。
-    """
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
     location_display_name = "（不明な場所）"
-    location_id = "living_space" # デフォルト値
+    location_id = get_current_location(character_name) or "living_space"
 
     try:
-        location_file_path = os.path.join("characters", character_name, "current_location.txt")
-        if os.path.exists(location_file_path):
-            with open(location_file_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                if content:
-                    location_id = content
-
         world_settings_path = get_world_settings_path(character_name)
         space_data = {}
         if world_settings_path and os.path.exists(world_settings_path):
-            from utils import parse_world_markdown
-            world_settings = parse_world_markdown(world_settings_path)
+            world_settings = utils.parse_world_markdown(world_settings_path)
             if world_settings:
                 space_data = find_space_data_by_id_recursive(world_settings, location_id)
 
@@ -109,7 +92,6 @@ def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, st
             space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
 
             if not space_def.startswith("（"):
-                # get_configured_llmはagent/graphにあるので、ここで直接モデルを定義
                 llm_flash = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key, max_retries=6)
                 utc_now = datetime.now(pytz.utc)
                 jst_now = utc_now.astimezone(pytz.timezone('Asia/Tokyo'))
@@ -133,7 +115,6 @@ def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, st
     return location_display_name, space_def, scenery_text
 
 def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
-    # (この関数の中身は変更ありません)
     (textbox_content, current_character_name,
      current_api_key_name_state, file_input_list,
      api_history_limit_state, debug_mode_state) = args
@@ -152,8 +133,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
          return {**default_error_response, "response": "[エラー: テキスト入力またはファイル添付がありません]"}
 
     messages = []
-    log_file, _, _, _, _ = get_character_files_paths(current_character_name)
-    raw_history = utils.load_chat_log(log_file, current_character_name)
+    raw_history = character_manager.load_chat_log(current_character_name)
     limit = 0
     if api_history_limit_state.isdigit():
         limit = int(api_history_limit_state)
@@ -207,7 +187,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
 def count_input_tokens(**kwargs):
     character_name = kwargs.get("character_name")
     api_key_name = kwargs.get("api_key_name")
-    api_history_limit = kwargs.get("api_history_limit") # 新しい引数を受け取る
+    api_history_limit = kwargs.get("api_history_limit")
     parts = kwargs.get("parts", [])
 
     api_key = config_manager.API_KEYS.get(api_key_name)
@@ -256,19 +236,15 @@ def count_input_tokens(**kwargs):
             system_prompt_text += "\n\n---\n【現在の場所と情景】\n（トークン計算ではAPIコールを避けるため、実際の情景は含めず、存在することを示すプレースホルダのみ考慮）\n- 場所の名前: サンプル\n- 場所の定義: サンプル\n- 今の情景: サンプル\n---"
         messages.append(SystemMessage(content=system_prompt_text))
 
-        log_file, _, _, _, _ = get_character_files_paths(character_name)
-        raw_history = utils.load_chat_log(log_file, character_name)
+        raw_history = character_manager.load_chat_log(character_name)
 
-        # ▼▼▼ ここからが修正の核心 ▼▼▼
         limit = 0
         if api_history_limit and api_history_limit.isdigit():
             limit = int(api_history_limit)
 
-        # 履歴制限を適用する
         if limit > 0 and len(raw_history) > limit * 2:
             print(f"  - [Token Count] 履歴を последние {limit} ターンに制限します。")
             raw_history = raw_history[-(limit * 2):]
-        # ▲▲▲ 修正ここまで ▲▲▲
 
         for h_item in raw_history:
             role, content = h_item.get('role'), h_item.get('content', '').strip()

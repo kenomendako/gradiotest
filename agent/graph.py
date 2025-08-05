@@ -24,9 +24,8 @@ from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from rag_manager import diary_search_tool, conversation_memory_search_tool
-from character_manager import get_world_settings_path, find_space_data_by_id_recursive, get_location_list
+from character_manager import get_world_settings_path, find_space_data_by_id_recursive
 from memory_manager import load_memory_data_safe
-from gemini_api import generate_scenery_context
 
 all_tools = [
     set_current_location, find_location_id_by_name, read_memory_by_path, edit_memory,
@@ -59,6 +58,69 @@ def get_configured_llm(model_name: str, api_key: str):
         max_retries=6 # デフォルト(2)から増やすことで、待機時間が長くなりエラーを回避しやすくなる
     )
 
+# 3. ファイルのクラスや関数定義の前に、新しい「情景生成」関数を追加
+def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, str, str]:
+    """
+    指定されたキャラクターの現在の場所に基づいて、情景を描写し、
+    場所の名前、定義、描写テキストのタプルを返す。
+    この関数は gemini-2.5-flash を使用して高速に動作する。
+    """
+    scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
+    space_def = "（現在の場所の定義・設定は、取得できませんでした）"
+    location_display_name = "（不明な場所）"
+    location_id = "living_space" # デフォルト値
+
+    try:
+        # ファイルから現在の場所IDを読み込む
+        location_file_path = os.path.join("characters", character_name, "current_location.txt")
+        if os.path.exists(location_file_path):
+            with open(location_file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if content:
+                    location_id = content
+
+        # ...
+        world_settings_path = get_world_settings_path(character_name)
+        space_data = {}
+        # ▼▼▼ この if ブロックを修正 ▼▼▼
+        if world_settings_path and os.path.exists(world_settings_path):
+            # JSON読み込みからMarkdown解析に変更
+            from utils import parse_world_markdown # インポートを確認
+            world_settings = parse_world_markdown(world_settings_path)
+            if world_settings: # 解析結果が空でないことを確認
+                space_data = find_space_data_by_id_recursive(world_settings, location_id)
+        # ▲▲▲ 修正ここまで ▲▲▲
+
+        if space_data and isinstance(space_data, dict):
+            location_display_name = space_data.get("name", location_id)
+            space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
+
+            # space_defが有効な場合のみAPIを呼び出す
+            if not space_def.startswith("（"):
+                llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
+                utc_now = datetime.now(pytz.utc)
+                jst_now = utc_now.astimezone(pytz.timezone('Asia/Tokyo'))
+                scenery_prompt = (
+                    f"空間定義:{space_def}\n時刻:{jst_now.strftime('%H:%M')} / 季節:{jst_now.month}月\n\n"
+                    "以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n"
+                    "【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n"
+                    "- 1〜2文の簡潔な文章にまとめてください。\n"
+                    "- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。"
+                )
+                scenery_text = llm_flash.invoke(scenery_prompt).content
+            else:
+                scenery_text = "（場所の定義がないため、情景を描写できません）"
+
+    except Exception as e:
+        print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}")
+        location_display_name = "（エラー）"
+        scenery_text = "（情景描写の生成中にエラーが発生しました）"
+        space_def = "（エラー）"
+
+    return location_display_name, space_def, scenery_text
+
+
+# 4. context_generator_node 関数を、新しい関数を呼び出すように簡略化
 def context_generator_node(state: AgentState):
     character_name = state['character_name']
     api_key = state['api_key']
@@ -100,21 +162,15 @@ def context_generator_node(state: AgentState):
             'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str
         }
         formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
-        final_system_prompt_text = (
-            f"{formatted_core_prompt}\n\n---\n"
-            f"【現在の場所と情景】\n"
-            f"- 場所の名前: （空間描写OFF）\n"
-            f"- 場所の定義: （空間描写OFF）\n"
-            f"- 今の情景: （空間描写OFF）\n"
-            f"【移動可能な場所】\n"
-            f"（空間描写OFF）\n"
-            "---"
-        )
+        final_system_prompt_text = (f"{formatted_core_prompt}\n\n---\n" f"【現在の場所と情景】\n" f"- 場所の名前: （空間描写OFF）\n" f"- 場所の定義: （空間描写OFF）\n" f"- 今の情景: （空間描写OFF）\n" "---")
         return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": "（空間描写OFF）", "scenery_text": "（空間描写は設定により無効化されています）"}
 
     # --- パス2: 空間描写がONの場合 ---
+    # ▼▼▼ ロジックを新しい関数に置き換え ▼▼▼
     location_display_name, space_def, scenery_text = generate_scenery_context(character_name, api_key)
+    # ▲▲▲ 置き換えここまで ▲▲▲
 
+    # --- プロンプト構築部分はそのまま ---
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
     character_prompt = "";
@@ -141,13 +197,6 @@ def context_generator_node(state: AgentState):
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
 
-    available_locations = get_location_list(character_name)
-    if available_locations:
-        location_list_str = "\n".join([f"- {name} (ID: `{id}`)" for name, id in available_locations])
-        locations_section = f"【移動可能な場所】\n{location_list_str}\n"
-    else:
-        locations_section = "【移動可能な場所】\n（現在、定義されている移動先はありません）\n"
-
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
@@ -159,7 +208,6 @@ def context_generator_node(state: AgentState):
         f"- 場所の名前: {location_display_name}\n"
         f"- 場所の定義: {space_def}\n"
         f"- 今の情景: {scenery_text}\n"
-        f"{locations_section}"
         "---"
     )
 
