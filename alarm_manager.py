@@ -116,8 +116,9 @@ def trigger_alarm(alarm_config, current_api_key_name):
         synthesized_user_message,
         char_name,
         current_api_key_name,
-        None,
-        str(constants.DEFAULT_ALARM_API_HISTORY_TURNS)
+        None,  # file_input_list
+        str(constants.DEFAULT_ALARM_API_HISTORY_TURNS), # api_history_limit_state
+        False  # debug_mode_state を False として追加
     )
 
     response_data = gemini_api.invoke_nexus_agent(*agent_args)
