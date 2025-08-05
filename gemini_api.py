@@ -1,4 +1,4 @@
-# gemini_api.py (最終確定版)
+# gemini_api.py (堅牢化対応版)
 
 import traceback
 from typing import Any, List, Union, Optional, Dict
@@ -8,13 +8,13 @@ import base64
 from PIL import Image
 import google.genai as genai
 import filetype
-import httpx
+import httpx  # エラーハンドリングのためにインポート
+
 from agent.graph import app
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import config_manager
 import constants
 import utils
-import character_manager
 from character_manager import get_character_files_paths
 
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
@@ -31,6 +31,7 @@ def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, 
     except Exception as e: print(f"モデル情報の取得中にエラー: {e}"); return None
 
 def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> List[Dict]:
+    # (この関数の中身は変更ありません)
     contents = []
     for msg in messages:
         role = "model" if isinstance(msg, AIMessage) else "user"
@@ -54,6 +55,7 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
     return contents
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
+    # (この関数の中身は変更ありませんが、呼び出し元でエラーが捕捉されるようになります)
     if not messages: return 0
     client = genai.Client(api_key=api_key)
     contents_for_api = _convert_lc_to_gg_for_count(messages)
@@ -68,6 +70,7 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     return result.total_tokens
 
 def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
+    # (この関数の中身は変更ありません)
     (textbox_content, current_character_name,
      current_api_key_name_state, file_input_list,
      api_history_limit_state, debug_mode_state) = args
@@ -86,7 +89,8 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
          return {**default_error_response, "response": "[エラー: テキスト入力またはファイル添付がありません]"}
 
     messages = []
-    raw_history = character_manager.load_chat_log(current_character_name)
+    log_file, _, _, _, _ = get_character_files_paths(current_character_name)
+    raw_history = utils.load_chat_log(log_file, current_character_name)
     limit = 0
     if api_history_limit_state.isdigit():
         limit = int(api_history_limit_state)
@@ -140,7 +144,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
 def count_input_tokens(**kwargs):
     character_name = kwargs.get("character_name")
     api_key_name = kwargs.get("api_key_name")
-    api_history_limit = kwargs.get("api_history_limit")
+    api_history_limit = kwargs.get("api_history_limit") # 新しい引数を受け取る
     parts = kwargs.get("parts", [])
 
     api_key = config_manager.API_KEYS.get(api_key_name)
@@ -189,15 +193,19 @@ def count_input_tokens(**kwargs):
             system_prompt_text += "\n\n---\n【現在の場所と情景】\n（トークン計算ではAPIコールを避けるため、実際の情景は含めず、存在することを示すプレースホルダのみ考慮）\n- 場所の名前: サンプル\n- 場所の定義: サンプル\n- 今の情景: サンプル\n---"
         messages.append(SystemMessage(content=system_prompt_text))
 
-        raw_history = character_manager.load_chat_log(character_name)
+        log_file, _, _, _, _ = get_character_files_paths(character_name)
+        raw_history = utils.load_chat_log(log_file, character_name)
 
+        # ▼▼▼ ここからが修正の核心 ▼▼▼
         limit = 0
         if api_history_limit and api_history_limit.isdigit():
             limit = int(api_history_limit)
 
+        # 履歴制限を適用する
         if limit > 0 and len(raw_history) > limit * 2:
             print(f"  - [Token Count] 履歴を последние {limit} ターンに制限します。")
             raw_history = raw_history[-(limit * 2):]
+        # ▲▲▲ 修正ここまで ▲▲▲
 
         for h_item in raw_history:
             role, content = h_item.get('role'), h_item.get('content', '').strip()
