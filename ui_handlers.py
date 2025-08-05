@@ -1,4 +1,4 @@
-# ui_handlers.py (循環参照解決版)
+# ui_handlers.py (最終確定版)
 
 import pandas as pd
 import json
@@ -18,14 +18,16 @@ from tools.image_tools import generate_image as generate_image_tool_func
 
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
-from character_manager import get_location_list, load_scenery_cache, find_scenery_image, get_current_location, delete_message_from_log, load_chat_log, save_scenery_cache
 from timers import UnifiedTimer
-from character_manager import get_character_files_paths, get_world_settings_path
+from character_manager import (
+    get_character_files_paths, get_world_settings_path, get_location_list,
+    load_scenery_cache, find_scenery_image, get_current_location,
+    delete_message_from_log, load_chat_log, save_scenery_cache, _get_user_header_from_log
+)
 from memory_manager import load_memory_data_safe, save_memory_data
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
-
 
 def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
@@ -176,7 +178,7 @@ def handle_message_submission(*args: Any):
     log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     final_log_message = "\n\n".join(log_message_parts).strip()
     if final_log_message:
-        user_header = character_manager._get_user_header_from_log(current_character_name)
+        user_header = _get_user_header_from_log(current_character_name)
         utils.save_message_to_log(log_f, user_header, final_log_message)
     if final_response_text:
         utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
@@ -195,11 +197,9 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
 
     gr.Info(f"「{character_name}」の現在の情景を更新しています...")
 
-    # ▼▼▼ 修正の核心: 司令塔として、正規の実行エンジンを呼び出す ▼▼▼
     internal_prompt = "（システムコマンド：現在の場所と情景を描写してください）"
-    agent_args = (internal_prompt, character_name, api_key_name, None, "1", False) # debug_modeをFalseに設定
+    agent_args = (internal_prompt, character_name, api_key_name, None, "1", False)
     response_data = gemini_api.invoke_nexus_agent(*agent_args)
-    # ▲▲▲ 修正ここまで ▲▲▲
 
     location_name = response_data.get("location_name", "（取得失敗）")
     scenery_text = response_data.get("scenery", "（取得失敗）")

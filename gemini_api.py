@@ -1,4 +1,4 @@
-# gemini_api.py (循環参照解決版)
+# gemini_api.py (最終確定版)
 
 import traceback
 from typing import Any, List, Union, Optional, Dict
@@ -9,7 +9,6 @@ from PIL import Image
 import google.genai as genai
 import filetype
 import httpx
-
 from agent.graph import app
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import config_manager
