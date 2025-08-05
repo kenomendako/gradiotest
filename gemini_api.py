@@ -69,6 +69,69 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
     return result.total_tokens
 
+import pytz
+from typing import Tuple
+from langchain_google_genai import ChatGoogleGenerativeAI
+from character_manager import get_world_settings_path, find_space_data_by_id_recursive
+from memory_manager import load_memory_data_safe
+import json
+from datetime import datetime
+
+def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, str, str]:
+    """
+    指定されたキャラクターの現在の場所に基づいて、情景を描写し、
+    場所の名前、定義、描写テキストのタプルを返す。
+    この関数は gemini-2.5-flash を使用して高速に動作する。
+    """
+    scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
+    space_def = "（現在の場所の定義・設定は、取得できませんでした）"
+    location_display_name = "（不明な場所）"
+    location_id = "living_space" # デフォルト値
+
+    try:
+        location_file_path = os.path.join("characters", character_name, "current_location.txt")
+        if os.path.exists(location_file_path):
+            with open(location_file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if content:
+                    location_id = content
+
+        world_settings_path = get_world_settings_path(character_name)
+        space_data = {}
+        if world_settings_path and os.path.exists(world_settings_path):
+            from utils import parse_world_markdown
+            world_settings = parse_world_markdown(world_settings_path)
+            if world_settings:
+                space_data = find_space_data_by_id_recursive(world_settings, location_id)
+
+        if space_data and isinstance(space_data, dict):
+            location_display_name = space_data.get("name", location_id)
+            space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
+
+            if not space_def.startswith("（"):
+                # get_configured_llmはagent/graphにあるので、ここで直接モデルを定義
+                llm_flash = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key, max_retries=6)
+                utc_now = datetime.now(pytz.utc)
+                jst_now = utc_now.astimezone(pytz.timezone('Asia/Tokyo'))
+                scenery_prompt = (
+                    f"空間定義:{space_def}\n時刻:{jst_now.strftime('%H:%M')} / 季節:{jst_now.month}月\n\n"
+                    "以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n"
+                    "【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n"
+                    "- 1〜2文の簡潔な文章にまとめてください。\n"
+                    "- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。"
+                )
+                scenery_text = llm_flash.invoke(scenery_prompt).content
+            else:
+                scenery_text = "（場所の定義がないため、情景を描写できません）"
+
+    except Exception as e:
+        print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}")
+        location_display_name = "（エラー）"
+        scenery_text = "（情景描写の生成中にエラーが発生しました）"
+        space_def = "（エラー）"
+
+    return location_display_name, space_def, scenery_text
+
 def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     # (この関数の中身は変更ありません)
     (textbox_content, current_character_name,

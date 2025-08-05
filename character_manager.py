@@ -145,3 +145,31 @@ def find_space_data_by_id_recursive(data: dict, target_id: str) -> Optional[dict
     # すべて探しても見つからなかった場合
     return None
     # ▲▲▲ 修正ここまで ▲▲▲
+
+from typing import List, Tuple
+from utils import parse_world_markdown # この関数内で使うのでインポート
+
+def get_location_list(character_name: str) -> List[Tuple[str, str]]:
+    """
+    指定されたキャラクターの移動可能な場所のリストを (表示名, ID) のタプルで返す。
+    """
+    if not character_name: return []
+
+    world_settings_path = get_world_settings_path(character_name)
+    world_data = parse_world_markdown(world_settings_path)
+
+    if not world_data: return []
+
+    location_list = []
+    for area_id, area_data in world_data.items():
+        if not isinstance(area_data, dict): continue
+
+        if 'name' in area_data:
+            location_list.append((area_data['name'], area_id))
+
+        for room_id, room_data in area_data.items():
+            if isinstance(room_data, dict) and 'name' in room_data:
+                location_list.append((room_data['name'], room_id))
+
+    unique_locations = sorted(list(set(location_list)), key=lambda x: x[0])
+    return unique_locations

@@ -18,7 +18,8 @@ from tools.image_tools import generate_image as generate_image_tool_func
 
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
-from agent.graph import generate_scenery_context
+from gemini_api import generate_scenery_context
+from character_manager import get_location_list
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
@@ -26,38 +27,6 @@ from memory_manager import load_memory_data_safe, save_memory_data
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
-
-def get_location_list_for_ui(character_name: str) -> list:
-    """
-    UIの移動先ドロップダウン用のリストを生成する。
-    エリアと部屋の両方をリストに含める。
-    """
-    if not character_name: return []
-
-    world_settings_path = get_world_settings_path(character_name)
-    from utils import parse_world_markdown
-    world_data = parse_world_markdown(world_settings_path)
-
-    if not world_data: return []
-
-    location_list = []
-    # 2階層のループで、エリアと部屋をすべて探索する
-    for area_id, area_data in world_data.items():
-        if not isinstance(area_data, dict): continue
-
-        # まず、エリア自体に 'name' があれば、それをリストに追加
-        if 'name' in area_data:
-            location_list.append((area_data['name'], area_id))
-
-        # 次に、エリア内の各要素をチェック
-        for room_id, room_data in area_data.items():
-            # 値が辞書で、かつ 'name' キーを持つなら、それは部屋だと判断
-            if isinstance(room_data, dict) and 'name' in room_data:
-                location_list.append((room_data['name'], room_id))
-
-    # 重複を除外し、名前でソートして返す
-    unique_locations = sorted(list(set(location_list)), key=lambda x: x[0])
-    return unique_locations
 
 def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
@@ -82,7 +51,7 @@ def handle_character_change(character_name: str, api_key_name: str):
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
 
-    locations = get_location_list_for_ui(character_name)
+    locations = get_location_list(character_name)
     current_location_id = utils.get_current_location(character_name)
 
     # ▼▼▼ 修正の核心(A)：API呼び出しをやめ、キャッシュを読み込む ▼▼▼
