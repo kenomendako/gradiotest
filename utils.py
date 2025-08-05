@@ -1,15 +1,13 @@
-# utils.py (完全最終版)
+# utils.py (循環参照解決版)
 
-import datetime
+# 1. ファイル先頭のインポートを修正
 import os
 import re
 import traceback
 import html
 from typing import List, Dict, Optional, Tuple, Union
 import gradio as gr
-import yaml
-import character_manager
-import constants
+# import character_manager # <<< この行を完全に削除
 import sys
 import psutil
 from pathlib import Path
@@ -17,10 +15,13 @@ import json
 import time
 import uuid
 from bs4 import BeautifulSoup
+import yaml # これは外部ライブラリなのでOK
+import datetime # 標準ライブラリなのでOK
 
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
 
+# 2. acquire_lock, _create_lock_file, release_lock は変更なし
 def acquire_lock() -> bool:
     print("--- グローバル・ロックの取得を試みます ---")
     try:
@@ -86,40 +87,7 @@ def release_lock():
     except Exception as e:
         print(f"\n警告: ロックファイルの解放中にエラーが発生しました: {e}")
 
-def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
-    messages: List[Dict[str, str]] = []
-    if not character_name or not file_path or not os.path.exists(file_path):
-        return messages
-
-    ai_header = f"## {character_name}:"
-    alarm_header = "## システム(アラーム):"
-
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-    except Exception as e:
-        print(f"エラー: ログファイル '{file_path}' 読込エラー: {e}")
-        return messages
-
-    log_parts = re.split(r'^(## .*?:)$', content, flags=re.MULTILINE)
-
-    header = None
-    for part in log_parts:
-        part = part.strip()
-        if not part:
-            continue
-
-        if part.startswith("## ") and part.endswith(":"):
-            header = part
-        elif header:
-            if header == ai_header:
-                role = 'model'
-            else:
-                role = 'user'
-            messages.append({"role": role, "content": part})
-            header = None
-    return messages
-
+# 4. format_history_for_gradio 関数は変更なし
 def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name: str) -> Tuple[List[Tuple[Union[str, Tuple, None], Union[str, Tuple, None]]], List[int]]:
     if not raw_history:
         return [], []
@@ -178,6 +146,7 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
 
     return gradio_history, mapping_list
 
+# 5. _format_text_content_for_gradio 関数は変更なし
 def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
     up_button = f"<a href='#{prev_anchor_id or current_anchor_id}' class='message-nav-link' title='前の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
     down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
@@ -203,6 +172,7 @@ def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_a
 
     return "".join(final_parts)
 
+# 6. save_message_to_log 関数は変更なし
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
     if not all([log_file_path, header, text_content, text_content.strip()]):
         return
@@ -218,78 +188,14 @@ def save_message_to_log(log_file_path: str, header: str, text_content: str) -> N
         print(f"エラー: ログファイル '{log_file_path}' 書き込みエラー: {e}")
         traceback.print_exc()
 
-def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str], character_name: str) -> bool:
-    if not log_file_path or not os.path.exists(log_file_path) or not message_to_delete:
-        return False
-
-    try:
-        all_messages = load_chat_log(log_file_path, character_name)
-
-        try:
-            all_messages.remove(message_to_delete)
-        except ValueError:
-            print(f"警告: ログファイル内に削除対象のメッセージが見つかりませんでした。")
-            print(f"  - 検索対象: {message_to_delete}")
-            return False
-
-        log_content_parts = []
-        user_header = _get_user_header_from_log(log_file_path, character_name)
-        ai_header = f"## {character_name}:"
-
-        for msg in all_messages:
-            header = ai_header if msg['role'] == 'model' else user_header
-            content = msg['content'].strip()
-            log_content_parts.append(f"{header}\n{content}")
-
-        new_log_content = "\n\n".join(log_content_parts)
-        with open(log_file_path, "w", encoding="utf-8") as f:
-            f.write(new_log_content)
-
-        if new_log_content:
-            with open(log_file_path, "a", encoding="utf-8") as f:
-                f.write("\n\n")
-
-        print("--- Successfully deleted message from log ---")
-        return True
-    except Exception as e:
-        print(f"エラー: ログからのメッセージ削除中に予期せぬエラー: {e}")
-        traceback.print_exc()
-        return False
-
-def _get_user_header_from_log(log_file_path: str, ai_character_name: str) -> str:
-    default_user_header = "## ユーザー:"
-    if not log_file_path or not os.path.exists(log_file_path):
-        return default_user_header
-
-    last_identified_user_header = default_user_header
-    try:
-        with open(log_file_path, "r", encoding="utf-8") as f:
-            for line in f:
-                stripped_line = line.strip()
-                if stripped_line.startswith("## ") and stripped_line.endswith(":"):
-                    if not stripped_line.startswith(f"## {ai_character_name}:") and not stripped_line.startswith("## システム("):
-                        last_identified_user_header = stripped_line
-        return last_identified_user_header
-    except Exception as e:
-        print(f"エラー: ユーザーヘッダー取得エラー: {e}")
-        return default_user_header
-
+# 9. remove_thoughts_from_text 関数は変更なし
 def remove_thoughts_from_text(text: str) -> str:
     if not text:
         return ""
     thoughts_pattern = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
     return thoughts_pattern.sub("", text).strip()
 
-def get_current_location(character_name: str) -> Optional[str]:
-    try:
-        location_file_path = os.path.join("characters", character_name, "current_location.txt")
-        if os.path.exists(location_file_path):
-            with open(location_file_path, 'r', encoding='utf-8') as f:
-                return f.read().strip()
-    except Exception as e:
-        print(f"警告: 現在地ファイルの読み込みに失敗しました: {e}")
-    return None
-
+# 11. extract_raw_text_from_html 関数は変更なし
 def extract_raw_text_from_html(html_content: Union[str, tuple, None]) -> str:
     if not html_content or not isinstance(html_content, str):
         return ""
@@ -312,87 +218,7 @@ def extract_raw_text_from_html(html_content: Union[str, tuple, None]) -> str:
 
     return (thoughts_text + main_text).strip()
 
-
-# ▼▼▼ ここからが追加箇所（ファイルの一番下） ▼▼▼
-def load_scenery_cache(character_name: str) -> dict:
-    """指定されたキャラクターの情景キャッシュファイルを安全に読み込む。"""
-    if not character_name:
-        return {}
-    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "last_scenery.json")
-    if os.path.exists(cache_path):
-        try:
-            with open(cache_path, "r", encoding="utf-8") as f:
-                content = f.read()
-                if not content.strip(): return {} # ファイルが空の場合の対策
-                data = json.loads(content)
-                return data if isinstance(data, dict) else {}
-        except (json.JSONDecodeError, IOError):
-            # ファイルが破損している、または読み取り中にエラーが発生した場合
-            return {}
-    return {}
-
-def save_scenery_cache(character_name: str, location_name: str, scenery_text: str):
-    """指定されたキャラクターの情景キャッシュファイルにデータを保存する。"""
-    if not character_name:
-        return
-    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "last_scenery.json")
-    try:
-        data_to_save = {
-            "location_name": location_name,
-            "scenery_text": scenery_text,
-            "timestamp": datetime.datetime.now().isoformat()
-        }
-        with open(cache_path, "w", encoding="utf-8") as f:
-            json.dump(data_to_save, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print(f"!! エラー: 情景キャッシュの保存に失敗しました: {e}")
-# ▲▲▲ 追加箇所ここまで ▲▲▲
-
-
-def get_season(month: int) -> str:
-    """月情報から季節を返す"""
-    if month in [3, 4, 5]: return "spring"
-    if month in [6, 7, 8]: return "summer"
-    if month in [9, 10, 11]: return "autumn"
-    return "winter"
-
-def get_time_of_day(hour: int) -> str:
-    """時間情報から時間帯を返す"""
-    if 5 <= hour < 10: return "morning"
-    if 10 <= hour < 17: return "daytime"
-    if 17 <= hour < 21: return "evening"
-    return "night"
-
-def find_scenery_image(character_name: str, location_id: str) -> Optional[str]:
-    """
-    指定された場所・季節・時間帯に最適な情景画像を、階層的に検索してパスを返す。
-    """
-    if not character_name or not location_id:
-        return None
-
-    image_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
-    if not os.path.isdir(image_dir):
-        return None
-
-    now = datetime.datetime.now()
-    season = get_season(now.month)
-    time_of_day = get_time_of_day(now.hour)
-
-    potential_filenames = [
-        f"{location_id}_{season}_{time_of_day}.png",
-        f"{location_id}_{season}.png",
-        f"{location_id}.png"
-    ]
-
-    for filename in potential_filenames:
-        filepath = os.path.join(image_dir, filename)
-        if os.path.exists(filepath):
-            print(f"  - 情景画像を発見: {filepath}")
-            return filepath
-
-    print(f"  - 適切な情景画像が見つかりませんでした。")
-    return None
-
+# 14. parse_world_markdown 関数は変更なし
 def parse_world_markdown(file_path: str) -> dict:
     """
     世界設定が記述されたMarkdownファイルを解析し、ネストされた辞書構造に変換する。
