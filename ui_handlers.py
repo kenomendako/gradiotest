@@ -739,10 +739,38 @@ def handle_cancel_add_button_click():
         ""
     )
 
+def handle_add_new_list_click(world_data: Dict, character_name: str, area_id: str, room_id: Optional[str], new_list_key: str):
+    """「リストを新規作成」で入力されたキーで新しいリストを作成する"""
+    if not new_list_key or not new_list_key.strip():
+        gr.Warning("リスト名を入力してください。")
+        return world_data, gr.update()
+
+    clean_key = new_list_key.strip()
+    if not re.match(r"^[a-zA-Z0-9_]+$", clean_key):
+        gr.Warning("リスト名には半角英数字とアンダースコア(_)のみ使用できます。")
+        return world_data, gr.update()
+
+    target_data = {}
+    if room_id:
+        target_data = world_data[area_id][room_id]
+    else:
+        target_data = world_data[area_id]
+
+    if clean_key in target_data:
+        gr.Warning(f"リスト '{clean_key}' は既に存在します。")
+        return world_data, gr.update(value=clean_key)
+
+    target_data[clean_key] = []
+    save_world_data(character_name, world_data)
+    gr.Info(f"新しいリスト '{clean_key}' を追加しました。")
+
+    new_list_keys = [k for k, v in target_data.items() if isinstance(v, list)]
+    return world_data, gr.update(choices=new_list_keys, value=clean_key)
+
 def handle_add_new_item_click(world_data: Dict, area_id: str, room_id: Optional[str], list_key: str):
     """「新規項目を追加」ボタンが押された時の処理。空の編集フォームを表示する。"""
     if not list_key:
-        gr.Warning("項目を追加するリストを先に選択してください。")
+        gr.Warning("項目を追加するには、まず「編集するリストを選択」してください。リストがない場合は「リストを新規作成」してください。")
         return gr.update(), gr.update(), gr.update(), gr.update()
 
     # 新しい項目の一時的なIDとして "-1" を使用する

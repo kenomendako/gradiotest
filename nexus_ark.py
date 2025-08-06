@@ -187,7 +187,10 @@ try:
                         # ▼▼▼ ここからが新しいUIの定義 ▼▼▼
                         with gr.Accordion("リスト項目を編集", open=False) as list_editor_accordion_wb:
                             # --- どのリストを編集するか ---
-                            list_key_selector_wb = gr.Dropdown(label="編集するリストを選択", interactive=True)
+                            with gr.Row(): # Rowで囲む
+                                list_key_selector_wb = gr.Dropdown(label="編集するリストを選択", interactive=True, scale=3)
+                                # ▼▼▼ このボタンを追加 ▼▼▼
+                                add_new_list_button_wb = gr.Button("リストを新規作成", scale=1)
 
                             # --- どの項目を編集するか ---
                             with gr.Row():
@@ -342,6 +345,25 @@ try:
         cancel_item_edit_button_wb.click(
             fn=lambda: gr.update(visible=False),
             outputs=[item_edit_form_wb]
+        )
+
+        add_new_list_button_wb.click(
+            fn=None,
+            js="""
+            (world_data, char_name, area_id, room_id) => {
+                const new_list_key = prompt("作成する新しいリストの名前を入力してください (例: items, characters)");
+                if (new_list_key) {
+                    return [world_data, char_name, area_id, room_id, new_list_key];
+                }
+                return [world_data, char_name, area_id, room_id, null];
+            }
+            """,
+            inputs=[world_data_state, current_character_name, area_selector, room_selector],
+            outputs=[world_data_state, current_character_name, area_selector, room_selector, gr.Textbox(visible=False)]
+        ).then(
+            fn=ui_handlers.handle_add_new_list_click,
+            inputs=[world_data_state, current_character_name, area_selector, room_selector, gr.Textbox(visible=False)],
+            outputs=[world_data_state, list_key_selector_wb]
         )
 
     if __name__ == "__main__":
