@@ -201,6 +201,32 @@ try:
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
+        # --- キャラクター変更時のグローバル更新イベント ---
+        char_change_main_outputs = [
+            current_character_name, chatbot_display, current_log_map_state, chat_input_textbox,
+            profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown,
+            notepad_editor, location_dropdown, current_location_display, current_scenery_display,
+            char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox
+        ] + context_checkboxes + [char_settings_info, scenery_image_display]
+
+        char_change_world_builder_outputs = [
+             world_data_state, area_selector, room_selector, details_display_wb,
+             editor_wrapper_wb, edit_button_wb, new_item_form_wb
+        ]
+
+        # 司令塔関数に対応する、すべての出力先を結合
+        all_char_change_outputs = char_change_main_outputs + char_change_world_builder_outputs
+
+        character_dropdown.change(
+            fn=ui_handlers.handle_character_change_for_all_tabs,
+            inputs=[character_dropdown, api_key_dropdown],
+            outputs=all_char_change_outputs
+        ).then(
+            fn=ui_handlers.handle_context_settings_change,
+            inputs=context_token_calc_inputs,
+            outputs=token_count_display
+        )
+
         chat_reload_button.click(
             fn=ui_handlers.reload_chat_log,
             inputs=[current_character_name, api_history_limit_state],
