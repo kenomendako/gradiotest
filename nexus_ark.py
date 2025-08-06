@@ -170,24 +170,6 @@ try:
                         room_selector = gr.Radio(label="部屋 (`###`)", interactive=True)
                         edit_button_wb = gr.Button("選択した項目を編集", variant="secondary", visible=False)
 
-                        # ▼▼▼ ここからが追加箇所 ▼▼▼
-                        gr.Markdown("---")
-                        with gr.Row():
-                            add_area_button_wb = gr.Button("エリアを追加")
-                            add_room_button_wb = gr.Button("部屋を追加")
-
-                        with gr.Column(visible=False) as new_item_form_wb:
-                            # ▼▼▼ 修正: 静的なMarkdownから、変数を持つMarkdownに変更 ▼▼▼
-                            new_item_form_title_wb = gr.Markdown("#### 新規作成")
-                            # ▲▲▲ 修正ここまで ▲▲▲
-                            new_item_type_wb = gr.Textbox(visible=False) # "area" or "room"
-                            new_item_id_wb = gr.Textbox(label="ID (必須, 半角英数字と_のみ)", placeholder="例: main_entrance")
-                            new_item_name_wb = gr.Textbox(label="表示名 (必須)", placeholder="例: メインエントランス")
-                            with gr.Row():
-                                confirm_add_button_wb = gr.Button("決定", variant="primary")
-                                cancel_add_button_wb = gr.Button("キャンセル")
-                        # ▲▲▲ 追加箇所ここまで ▲▲▲
-
                     with gr.Column(scale=3):
                         gr.Markdown("### 2. 内容を確認・編集")
                         details_display_wb = gr.Markdown("← 左のパネルからエリアや部屋を選択してください。")
@@ -315,61 +297,43 @@ try:
             outputs=[scenery_image_display]
         )
 
-        # ▼▼▼ ワールド・ビルダー用のイベント接続 (新規作成機能を含む最終版) ▼▼▼
+        # ▼▼▼ ワールド・ビルダー用のイベント接続 (最終確定版) ▼▼▼
 
-        # --- 表示/編集フロー ---
+        # タブを開いた時 or キャラクター変更時
         load_event_inputs = [current_character_name]
-        load_event_outputs = [world_data_state, area_selector, room_selector, details_display_wb, editor_wrapper_wb, edit_button_wb, new_item_form_wb]
+        load_event_outputs = [world_data_state, area_selector, room_selector, details_display_wb, editor_wrapper_wb, edit_button_wb]
         world_builder_tab.select(fn=ui_handlers.handle_world_builder_load, inputs=load_event_inputs, outputs=load_event_outputs)
         character_dropdown.change(fn=ui_handlers.handle_world_builder_load, inputs=character_dropdown, outputs=load_event_outputs)
 
+        # エリアや部屋を選択した時
         selection_event_inputs = [world_data_state, area_selector, room_selector]
         selection_event_outputs = [room_selector, details_display_wb, editor_wrapper_wb, edit_button_wb]
         area_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
         room_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
 
+        # 編集ボタン
         edit_button_wb.click(
             fn=ui_handlers.handle_edit_button_click,
             inputs=[world_data_state, area_selector, room_selector],
             outputs=[details_display_wb, editor_wrapper_wb, editor_content_wb]
         )
+
+        # 保存ボタン
         save_button_wb.click(
             fn=ui_handlers.handle_save_button_click,
             inputs=[current_character_name, world_data_state, area_selector, room_selector, editor_content_wb],
-            outputs=[world_data_state, details_display_wb, editor_wrapper_wb]
+            outputs=[world_data_state, details_display_wb, details_display_wb, editor_wrapper_wb]
         ).then(
+             # 保存後、選択肢も更新
             fn=lambda data: gr.update(choices=ui_handlers.get_choices_from_world_data(data)[0]),
-            inputs=[world_data_state], outputs=[area_selector]
+            inputs=[world_data_state],
+            outputs=[area_selector]
         )
+
+        # キャンセルボタン
         cancel_button_wb.click(
             fn=lambda: (gr.update(visible=True), gr.update(visible=False)),
             outputs=[details_display_wb, editor_wrapper_wb]
-        )
-
-        # --- 新規作成フロー ---
-        add_item_outputs = [area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_type_wb, new_item_form_title_wb]
-        add_area_button_wb.click(
-            fn=ui_handlers.handle_add_item_button_click,
-            inputs=[gr.Textbox("area", visible=False), area_selector],
-            outputs=add_item_outputs
-        )
-        add_room_button_wb.click(
-            fn=ui_handlers.handle_add_item_button_click,
-            inputs=[gr.Textbox("room", visible=False), area_selector],
-            outputs=add_item_outputs
-        )
-
-        confirm_add_outputs = [world_data_state, area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_id_wb, new_item_name_wb]
-        confirm_add_button_wb.click(
-            fn=ui_handlers.handle_confirm_add_button_click,
-            inputs=[current_character_name, world_data_state, area_selector, new_item_type_wb, new_item_id_wb, new_item_name_wb],
-            outputs=confirm_add_outputs
-        )
-
-        cancel_add_outputs = [area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_id_wb, new_item_name_wb]
-        cancel_add_button_wb.click(
-            fn=ui_handlers.handle_cancel_add_button_click,
-            outputs=cancel_add_outputs
         )
 
     if __name__ == "__main__":
