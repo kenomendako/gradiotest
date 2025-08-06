@@ -622,3 +622,47 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
     else:
         gr.Error(f"画像の生成/更新に失敗しました。AIの応答: {result}") # メッセージを調整
         return None
+
+# ui_handlers.py の末尾に追加
+
+from world_builder import get_world_data, generate_details_markdown
+
+def handle_world_builder_load(character_name: str) -> Tuple[Dict, List, gr.update, gr.update]:
+    """ワールド・ビルダータブが読み込まれたときの初期化処理。"""
+    print(f"--- ワールド・ビルダー読み込み: {character_name} ---")
+    world_data = get_world_data(character_name)
+    area_ids = list(world_data.keys())
+
+    # UIコンポーネントの初期状態を返す
+    return (
+        world_data,  # gr.State にデータを格納
+        area_ids,    # エリア選択肢を更新
+        gr.update(value=None, choices=[]), # 部屋リストは空にする
+        "エリア（`##`）を選択して、部屋や設定を確認します。" # 詳細表示を初期化
+    )
+
+def handle_area_selection(world_data: Dict, selected_area_id: str) -> Tuple[gr.update, gr.update]:
+    """エリアが選択されたときの処理。部屋リストと詳細表示を更新する。"""
+    if not selected_area_id or not world_data:
+        return gr.update(value=None, choices=[]), "エリアを選択してください。"
+
+    area_data = world_data.get(selected_area_id, {})
+
+    room_ids = []
+    if isinstance(area_data, dict):
+        # 値が辞書で、かつ 'name' キーを持つものを部屋とみなす
+        room_ids = [room_id for room_id, room_data in area_data.items() if isinstance(room_data, dict) and 'name' in room_data]
+
+    details_md = generate_details_markdown(area_data)
+
+    return gr.update(value=None, choices=sorted(room_ids)), details_md
+
+def handle_room_selection(world_data: Dict, selected_area_id: str, selected_room_id: str) -> str:
+    """部屋が選択されたときの処理。詳細表示を更新する。"""
+    if not selected_room_id or not selected_area_id or not world_data:
+        # 部屋の選択が解除された場合は、エリアの詳細を再表示
+        area_data = world_data.get(selected_area_id, {})
+        return generate_details_markdown(area_data)
+
+    room_data = world_data.get(selected_area_id, {}).get(selected_room_id, {})
+    return generate_details_markdown(room_data)
