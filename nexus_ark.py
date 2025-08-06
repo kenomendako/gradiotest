@@ -183,11 +183,36 @@ try:
                     with gr.Column(scale=3):
                         gr.Markdown("### 2. 内容を確認・編集")
                         details_display_wb = gr.Markdown("← 左のパネルからエリアや部屋を選択してください。")
-                        with gr.Column(visible=False) as editor_wrapper_wb:
-                            editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
+
+                        # ▼▼▼ ここからが新しいUIの定義 ▼▼▼
+                        with gr.Accordion("リスト項目を編集", open=False) as list_editor_accordion_wb:
+                            # --- どのリストを編集するか ---
+                            list_key_selector_wb = gr.Dropdown(label="編集するリストを選択", interactive=True)
+
+                            # --- どの項目を編集するか ---
                             with gr.Row():
-                                save_button_wb = gr.Button("変更を保存", variant="primary")
-                                cancel_button_wb = gr.Button("キャンセル")
+                                list_item_selector_wb = gr.Dropdown(label="編集する項目を選択", interactive=True, scale=3)
+                                add_new_item_button_wb = gr.Button("新規項目を追加", scale=1)
+
+                            # --- 編集フォーム ---
+                            with gr.Column(visible=False) as item_edit_form_wb:
+                                item_id_wb = gr.Textbox(label="ID (変更不可)", interactive=False)
+                                item_name_wb = gr.Textbox(label="名前 (name)", interactive=True)
+                                item_description_wb = gr.Textbox(label="説明 (description)", interactive=True, lines=5)
+                                # ambition などの他のキーは将来的に追加
+
+                                with gr.Row():
+                                    save_item_button_wb = gr.Button("この項目を保存", variant="primary")
+                                    delete_item_button_wb = gr.Button("この項目を削除", variant="stop")
+                                    cancel_item_edit_button_wb = gr.Button("キャンセル")
+
+                        # ▼▼▼ 古いYAMLエディタは、デバッグ用にアコーディオン内に残す ▼▼▼
+                        with gr.Accordion("RAW YAMLエディタ (上級者向け)", open=False):
+                             with gr.Column(visible=True) as editor_wrapper_wb: # デフォルトで表示されるように変更
+                                editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
+                                with gr.Row():
+                                    save_button_wb = gr.Button("RAW YAMLを保存", variant="primary")
+                                    cancel_button_wb = gr.Button("キャンセル")
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
