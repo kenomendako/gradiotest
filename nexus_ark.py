@@ -169,114 +169,78 @@ try:
                         area_selector = gr.Radio(label="エリア (`##`)", interactive=True)
                         room_selector = gr.Radio(label="部屋 (`###`)", interactive=True)
                         edit_button_wb = gr.Button("選択した項目を編集", variant="secondary", visible=False)
-
+                        gr.Markdown("---")
+                        add_area_button_wb = gr.Button("エリアを新規作成")
+                        add_room_button_wb = gr.Button("部屋を新規作成")
+                        with gr.Column(visible=False) as new_item_form_wb:
+                            new_item_form_title_wb = gr.Markdown("#### 新規作成")
+                            new_item_type_wb = gr.Textbox(visible=False)
+                            new_item_id_wb = gr.Textbox(label="ID (必須, 半角英数字と_のみ)", placeholder="例: main_entrance")
+                            new_item_name_wb = gr.Textbox(label="表示名 (必須)", placeholder="例: メインエントランス")
+                            with gr.Row():
+                                confirm_add_button_wb = gr.Button("決定", variant="primary")
+                                cancel_add_button_wb = gr.Button("キャンセル")
                     with gr.Column(scale=3):
                         gr.Markdown("### 2. 内容を確認・編集")
                         details_display_wb = gr.Markdown("← 左のパネルからエリアや部屋を選択してください。")
-
                         with gr.Column(visible=False) as editor_wrapper_wb:
                             editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
                             with gr.Row():
                                 save_button_wb = gr.Button("変更を保存", variant="primary")
                                 cancel_button_wb = gr.Button("キャンセル")
 
-        gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
-
-
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
-        context_token_calc_inputs = [
-            current_character_name, current_api_key_name_state, api_history_limit_state
-        ] + context_checkboxes
+        context_token_calc_inputs = [current_character_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
 
-        char_change_outputs = [
-            current_character_name, chatbot_display, current_log_map_state, chat_input_textbox,
-            profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown,
-            notepad_editor, location_dropdown, current_location_display, current_scenery_display,
-            char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox
+        # --- アプリケーション起動時の初期化 ---
+        initial_load_chat_outputs = [
+            current_character_name, chatbot_display, current_log_map_state, chat_input_textbox, profile_image_display,
+            memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown,
+            current_location_display, current_scenery_display, char_model_dropdown, char_voice_dropdown,
+            char_voice_style_prompt_textbox
         ] + context_checkboxes + [char_settings_info, scenery_image_display]
-
-        initial_load_outputs = [
-            alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
-        ] + char_change_outputs
-
+        initial_load_outputs = [alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown] + initial_load_chat_outputs
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
-        chat_reload_button.click(
-            fn=ui_handlers.reload_chat_log,
-            inputs=[current_character_name, api_history_limit_state],
-            outputs=[chatbot_display, current_log_map_state]
-        )
-
-        chatbot_display.select(
-            fn=ui_handlers.handle_chatbot_selection,
-            inputs=[current_character_name, api_history_limit_state, current_log_map_state],
-            outputs=[selected_message_state, action_button_group],
-            show_progress=False
-        )
-
-        delete_selection_button.click(
-            fn=ui_handlers.handle_delete_button_click,
-            inputs=[selected_message_state, current_character_name, api_history_limit_state],
-            outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group]
-        )
-
-        api_history_limit_dropdown.change(
-            fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
-            inputs=[api_history_limit_dropdown, current_character_name],
-            outputs=[api_history_limit_state, chatbot_display, current_log_map_state]
-        ).then(
-            fn=ui_handlers.handle_context_settings_change,
-            inputs=context_token_calc_inputs,
-            outputs=token_count_display
-        )
-
-        chat_inputs = [chat_input_textbox, current_character_name, current_api_key_name_state, file_upload_button, api_history_limit_state, debug_mode_checkbox]
-        chat_submit_outputs = [
-            chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button, token_count_display,
-            current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe,
-            scenery_image_display
+        # --- キャラクター変更時のグローバル更新 ---
+        char_change_world_builder_outputs = [
+             world_data_state, area_selector, room_selector, details_display_wb,
+             editor_wrapper_wb, edit_button_wb, new_item_form_wb
         ]
 
-        save_char_settings_button.click(
-            fn=ui_handlers.handle_save_char_settings,
-            inputs=[current_character_name, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox] + context_checkboxes,
-            outputs=None
+        all_char_change_outputs = initial_load_chat_outputs + char_change_world_builder_outputs
+        character_dropdown.change(
+            fn=ui_handlers.handle_character_change_for_all_tabs,
+            inputs=[character_dropdown, api_key_dropdown],
+            outputs=all_char_change_outputs
         ).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
+
+        # --- チャットタブのイベント ---
+        chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state])
+        chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state, current_log_map_state], outputs=[selected_message_state, action_button_group], show_progress=False)
+        delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
+        api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, current_log_map_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
+        chat_inputs = [chat_input_textbox, current_character_name, current_api_key_name_state, file_upload_button, api_history_limit_state, debug_mode_checkbox]
+        chat_submit_outputs = [chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe, scenery_image_display]
+        save_char_settings_button.click(fn=ui_handlers.handle_save_char_settings, inputs=[current_character_name, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox] + context_checkboxes, outputs=None).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         char_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[char_voice_dropdown, char_voice_style_prompt_textbox, char_preview_text_textbox, api_key_dropdown], outputs=[audio_player])
-
-        for checkbox in context_checkboxes:
-            checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-
+        for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-
         chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
         submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
-
-        token_calc_on_input_inputs = [
-            current_character_name, current_api_key_name_state, api_history_limit_state,
-            chat_input_textbox, file_upload_button
-        ] + context_checkboxes
+        token_calc_on_input_inputs = [current_character_name, current_api_key_name_state, api_history_limit_state, chat_input_textbox, file_upload_button] + context_checkboxes
         chat_input_textbox.input(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
         file_upload_button.upload(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
         file_upload_button.clear(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
-
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-        change_location_button.click(
-            fn=ui_handlers.handle_location_change,
-            inputs=[current_character_name, location_dropdown],
-            outputs=[current_location_display, current_scenery_display, scenery_image_display]
-        )
-        refresh_scenery_button.click(
-            fn=ui_handlers.handle_scenery_refresh,
-            inputs=[current_character_name, api_key_dropdown],
-            outputs=[current_location_display, current_scenery_display, scenery_image_display]
-        )
+        change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
+        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_character_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
@@ -293,51 +257,26 @@ try:
         timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
         rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
+        generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_character_name, api_key_dropdown], outputs=[scenery_image_display])
 
-        generate_scenery_image_button.click(
-            fn=ui_handlers.handle_generate_or_regenerate_scenery_image,
-            inputs=[current_character_name, api_key_dropdown],
-            outputs=[scenery_image_display]
-        )
-
-        # ▼▼▼ ワールド・ビルダー用のイベント接続 (最終確定版) ▼▼▼
-
-        # タブを開いた時 or キャラクター変更時
-        load_event_inputs = [current_character_name]
-        load_event_outputs = [world_data_state, area_selector, room_selector, details_display_wb, editor_wrapper_wb, edit_button_wb]
-        world_builder_tab.select(fn=ui_handlers.handle_world_builder_load, inputs=load_event_inputs, outputs=load_event_outputs)
-        character_dropdown.change(fn=ui_handlers.handle_world_builder_load, inputs=character_dropdown, outputs=load_event_outputs)
-
-        # エリアや部屋を選択した時
+        # --- ワールド・ビルダーのイベント ---
+        world_builder_tab.select(fn=ui_handlers.handle_world_builder_load, inputs=[current_character_name], outputs=char_change_world_builder_outputs)
         selection_event_inputs = [world_data_state, area_selector, room_selector]
         selection_event_outputs = [room_selector, details_display_wb, editor_wrapper_wb, edit_button_wb]
         area_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
         room_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
+        edit_button_wb.click(fn=ui_handlers.handle_edit_button_click, inputs=[world_data_state, area_selector, room_selector], outputs=[details_display_wb, editor_wrapper_wb, editor_content_wb])
+        save_button_wb.click(fn=ui_handlers.handle_save_button_click, inputs=[current_character_name, world_data_state, area_selector, room_selector, editor_content_wb], outputs=[world_data_state, details_display_wb, editor_wrapper_wb]).then(fn=lambda data: gr.update(choices=ui_handlers.get_choices_from_world_data(data)[0]), inputs=[world_data_state], outputs=[area_selector])
+        cancel_button_wb.click(fn=lambda: (gr.update(visible=True), gr.update(visible=False)), outputs=[details_display_wb, editor_wrapper_wb])
+        add_item_outputs = [area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_type_wb, new_item_form_title_wb]
+        add_area_button_wb.click(fn=ui_handlers.handle_add_item_button_click, inputs=[gr.Textbox("area", visible=False), area_selector], outputs=add_item_outputs)
+        add_room_button_wb.click(fn=ui_handlers.handle_add_item_button_click, inputs=[gr.Textbox("room", visible=False), area_selector], outputs=add_item_outputs)
+        confirm_add_outputs = [world_data_state, area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_id_wb, new_item_name_wb]
+        confirm_add_button_wb.click(fn=ui_handlers.handle_confirm_add_button_click, inputs=[current_character_name, world_data_state, area_selector, new_item_type_wb, new_item_id_wb, new_item_name_wb], outputs=confirm_add_outputs)
+        cancel_add_outputs = [area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_id_wb, new_item_name_wb]
+        cancel_add_button_wb.click(fn=ui_handlers.handle_cancel_add_button_click, outputs=cancel_add_outputs)
 
-        # 編集ボタン
-        edit_button_wb.click(
-            fn=ui_handlers.handle_edit_button_click,
-            inputs=[world_data_state, area_selector, room_selector],
-            outputs=[details_display_wb, editor_wrapper_wb, editor_content_wb]
-        )
-
-        # 保存ボタン
-        save_button_wb.click(
-            fn=ui_handlers.handle_save_button_click,
-            inputs=[current_character_name, world_data_state, area_selector, room_selector, editor_content_wb],
-            outputs=[world_data_state, details_display_wb, details_display_wb, editor_wrapper_wb]
-        ).then(
-             # 保存後、選択肢も更新
-            fn=lambda data: gr.update(choices=ui_handlers.get_choices_from_world_data(data)[0]),
-            inputs=[world_data_state],
-            outputs=[area_selector]
-        )
-
-        # キャンセルボタン
-        cancel_button_wb.click(
-            fn=lambda: (gr.update(visible=True), gr.update(visible=False)),
-            outputs=[details_display_wb, editor_wrapper_wb]
-        )
+    if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
 
