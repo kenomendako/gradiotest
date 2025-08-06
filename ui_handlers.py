@@ -645,22 +645,23 @@ def get_choices_from_world_data(world_data: Dict) -> Tuple[List[Tuple[str, str]]
             room_choices_map[area_id] = sorted(room_choices)
     return sorted(area_choices), room_choices_map
 
-def handle_world_builder_load(character_name: str) -> Tuple[Dict, gr.Radio, gr.Radio, gr.Markdown, gr.Column]:
+def handle_world_builder_load(character_name: str):
     print(f"--- ワールド・ビルダー読み込み: {character_name} ---")
     world_data = get_world_data(character_name)
     area_choices, _ = get_choices_from_world_data(world_data)
 
     return (
         world_data,
-        gr.Radio(choices=area_choices, value=None, label="エリア (`##`)", interactive=True),
-        gr.Radio(choices=[], value=None, label="部屋 (`###`)", interactive=True),
-        gr.Markdown("← 左のパネルから編集したいエリアや部屋を選択してください。", visible=True),
-        gr.Column(visible=False)
+        gr.update(choices=area_choices, value=None),
+        gr.update(choices=[], value=None),
+        gr.update(visible=True),
+        gr.update(visible=False)
     )
 
 def handle_area_selection(world_data: Dict, area_id: str):
     if not area_id:
-        return gr.Radio(choices=[], value=None, label="部屋 (`###`)", interactive=True), gr.update(visible=True), gr.update(visible=False), [], json.dumps([])
+        empty_updates = [gr.update(visible=False)] * 20
+        return gr.update(choices=[], value=None), gr.update(visible=True), gr.update(visible=False), empty_updates, json.dumps([])
 
     _, room_choices_map = get_choices_from_world_data(world_data)
     room_choices = room_choices_map.get(area_id, [])
@@ -668,7 +669,7 @@ def handle_area_selection(world_data: Dict, area_id: str):
     selected_data = world_data.get(area_id, {})
     updates, keys = create_dynamic_editor_updates(selected_data)
 
-    return gr.Radio(choices=room_choices, value=None, label="部屋 (`###`)", interactive=True), gr.update(visible=False), gr.update(visible=True), updates, json.dumps(keys)
+    return gr.update(choices=room_choices, value=None), gr.update(visible=False), gr.update(visible=True), updates, json.dumps(keys)
 
 def handle_room_selection(world_data: Dict, area_id: str, room_id: str):
     if not room_id:
@@ -685,17 +686,18 @@ def create_dynamic_editor_updates(data: Dict) -> Tuple[List[gr.update], List[str
     # name, description を先頭に
     for key in ['name', 'description']:
         if key in data:
-            updates.append(gr.Textbox(label=key.capitalize(), value=data[key], visible=True))
+            updates.append(gr.Textbox(label=key.capitalize(), value=data[key], visible=True, interactive=True))
             keys_order.append(key)
 
     # 残りのプロパティ
     for key, value in data.items():
         if key in ['name', 'description']: continue
+
         if isinstance(value, (dict, list)):
             yaml_str = yaml.dump(value, allow_unicode=True, default_flow_style=False, sort_keys=False)
-            updates.append(gr.Code(label=key.capitalize(), value=yaml_str, language='yaml', visible=True))
+            updates.append(gr.Code(label=key.capitalize(), value=yaml_str, language='yaml', visible=True, interactive=True))
         else:
-            updates.append(gr.Textbox(label=key.capitalize(), value=str(value), visible=True))
+            updates.append(gr.Textbox(label=key.capitalize(), value=str(value), visible=True, interactive=True))
         keys_order.append(key)
 
     hidden_updates = [gr.update(visible=False, value=None)] * (max_components - len(updates))
@@ -706,7 +708,7 @@ def handle_world_data_save(character_name: str, world_data: Dict, area_id: str, 
         gr.Warning("保存対象のエリアが選択されていません。")
         return world_data, [gr.update()] * 20
 
-    keys_order = json.loads(keys_order_str)
+    keys_order = json.loads(keys_order_str) if keys_order_str else []
     active_values = values[:len(keys_order)]
     new_data = {}
     for key, value in zip(keys_order, active_values):
@@ -716,10 +718,8 @@ def handle_world_data_save(character_name: str, world_data: Dict, area_id: str, 
         except (yaml.YAMLError, ConstructorError):
             new_data[key] = value
 
-    # エリア内の既存の部屋データを維持しつつ更新
-    if room_id:
-        if area_id in world_data and room_id in world_data[area_id]:
-            world_data[area_id][room_id] = new_data
+    if room_id and room_id in world_data.get(area_id, {}):
+        world_data[area_id][room_id] = new_data
     else:
         existing_rooms = {k: v for k, v in world_data.get(area_id, {}).items() if isinstance(v, dict) and 'name' in v}
         world_data[area_id] = {**new_data, **existing_rooms}
