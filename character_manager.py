@@ -54,12 +54,14 @@ def ensure_character_files(character_name):
         # world_settings.json の作成ロジックを world_settings.md の作成ロジックに置き換える
         world_settings_file = os.path.join(spaces_dir, "world_settings.md") # 新しいファイル名
         if not os.path.exists(world_settings_file):
-            # ▼▼▼ デフォルトのデータをMarkdown形式で書き込む ▼▼▼
+            # ▼▼▼ デフォルトのデータをMarkdown/YAML形式で書き込む ▼▼▼
+            # 不正な書式 (- key: value) から、有効なYAML (key: value) に修正。
+            # また、パーサーが期待するID (living_space) を見出しに含める。
             default_world_data_md = """
-## 共有リビング
-- name: 共有リビング
-- description: 広々としたリビングルーム。大きな窓からは柔らかな光が差し込み、快適なソファが置かれている。
-- objects:
+## living_space
+name: 共有リビング
+description: 広々としたリビングルーム。大きな窓からは柔らかな光が差し込み、快適なソファが置かれている。
+objects:
     - ソファ
     - ローテーブル
     - 観葉植物

@@ -322,7 +322,10 @@ try:
         save_button_wb.click(
             fn=ui_handlers.handle_save_button_click,
             inputs=[current_character_name, world_data_state, area_selector, room_selector, editor_content_wb],
-            outputs=[world_data_state, details_display_wb, details_display_wb, editor_wrapper_wb]
+            # ▼▼▼ outputs を修正 ▼▼▼
+            # 重複していた details_display_wb をなくし、ハンドラの戻り値（辞書）のキーと対応させる
+            outputs=[world_data_state, details_display_wb, editor_wrapper_wb]
+            # ▲▲▲ 修正ここまで ▲▲▲
         ).then(
              # 保存後、選択肢も更新
             fn=lambda data: gr.update(choices=ui_handlers.get_choices_from_world_data(data)[0]),

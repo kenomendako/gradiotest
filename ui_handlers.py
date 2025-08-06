@@ -669,7 +669,7 @@ def handle_edit_button_click(world_data: Dict, area_id: str, room_id: Optional[s
 def handle_save_button_click(character_name: str, world_data: Dict, area_id: str, room_id: Optional[str], editor_content: str):
     if not area_id:
         gr.Warning("保存対象のエリアが選択されていません。")
-        return world_data, gr.update()
+        return world_data, gr.update(), gr.update()
 
     try:
         new_data = yaml.safe_load(editor_content)
@@ -682,7 +682,7 @@ def handle_save_button_click(character_name: str, world_data: Dict, area_id: str
             existing_rooms = {k: v for k, v in world_data.get(area_id, {}).items() if isinstance(v, dict) and 'name' in v}
             world_data[area_id] = {**new_data, **existing_rooms}
 
-        # world_settings.md を再構築して保存
+        # world_settings.md を再構築して保存 (world_builder.pyのロジックを呼び出す形が望ましいが、今回はUI修正を優先)
         md_content = ""
         for current_area_id, current_area_data in world_data.items():
             md_content += f"## {current_area_id}\n\n"
@@ -699,8 +699,19 @@ def handle_save_button_click(character_name: str, world_data: Dict, area_id: str
 
         gr.Info(f"「{character_name}」の世界設定を保存しました。")
 
-        return world_data, generate_details_markdown(new_data), gr.update(visible=True), gr.update(visible=False)
+        # ▼▼▼ 戻り値を修正 ▼▼▼
+        # 1つの gr.update で value と visible を同時に更新する形に変更
+        return {
+            world_data_state: world_data,
+            details_display_wb: gr.update(value=generate_details_markdown(new_data), visible=True),
+            editor_wrapper_wb: gr.update(visible=False)
+        }
+        # ▲▲▲ 修正ここまで ▲▲▲
 
     except (yaml.YAMLError, ValueError) as e:
         gr.Error(f"YAMLの書式が正しくありません: {e}")
-        return world_data, gr.update(), gr.update(), gr.update()
+        return {
+            world_data_state: world_data,
+            details_display_wb: gr.update(), # エラー時は変更しない
+            editor_wrapper_wb: gr.update()   # エラー時は変更しない
+        }
