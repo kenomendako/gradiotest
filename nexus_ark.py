@@ -180,6 +180,7 @@ try:
                                 save_button_wb = gr.Button("変更を保存", variant="primary")
                                 cancel_button_wb = gr.Button("キャンセル")
 
+    if __name__ == "__main__":
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
         context_token_calc_inputs = [
@@ -199,32 +200,6 @@ try:
 
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
-        )
-
-        # --- キャラクター変更時のグローバル更新イベント ---
-        char_change_main_outputs = [
-            current_character_name, chatbot_display, current_log_map_state, chat_input_textbox,
-            profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown,
-            notepad_editor, location_dropdown, current_location_display, current_scenery_display,
-            char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox
-        ] + context_checkboxes + [char_settings_info, scenery_image_display]
-
-        char_change_world_builder_outputs = [
-             world_data_state, area_selector, room_selector, details_display_wb,
-             editor_wrapper_wb, edit_button_wb, new_item_form_wb
-        ]
-
-        # 司令塔関数に対応する、すべての出力先を結合
-        all_char_change_outputs = char_change_main_outputs + char_change_world_builder_outputs
-
-        character_dropdown.change(
-            fn=ui_handlers.handle_character_change_for_all_tabs,
-            inputs=[character_dropdown, api_key_dropdown],
-            outputs=all_char_change_outputs
-        ).then(
-            fn=ui_handlers.handle_context_settings_change,
-            inputs=context_token_calc_inputs,
-            outputs=token_count_display
         )
 
         chat_reload_button.click(
@@ -361,8 +336,6 @@ try:
             fn=lambda: (gr.update(visible=True), gr.update(visible=False)),
             outputs=[details_display_wb, editor_wrapper_wb]
         )
-
-    if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
 

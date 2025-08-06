@@ -704,16 +704,3 @@ def handle_save_button_click(character_name: str, world_data: Dict, area_id: str
     except (yaml.YAMLError, ValueError) as e:
         gr.Error(f"YAMLの書式が正しくありません: {e}")
         return world_data, gr.update(), gr.update(), gr.update()
-
-def handle_character_change_for_all_tabs(character_name: str, api_key_name: str):
-    """【司令塔】キャラクター変更時に、すべての関連UIを更新するためのマスターハンドラ"""
-    print(f"--- UI司令塔(handle_character_change_for_all_tabs)実行: {character_name} ---")
-
-    # 1. チャットタブ関連の更新情報を生成
-    chat_tab_updates = handle_character_change(character_name, api_key_name)
-
-    # 2. ワールド・ビルダータブ関連の更新情報を生成
-    world_builder_updates = handle_world_builder_load(character_name)
-
-    # 3. 両方のタプルを結合して、単一の巨大なタプルとして返す
-    return chat_tab_updates + world_builder_updates
