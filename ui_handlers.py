@@ -601,177 +601,54 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         return None
 
 #
-# ui_handlers.py の末尾にあるワールド・ビルダー関連の関数群を、このブロックで完全に置き換えてください
+# ui_handlers.py の一番下に追加したワールド・ビルダー新規作成用の関数群を、このブロックで置き換えてください
 #
-
-from world_builder import get_world_data, generate_details_markdown, convert_data_to_yaml_str
-import yaml
-
-def get_choices_from_world_data(world_data: Dict) -> Tuple[List[Tuple[str, str]], Dict[str, List[Tuple[str, str]]]]:
-    area_choices, room_choices_map = [], {}
-    if not isinstance(world_data, dict): return area_choices, room_choices_map # データが不正なら空を返す
-
-    # ▼▼▼ 修正の核心 ▼▼▼
-    # nameキーが存在しない場合に、見出しのIDそのものを名前として扱うようにする
-    for area_id, area_data in world_data.items():
-        if isinstance(area_data, dict):
-            # nameキーがあればそれを使い、なければarea_id（見出し）を名前にする
-            area_name = area_data.get("name", area_id)
-            area_choices.append((area_name, area_id))
-
-            room_choices = []
-            for room_id, room_data in area_data.items():
-                if isinstance(room_data, dict):
-                    # nameキーの有無をチェックし、なければroom_id（見出し）を名前にする
-                    room_name = room_data.get("name", room_id)
-                    # nameキーまたはdescriptionキーのどちらかがあれば、それは部屋だと判断する
-                    if "name" in room_data or "description" in room_data:
-                         room_choices.append((room_name, room_id))
-
-            room_choices_map[area_id] = sorted(room_choices)
-    # ▲▲▲ 修正ここまで ▲▲▲
-
-    return sorted(area_choices), room_choices_map
-
-def handle_world_builder_load(character_name: str):
-    # ▼▼▼ 修正の核心1: 戻り値を、辞書ではなく値のタプルに変更 ▼▼▼
-    world_data = get_world_data(character_name)
-    area_choices, _ = get_choices_from_world_data(world_data)
-    return (
-        world_data,
-        gr.update(choices=area_choices, value=None),
-        gr.update(choices=[], value=None),
-        gr.update(value="← 左のパネルからエリアや部屋を選択してください。", visible=True),
-        gr.update(visible=False),
-        gr.update(visible=False)
-    )
-    # ▲▲▲ 修正ここまで ▲▲▲
-
-def handle_item_selection(world_data: Dict, area_id: str, room_id: Optional[str]):
-    # ▼▼▼ 修正の核心2: 戻り値を、辞書ではなく値のタプルに変更 ▼▼▼
-    _, room_choices_map = get_choices_from_world_data(world_data)
-    room_choices = room_choices_map.get(area_id, []) if area_id else []
-
-    if area_id and room_id:
-        selected_data = world_data.get(area_id, {}).get(room_id, {})
-    elif area_id:
-        selected_data = world_data.get(area_id, {})
-    else:
-        return (
-            gr.update(choices=room_choices, value=None),
-            gr.update(value="← 左のパネルからエリアや部屋を選択してください。", visible=True),
-            gr.update(visible=False),
-            gr.update(visible=False)
-        )
-
-    return (
-        gr.update(choices=room_choices, value=room_id),
-        gr.update(value=generate_details_markdown(selected_data), visible=True),
-        gr.update(visible=False),
-        gr.update(visible=True)
-    )
-    # ▲▲▲ 修正ここまで ▲▲▲
-
-def handle_edit_button_click(world_data: Dict, area_id: str, room_id: Optional[str]):
-    if area_id and room_id:
-        selected_data = world_data.get(area_id, {}).get(room_id, {})
-    elif area_id:
-        selected_data = world_data.get(area_id, {})
-    else:
-        return gr.update(), gr.update(), gr.update()
-
-    return (
-        gr.update(visible=False),
-        gr.update(visible=True),
-        gr.update(value=convert_data_to_yaml_str(selected_data))
-    )
-
-def handle_save_button_click(character_name: str, world_data: Dict, area_id: str, room_id: Optional[str], editor_content: str):
-    # ▼▼▼ 修正の核心3: 戻り値を、辞書ではなく値のタプルに変更 ▼▼▼
-    if not area_id:
-        gr.Warning("保存対象のエリアが選択されていません。")
-        return world_data, gr.update(), gr.update()
-
-    try:
-        new_data = yaml.safe_load(editor_content)
-        if not isinstance(new_data, dict): raise ValueError("YAMLの解析結果が辞書ではありません。")
-
-        if room_id:
-            world_data[area_id][room_id] = new_data
-        else:
-            existing_rooms = {k: v for k, v in world_data.get(area_id, {}).items() if isinstance(v, dict) and 'name' in v}
-            world_data[area_id] = {**new_data, **existing_rooms}
-
-        md_content = ""
-        for current_area_id, current_area_data in world_data.items():
-            md_content += f"## {current_area_id}\n\n"
-            rooms = {k: v for k, v in current_area_data.items() if isinstance(v, dict) and 'name' in v}
-            area_props = {k: v for k, v in current_area_data.items() if k not in rooms}
-            if area_props:
-                md_content += yaml.dump(area_props, allow_unicode=True, default_flow_style=False, sort_keys=False) + "\n"
-            for current_room_id, current_room_data in rooms.items():
-                md_content += f"### {current_room_id}\n"
-                md_content += yaml.dump(current_room_data, allow_unicode=True, default_flow_style=False, sort_keys=False) + "\n"
-
-        world_settings_path = character_manager.get_world_settings_path(character_name)
-        with open(world_settings_path, "w", encoding="utf-8") as f: f.write(md_content.strip())
-
-        gr.Info(f"「{character_name}」の世界設定を保存しました。")
-
-        return (
-            world_data,
-            gr.update(value=generate_details_markdown(new_data), visible=True),
-            gr.update(visible=False)
-        )
-
-    except (yaml.YAMLError, ValueError) as e:
-        gr.Error(f"YAMLの書式が正しくありません: {e}")
-        return world_data, gr.update(), gr.update()
-    # ▲▲▲ 修正ここまで ▲▲▲
 
 def handle_add_item_button_click(item_type: str, selected_area_id: Optional[str]):
     """「エリアを追加」「部屋を追加」ボタンが押された時の処理"""
     if item_type == "room" and not selected_area_id:
         gr.Warning("部屋を追加するには、まず「エリア」を選択してください。")
+        # 戻り値の数をoutputsの6つに合わせる
         return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
+    # 戻り値の数をoutputsの6つに合わせる
     return (
-        gr.update(visible=False), # area_selector
-        gr.update(visible=False), # room_selector
-        gr.update(visible=False), # edit_button_wb
-        gr.update(visible=True),  # new_item_form_wb
-        item_type,                # new_item_type_wb (hidden state)
-        f"新しい{ 'エリア' if item_type == 'area' else '部屋' }の情報を入力" # form title
+        gr.update(visible=False),  # area_selector
+        gr.update(visible=False),  # room_selector
+        gr.update(visible=False),  # edit_button_wb
+        gr.update(visible=True),   # new_item_form_wb
+        item_type,                 # new_item_type_wb (hidden state)
+        f"#### 新しい{ 'エリア' if item_type == 'area' else '部屋' }の作成" # new_item_form_title_wb
     )
 
 def handle_cancel_add_button_click():
-    """新規作成フォームの「キャンセル」ボタンが押された時の処理"""
+    """新規作成フォームの「キャンセル」ボタンが押された時の処理。戻り値の数をoutputsの6つに合わせる。"""
     return (
-        gr.update(visible=True),  # area_selector
-        gr.update(visible=True),  # room_selector
-        gr.update(visible=False), # edit_button_wb (選択状態ではないので非表示)
-        gr.update(visible=False), # new_item_form_wb
-        "",                       # clear new_item_id
-        ""                        # clear new_item_name
+        gr.update(visible=True),   # area_selector
+        gr.update(visible=True),   # room_selector
+        gr.update(visible=False),  # edit_button_wb (選択状態ではないので非表示)
+        gr.update(visible=False),  # new_item_form_wb
+        "",                        # clear new_item_id
+        ""                         # clear new_item_name
     )
 
 def handle_confirm_add_button_click(character_name: str, world_data: Dict, selected_area_id: Optional[str], item_type: str, new_id: str, new_name: str):
-    """新規作成フォームの「決定」ボタンが押された時の処理"""
+    """新規作成フォームの「決定」ボタンが押された時の処理。戻り値の数をoutputsの7つに合わせる。"""
     # --- 入力検証 ---
     if not new_id or not new_name:
         gr.Warning("IDと表示名の両方を入力してください。")
-        return world_data, gr.update(), gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
     if not re.match(r"^[a-zA-Z0-9_]+$", new_id):
         gr.Warning("IDには半角英数字とアンダースコア(_)のみ使用できます。")
-        return world_data, gr.update(), gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
     # --- IDの重複チェック ---
     if item_type == "area" and new_id in world_data:
         gr.Warning(f"ID '{new_id}' は既に使用されています。別のIDを指定してください。")
-        return world_data, gr.update(), gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(), gr.update(), new_id, new_name
     if item_type == "room" and selected_area_id and new_id in world_data.get(selected_area_id, {}):
         gr.Warning(f"エリア '{selected_area_id}' 内でID '{new_id}' は既に使用されています。")
-        return world_data, gr.update(), gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(), gr.update(), new_id, new_name
 
     # --- データ更新 ---
     if item_type == "area":
@@ -780,20 +657,19 @@ def handle_confirm_add_button_click(character_name: str, world_data: Dict, selec
         if selected_area_id not in world_data: world_data[selected_area_id] = {}
         world_data[selected_area_id][new_id] = {"name": new_name, "description": "新しい部屋です。"}
 
-    # --- ファイル保存 ---
     from world_builder import save_world_data
     save_world_data(character_name, world_data)
 
-    # --- UI更新 ---
-    area_choices, room_choices_map = get_choices_from_world_data(world_data)
-    # 新規エリア追加後は、部屋の選択肢をクリアする
-    room_choices = room_choices_map.get(new_id if item_type == 'area' else selected_area_id, [])
-
+    area_choices, _ = get_choices_from_world_data(world_data)
     gr.Info(f"新しい{ 'エリア' if item_type == 'area' else '部屋' }「{new_name}」を追加しました。")
 
+    # 戻り値の数をoutputsの7つに合わせる
     return (
         world_data,
-        gr.update(choices=area_choices, value=(new_id if item_type == 'area' else selected_area_id)),
-        gr.update(choices=room_choices, value=(new_id if item_type == 'room' else None)),
-        *handle_cancel_add_button_click() # フォームを閉じてUIをリセット
+        gr.update(choices=area_choices, value=new_id if item_type == 'area' else selected_area_id),
+        gr.update(choices=get_choices_from_world_data(world_data)[1].get(new_id if item_type == 'area' else selected_area_id, []), value=new_id if item_type == 'room' else None),
+        gr.update(visible=True),   # edit_button_wb - 項目が選択された状態になるので表示
+        gr.update(visible=False),  # new_item_form_wb
+        "",                        # clear new_item_id
+        ""                         # clear new_item_name
     )
