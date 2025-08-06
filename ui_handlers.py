@@ -600,7 +600,9 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Error(f"画像の生成/更新に失敗しました。AIの応答: {result}")
         return None
 
-# ui_handlers.py の末尾にあるワールド・ビルダー関連の関数群を、以下のコードで完全に置き換える
+#
+# ui_handlers.py の末尾にあるワールド・ビルダー関連の関数群を、このブロックで完全に置き換えてください
+#
 
 from world_builder import get_world_data, generate_details_markdown, convert_data_to_yaml_str
 import yaml
@@ -618,18 +620,21 @@ def get_choices_from_world_data(world_data: Dict) -> Tuple[List[Tuple[str, str]]
     return sorted(area_choices), room_choices_map
 
 def handle_world_builder_load(character_name: str):
+    # ▼▼▼ 修正の核心1: 戻り値を、辞書ではなく値のタプルに変更 ▼▼▼
     world_data = get_world_data(character_name)
     area_choices, _ = get_choices_from_world_data(world_data)
-    return {
-        world_data_state: world_data,
-        area_selector: gr.update(choices=area_choices, value=None),
-        room_selector: gr.update(choices=[], value=None),
-        details_display_wb: gr.update(value="← 左のパネルからエリアや部屋を選択してください。", visible=True),
-        editor_wrapper_wb: gr.update(visible=False),
-        edit_button_wb: gr.update(visible=False) # 最初は編集ボタンも非表示
-    }
+    return (
+        world_data,
+        gr.update(choices=area_choices, value=None),
+        gr.update(choices=[], value=None),
+        gr.update(value="← 左のパネルからエリアや部屋を選択してください。", visible=True),
+        gr.update(visible=False),
+        gr.update(visible=False)
+    )
+    # ▲▲▲ 修正ここまで ▲▲▲
 
 def handle_item_selection(world_data: Dict, area_id: str, room_id: Optional[str]):
+    # ▼▼▼ 修正の核心2: 戻り値を、辞書ではなく値のタプルに変更 ▼▼▼
     _, room_choices_map = get_choices_from_world_data(world_data)
     room_choices = room_choices_map.get(area_id, []) if area_id else []
 
@@ -638,19 +643,20 @@ def handle_item_selection(world_data: Dict, area_id: str, room_id: Optional[str]
     elif area_id:
         selected_data = world_data.get(area_id, {})
     else:
-        return {
-            room_selector: gr.update(choices=room_choices, value=None),
-            details_display_wb: gr.update(value="← 左のパネルからエリアや部屋を選択してください。", visible=True),
-            editor_wrapper_wb: gr.update(visible=False),
-            edit_button_wb: gr.update(visible=False)
-        }
+        return (
+            gr.update(choices=room_choices, value=None),
+            gr.update(value="← 左のパネルからエリアや部屋を選択してください。", visible=True),
+            gr.update(visible=False),
+            gr.update(visible=False)
+        )
 
-    return {
-        room_selector: gr.update(choices=room_choices, value=room_id),
-        details_display_wb: gr.update(value=generate_details_markdown(selected_data), visible=True),
-        editor_wrapper_wb: gr.update(visible=False),
-        edit_button_wb: gr.update(visible=True) # 項目が選択されたら編集ボタンを表示
-    }
+    return (
+        gr.update(choices=room_choices, value=room_id),
+        gr.update(value=generate_details_markdown(selected_data), visible=True),
+        gr.update(visible=False),
+        gr.update(visible=True)
+    )
+    # ▲▲▲ 修正ここまで ▲▲▲
 
 def handle_edit_button_click(world_data: Dict, area_id: str, room_id: Optional[str]):
     if area_id and room_id:
@@ -667,6 +673,7 @@ def handle_edit_button_click(world_data: Dict, area_id: str, room_id: Optional[s
     )
 
 def handle_save_button_click(character_name: str, world_data: Dict, area_id: str, room_id: Optional[str], editor_content: str):
+    # ▼▼▼ 修正の核心3: 戻り値を、辞書ではなく値のタプルに変更 ▼▼▼
     if not area_id:
         gr.Warning("保存対象のエリアが選択されていません。")
         return world_data, gr.update(), gr.update()
@@ -675,14 +682,12 @@ def handle_save_button_click(character_name: str, world_data: Dict, area_id: str
         new_data = yaml.safe_load(editor_content)
         if not isinstance(new_data, dict): raise ValueError("YAMLの解析結果が辞書ではありません。")
 
-        # world_data State を更新
         if room_id:
             world_data[area_id][room_id] = new_data
         else:
             existing_rooms = {k: v for k, v in world_data.get(area_id, {}).items() if isinstance(v, dict) and 'name' in v}
             world_data[area_id] = {**new_data, **existing_rooms}
 
-        # world_settings.md を再構築して保存 (world_builder.pyのロジックを呼び出す形が望ましいが、今回はUI修正を優先)
         md_content = ""
         for current_area_id, current_area_data in world_data.items():
             md_content += f"## {current_area_id}\n\n"
@@ -699,19 +704,13 @@ def handle_save_button_click(character_name: str, world_data: Dict, area_id: str
 
         gr.Info(f"「{character_name}」の世界設定を保存しました。")
 
-        # ▼▼▼ 戻り値を修正 ▼▼▼
-        # 1つの gr.update で value と visible を同時に更新する形に変更
-        return {
-            world_data_state: world_data,
-            details_display_wb: gr.update(value=generate_details_markdown(new_data), visible=True),
-            editor_wrapper_wb: gr.update(visible=False)
-        }
-        # ▲▲▲ 修正ここまで ▲▲▲
+        return (
+            world_data,
+            gr.update(value=generate_details_markdown(new_data), visible=True),
+            gr.update(visible=False)
+        )
 
     except (yaml.YAMLError, ValueError) as e:
         gr.Error(f"YAMLの書式が正しくありません: {e}")
-        return {
-            world_data_state: world_data,
-            details_display_wb: gr.update(), # エラー時は変更しない
-            editor_wrapper_wb: gr.update()   # エラー時は変更しない
-        }
+        return world_data, gr.update(), gr.update()
+    # ▲▲▲ 修正ここまで ▲▲▲
