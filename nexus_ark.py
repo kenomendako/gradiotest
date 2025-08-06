@@ -170,6 +170,22 @@ try:
                         room_selector = gr.Radio(label="部屋 (`###`)", interactive=True)
                         edit_button_wb = gr.Button("選択した項目を編集", variant="secondary", visible=False)
 
+                        # ▼▼▼ ここからが追加箇所 ▼▼▼
+                        gr.Markdown("---")
+                        with gr.Row():
+                            add_area_button_wb = gr.Button("エリアを追加")
+                            add_room_button_wb = gr.Button("部屋を追加")
+
+                        with gr.Column(visible=False) as new_item_form_wb:
+                            gr.Markdown("#### 新規作成")
+                            new_item_type_wb = gr.Textbox(visible=False) # "area" or "room"
+                            new_item_id_wb = gr.Textbox(label="ID (必須, 半角英数字と_のみ)", placeholder="例: main_entrance")
+                            new_item_name_wb = gr.Textbox(label="表示名 (必須)", placeholder="例: メインエントランス")
+                            with gr.Row():
+                                confirm_add_button_wb = gr.Button("決定", variant="primary")
+                                cancel_add_button_wb = gr.Button("キャンセル")
+                        # ▲▲▲ 追加箇所ここまで ▲▲▲
+
                     with gr.Column(scale=3):
                         gr.Markdown("### 2. 内容を確認・編集")
                         details_display_wb = gr.Markdown("← 左のパネルからエリアや部屋を選択してください。")
