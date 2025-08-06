@@ -92,7 +92,8 @@ try:
                             current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
                             refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
                             location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True)
-                            change_location_button = gr.Button("移動")
+                            # ▼▼▼ この行を削除 ▼▼▼
+                            # change_location_button = gr.Button("移動")
                         with gr.Accordion("⚙️ 設定", open=False):
                             with gr.Tabs():
                                 with gr.TabItem("キャラクター個別設定"):
@@ -272,8 +273,14 @@ try:
         file_upload_button.upload(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
         file_upload_button.clear(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-        change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
         refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_character_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
+
+        # --- 空間移動のイベント ---
+        location_dropdown.change(
+            fn=ui_handlers.handle_location_change,
+            inputs=[current_character_name, location_dropdown],
+            outputs=[current_location_display, current_scenery_display, scenery_image_display]
+        )
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
