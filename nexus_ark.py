@@ -278,7 +278,8 @@ try:
         # --- 空間移動のイベント ---
         location_dropdown.change(
             fn=ui_handlers.handle_location_change,
-            inputs=[current_character_name, location_dropdown],
+            # ▼▼▼ 修正: inputs に api_key_dropdown を追加 ▼▼▼
+            inputs=[current_character_name, location_dropdown, api_key_dropdown],
             outputs=[current_location_display, current_scenery_display, scenery_image_display]
         )
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player])
