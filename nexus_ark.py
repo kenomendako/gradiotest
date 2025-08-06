@@ -286,8 +286,15 @@ try:
 
         # --- ワールド・ビルダーのイベント ---
         world_builder_tab.select(fn=ui_handlers.handle_world_builder_load, inputs=[current_character_name], outputs=char_change_world_builder_outputs)
+        # エリアや部屋を選択した時
         selection_event_inputs = [world_data_state, area_selector, room_selector]
-        selection_event_outputs = [room_selector, details_display_wb, editor_wrapper_wb, edit_button_wb]
+        # ▼▼▼ 修正: outputsリストを拡張し、新しいUI部品を追加 ▼▼▼
+        selection_event_outputs = [
+            room_selector, details_display_wb, edit_button_wb, editor_wrapper_wb,
+            list_editor_accordion_wb, list_key_selector_wb,
+            list_item_selector_wb, item_edit_form_wb
+        ]
+        # ▲▲▲ 修正ここまで ▲▲▲
         area_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
         room_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
         edit_button_wb.click(fn=ui_handlers.handle_edit_button_click, inputs=[world_data_state, area_selector, room_selector], outputs=[details_display_wb, editor_wrapper_wb, editor_content_wb])

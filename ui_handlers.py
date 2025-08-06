@@ -644,16 +644,45 @@ def handle_character_change_for_all_tabs(character_name: str, api_key_name: str)
     return chat_tab_updates + world_builder_updates
 
 def handle_item_selection(world_data: Dict, area_id: str, room_id: Optional[str]):
-    """エリアまたは部屋が選択された時の処理。"""
+    """エリアまたは部屋が選択された時の処理。リストエディタの状態も更新する。"""
     _, room_choices_map = get_choices_from_world_data(world_data)
     room_choices = room_choices_map.get(area_id, []) if area_id else []
+
+    selected_data = {}
     if area_id and room_id:
         selected_data = world_data.get(area_id, {}).get(room_id, {})
     elif area_id:
         selected_data = world_data.get(area_id, {})
+
+    # ▼▼▼ ここからが追加/変更箇所 ▼▼▼
+    list_keys = []
+    if selected_data:
+        # データの中から、値がリストであるキーを抽出する
+        list_keys = [k for k, v in selected_data.items() if isinstance(v, list)]
+
+    # 選択肢がない場合はアコーディオンを閉じる、あれば開く
+    accordion_open = bool(list_keys)
+
+    # 戻り値の数を nexus_ark.py の outputs と一致させる
+    if not selected_data:
+        return (
+            gr.update(choices=room_choices, value=None), "← 左のパネルからエリアや部屋を選択してください。",
+            gr.update(visible=False), gr.update(visible=True), # YAMLエディタは表示
+            gr.update(open=False), # list_editor_accordion
+            gr.update(choices=[], value=None), # list_key_selector
+            gr.update(choices=[], value=None), # list_item_selector
+            gr.update(visible=False) # item_edit_form
+        )
     else:
-        return gr.update(choices=room_choices, value=None), "← 左のパネルからエリアや部屋を選択してください。", gr.update(visible=False), gr.update(visible=False)
-    return gr.update(choices=room_choices, value=room_id), generate_details_markdown(selected_data), gr.update(visible=False), gr.update(visible=True)
+        return (
+            gr.update(choices=room_choices, value=room_id), generate_details_markdown(selected_data),
+            gr.update(visible=True), gr.update(visible=True), # YAMLエディタは表示
+            gr.update(open=accordion_open), # list_editor_accordion
+            gr.update(choices=list_keys, value=None), # list_key_selector
+            gr.update(choices=[], value=None), # list_item_selector
+            gr.update(visible=False) # item_edit_form
+        )
+    # ▲▲▲ 追加/変更ここまで ▲▲▲
 
 def handle_edit_button_click(world_data: Dict, area_id: str, room_id: Optional[str]):
     """「編集」ボタンが押された時の処理。"""
