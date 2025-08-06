@@ -266,16 +266,21 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
         return "（APIキーエラー）", "（APIキーエラー）", None
 
     gr.Info(f"「{character_name}」の現在の情景を更新しています...")
+    # generate_scenery_context はキャッシュを自動で処理してくれる
     location_name, _, scenery_text = generate_scenery_context(character_name, api_key)
 
+    # ▼▼▼ 修正の核心：save_scenery_cacheの呼び出しを削除 ▼▼▼
+    # 新しい設計では、キャッシュへの保存は generate_scenery_context 内部で
+    # APIが呼び出された時にのみ行われるため、ここでの呼び出しは不要かつ不適切。
+
     if not location_name.startswith("（"):
-        utils.save_scenery_cache(character_name, location_name, scenery_text)
         gr.Info("情景を更新しました。")
         current_location_id = utils.get_current_location(character_name)
         scenery_image_path = utils.find_scenery_image(character_name, current_location_id)
     else:
         gr.Error("情景の更新に失敗しました。")
         scenery_image_path = None
+    # ▲▲▲ 修正ここまで ▲▲▲
 
     return location_name, scenery_text, scenery_image_path
 
