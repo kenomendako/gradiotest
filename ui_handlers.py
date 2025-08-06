@@ -739,6 +739,91 @@ def handle_cancel_add_button_click():
         ""
     )
 
+def handle_add_new_item_click(world_data: Dict, area_id: str, room_id: Optional[str], list_key: str):
+    """「新規項目を追加」ボタンが押された時の処理。空の編集フォームを表示する。"""
+    if not list_key:
+        gr.Warning("項目を追加するリストを先に選択してください。")
+        return gr.update(), gr.update(), gr.update(), gr.update()
+
+    # 新しい項目の一時的なIDとして "-1" を使用する
+    return (
+        gr.update(visible=True),
+        "-1", # 新規作成を示すID
+        "新しい項目", # デフォルトの名前
+        "" # デフォルトの説明
+    )
+
+def handle_save_item_click(world_data: Dict, character_name: str, area_id: str, room_id: Optional[str], list_key: str, item_id_str: str, item_name: str, item_desc: str):
+    """リスト項目の「保存」ボタンが押された時の処理。"""
+    if not all([character_name, area_id, list_key, item_id_str]):
+        gr.Warning("項目の保存に必要な情報が不足しています。")
+        return world_data, gr.update(), gr.update()
+
+    try:
+        item_index = int(item_id_str)
+        target_list = []
+        if room_id:
+            target_list = world_data[area_id][room_id].setdefault(list_key, [])
+        else:
+            target_list = world_data[area_id].setdefault(list_key, [])
+
+        new_item = {"name": item_name, "description": item_desc}
+
+        if item_index == -1: # 新規作成
+            target_list.append(new_item)
+            gr.Info(f"リスト '{list_key}' に新しい項目 '{item_name}' を追加しました。")
+            # 新しく追加された項目のインデックスを特定
+            new_item_id = str(len(target_list) - 1)
+        else: # 既存の更新
+            target_list[item_index] = new_item
+            gr.Info(f"項目 '{item_name}' を更新しました。")
+            new_item_id = item_id_str
+
+        save_world_data(character_name, world_data)
+
+        # UIを更新
+        new_item_choices = [(f"{item.get('name', '')} (ID:{i})", str(i)) for i, item in enumerate(target_list)]
+
+        return (
+            world_data,
+            gr.update(choices=new_item_choices, value=new_item_id),
+            gr.update(visible=False) # フォームを閉じる
+        )
+    except (ValueError, IndexError, KeyError) as e:
+        gr.Error(f"項目の保存中にエラーが発生しました: {e}")
+        return world_data, gr.update(), gr.update()
+
+def handle_delete_item_click(world_data: Dict, character_name: str, area_id: str, room_id: Optional[str], list_key: str, item_id_str: str):
+    """リスト項目の「削除」ボタンが押された時の処理。"""
+    if not all([character_name, area_id, list_key, item_id_str]) or item_id_str == "-1":
+        gr.Warning("削除する項目が選択されていません。")
+        return world_data, gr.update(), gr.update()
+
+    try:
+        item_index = int(item_id_str)
+        target_list = []
+        if room_id:
+            target_list = world_data[area_id][room_id].get(list_key, [])
+        else:
+            target_list = world_data[area_id].get(list_key, [])
+
+        deleted_item_name = target_list.pop(item_index).get("name", "無名の項目")
+        gr.Info(f"項目 '{deleted_item_name}' を削除しました。")
+
+        save_world_data(character_name, world_data)
+
+        # UIを更新
+        new_item_choices = [(f"{item.get('name', '')} (ID:{i})", str(i)) for i, item in enumerate(target_list)]
+
+        return (
+            world_data,
+            gr.update(choices=new_item_choices, value=None),
+            gr.update(visible=False) # フォームを閉じる
+        )
+    except (ValueError, IndexError, KeyError) as e:
+        gr.Error(f"項目の削除中にエラーが発生しました: {e}")
+        return world_data, gr.update(), gr.update()
+
 
 def handle_list_key_selection(world_data: Dict, area_id: str, room_id: Optional[str], list_key: str):
     """「編集するリスト」が選択された時の処理。項目選択ドロップダウンを更新する。"""
