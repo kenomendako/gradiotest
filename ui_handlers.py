@@ -609,14 +609,28 @@ import yaml
 
 def get_choices_from_world_data(world_data: Dict) -> Tuple[List[Tuple[str, str]], Dict[str, List[Tuple[str, str]]]]:
     area_choices, room_choices_map = [], {}
+    if not isinstance(world_data, dict): return area_choices, room_choices_map # データが不正なら空を返す
+
+    # ▼▼▼ 修正の核心 ▼▼▼
+    # nameキーが存在しない場合に、見出しのIDそのものを名前として扱うようにする
     for area_id, area_data in world_data.items():
-        if isinstance(area_data, dict) and "name" in area_data:
-            area_choices.append((area_data["name"], area_id))
+        if isinstance(area_data, dict):
+            # nameキーがあればそれを使い、なければarea_id（見出し）を名前にする
+            area_name = area_data.get("name", area_id)
+            area_choices.append((area_name, area_id))
+
             room_choices = []
             for room_id, room_data in area_data.items():
-                if isinstance(room_data, dict) and "name" in room_data:
-                    room_choices.append((room_data["name"], room_id))
+                if isinstance(room_data, dict):
+                    # nameキーの有無をチェックし、なければroom_id（見出し）を名前にする
+                    room_name = room_data.get("name", room_id)
+                    # nameキーまたはdescriptionキーのどちらかがあれば、それは部屋だと判断する
+                    if "name" in room_data or "description" in room_data:
+                         room_choices.append((room_name, room_id))
+
             room_choices_map[area_id] = sorted(room_choices)
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     return sorted(area_choices), room_choices_map
 
 def handle_world_builder_load(character_name: str):
