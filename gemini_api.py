@@ -134,7 +134,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     try:
         final_state = app.invoke(initial_state)
         final_response_text = ""
-        if not is_internal_call and final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
+        if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
             final_response_text = final_state['messages'][-1].content
         location_name = final_state.get('location_name', '（場所不明）'); scenery_text = final_state.get('scenery_text', '（情景不明）')
         return {"response": final_response_text, "location_name": location_name, "scenery": scenery_text}
