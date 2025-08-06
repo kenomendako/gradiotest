@@ -187,10 +187,14 @@ try:
                         # ▼▼▼ ここからが新しいUIの定義 ▼▼▼
                         with gr.Accordion("リスト項目を編集", open=False) as list_editor_accordion_wb:
                             # --- どのリストを編集するか ---
-                            with gr.Row(): # Rowで囲む
+                                with gr.Row():
                                 list_key_selector_wb = gr.Dropdown(label="編集するリストを選択", interactive=True, scale=3)
-                                # ▼▼▼ このボタンを追加 ▼▼▼
                                 add_new_list_button_wb = gr.Button("リストを新規作成", scale=1)
+                                with gr.Column(visible=False) as new_list_form_wb:
+                                    new_list_key_wb = gr.Textbox(label="新しいリスト名", placeholder="例: items, characters")
+                                    with gr.Row():
+                                        confirm_add_list_button_wb = gr.Button("決定", variant="primary")
+                                        cancel_add_list_button_wb = gr.Button("キャンセル")
 
                             # --- どの項目を編集するか ---
                             with gr.Row():
@@ -348,22 +352,17 @@ try:
         )
 
         add_new_list_button_wb.click(
-            fn=None,
-            js="""
-            (world_data, char_name, area_id, room_id) => {
-                const new_list_key = prompt("作成する新しいリストの名前を入力してください (例: items, characters)");
-                if (new_list_key) {
-                    return [world_data, char_name, area_id, room_id, new_list_key];
-                }
-                return [world_data, char_name, area_id, room_id, null];
-            }
-            """,
-            inputs=[world_data_state, current_character_name, area_selector, room_selector],
-            outputs=[world_data_state, current_character_name, area_selector, room_selector, gr.Textbox(visible=False)]
-        ).then(
+            fn=lambda: gr.update(visible=True),
+            outputs=[new_list_form_wb]
+        )
+        confirm_add_list_button_wb.click(
             fn=ui_handlers.handle_add_new_list_click,
-            inputs=[world_data_state, current_character_name, area_selector, room_selector, gr.Textbox(visible=False)],
-            outputs=[world_data_state, list_key_selector_wb]
+            inputs=[world_data_state, current_character_name, area_selector, room_selector, new_list_key_wb],
+            outputs=[world_data_state, list_key_selector_wb, new_list_form_wb, new_list_key_wb]
+        )
+        cancel_add_list_button_wb.click(
+            fn=lambda: (gr.update(visible=False), ""),
+            outputs=[new_list_form_wb, new_list_key_wb]
         )
 
     if __name__ == "__main__":

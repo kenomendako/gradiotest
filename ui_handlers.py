@@ -743,29 +743,29 @@ def handle_add_new_list_click(world_data: Dict, character_name: str, area_id: st
     """「リストを新規作成」で入力されたキーで新しいリストを作成する"""
     if not new_list_key or not new_list_key.strip():
         gr.Warning("リスト名を入力してください。")
-        return world_data, gr.update()
+        return world_data, gr.update(), gr.update(visible=True), new_list_key
+
+    if not area_id:
+        gr.Warning("リストを追加する「エリア」または「部屋」を先に選択してください。")
+        return world_data, gr.update(), gr.update(visible=True), new_list_key
 
     clean_key = new_list_key.strip()
     if not re.match(r"^[a-zA-Z0-9_]+$", clean_key):
         gr.Warning("リスト名には半角英数字とアンダースコア(_)のみ使用できます。")
-        return world_data, gr.update()
+        return world_data, gr.update(), gr.update(visible=True), new_list_key
 
-    target_data = {}
-    if room_id:
-        target_data = world_data[area_id][room_id]
-    else:
-        target_data = world_data[area_id]
+    target_data = world_data[area_id][room_id] if room_id else world_data[area_id]
 
     if clean_key in target_data:
         gr.Warning(f"リスト '{clean_key}' は既に存在します。")
-        return world_data, gr.update(value=clean_key)
+        return world_data, gr.update(value=clean_key), gr.update(visible=False), ""
 
     target_data[clean_key] = []
     save_world_data(character_name, world_data)
     gr.Info(f"新しいリスト '{clean_key}' を追加しました。")
 
     new_list_keys = [k for k, v in target_data.items() if isinstance(v, list)]
-    return world_data, gr.update(choices=new_list_keys, value=clean_key)
+    return world_data, gr.update(choices=new_list_keys, value=clean_key), gr.update(visible=False), ""
 
 def handle_add_new_item_click(world_data: Dict, area_id: str, room_id: Optional[str], list_key: str):
     """「新規項目を追加」ボタンが押された時の処理。空の編集フォームを表示する。"""
