@@ -1,4 +1,4 @@
-# ui_handlers.py (最終確定版)
+# ui_handlers.py (完全最終版)
 
 import pandas as pd
 import json
@@ -15,6 +15,7 @@ import base64
 import io
 import uuid
 from tools.image_tools import generate_image as generate_image_tool_func
+from yaml.constructor import ConstructorError
 
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
@@ -623,46 +624,74 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Error(f"画像の生成/更新に失敗しました。AIの応答: {result}") # メッセージを調整
         return None
 
-# ui_handlers.py の末尾に追加
+# ui_handlers.py の末尾にあるワールド・ビルダー関連の関数群を、以下のコードで完全に置き換える
 
-from world_builder import get_world_data, generate_details_markdown
+from world_builder import get_world_data, save_world_data, create_editor_ui_from_data
+import yaml
 
-def handle_world_builder_load(character_name: str) -> Tuple[Dict, List, gr.update, gr.update]:
+def handle_world_builder_load(character_name: str) -> Tuple[Dict, List, gr.update, List, List, List, gr.update]:
     """ワールド・ビルダータブが読み込まれたときの初期化処理。"""
     print(f"--- ワールド・ビルダー読み込み: {character_name} ---")
     world_data = get_world_data(character_name)
     area_ids = list(world_data.keys())
 
-    # UIコンポーネントの初期状態を返す
     return (
-        world_data,  # gr.State にデータを格納
-        area_ids,    # エリア選択肢を更新
-        gr.update(value=None, choices=[]), # 部屋リストは空にする
-        "エリア（`##`）を選択して、部屋や設定を確認します。" # 詳細表示を初期化
+        world_data,
+        area_ids,
+        gr.update(value=None, choices=[]),
+        [], # 初期エディタUIは空
+        [], # 初期値も空
+        [], # キーの順序も空
+        gr.update(visible=False) # 保存ボタンは非表示
     )
 
-def handle_area_selection(world_data: Dict, selected_area_id: str) -> Tuple[gr.update, gr.update]:
-    """エリアが選択されたときの処理。部屋リストと詳細表示を更新する。"""
-    if not selected_area_id or not world_data:
-        return gr.update(value=None, choices=[]), "エリアを選択してください。"
+def handle_item_selection(world_data: Dict, area_id: str, room_id: Optional[str]) -> Tuple[List, List, List, gr.update]:
+    """エリアまたは部屋が選択されたときの処理。エディタUIを生成する。"""
+    if not area_id:
+        return [], [], [], gr.update(visible=False)
 
-    area_data = world_data.get(selected_area_id, {})
+    # 部屋が選択されていれば部屋のデータを、されていなければエリアのデータを使用
+    selected_data = world_data.get(area_id, {}).get(room_id) if room_id else world_data.get(area_id, {})
 
-    room_ids = []
-    if isinstance(area_data, dict):
-        # 値が辞書で、かつ 'name' キーを持つものを部屋とみなす
-        room_ids = [room_id for room_id, room_data in area_data.items() if isinstance(room_data, dict) and 'name' in room_data]
+    if not selected_data:
+        return [], [], [], gr.update(visible=False)
 
-    details_md = generate_details_markdown(area_data)
+    components, initial_values, keys_order = create_editor_ui_from_data(selected_data)
 
-    return gr.update(value=None, choices=sorted(room_ids)), details_md
+    # Gradioはコンポーネントのリストを直接返せないので、最大数を想定して空のupdateで埋める
+    max_components = 20 # UIに表示するコンポーネントの最大数を想定
+    padded_components = components + [gr.update(visible=False)] * (max_components - len(components))
 
-def handle_room_selection(world_data: Dict, selected_area_id: str, selected_room_id: str) -> str:
-    """部屋が選択されたときの処理。詳細表示を更新する。"""
-    if not selected_room_id or not selected_area_id or not world_data:
-        # 部屋の選択が解除された場合は、エリアの詳細を再表示
-        area_data = world_data.get(selected_area_id, {})
-        return generate_details_markdown(area_data)
+    return padded_components + [initial_values, keys_order, gr.update(visible=True)]
 
-    room_data = world_data.get(selected_area_id, {}).get(selected_room_id, {})
-    return generate_details_markdown(room_data)
+def handle_world_data_save(character_name: str, world_data: Dict, area_id: str, room_id: Optional[str], keys_order: List[str], *values) -> Dict:
+    """「世界を更新」ボタンが押されたときの処理。"""
+    if not area_id:
+        gr.Warning("保存対象のエリアが選択されていません。")
+        return world_data
+
+    # valuesタプルから、実際に表示されているコンポーネントの値だけを取り出す
+    active_values = values[:len(keys_order)]
+
+    # 新しいデータ辞書を再構築
+    new_data = {}
+    for key, value in zip(keys_order, active_values):
+        try:
+            # YAML文字列はPythonオブジェクトに変換
+            loaded_value = yaml.safe_load(str(value))
+            new_data[key] = loaded_value
+        except (yaml.YAMLError, ConstructorError):
+             # 解析に失敗した場合は、単純な文字列として扱う
+            new_data[key] = value
+
+    # world_data のStateを更新
+    if room_id:
+        world_data[area_id][room_id] = new_data
+    else:
+        world_data[area_id] = new_data
+
+    # ファイルに保存
+    save_world_data(character_name, world_data)
+
+    # 更新されたworld_dataをStateに返す
+    return world_data

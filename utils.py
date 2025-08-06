@@ -407,20 +407,16 @@ def parse_world_markdown(file_path: str) -> dict:
     world_data = {}
 
     # re.splitのキャプチャグループ `()` を使い、見出し(デリミタ)を保持したまま分割する
-    # 結果は ['(空)', '## area1', 'area1の中身', '## area2', 'area2の中身', ...] というリストになる
     sections = re.split(r'(^## .*)', content, flags=re.MULTILINE)
 
-    # 最初の要素はヘッダー部分なので無視し、2つずつペアで処理する
     for i in range(1, len(sections), 2):
         area_key = sections[i][3:].strip()
         area_content = sections[i+1]
 
         world_data[area_key] = {}
 
-        # ### でさらに部屋ごとに分割
         sub_sections = re.split(r'(^### .*)', area_content, flags=re.MULTILINE)
 
-        # ### の前にあるエリア直下のプロパティを解析
         area_props_content = sub_sections[0].strip()
         if area_props_content:
             try:
@@ -430,7 +426,6 @@ def parse_world_markdown(file_path: str) -> dict:
             except yaml.YAMLError as e:
                 print(f"警告: エリア '{area_key}' のプロパティ解析中にエラー: {e}")
 
-        # 各部屋のセクションを解析
         for j in range(1, len(sub_sections), 2):
             room_key = sub_sections[j][4:].strip()
             room_content = sub_sections[j+1].strip()

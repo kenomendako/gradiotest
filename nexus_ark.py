@@ -68,7 +68,8 @@ try:
                 character_list_on_startup = ["Default"]
 
         # --- Stateの定義 ---
-        world_data_state = gr.State({}) # <<< この行を追加
+        world_data_state = gr.State({})
+        editor_keys_order_state = gr.State([])
         current_character_name = gr.State(effective_initial_character)
         current_model_name = gr.State(config_manager.initial_model_global)
         current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -88,7 +89,7 @@ try:
                         character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
                         with gr.Accordion("空間認識・移動", open=False):
                             scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
-                            generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary") # ラベルと変数名を変更
+                            generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
                             current_location_display = gr.Textbox(label="現在地", interactive=False)
                             current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
                             refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
@@ -162,54 +163,41 @@ try:
                         file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
                         gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
-            # ▼▼▼ ここからが新しいタブの定義 ▼▼▼
             with gr.TabItem("ワールド・ビルダー") as world_builder_tab:
-                gr.Markdown("## 🌐 ワールド・ビルダー (Phase 1: ビューア)\n`world_settings.md` の内容を、書式を意識せずに確認できます。")
+                gr.Markdown("## 🌐 ワールド・ビルダー (Phase 2: エディタ)\n`world_settings.md` の内容を、書式を意識せずに編集・保存できます。")
                 with gr.Row(equal_height=False):
                     with gr.Column(scale=1):
-                        gr.Markdown("### エリア (`##`)")
-                        area_selector = gr.Radio(label="エリアを選択", interactive=True)
-                    with gr.Column(scale=1):
-                        gr.Markdown("### 部屋 (`###`)")
-                        room_selector = gr.Radio(label="部屋を選択", interactive=True)
+                        gr.Markdown("### 1. 編集対象を選択")
+                        area_selector = gr.Radio(label="エリア (`##`)", interactive=True)
+                        room_selector = gr.Radio(label="部屋 (`###`)", interactive=True)
+
                     with gr.Column(scale=3):
-                        gr.Markdown("### 詳細")
-                        details_display = gr.Markdown("エリアを選択してください。")
-            # ▲▲▲ 新しいタブここまで ▲▲▲
+                        gr.Markdown("### 2. 内容を編集")
+                        # 編集コンポーネントを配置するためのプレースホルダー
+                        editor_components = []
+                        with gr.Blocks() as editor_area:
+                            for i in range(20): # 最大20個のプロパティを想定
+                                editor_components.append(gr.Textbox(visible=False))
+
+                        save_world_button = gr.Button("世界を更新", variant="primary", visible=False)
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
         context_token_calc_inputs = [
             current_character_name,
             current_api_key_name_state,
-            # ▼▼▼ この行を追加 ▼▼▼
             api_history_limit_state
         ] + context_checkboxes
 
-        # ▼▼▼ ここからが配線の修正箇所 ▼▼▼
-        # handle_character_change が返す値の順番と、このリストのUI部品の順番を完全に一致させる
         char_change_outputs = [
-            current_character_name,               # 1. State: キャラクター名
-            chatbot_display,                      # 2. UI: チャットボット表示
-            current_log_map_state,                # 3. State: UI対応表
-            chat_input_textbox,                   # 4. UI: チャット入力欄 (空にするため)
-            profile_image_display,                # 5. UI: プロフィール画像
-            memory_json_editor,                   # 6. UI: 記憶エディタ
-            alarm_char_dropdown,                  # 7. UI: アラームのキャラ選択
-            timer_char_dropdown,                  # 8. UI: タイマーのキャラ選択
-            notepad_editor,                       # 9. UI: メモ帳エディタ
-            location_dropdown,                    # 10. UI: 移動先リスト
-            current_location_display,             # 11. UI: 現在地表示
-            current_scenery_display,              # 12. UI: 情景表示
-            char_model_dropdown,                  # 13. UI: 個別モデル設定
-            char_voice_dropdown,                  # 14. UI: 個別音声設定
-            char_voice_style_prompt_textbox,      # 15. UI: 個別音声スタイルプロンプト
+            current_character_name, chatbot_display, current_log_map_state, chat_input_textbox,
+            profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown,
+            notepad_editor, location_dropdown, current_location_display, current_scenery_display,
+            char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox
         ] + context_checkboxes + [char_settings_info, scenery_image_display]
 
         initial_load_outputs = [
-            alarm_dataframe,
-            alarm_dataframe_original_data,
-            selection_feedback_markdown
+            alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
         ] + char_change_outputs
 
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
@@ -227,7 +215,7 @@ try:
         ).then(
             fn=ui_handlers.handle_world_builder_load,
             inputs=[current_character_name],
-            outputs=[world_data_state, area_selector, room_selector, details_display]
+            outputs=[world_data_state, area_selector, room_selector] + editor_components + [editor_keys_order_state, save_world_button]
         )
 
         chat_reload_button.click(
@@ -260,21 +248,11 @@ try:
         )
 
         chat_inputs = [chat_input_textbox, current_character_name, current_api_key_name_state, file_upload_button, api_history_limit_state, debug_mode_checkbox]
-        # メッセージ送信時も、UI対応表(current_log_map_state)を正しく更新する
-        # メッセージ送信時も、UI対応表(current_log_map_state)を正しく更新する
         chat_submit_outputs = [
-            chatbot_display,
-            current_log_map_state, # handle_message_submissionが返す2番目の値に対応
-            chat_input_textbox,
-            file_upload_button,
-            token_count_display,
-            current_location_display,
-            current_scenery_display,
-            alarm_dataframe_original_data,
-            alarm_dataframe,
+            chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button, token_count_display,
+            current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe,
             scenery_image_display
         ]
-        # ▲▲▲ 配線の修正ここまで ▲▲▲
 
         save_char_settings_button.click(
             fn=ui_handlers.handle_save_char_settings,
@@ -295,12 +273,8 @@ try:
         submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
 
         token_calc_on_input_inputs = [
-            current_character_name,
-            current_api_key_name_state,
-            # ▼▼▼ この行を追加 ▼▼▼
-            api_history_limit_state,
-            chat_input_textbox,
-            file_upload_button
+            current_character_name, current_api_key_name_state, api_history_limit_state,
+            chat_input_textbox, file_upload_button
         ] + context_checkboxes
         chat_input_textbox.input(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
         file_upload_button.upload(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
@@ -310,7 +284,6 @@ try:
         change_location_button.click(
             fn=ui_handlers.handle_location_change,
             inputs=[current_character_name, location_dropdown],
-            # outputsのリストの末尾に scenery_image_display を追加
             outputs=[current_location_display, current_scenery_display, scenery_image_display]
         )
         refresh_scenery_button.click(
@@ -335,29 +308,34 @@ try:
         rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
 
-        generate_scenery_image_button.click( # 変数名を変更
-            fn=ui_handlers.handle_generate_or_regenerate_scenery_image, # 関数名を変更
+        generate_scenery_image_button.click(
+            fn=ui_handlers.handle_generate_or_regenerate_scenery_image,
             inputs=[current_character_name, api_key_dropdown],
             outputs=[scenery_image_display]
         )
 
-        # ▼▼▼ ワールド・ビルダー用のイベント接続を追加 ▼▼▼
         world_builder_tab.select(
             fn=ui_handlers.handle_world_builder_load,
             inputs=[current_character_name],
-            outputs=[world_data_state, area_selector, room_selector, details_display]
+            outputs=[world_data_state, area_selector, room_selector] + editor_components + [editor_keys_order_state, save_world_button]
         )
 
-        area_selector.select(
-            fn=ui_handlers.handle_area_selection,
-            inputs=[world_data_state, area_selector],
-            outputs=[room_selector, details_display]
-        )
-
-        room_selector.select(
-            fn=ui_handlers.handle_room_selection,
+        area_selector.change(
+            fn=ui_handlers.handle_item_selection,
             inputs=[world_data_state, area_selector, room_selector],
-            outputs=[details_display]
+            outputs=editor_components + [editor_keys_order_state, save_world_button]
+        )
+
+        room_selector.change(
+            fn=ui_handlers.handle_item_selection,
+            inputs=[world_data_state, area_selector, room_selector],
+            outputs=editor_components + [editor_keys_order_state, save_world_button]
+        )
+
+        save_world_button.click(
+            fn=ui_handlers.handle_world_data_save,
+            inputs=[current_character_name, world_data_state, area_selector, room_selector, editor_keys_order_state] + editor_components,
+            outputs=[world_data_state]
         )
 
     if __name__ == "__main__":
