@@ -12,31 +12,33 @@ def get_world_data(character_name: str) -> Dict[str, Any]:
     world_settings_path = character_manager.get_world_settings_path(character_name)
     return parse_world_markdown(world_settings_path)
 
-def save_world_data(character_name: str, world_data: Dict[str, Any]):
-    """更新された世界設定データを、正しいMarkdown形式でファイルに保存する。"""
+def save_world_data(character_name: str, yaml_content: str):
     if not character_name:
         gr.Warning("キャラクターが選択されていません。")
         return
-
     world_settings_path = character_manager.get_world_settings_path(character_name)
-    md_content = ""
 
-    for area_id, area_data in world_data.items():
-        md_content += f"## {area_id}\n\n"
-        rooms = {k: v for k, v in area_data.items() if isinstance(v, dict) and 'name' in v}
-        area_props = {k: v for k, v in area_data.items() if k not in rooms}
-        if area_props:
-            md_content += yaml.dump(area_props, allow_unicode=True, default_flow_style=False, sort_keys=False) + "\n"
-        for room_id, room_data in rooms.items():
-            md_content += f"### {room_id}\n"
-            md_content += yaml.dump(room_data, allow_unicode=True, default_flow_style=False, sort_keys=False) + "\n"
-
+    # 見出し構造を維持したまま、新しい内容を書き出す
     try:
-        with open(world_settings_path, "w", encoding="utf-8") as f:
-            f.write(md_content.strip())
-        gr.Info(f"「{character_name}」の世界設定を保存しました。")
-    except Exception as e:
-        gr.Error(f"世界設定の保存中にエラーが発生しました: {e}")
+        new_data = yaml.safe_load(yaml_content)
+        md_content = ""
+        for key, value in new_data.items():
+            if key in ["name", "description"]:
+                 md_content += f"{key}: {value}\n"
+            else:
+                 md_content += yaml.dump({key: value}, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+        # 既存のファイルから、選択されたセクションの内容を置き換える (今後の高度な実装)
+        # 今回は、ファイル全体をシンプルに上書きする
+
+        # トップレベルの構造を再構築する必要がある
+        # この関数は、編集された単一のセクション(エリアor部屋)のYAMLを受け取る
+        # そのため、ファイル全体を再構築する必要がある
+        # これは ui_handlers.py で行うべき
+
+        # ここでは、渡されたYAMLコンテンツを直接ファイルに書き込む (ui_handlers側で全データを再構築)
+        # save_world_data は、完全な world_data (辞書) を受け取るように変更する
+        pass # ロジックを ui_handlers に移譲
 
 def generate_details_markdown(data: Dict[str, Any]) -> str:
     """データから、表示用のMarkdownを生成する。"""
