@@ -728,3 +728,72 @@ def handle_save_button_click(character_name: str, world_data: Dict, area_id: str
         gr.Error(f"YAMLの書式が正しくありません: {e}")
         return world_data, gr.update(), gr.update()
     # ▲▲▲ 修正ここまで ▲▲▲
+
+def handle_add_item_button_click(item_type: str, selected_area_id: Optional[str]):
+    """「エリアを追加」「部屋を追加」ボタンが押された時の処理"""
+    if item_type == "room" and not selected_area_id:
+        gr.Warning("部屋を追加するには、まず「エリア」を選択してください。")
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+
+    return (
+        gr.update(visible=False), # area_selector
+        gr.update(visible=False), # room_selector
+        gr.update(visible=False), # edit_button_wb
+        gr.update(visible=True),  # new_item_form_wb
+        item_type,                # new_item_type_wb (hidden state)
+        f"新しい{ 'エリア' if item_type == 'area' else '部屋' }の情報を入力" # form title
+    )
+
+def handle_cancel_add_button_click():
+    """新規作成フォームの「キャンセル」ボタンが押された時の処理"""
+    return (
+        gr.update(visible=True),  # area_selector
+        gr.update(visible=True),  # room_selector
+        gr.update(visible=False), # edit_button_wb (選択状態ではないので非表示)
+        gr.update(visible=False), # new_item_form_wb
+        "",                       # clear new_item_id
+        ""                        # clear new_item_name
+    )
+
+def handle_confirm_add_button_click(character_name: str, world_data: Dict, selected_area_id: Optional[str], item_type: str, new_id: str, new_name: str):
+    """新規作成フォームの「決定」ボタンが押された時の処理"""
+    # --- 入力検証 ---
+    if not new_id or not new_name:
+        gr.Warning("IDと表示名の両方を入力してください。")
+        return world_data, gr.update(), gr.update()
+    if not re.match(r"^[a-zA-Z0-9_]+$", new_id):
+        gr.Warning("IDには半角英数字とアンダースコア(_)のみ使用できます。")
+        return world_data, gr.update(), gr.update()
+
+    # --- IDの重複チェック ---
+    if item_type == "area" and new_id in world_data:
+        gr.Warning(f"ID '{new_id}' は既に使用されています。別のIDを指定してください。")
+        return world_data, gr.update(), gr.update()
+    if item_type == "room" and selected_area_id and new_id in world_data.get(selected_area_id, {}):
+        gr.Warning(f"エリア '{selected_area_id}' 内でID '{new_id}' は既に使用されています。")
+        return world_data, gr.update(), gr.update()
+
+    # --- データ更新 ---
+    if item_type == "area":
+        world_data[new_id] = {"name": new_name, "description": "新しいエリアです。"}
+    elif item_type == "room" and selected_area_id:
+        if selected_area_id not in world_data: world_data[selected_area_id] = {}
+        world_data[selected_area_id][new_id] = {"name": new_name, "description": "新しい部屋です。"}
+
+    # --- ファイル保存 ---
+    from world_builder import save_world_data
+    save_world_data(character_name, world_data)
+
+    # --- UI更新 ---
+    area_choices, room_choices_map = get_choices_from_world_data(world_data)
+    # 新規エリア追加後は、部屋の選択肢をクリアする
+    room_choices = room_choices_map.get(new_id if item_type == 'area' else selected_area_id, [])
+
+    gr.Info(f"新しい{ 'エリア' if item_type == 'area' else '部屋' }「{new_name}」を追加しました。")
+
+    return (
+        world_data,
+        gr.update(choices=area_choices, value=(new_id if item_type == 'area' else selected_area_id)),
+        gr.update(choices=room_choices, value=(new_id if item_type == 'room' else None)),
+        *handle_cancel_add_button_click() # フォームを閉じてUIをリセット
+    )

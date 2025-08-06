@@ -354,6 +354,32 @@ try:
             outputs=[details_display_wb, editor_wrapper_wb]
         )
 
+        # ▼▼▼ 新規作成機能のイベント接続 ▼▼▼
+        add_item_buttons = [add_area_button_wb, add_room_button_wb]
+        add_item_outputs = [area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_type_wb, new_item_form_wb.label]
+
+        add_area_button_wb.click(
+            fn=ui_handlers.handle_add_item_button_click,
+            inputs=[gr.Textbox("area", visible=False), area_selector],
+            outputs=add_item_outputs
+        )
+        add_room_button_wb.click(
+            fn=ui_handlers.handle_add_item_button_click,
+            inputs=[gr.Textbox("room", visible=False), area_selector],
+            outputs=add_item_outputs
+        )
+
+        confirm_add_button_wb.click(
+            fn=ui_handlers.handle_confirm_add_button_click,
+            inputs=[current_character_name, world_data_state, area_selector, new_item_type_wb, new_item_id_wb, new_item_name_wb],
+            outputs=[world_data_state, area_selector, room_selector] + add_item_outputs[2:] # フォームリセットのため
+        )
+
+        cancel_add_button_wb.click(
+            fn=ui_handlers.handle_cancel_add_button_click,
+            outputs=[area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_id_wb, new_item_name_wb]
+        )
+
     if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
