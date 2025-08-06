@@ -673,18 +673,22 @@ def handle_item_selection(world_data: Dict, area_id: str, room_id: Optional[str]
     }
 
 def handle_edit_button_click(world_data: Dict, area_id: str, room_id: Optional[str]):
+    """「選択した項目を編集」ボタンが押されたときの処理。"""
     if area_id and room_id:
         selected_data = world_data.get(area_id, {}).get(room_id, {})
     elif area_id:
         selected_data = world_data.get(area_id, {})
     else:
-        return gr.update(), gr.update() # 何も変更しない
+        # 編集対象が選択されていない場合は、何も変更しない
+        return gr.update(), gr.update(), gr.update()
 
-    return {
-        details_display_wb: gr.update(visible=False),
-        editor_wrapper_wb: gr.update(visible=True),
-        editor_content_wb: gr.update(value=convert_data_to_yaml_str(selected_data))
-    }
+    # ▼▼▼ 修正の核心: 3つの値を返すように修正 ▼▼▼
+    return (
+        gr.update(visible=False), # 1. 詳細表示(Markdown)を隠す
+        gr.update(visible=True),  # 2. エディタラッパー(Column)を表示する
+        gr.update(value=convert_data_to_yaml_str(selected_data)) # 3. YAMLエディタ(Code)に内容をセット
+    )
+    # ▲▲▲ 修正ここまで ▲▲▲
 
 def handle_save_button_click(character_name: str, world_data: Dict, area_id: str, room_id: Optional[str], editor_content: str):
     if not area_id:
