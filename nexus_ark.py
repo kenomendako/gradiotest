@@ -183,11 +183,44 @@ try:
                     with gr.Column(scale=3):
                         gr.Markdown("### 2. 内容を確認・編集")
                         details_display_wb = gr.Markdown("← 左のパネルからエリアや部屋を選択してください。")
-                        with gr.Column(visible=False) as editor_wrapper_wb:
-                            editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
+
+                        # ▼▼▼ ここからが新しいUIの定義 ▼▼▼
+                        with gr.Accordion("リスト項目を編集", open=False) as list_editor_accordion_wb:
+                            # --- どのリストを編集するか ---
                             with gr.Row():
-                                save_button_wb = gr.Button("変更を保存", variant="primary")
-                                cancel_button_wb = gr.Button("キャンセル")
+                                list_key_selector_wb = gr.Dropdown(label="編集するリストを選択", interactive=True, scale=3)
+                                add_new_list_button_wb = gr.Button("リストを新規作成", scale=1)
+
+                            with gr.Column(visible=False) as new_list_form_wb:
+                                new_list_key_wb = gr.Textbox(label="新しいリスト名", placeholder="例: items, characters")
+                                with gr.Row():
+                                    confirm_add_list_button_wb = gr.Button("決定", variant="primary")
+                                    cancel_add_list_button_wb = gr.Button("キャンセル")
+
+                            # --- どの項目を編集するか ---
+                            with gr.Row():
+                                list_item_selector_wb = gr.Dropdown(label="編集する項目を選択", interactive=True, scale=3)
+                                add_new_item_button_wb = gr.Button("新規項目を追加", scale=1)
+
+                            # --- 編集フォーム ---
+                            with gr.Column(visible=False) as item_edit_form_wb:
+                                item_id_wb = gr.Textbox(label="ID (変更不可)", interactive=False)
+                                item_name_wb = gr.Textbox(label="名前 (name)", interactive=True)
+                                item_description_wb = gr.Textbox(label="説明 (description)", interactive=True, lines=5)
+                                # ambition などの他のキーは将来的に追加
+
+                                with gr.Row():
+                                    save_item_button_wb = gr.Button("この項目を保存", variant="primary")
+                                    delete_item_button_wb = gr.Button("この項目を削除", variant="stop")
+                                    cancel_item_edit_button_wb = gr.Button("キャンセル")
+
+                        # ▼▼▼ 古いYAMLエディタは、デバッグ用にアコーディオン内に残す ▼▼▼
+                        with gr.Accordion("RAW YAMLエディタ (上級者向け)", open=False):
+                             with gr.Column(visible=True) as editor_wrapper_wb: # デフォルトで表示されるように変更
+                                editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
+                                with gr.Row():
+                                    save_button_wb = gr.Button("RAW YAMLを保存", variant="primary")
+                                    cancel_button_wb = gr.Button("キャンセル")
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
@@ -261,8 +294,15 @@ try:
 
         # --- ワールド・ビルダーのイベント ---
         world_builder_tab.select(fn=ui_handlers.handle_world_builder_load, inputs=[current_character_name], outputs=char_change_world_builder_outputs)
+        # エリアや部屋を選択した時
         selection_event_inputs = [world_data_state, area_selector, room_selector]
-        selection_event_outputs = [room_selector, details_display_wb, editor_wrapper_wb, edit_button_wb]
+        # ▼▼▼ 修正: outputsリストを拡張し、新しいUI部品を追加 ▼▼▼
+        selection_event_outputs = [
+            room_selector, details_display_wb, edit_button_wb, editor_wrapper_wb,
+            list_editor_accordion_wb, list_key_selector_wb,
+            list_item_selector_wb, item_edit_form_wb
+        ]
+        # ▲▲▲ 修正ここまで ▲▲▲
         area_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
         room_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
         edit_button_wb.click(fn=ui_handlers.handle_edit_button_click, inputs=[world_data_state, area_selector, room_selector], outputs=[details_display_wb, editor_wrapper_wb, editor_content_wb])
@@ -275,6 +315,56 @@ try:
         confirm_add_button_wb.click(fn=ui_handlers.handle_confirm_add_button_click, inputs=[current_character_name, world_data_state, area_selector, new_item_type_wb, new_item_id_wb, new_item_name_wb], outputs=confirm_add_outputs)
         cancel_add_outputs = [area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_id_wb, new_item_name_wb]
         cancel_add_button_wb.click(fn=ui_handlers.handle_cancel_add_button_click, outputs=cancel_add_outputs)
+
+        # --- リスト項目エディタのイベント ---
+        list_key_selector_wb.change(
+            fn=ui_handlers.handle_list_key_selection,
+            inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb],
+            outputs=[list_item_selector_wb, item_edit_form_wb]
+        )
+
+        list_item_selector_wb.change(
+            fn=ui_handlers.handle_list_item_selection,
+            inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb, list_item_selector_wb],
+            outputs=[item_edit_form_wb, item_id_wb, item_name_wb, item_description_wb]
+        )
+
+        add_new_item_button_wb.click(
+            fn=ui_handlers.handle_add_new_item_click,
+            inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb],
+            outputs=[item_edit_form_wb, item_id_wb, item_name_wb, item_description_wb]
+        )
+
+        save_item_button_wb.click(
+            fn=ui_handlers.handle_save_item_click,
+            inputs=[world_data_state, current_character_name, area_selector, room_selector, list_key_selector_wb, item_id_wb, item_name_wb, item_description_wb],
+            outputs=[world_data_state, list_item_selector_wb, item_edit_form_wb]
+        )
+
+        delete_item_button_wb.click(
+            fn=ui_handlers.handle_delete_item_click,
+            inputs=[world_data_state, current_character_name, area_selector, room_selector, list_key_selector_wb, item_id_wb],
+            outputs=[world_data_state, list_item_selector_wb, item_edit_form_wb]
+        )
+
+        cancel_item_edit_button_wb.click(
+            fn=lambda: gr.update(visible=False),
+            outputs=[item_edit_form_wb]
+        )
+
+        add_new_list_button_wb.click(
+            fn=lambda: gr.update(visible=True),
+            outputs=[new_list_form_wb]
+        )
+        confirm_add_list_button_wb.click(
+            fn=ui_handlers.handle_add_new_list_click,
+            inputs=[world_data_state, current_character_name, area_selector, room_selector, new_list_key_wb],
+            outputs=[world_data_state, list_key_selector_wb, new_list_form_wb, new_list_key_wb]
+        )
+        cancel_add_list_button_wb.click(
+            fn=lambda: (gr.update(visible=False), ""),
+            outputs=[new_list_form_wb, new_list_key_wb]
+        )
 
     if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
