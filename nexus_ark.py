@@ -19,6 +19,8 @@ try:
 
     config_manager.load_config()
     alarm_manager.load_alarms()
+    # ▼▼▼ この一行を追加 ▼▼▼
+    alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
     #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
