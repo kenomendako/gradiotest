@@ -68,7 +68,6 @@ try:
 
         # --- Stateの定義 ---
         world_data_state = gr.State({})
-        editor_keys_order_state = gr.State([])
         current_character_name = gr.State(effective_initial_character)
         current_model_name = gr.State(config_manager.initial_model_global)
         current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -169,17 +168,18 @@ try:
                         gr.Markdown("### 1. 編集対象を選択")
                         area_selector = gr.Radio(label="エリア (`##`)", interactive=True)
                         room_selector = gr.Radio(label="部屋 (`###`)", interactive=True)
+                        edit_button_wb = gr.Button("選択した項目を編集", variant="secondary")
 
                     with gr.Column(scale=3):
-                        gr.Markdown("### 2. 内容を編集")
-                        initial_message_wb = gr.Markdown("← 左のパネルから編集したいエリアや部屋を選択してください。")
+                        gr.Markdown("### 2. 内容を確認・編集")
+                        # 表示用
+                        details_display_wb = gr.Markdown("← 左のパネルからエリアや部屋を選択してください。")
 
-                        MAX_EDITOR_COMPONENTS = 20
+                        # 編集用 (普段は非表示)
                         with gr.Column(visible=False) as editor_wrapper_wb:
-                            editor_components_wb = []
-                            for i in range(MAX_EDITOR_COMPONENTS):
-                                editor_components_wb.append(gr.Textbox(visible=False, label=f"prop_{i}", interactive=True))
-                            save_world_button_wb = gr.Button("世界を更新", variant="primary")
+                            editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
+                            save_button_wb = gr.Button("変更を保存", variant="primary")
+                            cancel_button_wb = gr.Button("キャンセル")
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
@@ -299,47 +299,37 @@ try:
         )
 
         # ▼▼▼ ワールド・ビルダー用のイベント接続 (最終確定版) ▼▼▼
-        world_builder_tab.select(
-            fn=ui_handlers.handle_world_builder_load,
-            inputs=[current_character_name],
-            outputs=[world_data_state, area_selector, room_selector, initial_message_wb, editor_wrapper_wb]
-        )
 
-        area_selector.change(
-            fn=ui_handlers.handle_area_selection,
-            inputs=[world_data_state, area_selector],
-            outputs=[room_selector, initial_message_wb, editor_wrapper_wb] + editor_components_wb + [editor_keys_order_state]
-        )
+        # タブを開いた時 or キャラクター変更時
+        def load_and_update_builder(character_name):
+            world_data = ui_handlers.get_world_data(character_name)
+            area_choices, _ = ui_handlers.get_choices_from_world_data(world_data)
+            return {
+                world_data_state: world_data,
+                area_selector: gr.update(choices=area_choices, value=None),
+                room_selector: gr.update(choices=[], value=None),
+                details_display_wb: gr.update(visible=True, value="← 左のパネルからエリアや部屋を選択してください。"),
+                editor_wrapper_wb: gr.update(visible=False)
+            }
 
-        room_selector.change(
-            fn=ui_handlers.handle_room_selection,
-            inputs=[world_data_state, area_selector, room_selector],
-            outputs=[initial_message_wb, editor_wrapper_wb] + editor_components_wb + [editor_keys_order_state]
-        )
+        world_builder_tab.select(fn=load_and_update_builder, inputs=[current_character_name], outputs=[world_data_state, area_selector, room_selector, details_display_wb, editor_wrapper_wb])
+        character_dropdown.change(fn=load_and_update_builder, inputs=[character_dropdown], outputs=[world_data_state, area_selector, room_selector, details_display_wb, editor_wrapper_wb])
 
-        save_world_button_wb.click(
-            fn=ui_handlers.handle_world_data_save,
-            inputs=[current_character_name, world_data_state, area_selector, room_selector, editor_keys_order_state] + editor_components_wb,
-            outputs=[world_data_state] + editor_components_wb
-        ).then(
-            fn=lambda data: gr.update(choices=ui_handlers.get_choices_from_world_data(data)[0]),
-            inputs=[world_data_state],
-            outputs=[area_selector]
-        )
+        # エリアや部屋を選択した時
+        def on_selection_change(world_data, area_id, room_id):
+            return ui_handlers.handle_item_selection(world_data, area_id, room_id)
 
-        character_dropdown.change(
-            fn=ui_handlers.handle_character_change,
-            inputs=[character_dropdown, api_key_dropdown],
-            outputs=char_change_outputs
-        ).then(
-            fn=ui_handlers.handle_context_settings_change,
-            inputs=context_token_calc_inputs,
-            outputs=token_count_display
-        ).then(
-            fn=ui_handlers.handle_world_builder_load,
-            inputs=[current_character_name],
-            outputs=[world_data_state, area_selector, room_selector, initial_message_wb, editor_wrapper_wb]
-        )
+        area_selector.change(fn=on_selection_change, inputs=[world_data_state, area_selector, room_selector], outputs=[room_selector, details_display_wb, editor_wrapper_wb])
+        room_selector.change(fn=on_selection_change, inputs=[world_data_state, area_selector, room_selector], outputs=[room_selector, details_display_wb, editor_wrapper_wb])
+
+        # 編集ボタン
+        edit_button_wb.click(fn=ui_handlers.handle_edit_button_click, inputs=[world_data_state, area_selector, room_selector], outputs=[details_display_wb, editor_wrapper_wb, editor_content_wb])
+
+        # 保存ボタン
+        save_button_wb.click(fn=ui_handlers.handle_save_button_click, inputs=[current_character_name, world_data_state, area_selector, room_selector, editor_content_wb], outputs=[world_data_state, details_display_wb, details_display_wb, editor_wrapper_wb])
+
+        # キャンセルボタン
+        cancel_button_wb.click(fn=lambda: {details_display_wb: gr.update(visible=True), editor_wrapper_wb: gr.update(visible=False)}, outputs=[details_display_wb, editor_wrapper_wb])
 
     if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")

@@ -24,7 +24,7 @@ from agent.graph import generate_scenery_context
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
-from world_builder import get_world_data, save_world_data
+from world_builder import get_world_data, save_world_data, generate_details_markdown, convert_data_to_yaml_str
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
@@ -628,10 +628,8 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
 
 # ui_handlers.py の末尾にあるワールド・ビルダー関連の関数群を、以下のコードで完全に置き換える
 
-from world_builder import get_world_data, save_world_data
+from world_builder import get_world_data, generate_details_markdown, convert_data_to_yaml_str
 import yaml
-from yaml.constructor import ConstructorError
-import json
 
 def get_choices_from_world_data(world_data: Dict) -> Tuple[List[Tuple[str, str]], Dict[str, List[Tuple[str, str]]]]:
     area_choices, room_choices_map = [], {}
@@ -646,86 +644,83 @@ def get_choices_from_world_data(world_data: Dict) -> Tuple[List[Tuple[str, str]]
     return sorted(area_choices), room_choices_map
 
 def handle_world_builder_load(character_name: str):
-    print(f"--- ワールド・ビルダー読み込み: {character_name} ---")
     world_data = get_world_data(character_name)
     area_choices, _ = get_choices_from_world_data(world_data)
+    return {
+        world_data_state: world_data,
+        area_selector: gr.update(choices=area_choices, value=None),
+        room_selector: gr.update(choices=[], value=None)
+    }
 
-    return (
-        world_data,
-        gr.update(choices=area_choices, value=None),
-        gr.update(choices=[], value=None),
-        gr.update(visible=True),
-        gr.update(visible=False)
-    )
-
-def handle_area_selection(world_data: Dict, area_id: str):
-    if not area_id:
-        empty_updates = [gr.update(visible=False)] * 20
-        return gr.update(choices=[], value=None), gr.update(visible=True), gr.update(visible=False), empty_updates, json.dumps([])
+def handle_item_selection(world_data: Dict, area_id: str, room_id: Optional[str]):
+    if area_id and room_id:
+        selected_data = world_data.get(area_id, {}).get(room_id, {})
+    elif area_id:
+        selected_data = world_data.get(area_id, {})
+    else:
+        return {
+            details_display_wb: gr.update(value="← 左のパネルからエリアや部屋を選択してください。", visible=True),
+            editor_wrapper_wb: gr.update(visible=False)
+        }
 
     _, room_choices_map = get_choices_from_world_data(world_data)
-    room_choices = room_choices_map.get(area_id, [])
+    room_choices = room_choices_map.get(area_id, []) if area_id else []
 
-    selected_data = world_data.get(area_id, {})
-    updates, keys = create_dynamic_editor_updates(selected_data)
+    return {
+        room_selector: gr.update(choices=room_choices, value=room_id),
+        details_display_wb: gr.update(value=generate_details_markdown(selected_data), visible=True),
+        editor_wrapper_wb: gr.update(visible=False)
+    }
 
-    return gr.update(choices=room_choices, value=None), gr.update(visible=False), gr.update(visible=True), updates, json.dumps(keys)
+def handle_edit_button_click(world_data: Dict, area_id: str, room_id: Optional[str]):
+    if area_id and room_id:
+        selected_data = world_data.get(area_id, {}).get(room_id, {})
+    elif area_id:
+        selected_data = world_data.get(area_id, {})
+    else:
+        return gr.update(), gr.update() # 何も変更しない
 
-def handle_room_selection(world_data: Dict, area_id: str, room_id: str):
-    if not room_id:
-        return handle_area_selection(world_data, area_id)[1:]
+    return {
+        details_display_wb: gr.update(visible=False),
+        editor_wrapper_wb: gr.update(visible=True),
+        editor_content_wb: gr.update(value=convert_data_to_yaml_str(selected_data))
+    }
 
-    selected_data = world_data.get(area_id, {}).get(room_id, {})
-    updates, keys = create_dynamic_editor_updates(selected_data)
-    return gr.update(visible=False), gr.update(visible=True), updates, json.dumps(keys)
-
-def create_dynamic_editor_updates(data: Dict) -> Tuple[List[gr.update], List[str]]:
-    updates, keys_order = [], []
-    max_components = 20
-
-    # name, description を先頭に
-    for key in ['name', 'description']:
-        if key in data:
-            updates.append(gr.Textbox(label=key.capitalize(), value=data[key], visible=True, interactive=True))
-            keys_order.append(key)
-
-    # 残りのプロパティ
-    for key, value in data.items():
-        if key in ['name', 'description']: continue
-
-        if isinstance(value, (dict, list)):
-            yaml_str = yaml.dump(value, allow_unicode=True, default_flow_style=False, sort_keys=False)
-            updates.append(gr.Code(label=key.capitalize(), value=yaml_str, language='yaml', visible=True, interactive=True))
-        else:
-            updates.append(gr.Textbox(label=key.capitalize(), value=str(value), visible=True, interactive=True))
-        keys_order.append(key)
-
-    hidden_updates = [gr.update(visible=False, value=None)] * (max_components - len(updates))
-    return updates + hidden_updates, keys_order
-
-def handle_world_data_save(character_name: str, world_data: Dict, area_id: str, room_id: Optional[str], keys_order_str: str, *values):
+def handle_save_button_click(character_name: str, world_data: Dict, area_id: str, room_id: Optional[str], editor_content: str):
     if not area_id:
         gr.Warning("保存対象のエリアが選択されていません。")
-        return world_data, [gr.update()] * 20
+        return world_data, gr.update()
 
-    keys_order = json.loads(keys_order_str) if keys_order_str else []
-    active_values = values[:len(keys_order)]
-    new_data = {}
-    for key, value in zip(keys_order, active_values):
-        try:
-            loaded_value = yaml.safe_load(str(value)) if isinstance(value, str) else value
-            new_data[key] = loaded_value
-        except (yaml.YAMLError, ConstructorError):
-            new_data[key] = value
+    try:
+        new_data = yaml.safe_load(editor_content)
+        if not isinstance(new_data, dict):
+            raise ValueError("YAMLの解析結果が辞書ではありません。")
 
-    if room_id and room_id in world_data.get(area_id, {}):
-        world_data[area_id][room_id] = new_data
-    else:
-        existing_rooms = {k: v for k, v in world_data.get(area_id, {}).items() if isinstance(v, dict) and 'name' in v}
-        world_data[area_id] = {**new_data, **existing_rooms}
+        if room_id:
+            world_data[area_id][room_id] = new_data
+        else:
+            existing_rooms = {k: v for k, v in world_data.get(area_id, {}).items() if isinstance(v, dict) and 'name' in v}
+            world_data[area_id] = {**new_data, **existing_rooms}
 
-    save_world_data(character_name, world_data)
+        # world_settings.md を再構築して保存
+        md_content = ""
+        for current_area_id, current_area_data in world_data.items():
+            md_content += f"## {current_area_id}\n\n"
+            rooms = {k: v for k, v in current_area_data.items() if isinstance(v, dict) and 'name' in v}
+            area_props = {k: v for k, v in current_area_data.items() if k not in rooms}
+            if area_props:
+                md_content += yaml.dump(area_props, allow_unicode=True, default_flow_style=False, sort_keys=False) + "\n"
+            for current_room_id, current_room_data in rooms.items():
+                md_content += f"### {current_room_id}\n"
+                md_content += yaml.dump(current_room_data, allow_unicode=True, default_flow_style=False, sort_keys=False) + "\n"
 
-    updates, _ = create_dynamic_editor_updates(new_data)
+        world_settings_path = character_manager.get_world_settings_path(character_name)
+        with open(world_settings_path, "w", encoding="utf-8") as f: f.write(md_content.strip())
 
-    return world_data, updates
+        gr.Info(f"「{character_name}」の世界設定を保存しました。")
+
+        return world_data, generate_details_markdown(new_data), gr.update(visible=True), gr.update(visible=False)
+
+    except (yaml.YAMLError, ValueError) as e:
+        gr.Error(f"YAMLの書式が正しくありません: {e}")
+        return world_data, gr.update()
