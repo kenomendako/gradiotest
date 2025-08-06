@@ -187,14 +187,15 @@ try:
                         # ▼▼▼ ここからが新しいUIの定義 ▼▼▼
                         with gr.Accordion("リスト項目を編集", open=False) as list_editor_accordion_wb:
                             # --- どのリストを編集するか ---
-                                with gr.Row():
+                            with gr.Row():
                                 list_key_selector_wb = gr.Dropdown(label="編集するリストを選択", interactive=True, scale=3)
                                 add_new_list_button_wb = gr.Button("リストを新規作成", scale=1)
-                                with gr.Column(visible=False) as new_list_form_wb:
-                                    new_list_key_wb = gr.Textbox(label="新しいリスト名", placeholder="例: items, characters")
-                                    with gr.Row():
-                                        confirm_add_list_button_wb = gr.Button("決定", variant="primary")
-                                        cancel_add_list_button_wb = gr.Button("キャンセル")
+
+                            with gr.Column(visible=False) as new_list_form_wb:
+                                new_list_key_wb = gr.Textbox(label="新しいリスト名", placeholder="例: items, characters")
+                                with gr.Row():
+                                    confirm_add_list_button_wb = gr.Button("決定", variant="primary")
+                                    cancel_add_list_button_wb = gr.Button("キャンセル")
 
                             # --- どの項目を編集するか ---
                             with gr.Row():
