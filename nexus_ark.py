@@ -1,8 +1,34 @@
-# nexus_ark.py (最終確定版)
+# nexus_ark.py
 
 import os
 import sys
 import utils
+import json
+import gradio as gr
+import traceback
+import pandas as pd
+import config_manager, character_manager, alarm_manager, ui_handlers, constants
+
+def on_area_select(world_data, area_id):
+    if not area_id: # Deselection
+        return gr.update(choices=[], value=None), gr.update(visible=True), gr.update(visible=False), [gr.update(visible=False)]*20, json.dumps([])
+
+    _, room_choices_map = ui_handlers.get_choices_from_world_data(world_data)
+    room_choices = room_choices_map.get(area_id, [])
+
+    selected_data = world_data.get(area_id, {})
+    updates, keys = ui_handlers.create_dynamic_editor(selected_data)
+
+    return gr.update(choices=room_choices, value=None), gr.update(visible=False), gr.update(visible=True), updates, json.dumps(keys)
+
+def on_room_select(world_data, area_id, room_id):
+    if not room_id: # Deselection, show area data again
+        return on_area_select(world_data, area_id)[1:] # Return tuple slice
+
+    selected_data = world_data.get(area_id, {}).get(room_id, {})
+    updates, keys = ui_handlers.create_dynamic_editor(selected_data)
+    return gr.update(visible=False), gr.update(visible=True), updates, json.dumps(keys)
+
 
 if not utils.acquire_lock():
     print("ロックが取得できなかったため、アプリケーションを終了します。")
@@ -12,14 +38,8 @@ if not utils.acquire_lock():
 os.environ["MEM0_TELEMETRY_ENABLED"] = "false"
 
 try:
-    import gradio as gr
-    import traceback
-    import pandas as pd
-    import config_manager, character_manager, alarm_manager, ui_handlers, constants
-
     config_manager.load_config()
     alarm_manager.load_alarms()
-    # ▼▼▼ この一行を追加 ▼▼▼
     alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
@@ -69,7 +89,6 @@ try:
 
         # --- Stateの定義 ---
         world_data_state = gr.State({})
-        editor_keys_order_state = gr.State([])
         current_character_name = gr.State(effective_initial_character)
         current_model_name = gr.State(config_manager.initial_model_global)
         current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -80,6 +99,7 @@ try:
         selected_message_state = gr.State(None)
         current_log_map_state = gr.State([])
         audio_player = gr.Audio(visible=False, autoplay=True)
+        editor_keys_order_state = gr.State([])
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -166,27 +186,26 @@ try:
             with gr.TabItem("ワールド・ビルダー") as world_builder_tab:
                 gr.Markdown("## 🌐 ワールド・ビルダー (Phase 2: エディタ)\n`world_settings.md` の内容を、書式を意識せずに編集・保存できます。")
                 with gr.Row(equal_height=False):
-                    with gr.Column(scale=1):
+                    with gr.Column(scale=1, min_width=250):
                         gr.Markdown("### 1. 編集対象を選択")
-                        area_selector = gr.Radio(label="エリア (`##`)", interactive=True)
-                        room_selector = gr.Radio(label="部屋 (`###`)", interactive=True)
+                        area_selector = gr.Radio(label="エリア (`##`)", interactive=True, elem_id="wb_area_selector")
+                        room_selector = gr.Radio(label="部屋 (`###`)", interactive=True, elem_id="wb_room_selector")
 
                     with gr.Column(scale=3):
                         gr.Markdown("### 2. 内容を編集")
-                        # 編集コンポーネントを配置するためのプレースホルダー
-                        editor_components = []
-                        with gr.Blocks() as editor_area:
-                            for i in range(20): # 最大20個のプロパティを想定
-                                editor_components.append(gr.Textbox(visible=False))
-
-                        save_world_button = gr.Button("世界を更新", variant="primary", visible=False)
+                        initial_message = gr.Markdown("← 左のパネルから編集したいエリアや部屋を選択してください。")
+                        with gr.Column(visible=False) as editor_wrapper:
+                            # This is a bit of a hack. We create the components here, but they are invisible.
+                            # The handlers will update their visibility and content.
+                            editor_components = []
+                            for i in range(20):
+                                editor_components.append(gr.Textbox(visible=False, label=f"prop_{i}"))
+                            save_world_button = gr.Button("世界を更新", variant="primary")
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
         context_token_calc_inputs = [
-            current_character_name,
-            current_api_key_name_state,
-            api_history_limit_state
+            current_character_name, current_api_key_name_state, api_history_limit_state
         ] + context_checkboxes
 
         char_change_outputs = [
@@ -202,20 +221,6 @@ try:
 
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
-        )
-
-        character_dropdown.change(
-            fn=ui_handlers.handle_character_change,
-            inputs=[character_dropdown, api_key_dropdown],
-            outputs=char_change_outputs
-        ).then(
-            fn=ui_handlers.handle_context_settings_change,
-            inputs=context_token_calc_inputs,
-            outputs=token_count_display
-        ).then(
-            fn=ui_handlers.handle_world_builder_load,
-            inputs=[current_character_name],
-            outputs=[world_data_state, area_selector, room_selector] + editor_components + [editor_keys_order_state, save_world_button]
         )
 
         chat_reload_button.click(
@@ -317,25 +322,39 @@ try:
         world_builder_tab.select(
             fn=ui_handlers.handle_world_builder_load,
             inputs=[current_character_name],
-            outputs=[world_data_state, area_selector, room_selector] + editor_components + [editor_keys_order_state, save_world_button]
+            outputs=[world_data_state, area_selector, room_selector, initial_message, editor_wrapper]
         )
 
         area_selector.change(
-            fn=ui_handlers.handle_item_selection,
-            inputs=[world_data_state, area_selector, room_selector],
-            outputs=editor_components + [editor_keys_order_state, save_world_button]
+            fn=on_area_select,
+            inputs=[world_data_state, area_selector],
+            outputs=[room_selector, initial_message, editor_wrapper] + editor_components + [editor_keys_order_state]
         )
 
         room_selector.change(
-            fn=ui_handlers.handle_item_selection,
+            fn=on_room_select,
             inputs=[world_data_state, area_selector, room_selector],
-            outputs=editor_components + [editor_keys_order_state, save_world_button]
+            outputs=[initial_message, editor_wrapper] + editor_components + [editor_keys_order_state]
         )
 
         save_world_button.click(
             fn=ui_handlers.handle_world_data_save,
             inputs=[current_character_name, world_data_state, area_selector, room_selector, editor_keys_order_state] + editor_components,
-            outputs=[world_data_state]
+            outputs=[world_data_state] + editor_components
+        )
+
+        character_dropdown.change(
+            fn=ui_handlers.handle_character_change,
+            inputs=[character_dropdown, api_key_dropdown],
+            outputs=char_change_outputs
+        ).then(
+            fn=ui_handlers.handle_context_settings_change,
+            inputs=context_token_calc_inputs,
+            outputs=token_count_display
+        ).then(
+            fn=ui_handlers.handle_world_builder_load,
+            inputs=[current_character_name],
+            outputs=[world_data_state, area_selector, room_selector, initial_message, editor_wrapper]
         )
 
     if __name__ == "__main__":

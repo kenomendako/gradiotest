@@ -16,6 +16,7 @@ import io
 import uuid
 from tools.image_tools import generate_image as generate_image_tool_func
 from yaml.constructor import ConstructorError
+import yaml
 
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
@@ -23,6 +24,7 @@ from agent.graph import generate_scenery_context
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
+from world_builder import get_world_data, save_world_data
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
@@ -624,74 +626,122 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Error(f"画像の生成/更新に失敗しました。AIの応答: {result}") # メッセージを調整
         return None
 
-# ui_handlers.py の末尾にあるワールド・ビルダー関連の関数群を、以下のコードで完全に置き換える
+def get_choices_from_world_data(world_data: Dict) -> Tuple[List[Tuple[str, str]], Dict[str, List[Tuple[str, str]]]]:
+    """世界データからエリアと部屋の選択肢リストを作成する。"""
+    area_choices = []
+    room_choices_map = {}
+    for area_id, area_data in world_data.items():
+        if isinstance(area_data, dict) and "name" in area_data:
+            area_choices.append((area_data["name"], area_id))
 
-from world_builder import get_world_data, save_world_data, create_editor_ui_from_data
-import yaml
+            room_choices = []
+            for room_id, room_data in area_data.items():
+                if isinstance(room_data, dict) and "name" in room_data:
+                    room_choices.append((room_data["name"], room_id))
+            room_choices_map[area_id] = sorted(room_choices)
+    return sorted(area_choices), room_choices_map
 
-def handle_world_builder_load(character_name: str) -> Tuple[Dict, List, gr.update, List, List, List, gr.update]:
+def handle_world_builder_load(character_name: str) -> Tuple[Dict, List, gr.update, gr.update, gr.update]:
     """ワールド・ビルダータブが読み込まれたときの初期化処理。"""
     print(f"--- ワールド・ビルダー読み込み: {character_name} ---")
     world_data = get_world_data(character_name)
-    area_ids = list(world_data.keys())
+    area_choices, room_choices_map = get_choices_from_world_data(world_data)
 
     return (
         world_data,
-        area_ids,
-        gr.update(value=None, choices=[]),
-        [], # 初期エディタUIは空
-        [], # 初期値も空
-        [], # キーの順序も空
-        gr.update(visible=False) # 保存ボタンは非表示
+        gr.update(choices=area_choices, value=None),
+        gr.update(choices=[], value=None),
+        gr.update(visible=True),  # 初期メッセージを表示
+        gr.update(visible=False) # エディタを非表示
     )
 
-def handle_item_selection(world_data: Dict, area_id: str, room_id: Optional[str]) -> Tuple[List, List, List, gr.update]:
-    """エリアまたは部屋が選択されたときの処理。エディタUIを生成する。"""
-    if not area_id:
-        return [], [], [], gr.update(visible=False)
+def handle_area_selection(world_data: Dict, selected_area_id: str) -> Tuple[gr.update, gr.update, gr.update, List]:
+    """エリアが選択されたときの処理。"""
+    if not selected_area_id:
+        return gr.update(choices=[], value=None), gr.update(visible=True), gr.update(visible=False), []
 
-    # 部屋が選択されていれば部屋のデータを、されていなければエリアのデータを使用
-    selected_data = world_data.get(area_id, {}).get(room_id) if room_id else world_data.get(area_id, {})
+    _, room_choices_map = get_choices_from_world_data(world_data)
+    room_choices = room_choices_map.get(selected_area_id, [])
 
-    if not selected_data:
-        return [], [], [], gr.update(visible=False)
+    # 動的UIを生成して返す
+    selected_data = world_data.get(selected_area_id, {})
+    dynamic_ui_updates, _, _ = create_dynamic_editor(selected_data)
 
-    components, initial_values, keys_order = create_editor_ui_from_data(selected_data)
+    return (
+        gr.update(choices=room_choices, value=None),
+        gr.update(visible=False), # 初期メッセージを非表示
+        gr.update(visible=True), # エディタを表示
+        dynamic_ui_updates
+    )
 
-    # Gradioはコンポーネントのリストを直接返せないので、最大数を想定して空のupdateで埋める
-    max_components = 20 # UIに表示するコンポーネントの最大数を想定
-    padded_components = components + [gr.update(visible=False)] * (max_components - len(components))
+def handle_room_selection(world_data: Dict, selected_area_id: str, selected_room_id: str) -> Tuple[gr.update, gr.update, List]:
+    """部屋が選択されたときの処理。"""
+    if not selected_room_id:
+        # 部屋の選択が解除されたら、エリアの情報を表示
+        return handle_area_selection(world_data, selected_area_id)[1:]
 
-    return padded_components + [initial_values, keys_order, gr.update(visible=True)]
+    selected_data = world_data.get(selected_area_id, {}).get(selected_room_id, {})
+    dynamic_ui_updates, _, _ = create_dynamic_editor(selected_data)
 
-def handle_world_data_save(character_name: str, world_data: Dict, area_id: str, room_id: Optional[str], keys_order: List[str], *values) -> Dict:
+    return gr.update(visible=False), gr.update(visible=True), dynamic_ui_updates
+
+def create_dynamic_editor(data: Dict) -> Tuple[List[gr.update], List[Any], List[str]]:
+    """データ辞書から、編集用のGradioコンポーネントの更新情報を動的に生成する。"""
+    updates = []
+    keys_order = []
+    max_components = 20 # nexus_ark.pyで定義した最大数
+
+    # name と description を特別扱い
+    for key in ['name', 'description']:
+        if key in data:
+            updates.append(gr.Textbox(label=key.capitalize(), value=data[key], visible=True))
+            keys_order.append(key)
+
+    # 残りのプロパティ
+    for key, value in data.items():
+        if key in ['name', 'description']: continue
+
+        if isinstance(value, (dict, list)):
+            yaml_str = yaml.dump(value, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            updates.append(gr.Code(label=key.capitalize(), value=yaml_str, language='yaml', visible=True))
+        else:
+            updates.append(gr.Textbox(label=key.capitalize(), value=str(value), visible=True))
+        keys_order.append(key)
+
+    # 残りのプレースホルダーを非表示にするためのupdateを追加
+    hidden_updates = [gr.update(visible=False, value=None)] * (max_components - len(updates))
+
+    # 戻り値の順番を inputs/outputs と合わせるため、最後に keys_order を含める
+    return updates + hidden_updates, keys_order
+
+def handle_world_data_save(character_name: str, world_data: Dict, area_id: str, room_id: Optional[str], keys_order_str: str, *values) -> Tuple[Dict, List[gr.update]]:
     """「世界を更新」ボタンが押されたときの処理。"""
     if not area_id:
         gr.Warning("保存対象のエリアが選択されていません。")
-        return world_data
+        return world_data, [gr.update()] * 20
 
-    # valuesタプルから、実際に表示されているコンポーネントの値だけを取り出す
+    # JSON文字列で渡ってくるキーの順序をリストに戻す
+    keys_order = json.loads(keys_order_str)
+
     active_values = values[:len(keys_order)]
-
-    # 新しいデータ辞書を再構築
     new_data = {}
     for key, value in zip(keys_order, active_values):
         try:
-            # YAML文字列はPythonオブジェクトに変換
-            loaded_value = yaml.safe_load(str(value))
+            loaded_value = yaml.safe_load(str(value)) if isinstance(value, str) else value
             new_data[key] = loaded_value
         except (yaml.YAMLError, ConstructorError):
-             # 解析に失敗した場合は、単純な文字列として扱う
             new_data[key] = value
 
-    # world_data のStateを更新
-    if room_id:
+    if room_id and room_id in world_data.get(area_id, {}):
         world_data[area_id][room_id] = new_data
     else:
-        world_data[area_id] = new_data
+        # エリアデータ内の既存の部屋データを維持しつつ、プロパティのみを更新
+        existing_rooms = {k: v for k, v in world_data.get(area_id, {}).items() if isinstance(v, dict) and 'name' in v}
+        world_data[area_id] = {**new_data, **existing_rooms}
 
-    # ファイルに保存
     save_world_data(character_name, world_data)
 
-    # 更新されたworld_dataをStateに返す
-    return world_data
+    # 更新後のUIを再生成
+    dynamic_ui_updates, _ = create_dynamic_editor(new_data)
+
+    return world_data, dynamic_ui_updates
