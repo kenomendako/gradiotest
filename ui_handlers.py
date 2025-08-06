@@ -739,6 +739,54 @@ def handle_cancel_add_button_click():
         ""
     )
 
+
+def handle_list_key_selection(world_data: Dict, area_id: str, room_id: Optional[str], list_key: str):
+    """「編集するリスト」が選択された時の処理。項目選択ドロップダウンを更新する。"""
+    if not list_key:
+        return gr.update(choices=[], value=None), gr.update(visible=False)
+
+    selected_data = {}
+    if area_id and room_id:
+        selected_data = world_data.get(area_id, {}).get(room_id, {})
+    elif area_id:
+        selected_data = world_data.get(area_id, {})
+
+    items = selected_data.get(list_key, [])
+    item_choices = []
+    if isinstance(items, list):
+        # 各項目に一意のIDを付与する (インデックスを使用)
+        for i, item in enumerate(items):
+            if isinstance(item, dict) and "name" in item:
+                item_choices.append((f"{item['name']} (ID:{i})", str(i)))
+
+    return gr.update(choices=item_choices, value=None), gr.update(visible=False)
+
+
+def handle_list_item_selection(world_data: Dict, area_id: str, room_id: Optional[str], list_key: str, item_id_str: str):
+    """リスト内の「項目」が選択された時の処理。編集フォームに詳細を表示する。"""
+    if not item_id_str:
+        return gr.update(visible=False), gr.update(), gr.update(), gr.update()
+
+    try:
+        item_index = int(item_id_str)
+        selected_data = {}
+        if area_id and room_id:
+            selected_data = world_data.get(area_id, {}).get(room_id, {})
+        elif area_id:
+            selected_data = world_data.get(area_id, {})
+
+        item = selected_data.get(list_key, [])[item_index]
+
+        return (
+            gr.update(visible=True),
+            item_id_str,
+            item.get("name", ""),
+            item.get("description", "")
+        )
+    except (ValueError, IndexError, KeyError) as e:
+        print(f"リスト項目の選択処理中にエラー: {e}")
+        return gr.update(visible=False), None, "", ""
+
 def handle_confirm_add_button_click(character_name: str, world_data: Dict, selected_area_id: Optional[str], item_type: str, new_id: str, new_name: str):
     """新規作成フォームの「決定」ボタンが押された時の処理。"""
     if not new_id or not new_name:

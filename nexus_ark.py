@@ -308,6 +308,19 @@ try:
         cancel_add_outputs = [area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_id_wb, new_item_name_wb]
         cancel_add_button_wb.click(fn=ui_handlers.handle_cancel_add_button_click, outputs=cancel_add_outputs)
 
+        # --- リスト項目エディタのイベント ---
+        list_key_selector_wb.change(
+            fn=ui_handlers.handle_list_key_selection,
+            inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb],
+            outputs=[list_item_selector_wb, item_edit_form_wb]
+        )
+
+        list_item_selector_wb.change(
+            fn=ui_handlers.handle_list_item_selection,
+            inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb, list_item_selector_wb],
+            outputs=[item_edit_form_wb, item_id_wb, item_name_wb, item_description_wb]
+        )
+
     if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
