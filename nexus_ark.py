@@ -9,6 +9,31 @@ import traceback
 import pandas as pd
 import config_manager, character_manager, alarm_manager, ui_handlers, constants
 
+def on_area_select(world_data, area_id):
+    if not area_id: # Deselection
+        return gr.update(choices=[], value=None), gr.update(visible=True), gr.update(visible=False), [gr.update(visible=False)]*20, json.dumps([])
+
+    _, room_choices_map = ui_handlers.get_choices_from_world_data(world_data)
+    room_choices = room_choices_map.get(area_id, [])
+
+    selected_data = world_data.get(area_id, {})
+    updates, keys = ui_handlers.create_dynamic_editor_updates(selected_data)
+
+    return gr.Radio(choices=room_choices, value=None, label="部屋 (`###`)", interactive=True), gr.update(visible=False), gr.update(visible=True), updates, json.dumps(keys)
+
+def on_room_select(world_data, area_id, room_id):
+    if not room_id: # Deselection, show area data again
+        # This is a bit of a hack, but it works.
+        # We call the area selection handler and then just return the parts of the tuple we need.
+        area_handler_output = on_area_select(world_data, area_id)
+        return area_handler_output[1], area_handler_output[2], area_handler_output[3], area_handler_output[4]
+
+
+    selected_data = world_data.get(area_id, {}).get(room_id, {})
+    updates, keys = ui_handlers.create_dynamic_editor_updates(selected_data)
+    return gr.update(visible=False), gr.update(visible=True), updates, json.dumps(keys)
+
+
 if not utils.acquire_lock():
     print("ロックが取得できなかったため、アプリケーションを終了します。")
     if os.name == "nt": os.system("pause")
@@ -298,37 +323,41 @@ try:
             outputs=[scenery_image_display]
         )
 
-        # ▼▼▼ ワールド・ビルダー用のイベント接続 (新版) ▼▼▼
+        # ▼▼▼ ワールド・ビルダー用のイベント接続 (最終修正版) ▼▼▼
+
+        # Tab selection event to initialize the builder
         world_builder_tab.select(
             fn=ui_handlers.handle_world_builder_load,
             inputs=[current_character_name],
             outputs=[world_data_state, area_selector, room_selector, initial_message, editor_wrapper]
         )
 
+        # Event for when an area is selected
         area_selector.change(
-            fn=on_area_select,
+            fn=ui_handlers.handle_area_selection,
             inputs=[world_data_state, area_selector],
             outputs=[room_selector, initial_message, editor_wrapper] + editor_components + [editor_keys_order_state]
         )
 
+        # Event for when a room is selected
         room_selector.change(
-            fn=on_room_select,
+            fn=ui_handlers.handle_room_selection,
             inputs=[world_data_state, area_selector, room_selector],
             outputs=[initial_message, editor_wrapper] + editor_components + [editor_keys_order_state]
         )
 
+        # Event for the save button
         save_world_button.click(
             fn=ui_handlers.handle_world_data_save,
             inputs=[current_character_name, world_data_state, area_selector, room_selector, editor_keys_order_state] + editor_components,
             outputs=[world_data_state] + editor_components
         ).then(
-            # 保存後、エリアと部屋の選択肢も更新する
             fn=lambda data: ui_handlers.get_choices_from_world_data(data)[0],
             inputs=[world_data_state],
             outputs=[area_selector]
         )
 
-        # キャラクター変更時
+        # When character is changed, reload the world builder
         character_dropdown.change(
             fn=ui_handlers.handle_character_change,
             inputs=[character_dropdown, api_key_dropdown],
@@ -342,6 +371,7 @@ try:
             inputs=[current_character_name],
             outputs=[world_data_state, area_selector, room_selector, initial_message, editor_wrapper]
         )
+
 
     if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
