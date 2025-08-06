@@ -180,7 +180,9 @@ try:
                                 save_button_wb = gr.Button("変更を保存", variant="primary")
                                 cancel_button_wb = gr.Button("キャンセル")
 
-    if __name__ == "__main__":
+        gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
+
+
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
         context_token_calc_inputs = [
