@@ -561,15 +561,28 @@ def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], c
         return gr.update(visible=False) # ★ 変更点: Noneではなく非表示updateを返す
 
 def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text_to_speak: str, api_key_name: str):
-    if not selected_voice_name or not text_to_speak or not api_key_name: gr.Warning("声、テキスト、APIキーがすべて選択されている必要があります。"); return None
+    # ★ 変更点：戻り値が gr.update になるため、型ヒントは削除
+    if not selected_voice_name or not text_to_speak or not api_key_name:
+        gr.Warning("声、テキスト、APIキーがすべて選択されている必要があります。")
+        return gr.update(visible=False) # ★ 変更点
+
     voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
     api_key = config_manager.API_KEYS.get(api_key_name)
-    if not voice_id or not api_key: gr.Warning("声またはAPIキーが無効です。"); return None
+    if not voice_id or not api_key:
+        gr.Warning("声またはAPIキーが無効です。")
+        return gr.update(visible=False) # ★ 変更点
+
     from audio_manager import generate_audio_from_text
     gr.Info(f"声「{selected_voice_name}」で音声を生成しています...")
     audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
-    if audio_filepath: gr.Info("プレビューを再生します。"); return audio_filepath
-    else: gr.Error("音声の生成に失敗しました。"); return None
+
+    if audio_filepath:
+        gr.Info("プレビューを再生します。")
+        # ★ 変更点: ファイルパスをvalueに設定し、プレイヤーを表示する
+        return gr.update(value=audio_filepath, visible=True)
+    else:
+        gr.Error("音声の生成に失敗しました。")
+        return gr.update(visible=False) # ★ 変更点
 
 def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str) -> Optional[str]:
     """「情景画像を生成/更新」ボタン専用ハンドラ。常に情景を再生成してから画像を作成する。"""
