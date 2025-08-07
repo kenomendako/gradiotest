@@ -18,13 +18,36 @@ PUSHOVER_USER_KEY_GLOBAL = None
 # ▲▲▲ 追加ここまで ▲▲▲
 
 SUPPORTED_VOICES = {
-    "vindemiatrix": "ヴィンデミアトリックス (デフォルト)",
-    "luna": "ルナ (お姉さん)",
-    "sol": "ソル (お兄さん)",
-    "aria": "アリア (少女)",
-    "mare": "マーレ (少年)",
-    "alba": "アルバ (落ち着いた女性)",
-    "umbra": "アンブラ (落ち着いた男性)",
+    "zephyr": "Zephyr (明るい)",
+    "puck": "Puck (アップビート)",
+    "charon": "Charon (情報が豊富)",
+    "kore": "Kore (しっかりした)",
+    "fenrir": "Fenrir (興奮した)",
+    "leda": "Leda (若々しい)",
+    "orus": "Orus (しっかりした)",
+    "aoede": "Aoede (軽快)",
+    "callirrhoe": "Callirrhoe (のんびりした)",
+    "autonoe": "Autonoe (明るい)",
+    "enceladus": "Enceladus (息遣いの多い)",
+    "iapetus": "Iapetus (クリア)",
+    "umbriel": "Umbriel (のんびりした)",
+    "algieba": "Algieba (スムーズ)",
+    "despina": "Despina (スムーズ)",
+    "erinome": "Erinome (クリア)",
+    "algenib": "Algenib (しわがれた)",
+    "rasalgethi": "Rasalgethi (情報が豊富)",
+    "laomedeia": "Laomedeia (アップビート)",
+    "achernar": "Achernar (柔らかい)",
+    "alnilam": "Alnilam (しっかりした)",
+    "schedar": "Schedar (均一)",
+    "gacrux": "Gacrux (成人向け)",
+    "pulcherrima": "Pulcherrima (前向き)",
+    "achird": "Achird (フレンドリー)",
+    "zubenelgenubi": "Zubenelgenubi (カジュアル)",
+    "vindemiatrix": "Vindemiatrix (優しい)",
+    "sadachbia": "Sadachbia (生き生きした)",
+    "sadaltager": "Sadaltager (知識が豊富)",
+    "sulafat": "Sulafat (温かい)",
 }
 
 initial_api_key_name_global = "default"
@@ -128,7 +151,7 @@ def get_effective_settings(character_name):
     # グローバル設定をデフォルトとして取得
     effective_settings = {
         "model_name": DEFAULT_MODEL_GLOBAL,
-        "voice_id": "vindemiatrix",
+        "voice_id": "iapetus", # ★ "nova" から "iapetus" に変更
         "voice_style_prompt": "",
         "add_timestamp": False,
         "send_thoughts": initial_send_thoughts_to_api_global,
