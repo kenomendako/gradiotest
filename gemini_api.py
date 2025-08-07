@@ -132,10 +132,30 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
         "debug_mode": debug_mode_state
     }
     try:
-        final_state = app.invoke(initial_state)
-        final_response_text = ""
-        if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
-            final_response_text = final_state['messages'][-1].content
+        # ▼▼▼ 修正の核心：自動リトライ機能の追加 ▼▼▼
+        max_retries = 1
+        for attempt in range(max_retries + 1):
+            final_state = app.invoke(initial_state)
+
+            final_response_text = ""
+            if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
+                # .contentがNoneの場合も考慮して、安全に文字列に変換
+                final_response_text = str(final_state['messages'][-1].content or "").strip()
+
+            if final_response_text:
+                # 正常な応答が得られたらループを抜ける
+                break
+
+            # 応答が空だった場合の処理
+            if attempt < max_retries:
+                print(f"--- 警告: AIからの応答が空です。リトライします... ({attempt + 1}/{max_retries}) ---")
+                # 必要であれば、リトライの間に短い待機時間を設けることも可能
+                # import time
+                # time.sleep(1)
+            else:
+                print(f"--- エラー: リトライ上限({max_retries}回)に達しても、AIからの応答が空でした。---")
+        # ▲▲▲ 修正ここまで ▲▲▲
+
         location_name = final_state.get('location_name', '（場所不明）'); scenery_text = final_state.get('scenery_text', '（情景不明）')
         return {"response": final_response_text, "location_name": location_name, "scenery": scenery_text}
     except Exception as e:
