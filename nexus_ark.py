@@ -77,7 +77,6 @@ try:
         editing_alarm_id_state = gr.State(None)
         selected_message_state = gr.State(None)
         current_log_map_state = gr.State([])
-        audio_player = gr.Audio(visible=False, autoplay=True)
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -88,6 +87,16 @@ try:
                         with gr.Accordion("空間認識・移動", open=False):
                             scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
                             generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
+
+                            # ▼▼▼ ここからが追加箇所 ▼▼▼
+                            scenery_style_radio = gr.Radio(
+                                ["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
+                                label="画風を選択",
+                                value="写真風 (デフォルト)",
+                                interactive=True
+                            )
+                            # ▲▲▲ 追加ここまで ▲▲▲
+
                             current_location_display = gr.Textbox(label="現在地", interactive=False)
                             current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
                             refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
@@ -151,6 +160,18 @@ try:
 
                     with gr.Column(scale=3):
                         chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
+
+                        # ▼▼▼ ここからが追加箇所 ▼▼▼
+                        with gr.Row():
+                            audio_player = gr.Audio(
+                                label="音声プレーヤー",
+                                visible=False,
+                                autoplay=True,
+                                interactive=True,
+                                elem_id="main_audio_player"
+                            )
+                        # ▲▲▲ 追加ここまで ▲▲▲
+
                         with gr.Row(visible=False) as action_button_group:
                             play_audio_button = gr.Button("🔊 選択した発言を再生"); delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop"); cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
                         with gr.Row():
@@ -277,7 +298,11 @@ try:
         chat_inputs = [chat_input_textbox, current_character_name, current_api_key_name_state, file_upload_button, api_history_limit_state, debug_mode_checkbox]
         chat_submit_outputs = [chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe, scenery_image_display]
         save_char_settings_button.click(fn=ui_handlers.handle_save_char_settings, inputs=[current_character_name, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox] + context_checkboxes, outputs=None).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-        char_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[char_voice_dropdown, char_voice_style_prompt_textbox, char_preview_text_textbox, api_key_dropdown], outputs=[audio_player])
+        char_preview_voice_button.click(
+            fn=ui_handlers.handle_voice_preview,
+            inputs=[char_voice_dropdown, char_voice_style_prompt_textbox, char_preview_text_textbox, api_key_dropdown],
+            outputs=[audio_player, play_audio_button, char_preview_voice_button] # ★ 変更点
+        )
         for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
@@ -298,7 +323,11 @@ try:
             inputs=[current_character_name, location_dropdown, api_key_dropdown],
             outputs=[current_location_display, current_scenery_display, scenery_image_display]
         )
-        play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player])
+        play_audio_button.click(
+            fn=ui_handlers.handle_play_audio_button_click,
+            inputs=[selected_message_state, current_character_name, current_api_key_name_state],
+            outputs=[audio_player, play_audio_button, char_preview_voice_button] # ★ 変更点
+        )
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
         reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_character_name], outputs=[memory_json_editor])
@@ -314,7 +343,11 @@ try:
         timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
         rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
-        generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_character_name, api_key_dropdown], outputs=[scenery_image_display])
+        generate_scenery_image_button.click(
+            fn=ui_handlers.handle_generate_or_regenerate_scenery_image,
+            inputs=[current_character_name, api_key_dropdown, scenery_style_radio], # ★ scenery_style_radio を追加
+            outputs=[scenery_image_display]
+        )
 
         # --- ワールド・ビルダーのイベント ---
         world_builder_tab.select(fn=ui_handlers.handle_world_builder_load, inputs=[current_character_name], outputs=char_change_world_builder_outputs)
@@ -401,6 +434,9 @@ try:
             inputs=[world_data_state, current_character_name, area_selector, room_selector, dict_key_selector_wb, dict_dataframe_wb],
             outputs=[world_data_state, details_display_wb] # 保存後に詳細表示も更新
         )
+
+        # ▼▼▼ この行を末尾に追加 ▼▼▼
+        audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
 
     if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")

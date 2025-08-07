@@ -529,33 +529,93 @@ def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_
     return key, history, mapping_list
 
 def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], character_name: str, api_key_name: str):
-    if not selected_message: gr.Warning("再生するメッセージが選択されていません。"); return None
-    raw_text = utils.extract_raw_text_from_html(selected_message.get("content"))
-    text_to_speak = utils.remove_thoughts_from_text(raw_text)
-    if not text_to_speak: gr.Info("このメッセージには音声で再生できるテキストがありません。"); return None
-    effective_settings = config_manager.get_effective_settings(character_name)
-    voice_id, voice_style_prompt = effective_settings.get("voice_id", "vindemiatrix"), effective_settings.get("voice_style_prompt", "")
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    if not api_key: gr.Warning(f"APIキー '{api_key_name}' が見つかりません。"); return None
-    from audio_manager import generate_audio_from_text
-    gr.Info(f"「{character_name}」の声で音声を生成しています...")
-    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
-    if audio_filepath: gr.Info("再生します。"); return audio_filepath
-    else: gr.Error("音声の生成に失敗しました。"); return None
+    if not selected_message:
+        gr.Warning("再生するメッセージが選択されていません。")
+        # ★ ボタンの状態は変更しないので、元の状態を返す
+        yield gr.update(visible=False), gr.update(interactive=True), gr.update(interactive=True)
+        return
+
+    # ▼▼▼ 修正の核心：yield を使った段階的なUI更新 ▼▼▼
+    # 1. まず「生成中」の状態をUIに即時反映させる
+    yield (
+        gr.update(visible=False), # プレイヤーは一旦隠す
+        gr.update(value="音声生成中... ▌", interactive=False), # 再生ボタンを無効化
+        gr.update(interactive=False)  # 試聴ボタンも無効化
+    )
+
+    try:
+        raw_text = utils.extract_raw_text_from_html(selected_message.get("content"))
+        text_to_speak = utils.remove_thoughts_from_text(raw_text)
+        if not text_to_speak:
+            gr.Info("このメッセージには音声で再生できるテキストがありません。")
+            return
+
+        effective_settings = config_manager.get_effective_settings(character_name)
+        voice_id, voice_style_prompt = effective_settings.get("voice_id", "iapetus"), effective_settings.get("voice_style_prompt", "")
+        api_key = config_manager.API_KEYS.get(api_key_name)
+        if not api_key:
+            gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+            return
+
+        from audio_manager import generate_audio_from_text
+        gr.Info(f"「{character_name}」の声で音声を生成しています...")
+        audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
+
+        if audio_filepath:
+            gr.Info("再生します。")
+            # 2. 成功したら、プレイヤーを表示して再生を開始
+            yield gr.update(value=audio_filepath, visible=True), gr.update(), gr.update()
+        else:
+            gr.Error("音声の生成に失敗しました。")
+
+    finally:
+        # 3. 成功・失敗に関わらず、必ず最後にボタンの状態を元に戻す
+        yield (
+            gr.update(), # プレイヤーの状態はそのまま
+            gr.update(value="🔊 選択した発言を再生", interactive=True), # 再生ボタンを有効化
+            gr.update(interactive=True)  # 試聴ボタンを有効化
+        )
 
 def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text_to_speak: str, api_key_name: str):
-    if not selected_voice_name or not text_to_speak or not api_key_name: gr.Warning("声、テキスト、APIキーがすべて選択されている必要があります。"); return None
-    voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    if not voice_id or not api_key: gr.Warning("声またはAPIキーが無効です。"); return None
-    from audio_manager import generate_audio_from_text
-    gr.Info(f"声「{selected_voice_name}」で音声を生成しています...")
-    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
-    if audio_filepath: gr.Info("プレビューを再生します。"); return audio_filepath
-    else: gr.Error("音声の生成に失敗しました。"); return None
+    if not selected_voice_name or not text_to_speak or not api_key_name:
+        gr.Warning("声、テキスト、APIキーがすべて選択されている必要があります。")
+        yield gr.update(visible=False), gr.update(interactive=True), gr.update(interactive=True)
+        return
 
-def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str) -> Optional[str]:
-    """「情景画像を生成/更新」ボタン専用ハンドラ。常に情景を再生成してから画像を作成する。"""
+    # ▼▼▼ 修正の核心：yield を使った段階的なUI更新 ▼▼▼
+    yield (
+        gr.update(visible=False),
+        gr.update(interactive=False),
+        gr.update(value="生成中...", interactive=False)
+    )
+
+    try:
+        voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
+        api_key = config_manager.API_KEYS.get(api_key_name)
+        if not voice_id or not api_key:
+            gr.Warning("声またはAPIキーが無効です。")
+            return
+
+        from audio_manager import generate_audio_from_text
+        gr.Info(f"声「{selected_voice_name}」で音声を生成しています...")
+        audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
+
+        if audio_filepath:
+            gr.Info("プレビューを再生します。")
+            yield gr.update(value=audio_filepath, visible=True), gr.update(), gr.update()
+        else:
+            gr.Error("音声の生成に失敗しました。")
+
+    finally:
+        # 成功・失敗に関わらず、必ず最後にボタンの状態を元に戻す
+        yield (
+            gr.update(),
+            gr.update(interactive=True),
+            gr.update(value="試聴", interactive=True)
+        )
+
+def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str, style_choice: str) -> Optional[str]:
+    """「情景画像を生成/更新」ボタン専用ハンドラ。画風の指定と文字混入抑制に対応。"""
     if not character_name or not api_key_name:
         gr.Warning("キャラクターとAPIキーを選択してください。")
         return None
@@ -572,17 +632,29 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Warning("現在地が特定できません。")
         return existing_image_path
 
-    # ▼▼▼ 修正の核心：まず情景を強制的に再生成させる ▼▼▼
     gr.Info("まず、最新の情景描写を生成します...")
     _, _, scenery_text = generate_scenery_context(character_name, api_key, force_regenerate=True)
 
     if "（" in scenery_text or "エラー" in scenery_text:
         gr.Error(f"画像生成の元となる情景描写の作成に失敗したため、処理を中断します。")
         return existing_image_path
+
+    gr.Info(f"新しい情景「{scenery_text[:30]}...」を元に「{style_choice}」で画像を生成します...")
+
+    # ▼▼▼ 修正の核心：画風に応じてプロンプトを組み立て、文字混入抑制を強化 ▼▼▼
+    style_prompts = {
+        "写真風 (デフォルト)": "A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Style: cinematic, detailed, epic.",
+        "イラスト風": "A beautiful and detailed anime-style illustration of the following scene. Style: vibrant colors, clean lines, pixiv contest winner.",
+        "アニメ風": "A screenshot from a modern animated film depicting the following scene. Style: cinematic lighting, emotionally expressive, high-quality anime.",
+        "水彩画風": "A gentle and emotional watercolor painting of the following scene. Style: soft-focus, bleeding colors, textured paper."
+    }
+    base_prompt = style_prompts.get(style_choice, style_prompts["写真風 (デフォルト)"])
+    negative_prompt = "Do not include any people, characters, text, or watermarks."
+
+    # 最終的なプロンプトを組み立てる
+    prompt = f"{base_prompt} {negative_prompt} Scene: {scenery_text}"
     # ▲▲▲ 修正ここまで ▲▲▲
 
-    gr.Info(f"新しい情景「{scenery_text[:30]}...」を元に画像を生成します...")
-    prompt = f"A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Do not include any people, characters, text, or watermarks. Style: cinematic, detailed, epic. Scene: {scenery_text}"
     result = generate_image_tool_func.func(prompt=prompt, character_name=character_name, api_key=api_key)
 
     if "Generated Image:" in result:
@@ -590,12 +662,16 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         if os.path.exists(generated_path):
             save_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
             now = datetime.datetime.now()
-            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
+            # ファイル名にスタイル情報を追加して、同じ時間帯でも画風違いを保存できるようにする
+            style_suffix = style_choice.split(" ")[0] # "写真風" など
+            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}_{style_suffix}"
             specific_filename = f"{cache_key}.png"
             specific_path = os.path.join(save_dir, specific_filename)
 
+            # 既存ファイルを上書きしないように、ユニークなファイル名に変更
             if os.path.exists(specific_path):
-                os.remove(specific_path)
+                specific_path = os.path.join(save_dir, f"{cache_key}_{uuid.uuid4().hex[:6]}.png")
+
             shutil.move(generated_path, specific_path)
             print(f"--- 情景画像を生成し、保存しました: {specific_path} ---")
 
