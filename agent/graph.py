@@ -11,7 +11,6 @@ from typing import TypedDict, Annotated, List, Literal, Optional, Tuple # ★ Op
 
 # 2. 既存のインポートの下に、新しいインポートを追加
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
-from langchain_google_genai.types import HarmCategory, HarmBlockThreshold
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langgraph.prebuilt import ToolNode
@@ -56,13 +55,25 @@ class AgentState(TypedDict):
 
 def get_configured_llm(model_name: str, api_key: str):
     # レート制限エラー(429)やサーバーエラー(500)に対応するため、リトライ回数を増やす
-    # ▼▼▼ 修正の核心：LangChainラッパー専用の型を使用する ▼▼▼
-    safety_settings = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-    }
+    # ▼▼▼ 修正の核心：LangChainラッパーの公式作法である「辞書のリスト」形式で設定する ▼▼▼
+    safety_settings = [
+        {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_NONE",
+        },
+        {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_NONE",
+        },
+        {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_NONE",
+        },
+        {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_NONE",
+        },
+    ]
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
