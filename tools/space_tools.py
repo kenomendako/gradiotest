@@ -148,8 +148,9 @@ def read_specific_location_settings(location_id: str, character_name: str = None
 @tool
 def update_location_settings(location_id: str, new_content: str, character_name: str = None) -> str:
     """
-    世界設定ファイル内の指定されたIDの場所（エリアまたは部屋）の定義を、新しい内容で完全に上書きする。
-    注意：このツールはセクション全体を置き換えるため、既存の内容に追記したい場合は、まずread_specific_location_settingsで読み取り、編集してからこのツールを使用すること。
+    【更新専用】世界設定ファイル内の既存の場所（エリアまたは部屋）の定義を、新しい内容で完全に上書きする。
+    注意：このツールはセクション全体を置き換えるため、追記したい場合は、まずread_specific_location_settingsで読み取り、編集してからこのツールを使用すること。
+    新しい場所を作成する場合は、代わりにadd_new_locationを使用すること。
     """
     if not all([location_id, new_content, character_name]):
         return "【Error】location_id, new_content, and character_name are required."
@@ -164,12 +165,13 @@ def update_location_settings(location_id: str, new_content: str, character_name:
 
         section_to_replace = _get_location_section(full_content, location_id)
 
-        if section_to_replace:
-            # 既存のセクションを新しい内容で置換
-            updated_content = full_content.replace(section_to_replace, new_content.strip())
-        else:
-            # 既存のセクションがない場合、ファイルの末尾に追記
-            updated_content = full_content.strip() + "\n\n" + new_content.strip()
+        if not section_to_replace:
+            return f"【Error】Location ID '{location_id}' not found. You cannot create a new location with this tool. Use 'add_new_location' instead."
+
+        if not re.match(r"^(##|###)\s+", new_content.strip()):
+            return f"【Error】'new_content' must start with a valid markdown heading (e.g., '## {location_id}' or '### {location_id}')."
+
+        updated_content = full_content.replace(section_to_replace, new_content.strip())
 
         with open(world_settings_path, "w", encoding="utf-8") as f:
             f.write(updated_content.strip() + "\n")
@@ -177,3 +179,39 @@ def update_location_settings(location_id: str, new_content: str, character_name:
         return f"Success: World settings for '{location_id}' have been updated."
     except Exception as e:
         return f"【Error】Failed to update world settings: {e}"
+
+@tool
+def add_new_location(new_content: str, character_name: str = None) -> str:
+    """
+    【新規作成専用】世界設定ファイルに、新しい場所（エリアまたは部屋）の定義を追記する。
+    既存の場所を更新する場合は、update_location_settingsを使用すること。
+    """
+    if not all([new_content, character_name]):
+        return "【Error】new_content and character_name are required."
+
+    world_settings_path = get_world_settings_path(character_name)
+    if not world_settings_path or not os.path.exists(world_settings_path):
+        return f"【Error】Could not find world settings file for character '{character_name}'."
+
+    try:
+        # new_contentからIDを抽出
+        match = re.match(r"^(?:##|###)\s+([a-zA-Z0-9_]+)", new_content.strip())
+        if not match:
+            return "【Error】'new_content' must start with a valid markdown heading containing an ID (e.g., '## new_area_id')."
+
+        location_id = match.group(1)
+
+        with open(world_settings_path, "r", encoding="utf-8") as f:
+            full_content = f.read()
+
+        if _get_location_section(full_content, location_id):
+            return f"【Error】Location ID '{location_id}' already exists. Use 'update_location_settings' to modify it."
+
+        updated_content = full_content.strip() + "\n\n" + new_content.strip()
+
+        with open(world_settings_path, "w", encoding="utf-8") as f:
+            f.write(updated_content.strip() + "\n")
+
+        return f"Success: New location '{location_id}' has been added to the world settings."
+    except Exception as e:
+        return f"【Error】Failed to add new location: {e}"
