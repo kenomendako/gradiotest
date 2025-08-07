@@ -614,8 +614,8 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
             gr.update(value="試聴", interactive=True)
         )
 
-def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str) -> Optional[str]:
-    """「情景画像を生成/更新」ボタン専用ハンドラ。常に情景を再生成してから画像を作成する。"""
+def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str, style_choice: str) -> Optional[str]:
+    """「情景画像を生成/更新」ボタン専用ハンドラ。画風の指定と文字混入抑制に対応。"""
     if not character_name or not api_key_name:
         gr.Warning("キャラクターとAPIキーを選択してください。")
         return None
@@ -632,17 +632,29 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Warning("現在地が特定できません。")
         return existing_image_path
 
-    # ▼▼▼ 修正の核心：まず情景を強制的に再生成させる ▼▼▼
     gr.Info("まず、最新の情景描写を生成します...")
     _, _, scenery_text = generate_scenery_context(character_name, api_key, force_regenerate=True)
 
     if "（" in scenery_text or "エラー" in scenery_text:
         gr.Error(f"画像生成の元となる情景描写の作成に失敗したため、処理を中断します。")
         return existing_image_path
+
+    gr.Info(f"新しい情景「{scenery_text[:30]}...」を元に「{style_choice}」で画像を生成します...")
+
+    # ▼▼▼ 修正の核心：画風に応じてプロンプトを組み立て、文字混入抑制を強化 ▼▼▼
+    style_prompts = {
+        "写真風 (デフォルト)": "A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Style: cinematic, detailed, epic.",
+        "イラスト風": "A beautiful and detailed anime-style illustration of the following scene. Style: vibrant colors, clean lines, pixiv contest winner.",
+        "アニメ風": "A screenshot from a modern animated film depicting the following scene. Style: cinematic lighting, emotionally expressive, high-quality anime.",
+        "水彩画風": "A gentle and emotional watercolor painting of the following scene. Style: soft-focus, bleeding colors, textured paper."
+    }
+    base_prompt = style_prompts.get(style_choice, style_prompts["写真風 (デフォルト)"])
+    negative_prompt = "Do not include any people, characters, text, or watermarks."
+
+    # 最終的なプロンプトを組み立てる
+    prompt = f"{base_prompt} {negative_prompt} Scene: {scenery_text}"
     # ▲▲▲ 修正ここまで ▲▲▲
 
-    gr.Info(f"新しい情景「{scenery_text[:30]}...」を元に画像を生成します...")
-    prompt = f"A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Do not include any people, characters, text, or watermarks. Style: cinematic, detailed, epic. Scene: {scenery_text}"
     result = generate_image_tool_func.func(prompt=prompt, character_name=character_name, api_key=api_key)
 
     if "Generated Image:" in result:
@@ -650,12 +662,16 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         if os.path.exists(generated_path):
             save_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
             now = datetime.datetime.now()
-            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
+            # ファイル名にスタイル情報を追加して、同じ時間帯でも画風違いを保存できるようにする
+            style_suffix = style_choice.split(" ")[0] # "写真風" など
+            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}_{style_suffix}"
             specific_filename = f"{cache_key}.png"
             specific_path = os.path.join(save_dir, specific_filename)
 
+            # 既存ファイルを上書きしないように、ユニークなファイル名に変更
             if os.path.exists(specific_path):
-                os.remove(specific_path)
+                specific_path = os.path.join(save_dir, f"{cache_key}_{uuid.uuid4().hex[:6]}.png")
+
             shutil.move(generated_path, specific_path)
             print(f"--- 情景画像を生成し、保存しました: {specific_path} ---")
 

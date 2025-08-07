@@ -87,6 +87,16 @@ try:
                         with gr.Accordion("空間認識・移動", open=False):
                             scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
                             generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
+
+                            # ▼▼▼ ここからが追加箇所 ▼▼▼
+                            scenery_style_radio = gr.Radio(
+                                ["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
+                                label="画風を選択",
+                                value="写真風 (デフォルト)",
+                                interactive=True
+                            )
+                            # ▲▲▲ 追加ここまで ▲▲▲
+
                             current_location_display = gr.Textbox(label="現在地", interactive=False)
                             current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
                             refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
@@ -333,7 +343,11 @@ try:
         timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
         rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
-        generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_character_name, api_key_dropdown], outputs=[scenery_image_display])
+        generate_scenery_image_button.click(
+            fn=ui_handlers.handle_generate_or_regenerate_scenery_image,
+            inputs=[current_character_name, api_key_dropdown, scenery_style_radio], # ★ scenery_style_radio を追加
+            outputs=[scenery_image_display]
+        )
 
         # --- ワールド・ビルダーのイベント ---
         world_builder_tab.select(fn=ui_handlers.handle_world_builder_load, inputs=[current_character_name], outputs=char_change_world_builder_outputs)
