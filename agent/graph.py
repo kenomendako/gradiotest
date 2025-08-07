@@ -2,14 +2,13 @@
 
 # 1. ファイルの先頭に必要なモジュールを追加
 import os
+from google.genai import types as gg_types
 import re
 import traceback
 import json
 import pytz # ★ 追加
 from datetime import datetime # ★ 追加
 from typing import TypedDict, Annotated, List, Literal, Optional, Tuple # ★ OptionalとTupleを追加
-
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # 2. 既存のインポートの下に、新しいインポートを追加
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
@@ -57,12 +56,12 @@ class AgentState(TypedDict):
 
 def get_configured_llm(model_name: str, api_key: str):
     # レート制限エラー(429)やサーバーエラー(500)に対応するため、リトライ回数を増やす
-    # ▼▼▼ 修正の核心：セーフティ設定を追加 ▼▼▼
+    # ▼▼▼ 修正の核心：セーフティ設定を規約通りに再設定 ▼▼▼
     safety_settings = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        gg_types.HarmCategory.HARM_CATEGORY_HARASSMENT: gg_types.HarmBlockThreshold.BLOCK_NONE,
+        gg_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH: gg_types.HarmBlockThreshold.BLOCK_NONE,
+        gg_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: gg_types.HarmBlockThreshold.BLOCK_NONE,
+        gg_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: gg_types.HarmBlockThreshold.BLOCK_NONE,
     }
     return ChatGoogleGenerativeAI(
         model=model_name,
