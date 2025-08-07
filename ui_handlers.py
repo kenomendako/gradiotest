@@ -36,6 +36,7 @@ from tools.image_tools import generate_image as generate_image_tool_func
 from yaml.constructor import ConstructorError
 import yaml
 import google.generativeai as genai # genai をインポート
+import pytz
 
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
@@ -260,6 +261,7 @@ def handle_message_submission(*args: Any):
            new_display_df, scenery_image_path)
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
+    """「情景を更新」ボタン専用ハンドラ。キャッシュを無視して強制的に再生成する。"""
     if not character_name or not api_key_name:
         return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）", None
 
@@ -268,24 +270,54 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return "（APIキーエラー）", "（APIキーエラー）", None
 
-    gr.Info(f"「{character_name}」の現在の情景を更新しています...")
-    # generate_scenery_context はキャッシュを自動で処理してくれる
-    location_name, _, scenery_text = generate_scenery_context(character_name, api_key)
+    gr.Info(f"「{character_name}」の現在の情景を強制的に再生成しています...")
 
-    # ▼▼▼ 修正の核心：save_scenery_cacheの呼び出しを削除 ▼▼▼
-    # 新しい設計では、キャッシュへの保存は generate_scenery_context 内部で
-    # APIが呼び出された時にのみ行われるため、ここでの呼び出しは不要かつ不適切。
+    # ▼▼▼ 修正の核心：generate_scenery_context を呼び出すのをやめ、独立したAPIコールロジックを実装 ▼▼▼
+    from agent.graph import find_space_data_by_id_recursive, get_configured_llm
+    import pytz
 
-    if not location_name.startswith("（"):
-        gr.Info("情景を更新しました。")
-        current_location_id = utils.get_current_location(character_name)
-        scenery_image_path = utils.find_scenery_image(character_name, current_location_id)
-    else:
-        gr.Error("情景の更新に失敗しました。")
-        scenery_image_path = None
+    location_id = utils.get_current_location(character_name)
+    world_settings_path = get_world_settings_path(character_name)
+    space_data = {}
+    location_display_name = location_id
+    scenery_text = "（情景の再生成に失敗しました）"
+
+    try:
+        if world_settings_path and os.path.exists(world_settings_path):
+            world_settings = utils.parse_world_markdown(world_settings_path)
+            if world_settings:
+                space_data = find_space_data_by_id_recursive(world_settings, location_id)
+
+        if space_data and isinstance(space_data, dict):
+            location_display_name = space_data.get("name", location_id)
+            space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
+
+            llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
+            jst_now = datetime.datetime.now(pytz.timezone('Asia/Tokyo'))
+            scenery_prompt = (
+                f"空間定義:{space_def}\n時刻:{jst_now.strftime('%H:%M')} / 季節:{jst_now.month}月\n\n"
+                "以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n"
+                "【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n"
+                "- 1〜2文の簡潔な文章にまとめてください。\n"
+                "- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。"
+            )
+            scenery_text = llm_flash.invoke(scenery_prompt).content
+
+            # 新しいテキストでキャッシュを上書き保存
+            now = datetime.datetime.now()
+            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
+            utils.save_scenery_cache(character_name, cache_key, location_display_name, scenery_text)
+            gr.Info("情景を再生成し、キャッシュを更新しました。")
+        else:
+            gr.Error("場所の定義が見つからないため、情景を生成できません。")
+
+    except Exception as e:
+        gr.Error(f"情景の再生成中にエラーが発生しました: {e}")
+        traceback.print_exc()
     # ▲▲▲ 修正ここまで ▲▲▲
 
-    return location_name, scenery_text, scenery_image_path
+    scenery_image_path = utils.find_scenery_image(character_name, location_id)
+    return location_display_name, scenery_text, scenery_image_path
 
 def handle_location_change(character_name: str, location_id: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     from tools.space_tools import set_current_location
@@ -558,6 +590,7 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
     else: gr.Error("音声の生成に失敗しました。"); return None
 
 def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str) -> Optional[str]:
+    """「情景画像を生成/更新」ボタン専用ハンドラ。常に情景を再生成してから画像を作成する。"""
     if not character_name or not api_key_name:
         gr.Warning("キャラクターとAPIキーを選択してください。")
         return None
@@ -574,23 +607,18 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Warning("現在地が特定できません。")
         return existing_image_path
 
-    # ▼▼▼ 修正の核心：キャッシュがない場合は、まず情景描写を生成する ▼▼▼
-    now = datetime.datetime.now()
-    cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
-    scenery_cache = utils.load_scenery_cache(character_name)
-    scenery_text = scenery_cache.get(cache_key, {}).get("scenery_text")
+    # ▼▼▼ 修正の核心：handle_scenery_refreshを呼び出して、まず情景を強制的に再生成させる ▼▼▼
+    gr.Info("まず、最新の情景描写を生成します...")
+    _, new_scenery_text, _ = handle_scenery_refresh(character_name, api_key_name)
 
-    if not scenery_text:
-        gr.Info("情景描写がキャッシュにないため、まず情景を生成します...")
-        # agent/graphから直接 generate_scenery_context を呼び出す
-        _, _, new_scenery_text = generate_scenery_context(character_name, api_key)
-        if "（" in new_scenery_text: # 生成失敗の判定
-             gr.Error(f"情景描写の生成に失敗しました: {new_scenery_text}")
-             return existing_image_path
-        scenery_text = new_scenery_text # 生成されたテキストを使用
+    if "（" in new_scenery_text or "エラー" in new_scenery_text:
+        gr.Error(f"画像生成の元となる情景描写の作成に失敗したため、処理を中断します。")
+        return existing_image_path
+
+    scenery_text = new_scenery_text
     # ▲▲▲ 修正ここまで ▲▲▲
 
-    gr.Info(f"「{location_id}」の情景画像を生成/更新しています...")
+    gr.Info(f"新しい情景「{scenery_text[:30]}...」を元に画像を生成します...")
     prompt = f"A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Do not include any people, characters, text, or watermarks. Style: cinematic, detailed, epic. Scene: {scenery_text}"
 
     result = generate_image_tool_func.func(prompt=prompt, character_name=character_name, api_key=api_key)
@@ -599,6 +627,8 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         generated_path = result.replace("[Generated Image: ", "").replace("]", "").strip()
         if os.path.exists(generated_path):
             save_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
+            now = datetime.datetime.now()
+            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
             specific_filename = f"{cache_key}.png"
             specific_path = os.path.join(save_dir, specific_filename)
 
