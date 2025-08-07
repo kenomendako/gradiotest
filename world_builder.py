@@ -28,12 +28,12 @@ def save_world_data(character_name: str, world_data: Dict[str, Any]):
         area_props = {k: v for k, v in area_data.items() if k not in rooms}
 
         if area_props:
-            md_content += yaml.dump(area_props, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            md_content += yaml.dump(area_props, allow_unicode=True, default_flow_style=False, sort_keys=False) # sort_keys=False を追加
             md_content += "\n"
 
         for room_id, room_data in rooms.items():
             md_content += f"### {room_id}\n"
-            md_content += yaml.dump(room_data, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            md_content += yaml.dump(room_data, allow_unicode=True, default_flow_style=False, sort_keys=False) # sort_keys=False を追加
             md_content += "\n"
 
     try:

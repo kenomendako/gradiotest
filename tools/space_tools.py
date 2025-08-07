@@ -127,23 +127,6 @@ def read_world_settings(character_name: str = None) -> str:
     except Exception as e:
         return f"【Error】Failed to read world settings file: {e}"
 
-@tool
-def read_specific_location_settings(location_id: str, character_name: str = None) -> str:
-    """
-    世界設定ファイルから、指定されたIDの場所（エリアまたは部屋）の定義だけを抽出して読み取る。
-    """
-    if not location_id or not character_name:
-        return "【Error】Location ID and character name are required."
-
-    full_content = read_world_settings.func(character_name=character_name)
-    if full_content.startswith("【Error】"):
-        return full_content
-
-    section = _get_location_section(full_content, location_id)
-    if section:
-        return section
-    else:
-        return f"【Error】Location ID '{location_id}' not found in the world settings."
 
 @tool
 def update_location_settings(location_id: str, new_content: str, character_name: str = None) -> str:

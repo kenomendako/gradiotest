@@ -11,6 +11,7 @@ from typing import TypedDict, Annotated, List, Literal, Optional, Tuple # ★ Op
 
 # 2. 既存のインポートの下に、新しいインポートを追加
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
+from langchain_google_genai import HarmCategory, HarmBlockThreshold
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langgraph.prebuilt import ToolNode
@@ -19,8 +20,7 @@ from langgraph.prebuilt import ToolNode
 from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import (
     set_current_location, find_location_id_by_name,
-    read_world_settings, read_specific_location_settings,
-    update_location_settings, add_new_location # add_new_location をインポート
+    read_world_settings, update_location_settings, add_new_location # read_specific_location_settings を削除
 )
 from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
@@ -37,8 +37,7 @@ all_tools = [
     update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
     read_url_tool, diary_search_tool, conversation_memory_search_tool,
     generate_image, read_full_memory, set_personal_alarm,
-    read_world_settings, read_specific_location_settings,
-    update_location_settings, add_new_location # add_new_location を追加
+    read_world_settings, update_location_settings, add_new_location # read_specific_location_settings を削除
 ]
 
 class AgentState(TypedDict):
@@ -57,12 +56,21 @@ class AgentState(TypedDict):
 
 def get_configured_llm(model_name: str, api_key: str):
     # レート制限エラー(429)やサーバーエラー(500)に対応するため、リトライ回数を増やす
+    # ▼▼▼ 修正の核心：「langchain_google_genai」ライブラリ自身が提供する型を直接使用する ▼▼▼
+    safety_settings = {
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+    }
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
         convert_system_message_to_human=False,
-        max_retries=6 # デフォルト(2)から増やすことで、待機時間が長くなりエラーを回避しやすくなる
+        max_retries=6, # これはAPI接続自体のリトライ回数
+        safety_settings=safety_settings
     )
+    # ▲▲▲ 修正ここまで ▲▲▲
 
 # 3. ファイルのクラスや関数定義の前に、新しい「情景生成」関数を追加
 def get_location_list(character_name: str) -> List[Tuple[str, str]]:
@@ -192,63 +200,13 @@ def context_generator_node(state: AgentState):
     character_name = state['character_name']
     api_key = state['api_key']
 
-    # --- パス1: 空間描写がOFFの場合 ---
-    if not state.get("send_scenery", True):
-        char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
-        core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
-        character_prompt = ""
-        if os.path.exists(char_prompt_path):
-            with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
-        core_memory = ""
-        if state.get("send_core_memory", True):
-            if os.path.exists(core_memory_path):
-                with open(core_memory_path, 'r', encoding='utf-8') as f:
-                    core_memory = f.read().strip()
-
-        notepad_section = ""
-        if state.get("send_notepad", True):
-            try:
-                from character_manager import get_character_files_paths
-                _, _, _, _, notepad_path = get_character_files_paths(character_name)
-                if notepad_path and os.path.exists(notepad_path):
-                    with open(notepad_path, 'r', encoding='utf-8') as f:
-                        content = f.read().strip()
-                        notepad_content = content if content else "（メモ帳は空です）"
-                else:
-                    notepad_content = "（メモ帳ファイルが見つかりません）"
-                notepad_section = f"\n### 短期記憶（メモ帳）\n{notepad_content}\n"
-            except Exception as e:
-                print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
-                notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
-
-        tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
-        class SafeDict(dict):
-            def __missing__(self, key): return f'{{{key}}}'
-        prompt_vars = {
-            'character_name': character_name, 'character_prompt': character_prompt,
-            'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str
-        }
-        formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
-        final_system_prompt_text = (
-            f"{formatted_core_prompt}\n\n---\n"
-            f"【現在の場所と情景】\n"
-            f"- 場所の名前: （空間描写OFF）\n"
-            f"- 場所の定義: （空間描写OFF）\n"
-            f"- 今の情景: （空間描写OFF）\n"
-            f"【移動可能な場所】\n"
-            f"（空間描写OFF）\n"
-            "---"
-        )
-        return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": "（空間描写OFF）", "scenery_text": "（空間描写は設定により無効化されています）"}
-
-    # --- パス2: 空間描写がONの場合 ---
-    location_display_name, space_def, scenery_text = generate_scenery_context(character_name, api_key)
-
+    # --- 共通のプロンプト部品を生成 ---
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
     core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
     character_prompt = ""
     if os.path.exists(char_prompt_path):
         with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
+
     core_memory = ""
     if state.get("send_core_memory", True):
         if os.path.exists(core_memory_path):
@@ -256,6 +214,7 @@ def context_generator_node(state: AgentState):
 
     notepad_section = ""
     if state.get("send_notepad", True):
+        # ... (メモ帳の読み込み部分は変更なし) ...
         try:
             from character_manager import get_character_files_paths
             _, _, _, _, notepad_path = get_character_files_paths(character_name)
@@ -270,18 +229,32 @@ def context_generator_node(state: AgentState):
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
 
-    available_locations = get_location_list(character_name)
-    if available_locations:
-        location_list_str = "\n".join([f"- {name} (ID: `{id}`)" for name, id in available_locations])
-        locations_section = f"【移動可能な場所】\n{location_list_str}\n"
-    else:
-        locations_section = "【移動可能な場所】\n（現在、定義されている移動先はありません）\n"
 
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
     prompt_vars = {'character_name': character_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
     formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+
+    # --- 空間描写がOFFの場合 ---
+    if not state.get("send_scenery", True):
+        final_system_prompt_text = (
+            f"{formatted_core_prompt}\n\n---\n"
+            f"【現在の場所と情景】\n"
+            f"（空間描写は設定により無効化されています）\n"
+            "---"
+        )
+        return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": "（空間描写OFF）", "scenery_text": "（空間描写は設定により無効化されています）"}
+
+    # --- 空間描写がONの場合 ---
+    location_display_name, space_def, scenery_text = generate_scenery_context(character_name, api_key)
+
+    available_locations = get_location_list(character_name)
+    if available_locations:
+        location_list_str = "\n".join([f"- {name} (ID: `{id}`)" for name, id in available_locations])
+        locations_section = f"【移動可能な場所】\n{location_list_str}\n"
+    else:
+        locations_section = "【移動可能な場所】\n（現在、定義されている移動先はありません）\n"
 
     final_system_prompt_text = (
         f"{formatted_core_prompt}\n\n---\n"
