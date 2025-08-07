@@ -529,60 +529,90 @@ def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_
     return key, history, mapping_list
 
 def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], character_name: str, api_key_name: str):
-    # ★ 変更点：戻り値が gr.update になるため、型ヒントは削除
     if not selected_message:
         gr.Warning("再生するメッセージが選択されていません。")
-        return gr.update(visible=False) # ★ 変更点: Noneではなく非表示updateを返す
+        # ★ ボタンの状態は変更しないので、元の状態を返す
+        yield gr.update(visible=False), gr.update(interactive=True), gr.update(interactive=True)
+        return
 
-    raw_text = utils.extract_raw_text_from_html(selected_message.get("content"))
-    text_to_speak = utils.remove_thoughts_from_text(raw_text)
-    if not text_to_speak:
-        gr.Info("このメッセージには音声で再生できるテキストがありません。")
-        return gr.update(visible=False) # ★ 変更点: Noneではなく非表示updateを返す
+    # ▼▼▼ 修正の核心：yield を使った段階的なUI更新 ▼▼▼
+    # 1. まず「生成中」の状態をUIに即時反映させる
+    yield (
+        gr.update(visible=False), # プレイヤーは一旦隠す
+        gr.update(value="音声生成中... ▌", interactive=False), # 再生ボタンを無効化
+        gr.update(interactive=False)  # 試聴ボタンも無効化
+    )
 
-    effective_settings = config_manager.get_effective_settings(character_name)
-    voice_id, voice_style_prompt = effective_settings.get("voice_id", "iapetus"), effective_settings.get("voice_style_prompt", "")
+    try:
+        raw_text = utils.extract_raw_text_from_html(selected_message.get("content"))
+        text_to_speak = utils.remove_thoughts_from_text(raw_text)
+        if not text_to_speak:
+            gr.Info("このメッセージには音声で再生できるテキストがありません。")
+            return
 
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    if not api_key:
-        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return gr.update(visible=False) # ★ 変更点: Noneではなく非表示updateを返す
+        effective_settings = config_manager.get_effective_settings(character_name)
+        voice_id, voice_style_prompt = effective_settings.get("voice_id", "iapetus"), effective_settings.get("voice_style_prompt", "")
+        api_key = config_manager.API_KEYS.get(api_key_name)
+        if not api_key:
+            gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+            return
 
-    from audio_manager import generate_audio_from_text
-    gr.Info(f"「{character_name}」の声で音声を生成しています...")
-    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
+        from audio_manager import generate_audio_from_text
+        gr.Info(f"「{character_name}」の声で音声を生成しています...")
+        audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
 
-    if audio_filepath:
-        gr.Info("再生します。")
-        # ★ 変更点: ファイルパスをvalueに設定し、プレイヤーを表示する
-        return gr.update(value=audio_filepath, visible=True)
-    else:
-        gr.Error("音声の生成に失敗しました。")
-        return gr.update(visible=False) # ★ 変更点: Noneではなく非表示updateを返す
+        if audio_filepath:
+            gr.Info("再生します。")
+            # 2. 成功したら、プレイヤーを表示して再生を開始
+            yield gr.update(value=audio_filepath, visible=True), gr.update(), gr.update()
+        else:
+            gr.Error("音声の生成に失敗しました。")
+
+    finally:
+        # 3. 成功・失敗に関わらず、必ず最後にボタンの状態を元に戻す
+        yield (
+            gr.update(), # プレイヤーの状態はそのまま
+            gr.update(value="🔊 選択した発言を再生", interactive=True), # 再生ボタンを有効化
+            gr.update(interactive=True)  # 試聴ボタンを有効化
+        )
 
 def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text_to_speak: str, api_key_name: str):
-    # ★ 変更点：戻り値が gr.update になるため、型ヒントは削除
     if not selected_voice_name or not text_to_speak or not api_key_name:
         gr.Warning("声、テキスト、APIキーがすべて選択されている必要があります。")
-        return gr.update(visible=False) # ★ 変更点
+        yield gr.update(visible=False), gr.update(interactive=True), gr.update(interactive=True)
+        return
 
-    voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    if not voice_id or not api_key:
-        gr.Warning("声またはAPIキーが無効です。")
-        return gr.update(visible=False) # ★ 変更点
+    # ▼▼▼ 修正の核心：yield を使った段階的なUI更新 ▼▼▼
+    yield (
+        gr.update(visible=False),
+        gr.update(interactive=False),
+        gr.update(value="生成中...", interactive=False)
+    )
 
-    from audio_manager import generate_audio_from_text
-    gr.Info(f"声「{selected_voice_name}」で音声を生成しています...")
-    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
+    try:
+        voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
+        api_key = config_manager.API_KEYS.get(api_key_name)
+        if not voice_id or not api_key:
+            gr.Warning("声またはAPIキーが無効です。")
+            return
 
-    if audio_filepath:
-        gr.Info("プレビューを再生します。")
-        # ★ 変更点: ファイルパスをvalueに設定し、プレイヤーを表示する
-        return gr.update(value=audio_filepath, visible=True)
-    else:
-        gr.Error("音声の生成に失敗しました。")
-        return gr.update(visible=False) # ★ 変更点
+        from audio_manager import generate_audio_from_text
+        gr.Info(f"声「{selected_voice_name}」で音声を生成しています...")
+        audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
+
+        if audio_filepath:
+            gr.Info("プレビューを再生します。")
+            yield gr.update(value=audio_filepath, visible=True), gr.update(), gr.update()
+        else:
+            gr.Error("音声の生成に失敗しました。")
+
+    finally:
+        # 成功・失敗に関わらず、必ず最後にボタンの状態を元に戻す
+        yield (
+            gr.update(),
+            gr.update(interactive=True),
+            gr.update(value="試聴", interactive=True)
+        )
 
 def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str) -> Optional[str]:
     """「情景画像を生成/更新」ボタン専用ハンドラ。常に情景を再生成してから画像を作成する。"""

@@ -288,7 +288,11 @@ try:
         chat_inputs = [chat_input_textbox, current_character_name, current_api_key_name_state, file_upload_button, api_history_limit_state, debug_mode_checkbox]
         chat_submit_outputs = [chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe, scenery_image_display]
         save_char_settings_button.click(fn=ui_handlers.handle_save_char_settings, inputs=[current_character_name, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox] + context_checkboxes, outputs=None).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-        char_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[char_voice_dropdown, char_voice_style_prompt_textbox, char_preview_text_textbox, api_key_dropdown], outputs=[audio_player])
+        char_preview_voice_button.click(
+            fn=ui_handlers.handle_voice_preview,
+            inputs=[char_voice_dropdown, char_voice_style_prompt_textbox, char_preview_text_textbox, api_key_dropdown],
+            outputs=[audio_player, play_audio_button, char_preview_voice_button] # ★ 変更点
+        )
         for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
@@ -309,7 +313,11 @@ try:
             inputs=[current_character_name, location_dropdown, api_key_dropdown],
             outputs=[current_location_display, current_scenery_display, scenery_image_display]
         )
-        play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player])
+        play_audio_button.click(
+            fn=ui_handlers.handle_play_audio_button_click,
+            inputs=[selected_message_state, current_character_name, current_api_key_name_state],
+            outputs=[audio_player, play_audio_button, char_preview_voice_button] # ★ 変更点
+        )
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
         reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_character_name], outputs=[memory_json_editor])
