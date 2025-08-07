@@ -13,29 +13,23 @@ os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 # ★★★ テキスト長の制限を大幅に緩和 ★★★
 MAX_TEXT_LENGTH = 8000
 
-# ★★★ ここからが変更箇所 ★★★
 def generate_audio_from_text(text: str, api_key: str, voice_id: str, style_prompt: str = None) -> Optional[str]:
     """
     指定されたテキストと声ID、スタイルプロンプトを使って音声を生成し、
     再生可能なWAVファイルとして保存して、そのファイルパスを返す。
-    【v2: スタイル制御・長文対応版】
+    【v3: 堅牢化対応版】
     """
-    # 1. テキスト長の制限を適用
     if len(text) > MAX_TEXT_LENGTH:
         text_to_speak = text[:MAX_TEXT_LENGTH] + "..."
         print(f"  - 警告: テキストが長すぎるため、{MAX_TEXT_LENGTH}文字に切り詰めました。")
     else:
         text_to_speak = text
 
-    # 2. スタイルプロンプトがあれば、テキストと結合
-    if style_prompt and style_prompt.strip():
-        final_prompt = f"{style_prompt.strip()}: {text_to_speak}"
-    else:
-        final_prompt = text_to_speak
+    final_prompt = f"{style_prompt.strip()}: {text_to_speak}" if style_prompt and style_prompt.strip() else text_to_speak
 
     try:
         print(f"--- 音声生成開始 (Voice: {voice_id}) ---")
-        print(f"  - 最終プロンプト: {final_prompt[:100]}...") # 長いので一部のみ表示
+        print(f"  - 最終プロンプト: {final_prompt[:100]}...")
 
         client = genai.Client(api_key=api_key)
         model_name = "models/gemini-2.5-flash-preview-tts"
@@ -51,18 +45,33 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str, style_promp
             )
         )
 
-        # 3. 最終的なプロンプトをcontentsに渡す
         response = client.models.generate_content(
             model=model_name,
             contents=[types.Content(parts=[types.Part(text=final_prompt)])],
             config=generation_config_object
         )
-        # ★★★ 変更箇所ここまで ★★★
 
-        audio_data = response.candidates[0].content.parts[0].inline_data.data
-        if not audio_data:
-             print("--- エラー: API応答に音声データが含まれていません ---")
-             return None
+        # ▼▼▼ 修正の核心：API応答を慎重にチェックする ▼▼▼
+        if (response and response.candidates and
+            response.candidates[0].content and
+            response.candidates[0].content.parts and
+            response.candidates[0].content.parts[0].inline_data):
+
+            audio_data = response.candidates[0].content.parts[0].inline_data.data
+            if not audio_data:
+                print("--- エラー: API応答のインラインデータが空です ---")
+                return None
+        else:
+            # 応答が期待通りでない場合、デバッグ情報を出力して安全に終了
+            print("--- エラー: API応答に予期した音声データが含まれていませんでした。セーフティフィルターによるブロックの可能性があります。 ---")
+            if response and response.candidates:
+                candidate = response.candidates[0]
+                finish_reason = candidate.finish_reason.name if hasattr(candidate, 'finish_reason') and hasattr(candidate.finish_reason, 'name') else '不明'
+                safety_ratings = candidate.safety_ratings if hasattr(candidate, 'safety_ratings') else '取得不能'
+                print(f"  - 終了理由: {finish_reason}")
+                print(f"  - 安全性評価: {safety_ratings}")
+            return None
+        # ▲▲▲ 修正ここまで ▲▲▲
 
         filename = f"{uuid.uuid4()}.wav"
         filepath = os.path.join(AUDIO_CACHE_DIR, filename)
@@ -77,6 +86,6 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str, style_promp
         return filepath
 
     except Exception as e:
-        print(f"--- 音声生成中にエラーが発生しました: {e} ---")
+        print(f"--- 音声生成中に予期せぬエラーが発生しました: {e} ---")
         traceback.print_exc()
         return None
