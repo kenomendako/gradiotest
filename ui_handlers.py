@@ -529,19 +529,36 @@ def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_
     return key, history, mapping_list
 
 def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], character_name: str, api_key_name: str):
-    if not selected_message: gr.Warning("再生するメッセージが選択されていません。"); return None
+    # ★ 変更点：戻り値が gr.update になるため、型ヒントは削除
+    if not selected_message:
+        gr.Warning("再生するメッセージが選択されていません。")
+        return gr.update(visible=False) # ★ 変更点: Noneではなく非表示updateを返す
+
     raw_text = utils.extract_raw_text_from_html(selected_message.get("content"))
     text_to_speak = utils.remove_thoughts_from_text(raw_text)
-    if not text_to_speak: gr.Info("このメッセージには音声で再生できるテキストがありません。"); return None
+    if not text_to_speak:
+        gr.Info("このメッセージには音声で再生できるテキストがありません。")
+        return gr.update(visible=False) # ★ 変更点: Noneではなく非表示updateを返す
+
     effective_settings = config_manager.get_effective_settings(character_name)
-    voice_id, voice_style_prompt = effective_settings.get("voice_id", "vindemiatrix"), effective_settings.get("voice_style_prompt", "")
+    voice_id, voice_style_prompt = effective_settings.get("voice_id", "iapetus"), effective_settings.get("voice_style_prompt", "")
+
     api_key = config_manager.API_KEYS.get(api_key_name)
-    if not api_key: gr.Warning(f"APIキー '{api_key_name}' が見つかりません。"); return None
+    if not api_key:
+        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+        return gr.update(visible=False) # ★ 変更点: Noneではなく非表示updateを返す
+
     from audio_manager import generate_audio_from_text
     gr.Info(f"「{character_name}」の声で音声を生成しています...")
     audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
-    if audio_filepath: gr.Info("再生します。"); return audio_filepath
-    else: gr.Error("音声の生成に失敗しました。"); return None
+
+    if audio_filepath:
+        gr.Info("再生します。")
+        # ★ 変更点: ファイルパスをvalueに設定し、プレイヤーを表示する
+        return gr.update(value=audio_filepath, visible=True)
+    else:
+        gr.Error("音声の生成に失敗しました。")
+        return gr.update(visible=False) # ★ 変更点: Noneではなく非表示updateを返す
 
 def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text_to_speak: str, api_key_name: str):
     if not selected_voice_name or not text_to_speak or not api_key_name: gr.Warning("声、テキスト、APIキーがすべて選択されている必要があります。"); return None

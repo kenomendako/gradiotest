@@ -77,7 +77,6 @@ try:
         editing_alarm_id_state = gr.State(None)
         selected_message_state = gr.State(None)
         current_log_map_state = gr.State([])
-        audio_player = gr.Audio(visible=False, autoplay=True)
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -151,6 +150,18 @@ try:
 
                     with gr.Column(scale=3):
                         chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
+
+                        # ▼▼▼ ここからが追加箇所 ▼▼▼
+                        with gr.Row():
+                            audio_player = gr.Audio(
+                                label="音声プレーヤー",
+                                visible=False,
+                                autoplay=True,
+                                interactive=True,
+                                elem_id="main_audio_player"
+                            )
+                        # ▲▲▲ 追加ここまで ▲▲▲
+
                         with gr.Row(visible=False) as action_button_group:
                             play_audio_button = gr.Button("🔊 選択した発言を再生"); delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop"); cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
                         with gr.Row():
@@ -401,6 +412,9 @@ try:
             inputs=[world_data_state, current_character_name, area_selector, room_selector, dict_key_selector_wb, dict_dataframe_wb],
             outputs=[world_data_state, details_display_wb] # 保存後に詳細表示も更新
         )
+
+        # ▼▼▼ この行を末尾に追加 ▼▼▼
+        audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
 
     if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
