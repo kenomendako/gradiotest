@@ -89,8 +89,8 @@ try:
                             generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
 
                             # ▼▼▼ ここからが追加箇所 ▼▼▼
-                            scenery_style_radio = gr.Radio(
-                                ["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
+                            scenery_style_radio = gr.Dropdown(
+                                choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
                                 label="画風を選択",
                                 value="写真風 (デフォルト)",
                                 interactive=True
