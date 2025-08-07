@@ -567,21 +567,27 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         return None
 
     location_id = utils.get_current_location(character_name)
+    existing_image_path = utils.find_scenery_image(character_name, location_id)
 
-    # ▼▼▼ 修正の核心：新しいキャッシュ構造から正しくデータを読み取る ▼▼▼
+    if not location_id:
+        gr.Warning("現在地が特定できません。")
+        return existing_image_path
+
+    # ▼▼▼ 修正の核心：キャッシュがない場合は、まず情景描写を生成する ▼▼▼
     now = datetime.datetime.now()
     cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
     scenery_cache = utils.load_scenery_cache(character_name)
-
-    # ネストされた辞書から安全に scenery_text を取得
     scenery_text = scenery_cache.get(cache_key, {}).get("scenery_text")
+
+    if not scenery_text:
+        gr.Info("情景描写がキャッシュにないため、まず情景を生成します...")
+        # agent/graphから直接 generate_scenery_context を呼び出す
+        _, _, new_scenery_text = generate_scenery_context(character_name, api_key)
+        if "（" in new_scenery_text: # 生成失敗の判定
+             gr.Error(f"情景描写の生成に失敗しました: {new_scenery_text}")
+             return existing_image_path
+        scenery_text = new_scenery_text # 生成されたテキストを使用
     # ▲▲▲ 修正ここまで ▲▲▲
-
-    existing_image_path = utils.find_scenery_image(character_name, location_id)
-
-    if not location_id or not scenery_text:
-        gr.Warning("生成の元となる場所の情報または情景描写が見つかりません。")
-        return existing_image_path
 
     gr.Info(f"「{location_id}」の情景画像を生成/更新しています...")
     prompt = f"A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Do not include any people, characters, text, or watermarks. Style: cinematic, detailed, epic. Scene: {scenery_text}"
@@ -592,8 +598,6 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         generated_path = result.replace("[Generated Image: ", "").replace("]", "").strip()
         if os.path.exists(generated_path):
             save_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
-
-            # ファイル名はキャッシュキーと一致させる
             specific_filename = f"{cache_key}.png"
             specific_path = os.path.join(save_dir, specific_filename)
 
