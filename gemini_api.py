@@ -133,7 +133,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     }
     try:
         # ▼▼▼ 修正の核心：自動リトライ機能の追加 ▼▼▼
-        max_retries = 1
+        max_retries = 2 # 1から2に変更
         for attempt in range(max_retries + 1):
             final_state = app.invoke(initial_state)
 

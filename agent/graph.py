@@ -9,6 +9,8 @@ import pytz # ★ 追加
 from datetime import datetime # ★ 追加
 from typing import TypedDict, Annotated, List, Literal, Optional, Tuple # ★ OptionalとTupleを追加
 
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
+
 # 2. 既存のインポートの下に、新しいインポートを追加
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -55,12 +57,21 @@ class AgentState(TypedDict):
 
 def get_configured_llm(model_name: str, api_key: str):
     # レート制限エラー(429)やサーバーエラー(500)に対応するため、リトライ回数を増やす
+    # ▼▼▼ 修正の核心：セーフティ設定を追加 ▼▼▼
+    safety_settings = {
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+    }
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
         convert_system_message_to_human=False,
-        max_retries=6 # デフォルト(2)から増やすことで、待機時間が長くなりエラーを回避しやすくなる
+        max_retries=6, # これはAPI接続自体のリトライ回数
+        safety_settings=safety_settings
     )
+    # ▲▲▲ 修正ここまで ▲▲▲
 
 # 3. ファイルのクラスや関数定義の前に、新しい「情景生成」関数を追加
 def get_location_list(character_name: str) -> List[Tuple[str, str]]:
