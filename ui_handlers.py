@@ -35,7 +35,6 @@ import uuid
 from tools.image_tools import generate_image as generate_image_tool_func
 from yaml.constructor import ConstructorError
 import yaml
-import google.generativeai as genai # genai をインポート
 import pytz
 
 
