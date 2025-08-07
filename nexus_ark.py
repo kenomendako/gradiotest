@@ -216,6 +216,20 @@ try:
                                     delete_item_button_wb = gr.Button("この項目を削除", variant="stop")
                                     cancel_item_edit_button_wb = gr.Button("キャンセル")
 
+                        with gr.Accordion("辞書項目を編集", open=False) as dict_editor_accordion_wb:
+                            with gr.Row():
+                                dict_key_selector_wb = gr.Dropdown(label="編集する辞書を選択", interactive=True, scale=3)
+                                save_dict_button_wb = gr.Button("変更を保存", variant="primary", scale=1)
+
+                            dict_dataframe_wb = gr.DataFrame(
+                                headers=["キー", "値"],
+                                datatype=["str", "str"],
+                                row_count=(5, "dynamic"),
+                                col_count=(2, "fixed"),
+                                interactive=True,
+                                wrap=True
+                            )
+
                         # ▼▼▼ 古いYAMLエディタは、デバッグ用にアコーディオン内に残す ▼▼▼
                         with gr.Accordion("RAW YAMLエディタ (上級者向け)", open=False):
                              with gr.Column(visible=True) as editor_wrapper_wb: # デフォルトで表示されるように変更
@@ -306,13 +320,13 @@ try:
         world_builder_tab.select(fn=ui_handlers.handle_world_builder_load, inputs=[current_character_name], outputs=char_change_world_builder_outputs)
         # エリアや部屋を選択した時
         selection_event_inputs = [world_data_state, area_selector, room_selector]
-        # ▼▼▼ 修正: outputsリストを拡張し、新しいUI部品を追加 ▼▼▼
         selection_event_outputs = [
             room_selector, details_display_wb, edit_button_wb, editor_wrapper_wb,
             list_editor_accordion_wb, list_key_selector_wb,
-            list_item_selector_wb, item_edit_form_wb
+            list_item_selector_wb, item_edit_form_wb,
+            # ▼▼▼ 3つのUI部品を末尾に追加 ▼▼▼
+            dict_editor_accordion_wb, dict_key_selector_wb, dict_dataframe_wb
         ]
-        # ▲▲▲ 修正ここまで ▲▲▲
         area_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
         room_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
         edit_button_wb.click(fn=ui_handlers.handle_edit_button_click, inputs=[world_data_state, area_selector, room_selector], outputs=[details_display_wb, editor_wrapper_wb, editor_content_wb])
@@ -374,6 +388,18 @@ try:
         cancel_add_list_button_wb.click(
             fn=lambda: (gr.update(visible=False), ""),
             outputs=[new_list_form_wb, new_list_key_wb]
+        )
+
+        # --- 辞書項目エディタのイベント ---
+        dict_key_selector_wb.change(
+            fn=ui_handlers.handle_dict_key_selection,
+            inputs=[world_data_state, area_selector, room_selector, dict_key_selector_wb],
+            outputs=[dict_dataframe_wb]
+        )
+        save_dict_button_wb.click(
+            fn=ui_handlers.handle_save_dict_click,
+            inputs=[world_data_state, current_character_name, area_selector, room_selector, dict_key_selector_wb, dict_dataframe_wb],
+            outputs=[world_data_state, details_display_wb] # 保存後に詳細表示も更新
         )
 
     if __name__ == "__main__":

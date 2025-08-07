@@ -652,7 +652,7 @@ def handle_character_change_for_all_tabs(character_name: str, api_key_name: str)
     return chat_tab_updates + world_builder_updates
 
 def handle_item_selection(world_data: Dict, area_id: str, room_id: Optional[str]):
-    """エリアまたは部屋が選択された時の処理。リストエディタの状態も更新する。"""
+    """エリアまたは部屋が選択された時の処理。リストと辞書エディタの状態も更新する。"""
     _, room_choices_map = get_choices_from_world_data(world_data)
     room_choices = room_choices_map.get(area_id, []) if area_id else []
 
@@ -662,35 +662,31 @@ def handle_item_selection(world_data: Dict, area_id: str, room_id: Optional[str]
     elif area_id:
         selected_data = world_data.get(area_id, {})
 
-    # ▼▼▼ ここからが追加/変更箇所 ▼▼▼
-    list_keys = []
-    if selected_data:
-        # データの中から、値がリストであるキーを抽出する
-        list_keys = [k for k, v in selected_data.items() if isinstance(v, list)]
+    list_keys = [k for k, v in selected_data.items() if isinstance(v, list)]
+    dict_keys = [k for k, v in selected_data.items() if isinstance(v, dict)]
 
-    # 選択肢がない場合はアコーディオンを閉じる、あれば開く
-    accordion_open = bool(list_keys)
+    list_accordion_open = bool(list_keys)
+    dict_accordion_open = bool(dict_keys)
 
-    # 戻り値の数を nexus_ark.py の outputs と一致させる
+    # 戻り値の数を nexus_ark.py の outputs (11項目) と一致させる
     if not selected_data:
         return (
             gr.update(choices=room_choices, value=None), "← 左のパネルからエリアや部屋を選択してください。",
-            gr.update(visible=False), gr.update(visible=True), # YAMLエディタは表示
-            gr.update(open=False), # list_editor_accordion
-            gr.update(choices=[], value=None), # list_key_selector
-            gr.update(choices=[], value=None), # list_item_selector
-            gr.update(visible=False) # item_edit_form
+            gr.update(visible=False), gr.update(visible=True),
+            gr.update(open=False), gr.update(choices=[], value=None),
+            gr.update(choices=[], value=None), gr.update(visible=False),
+            gr.update(open=False), gr.update(choices=[], value=None),
+            pd.DataFrame(columns=["キー", "値"])
         )
     else:
         return (
             gr.update(choices=room_choices, value=room_id), generate_details_markdown(selected_data),
-            gr.update(visible=True), gr.update(visible=True), # YAMLエディタは表示
-            gr.update(open=accordion_open), # list_editor_accordion
-            gr.update(choices=list_keys, value=None), # list_key_selector
-            gr.update(choices=[], value=None), # list_item_selector
-            gr.update(visible=False) # item_edit_form
+            gr.update(visible=True), gr.update(visible=True),
+            gr.update(open=list_accordion_open), gr.update(choices=list_keys, value=None),
+            gr.update(choices=[], value=None), gr.update(visible=False),
+            gr.update(open=dict_accordion_open), gr.update(choices=dict_keys, value=None),
+            pd.DataFrame(columns=["キー", "値"])
         )
-    # ▲▲▲ 追加/変更ここまで ▲▲▲
 
 def handle_edit_button_click(world_data: Dict, area_id: str, room_id: Optional[str]):
     """「編集」ボタンが押された時の処理。"""
@@ -746,6 +742,52 @@ def handle_cancel_add_button_click():
         "",
         ""
     )
+
+def handle_dict_key_selection(world_data: Dict, area_id: str, room_id: Optional[str], dict_key: str):
+    """「編集する辞書」が選択された時の処理。DataFrameを更新する。"""
+    if not dict_key:
+        return pd.DataFrame(columns=["キー", "値"])
+
+    target_dict = {}
+    if area_id and room_id:
+        target_dict = world_data.get(area_id, {}).get(room_id, {}).get(dict_key, {})
+    elif area_id:
+        target_dict = world_data.get(area_id, {}).get(dict_key, {})
+
+    if isinstance(target_dict, dict):
+        # DataFrameに変換
+        df_data = [[str(k), str(v)] for k, v in target_dict.items()]
+        return pd.DataFrame(df_data, columns=["キー", "値"])
+
+    return pd.DataFrame(columns=["キー", "値"])
+
+def handle_save_dict_click(world_data: Dict, character_name: str, area_id: str, room_id: Optional[str], dict_key: str, edited_df: pd.DataFrame):
+    """辞書項目の「変更を保存」ボタンが押された時の処理。"""
+    if not all([character_name, area_id, dict_key]):
+        gr.Warning("項目の保存に必要な情報が不足しています。")
+        return world_data, gr.update()
+
+    try:
+        # DataFrameを辞書に戻す
+        new_dict_data = dict(edited_df.values)
+
+        # world_data Stateを更新
+        if room_id:
+            world_data[area_id][room_id][dict_key] = new_dict_data
+        else:
+            world_data[area_id][dict_key] = new_dict_data
+
+        save_world_data(character_name, world_data)
+        gr.Info(f"辞書 '{dict_key}' を更新しました。")
+
+        # 詳細表示も更新
+        updated_section_data = world_data[area_id][room_id] if room_id else world_data[area_id]
+
+        return world_data, generate_details_markdown(updated_section_data)
+
+    except Exception as e:
+        gr.Error(f"辞書の保存中にエラーが発生しました: {e}")
+        return world_data, gr.update()
 
 def handle_api_connection_test(api_key_name: str):
     """APIキーを使って、Nexus Arkが必要とする全てのモデルへの接続をテストする"""
