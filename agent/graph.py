@@ -17,7 +17,11 @@ from langgraph.prebuilt import ToolNode
 
 # --- 必要なモジュールやツールのインポート ---
 from agent.prompts import CORE_PROMPT_TEMPLATE
-from tools.space_tools import set_current_location, find_location_id_by_name
+from tools.space_tools import (
+    set_current_location, find_location_id_by_name,
+    read_world_settings, read_specific_location_settings,
+    update_location_settings, add_new_location # add_new_location をインポート
+)
 from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
 from tools.web_tools import web_search_tool, read_url_tool
@@ -32,7 +36,9 @@ all_tools = [
     add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
     update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
     read_url_tool, diary_search_tool, conversation_memory_search_tool,
-    generate_image, read_full_memory, set_personal_alarm
+    generate_image, read_full_memory, set_personal_alarm,
+    read_world_settings, read_specific_location_settings,
+    update_location_settings, add_new_location # add_new_location を追加
 ]
 
 class AgentState(TypedDict):

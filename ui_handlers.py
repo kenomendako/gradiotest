@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional, Tuple, List
 import character_manager
 import gradio as gr
 import json
+import shutil
 from yaml.constructor import ConstructorError
 
 # Keep all other existing imports and functions from the original ui_handlers.py
@@ -566,38 +567,49 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         return None
 
     location_id = utils.get_current_location(character_name)
+
+    # ▼▼▼ 修正の核心：新しいキャッシュ構造から正しくデータを読み取る ▼▼▼
+    now = datetime.datetime.now()
+    cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
     scenery_cache = utils.load_scenery_cache(character_name)
-    scenery_text = scenery_cache.get("scenery_text")
+
+    # ネストされた辞書から安全に scenery_text を取得
+    scenery_text = scenery_cache.get(cache_key, {}).get("scenery_text")
+    # ▲▲▲ 修正ここまで ▲▲▲
+
+    existing_image_path = utils.find_scenery_image(character_name, location_id)
 
     if not location_id or not scenery_text:
         gr.Warning("生成の元となる場所の情報または情景描写が見つかりません。")
-        return None
+        return existing_image_path
 
     gr.Info(f"「{location_id}」の情景画像を生成/更新しています...")
     prompt = f"A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Do not include any people, characters, text, or watermarks. Style: cinematic, detailed, epic. Scene: {scenery_text}"
-
-    now = datetime.datetime.now()
-    filename = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}.png"
-    save_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
-    final_save_path = os.path.join(save_dir, filename)
 
     result = generate_image_tool_func.func(prompt=prompt, character_name=character_name, api_key=api_key)
 
     if "Generated Image:" in result:
         generated_path = result.replace("[Generated Image: ", "").replace("]", "").strip()
         if os.path.exists(generated_path):
-            if os.path.exists(final_save_path):
-                os.remove(final_save_path)
-            os.rename(generated_path, final_save_path)
-            print(f"--- 情景画像を再生成し、保存しました: {final_save_path} ---")
+            save_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
+
+            # ファイル名はキャッシュキーと一致させる
+            specific_filename = f"{cache_key}.png"
+            specific_path = os.path.join(save_dir, specific_filename)
+
+            if os.path.exists(specific_path):
+                os.remove(specific_path)
+            shutil.move(generated_path, specific_path)
+            print(f"--- 情景画像を生成し、保存しました: {specific_path} ---")
+
             gr.Info("画像を生成/更新しました。")
-            return final_save_path
+            return specific_path
         else:
             gr.Error("画像の生成には成功しましたが、一時ファイルの特定に失敗しました。")
-            return None
+            return existing_image_path
     else:
         gr.Error(f"画像の生成/更新に失敗しました。AIの応答: {result}")
-        return None
+        return existing_image_path
 
 #
 # ui_handlers.py の一番下にあるワールド・ビルダー関連の関数群を、このブロックで完全に置き換えてください
