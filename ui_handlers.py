@@ -35,6 +35,7 @@ import uuid
 from tools.image_tools import generate_image as generate_image_tool_func
 from yaml.constructor import ConstructorError
 import yaml
+import google.generativeai as genai # genai をインポート
 
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
@@ -753,6 +754,54 @@ def handle_cancel_add_button_click():
         "",
         ""
     )
+
+def handle_api_connection_test(api_key_name: str):
+    """APIキーを使って、Nexus Arkが必要とする全てのモデルへの接続をテストする"""
+    if not api_key_name:
+        gr.Warning("テストするAPIキーが選択されていません。")
+        return
+
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Error(f"APIキー '{api_key_name}' は無効です。config.jsonを確認してください。")
+        return
+
+    gr.Info(f"APIキー '{api_key_name}' を使って、必須モデルへの接続をテストしています...")
+
+    # チェックするモデルのリスト
+    required_models = {
+        "models/gemini-2.5-pro": "通常チャット",
+        "models/gemini-2.5-flash": "情景描写生成",
+        "models/gemini-2.0-flash-preview-image-generation": "画像生成"
+    }
+
+    results = []
+    all_ok = True
+
+    try:
+        client = genai.Client(api_key=api_key)
+
+        for model_name, purpose in required_models.items():
+            try:
+                # 各モデルの情報を取得しようと試みる
+                client.models.get(model=model_name)
+                results.append(f"✅ **{purpose} ({model_name.split('/')[-1]})**: 利用可能です。")
+            except Exception as model_e:
+                results.append(f"❌ **{purpose} ({model_name.split('/')[-1]})**: 利用できません。")
+                print(f"--- モデル '{model_name}' のチェックに失敗: {model_e} ---")
+                all_ok = False
+
+        # 最終的な結果を通知
+        result_message = "\n\n".join(results)
+        if all_ok:
+            gr.Info(f"✅ **全ての必須モデルが利用可能です！**\n\n{result_message}")
+        else:
+            gr.Warning(f"⚠️ **一部のモデルが利用できません。**\n\n{result_message}\n\nGoogle AI StudioまたはGoogle Cloudコンソールの設定を確認してください。")
+
+    except Exception as e:
+        error_message = f"❌ **APIサーバーへの接続自体に失敗しました。**\n\nAPIキーが無効か、ネットワークの問題が発生している可能性があります。\n\n詳細: {str(e)}"
+        print(f"--- API接続テストエラー ---\n{traceback.format_exc()}")
+        gr.Error(error_message)
 
 def handle_add_new_list_click(world_data: Dict, character_name: str, area_id: str, room_id: Optional[str], new_list_key: str):
     """「リストを新規作成」で入力されたキーで新しいリストを作成する"""
