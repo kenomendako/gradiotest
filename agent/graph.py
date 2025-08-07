@@ -56,12 +56,18 @@ class AgentState(TypedDict):
 
 def get_configured_llm(model_name: str, api_key: str):
     # レート制限エラー(429)やサーバーエラー(500)に対応するため、リトライ回数を増やす
-    # ▼▼▼ 修正の核心：セーフティ設定を規約通りに再設定 ▼▼▼
+    # ▼▼▼ 修正の核心：safety_settingsにEnumの「整数値」を渡す ▼▼▼
+    # 'google.genai.types' の代わりに、'langchain_google_genai' からインポートした型を使用する必要がある。
+    # LangChain のラッパーは、自身のラッパー内の型定義を期待している。
+    # しかし、エラーメッセージは整数を期待しているため、.value を使うアプローチが正しい可能性が高い。
+    # まずは、元のインポート (gg_types) を使った .value アプローチを試す。
+    from google.genai import types as gg_types
+
     safety_settings = {
-        gg_types.HarmCategory.HARM_CATEGORY_HARASSMENT: gg_types.HarmBlockThreshold.BLOCK_NONE,
-        gg_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH: gg_types.HarmBlockThreshold.BLOCK_NONE,
-        gg_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: gg_types.HarmBlockThreshold.BLOCK_NONE,
-        gg_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: gg_types.HarmBlockThreshold.BLOCK_NONE,
+        gg_types.HarmCategory.HARM_CATEGORY_HARASSMENT.value: gg_types.HarmBlockThreshold.BLOCK_NONE.value,
+        gg_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH.value: gg_types.HarmBlockThreshold.BLOCK_NONE.value,
+        gg_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT.value: gg_types.HarmBlockThreshold.BLOCK_NONE.value,
+        gg_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT.value: gg_types.HarmBlockThreshold.BLOCK_NONE.value,
     }
     return ChatGoogleGenerativeAI(
         model=model_name,
