@@ -10,7 +10,6 @@ import google.genai as genai
 import filetype
 import httpx  # エラーハンドリングのためにインポート
 
-from agent.graph import app
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import config_manager
 import constants
@@ -75,6 +74,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
      current_api_key_name_state, file_input_list,
      api_history_limit_state, debug_mode_state) = args
 
+    from agent.graph import app
     effective_settings = config_manager.get_effective_settings(current_character_name)
     current_model_name, send_thoughts_state = effective_settings["model_name"], effective_settings["send_thoughts"]
     api_key = config_manager.API_KEYS.get(current_api_key_name_state)

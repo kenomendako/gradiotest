@@ -35,6 +35,7 @@ import uuid
 from tools.image_tools import generate_image as generate_image_tool_func
 from yaml.constructor import ConstructorError
 import yaml
+import pytz
 
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
@@ -259,6 +260,7 @@ def handle_message_submission(*args: Any):
            new_display_df, scenery_image_path)
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
+    """「情景を更新」ボタン専用ハンドラ。キャッシュを無視して強制的に再生成する。"""
     if not character_name or not api_key_name:
         return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）", None
 
@@ -267,22 +269,18 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return "（APIキーエラー）", "（APIキーエラー）", None
 
-    gr.Info(f"「{character_name}」の現在の情景を更新しています...")
-    # generate_scenery_context はキャッシュを自動で処理してくれる
-    location_name, _, scenery_text = generate_scenery_context(character_name, api_key)
+    gr.Info(f"「{character_name}」の現在の情景を強制的に再生成しています...")
 
-    # ▼▼▼ 修正の核心：save_scenery_cacheの呼び出しを削除 ▼▼▼
-    # 新しい設計では、キャッシュへの保存は generate_scenery_context 内部で
-    # APIが呼び出された時にのみ行われるため、ここでの呼び出しは不要かつ不適切。
+    # ▼▼▼ 修正の核心：責務を agent/graph.py に委譲 ▼▼▼
+    location_name, _, scenery_text = generate_scenery_context(character_name, api_key, force_regenerate=True)
+    # ▲▲▲ 修正ここまで ▲▲▲
 
     if not location_name.startswith("（"):
-        gr.Info("情景を更新しました。")
-        current_location_id = utils.get_current_location(character_name)
-        scenery_image_path = utils.find_scenery_image(character_name, current_location_id)
+        gr.Info("情景を再生成しました。")
+        scenery_image_path = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
     else:
-        gr.Error("情景の更新に失敗しました。")
+        gr.Error("情景の再生成に失敗しました。")
         scenery_image_path = None
-    # ▲▲▲ 修正ここまで ▲▲▲
 
     return location_name, scenery_text, scenery_image_path
 
@@ -557,6 +555,7 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
     else: gr.Error("音声の生成に失敗しました。"); return None
 
 def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str) -> Optional[str]:
+    """「情景画像を生成/更新」ボタン専用ハンドラ。常に情景を再生成してから画像を作成する。"""
     if not character_name or not api_key_name:
         gr.Warning("キャラクターとAPIキーを選択してください。")
         return None
@@ -573,31 +572,25 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Warning("現在地が特定できません。")
         return existing_image_path
 
-    # ▼▼▼ 修正の核心：キャッシュがない場合は、まず情景描写を生成する ▼▼▼
-    now = datetime.datetime.now()
-    cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
-    scenery_cache = utils.load_scenery_cache(character_name)
-    scenery_text = scenery_cache.get(cache_key, {}).get("scenery_text")
+    # ▼▼▼ 修正の核心：まず情景を強制的に再生成させる ▼▼▼
+    gr.Info("まず、最新の情景描写を生成します...")
+    _, _, scenery_text = generate_scenery_context(character_name, api_key, force_regenerate=True)
 
-    if not scenery_text:
-        gr.Info("情景描写がキャッシュにないため、まず情景を生成します...")
-        # agent/graphから直接 generate_scenery_context を呼び出す
-        _, _, new_scenery_text = generate_scenery_context(character_name, api_key)
-        if "（" in new_scenery_text: # 生成失敗の判定
-             gr.Error(f"情景描写の生成に失敗しました: {new_scenery_text}")
-             return existing_image_path
-        scenery_text = new_scenery_text # 生成されたテキストを使用
+    if "（" in scenery_text or "エラー" in scenery_text:
+        gr.Error(f"画像生成の元となる情景描写の作成に失敗したため、処理を中断します。")
+        return existing_image_path
     # ▲▲▲ 修正ここまで ▲▲▲
 
-    gr.Info(f"「{location_id}」の情景画像を生成/更新しています...")
+    gr.Info(f"新しい情景「{scenery_text[:30]}...」を元に画像を生成します...")
     prompt = f"A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Do not include any people, characters, text, or watermarks. Style: cinematic, detailed, epic. Scene: {scenery_text}"
-
     result = generate_image_tool_func.func(prompt=prompt, character_name=character_name, api_key=api_key)
 
     if "Generated Image:" in result:
         generated_path = result.replace("[Generated Image: ", "").replace("]", "").strip()
         if os.path.exists(generated_path):
             save_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
+            now = datetime.datetime.now()
+            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
             specific_filename = f"{cache_key}.png"
             specific_path = os.path.join(save_dir, specific_filename)
 
@@ -753,6 +746,54 @@ def handle_cancel_add_button_click():
         "",
         ""
     )
+
+def handle_api_connection_test(api_key_name: str):
+    """APIキーを使って、Nexus Arkが必要とする全てのモデルへの接続をテストする"""
+    if not api_key_name:
+        gr.Warning("テストするAPIキーが選択されていません。")
+        return
+
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Error(f"APIキー '{api_key_name}' は無効です。config.jsonを確認してください。")
+        return
+
+    gr.Info(f"APIキー '{api_key_name}' を使って、必須モデルへの接続をテストしています...")
+
+    # チェックするモデルのリスト
+    required_models = {
+        "models/gemini-2.5-pro": "通常チャット",
+        "models/gemini-2.5-flash": "情景描写生成",
+        "models/gemini-2.0-flash-preview-image-generation": "画像生成"
+    }
+
+    results = []
+    all_ok = True
+
+    try:
+        client = genai.Client(api_key=api_key)
+
+        for model_name, purpose in required_models.items():
+            try:
+                # 各モデルの情報を取得しようと試みる
+                client.models.get(model=model_name)
+                results.append(f"✅ **{purpose} ({model_name.split('/')[-1]})**: 利用可能です。")
+            except Exception as model_e:
+                results.append(f"❌ **{purpose} ({model_name.split('/')[-1]})**: 利用できません。")
+                print(f"--- モデル '{model_name}' のチェックに失敗: {model_e} ---")
+                all_ok = False
+
+        # 最終的な結果を通知
+        result_message = "\n\n".join(results)
+        if all_ok:
+            gr.Info(f"✅ **全ての必須モデルが利用可能です！**\n\n{result_message}")
+        else:
+            gr.Warning(f"⚠️ **一部のモデルが利用できません。**\n\n{result_message}\n\nGoogle AI StudioまたはGoogle Cloudコンソールの設定を確認してください。")
+
+    except Exception as e:
+        error_message = f"❌ **APIサーバーへの接続自体に失敗しました。**\n\nAPIキーが無効か、ネットワークの問題が発生している可能性があります。\n\n詳細: {str(e)}"
+        print(f"--- API接続テストエラー ---\n{traceback.format_exc()}")
+        gr.Error(error_message)
 
 def handle_add_new_list_click(world_data: Dict, character_name: str, area_id: str, room_id: Optional[str], new_list_key: str):
     """「リストを新規作成」で入力されたキーで新しいリストを作成する"""
