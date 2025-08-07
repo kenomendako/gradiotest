@@ -272,52 +272,18 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
 
     gr.Info(f"「{character_name}」の現在の情景を強制的に再生成しています...")
 
-    # ▼▼▼ 修正の核心：generate_scenery_context を呼び出すのをやめ、独立したAPIコールロジックを実装 ▼▼▼
-    from agent.graph import find_space_data_by_id_recursive, get_configured_llm
-    import pytz
-
-    location_id = utils.get_current_location(character_name)
-    world_settings_path = get_world_settings_path(character_name)
-    space_data = {}
-    location_display_name = location_id
-    scenery_text = "（情景の再生成に失敗しました）"
-
-    try:
-        if world_settings_path and os.path.exists(world_settings_path):
-            world_settings = utils.parse_world_markdown(world_settings_path)
-            if world_settings:
-                space_data = find_space_data_by_id_recursive(world_settings, location_id)
-
-        if space_data and isinstance(space_data, dict):
-            location_display_name = space_data.get("name", location_id)
-            space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
-
-            llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
-            jst_now = datetime.datetime.now(pytz.timezone('Asia/Tokyo'))
-            scenery_prompt = (
-                f"空間定義:{space_def}\n時刻:{jst_now.strftime('%H:%M')} / 季節:{jst_now.month}月\n\n"
-                "以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n"
-                "【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n"
-                "- 1〜2文の簡潔な文章にまとめてください。\n"
-                "- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。"
-            )
-            scenery_text = llm_flash.invoke(scenery_prompt).content
-
-            # 新しいテキストでキャッシュを上書き保存
-            now = datetime.datetime.now()
-            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
-            utils.save_scenery_cache(character_name, cache_key, location_display_name, scenery_text)
-            gr.Info("情景を再生成し、キャッシュを更新しました。")
-        else:
-            gr.Error("場所の定義が見つからないため、情景を生成できません。")
-
-    except Exception as e:
-        gr.Error(f"情景の再生成中にエラーが発生しました: {e}")
-        traceback.print_exc()
+    # ▼▼▼ 修正の核心：責務を agent/graph.py に委譲 ▼▼▼
+    location_name, _, scenery_text = generate_scenery_context(character_name, api_key, force_regenerate=True)
     # ▲▲▲ 修正ここまで ▲▲▲
 
-    scenery_image_path = utils.find_scenery_image(character_name, location_id)
-    return location_display_name, scenery_text, scenery_image_path
+    if not location_name.startswith("（"):
+        gr.Info("情景を再生成しました。")
+        scenery_image_path = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
+    else:
+        gr.Error("情景の再生成に失敗しました。")
+        scenery_image_path = None
+
+    return location_name, scenery_text, scenery_image_path
 
 def handle_location_change(character_name: str, location_id: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     from tools.space_tools import set_current_location
@@ -607,20 +573,17 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Warning("現在地が特定できません。")
         return existing_image_path
 
-    # ▼▼▼ 修正の核心：handle_scenery_refreshを呼び出して、まず情景を強制的に再生成させる ▼▼▼
+    # ▼▼▼ 修正の核心：まず情景を強制的に再生成させる ▼▼▼
     gr.Info("まず、最新の情景描写を生成します...")
-    _, new_scenery_text, _ = handle_scenery_refresh(character_name, api_key_name)
+    _, _, scenery_text = generate_scenery_context(character_name, api_key, force_regenerate=True)
 
-    if "（" in new_scenery_text or "エラー" in new_scenery_text:
+    if "（" in scenery_text or "エラー" in scenery_text:
         gr.Error(f"画像生成の元となる情景描写の作成に失敗したため、処理を中断します。")
         return existing_image_path
-
-    scenery_text = new_scenery_text
     # ▲▲▲ 修正ここまで ▲▲▲
 
     gr.Info(f"新しい情景「{scenery_text[:30]}...」を元に画像を生成します...")
     prompt = f"A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Do not include any people, characters, text, or watermarks. Style: cinematic, detailed, epic. Scene: {scenery_text}"
-
     result = generate_image_tool_func.func(prompt=prompt, character_name=character_name, api_key=api_key)
 
     if "Generated Image:" in result:

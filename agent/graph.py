@@ -90,16 +90,16 @@ def get_location_list(character_name: str) -> List[Tuple[str, str]]:
     return sorted(list(set(locations)), key=lambda x: x[0])
 
 
-def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, str, str]:
+def generate_scenery_context(character_name: str, api_key: str, force_regenerate: bool = False) -> Tuple[str, str, str]:
     """
     指定されたキャラクターの現在の場所に基づいて、情景を描写し、
     場所の名前、定義、描写テキストのタプルを返す。
-    この関数はキャッシュを利用し、必要な場合のみ gemini-2.5-flash を使用して高速に動作する。
+    force_regenerate=True の場合、キャッシュを無視して必ず再生成する。
     """
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
     location_display_name = "（不明な場所）"
-    location_id = "living_space" # デフォルト値
+    location_id = "living_space"
 
     try:
         location_file_path = os.path.join("characters", character_name, "current_location.txt")
@@ -109,30 +109,46 @@ def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, st
                 if content:
                     location_id = content
 
-        # ▼▼▼ 新しいキャッシュ・ロジック ▼▼▼
+        world_settings_path = get_world_settings_path(character_name)
+
         from utils import get_season, get_time_of_day, load_scenery_cache, save_scenery_cache
         now = datetime.now()
         cache_key = f"{location_id}_{get_season(now.month)}_{get_time_of_day(now.hour)}"
 
-        scenery_cache = load_scenery_cache(character_name)
-        if cache_key in scenery_cache:
-            cached_data = scenery_cache[cache_key]
-            print(f"--- 情景キャッシュを発見 ({cache_key})。APIコールをスキップします ---")
-
-            # space_def（場所の定義）だけは常に最新のものを読み込む
-            world_settings_path = get_world_settings_path(character_name)
+        # ▼▼▼ キャッシュロジックを force_regenerate で制御 ▼▼▼
+        if not force_regenerate:
+            scenery_cache = load_scenery_cache(character_name)
+            world_file_mod_time = 0
             if world_settings_path and os.path.exists(world_settings_path):
-                from utils import parse_world_markdown
-                world_settings = parse_world_markdown(world_settings_path)
-                if world_settings:
-                    space_data = find_space_data_by_id_recursive(world_settings, location_id)
-                    if space_data:
-                         space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
+                world_file_mod_time = os.path.getmtime(world_settings_path)
 
-            return cached_data["location_name"], space_def, cached_data["scenery_text"]
-        # ▲▲▲ キャッシュ・ロジックここまで ▲▲▲
+            if cache_key in scenery_cache:
+                cached_data = scenery_cache[cache_key]
+                cache_timestamp_str = cached_data.get("timestamp")
 
-        world_settings_path = get_world_settings_path(character_name)
+                is_cache_valid = False
+                if cache_timestamp_str and world_file_mod_time > 0:
+                    try:
+                        cache_time = datetime.fromisoformat(cache_timestamp_str).timestamp()
+                        if cache_time >= world_file_mod_time:
+                            is_cache_valid = True
+                    except ValueError:
+                        pass
+
+                if is_cache_valid:
+                    print(f"--- [有効な情景キャッシュを発見] ({cache_key})。APIコールをスキップします ---")
+                    if world_settings_path and os.path.exists(world_settings_path):
+                        from utils import parse_world_markdown
+                        world_settings = parse_world_markdown(world_settings_path)
+                        if world_settings:
+                            space_data = find_space_data_by_id_recursive(world_settings, location_id)
+                            if space_data:
+                                space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
+                    return cached_data["location_name"], space_def, cached_data["scenery_text"]
+                else:
+                    print(f"--- [古い情景キャッシュを検出] ({cache_key})。世界設定が更新されたため、APIを呼び出します ---")
+        # ▲▲▲ キャッシュロジックここまで ▲▲▲
+
         space_data = {}
         if world_settings_path and os.path.exists(world_settings_path):
             from utils import parse_world_markdown
@@ -145,10 +161,11 @@ def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, st
             space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
 
             if not space_def.startswith("（"):
-                print(f"--- 情景キャッシュが存在しないため、APIを呼び出して生成します ({cache_key}) ---")
+                log_message = "情景を強制的に再生成します" if force_regenerate else "情景をAPIで生成します"
+                print(f"--- {log_message} ({cache_key}) ---")
+
                 llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
-                utc_now = datetime.now(pytz.utc)
-                jst_now = utc_now.astimezone(pytz.timezone('Asia/Tokyo'))
+                jst_now = datetime.now(pytz.timezone('Asia/Tokyo'))
                 scenery_prompt = (
                     f"空間定義:{space_def}\n時刻:{jst_now.strftime('%H:%M')} / 季節:{jst_now.month}月\n\n"
                     "以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n"
@@ -158,9 +175,7 @@ def generate_scenery_context(character_name: str, api_key: str) -> Tuple[str, st
                 )
                 scenery_text = llm_flash.invoke(scenery_prompt).content
 
-                # ▼▼▼ 生成した情景をキャッシュに保存 ▼▼▼
                 save_scenery_cache(character_name, cache_key, location_display_name, scenery_text)
-                # ▲▲▲ 保存ロジックここまで ▲▲▲
             else:
                 scenery_text = "（場所の定義がないため、情景を描写できません）"
 
