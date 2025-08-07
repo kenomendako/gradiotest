@@ -19,9 +19,13 @@ def ensure_character_files(character_name):
         image_gen_dir = os.path.join(base_path, "generated_images")
 
         # ▼▼▼ 修正ブロックここから ▼▼▼
+        # 削除されてしまった2行を復活させる
+        spaces_dir = os.path.join(base_path, "spaces")
+        scenery_images_dir = os.path.join(spaces_dir, "images")
+
         cache_dir = os.path.join(base_path, "cache")
 
-        # 新しいディレクトリも作成対象に含める
+        # 作成対象のディレクトリリストを修正
         for path in [base_path, image_gen_dir, spaces_dir, scenery_images_dir, cache_dir]:
             if not os.path.exists(path):
                 os.makedirs(path)
