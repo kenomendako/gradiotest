@@ -616,7 +616,7 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
         )
 
 def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str, style_choice: str) -> Optional[str]:
-    """「情景画像を生成/更新」ボタン専用ハンドラ。構造定義を翻訳・キャッシュし、高速化と品質向上を図る。"""
+    """「情景画像を生成/更新」ボタン専用ハンドラ。常に同じファイル名で上書き保存する。"""
     if not character_name or not api_key_name:
         gr.Warning("キャラクターとAPIキーを選択してください。")
         return None
@@ -633,6 +633,7 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Warning("現在地が特定できません。")
         return existing_image_path
 
+    # ... (プロンプトキャッシュとプロンプト生成のロジックはそのまま) ...
     char_base_path = os.path.join(constants.CHARACTERS_DIR, character_name)
     world_settings_path = character_manager.get_world_settings_path(character_name)
     prompt_cache_path = os.path.join(char_base_path, "cache", "image_prompts.json")
@@ -717,14 +718,21 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         generated_path = result.replace("[Generated Image: ", "").replace("]", "").strip()
         if os.path.exists(generated_path):
             save_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
-            style_suffix = style_choice.split(" ")[0]
-            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}_{style_suffix}"
+            now = datetime.datetime.now()
+
+            # ▼▼▼ 修正の核心：ファイル名から画風を除外し、常に同じ名前で上書きする ▼▼▼
+            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
             specific_filename = f"{cache_key}.png"
             specific_path = os.path.join(save_dir, specific_filename)
+
+            # 既存ファイルがあれば上書きするため、事前に削除
             if os.path.exists(specific_path):
-                specific_path = os.path.join(save_dir, f"{cache_key}_{uuid.uuid4().hex[:6]}.png")
+                os.remove(specific_path)
+            # ▲▲▲ 修正ここまで ▲▲▲
+
             shutil.move(generated_path, specific_path)
             print(f"--- 情景画像を生成し、保存しました: {specific_path} ---")
+
             gr.Info("画像を生成/更新しました。")
             return specific_path
         else:
