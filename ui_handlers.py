@@ -237,7 +237,7 @@ def handle_message_submission(*args: Any):
 
     scenery_image_path = None
     if not location_name.startswith("（"):
-        utils.save_scenery_cache(current_character_name, location_name, scenery_text)
+        # save_scenery_cache の呼び出しを削除。保存は generate_scenery_context が責任を持つ。
         current_location_id = utils.get_current_location(current_character_name)
         scenery_image_path = utils.find_scenery_image(current_character_name, current_location_id)
 
