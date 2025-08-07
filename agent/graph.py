@@ -2,7 +2,6 @@
 
 # 1. ファイルの先頭に必要なモジュールを追加
 import os
-from google.genai import types as gg_types
 import re
 import traceback
 import json
@@ -12,6 +11,7 @@ from typing import TypedDict, Annotated, List, Literal, Optional, Tuple # ★ Op
 
 # 2. 既存のインポートの下に、新しいインポートを追加
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
+from langchain_google_genai.types import HarmCategory, HarmBlockThreshold
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langgraph.prebuilt import ToolNode
@@ -56,18 +56,12 @@ class AgentState(TypedDict):
 
 def get_configured_llm(model_name: str, api_key: str):
     # レート制限エラー(429)やサーバーエラー(500)に対応するため、リトライ回数を増やす
-    # ▼▼▼ 修正の核心：safety_settingsにEnumの「整数値」を渡す ▼▼▼
-    # 'google.genai.types' の代わりに、'langchain_google_genai' からインポートした型を使用する必要がある。
-    # LangChain のラッパーは、自身のラッパー内の型定義を期待している。
-    # しかし、エラーメッセージは整数を期待しているため、.value を使うアプローチが正しい可能性が高い。
-    # まずは、元のインポート (gg_types) を使った .value アプローチを試す。
-    from google.genai import types as gg_types
-
+    # ▼▼▼ 修正の核心：LangChainラッパー専用の型を使用する ▼▼▼
     safety_settings = {
-        gg_types.HarmCategory.HARM_CATEGORY_HARASSMENT.value: gg_types.HarmBlockThreshold.BLOCK_NONE.value,
-        gg_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH.value: gg_types.HarmBlockThreshold.BLOCK_NONE.value,
-        gg_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT.value: gg_types.HarmBlockThreshold.BLOCK_NONE.value,
-        gg_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT.value: gg_types.HarmBlockThreshold.BLOCK_NONE.value,
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
     }
     return ChatGoogleGenerativeAI(
         model=model_name,
