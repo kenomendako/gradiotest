@@ -318,32 +318,38 @@ def load_scenery_cache(character_name: str) -> dict:
     """指定されたキャラクターの情景キャッシュファイルを安全に読み込む。"""
     if not character_name:
         return {}
-    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "last_scenery.json")
+    # ファイル名を last_scenery.json から scenery_cache.json に変更
+    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "scenery_cache.json")
     if os.path.exists(cache_path):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 content = f.read()
-                if not content.strip(): return {} # ファイルが空の場合の対策
+                if not content.strip(): return {}
                 data = json.loads(content)
                 return data if isinstance(data, dict) else {}
         except (json.JSONDecodeError, IOError):
-            # ファイルが破損している、または読み取り中にエラーが発生した場合
             return {}
     return {}
 
-def save_scenery_cache(character_name: str, location_name: str, scenery_text: str):
-    """指定されたキャラクターの情景キャッシュファイルにデータを保存する。"""
-    if not character_name:
+def save_scenery_cache(character_name: str, cache_key: str, location_name: str, scenery_text: str):
+    """指定されたキャラクターの情景キャッシュファイルに、新しいキーでデータを保存する。"""
+    if not character_name or not cache_key:
         return
-    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "last_scenery.json")
+    # ファイル名を last_scenery.json から scenery_cache.json に変更
+    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "scenery_cache.json")
     try:
+        # 既存のキャッシュを読み込み、新しいデータを追加/更新する
+        existing_cache = load_scenery_cache(character_name)
+
         data_to_save = {
             "location_name": location_name,
             "scenery_text": scenery_text,
             "timestamp": datetime.datetime.now().isoformat()
         }
+        existing_cache[cache_key] = data_to_save
+
         with open(cache_path, "w", encoding="utf-8") as f:
-            json.dump(data_to_save, f, indent=2, ensure_ascii=False)
+            json.dump(existing_cache, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"!! エラー: 情景キャッシュの保存に失敗しました: {e}")
 # ▲▲▲ 追加箇所ここまで ▲▲▲

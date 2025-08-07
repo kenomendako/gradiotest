@@ -102,15 +102,16 @@ def handle_character_change(character_name: str, api_key_name: str):
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
 
+    # ▼▼▼ 修正ブロック ▼▼▼
+    # キャッシュの有無に関わらず、一度APIキーを取得する
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    # 常に generate_scenery_context を呼び出すことで、キャッシュの恩恵を受ける
+    current_location_name, _, scenery_text = generate_scenery_context(character_name, api_key)
+    scenery_image_path = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
+    # ▲▲▲ 修正ブロックここまで ▲▲▲
+
     locations = get_location_list_for_ui(character_name)
     current_location_id = utils.get_current_location(character_name)
-
-    scenery_cache = utils.load_scenery_cache(character_name)
-    current_location_name = scenery_cache.get("location_name", "（不明な場所）")
-    scenery_text = scenery_cache.get("scenery_text", "（AIとの対話開始時に生成されます）")
-
-    scenery_image_path = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
-
     valid_location_ids = [loc[1] for loc in locations]
     location_dd_val = current_location_id if current_location_id in valid_location_ids else None
 
@@ -236,7 +237,7 @@ def handle_message_submission(*args: Any):
 
     scenery_image_path = None
     if not location_name.startswith("（"):
-        utils.save_scenery_cache(current_character_name, location_name, scenery_text)
+        # save_scenery_cache の呼び出しを削除。保存は generate_scenery_context が責任を持つ。
         current_location_id = utils.get_current_location(current_character_name)
         scenery_image_path = utils.find_scenery_image(current_character_name, current_location_id)
 
@@ -266,58 +267,56 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
         return "（APIキーエラー）", "（APIキーエラー）", None
 
     gr.Info(f"「{character_name}」の現在の情景を更新しています...")
+    # generate_scenery_context はキャッシュを自動で処理してくれる
     location_name, _, scenery_text = generate_scenery_context(character_name, api_key)
 
+    # ▼▼▼ 修正の核心：save_scenery_cacheの呼び出しを削除 ▼▼▼
+    # 新しい設計では、キャッシュへの保存は generate_scenery_context 内部で
+    # APIが呼び出された時にのみ行われるため、ここでの呼び出しは不要かつ不適切。
+
     if not location_name.startswith("（"):
-        utils.save_scenery_cache(character_name, location_name, scenery_text)
         gr.Info("情景を更新しました。")
         current_location_id = utils.get_current_location(character_name)
         scenery_image_path = utils.find_scenery_image(character_name, current_location_id)
     else:
         gr.Error("情景の更新に失敗しました。")
         scenery_image_path = None
+    # ▲▲▲ 修正ここまで ▲▲▲
 
     return location_name, scenery_text, scenery_image_path
 
-def handle_location_change(character_name: str, location_id: str) -> Tuple[str, str, Optional[str]]:
+def handle_location_change(character_name: str, location_id: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     from tools.space_tools import set_current_location
     print(f"--- UIからの場所変更処理開始: キャラクター='{character_name}', 移動先ID='{location_id}' ---")
 
-    current_loc_name = "（場所不明）"
-    scenery_text = "（場所の変更に失敗しました）"
-    current_image_path = None
+    # 現在の表示内容を一時的に取得
     scenery_cache = utils.load_scenery_cache(character_name)
-    if scenery_cache:
-        current_loc_name = scenery_cache.get("location_name", current_loc_name)
-        scenery_text = scenery_cache.get("scenery_text", scenery_text)
-
-    current_location_id_before_move = utils.get_current_location(character_name)
-    current_image_path = utils.find_scenery_image(character_name, current_location_id_before_move)
+    current_loc_name = scenery_cache.get("location_name", "（場所不明）")
+    scenery_text = scenery_cache.get("scenery_text", "（情景不明）")
+    current_image_path = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
 
     if not character_name or not location_id:
         gr.Warning("キャラクターと移動先の場所を選択してください。")
         return current_loc_name, scenery_text, current_image_path
 
+    # まず場所のファイルだけを更新
     result = set_current_location.func(location=location_id, character_name=character_name)
-
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
         return current_loc_name, scenery_text, current_image_path
 
-    gr.Info(f"場所を「{location_id}」に移動しました。")
+    gr.Info(f"場所を「{location_id}」に移動しました。情景を更新します...")
 
-    world_settings_path = get_world_settings_path(character_name)
-    from utils import parse_world_markdown
-    world_data = parse_world_markdown(world_settings_path)
-    new_location_name = location_id
-    if world_data:
-        from character_manager import find_space_data_by_id_recursive
-        space_data = find_space_data_by_id_recursive(world_data, location_id)
-        if space_data and isinstance(space_data, dict):
-            new_location_name = space_data.get("name", location_id)
+    # ▼▼▼ 修正の核心 ▼▼▼
+    # 移動後に、キャッシュを考慮した情景取得関数を呼び出す
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key:
+        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+        return "（APIキーエラー）", "（APIキーエラー）", None
 
-    new_scenery_text = f"（場所を「{new_location_name}」に移動しました。「情景を更新」ボタン、またはAIとの対話で新しい景色を確認できます）"
+    new_location_name, _, new_scenery_text = generate_scenery_context(character_name, api_key)
     new_image_path = utils.find_scenery_image(character_name, location_id)
+    # ▲▲▲ 修正ここまで ▲▲▲
 
     return new_location_name, new_scenery_text, new_image_path
 
