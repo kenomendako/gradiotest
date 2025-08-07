@@ -22,8 +22,11 @@ def ensure_character_files(character_name):
         spaces_dir = os.path.join(base_path, "spaces")
         scenery_images_dir = os.path.join(spaces_dir, "images") # 新しいディレクトリパス
 
+        # ▼▼▼ cache_dir を追加 ▼▼▼
+        cache_dir = os.path.join(base_path, "cache")
+
         # 修正: 新しいディレクトリも作成対象に含める
-        for path in [base_path, image_gen_dir, spaces_dir, scenery_images_dir]:
+        for path in [base_path, image_gen_dir, spaces_dir, scenery_images_dir, cache_dir]: # ★ cache_dir を追加
             if not os.path.exists(path):
                 os.makedirs(path)
 
@@ -37,13 +40,24 @@ def ensure_character_files(character_name):
             if not os.path.exists(file_path):
                 with open(file_path, "w", encoding="utf-8") as f: f.write(default_content)
 
-        # ▼▼▼ ここからが修正箇所 ▼▼▼
-        # last_scenery.json から scenery_cache.json にファイル名を変更
-        scenery_cache_file = os.path.join(base_path, "scenery_cache.json")
+        # ▼▼▼ 古い scenery_cache.json の作成ロジックを完全に削除し、
+        #     以下の新しいキャッシュファイル作成ロジックに置き換える ▼▼▼
+
+        # 新しいキャッシュファイルのパスを定義
+        scenery_cache_file = os.path.join(cache_dir, "scenery.json")
+        image_prompt_cache_file = os.path.join(cache_dir, "image_prompts.json")
+
+        # scenery.json がなければ作成
         if not os.path.exists(scenery_cache_file):
             with open(scenery_cache_file, "w", encoding="utf-8") as f:
                 json.dump({}, f, indent=2, ensure_ascii=False)
-        # ▲▲▲ 修正箇所ここまで ▲▲▲
+
+        # image_prompts.json がなければ作成
+        if not os.path.exists(image_prompt_cache_file):
+            with open(image_prompt_cache_file, "w", encoding="utf-8") as f:
+                json.dump({"source_timestamp": 0, "prompts": {}}, f, indent=2, ensure_ascii=False)
+
+        # ▲▲▲ 置き換えここまで ▲▲▲
 
         memory_json_file = os.path.join(base_path, constants.MEMORY_FILENAME)
         if not os.path.exists(memory_json_file):
