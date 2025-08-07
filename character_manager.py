@@ -18,15 +18,11 @@ def ensure_character_files(character_name):
         base_path = os.path.join(constants.CHARACTERS_DIR, character_name)
         image_gen_dir = os.path.join(base_path, "generated_images")
 
-        # ▼▼▼ spaces_dir と scenery_images_dir の定義を追加・修正 ▼▼▼
-        spaces_dir = os.path.join(base_path, "spaces")
-        scenery_images_dir = os.path.join(spaces_dir, "images") # 新しいディレクトリパス
-
-        # ▼▼▼ cache_dir を追加 ▼▼▼
+        # ▼▼▼ 修正ブロックここから ▼▼▼
         cache_dir = os.path.join(base_path, "cache")
 
-        # 修正: 新しいディレクトリも作成対象に含める
-        for path in [base_path, image_gen_dir, spaces_dir, scenery_images_dir, cache_dir]: # ★ cache_dir を追加
+        # 新しいディレクトリも作成対象に含める
+        for path in [base_path, image_gen_dir, spaces_dir, scenery_images_dir, cache_dir]:
             if not os.path.exists(path):
                 os.makedirs(path)
 
@@ -40,9 +36,6 @@ def ensure_character_files(character_name):
             if not os.path.exists(file_path):
                 with open(file_path, "w", encoding="utf-8") as f: f.write(default_content)
 
-        # ▼▼▼ 古い scenery_cache.json の作成ロジックを完全に削除し、
-        #     以下の新しいキャッシュファイル作成ロジックに置き換える ▼▼▼
-
         # 新しいキャッシュファイルのパスを定義
         scenery_cache_file = os.path.join(cache_dir, "scenery.json")
         image_prompt_cache_file = os.path.join(cache_dir, "image_prompts.json")
@@ -52,12 +45,11 @@ def ensure_character_files(character_name):
             with open(scenery_cache_file, "w", encoding="utf-8") as f:
                 json.dump({}, f, indent=2, ensure_ascii=False)
 
-        # image_prompts.json がなければ作成
+        # image_prompts.json がなければ作成 (新しいハッシュ管理構造で)
         if not os.path.exists(image_prompt_cache_file):
             with open(image_prompt_cache_file, "w", encoding="utf-8") as f:
-                json.dump({"source_timestamp": 0, "prompts": {}}, f, indent=2, ensure_ascii=False)
-
-        # ▲▲▲ 置き換えここまで ▲▲▲
+                json.dump({"prompts": {}}, f, indent=2, ensure_ascii=False)
+        # ▲▲▲ 修正ブロックここまで ▲▲▲
 
         memory_json_file = os.path.join(base_path, constants.MEMORY_FILENAME)
         if not os.path.exists(memory_json_file):

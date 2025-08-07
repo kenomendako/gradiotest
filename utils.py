@@ -316,9 +316,7 @@ def extract_raw_text_from_html(html_content: Union[str, tuple, None]) -> str:
 # ▼▼▼ ここからが追加箇所（ファイルの一番下） ▼▼▼
 def load_scenery_cache(character_name: str) -> dict:
     """指定されたキャラクターの情景キャッシュファイルを安全に読み込む。"""
-    if not character_name:
-        return {}
-    # ★ 変更点：ファイルパスを新しいキャッシュディレクトリに変更
+    if not character_name: return {}
     cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "cache", "scenery.json")
     if os.path.exists(cache_path):
         try:
@@ -327,26 +325,21 @@ def load_scenery_cache(character_name: str) -> dict:
                 if not content.strip(): return {}
                 data = json.loads(content)
                 return data if isinstance(data, dict) else {}
-        except (json.JSONDecodeError, IOError):
-            return {}
+        except (json.JSONDecodeError, IOError): return {}
     return {}
 
 def save_scenery_cache(character_name: str, cache_key: str, location_name: str, scenery_text: str):
     """指定されたキャラクターの情景キャッシュファイルに、新しいキーでデータを保存する。"""
-    if not character_name or not cache_key:
-        return
-    # ★ 変更点：ファイルパスを新しいキャッシュディレクトリに変更
+    if not character_name or not cache_key: return
     cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "cache", "scenery.json")
     try:
         existing_cache = load_scenery_cache(character_name)
-
         data_to_save = {
             "location_name": location_name,
             "scenery_text": scenery_text,
             "timestamp": datetime.datetime.now().isoformat()
         }
         existing_cache[cache_key] = data_to_save
-
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(existing_cache, f, indent=2, ensure_ascii=False)
     except Exception as e:

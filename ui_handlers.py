@@ -21,6 +21,7 @@ from yaml.constructor import ConstructorError
 import pandas as pd
 import json
 import traceback
+import hashlib
 import os
 import re
 from typing import List, Optional, Dict, Any, Tuple
@@ -615,7 +616,7 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
         )
 
 def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str, style_choice: str) -> Optional[str]:
-    """「情景画像を生成/更新」ボタン専用ハンドラ。構造プロンプトをキャッシュし、高速化を図る。"""
+    """「情景画像を生成/更新」ボタン専用ハンドラ。構造定義を翻訳・キャッシュし、高速化と品質向上を図る。"""
     if not character_name or not api_key_name:
         gr.Warning("キャラクターとAPIキーを選択してください。")
         return None
@@ -632,54 +633,58 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Warning("現在地が特定できません。")
         return existing_image_path
 
-    # ▼▼▼ 修正の核心：新しいキャッシュディレクトリのパスを使用 ▼▼▼
     char_base_path = os.path.join(constants.CHARACTERS_DIR, character_name)
     world_settings_path = character_manager.get_world_settings_path(character_name)
-    # ★ ファイルパスを cache/image_prompts.json に変更
     prompt_cache_path = os.path.join(char_base_path, "cache", "image_prompts.json")
-
     structural_prompt = ""
+
     try:
-        current_world_mod_time = os.path.getmtime(world_settings_path) if world_settings_path and os.path.exists(world_settings_path) else 0
+        world_settings = utils.parse_world_markdown(world_settings_path)
+        if not world_settings:
+            gr.Error("世界設定の読み込みに失敗しました。")
+            return existing_image_path
+
+        space_data = character_manager.find_space_data_by_id_recursive(world_settings, location_id)
+        if not space_data:
+            gr.Error("現在の場所の空間定義が見つかりません。")
+            return existing_image_path
+
+        space_data_str = json.dumps(space_data, sort_keys=True)
+        current_hash = hashlib.md5(space_data_str.encode('utf-8')).hexdigest()
 
         with open(prompt_cache_path, 'r', encoding='utf-8') as f:
             prompt_cache = json.load(f)
 
-        cached_mod_time = prompt_cache.get("source_timestamp", 0)
+        cached_entry = prompt_cache.get("prompts", {}).get(location_id, {})
+        cached_hash = cached_entry.get("source_hash")
 
-        if current_world_mod_time == cached_mod_time and location_id in prompt_cache.get("prompts", {}):
-            structural_prompt = prompt_cache["prompts"][location_id]
-            print(f"--- [画像プロンプトキャッシュHIT] 構造プロンプトをキャッシュから使用します ---")
+        if current_hash == cached_hash and cached_entry.get("prompt_text"):
+            structural_prompt = cached_entry["prompt_text"]
+            print(f"--- [画像プロンプトキャッシュHIT] 場所 '{location_id}' のプロンプトをキャッシュから使用します ---")
         else:
-            print(f"--- [画像プロンプトキャッシュMISS] 構造プロンプトを再生成します ---")
-            world_settings = utils.parse_world_markdown(world_settings_path)
-            if not world_settings:
-                 gr.Error("世界設定の読み込みに失敗しました。")
-                 return existing_image_path
+            print(f"--- [画像プロンプトキャッシュMISS] 場所 '{location_id}' の定義が変更されたため、プロンプトを再生成します ---")
+            from agent.graph import get_configured_llm
+            translator_llm = get_configured_llm("gemini-2.5-flash", api_key)
 
-            prompt_cache["prompts"] = {}
-            for area_id, area_data in world_settings.items():
-                if isinstance(area_data, dict):
-                    all_locations_in_area = {area_id: area_data, **{k:v for k,v in area_data.items() if isinstance(v, dict) and 'name' in v}}
-                    for loc_id, loc_data in all_locations_in_area.items():
-                        if not isinstance(loc_data, dict): continue
-                        parts = [
-                            loc_data.get('description', 'a space'),
-                            f"Key characteristics of the space named '{loc_data.get('name', loc_id)}'."
-                        ]
-                        if loc_data.get('furniture'):
-                            parts.append(f"It contains {', '.join([f.get('name', 'furniture') for f in loc_data['furniture']])}.")
-                        if loc_data.get('objects'):
-                            parts.append(f"Notable objects include {', '.join([o.get('name', 'an object') for o in loc_data['objects']])}.")
-                        if loc_data.get('architecture'):
-                            parts.append(f"Architectural features: {', '.join([f'{k} is {v}' for k, v in loc_data['architecture'].items()])}.")
-                        prompt_cache["prompts"][loc_id] = " ".join(parts)
+            structural_data = {k: v for k, v in space_data.items() if k != 'description'}
+            structural_data_json = json.dumps(structural_data, ensure_ascii=False, indent=2)
 
-            prompt_cache["source_timestamp"] = current_world_mod_time
+            translation_prompt_text = (
+                "You are a professional translator for an image generation AI. "
+                "Your task is to convert the following JSON data, which describes a location, "
+                "into a concise, visually descriptive paragraph in English. "
+                "Focus strictly on physical, visible attributes like structure, objects, materials, and lighting. "
+                "Do not include any narrative, story elements, or metaphors. Output only the resulting English paragraph.\n\n"
+                f"Location Data (JSON):\n{structural_data_json}"
+            )
+
+            structural_prompt = translator_llm.invoke(translation_prompt_text).content.strip()
+
+            if "prompts" not in prompt_cache: prompt_cache["prompts"] = {}
+            prompt_cache["prompts"][location_id] = { "source_hash": current_hash, "prompt_text": structural_prompt }
             with open(prompt_cache_path, 'w', encoding='utf-8') as f:
                 json.dump(prompt_cache, f, indent=2, ensure_ascii=False)
-
-            structural_prompt = prompt_cache.get("prompts", {}).get(location_id, "")
+            print(f"  - 場所 '{location_id}' の新しいプロンプトをキャッシュに保存しました。")
 
     except Exception as e:
         gr.Error(f"画像プロンプトの準備中にエラーが発生しました: {e}")
@@ -690,17 +695,15 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Error("画像生成の元となる構造プロンプトを生成できませんでした。")
         return existing_image_path
 
-    # (以降のプロンプト組み立てと画像生成ロジックは変更なし)
     now = datetime.datetime.now()
-    time_of_day = utils.get_time_of_day(now.hour)
-    season = utils.get_season(now.month)
+    time_of_day = utils.get_time_of_day(now.hour); season = utils.get_season(now.month)
     dynamic_prompt = f"The current season is {season}, and the time of day is {time_of_day}."
 
     style_prompts = {
-        "写真風 (デフォルト)": "An ultra-detailed, photorealistic masterpiece with cinematic lighting. Focus on the atmosphere and visual details.",
-        "イラスト風": "A beautiful and detailed anime-style illustration, pixiv contest winner. Focus on vibrant colors and clean lines.",
-        "アニメ風": "A high-quality screenshot from a modern animated film. Focus on cinematic lighting and emotionally expressive scenery.",
-        "水彩画風": "A gentle and emotional watercolor painting. Focus on soft-focus, bleeding colors, and textured paper."
+        "写真風 (デフォルト)": "An ultra-detailed, photorealistic masterpiece with cinematic lighting.",
+        "イラスト風": "A beautiful and detailed anime-style illustration, pixiv contest winner.",
+        "アニメ風": "A high-quality screenshot from a modern animated film.",
+        "水彩画風": "A gentle and emotional watercolor painting."
     }
     base_prompt = style_prompts.get(style_choice, style_prompts["写真風 (デフォルト)"])
     negative_prompt = "Absolutely no text, letters, characters, signatures, or watermarks of any kind should be present in the image. Do not include people."
@@ -718,13 +721,10 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
             cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}_{style_suffix}"
             specific_filename = f"{cache_key}.png"
             specific_path = os.path.join(save_dir, specific_filename)
-
             if os.path.exists(specific_path):
                 specific_path = os.path.join(save_dir, f"{cache_key}_{uuid.uuid4().hex[:6]}.png")
-
             shutil.move(generated_path, specific_path)
             print(f"--- 情景画像を生成し、保存しました: {specific_path} ---")
-
             gr.Info("画像を生成/更新しました。")
             return specific_path
         else:
