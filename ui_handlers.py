@@ -138,6 +138,13 @@ def handle_character_change(character_name: str, api_key_name: str):
         f"ℹ️ *現在選択中のキャラクター「{character_name}」にのみ適用される設定です。*", scenery_image_path
     )
 
+def handle_character_change_for_all_tabs(character_name: str, api_key_name: str):
+    """【司令塔】キャラクター変更時に、すべての関連UIを更新するためのマスターハンドラ"""
+    print(f"--- UI司令塔(handle_character_change_for_all_tabs)実行: {character_name} ---")
+    chat_tab_updates = handle_character_change(character_name, api_key_name)
+    world_builder_updates = handle_world_builder_load(character_name)
+    return chat_tab_updates + world_builder_updates
+
 def handle_save_char_settings(character_name: str, model_name: str, voice_name: str, voice_style_prompt: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
     if not character_name: gr.Warning("設定を保存するキャラクターが選択されていません。"); return
     new_settings = {
@@ -769,8 +776,7 @@ def _generate_unique_id(base_name: str, existing_keys: list) -> str:
         base_id = re.sub(r'[^a-z0-9_]', '', base_id)
     except Exception:
         base_id = "new_location_" + uuid.uuid4().hex[:6]
-    if not base_id:
-        base_id = "location"
+    if not base_id: base_id = "location"
     unique_id = base_id
     counter = 2
     while unique_id in existing_keys:
@@ -839,7 +845,7 @@ def handle_cancel_add_click():
 def handle_confirm_add_click(character_name: str, world_data: Dict, selected_area_id: Optional[str], item_type: str, new_name: str):
     if not new_name:
         gr.Warning("表示名を入力してください。")
-        return world_data, gr.update(), gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(), gr.update()
     new_id = ""
     if item_type == "area":
         new_id = _generate_unique_id(new_name, list(world_data.keys()))
@@ -856,47 +862,141 @@ def handle_confirm_add_click(character_name: str, world_data: Dict, selected_are
     gr.Info(f"新しい{ 'エリア' if item_type == 'area' else '部屋' }「{new_name}」 (ID: {new_id}) を追加しました。")
     return world_data, gr.update(choices=area_choices, value=current_area), gr.update(choices=room_choices, value=current_room), gr.update(visible=False), ""
 
-def load_world_settings_content(character_name: str):
-    if not character_name: return ""
-    world_settings_path = character_manager.get_world_settings_path(character_name)
-    if world_settings_path and os.path.exists(world_settings_path):
-        try:
-            with open(world_settings_path, 'r', encoding='utf-8') as f: return f.read()
-        except Exception as e:
-            gr.Error(f"ファイルの読み込みに失敗: {e}")
-            return f"# ERROR: {e}\n\n{traceback.format_exc()}"
-    return "# 新しいファイルです。"
+def handle_dict_key_selection(world_data: Dict, area_id: str, room_id: Optional[str], dict_key: str):
+    if not dict_key: return pd.DataFrame(columns=["キー", "値"])
+    target_dict = world_data.get(area_id, {}).get(room_id, {}).get(dict_key, {}) if room_id else world_data.get(area_id, {}).get(dict_key, {})
+    if isinstance(target_dict, dict): return pd.DataFrame([[str(k), str(v)] for k, v in target_dict.items()], columns=["キー", "値"])
+    return pd.DataFrame(columns=["キー", "値"])
 
-def save_world_settings_content(character_name: str, content: str, api_key_name: str):
-    if not character_name:
-        gr.Warning("キャラクターが選択されていません。")
-        return (gr.update(),) * 22
-    world_settings_path = character_manager.get_world_settings_path(character_name)
-    if not world_settings_path:
-        gr.Error("キャラクターのパスが見つかりません。")
-        return (gr.update(),) * 22
+def handle_save_dict_click(world_data: Dict, character_name: str, area_id: str, room_id: Optional[str], dict_key: str, edited_df: pd.DataFrame):
+    if not all([character_name, area_id, dict_key]):
+        gr.Warning("項目の保存に必要な情報が不足しています。")
+        return world_data, gr.update()
     try:
-        with open(world_settings_path, 'w', encoding='utf-8') as f:
-            f.write(content.strip() + "\n")
-        gr.Info(f"「{character_name}」の世界設定を保存しました。チャットタブを更新します。")
-        return handle_character_change(character_name, api_key_name)
+        new_dict_data = dict(edited_df.values)
+        if room_id: world_data[area_id][room_id][dict_key] = new_dict_data
+        else: world_data[area_id][dict_key] = new_dict_data
+        save_world_data(character_name, world_data)
+        gr.Info(f"辞書 '{dict_key}' を更新しました。")
+        updated_section_data = world_data[area_id][room_id] if room_id else world_data[area_id]
+        return world_data, generate_details_markdown(updated_section_data)
     except Exception as e:
-        gr.Error(f"ファイルの保存に失敗: {e}")
-        return (gr.update(),) * 22
+        gr.Error(f"辞書の保存中にエラーが発生しました: {e}")
+        return world_data, gr.update()
 
-def handle_format_button_click(raw_text: str, character_name: str, api_key_name: str):
-    if not raw_text or not raw_text.strip():
-        gr.Warning("整形するテキストを入力してください。")
-        return gr.update()
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    if not api_key:
-        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return gr.update()
-    gr.Info("AIにテキストの整形を依頼しています...")
-    from tools.space_tools import format_text_to_yaml
-    formatted_yaml = format_text_to_yaml.func(text_input=raw_text, character_name=character_name, api_key=api_key)
-    if "【Error】" in formatted_yaml:
-        gr.Error(f"AIによる整形に失敗: {formatted_yaml}")
-        return gr.update()
-    gr.Info("AIによる整形が完了しました。")
-    return formatted_yaml
+def handle_add_new_list_click(world_data: Dict, character_name: str, area_id: str, room_id: Optional[str], new_list_key: str):
+    if not new_list_key or not new_list_key.strip():
+        gr.Warning("リスト名を入力してください。")
+        return world_data, gr.update(), gr.update(visible=True), new_list_key
+    if not area_id:
+        gr.Warning("リストを追加する「エリア」または「部屋」を先に選択してください。")
+        return world_data, gr.update(), gr.update(visible=True), new_list_key
+    clean_key = new_list_key.strip()
+    if not re.match(r"^[a-zA-Z0-9_]+$", clean_key):
+        gr.Warning("リスト名には半角英数字とアンダースコア(_)のみ使用できます。")
+        return world_data, gr.update(), gr.update(visible=True), new_list_key
+    target_data = world_data[area_id][room_id] if room_id else world_data[area_id]
+    if clean_key in target_data:
+        gr.Warning(f"リスト '{clean_key}' は既に存在します。")
+        return world_data, gr.update(value=clean_key), gr.update(visible=False), ""
+    target_data[clean_key] = []
+    save_world_data(character_name, world_data)
+    gr.Info(f"新しいリスト '{clean_key}' を追加しました。")
+    new_list_keys = [k for k, v in target_data.items() if isinstance(v, list)]
+    return world_data, gr.update(choices=new_list_keys, value=clean_key), gr.update(visible=False), ""
+
+def handle_add_new_item_click(world_data: Dict, area_id: str, room_id: Optional[str], list_key: str):
+    if not list_key:
+        gr.Warning("項目を追加するには、まず「編集するリストを選択」してください。リストがない場合は「リストを新規作成」してください。")
+        return gr.update(), gr.update(), gr.update(), gr.update()
+    return gr.update(visible=True), "-1", "新しい項目", ""
+
+def handle_save_item_click(world_data: Dict, character_name: str, area_id: str, room_id: Optional[str], list_key: str, item_id_str: str, item_name: str, item_desc: str):
+    if not all([character_name, area_id, list_key, item_id_str]):
+        gr.Warning("項目の保存に必要な情報が不足しています。")
+        return world_data, gr.update(), gr.update()
+    try:
+        item_index = int(item_id_str)
+        target_list = world_data[area_id][room_id].setdefault(list_key, []) if room_id else world_data[area_id].setdefault(list_key, [])
+        new_item = {"name": item_name, "description": item_desc}
+        if item_index == -1:
+            target_list.append(new_item)
+            gr.Info(f"リスト '{list_key}' に新しい項目 '{item_name}' を追加しました。")
+            new_item_id = str(len(target_list) - 1)
+        else:
+            target_list[item_index] = new_item
+            gr.Info(f"項目 '{item_name}' を更新しました。")
+            new_item_id = item_id_str
+        save_world_data(character_name, world_data)
+        new_item_choices = [(f"{item.get('name', '')} (ID:{i})", str(i)) for i, item in enumerate(target_list)]
+        return world_data, gr.update(choices=new_item_choices, value=new_item_id), gr.update(visible=False)
+    except (ValueError, IndexError, KeyError) as e:
+        gr.Error(f"項目の保存中にエラーが発生しました: {e}")
+        return world_data, gr.update(), gr.update()
+
+def handle_delete_item_click(world_data: Dict, character_name: str, area_id: str, room_id: Optional[str], list_key: str, item_id_str: str):
+    if not all([character_name, area_id, list_key, item_id_str]) or item_id_str == "-1":
+        gr.Warning("削除する項目が選択されていません。")
+        return world_data, gr.update(), gr.update()
+    try:
+        item_index = int(item_id_str)
+        target_list = world_data[area_id][room_id].get(list_key, []) if room_id else world_data[area_id].get(list_key, [])
+        deleted_item_name = target_list.pop(item_index).get("name", "無名の項目")
+        gr.Info(f"項目 '{deleted_item_name}' を削除しました。")
+        save_world_data(character_name, world_data)
+        new_item_choices = [(f"{item.get('name', '')} (ID:{i})", str(i)) for i, item in enumerate(target_list)]
+        return world_data, gr.update(choices=new_item_choices, value=None), gr.update(visible=False)
+    except (ValueError, IndexError, KeyError) as e:
+        gr.Error(f"項目の削除中にエラーが発生しました: {e}")
+        return world_data, gr.update(), gr.update()
+
+def handle_list_key_selection(world_data: Dict, area_id: str, room_id: Optional[str], list_key: str):
+    if not list_key: return gr.update(choices=[], value=None), gr.update(visible=False)
+    selected_data = world_data.get(area_id, {}).get(room_id, {}) if room_id else world_data.get(area_id, {})
+    items = selected_data.get(list_key, [])
+    item_choices = []
+    if isinstance(items, list):
+        for i, item in enumerate(items):
+            if isinstance(item, dict) and "name" in item:
+                item_choices.append((f"{item['name']} (ID:{i})", str(i)))
+    return gr.update(choices=item_choices, value=None), gr.update(visible=False)
+
+def handle_list_item_selection(world_data: Dict, area_id: str, room_id: Optional[str], list_key: str, item_id_str: str):
+    if not item_id_str: return gr.update(visible=False), gr.update(), gr.update(), gr.update()
+    try:
+        item_index = int(item_id_str)
+        selected_data = world_data.get(area_id, {}).get(room_id, {}) if room_id else world_data.get(area_id, {})
+        item = selected_data.get(list_key, [])[item_index]
+        return gr.update(visible=True), item_id_str, item.get("name", ""), item.get("description", "")
+    except (ValueError, IndexError, KeyError) as e:
+        print(f"リスト項目の選択処理中にエラー: {e}")
+        return gr.update(visible=False), None, "", ""
+
+    # (ファイル・エディタ関連の関数はここに追加されます)
+    def load_world_settings_content(character_name: str):
+        if not character_name: return ""
+        world_settings_path = character_manager.get_world_settings_path(character_name)
+        if world_settings_path and os.path.exists(world_settings_path):
+            try:
+                with open(world_settings_path, 'r', encoding='utf-8') as f: return f.read()
+            except Exception as e:
+                gr.Error(f"ファイルの読み込みに失敗: {e}")
+                return f"# ERROR: {e}\n\n{traceback.format_exc()}"
+        return "# 新しいファイルです。"
+
+    def save_world_settings_content(character_name: str, content: str, api_key_name: str):
+        if not character_name:
+            gr.Warning("キャラクターが選択されていません。")
+            return (gr.update(),) * len(initial_load_chat_outputs)
+        world_settings_path = character_manager.get_world_settings_path(character_name)
+        if not world_settings_path:
+            gr.Error("キャラクターのパスが見つかりません。")
+            return (gr.update(),) * len(initial_load_chat_outputs)
+        try:
+            with open(world_settings_path, 'w', encoding='utf-8') as f:
+                f.write(content.strip() + "\n")
+            gr.Info(f"「{character_name}」の世界設定を保存しました。チャットタブを更新します。")
+            return handle_character_change(character_name, api_key_name)
+        except Exception as e:
+            gr.Error(f"ファイルの保存に失敗: {e}")
+            return (gr.update(),) * len(initial_load_chat_outputs)
