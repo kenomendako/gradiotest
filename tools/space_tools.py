@@ -198,3 +198,63 @@ def add_new_location(new_content: str, character_name: str = None) -> str:
         return f"Success: New location '{location_id}' has been added to the world settings."
     except Exception as e:
         return f"【Error】Failed to add new location: {e}"
+
+#
+# tools/space_tools.py の一番下に追加
+#
+import traceback
+from langchain_core.tools import tool
+
+@tool
+def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> str:
+    """
+    ユーザーやAIが記述した自由形式のテキストを、world_settings.mdで利用可能な、
+    厳格なYAML形式のセクションボディに変換する。
+    """
+    if not all([text_input, character_name, api_key]):
+        return "【Error】Text input, character name, and API key are required."
+
+    print(f"--- AIによるYAML整形ツール実行 (Character: {character_name}) ---")
+    try:
+        # ▼▼▼ 修正の核心：インポート元を gemini_api に変更 ▼▼▼
+        from gemini_api import get_configured_llm
+
+        formatter_llm = get_configured_llm("gemini-2.5-flash", api_key)
+
+        prompt = f\"\"\"
+あなたは、自由形式のテキストを、厳格なYAML形式に変換することに特化した、高度な構造化AIです。
+以下の「場所の定義テキスト」を解析し、`world_settings.md` ファイルのセクションボディとして使用できる、有効なYAMLコードに変換してください。
+
+【重要ルール】
+- 出力には、YAMLコード以外の、いかなる説明や挨拶、前置き、後書き（例: ````yaml`）も絶対に含めてはなりません。
+- キーは必ず半角英数字にしてください（例: 「家具」-> `furniture`）。
+- 複数項目を持つものは、`- name:` で始まるリスト形式にしてください。
+- 特性の集まり（例: ambiance）は、キーと値を持つ辞書形式にしてください。
+- 元のテキストの詩的な表現や、詳細な描写は、最大限尊重し、保持してください。
+
+【出力フォーマットの例】
+name: 場所の名前
+description: 場所の説明文。
+furniture:
+  - name: 家具1の名前
+    description: 家具1の説明
+  - name: 家具2の名前
+    description: 家具2の説明
+ambiance:
+  atmosphere: 雰囲気の説明
+  scent: 香りの説明
+  sound: 音の説明
+
+---
+場所の定義テキスト:
+{text_input}
+---
+
+変換後のYAMLコード:
+\"\"\"
+        response = formatter_llm.invoke(prompt)
+        return response.content.strip()
+
+    except Exception as e:
+        traceback.print_exc()
+        return f"【Error】Failed to format text to YAML: {e}"

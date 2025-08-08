@@ -253,11 +253,18 @@ try:
 
                         # ▼▼▼ 古いYAMLエディタは、デバッグ用にアコーディオン内に残す ▼▼▼
                         with gr.Accordion("RAW YAMLエディタ (上級者向け)", open=False):
-                             with gr.Column(visible=True) as editor_wrapper_wb: # デフォルトで表示されるように変更
-                                editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
-                                with gr.Row():
-                                    save_button_wb = gr.Button("RAW YAMLを保存", variant="primary")
-                                    cancel_button_wb = gr.Button("キャンセル")
+                            with gr.Accordion("AI整形支援 (β)", open=False):
+                                raw_text_input_wb = gr.Textbox(
+                                    label="自由形式テキスト入力",
+                                    info="ここに、AIが生成した場所の定義などをそのまま貼り付けてください。",
+                                    lines=10
+                                )
+                                format_button_wb = gr.Button("AIに整形を依頼", variant="secondary")
+
+                            editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
+                            with gr.Row():
+                                save_button_wb = gr.Button("RAW YAMLを保存", variant="primary")
+                                cancel_button_wb = gr.Button("キャンセル")
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
@@ -437,6 +444,12 @@ try:
 
         # ▼▼▼ この行を末尾に追加 ▼▼▼
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
+
+        format_button_wb.click(
+            fn=ui_handlers.handle_format_button_click,
+            inputs=[raw_text_input_wb, current_character_name, api_key_dropdown],
+            outputs=[editor_content_wb]
+        )
 
     if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")

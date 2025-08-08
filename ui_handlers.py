@@ -1182,3 +1182,31 @@ def handle_confirm_add_button_click(character_name: str, world_data: Dict, selec
         "",
         ""
     )
+
+# ui_handlers.py の一番下に追加
+def handle_format_button_click(raw_text: str, character_name: str, api_key_name: str):
+    """AI整形支援ボタンが押された時の処理"""
+    if not raw_text or not raw_text.strip():
+        gr.Warning("整形するテキストを入力してください。")
+        return gr.update()
+
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key:
+        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+        return gr.update()
+
+    gr.Info("AIにテキストの整形を依頼しています...")
+
+    from tools.space_tools import format_text_to_yaml
+    formatted_yaml = format_text_to_yaml.func(
+        text_input=raw_text,
+        character_name=character_name,
+        api_key=api_key
+    )
+
+    if "【Error】" in formatted_yaml:
+        gr.Error(f"AIによる整形に失敗しました: {formatted_yaml}")
+        return gr.update()
+
+    gr.Info("AIによる整形が完了しました。内容を確認して保存してください。")
+    return formatted_yaml

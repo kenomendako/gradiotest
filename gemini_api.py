@@ -29,6 +29,29 @@ def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, 
         return None
     except Exception as e: print(f"モデル情報の取得中にエラー: {e}"); return None
 
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import HarmCategory, HarmBlockThreshold
+
+def get_configured_llm(model_name: str, api_key: str):
+    """
+    指定されたモデル名とAPIキーで、LangChain用のGoogle Generative AIモデルを初期化する。
+    セーフティ設定は全て無効化されている。
+    """
+    safety_settings = {
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+    }
+    return ChatGoogleGenerativeAI(
+        model=model_name,
+        google_api_key=api_key,
+        convert_system_message_to_human=False,
+        max_retries=6,
+        safety_settings=safety_settings
+    )
+
 def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> List[Dict]:
     # (この関数の中身は変更ありません)
     contents = []
