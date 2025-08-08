@@ -316,10 +316,8 @@ def extract_raw_text_from_html(html_content: Union[str, tuple, None]) -> str:
 # ▼▼▼ ここからが追加箇所（ファイルの一番下） ▼▼▼
 def load_scenery_cache(character_name: str) -> dict:
     """指定されたキャラクターの情景キャッシュファイルを安全に読み込む。"""
-    if not character_name:
-        return {}
-    # ファイル名を last_scenery.json から scenery_cache.json に変更
-    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "scenery_cache.json")
+    if not character_name: return {}
+    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "cache", "scenery.json")
     if os.path.exists(cache_path):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
@@ -327,27 +325,21 @@ def load_scenery_cache(character_name: str) -> dict:
                 if not content.strip(): return {}
                 data = json.loads(content)
                 return data if isinstance(data, dict) else {}
-        except (json.JSONDecodeError, IOError):
-            return {}
+        except (json.JSONDecodeError, IOError): return {}
     return {}
 
 def save_scenery_cache(character_name: str, cache_key: str, location_name: str, scenery_text: str):
     """指定されたキャラクターの情景キャッシュファイルに、新しいキーでデータを保存する。"""
-    if not character_name or not cache_key:
-        return
-    # ファイル名を last_scenery.json から scenery_cache.json に変更
-    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "scenery_cache.json")
+    if not character_name or not cache_key: return
+    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "cache", "scenery.json")
     try:
-        # 既存のキャッシュを読み込み、新しいデータを追加/更新する
         existing_cache = load_scenery_cache(character_name)
-
         data_to_save = {
             "location_name": location_name,
             "scenery_text": scenery_text,
             "timestamp": datetime.datetime.now().isoformat()
         }
         existing_cache[cache_key] = data_to_save
-
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(existing_cache, f, indent=2, ensure_ascii=False)
     except Exception as e:
@@ -371,8 +363,7 @@ def get_time_of_day(hour: int) -> str:
 
 def find_scenery_image(character_name: str, location_id: str) -> Optional[str]:
     """
-    指定された場所・季節・時間帯に最適な情景画像を、動的な部分一致検索で見つけ出す。
-    最も一致度の高いファイルパスを返す。
+    指定された場所・季節・時間帯に一致する情景画像を検索する。
     """
     if not character_name or not location_id:
         return None
@@ -385,55 +376,40 @@ def find_scenery_image(character_name: str, location_id: str) -> Optional[str]:
     current_season = get_season(now.month)
     current_time_of_day = get_time_of_day(now.hour)
 
-    # ▼▼▼ 新しい検索ロジック ▼▼▼
-    candidates = []
+    # 1. 完全に一致するファイル名を探す (場所_季節_時間帯.png)
+    target_filename = f"{location_id}_{current_season}_{current_time_of_day}.png"
+    target_path = os.path.join(image_dir, target_filename)
+    if os.path.exists(target_path):
+        print(f"--- 最適な情景画像を発見 (完全一致): {target_path} ---")
+        return target_path
+
+    # 2. 見つからなければ、時間帯を無視して探す (場所_季節_*.png)
     try:
-        # 1. ディレクトリ内の全ファイルをスキャンし、場所IDで始まる候補をリストアップ
+        for filename in os.listdir(image_dir):
+            if filename.startswith(f"{location_id}_{current_season}_") and filename.lower().endswith('.png'):
+                found_path = os.path.join(image_dir, filename)
+                print(f"--- 最適な情景画像を発見 (季節一致): {found_path} ---")
+                return found_path
+    except FileNotFoundError:
+        pass
+
+    # 3. それでも見つからなければ、場所名だけで探す (場所.png または 場所_*.png)
+    try:
+        # まず 場所.png を探す
+        fallback_path = os.path.join(image_dir, f"{location_id}.png")
+        if os.path.exists(fallback_path):
+            print(f"--- 最適な情景画像を発見 (場所一致): {fallback_path} ---")
+            return fallback_path
+        # 次に 場所_*.png を探す
         for filename in os.listdir(image_dir):
             if filename.startswith(f"{location_id}_") and filename.lower().endswith('.png'):
-                candidates.append(filename)
-            elif filename == f"{location_id}.png": # 部屋名のみのファイルも候補に含める
-                candidates.append(filename)
-
+                found_path = os.path.join(image_dir, filename)
+                print(f"--- 最適な情景画像を発見 (場所一致): {found_path} ---")
+                return found_path
     except FileNotFoundError:
-        return None # ディレクトリが存在しない場合は終了
+        pass
 
-    if not candidates:
-        print(f"  - 適切な情景画像が見つかりませんでした (候補0件)。")
-        return None
-
-    best_match = None
-    highest_score = -1
-
-    # 2. 候補の中から、最もスコアが高いものを探す
-    for filename in candidates:
-        score = 0
-
-        # ファイル名を分解して要素を取得
-        parts = filename.replace('.png', '').split('_')
-
-        # スコア計算
-        if len(parts) >= 3 and parts[1] == current_season and parts[2] == current_time_of_day:
-            score = 3 # 完全一致
-        elif len(parts) >= 2 and parts[1] == current_season:
-            score = 2 # 季節まで一致
-        elif len(parts) == 1 and parts[0] == location_id:
-            score = 1 # 部屋名のみ一致
-        else:
-            score = 0 # その他（部屋名で始まっているが命名規則が異なるもの）
-
-        if score > highest_score:
-            highest_score = score
-            best_match = filename
-
-    if best_match:
-        found_path = os.path.join(image_dir, best_match)
-        print(f"  - 最適な情景画像を発見 (Score: {highest_score}): {found_path}")
-        return found_path
-    else:
-        print(f"  - 適切な情景画像が見つかりませんでした (一致スコア0)。")
-        return None
-    # ▲▲▲ 新しい検索ロジックここまで ▲▲▲
+    return None
 
 def parse_world_markdown(file_path: str) -> dict:
     """

@@ -21,6 +21,7 @@ from yaml.constructor import ConstructorError
 import pandas as pd
 import json
 import traceback
+import hashlib
 import os
 import re
 from typing import List, Optional, Dict, Any, Tuple
@@ -615,7 +616,7 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
         )
 
 def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str, style_choice: str) -> Optional[str]:
-    """「情景画像を生成/更新」ボタン専用ハンドラ。画風の指定と文字混入抑制に対応。"""
+    """「情景画像を生成/更新」ボタン専用ハンドラ。常に同じファイル名で上書き保存する。"""
     if not character_name or not api_key_name:
         gr.Warning("キャラクターとAPIキーを選択してください。")
         return None
@@ -632,28 +633,84 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Warning("現在地が特定できません。")
         return existing_image_path
 
-    gr.Info("まず、最新の情景描写を生成します...")
-    _, _, scenery_text = generate_scenery_context(character_name, api_key, force_regenerate=True)
+    # ... (プロンプトキャッシュとプロンプト生成のロジックはそのまま) ...
+    char_base_path = os.path.join(constants.CHARACTERS_DIR, character_name)
+    world_settings_path = character_manager.get_world_settings_path(character_name)
+    prompt_cache_path = os.path.join(char_base_path, "cache", "image_prompts.json")
+    structural_prompt = ""
 
-    if "（" in scenery_text or "エラー" in scenery_text:
-        gr.Error(f"画像生成の元となる情景描写の作成に失敗したため、処理を中断します。")
+    try:
+        world_settings = utils.parse_world_markdown(world_settings_path)
+        if not world_settings:
+            gr.Error("世界設定の読み込みに失敗しました。")
+            return existing_image_path
+
+        space_data = character_manager.find_space_data_by_id_recursive(world_settings, location_id)
+        if not space_data:
+            gr.Error("現在の場所の空間定義が見つかりません。")
+            return existing_image_path
+
+        space_data_str = json.dumps(space_data, sort_keys=True)
+        current_hash = hashlib.md5(space_data_str.encode('utf-8')).hexdigest()
+
+        with open(prompt_cache_path, 'r', encoding='utf-8') as f:
+            prompt_cache = json.load(f)
+
+        cached_entry = prompt_cache.get("prompts", {}).get(location_id, {})
+        cached_hash = cached_entry.get("source_hash")
+
+        if current_hash == cached_hash and cached_entry.get("prompt_text"):
+            structural_prompt = cached_entry["prompt_text"]
+            print(f"--- [画像プロンプトキャッシュHIT] 場所 '{location_id}' のプロンプトをキャッシュから使用します ---")
+        else:
+            print(f"--- [画像プロンプトキャッシュMISS] 場所 '{location_id}' の定義が変更されたため、プロンプトを再生成します ---")
+            from agent.graph import get_configured_llm
+            translator_llm = get_configured_llm("gemini-2.5-flash", api_key)
+
+            structural_data = {k: v for k, v in space_data.items() if k != 'description'}
+            structural_data_json = json.dumps(structural_data, ensure_ascii=False, indent=2)
+
+            translation_prompt_text = (
+                "You are a professional translator for an image generation AI. "
+                "Your task is to convert the following JSON data, which describes a location, "
+                "into a concise, visually descriptive paragraph in English. "
+                "Focus strictly on physical, visible attributes like structure, objects, materials, and lighting. "
+                "Do not include any narrative, story elements, or metaphors. Output only the resulting English paragraph.\n\n"
+                f"Location Data (JSON):\n{structural_data_json}"
+            )
+
+            structural_prompt = translator_llm.invoke(translation_prompt_text).content.strip()
+
+            if "prompts" not in prompt_cache: prompt_cache["prompts"] = {}
+            prompt_cache["prompts"][location_id] = { "source_hash": current_hash, "prompt_text": structural_prompt }
+            with open(prompt_cache_path, 'w', encoding='utf-8') as f:
+                json.dump(prompt_cache, f, indent=2, ensure_ascii=False)
+            print(f"  - 場所 '{location_id}' の新しいプロンプトをキャッシュに保存しました。")
+
+    except Exception as e:
+        gr.Error(f"画像プロンプトの準備中にエラーが発生しました: {e}")
+        traceback.print_exc()
         return existing_image_path
 
-    gr.Info(f"新しい情景「{scenery_text[:30]}...」を元に「{style_choice}」で画像を生成します...")
+    if not structural_prompt:
+        gr.Error("画像生成の元となる構造プロンプトを生成できませんでした。")
+        return existing_image_path
 
-    # ▼▼▼ 修正の核心：画風に応じてプロンプトを組み立て、文字混入抑制を強化 ▼▼▼
+    now = datetime.datetime.now()
+    time_of_day = utils.get_time_of_day(now.hour); season = utils.get_season(now.month)
+    dynamic_prompt = f"The current season is {season}, and the time of day is {time_of_day}."
+
     style_prompts = {
-        "写真風 (デフォルト)": "A photorealistic, atmospheric, wide-angle landscape painting of the following scene. Style: cinematic, detailed, epic.",
-        "イラスト風": "A beautiful and detailed anime-style illustration of the following scene. Style: vibrant colors, clean lines, pixiv contest winner.",
-        "アニメ風": "A screenshot from a modern animated film depicting the following scene. Style: cinematic lighting, emotionally expressive, high-quality anime.",
-        "水彩画風": "A gentle and emotional watercolor painting of the following scene. Style: soft-focus, bleeding colors, textured paper."
+        "写真風 (デフォルト)": "An ultra-detailed, photorealistic masterpiece with cinematic lighting.",
+        "イラスト風": "A beautiful and detailed anime-style illustration, pixiv contest winner.",
+        "アニメ風": "A high-quality screenshot from a modern animated film.",
+        "水彩画風": "A gentle and emotional watercolor painting."
     }
     base_prompt = style_prompts.get(style_choice, style_prompts["写真風 (デフォルト)"])
-    negative_prompt = "Do not include any people, characters, text, or watermarks."
+    negative_prompt = "Absolutely no text, letters, characters, signatures, or watermarks of any kind should be present in the image. Do not include people."
 
-    # 最終的なプロンプトを組み立てる
-    prompt = f"{base_prompt} {negative_prompt} Scene: {scenery_text}"
-    # ▲▲▲ 修正ここまで ▲▲▲
+    prompt = f"{base_prompt} {negative_prompt} Depict the following scene: {structural_prompt} {dynamic_prompt}"
+    gr.Info(f"「{style_choice}」で画像を生成します...")
 
     result = generate_image_tool_func.func(prompt=prompt, character_name=character_name, api_key=api_key)
 
@@ -662,15 +719,16 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         if os.path.exists(generated_path):
             save_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
             now = datetime.datetime.now()
-            # ファイル名にスタイル情報を追加して、同じ時間帯でも画風違いを保存できるようにする
-            style_suffix = style_choice.split(" ")[0] # "写真風" など
-            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}_{style_suffix}"
+
+            # ▼▼▼ 修正の核心：ファイル名から画風を除外し、常に同じ名前で上書きする ▼▼▼
+            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
             specific_filename = f"{cache_key}.png"
             specific_path = os.path.join(save_dir, specific_filename)
 
-            # 既存ファイルを上書きしないように、ユニークなファイル名に変更
+            # 既存ファイルがあれば上書きするため、事前に削除
             if os.path.exists(specific_path):
-                specific_path = os.path.join(save_dir, f"{cache_key}_{uuid.uuid4().hex[:6]}.png")
+                os.remove(specific_path)
+            # ▲▲▲ 修正ここまで ▲▲▲
 
             shutil.move(generated_path, specific_path)
             print(f"--- 情景画像を生成し、保存しました: {specific_path} ---")
