@@ -100,7 +100,7 @@ try:
                             current_location_display = gr.Textbox(label="現在地", interactive=False)
                             current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
                             refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
-                            location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True)
+                            location_radio = gr.Radio(label="移動先を選択", interactive=True)
                             # ▼▼▼ この行を削除 ▼▼▼
                             # change_location_button = gr.Button("移動")
                         with gr.Accordion("⚙️ 設定", open=False):
@@ -266,7 +266,7 @@ try:
         # --- アプリケーション起動時の初期化 ---
         initial_load_chat_outputs = [
             current_character_name, chatbot_display, current_log_map_state, chat_input_textbox, profile_image_display,
-            memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown,
+            memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_radio,
             current_location_display, current_scenery_display, char_model_dropdown, char_voice_dropdown,
             char_voice_style_prompt_textbox
         ] + context_checkboxes + [char_settings_info, scenery_image_display]
@@ -317,10 +317,10 @@ try:
         refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_character_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
 
         # --- 空間移動のイベント ---
-        location_dropdown.change(
+        location_radio.change(
             fn=ui_handlers.handle_location_change,
             # ▼▼▼ 修正: inputs に api_key_dropdown を追加 ▼▼▼
-            inputs=[current_character_name, location_dropdown, api_key_dropdown],
+            inputs=[current_character_name, location_radio, api_key_dropdown],
             outputs=[current_location_display, current_scenery_display, scenery_image_display]
         )
         play_audio_button.click(

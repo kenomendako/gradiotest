@@ -50,37 +50,41 @@ DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 
-def get_location_list_for_ui(character_name: str) -> list:
+def _get_location_choices_for_ui(character_name: str) -> list:
     """
-    UIの移動先ドロップダウン用のリストを生成する。
-    エリアと部屋の両方をリストに含める。
+    UIの移動先Radio用の、エリアごとにグループ化された選択肢リストを生成する。
+    戻り値は gr.Radio が解釈できる (表示名, 値) のタプルのリスト。
     """
     if not character_name: return []
 
     world_settings_path = get_world_settings_path(character_name)
-    from utils import parse_world_markdown
-    world_data = parse_world_markdown(world_settings_path)
+    world_data = utils.parse_world_markdown(world_settings_path)
 
     if not world_data: return []
 
-    location_list = []
-    # 2階層のループで、エリアと部屋をすべて探索する
-    for area_id, area_data in world_data.items():
+    choices = []
+    # エリアを名前でソートしてループ
+    sorted_area_ids = sorted(world_data.keys(), key=lambda k: world_data[k].get('name', k))
+
+    for area_id in sorted_area_ids:
+        area_data = world_data[area_id]
         if not isinstance(area_data, dict): continue
 
-        # まず、エリア自体に 'name' があれば、それをリストに追加
-        if 'name' in area_data:
-            location_list.append((area_data['name'], area_id))
+        area_name = area_data.get('name', area_id)
+        # エリア見出しを追加 (選択不可にするため値はNone)
+        # GradioのRadioはNoneを値にできないため、ユニークな選択不可IDを持たせる
+        choices.append((f"--- {area_name} ---", f"__AREA_HEADER_{area_id}"))
 
-        # 次に、エリア内の各要素をチェック
+        # エリア内の部屋を名前でソートしてリストに追加
+        room_list = []
         for room_id, room_data in area_data.items():
-            # 値が辞書で、かつ 'name' キーを持つなら、それは部屋だと判断
             if isinstance(room_data, dict) and 'name' in room_data:
-                location_list.append((room_data['name'], room_id))
+                room_list.append((room_data['name'], room_id))
 
-    # 重複を除外し、名前でソートして返す
-    unique_locations = sorted(list(set(location_list)), key=lambda x: x[0])
-    return unique_locations
+        for room_name, room_id in sorted(room_list):
+            choices.append((f"・{room_name}", room_id))
+
+    return choices
 
 def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
@@ -113,10 +117,8 @@ def handle_character_change(character_name: str, api_key_name: str):
     scenery_image_path = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
     # ▲▲▲ 修正ブロックここまで ▲▲▲
 
-    locations = get_location_list_for_ui(character_name)
-    current_location_id = utils.get_current_location(character_name)
-    valid_location_ids = [loc[1] for loc in locations]
-    location_dd_val = current_location_id if current_location_id in valid_location_ids else None
+    locations = _get_location_choices_for_ui(character_name)
+    location_radio_val = utils.get_current_location(character_name)
 
     effective_settings = config_manager.get_effective_settings(character_name)
     all_models = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL
@@ -127,7 +129,7 @@ def handle_character_change(character_name: str, api_key_name: str):
     return (
         character_name, chat_history, mapping_list, "", profile_image, memory_str,
         character_name, character_name, notepad_content,
-        gr.update(choices=locations, value=location_dd_val),
+        gr.update(choices=locations, value=location_radio_val),
         current_location_name, scenery_text,
         gr.update(choices=all_models, value=model_val),
         voice_display_name, voice_style_prompt_val,
@@ -285,7 +287,18 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
 
     return location_name, scenery_text, scenery_image_path
 
-def handle_location_change(character_name: str, location_id: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
+def handle_location_change(character_name: str, selected_value: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
+    # ▼▼▼ 修正ブロックここから ▼▼▼
+    if not selected_value or selected_value.startswith("__AREA_HEADER_"):
+        # ヘッダーがクリックされたか、値がない場合は何もしない
+        # 現在の状態をそのまま返す
+        location_name, _, scenery_text = generate_scenery_context(character_name, config_manager.API_KEYS.get(api_key_name))
+        scenery_image_path = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
+        return location_name, scenery_text, scenery_image_path
+
+    location_id = selected_value
+    # ▲▲▲ 修正ブロックここまで ▲▲▲
+
     from tools.space_tools import set_current_location
     print(f"--- UIからの場所変更処理開始: キャラクター='{character_name}', 移動先ID='{location_id}' ---")
 
