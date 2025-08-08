@@ -213,40 +213,37 @@ def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> s
     try:
         from agent.graph import get_configured_llm
 
-        # 高速なモデルを使用
         formatter_llm = get_configured_llm("gemini-2.5-flash", api_key)
 
-        prompt = f\"\"\"
-あなたは、自由形式のテキストを、厳格なYAML形式に変換することに特化した、高度な構造化AIです。
-以下の「場所の定義テキスト」を解析し、`world_settings.md` ファイルのセクションボディとして使用できる、有効なYAMLコードに変換してください。
+        # ▼▼▼ 不正な文字を完全に除去したプロンプト文字列 ▼▼▼
+        prompt = (
+            "あなたは、自由形式のテキストを、厳格なYAML形式に変換することに特化した、高度な構造化AIです。\n"
+            "以下の「場所の定義テキスト」を解析し、`world_settings.md` ファイルのセクションボディとして使用できる、有効なYAMLコードに変換してください。\n\n"
+            "【重要ルール】\n"
+            "- 出力には、YAMLコード以外の、いかなる説明や挨拶、前置き、後書き（例: ````yaml`）も絶対に含めてはなりません。\n"
+            "- キーは必ず半角英数字にしてください（例: 「家具」-> `furniture`）。\n"
+            "- 複数項目を持つものは、`- name:` で始まるリスト形式にしてください。\n"
+            "- 特性の集まり（例: ambiance）は、キーと値を持つ辞書形式にしてください。\n"
+            "- 元のテキストの詩的な表現や、詳細な描写は、最大限尊重し、保持してください。\n\n"
+            "【出力フォーマットの例】\n"
+            "name: 場所の名前\n"
+            "description: 場所の説明文。\n"
+            "furniture:\n"
+            "  - name: 家具1の名前\n"
+            "    description: 家具1の説明\n"
+            "  - name: 家具2の名前\n"
+            "    description: 家具2の説明\n"
+            "ambiance:\n"
+            "  atmosphere: 雰囲気の説明\n"
+            "  scent: 香りの説明\n"
+            "  sound: 音の説明\n\n"
+            "---\n"
+            f"場所の定義テキスト:\n{text_input}\n"
+            "---\n\n"
+            "変換後のYAMLコード:"
+        )
+        # ▲▲▲ 修正ここまで ▲▲▲
 
-【重要ルール】
-- 出力には、YAMLコード以外の、いかなる説明や挨拶、前置き、後書き（例: ````yaml`）も絶対に含めてはなりません。
-- キーは必ず半角英数字にしてください（例: 「家具」-> `furniture`）。
-- 複数項目を持つものは、`- name:` で始まるリスト形式にしてください。
-- 特性の集まり（例: ambiance）は、キーと値を持つ辞書形式にしてください。
-- 元のテキストの詩的な表現や、詳細な描写は、最大限尊重し、保持してください。
-
-【出力フォーマットの例】
-name: 場所の名前
-description: 場所の説明文。
-furniture:
-  - name: 家具1の名前
-    description: 家具1の説明
-  - name: 家具2の名前
-    description: 家具2の説明
-ambiance:
-  atmosphere: 雰囲気の説明
-  scent: 香りの説明
-  sound: 音の説明
-
----
-場所の定義テキスト:
-{text_input}
----
-
-変換後のYAMLコード:
-\"\"\"
         response = formatter_llm.invoke(prompt)
         return response.content.strip()
 
