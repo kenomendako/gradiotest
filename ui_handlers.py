@@ -52,8 +52,8 @@ DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 def _get_location_choices_for_ui(character_name: str) -> list:
     """
-    UIの移動先Radio用の、エリアごとにグループ化された選択肢リストを生成する。
-    戻り値は gr.Radio が解釈できる (表示名, 値) のタプルのリスト。
+    UIの移動先Dropdown用の、エリアごとにグループ化された選択肢リストを生成する。
+    半角スペースによるインデントで階層を表現する。
     """
     if not character_name: return []
 
@@ -63,7 +63,6 @@ def _get_location_choices_for_ui(character_name: str) -> list:
     if not world_data: return []
 
     choices = []
-    # エリアを名前でソートしてループ
     sorted_area_ids = sorted(world_data.keys(), key=lambda k: world_data[k].get('name', k))
 
     for area_id in sorted_area_ids:
@@ -71,18 +70,17 @@ def _get_location_choices_for_ui(character_name: str) -> list:
         if not isinstance(area_data, dict): continue
 
         area_name = area_data.get('name', area_id)
-        # エリア見出しを追加 (選択不可にするため値はNone)
-        # GradioのRadioはNoneを値にできないため、ユニークな選択不可IDを持たせる
-        choices.append((f"--- {area_name} ---", f"__AREA_HEADER_{area_id}"))
+        # エリア見出しを追加 (選択不可にするため値は専用ID)
+        choices.append((f"[{area_name}]", f"__AREA_HEADER_{area_id}"))
 
-        # エリア内の部屋を名前でソートしてリストに追加
         room_list = []
         for room_id, room_data in area_data.items():
             if isinstance(room_data, dict) and 'name' in room_data:
                 room_list.append((room_data['name'], room_id))
 
         for room_name, room_id in sorted(room_list):
-            choices.append((f"・{room_name}", room_id))
+            # 半角スペース2つでインデント
+            choices.append((f"  ・{room_name}", room_id))
 
     return choices
 
@@ -118,7 +116,7 @@ def handle_character_change(character_name: str, api_key_name: str):
     # ▲▲▲ 修正ブロックここまで ▲▲▲
 
     locations = _get_location_choices_for_ui(character_name)
-    location_radio_val = utils.get_current_location(character_name)
+    location_dd_val = utils.get_current_location(character_name)
 
     effective_settings = config_manager.get_effective_settings(character_name)
     all_models = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL
@@ -129,7 +127,7 @@ def handle_character_change(character_name: str, api_key_name: str):
     return (
         character_name, chat_history, mapping_list, "", profile_image, memory_str,
         character_name, character_name, notepad_content,
-        gr.update(choices=locations, value=location_radio_val),
+        gr.update(choices=locations, value=location_dd_val),
         current_location_name, scenery_text,
         gr.update(choices=all_models, value=model_val),
         voice_display_name, voice_style_prompt_val,
