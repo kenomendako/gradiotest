@@ -262,7 +262,8 @@ try:
 
                             # ▼▼▼ 修正の核心：削除されてしまった gr.Column ラッパーを復活させる ▼▼▼
                             with gr.Column(visible=True) as editor_wrapper_wb:
-                                editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
+                                # ▼▼▼ この行を修正 ▼▼▼
+                                editor_content_wb = gr.Textbox(label="YAML Editor", interactive=True, lines=20, scale=1)
                                 with gr.Row():
                                     save_button_wb = gr.Button("RAW YAMLを保存", variant="primary")
                                     cancel_button_wb = gr.Button("キャンセル")

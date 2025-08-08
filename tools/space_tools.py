@@ -202,11 +202,14 @@ def add_new_location(new_content: str, character_name: str = None) -> str:
 
 @tool
 def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> str:
-    """【診断用】自由形式テキストをYAMLに整形するAIツール"""
+    """
+    ユーザーやAIが記述した自由形式のテキストを、world_settings.mdで利用可能な、
+    厳格なYAML形式のセクションボディに変換する。
+    """
     if not all([text_input, character_name, api_key]):
         return "【Error】Text input, character name, and API key are required."
 
-    print(f"--- [DEBUG] 3. format_text_to_yaml ツールが呼び出されました ---")
+    print(f"--- AIによるYAML整形ツール実行 (Character: {character_name}) ---")
     try:
         from gemini_api import get_configured_llm
 
@@ -238,20 +241,14 @@ def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> s
         )
         prompt = prompt_template.format(text_input=text_input)
 
-        print(f"--- [DEBUG] 4. これからAIを呼び出します (formatter_llm.invoke) ---")
         response = formatter_llm.invoke(prompt)
-        print(f"--- [DEBUG] AIからの生の応答オブジェクト: {response!r} ---")
 
         if not response or not response.content or not response.content.strip():
-            print("--- [DEBUG] AIの応答内容(content)が空です ---")
             return "【Error】AIからの応答が空でした。テキストが複雑すぎるか、解釈不能な可能性があります。"
 
-        result_text = response.content.strip()
-        print(f"--- [DEBUG] AIの応答から抽出したテキスト(content): '{result_text[:100]}...' ---")
-        return result_text
+        return response.content.strip()
 
     except Exception as e:
-        print(f"--- [DEBUG] ツール内で例外が発生しました ---")
         if "timeout" in str(e).lower():
             return "【Error】AIによる整形処理がタイムアウトしました。テキストを短くするか、後でもう一度試してください。"
         traceback.print_exc()
