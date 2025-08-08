@@ -168,9 +168,15 @@ try:
 
             with gr.TabItem("ワールド・ビルダー") as world_builder_tab:
                 gr.Markdown("## 🌐 ワールド・ビルダー\n`world_settings.md` の内容を、書式を意識せずに編集・保存できます。")
+
                 with gr.Accordion("AI整形支援 (β)", open=True):
-                    raw_text_input_wb = gr.Textbox(label="自由形式テキスト入力", info="ここに、AIが生成した場所の定義などをそのまま貼り付けてください。", lines=10)
+                    raw_text_input_wb = gr.Textbox(
+                        label="自由形式テキスト入力",
+                        info="ここに、AIが生成した場所の定義などをそのまま貼り付けてください。",
+                        lines=10
+                    )
                     format_button_wb = gr.Button("AIに整形を依頼", variant="secondary")
+
                 with gr.Row(equal_height=False):
                     with gr.Column(scale=1, min_width=250):
                         gr.Markdown("### 1. 既存の項目を編集")
@@ -188,9 +194,11 @@ try:
                             with gr.Row():
                                 confirm_add_button_wb = gr.Button("決定", variant="primary")
                                 cancel_add_button_wb = gr.Button("キャンセル")
+
                     with gr.Column(scale=3):
                         gr.Markdown("### 2. 内容を確認・編集")
                         details_display_wb = gr.Markdown("← 左のパネルからエリアや部屋を選択してください。")
+
                         with gr.Accordion("リスト項目を編集", open=False) as list_editor_accordion_wb:
                             with gr.Row():
                                 list_key_selector_wb = gr.Dropdown(label="編集するリストを選択", interactive=True, scale=3)
@@ -211,24 +219,33 @@ try:
                                     save_item_button_wb = gr.Button("この項目を保存", variant="primary")
                                     delete_item_button_wb = gr.Button("この項目を削除", variant="stop")
                                     cancel_item_edit_button_wb = gr.Button("キャンセル")
+
                         with gr.Accordion("辞書項目を編集", open=False) as dict_editor_accordion_wb:
                             with gr.Row():
                                 dict_key_selector_wb = gr.Dropdown(label="編集する辞書を選択", interactive=True, scale=3)
                                 save_dict_button_wb = gr.Button("変更を保存", variant="primary", scale=1)
-                            dict_dataframe_wb = gr.DataFrame(headers=["キー", "値"], datatype=["str", "str"], row_count=(5, "dynamic"), col_count=(2, "fixed"), interactive=True, wrap=True)
+                            dict_dataframe_wb = gr.DataFrame(
+                                headers=["キー", "値"],
+                                datatype=["str", "str"],
+                                row_count=(5, "dynamic"),
+                                col_count=(2, "fixed"),
+                                interactive=True,
+                                wrap=True
+                            )
+
                         with gr.Accordion("RAW YAMLエディタ (上級者向け)", open=False) as raw_yaml_accordion_wb:
                             with gr.Column(visible=True) as editor_wrapper_wb:
-                                    # ▼▼▼ 修正の核心：gr.Codeからgr.Textboxに変更 ▼▼▼
-                                    editor_content_wb = gr.Textbox(
-                                        label="YAML Editor",
-                                        interactive=True,
-                                        lines=15,
-                                        elem_id="world_builder_raw_editor" # CSS適用やJS操作のためのID
-                                    )
-                                    # ▲▲▲ 修正ここまで ▲▲▲
+                                editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
                                 with gr.Row():
                                     save_button_wb = gr.Button("RAW YAMLを保存", variant="primary")
                                     cancel_button_wb = gr.Button("キャンセル")
+
+                # バックグラウンド処理の結果を受け取るための非表示コンポーネント
+                wb_result_text = gr.Textbox(visible=False)
+                wb_status_text = gr.Textbox(visible=False) # "SUCCESS" or "ERROR"
+
+                # 定期的に結果をチェックするためのタイマー
+                wb_check_timer = gr.Timer(interval=1, visible=False)
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
