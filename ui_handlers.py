@@ -1184,29 +1184,34 @@ def handle_confirm_add_button_click(character_name: str, world_data: Dict, selec
     )
 
 def handle_format_button_click(raw_text: str, character_name: str, api_key_name: str):
-    """【診断用】AI整形支援ボタンのUI更新テスト"""
-    import time
-
-    # 1. 入力チェック
+    """AI整形支援ボタンが押された時の処理（単純復帰版）"""
     if not raw_text or not raw_text.strip():
         gr.Warning("整形するテキストを入力してください。")
-        yield gr.update(), gr.update(interactive=True)
-        return
+        return gr.update()
 
-    # 2. ボタンを「テスト中」状態にする
-    print("--- UI更新テスト：ステップ1（ボタンを無効化）---")
-    yield gr.update(), gr.update(value="テスト中...", interactive=False)
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key:
+        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+        return gr.update()
 
-    # 3. 時間のかかる処理をシミュレート（3秒待機）
-    time.sleep(3)
-    print("--- UI更新テスト：ステップ2（待機完了）---")
+    gr.Info("AIにテキストの整形を依頼しています...（完了までUIが応答しない場合があります）")
 
-    # 4. 最終的な結果をUIに反映させる
-    test_result_text = (
-        "# --- UI UPDATE TEST SUCCESSFUL ---\n"
-        "# GradioのUI更新機能は正常に動作しています。\n"
-        "# 問題の原因はAI呼び出し部分にあることが特定されました。"
-    )
+    try:
+        from tools.space_tools import format_text_to_yaml
+        formatted_yaml = format_text_to_yaml.func(
+            text_input=raw_text,
+            character_name=character_name,
+            api_key=api_key
+        )
 
-    print("--- UI更新テスト：ステップ3（最終結果を送信）---")
-    yield test_result_text, gr.update(value="AIに整形を依頼", interactive=True)
+        if "【Error】" in formatted_yaml:
+            gr.Error(f"AIによる整形に失敗しました: {formatted_yaml}")
+            return gr.update()
+
+        gr.Info("AIによる整形が完了しました。")
+        return formatted_yaml
+
+    except Exception as e:
+        gr.Error(f"AI整形処理中に予期せぬエラーが発生しました: {e}")
+        traceback.print_exc()
+        return gr.update()
