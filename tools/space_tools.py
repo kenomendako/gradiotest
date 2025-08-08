@@ -205,6 +205,8 @@ def add_new_location(new_content: str, character_name: str = None) -> str:
 import traceback
 from langchain_core.tools import tool
 
+# tools/space_tools.py の format_text_to_yaml 関数全体を、このコードで完全に置き換えてください
+
 @tool
 def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> str:
     """
@@ -220,39 +222,36 @@ def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> s
 
         formatter_llm = get_configured_llm("gemini-2.5-flash", api_key)
 
-        # ▼▼▼ 修正の核心：複数行文字列の開始と終了を正しく定義する ▼▼▼
-        prompt = f"""
-あなたは、自由形式のテキストを、厳格なYAML形式に変換することに特化した、高度な構造化AIです。
-以下の「場所の定義テキスト」を解析し、`world_settings.md` ファイルのセクションボディとして使用できる、有効なYAMLコードに変換してください。
-
-【重要ルール】
-- 出力には、YAMLコード以外の、いかなる説明や挨拶、前置き、後書き（例: ````yaml`）も絶対に含めてはなりません。
-- キーは必ず半角英数字にしてください（例: 「家具」-> `furniture`）。
-- 複数項目を持つものは、`- name:` で始まるリスト形式にしてください。
-- 特性の集まり（例: ambiance）は、キーと値を持つ辞書形式にしてください。
-- 元のテキストの詩的な表現や、詳細な描写は、最大限尊重し、保持してください。
-
-【出力フォーマットの例】
-name: 場所の名前
-description: 場所の説明文。
-furniture:
-  - name: 家具1の名前
-    description: 家具1の説明
-  - name: 家具2の名前
-    description: 家具2の説明
-ambiance:
-  atmosphere: 雰囲気の説明
-  scent: 香りの説明
-  sound: 音の説明
-
----
-場所の定義テキスト:
-{text_input}
----
-
-変換後のYAMLコード:
-\"\"\"
-        # ▲▲▲ ここで複数行文字列が正しく終了していることを確認 ▲▲▲
+        # ▼▼▼ 修正の核心：エラーの起きにくい方法でプロンプト文字列を定義する ▼▼▼
+        prompt_template = (
+            "あなたは、自由形式のテキストを、厳格なYAML形式に変換することに特化した、高度な構造化AIです。\n"
+            "以下の「場所の定義テキスト」を解析し、`world_settings.md` ファイルのセクションボディとして使用できる、有効なYAMLコードに変換してください。\n\n"
+            "【重要ルール】\n"
+            "- 出力には、YAMLコード以外の、いかなる説明や挨拶、前置き、後書き（例: ```yaml```）も絶対に含めてはなりません。\n"
+            "- キーは必ず半角英数字にしてください（例: 「家具」-> `furniture`）。\n"
+            "- 複数項目を持つものは、`- name:` で始まるリスト形式にしてください。\n"
+            "- 特性の集まり（例: ambiance）は、キーと値を持つ辞書形式にしてください。\n"
+            "- 元のテキストの詩的な表現や、詳細な描写は、最大限尊重し、保持してください。\n\n"
+            "【出力フォーマットの例】\n"
+            "name: 場所の名前\n"
+            "description: 場所の説明文。\n"
+            "furniture:\n"
+            "  - name: 家具1の名前\n"
+            "    description: 家具1の説明\n"
+            "  - name: 家具2の名前\n"
+            "    description: 家具2の説明\n"
+            "ambiance:\n"
+            "  atmosphere: 雰囲気の説明\n"
+            "  scent: 香りの説明\n"
+            "  sound: 音の説明\n\n"
+            "---\n"
+            "場所の定義テキスト:\n"
+            "{text_input}\n"
+            "---\n\n"
+            "変換後のYAMLコード:\n"
+        )
+        prompt = prompt_template.format(text_input=text_input)
+        # ▲▲▲ 修正ここまで ▲▲▲
 
         response = formatter_llm.invoke(prompt)
         return response.content.strip()
