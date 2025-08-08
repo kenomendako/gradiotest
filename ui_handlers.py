@@ -1185,28 +1185,49 @@ def handle_confirm_add_button_click(character_name: str, world_data: Dict, selec
 
 # ui_handlers.py の一番下に追加
 def handle_format_button_click(raw_text: str, character_name: str, api_key_name: str):
-    """AI整形支援ボタンが押された時の処理"""
+    """AI整形支援ボタンが押された時の処理（ジェネレータ版・改）"""
     if not raw_text or not raw_text.strip():
         gr.Warning("整形するテキストを入力してください。")
-        return gr.update()
+        # 何もせずに関数を終了させる場合は、出力の数だけ値を返す必要がある
+        yield gr.update(), gr.update(interactive=True)
+        return
 
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    if not api_key:
-        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return gr.update()
+    # 1. まずボタンを「処理中」状態にする
+    yield gr.update(), gr.update(value="AIが整形中... ▌", interactive=False)
 
-    gr.Info("AIにテキストの整形を依頼しています...")
+    formatted_yaml = ""
+    error_occurred = False
+    try:
+        api_key = config_manager.API_KEYS.get(api_key_name)
+        if not api_key:
+            gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+            error_occurred = True
+        else:
+            gr.Info("AIにテキストの整形を依頼しています...")
+            from tools.space_tools import format_text_to_yaml
 
-    from tools.space_tools import format_text_to_yaml
-    formatted_yaml = format_text_to_yaml.func(
-        text_input=raw_text,
-        character_name=character_name,
-        api_key=api_key
-    )
+            # 2. 時間のかかるAI呼び出しを実行
+            formatted_yaml = format_text_to_yaml.func(
+                text_input=raw_text,
+                character_name=character_name,
+                api_key=api_key
+            )
 
-    if "【Error】" in formatted_yaml:
-        gr.Error(f"AIによる整形に失敗しました: {formatted_yaml}")
-        return gr.update()
+            if "【Error】" in formatted_yaml:
+                gr.Error(f"AIによる整形に失敗しました: {formatted_yaml}")
+                error_occurred = True
+            else:
+                gr.Info("AIによる整形が完了しました。内容を確認して保存してください。")
 
-    gr.Info("AIによる整形が完了しました。内容を確認して保存してください。")
-    return formatted_yaml
+    except Exception as e:
+        gr.Error(f"AI整形処理中に予期せぬエラーが発生しました: {e}")
+        traceback.print_exc()
+        error_occurred = True
+
+    # 3. 処理結果をUIに反映させる
+    if not error_occurred:
+        # 成功した場合：エディタの内容を更新し、ボタンの状態を元に戻す
+        yield formatted_yaml, gr.update(value="AIに整形を依頼", interactive=True)
+    else:
+        # 失敗した場合：エディタの内容は変更せず、ボタンの状態だけを元に戻す
+        yield gr.update(), gr.update(value="AIに整形を依頼", interactive=True)

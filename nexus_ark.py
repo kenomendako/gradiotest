@@ -450,7 +450,7 @@ try:
         format_button_wb.click(
             fn=ui_handlers.handle_format_button_click,
             inputs=[raw_text_input_wb, current_character_name, api_key_dropdown],
-            outputs=[editor_content_wb]
+            outputs=[editor_content_wb, format_button_wb]
         )
 
     if __name__ == "__main__":
