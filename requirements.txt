@@ -47,3 +47,6 @@ beautifulsoup4
 
 # For parsing Markdown/YAML-like world files
 PyYAML
+
+# For generating IDs from non-ASCII names
+transliterate
