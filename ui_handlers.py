@@ -754,91 +754,149 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Error(f"画像の生成/更新に失敗しました。AIの応答: {result}")
         return existing_image_path
 
-#
-# ui_handlers.py の一番下にある、古いワールド・ビルダー関連の関数群をすべて削除し、この新しいコードブロックに置き換えてください
-#
+# --- ワールド・ビルダー & ファイル・エディタ 関連 ---
+
+from world_builder import get_world_data, save_world_data, generate_details_markdown, convert_data_to_yaml_str
+from transliterate import translit
+import pandas as pd
+import yaml
+
+def _generate_unique_id(base_name: str, existing_keys: list) -> str:
+    """表示名からユニークなIDを生成する"""
+    try:
+        base_id = translit(base_name, 'ja', reversed=True)
+        base_id = re.sub(r'\s+', '_', base_id).lower()
+        base_id = re.sub(r'[^a-z0-9_]', '', base_id)
+    except Exception:
+        base_id = "new_location_" + uuid.uuid4().hex[:6]
+    if not base_id:
+        base_id = "location"
+    unique_id = base_id
+    counter = 2
+    while unique_id in existing_keys:
+        unique_id = f"{base_id}_{counter}"
+        counter += 1
+    return unique_id
+
+def get_choices_from_world_data(world_data: Dict) -> Tuple[List[Tuple[str, str]], Dict[str, List[Tuple[str, str]]]]:
+    area_choices, room_choices_map = [], {}
+    if not isinstance(world_data, dict): return area_choices, room_choices_map
+    for area_id, area_data in world_data.items():
+        if isinstance(area_data, dict):
+            area_name = area_data.get("name", area_id)
+            area_choices.append((area_name, area_id))
+            room_choices = []
+            for room_id, room_data in area_data.items():
+                if isinstance(room_data, dict) and ("name" in room_data or "description" in room_data):
+                    room_name = room_data.get("name", room_id)
+                    room_choices.append((room_name, room_id))
+            room_choices_map[area_id] = sorted(room_choices)
+    return sorted(area_choices), room_choices_map
+
+def handle_world_builder_load(character_name: str):
+    world_data = get_world_data(character_name)
+    area_choices, _ = get_choices_from_world_data(world_data)
+    return (
+        world_data,
+        gr.update(choices=area_choices, value=None),
+        gr.update(choices=[], value=None),
+        gr.update(visible=False),
+        "← 左のパネルからエリアや部屋を選択してください。",
+        gr.update(open=False), pd.DataFrame(columns=["キー", "値"]),
+        gr.update(open=False), gr.update(choices=[], value=None),
+        gr.update(choices=[], value=None), gr.update(visible=False)
+    )
+
+def handle_item_selection_wb(world_data: Dict, area_id: str, room_id: Optional[str]):
+    _, room_choices_map = get_choices_from_world_data(world_data)
+    room_choices = room_choices_map.get(area_id, []) if area_id else []
+    selected_data = {}
+    if area_id and room_id: selected_data = world_data.get(area_id, {}).get(room_id, {})
+    elif area_id: selected_data = world_data.get(area_id, {})
+    list_keys = [k for k, v in selected_data.items() if isinstance(v, list)]
+    dict_keys = [k for k, v in selected_data.items() if isinstance(v, dict)]
+    list_open = bool(list_keys)
+    dict_open = bool(dict_keys)
+    details_md = generate_details_markdown(selected_data) if selected_data else "← 左のパネルからエリアや部屋を選択してください。"
+    return (
+        gr.update(choices=room_choices, value=room_id),
+        details_md,
+        gr.update(open=list_open), gr.update(choices=list_keys, value=None),
+        gr.update(choices=[], value=None), gr.update(visible=False),
+        gr.update(open=dict_open), gr.update(choices=dict_keys, value=None),
+        pd.DataFrame(columns=["キー", "値"])
+    )
+
+def handle_add_area_room_click(item_type: str, selected_area_id: Optional[str]):
+    if item_type == "room" and not selected_area_id:
+        gr.Warning("部屋を追加するには、まず「エリア」を選択してください。")
+        return gr.update(), gr.update(), gr.update()
+    return gr.update(visible=True), item_type, f"#### 新しい{ 'エリア' if item_type == 'area' else '部屋' }の作成"
+
+def handle_cancel_add_click():
+    return gr.update(visible=False), "", ""
+
+def handle_confirm_add_click(character_name: str, world_data: Dict, selected_area_id: Optional[str], item_type: str, new_name: str):
+    if not new_name:
+        gr.Warning("表示名を入力してください。")
+        return world_data, gr.update(), gr.update()
+    new_id = ""
+    if item_type == "area":
+        new_id = _generate_unique_id(new_name, list(world_data.keys()))
+        world_data[new_id] = {"name": new_name, "description": "新しいエリアです。"}
+    elif item_type == "room" and selected_area_id:
+        existing_keys = list(world_data.get(selected_area_id, {}).keys())
+        new_id = _generate_unique_id(new_name, existing_keys)
+        world_data.setdefault(selected_area_id, {})[new_id] = {"name": new_name, "description": "新しい部屋です。"}
+    save_world_data(character_name, world_data)
+    area_choices, room_choices_map = get_choices_from_world_data(world_data)
+    current_area = new_id if item_type == 'area' else selected_area_id
+    current_room = new_id if item_type == 'room' else None
+    room_choices = room_choices_map.get(current_area, [])
+    gr.Info(f"新しい{ 'エリア' if item_type == 'area' else '部屋' }「{new_name}」 (ID: {new_id}) を追加しました。")
+    return world_data, gr.update(choices=area_choices, value=current_area), gr.update(choices=room_choices, value=current_room), gr.update(visible=False), ""
 
 def load_world_settings_content(character_name: str):
-    """world_settings.md の内容を生のテキストとして読み込む"""
-    if not character_name:
-        return ""
+    if not character_name: return ""
     world_settings_path = character_manager.get_world_settings_path(character_name)
     if world_settings_path and os.path.exists(world_settings_path):
         try:
-            with open(world_settings_path, 'r', encoding='utf-8') as f:
-                return f.read()
+            with open(world_settings_path, 'r', encoding='utf-8') as f: return f.read()
         except Exception as e:
-            gr.Error(f"ファイルの読み込みに失敗しました: {e}")
-            return f"# ERROR: ファイルの読み込みに失敗しました\n\n{traceback.format_exc()}"
-    return f"# 新しいファイルです。'## my_area' のように記述を始めてください。"
+            gr.Error(f"ファイルの読み込みに失敗: {e}")
+            return f"# ERROR: {e}\n\n{traceback.format_exc()}"
+    return "# 新しいファイルです。"
 
-def save_world_settings_content(character_name: str, content: str):
-    """world_settings.md を指定された内容で上書き保存する"""
+def save_world_settings_content(character_name: str, content: str, api_key_name: str):
     if not character_name:
         gr.Warning("キャラクターが選択されていません。")
-        return gr.update()
-
+        return (gr.update(),) * 22
     world_settings_path = character_manager.get_world_settings_path(character_name)
     if not world_settings_path:
         gr.Error("キャラクターのパスが見つかりません。")
-        return gr.update()
-
+        return (gr.update(),) * 22
     try:
         with open(world_settings_path, 'w', encoding='utf-8') as f:
             f.write(content.strip() + "\n")
-        gr.Info(f"「{character_name}」の世界設定を保存しました。")
-        # 保存後、変更がチャットタブに即時反映されるようにキャラクターを再読み込みさせる
-        return handle_character_change(character_name, config_manager.initial_api_key_name_global)
+        gr.Info(f"「{character_name}」の世界設定を保存しました。チャットタブを更新します。")
+        return handle_character_change(character_name, api_key_name)
     except Exception as e:
-        gr.Error(f"ファイルの保存に失敗しました: {e}")
-        return gr.update()
+        gr.Error(f"ファイルの保存に失敗: {e}")
+        return (gr.update(),) * 22
 
 def handle_format_button_click(raw_text: str, character_name: str, api_key_name: str):
-    """AI整形支援ボタンが押された時の処理（プレビュー版）"""
     if not raw_text or not raw_text.strip():
         gr.Warning("整形するテキストを入力してください。")
         return gr.update()
-
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return gr.update()
-
     gr.Info("AIにテキストの整形を依頼しています...")
-
     from tools.space_tools import format_text_to_yaml
-    formatted_yaml = format_text_to_yaml.func(
-        text_input=raw_text,
-        character_name=character_name,
-        api_key=api_key
-    )
-
+    formatted_yaml = format_text_to_yaml.func(text_input=raw_text, character_name=character_name, api_key=api_key)
     if "【Error】" in formatted_yaml:
-        gr.Error(f"AIによる整形に失敗しました: {formatted_yaml}")
+        gr.Error(f"AIによる整形に失敗: {formatted_yaml}")
         return gr.update()
-
-    gr.Info("AIによる整形が完了しました。この内容をコピーして、右のエディタに貼り付けてください。")
-    return formatted_yaml # 整形結果を同じテキストボックスに返す
-
-def handle_api_connection_test(api_key_name: str):
-    """APIキーを使って、Nexus Arkが必要とする全てのモデルへの接続をテストする"""
-    if not api_key_name:
-        gr.Warning("テストするAPIキーが選択されていません。")
-        return
-
-    api_key = config_manager.API_KEYS.get(api_key_name)
-    if not api_key or api_key.startswith("YOUR_API_KEY"):
-        gr.Error(f"APIキー '{api_key_name}' は無効です。config.jsonを確認してください。")
-        return
-
-    gr.Info(f"APIキー '{api_key_name}' を使って、必須モデルへの接続をテストしています...")
-
-    # gemini_api.py に実際の処理を委譲
-    is_ok, report = gemini_api.test_api_connection(api_key)
-
-    if is_ok:
-        gr.Info(f"✅ **全ての必須モデルが利用可能です！**\n\n{report}")
-    elif "接続自体に失敗しました" in report:
-        gr.Error(report)
-    else:
-        gr.Warning(f"⚠️ **一部のモデルが利用できません。**\n\n{report}\n\nGoogle AI StudioまたはGoogle Cloudコンソールの設定を確認してください。")
+    gr.Info("AIによる整形が完了しました。")
+    return formatted_yaml
