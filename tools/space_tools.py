@@ -216,11 +216,11 @@ def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> s
 
     print(f"--- AIによるYAML整形ツール実行 (Character: {character_name}) ---")
     try:
-        # ▼▼▼ 修正の核心：インポート元を gemini_api に変更 ▼▼▼
         from gemini_api import get_configured_llm
 
         formatter_llm = get_configured_llm("gemini-2.5-flash", api_key)
 
+        # ▼▼▼ 修正の核心：複数行文字列の開始と終了を正しく定義する ▼▼▼
         prompt = f"""
 あなたは、自由形式のテキストを、厳格なYAML形式に変換することに特化した、高度な構造化AIです。
 以下の「場所の定義テキスト」を解析し、`world_settings.md` ファイルのセクションボディとして使用できる、有効なYAMLコードに変換してください。
@@ -252,6 +252,8 @@ ambiance:
 
 変換後のYAMLコード:
 \"\"\"
+        # ▲▲▲ ここで複数行文字列が正しく終了していることを確認 ▲▲▲
+
         response = formatter_llm.invoke(prompt)
         return response.content.strip()
 
