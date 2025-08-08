@@ -221,7 +221,7 @@ def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> s
 
         formatter_llm = get_configured_llm("gemini-2.5-flash", api_key)
 
-        prompt = f\"\"\"
+        prompt = f"""
 あなたは、自由形式のテキストを、厳格なYAML形式に変換することに特化した、高度な構造化AIです。
 以下の「場所の定義テキスト」を解析し、`world_settings.md` ファイルのセクションボディとして使用できる、有効なYAMLコードに変換してください。
 
