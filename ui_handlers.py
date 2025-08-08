@@ -819,3 +819,26 @@ def handle_format_button_click(raw_text: str, character_name: str, api_key_name:
 
     gr.Info("AIによる整形が完了しました。この内容をコピーして、右のエディタに貼り付けてください。")
     return formatted_yaml # 整形結果を同じテキストボックスに返す
+
+def handle_api_connection_test(api_key_name: str):
+    """APIキーを使って、Nexus Arkが必要とする全てのモデルへの接続をテストする"""
+    if not api_key_name:
+        gr.Warning("テストするAPIキーが選択されていません。")
+        return
+
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Error(f"APIキー '{api_key_name}' は無効です。config.jsonを確認してください。")
+        return
+
+    gr.Info(f"APIキー '{api_key_name}' を使って、必須モデルへの接続をテストしています...")
+
+    # gemini_api.py に実際の処理を委譲
+    is_ok, report = gemini_api.test_api_connection(api_key)
+
+    if is_ok:
+        gr.Info(f"✅ **全ての必須モデルが利用可能です！**\n\n{report}")
+    elif "接続自体に失敗しました" in report:
+        gr.Error(report)
+    else:
+        gr.Warning(f"⚠️ **一部のモデルが利用できません。**\n\n{report}\n\nGoogle AI StudioまたはGoogle Cloudコンソールの設定を確認してください。")
