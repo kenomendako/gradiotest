@@ -79,8 +79,9 @@ def _get_location_choices_for_ui(character_name: str) -> list:
                 room_list.append((room_data['name'], room_id))
 
         for room_name, room_id in sorted(room_list):
-            # 半角スペース2つでインデント
-            choices.append((f"  ・{room_name}", room_id))
+            # ▼▼▼ この行を修正 ▼▼▼
+            # 無視されない特殊なスペース文字(\u00A0)でインデントする
+            choices.append((f"\u00A0\u00A0・{room_name}", room_id))
 
     return choices
 
