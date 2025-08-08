@@ -251,9 +251,16 @@ try:
                                 wrap=True
                             )
 
-                        # ▼▼▼ 古いYAMLエディタは、デバッグ用にアコーディオン内に残す ▼▼▼
                         with gr.Accordion("RAW YAMLエディタ (上級者向け)", open=False):
-                             with gr.Column(visible=True) as editor_wrapper_wb: # デフォルトで表示されるように変更
+                            with gr.Column(visible=False) as editor_wrapper_wb: # This wrapper is controlled by other buttons
+                                with gr.Accordion("AI整形支援 (β)", open=False):
+                                    raw_text_input_wb = gr.Textbox(
+                                        label="自由形式テキスト入力",
+                                        info="ここに、AIが生成した場所の定義などをそのまま貼り付けてください。",
+                                        lines=10
+                                    )
+                                    format_button_wb = gr.Button("AIに整形を依頼", variant="secondary")
+
                                 editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
                                 with gr.Row():
                                     save_button_wb = gr.Button("RAW YAMLを保存", variant="primary")
@@ -433,6 +440,12 @@ try:
             fn=ui_handlers.handle_save_dict_click,
             inputs=[world_data_state, current_character_name, area_selector, room_selector, dict_key_selector_wb, dict_dataframe_wb],
             outputs=[world_data_state, details_display_wb] # 保存後に詳細表示も更新
+        )
+
+        format_button_wb.click(
+            fn=ui_handlers.handle_format_button_click,
+            inputs=[raw_text_input_wb, current_character_name, api_key_dropdown],
+            outputs=[editor_content_wb]
         )
 
         # ▼▼▼ この行を末尾に追加 ▼▼▼
