@@ -6,6 +6,7 @@ from typing import Optional
 from langchain_core.tools import tool
 from character_manager import get_world_settings_path
 from memory_manager import load_memory_data_safe
+import traceback
 
 @tool
 def find_location_id_by_name(location_name: str, character_name: str = None) -> str:
@@ -199,14 +200,6 @@ def add_new_location(new_content: str, character_name: str = None) -> str:
     except Exception as e:
         return f"【Error】Failed to add new location: {e}"
 
-#
-# tools/space_tools.py の一番下に追加
-#
-import traceback
-from langchain_core.tools import tool
-
-# tools/space_tools.py の format_text_to_yaml 関数全体を、このコードで完全に置き換えてください
-
 @tool
 def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> str:
     """
@@ -220,13 +213,17 @@ def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> s
     try:
         from gemini_api import get_configured_llm
 
-        formatter_llm = get_configured_llm("gemini-2.5-flash", api_key)
+        # ▼▼▼ 修正の核心1：タイムアウトを設定して呼び出す ▼▼▼
+        # 整形処理は最大30秒まで待つ
+        formatter_llm = get_configured_llm("gemini-2.5-flash", api_key, timeout=30)
 
-        # ▼▼▼ 修正の核心：エラーの起きにくい方法でプロンプト文字列を定義する ▼▼▼
+        # ▼▼▼ 修正の核心2：AIが沈黙しにくいようにプロンプトを改善 ▼▼▼
         prompt_template = (
             "あなたは、自由形式のテキストを、厳格なYAML形式に変換することに特化した、高度な構造化AIです。\n"
             "以下の「場所の定義テキスト」を解析し、`world_settings.md` ファイルのセクションボディとして使用できる、有効なYAMLコードに変換してください。\n\n"
-            "【重要ルール】\n"
+            "【最重要ルール】\n"
+            "- あなたの唯一のタスクは、YAMLコードを生成することです。それ以外の応答は絶対に行わないでください。\n"
+            "- 解釈に迷う部分があっても、あなたが最も適切だと判断したYAMLの構造に当てはめて、最善を尽くして出力を生成してください。決して沈黙したり、エラーを返したりしてはいけません。\n"
             "- 出力には、YAMLコード以外の、いかなる説明や挨拶、前置き、後書き（例: ```yaml```）も絶対に含めてはなりません。\n"
             "- キーは必ず半角英数字にしてください（例: 「家具」-> `furniture`）。\n"
             "- 複数項目を持つものは、`- name:` で始まるリスト形式にしてください。\n"
@@ -238,12 +235,8 @@ def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> s
             "furniture:\n"
             "  - name: 家具1の名前\n"
             "    description: 家具1の説明\n"
-            "  - name: 家具2の名前\n"
-            "    description: 家具2の説明\n"
             "ambiance:\n"
-            "  atmosphere: 雰囲気の説明\n"
-            "  scent: 香りの説明\n"
-            "  sound: 音の説明\n\n"
+            "  atmosphere: 雰囲気の説明\n\n"
             "---\n"
             "場所の定義テキスト:\n"
             "{text_input}\n"
@@ -251,11 +244,18 @@ def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> s
             "変換後のYAMLコード:\n"
         )
         prompt = prompt_template.format(text_input=text_input)
-        # ▲▲▲ 修正ここまで ▲▲▲
 
         response = formatter_llm.invoke(prompt)
+
+        # 応答が空だった場合もエラーとして扱う
+        if not response or not response.content or not response.content.strip():
+            return "【Error】AIからの応答が空でした。テキストが複雑すぎる可能性があります。"
+
         return response.content.strip()
 
     except Exception as e:
+        # タイムアウトエラーを捕捉して、分かりやすいメッセージを返す
+        if "timeout" in str(e).lower():
+            return "【Error】AIによる整形処理がタイムアウトしました。テキストを短くするか、後でもう一度試してください。"
         traceback.print_exc()
         return f"【Error】Failed to format text to YAML: {e}"

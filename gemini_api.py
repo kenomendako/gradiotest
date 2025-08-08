@@ -33,7 +33,7 @@ def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_google_genai import HarmCategory, HarmBlockThreshold
 
-def get_configured_llm(model_name: str, api_key: str):
+def get_configured_llm(model_name: str, api_key: str, timeout: int = 60): # ★ timeout引数を追加
     """
     指定されたモデル名とAPIキーで、LangChain用のGoogle Generative AIモデルを初期化する。
     セーフティ設定は全て無効化されている。
@@ -49,7 +49,8 @@ def get_configured_llm(model_name: str, api_key: str):
         google_api_key=api_key,
         convert_system_message_to_human=False,
         max_retries=6,
-        safety_settings=safety_settings
+        safety_settings=safety_settings,
+        timeout=timeout # ★ timeoutパラメータを設定
     )
 
 def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> List[Dict]:
