@@ -1184,7 +1184,8 @@ def handle_confirm_add_button_click(character_name: str, world_data: Dict, selec
     )
 
 def handle_format_button_click(raw_text: str, character_name: str, api_key_name: str):
-    """AI整形支援ボタンが押された時の処理（単純復帰版）"""
+    """【診断用】AI整形支援ボタンが押された時の処理"""
+    print("\n--- [DEBUG] 1. handle_format_button_click が呼び出されました ---")
     if not raw_text or not raw_text.strip():
         gr.Warning("整形するテキストを入力してください。")
         return gr.update()
@@ -1198,20 +1199,30 @@ def handle_format_button_click(raw_text: str, character_name: str, api_key_name:
 
     try:
         from tools.space_tools import format_text_to_yaml
+        print(f"--- [DEBUG] 2. これから space_tools.format_text_to_yaml を呼び出します ---")
         formatted_yaml = format_text_to_yaml.func(
             text_input=raw_text,
             character_name=character_name,
             api_key=api_key
         )
+        print(f"--- [DEBUG] 5. space_tools からの戻り値を受け取りました ---")
+        print(f"--- [DEBUG] 戻り値の内容(最初の100文字): '{formatted_yaml[:100]}...' ---")
+        print(f"--- [DEBUG] 戻り値の文字数: {len(formatted_yaml)} ---")
 
-        if "【Error】" in formatted_yaml:
-            gr.Error(f"AIによる整形に失敗しました: {formatted_yaml}")
+
+        if "【Error】" in formatted_yaml or not formatted_yaml.strip():
+            # ★ 応答が空の場合もエラーとして扱うように修正
+            error_message = formatted_yaml if formatted_yaml.strip() else "AIからの応答が空でした。"
+            print(f"--- [DEBUG] 6a. 処理結果はエラーまたは空と判断されました: {error_message} ---")
+            gr.Error(f"AIによる整形に失敗しました: {error_message}")
             return gr.update()
 
+        print(f"--- [DEBUG] 6b. 処理結果は成功と判断されました ---")
         gr.Info("AIによる整形が完了しました。")
         return formatted_yaml
 
     except Exception as e:
+        print(f"--- [DEBUG] 6c. ハンドラ内で予期せぬ例外が発生しました ---")
         gr.Error(f"AI整形処理中に予期せぬエラーが発生しました: {e}")
         traceback.print_exc()
         return gr.update()

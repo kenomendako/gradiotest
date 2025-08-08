@@ -202,20 +202,16 @@ def add_new_location(new_content: str, character_name: str = None) -> str:
 
 @tool
 def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> str:
-    """
-    ユーザーやAIが記述した自由形式のテキストを、world_settings.mdで利用可能な、
-    厳格なYAML形式のセクションボディに変換する。
-    """
+    """【診断用】自由形式テキストをYAMLに整形するAIツール"""
     if not all([text_input, character_name, api_key]):
         return "【Error】Text input, character name, and API key are required."
 
-    print(f"--- AIによるYAML整形ツール実行 (Character: {character_name}) ---")
+    print(f"--- [DEBUG] 3. format_text_to_yaml ツールが呼び出されました ---")
     try:
         from gemini_api import get_configured_llm
 
         formatter_llm = get_configured_llm("gemini-2.5-flash", api_key, timeout=30)
 
-        # ▼▼▼ 修正の核心：曖昧な入力にも対応できるようにプロンプトを高度化 ▼▼▼
         prompt_template = (
             "あなたは、自由形式のテキストを、厳格なYAML形式に変換することに特化した、高度な構造化AIです。\n"
             "以下の「場所の定義テキスト」を解析し、`world_settings.md` ファイルのセクションボディとして使用できる、有効なYAMLコードに変換してください。\n\n"
@@ -242,14 +238,20 @@ def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> s
         )
         prompt = prompt_template.format(text_input=text_input)
 
+        print(f"--- [DEBUG] 4. これからAIを呼び出します (formatter_llm.invoke) ---")
         response = formatter_llm.invoke(prompt)
+        print(f"--- [DEBUG] AIからの生の応答オブジェクト: {response!r} ---")
 
         if not response or not response.content or not response.content.strip():
+            print("--- [DEBUG] AIの応答内容(content)が空です ---")
             return "【Error】AIからの応答が空でした。テキストが複雑すぎるか、解釈不能な可能性があります。"
 
-        return response.content.strip()
+        result_text = response.content.strip()
+        print(f"--- [DEBUG] AIの応答から抽出したテキスト(content): '{result_text[:100]}...' ---")
+        return result_text
 
     except Exception as e:
+        print(f"--- [DEBUG] ツール内で例外が発生しました ---")
         if "timeout" in str(e).lower():
             return "【Error】AIによる整形処理がタイムアウトしました。テキストを短くするか、後でもう一度試してください。"
         traceback.print_exc()
