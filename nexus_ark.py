@@ -251,8 +251,7 @@ try:
                                 wrap=True
                             )
 
-                        # ▼▼▼ 古いYAMLエディタは、デバッグ用にアコーディオン内に残す ▼▼▼
-                        with gr.Accordion("RAW YAMLエディタ (上級者向け)", open=False):
+                        with gr.Accordion("RAW YAMLエディタ (上級者向け)", open=False) as raw_yaml_accordion_wb:
                             with gr.Accordion("AI整形支援 (β)", open=False):
                                 raw_text_input_wb = gr.Textbox(
                                     label="自由形式テキスト入力",
@@ -261,10 +260,13 @@ try:
                                 )
                                 format_button_wb = gr.Button("AIに整形を依頼", variant="secondary")
 
-                            editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
-                            with gr.Row():
-                                save_button_wb = gr.Button("RAW YAMLを保存", variant="primary")
-                                cancel_button_wb = gr.Button("キャンセル")
+                            # ▼▼▼ 修正の核心：削除されてしまった gr.Column ラッパーを復活させる ▼▼▼
+                            with gr.Column(visible=True) as editor_wrapper_wb:
+                                editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
+                                with gr.Row():
+                                    save_button_wb = gr.Button("RAW YAMLを保存", variant="primary")
+                                    cancel_button_wb = gr.Button("キャンセル")
+                            # ▲▲▲ 修正ここまで ▲▲▲
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
