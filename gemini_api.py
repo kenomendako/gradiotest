@@ -1,7 +1,7 @@
 # gemini_api.py (堅牢化対応版)
 
 import traceback
-from typing import Any, List, Union, Optional, Dict
+from typing import Any, List, Union, Optional, Dict, Tuple
 import os
 import io
 import base64
@@ -261,3 +261,35 @@ def count_input_tokens(**kwargs):
         print(f"トークン計算中に予期せぬエラー: {e}")
         traceback.print_exc()
         return "トークン数: (例外発生)"
+
+def test_api_connection(api_key: str) -> Tuple[bool, str]:
+    """
+    APIキーを使い、Nexus Arkが必要とする全てのモデルへの接続をテストし、
+    結果をboolと整形済みレポート文字列のタプルで返す。
+    """
+    required_models = {
+        "models/gemini-2.5-pro": "通常チャット",
+        "models/gemini-2.5-flash": "情景描写生成",
+        "models/gemini-2.0-flash-preview-image-generation": "画像生成"
+    }
+    results = []
+    all_ok = True
+
+    try:
+        client = genai.Client(api_key=api_key)
+
+        for model_name, purpose in required_models.items():
+            try:
+                client.models.get(model=model_name)
+                results.append(f"✅ **{purpose} ({model_name.split('/')[-1]})**: 利用可能です。")
+            except Exception:
+                results.append(f"❌ **{purpose} ({model_name.split('/')[-1]})**: 利用できません。")
+                all_ok = False
+
+        report = "\n\n".join(results)
+        return all_ok, report
+
+    except Exception as e:
+        report = f"❌ **APIサーバーへの接続自体に失敗しました。**\n\n詳細: {str(e)}"
+        print(f"--- API接続テストエラー ---\n{traceback.format_exc()}")
+        return False, report

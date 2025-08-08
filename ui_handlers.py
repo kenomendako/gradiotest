@@ -1000,3 +1000,26 @@ def handle_list_item_selection(world_data: Dict, area_id: str, room_id: Optional
         except Exception as e:
             gr.Error(f"ファイルの保存に失敗: {e}")
             return (gr.update(),) * len(initial_load_chat_outputs)
+
+def handle_api_connection_test(api_key_name: str):
+    """APIキーを使って、Googleのサーバーへ簡単な接続テストを行う（UIハンドラ）"""
+    if not api_key_name:
+        gr.Warning("テストするAPIキーが選択されていません。")
+        return
+
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Error(f"APIキー '{api_key_name}' は無効です。config.jsonを確認してください。")
+        return
+
+    gr.Info(f"APIキー '{api_key_name}' を使って、必須モデルへの接続をテストしています...")
+
+    # 実際のAPIコールは gemini_api.py に委譲
+    is_ok, report = gemini_api.test_api_connection(api_key)
+
+    if is_ok:
+        gr.Info(f"✅ **全ての必須モデルが利用可能です！**\n\n{report}")
+    elif "接続自体に失敗しました" in report:
+        gr.Error(report)
+    else:
+        gr.Warning(f"⚠️ **一部のモデルが利用できません。**\n\n{report}\n\nGoogle AI StudioまたはGoogle Cloudコンソールの設定を確認してください。")
