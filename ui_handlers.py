@@ -80,8 +80,8 @@ def _get_location_choices_for_ui(character_name: str) -> list:
 
         for room_name, room_id in sorted(room_list):
             # ▼▼▼ この行を修正 ▼▼▼
-            # 無視されない特殊なスペース文字(\u00A0)でインデントする
-            choices.append((f"\u00A0\u00A0・{room_name}", room_id))
+            # 矢印記号を使って、より視覚的に階層を表現する
+            choices.append((f"\u00A0\u00A0↳ {room_name}", room_id))
 
     return choices
 
