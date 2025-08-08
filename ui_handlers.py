@@ -1183,44 +1183,30 @@ def handle_confirm_add_button_click(character_name: str, world_data: Dict, selec
         ""
     )
 
-# ui_handlers.py の一番下に追加
 def handle_format_button_click(raw_text: str, character_name: str, api_key_name: str):
-    """AI整形支援ボタンが押された時の処理（ジェネレータ版・最終確定版）"""
+    """【診断用】AI整形支援ボタンのUI更新テスト"""
+    import time
 
-    # 1. 入力チェックと、ボタンを「処理中」にする最初のyield
+    # 1. 入力チェック
     if not raw_text or not raw_text.strip():
         gr.Warning("整形するテキストを入力してください。")
-        # 何も処理しないが、出力の数は合わせる必要がある
         yield gr.update(), gr.update(interactive=True)
         return
 
-    yield gr.update(), gr.update(value="AIが整形中... ▌", interactive=False)
+    # 2. ボタンを「テスト中」状態にする
+    print("--- UI更新テスト：ステップ1（ボタンを無効化）---")
+    yield gr.update(), gr.update(value="テスト中...", interactive=False)
 
-    # 2. メインの処理を実行
-    editor_update = gr.update() # デフォルトは「更新しない」
-    try:
-        api_key = config_manager.API_KEYS.get(api_key_name)
-        if not api_key:
-            gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        else:
-            gr.Info("AIにテキストの整形を依頼しています...")
-            from tools.space_tools import format_text_to_yaml
+    # 3. 時間のかかる処理をシミュレート（3秒待機）
+    time.sleep(3)
+    print("--- UI更新テスト：ステップ2（待機完了）---")
 
-            formatted_yaml = format_text_to_yaml.func(
-                text_input=raw_text,
-                character_name=character_name,
-                api_key=api_key
-            )
+    # 4. 最終的な結果をUIに反映させる
+    test_result_text = (
+        "# --- UI UPDATE TEST SUCCESSFUL ---\n"
+        "# GradioのUI更新機能は正常に動作しています。\n"
+        "# 問題の原因はAI呼び出し部分にあることが特定されました。"
+    )
 
-            if "【Error】" in formatted_yaml:
-                gr.Error(f"AIによる整形に失敗しました: {formatted_yaml}")
-            else:
-                gr.Info("AIによる整形が完了しました。内容を確認して保存してください。")
-                editor_update = gr.update(value=formatted_yaml) # 成功した場合のみエディタを更新
-
-    except Exception as e:
-        gr.Error(f"AI整形処理中に予期せぬエラーが発生しました: {e}")
-        traceback.print_exc()
-
-    # 3. 最後に、エディタの更新内容と、ボタンを元に戻す指示をyieldする
-    yield editor_update, gr.update(value="AIに整形を依頼", interactive=True)
+    print("--- UI更新テスト：ステップ3（最終結果を送信）---")
+    yield test_result_text, gr.update(value="AIに整形を依頼", interactive=True)
