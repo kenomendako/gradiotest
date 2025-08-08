@@ -185,10 +185,21 @@ try:
                         gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
             with gr.TabItem("ワールド・ビルダー") as world_builder_tab:
-                gr.Markdown("## 🌐 ワールド・ビルダー (Phase 2: エディタ)\n`world_settings.md` の内容を、書式を意識せずに編集・保存できます。")
+                gr.Markdown("## 🌐 ワールド・ビルダー\n`world_settings.md` の内容を、書式を意識せずに編集・保存できます。")
+
+                # ▼▼▼ 修正の核心：「AI整形支援」を一番上に移動させ、独立させる ▼▼▼
+                with gr.Accordion("AI整形支援 (β)", open=True): # 最初から開いておく
+                    raw_text_input_wb = gr.Textbox(
+                        label="自由形式テキスト入力",
+                        info="ここに、AIが生成した場所の定義などをそのまま貼り付けてください。",
+                        lines=10
+                    )
+                    format_button_wb = gr.Button("AIに整形を依頼", variant="secondary")
+                # ▲▲▲ 修正ここまで ▲▲▲
+
                 with gr.Row(equal_height=False):
                     with gr.Column(scale=1, min_width=250):
-                        gr.Markdown("### 1. 編集対象を選択")
+                        gr.Markdown("### 1. 既存の項目を編集") # 見出しを少し変更
                         area_selector = gr.Radio(label="エリア (`##`)", interactive=True)
                         room_selector = gr.Radio(label="部屋 (`###`)", interactive=True)
                         edit_button_wb = gr.Button("選択した項目を編集", variant="secondary", visible=False)
@@ -203,11 +214,12 @@ try:
                             with gr.Row():
                                 confirm_add_button_wb = gr.Button("決定", variant="primary")
                                 cancel_add_button_wb = gr.Button("キャンセル")
+
                     with gr.Column(scale=3):
                         gr.Markdown("### 2. 内容を確認・編集")
                         details_display_wb = gr.Markdown("← 左のパネルからエリアや部屋を選択してください。")
 
-                        # ▼▼▼ ここからが新しいUIの定義 ▼▼▼
+                        # ... (リスト項目エディタ、辞書項目エディタのアコーディオンは変更なし) ...
                         with gr.Accordion("リスト項目を編集", open=False) as list_editor_accordion_wb:
                             # --- どのリストを編集するか ---
                             with gr.Row():
@@ -251,23 +263,13 @@ try:
                                 wrap=True
                             )
 
+                        # ▼▼▼ RAW YAMLエディタのアコーディオンから、「AI整形支援」部分を削除 ▼▼▼
                         with gr.Accordion("RAW YAMLエディタ (上級者向け)", open=False) as raw_yaml_accordion_wb:
-                            with gr.Accordion("AI整形支援 (β)", open=False):
-                                raw_text_input_wb = gr.Textbox(
-                                    label="自由形式テキスト入力",
-                                    info="ここに、AIが生成した場所の定義などをそのまま貼り付けてください。",
-                                    lines=10
-                                )
-                                format_button_wb = gr.Button("AIに整形を依頼", variant="secondary")
-
-                            # ▼▼▼ 修正の核心：削除されてしまった gr.Column ラッパーを復活させる ▼▼▼
                             with gr.Column(visible=True) as editor_wrapper_wb:
-                                # ▼▼▼ この行を修正 ▼▼▼
-                                editor_content_wb = gr.Textbox(label="YAML Editor", interactive=True, lines=20, scale=1)
+                                editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True) # gr.Codeに戻します
                                 with gr.Row():
                                     save_button_wb = gr.Button("RAW YAMLを保存", variant="primary")
                                     cancel_button_wb = gr.Button("キャンセル")
-                            # ▲▲▲ 修正ここまで ▲▲▲
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
