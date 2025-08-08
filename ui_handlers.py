@@ -8,6 +8,8 @@ import gradio as gr
 import json
 import shutil
 from yaml.constructor import ConstructorError
+import queue
+import threading
 
 # Keep all other existing imports and functions from the original ui_handlers.py
 # For brevity, I'm only showing the new/changed functions.
@@ -827,7 +829,10 @@ def handle_item_selection(world_data: Dict, area_id: str, room_id: Optional[str]
     else:
         return (
             gr.update(choices=room_choices, value=room_id), generate_details_markdown(selected_data),
-            gr.update(visible=True), gr.update(visible=True),
+            gr.update(visible=True),
+            # ▼▼▼ 以下の行を修正 ▼▼▼
+            gr.update(visible=True, open=False), # アコーディオンは表示するが、閉じておく
+            # ▲▲▲ 修正ここまで ▲▲▲
             gr.update(open=list_accordion_open), gr.update(choices=list_keys, value=None),
             gr.update(choices=[], value=None), gr.update(visible=False),
             gr.update(open=dict_accordion_open), gr.update(choices=dict_keys, value=None),
@@ -1184,35 +1189,29 @@ def handle_confirm_add_button_click(character_name: str, world_data: Dict, selec
     )
 
 def handle_format_button_click(raw_text: str, character_name: str, api_key_name: str):
-    """AI整形支援ボタンが押された時の処理（単純復帰版）"""
+    """AI整形支援ボタンが押された時の処理"""
     if not raw_text or not raw_text.strip():
         gr.Warning("整形するテキストを入力してください。")
-        return gr.update()
+        return gr.update() # Textboxの内容は変更しない
 
     api_key = config_manager.API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return gr.update()
 
-    gr.Info("AIにテキストの整形を依頼しています...（完了までUIが応答しない場合があります）")
+    gr.Info("AIにテキストの整形を依頼しています...")
 
-    try:
-        from tools.space_tools import format_text_to_yaml
-        formatted_yaml = format_text_to_yaml.func(
-            text_input=raw_text,
-            character_name=character_name,
-            api_key=api_key
-        )
+    from tools.space_tools import format_text_to_yaml
+    # .func を使ってツールの実体関数を呼び出す
+    formatted_yaml = format_text_to_yaml.func(
+        text_input=raw_text,
+        character_name=character_name,
+        api_key=api_key
+    )
 
-        if "【Error】" in formatted_yaml or not formatted_yaml.strip():
-            error_message = formatted_yaml if formatted_yaml.strip() else "AIからの応答が空でした。"
-            gr.Error(f"AIによる整形に失敗しました: {error_message}")
-            return gr.update()
+    if "【Error】" in formatted_yaml:
+        gr.Error(f"AIによる整形に失敗しました: {formatted_yaml}")
+        return gr.update() # エラー時は元の内容を維持
 
-        gr.Info("AIによる整形が完了しました。")
-        return formatted_yaml
-
-    except Exception as e:
-        gr.Error(f"AI整形処理中に予期せぬエラーが発生しました: {e}")
-        traceback.print_exc()
-        return gr.update()
+    gr.Info("AIによる整形が完了しました。内容を確認して保存してください。")
+    return formatted_yaml # 成功した場合、整形後のYAMLをTextboxに返す

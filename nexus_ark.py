@@ -77,6 +77,9 @@ try:
         editing_alarm_id_state = gr.State(None)
         selected_message_state = gr.State(None)
         current_log_map_state = gr.State([])
+        wb_result_queue = gr.State(None)
+        wb_result_text = gr.Textbox(visible=False)
+        wb_status_text = gr.Textbox(visible=False)
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -87,22 +90,11 @@ try:
                         with gr.Accordion("空間認識・移動", open=False):
                             scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
                             generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
-
-                            # ▼▼▼ ここからが追加箇所 ▼▼▼
-                            scenery_style_radio = gr.Dropdown(
-                                choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
-                                label="画風を選択",
-                                value="写真風 (デフォルト)",
-                                interactive=True
-                            )
-                            # ▲▲▲ 追加ここまで ▲▲▲
-
+                            scenery_style_radio = gr.Dropdown(choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"], label="画風を選択", value="写真風 (デフォルト)", interactive=True)
                             current_location_display = gr.Textbox(label="現在地", interactive=False)
                             current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
                             refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
                             location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True)
-                            # ▼▼▼ この行を削除 ▼▼▼
-                            # change_location_button = gr.Button("移動")
                         with gr.Accordion("⚙️ 設定", open=False):
                             with gr.Tabs():
                                 with gr.TabItem("キャラクター個別設定"):
@@ -160,18 +152,8 @@ try:
 
                     with gr.Column(scale=3):
                         chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
-
-                        # ▼▼▼ ここからが追加箇所 ▼▼▼
                         with gr.Row():
-                            audio_player = gr.Audio(
-                                label="音声プレーヤー",
-                                visible=False,
-                                autoplay=True,
-                                interactive=True,
-                                elem_id="main_audio_player"
-                            )
-                        # ▲▲▲ 追加ここまで ▲▲▲
-
+                            audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
                         with gr.Row(visible=False) as action_button_group:
                             play_audio_button = gr.Button("🔊 選択した発言を再生"); delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop"); cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
                         with gr.Row():
@@ -186,20 +168,12 @@ try:
 
             with gr.TabItem("ワールド・ビルダー") as world_builder_tab:
                 gr.Markdown("## 🌐 ワールド・ビルダー\n`world_settings.md` の内容を、書式を意識せずに編集・保存できます。")
-
-                # ▼▼▼ 修正の核心：「AI整形支援」を一番上に移動させ、独立させる ▼▼▼
-                with gr.Accordion("AI整形支援 (β)", open=True): # 最初から開いておく
-                    raw_text_input_wb = gr.Textbox(
-                        label="自由形式テキスト入力",
-                        info="ここに、AIが生成した場所の定義などをそのまま貼り付けてください。",
-                        lines=10
-                    )
+                with gr.Accordion("AI整形支援 (β)", open=True):
+                    raw_text_input_wb = gr.Textbox(label="自由形式テキスト入力", info="ここに、AIが生成した場所の定義などをそのまま貼り付けてください。", lines=10)
                     format_button_wb = gr.Button("AIに整形を依頼", variant="secondary")
-                # ▲▲▲ 修正ここまで ▲▲▲
-
                 with gr.Row(equal_height=False):
                     with gr.Column(scale=1, min_width=250):
-                        gr.Markdown("### 1. 既存の項目を編集") # 見出しを少し変更
+                        gr.Markdown("### 1. 既存の項目を編集")
                         area_selector = gr.Radio(label="エリア (`##`)", interactive=True)
                         room_selector = gr.Radio(label="部屋 (`###`)", interactive=True)
                         edit_button_wb = gr.Button("選択した項目を編集", variant="secondary", visible=False)
@@ -214,59 +188,44 @@ try:
                             with gr.Row():
                                 confirm_add_button_wb = gr.Button("決定", variant="primary")
                                 cancel_add_button_wb = gr.Button("キャンセル")
-
                     with gr.Column(scale=3):
                         gr.Markdown("### 2. 内容を確認・編集")
                         details_display_wb = gr.Markdown("← 左のパネルからエリアや部屋を選択してください。")
-
-                        # ... (リスト項目エディタ、辞書項目エディタのアコーディオンは変更なし) ...
                         with gr.Accordion("リスト項目を編集", open=False) as list_editor_accordion_wb:
-                            # --- どのリストを編集するか ---
                             with gr.Row():
                                 list_key_selector_wb = gr.Dropdown(label="編集するリストを選択", interactive=True, scale=3)
                                 add_new_list_button_wb = gr.Button("リストを新規作成", scale=1)
-
                             with gr.Column(visible=False) as new_list_form_wb:
                                 new_list_key_wb = gr.Textbox(label="新しいリスト名", placeholder="例: items, characters")
                                 with gr.Row():
                                     confirm_add_list_button_wb = gr.Button("決定", variant="primary")
                                     cancel_add_list_button_wb = gr.Button("キャンセル")
-
-                            # --- どの項目を編集するか ---
                             with gr.Row():
                                 list_item_selector_wb = gr.Dropdown(label="編集する項目を選択", interactive=True, scale=3)
                                 add_new_item_button_wb = gr.Button("新規項目を追加", scale=1)
-
-                            # --- 編集フォーム ---
                             with gr.Column(visible=False) as item_edit_form_wb:
                                 item_id_wb = gr.Textbox(label="ID (変更不可)", interactive=False)
                                 item_name_wb = gr.Textbox(label="名前 (name)", interactive=True)
                                 item_description_wb = gr.Textbox(label="説明 (description)", interactive=True, lines=5)
-                                # ambition などの他のキーは将来的に追加
-
                                 with gr.Row():
                                     save_item_button_wb = gr.Button("この項目を保存", variant="primary")
                                     delete_item_button_wb = gr.Button("この項目を削除", variant="stop")
                                     cancel_item_edit_button_wb = gr.Button("キャンセル")
-
                         with gr.Accordion("辞書項目を編集", open=False) as dict_editor_accordion_wb:
                             with gr.Row():
                                 dict_key_selector_wb = gr.Dropdown(label="編集する辞書を選択", interactive=True, scale=3)
                                 save_dict_button_wb = gr.Button("変更を保存", variant="primary", scale=1)
-
-                            dict_dataframe_wb = gr.DataFrame(
-                                headers=["キー", "値"],
-                                datatype=["str", "str"],
-                                row_count=(5, "dynamic"),
-                                col_count=(2, "fixed"),
-                                interactive=True,
-                                wrap=True
-                            )
-
-                        # ▼▼▼ RAW YAMLエディタのアコーディオンから、「AI整形支援」部分を削除 ▼▼▼
+                            dict_dataframe_wb = gr.DataFrame(headers=["キー", "値"], datatype=["str", "str"], row_count=(5, "dynamic"), col_count=(2, "fixed"), interactive=True, wrap=True)
                         with gr.Accordion("RAW YAMLエディタ (上級者向け)", open=False) as raw_yaml_accordion_wb:
                             with gr.Column(visible=True) as editor_wrapper_wb:
-                                editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True) # gr.Codeに戻します
+                                    # ▼▼▼ 修正の核心：gr.Codeからgr.Textboxに変更 ▼▼▼
+                                    editor_content_wb = gr.Textbox(
+                                        label="YAML Editor",
+                                        interactive=True,
+                                        lines=15,
+                                        elem_id="world_builder_raw_editor" # CSS適用やJS操作のためのID
+                                    )
+                                    # ▲▲▲ 修正ここまで ▲▲▲
                                 with gr.Row():
                                     save_button_wb = gr.Button("RAW YAMLを保存", variant="primary")
                                     cancel_button_wb = gr.Button("キャンセル")
@@ -274,35 +233,12 @@ try:
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
         context_token_calc_inputs = [current_character_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
-
-        # --- アプリケーション起動時の初期化 ---
-        initial_load_chat_outputs = [
-            current_character_name, chatbot_display, current_log_map_state, chat_input_textbox, profile_image_display,
-            memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown,
-            current_location_display, current_scenery_display, char_model_dropdown, char_voice_dropdown,
-            char_voice_style_prompt_textbox
-        ] + context_checkboxes + [char_settings_info, scenery_image_display]
+        initial_load_chat_outputs = [current_character_name, chatbot_display, current_log_map_state, chat_input_textbox, profile_image_display, memory_json_editor, alarm_char_dropdown, timer_char_dropdown, notepad_editor, location_dropdown, current_location_display, current_scenery_display, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox] + context_checkboxes + [char_settings_info, scenery_image_display]
         initial_load_outputs = [alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown] + initial_load_chat_outputs
-        demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
-            fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
-        )
-
-        # --- キャラクター変更時のグローバル更新 ---
-        char_change_world_builder_outputs = [
-             world_data_state, area_selector, room_selector, details_display_wb,
-             editor_wrapper_wb, edit_button_wb, new_item_form_wb
-        ]
-
+        demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
+        char_change_world_builder_outputs = [world_data_state, area_selector, room_selector, details_display_wb, editor_wrapper_wb, edit_button_wb, new_item_form_wb]
         all_char_change_outputs = initial_load_chat_outputs + char_change_world_builder_outputs
-        character_dropdown.change(
-            fn=ui_handlers.handle_character_change_for_all_tabs,
-            inputs=[character_dropdown, api_key_dropdown],
-            outputs=all_char_change_outputs
-        ).then(
-            fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
-        )
-
-        # --- チャットタブのイベント ---
+        character_dropdown.change(fn=ui_handlers.handle_character_change_for_all_tabs, inputs=[character_dropdown, api_key_dropdown], outputs=all_char_change_outputs).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state])
         chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state, current_log_map_state], outputs=[selected_message_state, action_button_group], show_progress=False)
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
@@ -310,11 +246,7 @@ try:
         chat_inputs = [chat_input_textbox, current_character_name, current_api_key_name_state, file_upload_button, api_history_limit_state, debug_mode_checkbox]
         chat_submit_outputs = [chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe, scenery_image_display]
         save_char_settings_button.click(fn=ui_handlers.handle_save_char_settings, inputs=[current_character_name, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox] + context_checkboxes, outputs=None).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-        char_preview_voice_button.click(
-            fn=ui_handlers.handle_voice_preview,
-            inputs=[char_voice_dropdown, char_voice_style_prompt_textbox, char_preview_text_textbox, api_key_dropdown],
-            outputs=[audio_player, play_audio_button, char_preview_voice_button] # ★ 変更点
-        )
+        char_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[char_voice_dropdown, char_voice_style_prompt_textbox, char_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, char_preview_voice_button])
         for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
@@ -327,19 +259,8 @@ try:
         file_upload_button.clear(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
         refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_character_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
-
-        # --- 空間移動のイベント ---
-        location_dropdown.change(
-            fn=ui_handlers.handle_location_change,
-            # ▼▼▼ 修正: inputs に api_key_dropdown を追加 ▼▼▼
-            inputs=[current_character_name, location_dropdown, api_key_dropdown],
-            outputs=[current_location_display, current_scenery_display, scenery_image_display]
-        )
-        play_audio_button.click(
-            fn=ui_handlers.handle_play_audio_button_click,
-            inputs=[selected_message_state, current_character_name, current_api_key_name_state],
-            outputs=[audio_player, play_audio_button, char_preview_voice_button] # ★ 変更点
-        )
+        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
+        play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player, play_audio_button, char_preview_voice_button])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor]).then(fn=lambda: gr.update(variant="secondary"), inputs=None, outputs=[save_memory_button])
         reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_character_name], outputs=[memory_json_editor])
@@ -355,23 +276,10 @@ try:
         timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
         rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
-        generate_scenery_image_button.click(
-            fn=ui_handlers.handle_generate_or_regenerate_scenery_image,
-            inputs=[current_character_name, api_key_dropdown, scenery_style_radio], # ★ scenery_style_radio を追加
-            outputs=[scenery_image_display]
-        )
-
-        # --- ワールド・ビルダーのイベント ---
+        generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_character_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
         world_builder_tab.select(fn=ui_handlers.handle_world_builder_load, inputs=[current_character_name], outputs=char_change_world_builder_outputs)
-        # エリアや部屋を選択した時
         selection_event_inputs = [world_data_state, area_selector, room_selector]
-        selection_event_outputs = [
-            room_selector, details_display_wb, edit_button_wb, editor_wrapper_wb,
-            list_editor_accordion_wb, list_key_selector_wb,
-            list_item_selector_wb, item_edit_form_wb,
-            # ▼▼▼ 3つのUI部品を末尾に追加 ▼▼▼
-            dict_editor_accordion_wb, dict_key_selector_wb, dict_dataframe_wb
-        ]
+        selection_event_outputs = [room_selector, details_display_wb, edit_button_wb, editor_wrapper_wb, list_editor_accordion_wb, list_key_selector_wb, list_item_selector_wb, item_edit_form_wb, dict_editor_accordion_wb, dict_key_selector_wb, dict_dataframe_wb]
         area_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
         room_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
         edit_button_wb.click(fn=ui_handlers.handle_edit_button_click, inputs=[world_data_state, area_selector, room_selector], outputs=[details_display_wb, editor_wrapper_wb, editor_content_wb])
@@ -384,78 +292,19 @@ try:
         confirm_add_button_wb.click(fn=ui_handlers.handle_confirm_add_button_click, inputs=[current_character_name, world_data_state, area_selector, new_item_type_wb, new_item_id_wb, new_item_name_wb], outputs=confirm_add_outputs)
         cancel_add_outputs = [area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_id_wb, new_item_name_wb]
         cancel_add_button_wb.click(fn=ui_handlers.handle_cancel_add_button_click, outputs=cancel_add_outputs)
-
-        # --- リスト項目エディタのイベント ---
-        list_key_selector_wb.change(
-            fn=ui_handlers.handle_list_key_selection,
-            inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb],
-            outputs=[list_item_selector_wb, item_edit_form_wb]
-        )
-
-        list_item_selector_wb.change(
-            fn=ui_handlers.handle_list_item_selection,
-            inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb, list_item_selector_wb],
-            outputs=[item_edit_form_wb, item_id_wb, item_name_wb, item_description_wb]
-        )
-
-        add_new_item_button_wb.click(
-            fn=ui_handlers.handle_add_new_item_click,
-            inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb],
-            outputs=[item_edit_form_wb, item_id_wb, item_name_wb, item_description_wb]
-        )
-
-        save_item_button_wb.click(
-            fn=ui_handlers.handle_save_item_click,
-            inputs=[world_data_state, current_character_name, area_selector, room_selector, list_key_selector_wb, item_id_wb, item_name_wb, item_description_wb],
-            outputs=[world_data_state, list_item_selector_wb, item_edit_form_wb]
-        )
-
-        delete_item_button_wb.click(
-            fn=ui_handlers.handle_delete_item_click,
-            inputs=[world_data_state, current_character_name, area_selector, room_selector, list_key_selector_wb, item_id_wb],
-            outputs=[world_data_state, list_item_selector_wb, item_edit_form_wb]
-        )
-
-        cancel_item_edit_button_wb.click(
-            fn=lambda: gr.update(visible=False),
-            outputs=[item_edit_form_wb]
-        )
-
-        add_new_list_button_wb.click(
-            fn=lambda: gr.update(visible=True),
-            outputs=[new_list_form_wb]
-        )
-        confirm_add_list_button_wb.click(
-            fn=ui_handlers.handle_add_new_list_click,
-            inputs=[world_data_state, current_character_name, area_selector, room_selector, new_list_key_wb],
-            outputs=[world_data_state, list_key_selector_wb, new_list_form_wb, new_list_key_wb]
-        )
-        cancel_add_list_button_wb.click(
-            fn=lambda: (gr.update(visible=False), ""),
-            outputs=[new_list_form_wb, new_list_key_wb]
-        )
-
-        # --- 辞書項目エディタのイベント ---
-        dict_key_selector_wb.change(
-            fn=ui_handlers.handle_dict_key_selection,
-            inputs=[world_data_state, area_selector, room_selector, dict_key_selector_wb],
-            outputs=[dict_dataframe_wb]
-        )
-        save_dict_button_wb.click(
-            fn=ui_handlers.handle_save_dict_click,
-            inputs=[world_data_state, current_character_name, area_selector, room_selector, dict_key_selector_wb, dict_dataframe_wb],
-            outputs=[world_data_state, details_display_wb] # 保存後に詳細表示も更新
-        )
-
-        # ▼▼▼ この行を末尾に追加 ▼▼▼
+        list_key_selector_wb.change(fn=ui_handlers.handle_list_key_selection, inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb], outputs=[list_item_selector_wb, item_edit_form_wb])
+        list_item_selector_wb.change(fn=ui_handlers.handle_list_item_selection, inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb, list_item_selector_wb], outputs=[item_edit_form_wb, item_id_wb, item_name_wb, item_description_wb])
+        add_new_item_button_wb.click(fn=ui_handlers.handle_add_new_item_click, inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb], outputs=[item_edit_form_wb, item_id_wb, item_name_wb, item_description_wb])
+        save_item_button_wb.click(fn=ui_handlers.handle_save_item_click, inputs=[world_data_state, current_character_name, area_selector, room_selector, list_key_selector_wb, item_id_wb, item_name_wb, item_description_wb], outputs=[world_data_state, list_item_selector_wb, item_edit_form_wb])
+        delete_item_button_wb.click(fn=ui_handlers.handle_delete_item_click, inputs=[world_data_state, current_character_name, area_selector, room_selector, list_key_selector_wb, item_id_wb], outputs=[world_data_state, list_item_selector_wb, item_edit_form_wb])
+        cancel_item_edit_button_wb.click(fn=lambda: gr.update(visible=False), outputs=[item_edit_form_wb])
+        add_new_list_button_wb.click(fn=lambda: gr.update(visible=True), outputs=[new_list_form_wb])
+        confirm_add_list_button_wb.click(fn=ui_handlers.handle_add_new_list_click, inputs=[world_data_state, current_character_name, area_selector, room_selector, new_list_key_wb], outputs=[world_data_state, list_key_selector_wb, new_list_form_wb, new_list_key_wb])
+        cancel_add_list_button_wb.click(fn=lambda: (gr.update(visible=False), ""), outputs=[new_list_form_wb, new_list_key_wb])
+        dict_key_selector_wb.change(fn=ui_handlers.handle_dict_key_selection, inputs=[world_data_state, area_selector, room_selector, dict_key_selector_wb], outputs=[dict_dataframe_wb])
+        save_dict_button_wb.click(fn=ui_handlers.handle_save_dict_click, inputs=[world_data_state, current_character_name, area_selector, room_selector, dict_key_selector_wb, dict_dataframe_wb], outputs=[world_data_state, details_display_wb])
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
-
-        format_button_wb.click(
-            fn=ui_handlers.handle_format_button_click,
-            inputs=[raw_text_input_wb, current_character_name, api_key_dropdown],
-            outputs=[editor_content_wb],
-            show_progress="full"  # ★★★ ローディングアニメーションを有効化
-        )
+        format_button_wb.click(fn=ui_handlers.handle_format_button_click, inputs=[raw_text_input_wb, current_character_name, api_key_dropdown], outputs=[editor_content_wb], show_progress="full")
 
     if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
