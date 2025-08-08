@@ -213,22 +213,19 @@ def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> s
     try:
         from gemini_api import get_configured_llm
 
-        # ▼▼▼ 修正の核心1：タイムアウトを設定して呼び出す ▼▼▼
-        # 整形処理は最大30秒まで待つ
         formatter_llm = get_configured_llm("gemini-2.5-flash", api_key, timeout=30)
 
-        # ▼▼▼ 修正の核心2：AIが沈黙しにくいようにプロンプトを改善 ▼▼▼
+        # ▼▼▼ 修正の核心：曖昧な入力にも対応できるようにプロンプトを高度化 ▼▼▼
         prompt_template = (
             "あなたは、自由形式のテキストを、厳格なYAML形式に変換することに特化した、高度な構造化AIです。\n"
             "以下の「場所の定義テキスト」を解析し、`world_settings.md` ファイルのセクションボディとして使用できる、有効なYAMLコードに変換してください。\n\n"
             "【最重要ルール】\n"
+            "- もし入力テキストに複数の場所の定義が含まれているように見える場合、あなたは必ず**最初の場所の定義だけを処理し、2つ目以降は完全に無視**しなければなりません。\n"
             "- あなたの唯一のタスクは、YAMLコードを生成することです。それ以外の応答は絶対に行わないでください。\n"
             "- 解釈に迷う部分があっても、あなたが最も適切だと判断したYAMLの構造に当てはめて、最善を尽くして出力を生成してください。決して沈黙したり、エラーを返したりしてはいけません。\n"
             "- 出力には、YAMLコード以外の、いかなる説明や挨拶、前置き、後書き（例: ```yaml```）も絶対に含めてはなりません。\n"
-            "- キーは必ず半角英数字にしてください（例: 「家具」-> `furniture`）。\n"
-            "- 複数項目を持つものは、`- name:` で始まるリスト形式にしてください。\n"
-            "- 特性の集まり（例: ambiance）は、キーと値を持つ辞書形式にしてください。\n"
-            "- 元のテキストの詩的な表現や、詳細な描写は、最大限尊重し、保持してください。\n\n"
+            "- キーは必ず半角英数字にしてください（例: 「家具」-> `furniture`）。お手本にないキー（例: `style`）も、可能なら英語に翻訳して維持してください。\n"
+            "- `⦁`のような記号で始まるリストも、`- name:` で始まるリスト形式に変換してください。\n\n"
             "【出力フォーマットの例】\n"
             "name: 場所の名前\n"
             "description: 場所の説明文。\n"
@@ -247,14 +244,12 @@ def format_text_to_yaml(text_input: str, character_name: str, api_key: str) -> s
 
         response = formatter_llm.invoke(prompt)
 
-        # 応答が空だった場合もエラーとして扱う
         if not response or not response.content or not response.content.strip():
-            return "【Error】AIからの応答が空でした。テキストが複雑すぎる可能性があります。"
+            return "【Error】AIからの応答が空でした。テキストが複雑すぎるか、解釈不能な可能性があります。"
 
         return response.content.strip()
 
     except Exception as e:
-        # タイムアウトエラーを捕捉して、分かりやすいメッセージを返す
         if "timeout" in str(e).lower():
             return "【Error】AIによる整形処理がタイムアウトしました。テキストを短くするか、後でもう一度試してください。"
         traceback.print_exc()
