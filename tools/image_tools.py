@@ -6,6 +6,7 @@ import datetime
 import traceback
 from PIL import Image
 import google.genai as genai
+import httpx
 from langchain_core.tools import tool
 from google.genai import types
 
@@ -60,14 +61,17 @@ def generate_image(prompt: str, character_name: str, api_key: str) -> str:
 
         return f"[Generated Image: {save_path}]"
 
-    # ★★★ ここからがエラーハンドリングの修正箇所です ★★★
+    # ▼▼▼ ここからが修正箇所 ▼▼▼
+    except httpx.RemoteProtocolError as e:
+        # サーバーが応答なしに切断した場合
+        print(f"  - 画像生成ツールでサーバー切断エラー: {e}")
+        return "【エラー】Googleのサーバーが応答せずに接続を切断しました。プロンプトが複雑すぎるか、サーバーが一時的に不安定な可能性があります。プロンプトを簡潔にして、もう一度試してみてください。"
     except genai.errors.ServerError as e:
-        # 500系のサーバーエラーを特別に補足
+        # 500系のサーバーエラー
         print(f"  - 画像生成ツールでサーバーエラー(500番台): {e}")
-        # AIに対して、より具体的で次のアクションを促すメッセージを返す
         return "【エラー】Googleのサーバー側で内部エラー(500)が発生しました。プロンプトが安全フィルターに抵触したか、一時的な問題の可能性があります。プロンプトをよりシンプルにして、もう一度試してみてください。"
     except genai.errors.ClientError as e:
-        # 400系のクライアントエラー（無効な引数など）を補足
+        # 400系のクライアントエラー
         print(f"  - 画像生成ツールでクライアントエラー(400番台): {e}")
         return f"【エラー】APIリクエストが無効です(400番台)。詳細: {e}"
     except Exception as e:
@@ -75,4 +79,4 @@ def generate_image(prompt: str, character_name: str, api_key: str) -> str:
         print(f"  - 画像生成ツールで予期せぬエラー: {e}")
         traceback.print_exc()
         return f"【エラー】画像生成中に予期せぬ問題が発生しました。詳細: {e}"
-    # ★★★ 修正箇所ここまで ★★★
+    # ▲▲▲ 修正ここまで ▲▲▲
