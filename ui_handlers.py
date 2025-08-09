@@ -75,7 +75,7 @@ def handle_character_change(character_name: str, api_key_name: str):
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
     # ▼▼▼ ここからが修正の核心 ▼▼▼
     # まず、UIに表示するための移動先リストを生成する
@@ -242,7 +242,7 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
     if not character_name or not api_key_name:
         return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）", None
 
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return "（APIキーエラー）", "（APIキーエラー）", None
@@ -267,7 +267,7 @@ def handle_location_change(character_name: str, selected_value: str, api_key_nam
     if not selected_value or selected_value.startswith("__AREA_HEADER_"):
         # ヘッダーがクリックされたか、値がない場合は何もしない
         # 現在の状態をそのまま返す
-        location_name, _, scenery_text = generate_scenery_context(character_name, config_manager.API_KEYS.get(api_key_name))
+        location_name, _, scenery_text = generate_scenery_context(character_name, config_manager.GEMINI_API_KEYS.get(api_key_name))
         scenery_image_path = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
         return location_name, scenery_text, scenery_image_path
 
@@ -297,7 +297,7 @@ def handle_location_change(character_name: str, selected_value: str, api_key_nam
 
     # ▼▼▼ 修正の核心 ▼▼▼
     # 移動後に、キャッシュを考慮した情景取得関数を呼び出す
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return "（APIキーエラー）", "（APIキーエラー）", None
@@ -483,7 +483,7 @@ def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_
 
 def handle_rag_update_button_click(character_name: str, api_key_name: str):
     if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{character_name}」のRAG索引の更新を開始します...")
     import rag_manager
@@ -499,7 +499,7 @@ def _run_core_memory_update(character_name: str, api_key: str):
 
 def handle_core_memory_update_click(character_name: str, api_key_name: str):
     if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{character_name}」のコアメモリ更新をバックグラウンドで開始しました。")
     threading.Thread(target=_run_core_memory_update, args=(character_name, api_key)).start()
@@ -541,7 +541,7 @@ def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], c
 
         effective_settings = config_manager.get_effective_settings(character_name)
         voice_id, voice_style_prompt = effective_settings.get("voice_id", "iapetus"), effective_settings.get("voice_style_prompt", "")
-        api_key = config_manager.API_KEYS.get(api_key_name)
+        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         if not api_key:
             gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
             return
@@ -580,7 +580,7 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
 
     try:
         voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
-        api_key = config_manager.API_KEYS.get(api_key_name)
+        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         if not voice_id or not api_key:
             gr.Warning("声またはAPIキーが無効です。")
             return
@@ -609,7 +609,7 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         gr.Warning("キャラクターとAPIキーを選択してください。")
         return None
 
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return None
@@ -741,7 +741,7 @@ def handle_api_connection_test(api_key_name: str):
         gr.Warning("テストするAPIキーが選択されていません。")
         return
 
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         gr.Error(f"APIキー '{api_key_name}' は無効です。config.jsonを確認してください。")
         return
@@ -913,3 +913,33 @@ def handle_wb_delete_place(character_name: str, world_data: Dict, area_name: str
 
     place_choices = sorted(world_data[area_name].keys())
     return world_data, gr.update(choices=place_choices, value=None), ""
+
+def handle_save_gemini_key(key_name, key_value):
+    if not key_name or not key_value:
+        gr.Warning("キーの名前と値の両方を入力してください。")
+        return gr.update(), gr.update()
+
+    config_manager.add_or_update_gemini_key(key_name, key_value)
+    gr.Info(f"Gemini APIキー「{key_name}」を保存しました。")
+
+    new_keys = list(config_manager.GEMINI_API_KEYS.keys())
+    return pd.DataFrame(new_keys, columns=["Geminiキー名"]), gr.update(choices=new_keys)
+
+def handle_delete_gemini_key(key_name):
+    if not key_name:
+        gr.Warning("削除するキーの名前を入力してください。")
+        return gr.update(), gr.update()
+
+    config_manager.delete_gemini_key(key_name)
+    gr.Info(f"Gemini APIキー「{key_name}」を削除しました。")
+
+    new_keys = list(config_manager.GEMINI_API_KEYS.keys())
+    return pd.DataFrame(new_keys, columns=["Geminiキー名"]), gr.update(choices=new_keys, value=new_keys[0] if new_keys else None)
+
+def handle_save_pushover_config(user_key, app_token):
+    config_manager.update_pushover_config(user_key, app_token)
+    gr.Info("Pushover設定を保存しました。")
+
+def handle_save_tavily_key(api_key):
+    config_manager.update_tavily_key(api_key)
+    gr.Info("Tavily APIキーを保存しました。")

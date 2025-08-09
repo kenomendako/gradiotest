@@ -123,10 +123,31 @@ try:
                                     save_char_settings_button = gr.Button("このキャラクターの設定を保存", variant="primary")
                                 with gr.TabItem("共通設定"):
                                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="使用するAIモデル", interactive=True)
-                                    api_key_dropdown = gr.Dropdown(choices=list(config_manager.API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True)
+                                    api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するAPIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
+
+                                    with gr.Accordion("🔑 APIキー管理", open=False):
+                                        gr.Markdown("### 登録済みのキー")
+                                        gemini_keys_display = gr.DataFrame(headers=["Geminiキー名"], col_count=(1, "fixed"), interactive=False, value=lambda: pd.DataFrame(list(config_manager.GEMINI_API_KEYS.keys()), columns=["Geminiキー名"]))
+
+                                        gr.Markdown("### 新規登録 / 更新")
+                                        with gr.Tabs():
+                                            with gr.TabItem("Gemini"):
+                                                gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
+                                                gemini_key_value_input = gr.Textbox(label="APIキーの値", type="password")
+                                                with gr.Row():
+                                                    save_gemini_key_button = gr.Button("Geminiキーを保存", variant="primary")
+                                                    delete_gemini_key_button = gr.Button("削除")
+                                            with gr.TabItem("Pushover"):
+                                                pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("user_key"))
+                                                pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("app_token"))
+                                                save_pushover_config_button = gr.Button("Pushover設定を保存", variant="primary")
+                                            with gr.TabItem("Tavily"):
+                                                tavily_key_input = gr.Textbox(label="Tavily API Key", type="password", value=lambda: config_manager.TAVILY_API_KEY)
+                                                save_tavily_key_button = gr.Button("Tavilyキーを保存", variant="primary")
+                                        gr.Warning("APIキーはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
                         with gr.Accordion("📗 記憶とメモの編集", open=False):
                             with gr.Tabs():
                                 with gr.TabItem("記憶"):
@@ -295,6 +316,32 @@ try:
             fn=ui_handlers.handle_generate_or_regenerate_scenery_image,
             inputs=[current_character_name, api_key_dropdown, scenery_style_radio], # ★ scenery_style_radio を追加
             outputs=[scenery_image_display]
+        )
+
+        # Geminiキーの保存・削除
+        save_gemini_key_button.click(
+            fn=ui_handlers.handle_save_gemini_key,
+            inputs=[gemini_key_name_input, gemini_key_value_input],
+            outputs=[gemini_keys_display, api_key_dropdown]
+        )
+        delete_gemini_key_button.click(
+            fn=ui_handlers.handle_delete_gemini_key,
+            inputs=[gemini_key_name_input],
+            outputs=[gemini_keys_display, api_key_dropdown]
+        )
+
+        # Pushover設定の保存
+        save_pushover_config_button.click(
+            fn=ui_handlers.handle_save_pushover_config,
+            inputs=[pushover_user_key_input, pushover_app_token_input],
+            outputs=[]
+        )
+
+        # Tavilyキーの保存
+        save_tavily_key_button.click(
+            fn=ui_handlers.handle_save_tavily_key,
+            inputs=[tavily_key_input],
+            outputs=[]
         )
 
         # --- ワールド・ビルダーのイベント ---

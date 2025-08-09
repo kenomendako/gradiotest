@@ -5,16 +5,15 @@ import os
 import constants
 
 # --- グローバル変数 ---
-API_KEYS = {}
+GEMINI_API_KEYS = {}
+PUSHOVER_CONFIG = {}
+TAVILY_API_KEY = None
 AVAILABLE_MODELS_GLOBAL = []
 DEFAULT_MODEL_GLOBAL = "gemini-2.5-pro"
-TAVILY_API_KEY = None
 
 # ▼▼▼ 新しいグローバル変数を追加 ▼▼▼
 NOTIFICATION_SERVICE_GLOBAL = "discord"
 NOTIFICATION_WEBHOOK_URL_GLOBAL = None
-PUSHOVER_APP_TOKEN_GLOBAL = None
-PUSHOVER_USER_KEY_GLOBAL = None
 # ▲▲▲ 追加ここまで ▲▲▲
 
 SUPPORTED_VOICES = {
@@ -58,53 +57,34 @@ initial_api_history_limit_option_global = constants.DEFAULT_API_HISTORY_LIMIT_OP
 initial_alarm_api_history_turns_global = constants.DEFAULT_ALARM_API_HISTORY_TURNS
 
 def load_config():
-    global API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global
+    global GEMINI_API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global
     global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global
     global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, TAVILY_API_KEY
-    global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_APP_TOKEN_GLOBAL, PUSHOVER_USER_KEY_GLOBAL
+    global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
 
-    default_config = {
-        "api_keys": {"your_key_name_1": "YOUR_API_KEY_HERE"}, "available_models": ["gemini-2.5-pro"], "default_model": "gemini-2.5-pro",
-        "default_api_key_name": "your_key_name_1", "last_character": "Default", "last_model": "gemini-2.5-pro",
-        "last_api_key_name": "your_key_name_1", "last_send_thoughts_to_api": True,
-        "last_api_history_limit_option": constants.DEFAULT_API_HISTORY_LIMIT_OPTION, "alarm_api_history_turns": constants.DEFAULT_ALARM_API_HISTORY_TURNS,
-        "tavily_api_key": "YOUR_TAVILY_API_KEY_HERE", "notification_service": "discord", "notification_webhook_url": None,
-        "pushover_app_token": None, "pushover_user_key": None
+    config = _load_config_file()
+
+    # --- Gemini APIキーの読み込み ---
+    GEMINI_API_KEYS = config.get("gemini_api_keys", {"your_key_name": "YOUR_API_KEY_HERE"})
+    valid_gemini_keys = list(GEMINI_API_KEYS.keys())
+    last_key = config.get("last_api_key_name")
+    if last_key and last_key in valid_gemini_keys:
+        initial_api_key_name_global = last_key
+    elif valid_gemini_keys:
+        initial_api_key_name_global = valid_gemini_keys[0]
+    else:
+        initial_api_key_name_global = "your_key_name"
+
+    # --- Pushover設定の読み込み ---
+    PUSHOVER_CONFIG = {
+        "user_key": config.get("pushover_user_key", ""),
+        "app_token": config.get("pushover_app_token", "")
     }
 
-    config = default_config.copy() # デフォルトをコピーして開始
-    if os.path.exists(constants.CONFIG_FILE):
-        try:
-            with open(constants.CONFIG_FILE, "r", encoding="utf-8") as f:
-                # 既存の設定を上書きする形で読み込む
-                config.update(json.load(f))
-        except Exception as e:
-            print(f"'{constants.CONFIG_FILE}' 読込エラー: {e}")
+    # --- Tavily APIキーの読み込み ---
+    TAVILY_API_KEY = config.get("tavily_api_key", "")
 
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
-    API_KEYS = config.get("api_keys", {})
-    valid_api_keys = list(API_KEYS.keys())
-
-    # 1. 有効なAPIキーが存在しない場合は、処理を中断
-    if not valid_api_keys or "YOUR_API_KEY_HERE" in API_KEYS.values():
-        print("警告: config.jsonに有効なAPIキーが設定されていません。")
-        initial_api_key_name_global = config.get("default_api_key_name") # 一時的に設定
-    else:
-        # 2. last_api_key_name を検証
-        last_key = config.get("last_api_key_name")
-        if last_key and last_key in valid_api_keys:
-            initial_api_key_name_global = last_key
-        else:
-            # 3. last が無効なら default_api_key_name を検証
-            default_key = config.get("default_api_key_name")
-            if default_key and default_key in valid_api_keys:
-                initial_api_key_name_global = default_key
-            else:
-                # 4. 両方無効なら、有効なキーリストの先頭を強制的に使用
-                initial_api_key_name_global = valid_api_keys[0]
-
-    # ▲▲▲ 修正ここまで ▲▲▲
-
+    # （以降の既存の読み込み処理はそのまま残す）
     AVAILABLE_MODELS_GLOBAL = config.get("available_models", ["gemini-2.5-pro"])
     DEFAULT_MODEL_GLOBAL = config.get("default_model", "gemini-2.5-pro")
 
@@ -113,17 +93,55 @@ def load_config():
     initial_send_thoughts_to_api_global = config.get("last_send_thoughts_to_api", True)
     initial_api_history_limit_option_global = config.get("last_api_history_limit_option", constants.DEFAULT_API_HISTORY_LIMIT_OPTION)
     initial_alarm_api_history_turns_global = config.get("alarm_api_history_turns", constants.DEFAULT_ALARM_API_HISTORY_TURNS)
-    TAVILY_API_KEY = config.get("tavily_api_key")
     NOTIFICATION_SERVICE_GLOBAL = config.get("notification_service", "discord")
     NOTIFICATION_WEBHOOK_URL_GLOBAL = config.get("notification_webhook_url")
-    PUSHOVER_APP_TOKEN_GLOBAL = config.get("pushover_app_token")
-    PUSHOVER_USER_KEY_GLOBAL = config.get("pushover_user_key")
 
-    # 設定ファイルが存在しないか、更新が必要な場合に保存する
-    if not os.path.exists(constants.CONFIG_FILE) or any(key not in config for key in default_config):
-        # 実際に適用される可能性のある初期値をconfigに反映
-        config["last_api_key_name"] = initial_api_key_name_global
-        save_config(None, config, is_full_config=True)
+
+def add_or_update_gemini_key(key_name: str, key_value: str):
+    """GeminiのAPIキーをconfig.jsonに追加または更新する"""
+    config = _load_config_file()
+    if "gemini_api_keys" not in config:
+        config["gemini_api_keys"] = {}
+    config["gemini_api_keys"][key_name] = key_value
+    _save_config_file(config)
+    load_config() # グローバル変数を再読み込み
+
+def delete_gemini_key(key_name: str):
+    """GeminiのAPIキーをconfig.jsonから削除する"""
+    config = _load_config_file()
+    if "gemini_api_keys" in config and key_name in config["gemini_api_keys"]:
+        del config["gemini_api_keys"][key_name]
+        _save_config_file(config)
+        load_config()
+
+def update_pushover_config(user_key: str, app_token: str):
+    """Pushoverの設定をconfig.jsonに保存する"""
+    config = _load_config_file()
+    config["pushover_user_key"] = user_key
+    config["pushover_app_token"] = app_token
+    _save_config_file(config)
+    load_config()
+
+def update_tavily_key(api_key: str):
+    """TavilyのAPIキーをconfig.jsonに保存する"""
+    config = _load_config_file()
+    config["tavily_api_key"] = api_key
+    _save_config_file(config)
+    load_config()
+
+# 既存のload/saveを補助する内部関数
+def _load_config_file() -> dict:
+    if os.path.exists(constants.CONFIG_FILE):
+        try:
+            with open(constants.CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+def _save_config_file(config_data: dict):
+    with open(constants.CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config_data, f, indent=2, ensure_ascii=False)
 
 
 def save_config(key, value, is_full_config=False):

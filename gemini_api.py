@@ -77,7 +77,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     from agent.graph import app
     effective_settings = config_manager.get_effective_settings(current_character_name)
     current_model_name, send_thoughts_state = effective_settings["model_name"], effective_settings["send_thoughts"]
-    api_key = config_manager.API_KEYS.get(current_api_key_name_state)
+    api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
     is_internal_call = textbox_content and textbox_content.startswith("（システム")
     default_error_response = {"response": "", "location_name": "（エラー）", "scenery": "（エラー）"}
 
@@ -167,7 +167,7 @@ def count_input_tokens(**kwargs):
     api_history_limit = kwargs.get("api_history_limit") # 新しい引数を受け取る
     parts = kwargs.get("parts", [])
 
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return "トークン数: (APIキーエラー)"
 
     try:
