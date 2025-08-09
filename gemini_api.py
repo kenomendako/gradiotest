@@ -216,15 +216,12 @@ def count_input_tokens(**kwargs):
         log_file, _, _, _, _ = get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_file, character_name)
 
-        # ▼▼▼ ここからが修正の核心 ▼▼▼
         limit = 0
         if api_history_limit and api_history_limit.isdigit():
             limit = int(api_history_limit)
 
-        # 履歴制限を適用する
         if limit > 0 and len(raw_history) > limit * 2:
             raw_history = raw_history[-(limit * 2):]
-        # ▲▲▲ 修正ここまで ▲▲▲
 
         for h_item in raw_history:
             role, content = h_item.get('role'), h_item.get('content', '').strip()
@@ -254,6 +251,9 @@ def count_input_tokens(**kwargs):
         if limit_info and 'input' in limit_info: return f"入力トークン数: {total_tokens} / {limit_info['input']}"
         else: return f"入力トークン数: {total_tokens}"
 
+    except httpx.ReadError as e:
+        print(f"トークン計算中にネットワーク読み取りエラー: {e}")
+        return "トークン数: (ネットワークエラー)"
     except httpx.ConnectError as e:
         print(f"トークン計算中にAPI接続エラー: {e}")
         return "トークン数: (API接続エラー)"
