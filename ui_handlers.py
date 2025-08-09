@@ -166,7 +166,8 @@ def handle_message_submission(*args: Any):
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
-        return chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        # 戻り値の数を10個に揃える
+        return chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
     effective_settings = config_manager.get_effective_settings(current_character_name)
     add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
@@ -187,7 +188,8 @@ def handle_message_submission(*args: Any):
 
     chatbot_history.append((None, "思考中... ▌"))
 
-    yield (chatbot_history, [], gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+    # ▼▼▼ 修正箇所1: yieldで返す値の数を10個にする ▼▼▼
+    yield (chatbot_history, [], gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
 
     response_data = {}
     try:
@@ -203,41 +205,37 @@ def handle_message_submission(*args: Any):
     final_response_text = response_data.get("response", "")
     location_name, scenery_text = response_data.get("location_name", "（取得失敗）"), response_data.get("scenery", "（取得失敗）")
 
-    if not final_response_text or not final_response_text.strip():
-        print("--- 警告: AIからの応答が空のため、後続処理をスキップしました ---")
-        formatted_history, new_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
-        new_alarm_df_with_ids = render_alarms_as_dataframe()
-        new_display_df = get_display_df(new_alarm_df_with_ids)
+    if final_response_text and final_response_text.strip():
+        log_f, _, _, _, _ = get_character_files_paths(current_character_name)
+        final_log_message = "\n\n".join(log_message_parts).strip()
+        if final_log_message:
+            user_header = utils._get_user_header_from_log(log_f, current_character_name)
+            utils.save_message_to_log(log_f, user_header, final_log_message)
+        utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
 
-        current_location_id = utils.get_current_location(current_character_name)
-        scenery_image_path = utils.find_scenery_image(current_character_name, current_location_id)
-
-        yield (formatted_history, new_mapping_list, gr.update(), gr.update(value=None),
-               location_name, scenery_text, new_alarm_df_with_ids,
-               new_display_df, scenery_image_path)
-        return
-
-    scenery_image_path = None
-    if not location_name.startswith("（"):
-        # save_scenery_cache の呼び出しを削除。保存は generate_scenery_context が責任を持つ。
-        current_location_id = utils.get_current_location(current_character_name)
-        scenery_image_path = utils.find_scenery_image(current_character_name, current_location_id)
-
-    log_f, _, _, _, _ = get_character_files_paths(current_character_name)
-    final_log_message = "\n\n".join(log_message_parts).strip()
-    if final_log_message:
-        user_header = utils._get_user_header_from_log(log_f, current_character_name)
-        utils.save_message_to_log(log_f, user_header, final_log_message)
-
-    utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
-
+    # 応答処理が完了した後の最終状態でUIを更新
     formatted_history, new_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
     new_alarm_df_with_ids = render_alarms_as_dataframe()
     new_display_df = get_display_df(new_alarm_df_with_ids)
+    scenery_image_path = utils.find_scenery_image(current_character_name, utils.get_current_location(current_character_name))
 
+    # ▼▼▼ 修正箇所2: トークン数を再計算して追加する ▼▼▼
+    token_count_text = gemini_api.count_input_tokens(
+        character_name=current_character_name,
+        api_key_name=current_api_key_name_state,
+        api_history_limit=api_history_limit_state,
+        parts=[], # 入力ボックスは空なので空リストを渡す
+        add_timestamp=effective_settings["add_timestamp"], send_thoughts=effective_settings["send_thoughts"],
+        send_notepad=effective_settings["send_notepad"], use_common_prompt=effective_settings["use_common_prompt"],
+        send_core_memory=effective_settings["send_core_memory"], send_scenery=effective_settings["send_scenery"]
+    )
+    # ▲▲▲ 修正ここまで ▲▲▲
+
+    # ▼▼▼ 修正箇所3: 戻り値のタプルに token_count_text を含める ▼▼▼
     yield (formatted_history, new_mapping_list, gr.update(), gr.update(value=None),
-           location_name, scenery_text, new_alarm_df_with_ids,
+           token_count_text, location_name, scenery_text, new_alarm_df_with_ids,
            new_display_df, scenery_image_path)
+    # ▲▲▲ 修正ここまで ▲▲▲
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     """「情景を更新」ボタン専用ハンドラ。キャッシュを無視して強制的に再生成する。"""
