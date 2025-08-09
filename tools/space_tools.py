@@ -6,22 +6,23 @@ from character_manager import get_world_settings_path
 import utils
 
 @tool
-def set_current_location(location_name: str, character_name: str) -> str:
+def set_current_location(location_id: str, character_name: str = None) -> str:
     """
-    AIの現在地を設定する。
-    location_name: "リビング"のような場所名を指定する。
+    AIの現在地を設定する。この世界のどこにいるかを宣言するための、唯一の公式な手段。
+    location_id: "書斎"のような場所の正式名称（IDを兼ねる）を指定。
     """
-    if not location_name or not character_name:
-        return "【Error】Location name and character name are required."
+    if not location_id or not character_name:
+        return "【Error】Location ID and character name are required."
 
     try:
         base_path = os.path.join("characters", character_name)
         location_file_path = os.path.join(base_path, "current_location.txt")
+        # これからは、受け取った場所名をそのまま書き込む
         with open(location_file_path, "w", encoding="utf-8") as f:
-            f.write(location_name.strip())
-        return f"Success: Current location has been set to '{location_name}'."
+            f.write(location_id.strip())
+        return f"Success: Current location has been set to '{location_id}'."
     except Exception as e:
-        return f"【Error】Failed to write current location file: {e}"
+        return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
 
 @tool
 def update_location_content(character_name: str, area_name: str, place_name: str, new_content: str) -> str:

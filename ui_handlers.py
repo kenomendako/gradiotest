@@ -279,7 +279,7 @@ def handle_location_change(character_name: str, selected_value: str, api_key_nam
         return current_loc_name, scenery_text, current_image_path
 
     # まず場所のファイルだけを更新
-    result = set_current_location.func(location=location_id, character_name=character_name)
+    result = set_current_location.func(location_id=location_id, character_name=character_name)
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
         return current_loc_name, scenery_text, current_image_path
