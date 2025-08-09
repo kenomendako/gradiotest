@@ -166,7 +166,7 @@ def handle_message_submission(*args: Any):
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
-        return chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        return chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
     effective_settings = config_manager.get_effective_settings(current_character_name)
     add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
@@ -187,7 +187,7 @@ def handle_message_submission(*args: Any):
 
     chatbot_history.append((None, "思考中... ▌"))
 
-    yield (chatbot_history, [], gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+    yield (chatbot_history, [], gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
 
     response_data = {}
     try:
@@ -213,7 +213,7 @@ def handle_message_submission(*args: Any):
         scenery_image_path = utils.find_scenery_image(current_character_name, current_location_id)
 
         yield (formatted_history, new_mapping_list, gr.update(), gr.update(value=None),
-               gr.update(), location_name, scenery_text, new_alarm_df_with_ids,
+               location_name, scenery_text, new_alarm_df_with_ids,
                new_display_df, scenery_image_path)
         return
 
@@ -236,7 +236,7 @@ def handle_message_submission(*args: Any):
     new_display_df = get_display_df(new_alarm_df_with_ids)
 
     yield (formatted_history, new_mapping_list, gr.update(), gr.update(value=None),
-           gr.update(), location_name, scenery_text, new_alarm_df_with_ids,
+           location_name, scenery_text, new_alarm_df_with_ids,
            new_display_df, scenery_image_path)
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
