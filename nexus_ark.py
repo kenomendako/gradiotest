@@ -185,79 +185,29 @@ try:
                         gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
             with gr.TabItem("ワールド・ビルダー") as world_builder_tab:
-                gr.Markdown("## 🌐 ワールド・ビルダー (Phase 2: エディタ)\n`world_settings.md` の内容を、書式を意識せずに編集・保存できます。")
+                gr.Markdown("## 🌐 ワールド・ビルダー\n`world_settings.txt` の内容を直感的に編集します。")
                 with gr.Row(equal_height=False):
-                    with gr.Column(scale=1, min_width=250):
-                        gr.Markdown("### 1. 編集対象を選択")
-                        area_selector = gr.Radio(label="エリア (`##`)", interactive=True)
-                        room_selector = gr.Radio(label="部屋 (`###`)", interactive=True)
-                        edit_button_wb = gr.Button("選択した項目を編集", variant="secondary", visible=False)
+                    with gr.Column(scale=1, min_width=300):
+                        area_selector_wb = gr.Dropdown(label="エリア (##)", interactive=True)
+                        place_selector_wb = gr.Dropdown(label="場所 (###)", interactive=True)
                         gr.Markdown("---")
-                        add_area_button_wb = gr.Button("エリアを新規作成")
-                        add_room_button_wb = gr.Button("部屋を新規作成")
-                        with gr.Column(visible=False) as new_item_form_wb:
-                            new_item_form_title_wb = gr.Markdown("#### 新規作成")
-                            new_item_type_wb = gr.Textbox(visible=False)
-                            new_item_id_wb = gr.Textbox(label="ID (必須, 半角英数字と_のみ)", placeholder="例: main_entrance")
-                            new_item_name_wb = gr.Textbox(label="表示名 (必須)", placeholder="例: メインエントランス")
-                            with gr.Row():
-                                confirm_add_button_wb = gr.Button("決定", variant="primary")
-                                cancel_add_button_wb = gr.Button("キャンセル")
+                        with gr.Accordion("エリアを編集", open=False):
+                            new_area_name_wb = gr.Textbox(label="新しいエリア名", placeholder="例：商業地区")
+                            add_area_button_wb = gr.Button("この名前でエリアを追加")
+                            delete_area_button_wb = gr.Button("選択中のエリアを削除", variant="stop")
+                        with gr.Accordion("場所を編集", open=False):
+                            new_place_name_wb = gr.Textbox(label="新しい場所名", placeholder="例：中央広場")
+                            add_place_button_wb = gr.Button("この名前で場所を追加")
+                            delete_place_button_wb = gr.Button("選択中の場所を削除", variant="stop")
+
                     with gr.Column(scale=3):
-                        gr.Markdown("### 2. 内容を確認・編集")
-                        details_display_wb = gr.Markdown("← 左のパネルからエリアや部屋を選択してください。")
-
-                        # ▼▼▼ ここからが新しいUIの定義 ▼▼▼
-                        with gr.Accordion("リスト項目を編集", open=False) as list_editor_accordion_wb:
-                            # --- どのリストを編集するか ---
-                            with gr.Row():
-                                list_key_selector_wb = gr.Dropdown(label="編集するリストを選択", interactive=True, scale=3)
-                                add_new_list_button_wb = gr.Button("リストを新規作成", scale=1)
-
-                            with gr.Column(visible=False) as new_list_form_wb:
-                                new_list_key_wb = gr.Textbox(label="新しいリスト名", placeholder="例: items, characters")
-                                with gr.Row():
-                                    confirm_add_list_button_wb = gr.Button("決定", variant="primary")
-                                    cancel_add_list_button_wb = gr.Button("キャンセル")
-
-                            # --- どの項目を編集するか ---
-                            with gr.Row():
-                                list_item_selector_wb = gr.Dropdown(label="編集する項目を選択", interactive=True, scale=3)
-                                add_new_item_button_wb = gr.Button("新規項目を追加", scale=1)
-
-                            # --- 編集フォーム ---
-                            with gr.Column(visible=False) as item_edit_form_wb:
-                                item_id_wb = gr.Textbox(label="ID (変更不可)", interactive=False)
-                                item_name_wb = gr.Textbox(label="名前 (name)", interactive=True)
-                                item_description_wb = gr.Textbox(label="説明 (description)", interactive=True, lines=5)
-                                # ambition などの他のキーは将来的に追加
-
-                                with gr.Row():
-                                    save_item_button_wb = gr.Button("この項目を保存", variant="primary")
-                                    delete_item_button_wb = gr.Button("この項目を削除", variant="stop")
-                                    cancel_item_edit_button_wb = gr.Button("キャンセル")
-
-                        with gr.Accordion("辞書項目を編集", open=False) as dict_editor_accordion_wb:
-                            with gr.Row():
-                                dict_key_selector_wb = gr.Dropdown(label="編集する辞書を選択", interactive=True, scale=3)
-                                save_dict_button_wb = gr.Button("変更を保存", variant="primary", scale=1)
-
-                            dict_dataframe_wb = gr.DataFrame(
-                                headers=["キー", "値"],
-                                datatype=["str", "str"],
-                                row_count=(5, "dynamic"),
-                                col_count=(2, "fixed"),
-                                interactive=True,
-                                wrap=True
-                            )
-
-                        # ▼▼▼ 古いYAMLエディタは、デバッグ用にアコーディオン内に残す ▼▼▼
-                        with gr.Accordion("RAW YAMLエディタ (上級者向け)", open=False):
-                             with gr.Column(visible=True) as editor_wrapper_wb: # デフォルトで表示されるように変更
-                                editor_content_wb = gr.Code(label="YAML Editor", language='yaml', interactive=True)
-                                with gr.Row():
-                                    save_button_wb = gr.Button("RAW YAMLを保存", variant="primary")
-                                    cancel_button_wb = gr.Button("キャンセル")
+                        content_editor_wb = gr.Textbox(
+                            label="世界設定を記述",
+                            lines=20,
+                            interactive=True,
+                            placeholder="ここに選択された場所の内容が表示されます..."
+                        )
+                        save_button_wb = gr.Button("変更を保存", variant="primary")
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
@@ -277,8 +227,7 @@ try:
 
         # --- キャラクター変更時のグローバル更新 ---
         char_change_world_builder_outputs = [
-             world_data_state, area_selector, room_selector, details_display_wb,
-             editor_wrapper_wb, edit_button_wb, new_item_form_wb
+            world_data_state, area_selector_wb, place_selector_wb, content_editor_wb
         ]
 
         all_char_change_outputs = initial_load_chat_outputs + char_change_world_builder_outputs
@@ -350,89 +299,49 @@ try:
         )
 
         # --- ワールド・ビルダーのイベント ---
-        world_builder_tab.select(fn=ui_handlers.handle_world_builder_load, inputs=[current_character_name], outputs=char_change_world_builder_outputs)
-        # エリアや部屋を選択した時
-        selection_event_inputs = [world_data_state, area_selector, room_selector]
-        selection_event_outputs = [
-            room_selector, details_display_wb, edit_button_wb, editor_wrapper_wb,
-            list_editor_accordion_wb, list_key_selector_wb,
-            list_item_selector_wb, item_edit_form_wb,
-            # ▼▼▼ 3つのUI部品を末尾に追加 ▼▼▼
-            dict_editor_accordion_wb, dict_key_selector_wb, dict_dataframe_wb
-        ]
-        area_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
-        room_selector.change(fn=ui_handlers.handle_item_selection, inputs=selection_event_inputs, outputs=selection_event_outputs)
-        edit_button_wb.click(fn=ui_handlers.handle_edit_button_click, inputs=[world_data_state, area_selector, room_selector], outputs=[details_display_wb, editor_wrapper_wb, editor_content_wb])
-        save_button_wb.click(fn=ui_handlers.handle_save_button_click, inputs=[current_character_name, world_data_state, area_selector, room_selector, editor_content_wb], outputs=[world_data_state, details_display_wb, editor_wrapper_wb]).then(fn=lambda data: gr.update(choices=ui_handlers.get_choices_from_world_data(data)[0]), inputs=[world_data_state], outputs=[area_selector])
-        cancel_button_wb.click(fn=lambda: (gr.update(visible=True), gr.update(visible=False)), outputs=[details_display_wb, editor_wrapper_wb])
-        add_item_outputs = [area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_type_wb, new_item_form_title_wb]
-        add_area_button_wb.click(fn=ui_handlers.handle_add_item_button_click, inputs=[gr.Textbox("area", visible=False), area_selector], outputs=add_item_outputs)
-        add_room_button_wb.click(fn=ui_handlers.handle_add_item_button_click, inputs=[gr.Textbox("room", visible=False), area_selector], outputs=add_item_outputs)
-        confirm_add_outputs = [world_data_state, area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_id_wb, new_item_name_wb]
-        confirm_add_button_wb.click(fn=ui_handlers.handle_confirm_add_button_click, inputs=[current_character_name, world_data_state, area_selector, new_item_type_wb, new_item_id_wb, new_item_name_wb], outputs=confirm_add_outputs)
-        cancel_add_outputs = [area_selector, room_selector, edit_button_wb, new_item_form_wb, new_item_id_wb, new_item_name_wb]
-        cancel_add_button_wb.click(fn=ui_handlers.handle_cancel_add_button_click, outputs=cancel_add_outputs)
+        wb_outputs = [world_data_state, area_selector_wb, place_selector_wb, content_editor_wb]
+        world_builder_tab.select(fn=ui_handlers.handle_world_builder_load, inputs=[current_character_name], outputs=wb_outputs)
 
-        # --- リスト項目エディタのイベント ---
-        list_key_selector_wb.change(
-            fn=ui_handlers.handle_list_key_selection,
-            inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb],
-            outputs=[list_item_selector_wb, item_edit_form_wb]
+        area_selector_wb.change(
+            fn=ui_handlers.handle_wb_area_select,
+            inputs=[world_data_state, area_selector_wb],
+            outputs=[place_selector_wb, content_editor_wb]
         )
 
-        list_item_selector_wb.change(
-            fn=ui_handlers.handle_list_item_selection,
-            inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb, list_item_selector_wb],
-            outputs=[item_edit_form_wb, item_id_wb, item_name_wb, item_description_wb]
+        place_selector_wb.change(
+            fn=ui_handlers.handle_wb_place_select,
+            inputs=[world_data_state, area_selector_wb, place_selector_wb],
+            outputs=[content_editor_wb]
         )
 
-        add_new_item_button_wb.click(
-            fn=ui_handlers.handle_add_new_item_click,
-            inputs=[world_data_state, area_selector, room_selector, list_key_selector_wb],
-            outputs=[item_edit_form_wb, item_id_wb, item_name_wb, item_description_wb]
+        save_button_wb.click(
+            fn=ui_handlers.handle_wb_save,
+            inputs=[current_character_name, world_data_state, area_selector_wb, place_selector_wb, content_editor_wb],
+            outputs=[world_data_state]
         )
 
-        save_item_button_wb.click(
-            fn=ui_handlers.handle_save_item_click,
-            inputs=[world_data_state, current_character_name, area_selector, room_selector, list_key_selector_wb, item_id_wb, item_name_wb, item_description_wb],
-            outputs=[world_data_state, list_item_selector_wb, item_edit_form_wb]
+        add_area_button_wb.click(
+            fn=ui_handlers.handle_wb_add_area,
+            inputs=[current_character_name, world_data_state, new_area_name_wb],
+            outputs=[world_data_state, area_selector_wb]
+        ).then(lambda: "", outputs=[new_area_name_wb])
+
+        add_place_button_wb.click(
+            fn=ui_handlers.handle_wb_add_place,
+            inputs=[current_character_name, world_data_state, area_selector_wb, new_place_name_wb],
+            outputs=[world_data_state, place_selector_wb]
+        ).then(lambda: "", outputs=[new_place_name_wb])
+
+        delete_area_button_wb.click(
+            fn=ui_handlers.handle_wb_delete_area,
+            inputs=[current_character_name, world_data_state, area_selector_wb],
+            outputs=[world_data_state, area_selector_wb, place_selector_wb, content_editor_wb]
         )
 
-        delete_item_button_wb.click(
-            fn=ui_handlers.handle_delete_item_click,
-            inputs=[world_data_state, current_character_name, area_selector, room_selector, list_key_selector_wb, item_id_wb],
-            outputs=[world_data_state, list_item_selector_wb, item_edit_form_wb]
-        )
-
-        cancel_item_edit_button_wb.click(
-            fn=lambda: gr.update(visible=False),
-            outputs=[item_edit_form_wb]
-        )
-
-        add_new_list_button_wb.click(
-            fn=lambda: gr.update(visible=True),
-            outputs=[new_list_form_wb]
-        )
-        confirm_add_list_button_wb.click(
-            fn=ui_handlers.handle_add_new_list_click,
-            inputs=[world_data_state, current_character_name, area_selector, room_selector, new_list_key_wb],
-            outputs=[world_data_state, list_key_selector_wb, new_list_form_wb, new_list_key_wb]
-        )
-        cancel_add_list_button_wb.click(
-            fn=lambda: (gr.update(visible=False), ""),
-            outputs=[new_list_form_wb, new_list_key_wb]
-        )
-
-        # --- 辞書項目エディタのイベント ---
-        dict_key_selector_wb.change(
-            fn=ui_handlers.handle_dict_key_selection,
-            inputs=[world_data_state, area_selector, room_selector, dict_key_selector_wb],
-            outputs=[dict_dataframe_wb]
-        )
-        save_dict_button_wb.click(
-            fn=ui_handlers.handle_save_dict_click,
-            inputs=[world_data_state, current_character_name, area_selector, room_selector, dict_key_selector_wb, dict_dataframe_wb],
-            outputs=[world_data_state, details_display_wb] # 保存後に詳細表示も更新
+        delete_place_button_wb.click(
+            fn=ui_handlers.handle_wb_delete_place,
+            inputs=[current_character_name, world_data_state, area_selector_wb, place_selector_wb],
+            outputs=[world_data_state, place_selector_wb, content_editor_wb]
         )
 
         # ▼▼▼ この行を末尾に追加 ▼▼▼
@@ -446,5 +355,3 @@ except Exception as e:
     print("\n" + "X"*60); print("!!! [致命的エラー] アプリケーションの起動中に、予期せぬ例外が発生しました。"); print("X"*60); traceback.print_exc()
 finally:
     utils.release_lock()
-    if os.name == "nt": os.system("pause")
-    else: input("続行するにはEnterキーを押してください...")

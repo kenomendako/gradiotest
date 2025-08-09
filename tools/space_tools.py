@@ -1,142 +1,35 @@
-# tools/space_tools.py
 import os
-import json
 import re
 from typing import Optional
 from langchain_core.tools import tool
 from character_manager import get_world_settings_path
-from memory_manager import load_memory_data_safe
+import utils
 
 @tool
-def find_location_id_by_name(location_name: str, character_name: str = None) -> str:
+def set_current_location(location_name: str, character_name: str) -> str:
     """
-    「書斎」や「屋上テラス」といった日本語の場所名から、システムが使うための正式なID（例: "study", "Rooftop Terrace"）を検索して返す。
+    AIの現在地を設定する。
+    location_name: "リビング"のような場所名を指定する。
     """
     if not location_name or not character_name:
         return "【Error】Location name and character name are required."
 
-    world_settings_path = get_world_settings_path(character_name)
-    if not world_settings_path or not os.path.exists(world_settings_path):
-        return f"【Error】Could not find world settings file for character '{character_name}'."
-
-    from utils import parse_world_markdown
-    world_data = parse_world_markdown(world_settings_path)
-    if not world_data:
-        return f"【Error】Could not load or parse world settings for '{character_name}'."
-
-    # ▼▼▼ 新しい、堅牢な再帰検索ロジック ▼▼▼
-    def find_id_recursive(data: dict) -> Optional[str]:
-        # data自体が辞書でない場合は探索終了
-        if not isinstance(data, dict):
-            return None
-
-        for key, value in data.items():
-            # 値が辞書であり、'name'キーが探している名前と一致する場合
-            if isinstance(value, dict) and value.get("name", "").lower() == location_name.lower():
-                return key # IDであるキーを返す
-
-            # さらに深い階層を探索
-            found_id = find_id_recursive(value)
-            if found_id:
-                return found_id
-
-        return None
-
-    # トップレベルから探索を開始
-    found_location_id = find_id_recursive(world_data)
-    # ▲▲▲ 修正ここまで ▲▲▲
-
-    if found_location_id:
-        return found_location_id
-    else:
-        return f"【Error】Location '{location_name}' not found. Check for typos or define it first."
-
-
-@tool
-def set_current_location(location: str, character_name: str = None) -> str:
-    """
-    AIの現在地を設定する。この世界のどこにいるかを宣言するための、唯一の公式な手段。
-    location: "study"のような場所のID、または"書斎"のような日本語名を指定。
-    """
-    if not location or not character_name:
-        return "【Error】Location and character name are required."
-
-    # --- 世界設定を読み込む ---
-    world_settings_path = get_world_settings_path(character_name)
-    if not world_settings_path or not os.path.exists(world_settings_path):
-        return f"【Error】Could not find world settings file for character '{character_name}'."
-    from utils import parse_world_markdown
-    world_data = parse_world_markdown(world_settings_path)
-    if not world_data:
-        return f"【Error】Could not load or parse world settings for '{character_name}'."
-
-    final_id_to_set = None
-
-    # --- 1. まず、渡された文字列が有効な「ID」として存在するかチェック ---
-    from character_manager import find_space_data_by_id_recursive
-    if find_space_data_by_id_recursive(world_data, location) is not None:
-        final_id_to_set = location
-        print(f"  - 入力 '{location}' は有効な場所IDとして直接認識されました。")
-    else:
-        # --- 2. IDとして見つからなければ、「名前」として検索を試みる ---
-        print(f"  - 入力 '{location}' は直接的なIDではないため、名前として検索します...")
-        id_from_name = find_location_id_by_name.func(location_name=location, character_name=character_name)
-        if not id_from_name.startswith("【Error】"):
-            final_id_to_set = id_from_name
-            print(f"  - 名前 '{location}' から場所ID '{final_id_to_set}' を特定しました。")
-
-    # --- 3. IDが確定したらファイルに書き込み、さもなければエラーを返す ---
-    if final_id_to_set:
-        try:
-            base_path = os.path.join("characters", character_name)
-            location_file_path = os.path.join(base_path, "current_location.txt")
-            with open(location_file_path, "w", encoding="utf-8") as f:
-                f.write(final_id_to_set.strip())
-            return f"Success: Current location has been set to '{final_id_to_set}'."
-        except Exception as e:
-            return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
-    else:
-        return f"【Error】場所 '{location}' は有効なIDまたは名前として見つかりませんでした。"
-
-#
-# tools/space_tools.py の一番下に、このコードブロックをそのまま追加してください
-#
-def _get_location_section(full_content: str, location_id: str) -> Optional[str]:
-    """Markdownコンテンツから特定のIDのセクション（## または ###）を抽出する"""
-    pattern = re.compile(
-        rf"(^(?:##|###) {re.escape(location_id)}\s*\n.*?)(\n^(?:##|###) |\Z)",
-        re.MULTILINE | re.DOTALL
-    )
-    match = pattern.search(full_content)
-    return match.group(1).strip() if match else None
-
-@tool
-def read_world_settings(character_name: str = None) -> str:
-    """
-    世界設定ファイル（world_settings.md）の全ての情報をテキスト形式で読み取る。
-    新しい場所を追加したり、既存の場所を編集する前に、まず全体の構造を把握するために使用する。
-    """
-    if not character_name:
-        return "【Error】Character name is required."
-    world_settings_path = get_world_settings_path(character_name)
-    if not world_settings_path or not os.path.exists(world_settings_path):
-        return f"【Error】Could not find world settings file for character '{character_name}'."
     try:
-        with open(world_settings_path, "r", encoding="utf-8") as f:
-            return f.read()
+        base_path = os.path.join("characters", character_name)
+        location_file_path = os.path.join(base_path, "current_location.txt")
+        with open(location_file_path, "w", encoding="utf-8") as f:
+            f.write(location_name.strip())
+        return f"Success: Current location has been set to '{location_name}'."
     except Exception as e:
-        return f"【Error】Failed to read world settings file: {e}"
-
+        return f"【Error】Failed to write current location file: {e}"
 
 @tool
-def update_location_settings(location_id: str, new_content: str, character_name: str = None) -> str:
+def update_location_content(character_name: str, area_name: str, place_name: str, new_content: str) -> str:
     """
-    【更新専用】世界設定ファイル内の既存の場所（エリアまたは部屋）の定義を、新しい内容で完全に上書きする。
-    注意：このツールはセクション全体を置き換えるため、追記したい場合は、まずread_specific_location_settingsで読み取り、編集してからこのツールを使用すること。
-    新しい場所を作成する場合は、代わりにadd_new_locationを使用すること。
+    【更新専用】既存の場所の自由記述テキストを更新する。
     """
-    if not all([location_id, new_content, character_name]):
-        return "【Error】location_id, new_content, and character_name are required."
+    if not all([character_name, area_name, place_name, new_content is not None]):
+        return "【Error】character_name, area_name, place_name, and new_content are required."
 
     world_settings_path = get_world_settings_path(character_name)
     if not world_settings_path or not os.path.exists(world_settings_path):
@@ -146,55 +39,80 @@ def update_location_settings(location_id: str, new_content: str, character_name:
         with open(world_settings_path, "r", encoding="utf-8") as f:
             full_content = f.read()
 
-        section_to_replace = _get_location_section(full_content, location_id)
+        # 正規表現で対象の場所のセクションを特定する
+        # `re.escape`でユーザー入力を安全に扱う
+        # DOTALLフラグで`.`が改行にもマッチするようにし、MULTILINEで`^`が各行頭にマッチするようにする
+        pattern = re.compile(
+            rf"(^###\s*{re.escape(place_name)}\s*\n)(.*?)(?=\n^##\s|\n^###\s|\Z)",
+            re.DOTALL | re.MULTILINE
+        )
 
-        if not section_to_replace:
-            return f"【Error】Location ID '{location_id}' not found. You cannot create a new location with this tool. Use 'add_new_location' instead."
+        match_found = False
 
-        if not re.match(r"^(##|###)\s+", new_content.strip()):
-            return f"【Error】'new_content' must start with a valid markdown heading (e.g., '## {location_id}' or '### {location_id}')."
+        def replace_content(match):
+            nonlocal match_found
+            match_found = True
+            # new_contentの前後の空白を除去し、末尾に改行を追加
+            return match.group(1) + new_content.strip() + "\n"
 
-        updated_content = full_content.replace(section_to_replace, new_content.strip())
+        updated_content, num_replacements = pattern.subn(replace_content, full_content)
+
+        if not match_found or num_replacements == 0:
+            return f"【Error】Place '{place_name}' in Area '{area_name}' not found. You cannot create a new place with this tool. Use 'add_new_location' instead."
 
         with open(world_settings_path, "w", encoding="utf-8") as f:
-            f.write(updated_content.strip() + "\n")
+            f.write(updated_content)
 
-        return f"Success: World settings for '{location_id}' have been updated."
+        return f"Success: Content for '{place_name}' in Area '{area_name}' has been updated."
     except Exception as e:
-        return f"【Error】Failed to update world settings: {e}"
+        return f"【Error】Failed to update location content: {e}"
 
 @tool
-def add_new_location(new_content: str, character_name: str = None) -> str:
+def add_new_location(character_name: str, area_name: str, new_place_name: str, initial_content: str) -> str:
     """
-    【新規作成専用】世界設定ファイルに、新しい場所（エリアまたは部屋）の定義を追記する。
-    既存の場所を更新する場合は、update_location_settingsを使用すること。
+    【新規作成専用】新しい場所を世界設定に追加する。
     """
-    if not all([new_content, character_name]):
-        return "【Error】new_content and character_name are required."
+    if not all([character_name, area_name, new_place_name, initial_content is not None]):
+        return "【Error】character_name, area_name, new_place_name, and initial_content are required."
 
     world_settings_path = get_world_settings_path(character_name)
     if not world_settings_path or not os.path.exists(world_settings_path):
         return f"【Error】Could not find world settings file for character '{character_name}'."
 
     try:
-        # new_contentからIDを抽出
-        match = re.match(r"^(?:##|###)\s+([a-zA-Z0-9_]+)", new_content.strip())
-        if not match:
-            return "【Error】'new_content' must start with a valid markdown heading containing an ID (e.g., '## new_area_id')."
-
-        location_id = match.group(1)
-
-        with open(world_settings_path, "r", encoding="utf-8") as f:
+        with open(world_settings_path, "r+", encoding="utf-8") as f:
             full_content = f.read()
 
-        if _get_location_section(full_content, location_id):
-            return f"【Error】Location ID '{location_id}' already exists. Use 'update_location_settings' to modify it."
+            # 既存の場所名と重複しないかチェック
+            world_data = utils.parse_world_file(world_settings_path)
+            for area, places in world_data.items():
+                if new_place_name in places:
+                    return f"【Error】Place '{new_place_name}' already exists in Area '{area}'. Use 'update_location_content' to modify it."
 
-        updated_content = full_content.strip() + "\n\n" + new_content.strip()
+            # エリアが存在するかチェック
+            area_pattern = re.compile(rf"^##\s*{re.escape(area_name)}\s*$", re.MULTILINE)
+            area_match = area_pattern.search(full_content)
 
-        with open(world_settings_path, "w", encoding="utf-8") as f:
+            new_place_text = f"\n### {new_place_name}\n{initial_content.strip()}\n"
+
+            if area_match:
+                # エリアが存在する場合、そのエリアの末尾に追加
+                # 次の##見出しを探す
+                next_area_match = re.search(r"^##\s", full_content[area_match.end():], re.MULTILINE)
+                if next_area_match:
+                    insert_pos = area_match.end() + next_area_match.start()
+                    updated_content = full_content[:insert_pos].rstrip() + "\n" + new_place_text + full_content[insert_pos:].lstrip()
+                else:
+                    # ファイルの末尾に追加
+                    updated_content = full_content.rstrip() + "\n" + new_place_text
+            else:
+                # エリアが存在しない場合、新しいエリアごと末尾に追加
+                updated_content = full_content.rstrip() + f"\n\n## {area_name}\n{new_place_text}"
+
+            f.seek(0)
             f.write(updated_content.strip() + "\n")
+            f.truncate()
 
-        return f"Success: New location '{location_id}' has been added to the world settings."
+        return f"Success: New location '{new_place_name}' has been added to Area '{area_name}'."
     except Exception as e:
         return f"【Error】Failed to add new location: {e}"

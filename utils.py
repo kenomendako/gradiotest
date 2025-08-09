@@ -7,7 +7,6 @@ import traceback
 import html
 from typing import List, Dict, Optional, Tuple, Union
 import gradio as gr
-import yaml
 import character_manager
 import constants
 import sys
@@ -412,11 +411,7 @@ def find_scenery_image(character_name: str, location_id: str) -> Optional[str]:
 
     return None
 
-def parse_world_markdown(file_path: str) -> dict:
-    """
-    世界設定が記述されたMarkdownファイルを解析し、ネストされた辞書構造に変換する。
-    見出し(##, ###)でセクションを分割し、各セクションをYAMLとして解析する堅牢な方式。
-    """
+def parse_world_file(file_path: str) -> dict:
     if not os.path.exists(file_path):
         return {}
 
@@ -424,36 +419,35 @@ def parse_world_markdown(file_path: str) -> dict:
         content = f.read()
 
     world_data = {}
+    current_area_key = None
+    current_place_key = None
 
-    # re.splitのキャプチャグループ `()` を使い、見出し(デリミタ)を保持したまま分割する
-    sections = re.split(r'(^## .*)', content, flags=re.MULTILINE)
+    lines = content.split('\n')
 
-    for i in range(1, len(sections), 2):
-        area_key = sections[i][3:].strip()
-        area_content = sections[i+1]
+    for line in lines:
+        line_strip = line.strip()
+        if line_strip.startswith("## "):
+            current_area_key = line_strip[3:].strip()
+            if current_area_key not in world_data:
+                world_data[current_area_key] = {}
+            current_place_key = None # エリアが変わったら場所はリセット
+        elif line_strip.startswith("### "):
+            if current_area_key:
+                current_place_key = line_strip[4:].strip()
+                world_data[current_area_key][current_place_key] = ""
+            else:
+                print(f"警告: エリアが定義される前に場所 '{line_strip}' が見つかりました。")
+        else:
+            if current_area_key and current_place_key:
+                # 既存の内容に追記する
+                if world_data[current_area_key][current_place_key]:
+                     world_data[current_area_key][current_place_key] += "\n" + line
+                else:
+                     world_data[current_area_key][current_place_key] = line
 
-        world_data[area_key] = {}
-
-        sub_sections = re.split(r'(^### .*)', area_content, flags=re.MULTILINE)
-
-        area_props_content = sub_sections[0].strip()
-        if area_props_content:
-            try:
-                area_props = yaml.safe_load(area_props_content)
-                if isinstance(area_props, dict):
-                    world_data[area_key].update(area_props)
-            except yaml.YAMLError as e:
-                print(f"警告: エリア '{area_key}' のプロパティ解析中にエラー: {e}")
-
-        for j in range(1, len(sub_sections), 2):
-            room_key = sub_sections[j][4:].strip()
-            room_content = sub_sections[j+1].strip()
-            if room_content:
-                try:
-                    room_props = yaml.safe_load(room_content)
-                    if isinstance(room_props, dict):
-                        world_data[area_key][room_key] = room_props
-                except yaml.YAMLError as e:
-                    print(f"警告: 部屋 '{room_key}' の解析中にエラー: {e}")
+    # 最後に各テキストの余分な空白を掃除
+    for area, places in world_data.items():
+        for place, text in places.items():
+            world_data[area][place] = text.strip()
 
     return world_data

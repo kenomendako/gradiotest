@@ -20,6 +20,46 @@
 *   **Webhook通知**: アラーム通知をDiscordなどの外部サービスに送信できます。
 *   **柔軟な設定**: 使用するAPIキーやAIモデル、履歴の長さをUIから簡単に変更できます。
 
+## ⚠️ 破壊的変更に関するお知らせ
+
+このバージョンでは、ワールド・ビルダーの仕様が大幅に変更され、より直感的で自由な形式になりました。
+これにより、以前のバージョンの世界設定ファイル (`world_settings.md`) との互換性がなくなりました。
+
+お手数ですが、以下の手順で設定の移行をお願いいたします。
+
+1.  各キャラクターのフォルダ（`characters/キャラクター名/spaces/`）にある `world_settings.md` を `world_settings.txt` にリネームします。
+2.  `world_settings.txt` を開き、内容を以下の形式に書き換えます。
+
+**旧形式 (YAML)**:
+```yaml
+## living_space
+- name: 共有リビング
+- description: 広々としたリビングルーム。
+- objects:
+    - ソファ
+    - ローテーブル
+### study
+- name: 書斎
+- description: 静かで集中できる書斎。
+```
+
+**新形式 (見出しベースのテキスト)**:
+```text
+## 共有リビング
+
+### リビング
+広々としたリビングルーム。大きな窓からは柔らかな光が差し込み、快適なソファが置かれている。
+
+### 書斎
+静かで集中できる書斎。壁一面の本棚には専門書が並ぶ。
+```
+
+**ポイント**:
+- `##` の行が「エリア」になります。
+- `###` の行が「場所」になります。
+- それ以外の行は、直前の「場所」の自由な説明文として扱われます。
+- 以前の `- name:` や `- description:` といったキーは不要になり、すべて自由な文章で記述できるようになりました。
+
 ## 🛠️ 技術スタック
 
 *   **バックエンド**: Python
@@ -107,14 +147,18 @@ python nexus_ark.py
 
 ```
 .
-├── characters/         # キャラクターごとのデータ（ログ、プロンプト、記憶、RAG索引）が保存される場所
+├── characters/         # キャラクターごとのデータが保存される場所
 │   └── Default/
-│       ├── log.txt
-│       ├── memory.json
-│       ├── SystemPrompt.txt
-│       └── rag_data/
+│       ├── spaces/         # 世界設定と情景画像
+│       │   ├── world_settings.txt
+│       │   └── images/
+│       ├── log.txt         # 会話ログ
+│       ├── memory.json     # 手帳（主観的意志記憶）
+│       ├── SystemPrompt.txt # キャラクター設定
+│       └── rag_data/       # RAG索引
 │           ├── rag_chunks.json
 │           └── rag_index.faiss
+├── world_builder.py    # ワールド・ビルダーのバックエンドロジック
 ├── AI_DEVELOPMENT_GUIDELINES.md # AI開発者向けの重要指示書
 ├── GEMINI_API_TOOL_USE_LESSONS.md # ツール使用機能の実装経緯
 ├── RAG_IMPLEMENTATION_LESSONS.md # RAG機能の実装経緯 ★★★ 追加 ★★★
