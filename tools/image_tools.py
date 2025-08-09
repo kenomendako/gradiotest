@@ -29,12 +29,15 @@ def generate_image(prompt: str, character_name: str, api_key: str) -> str:
 
         client = genai.Client(api_key=api_key)
 
-        # ▼▼▼ ここからが正しい設定方法 ▼▼▼
-        # アスペクト比などの詳細設定は、シンプルな辞書として渡す
-        generation_config = {
-            "response_modalities": ["IMAGE", "TEXT"],
-            "aspect_ratio": "16:9"  # 文字列で "16:9" を指定
-        }
+        # ▼▼▼ ここからが公式仕様に準拠した、最終的な正しい設定方法 ▼▼▼
+        generation_config = types.GenerateContentConfig(
+            response_modalities=['IMAGE', 'TEXT'],
+            # image_generation_config という専用のオブジェクトの中に設定を記述する
+            image_generation_config=types.ImageGenerationConfig(
+                # aspect_ratio には、専用のenum（定数）で値を指定する
+                aspect_ratio=types.ImageGenerationAspectRatio.LANDSCAPE
+            )
+        )
         # ▲▲▲ 修正ここまで ▲▲▲
 
         response = client.models.generate_content(
