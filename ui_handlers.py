@@ -691,9 +691,13 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         return existing_image_path
 
     # --- 最終的なプロンプトの組み立てと画像生成 ---
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
     now = datetime.datetime.now()
-    time_of_day = utils.get_time_of_day(now.hour); season = utils.get_season(now.month)
-    dynamic_prompt = f"The current season is {season}, and the time of day is {time_of_day}."
+    time_of_day = utils.get_time_of_day(now.hour)
+    season = utils.get_season(now.month)
+
+    # 影響力を最大化するため、時間と季節の指示をより具体的に、かつプロンプトの先頭に配置
+    dynamic_prompt = f"A cinematic shot during a {time_of_day} in the {season}."
 
     style_prompts = {
         "写真風 (デフォルト)": "An ultra-detailed, photorealistic masterpiece with cinematic lighting.",
@@ -701,10 +705,12 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         "アニメ風": "A high-quality screenshot from a modern animated film.",
         "水彩画風": "A gentle and emotional watercolor painting."
     }
-    base_prompt = style_prompts.get(style_choice, style_prompts["写真風 (デフォルト)"])
+    style_prompt = style_prompts.get(style_choice, style_prompts["写真風 (デフォルト)"])
     negative_prompt = "Absolutely no text, letters, characters, signatures, or watermarks of any kind should be present in the image. Do not include people."
 
-    prompt = f"{base_prompt} {negative_prompt} Depict the following scene: {structural_prompt} {dynamic_prompt}"
+    # 新しいプロンプト組立順序： (画風) (時間帯). (禁止事項) Depict: (構造)
+    prompt = f"{style_prompt} {dynamic_prompt}. {negative_prompt} Depict the following scene: {structural_prompt}"
+    # ▲▲▲ 修正ここまで ▲▲▲
     gr.Info(f"「{style_choice}」で画像を生成します...")
 
     result = generate_image_tool_func.func(prompt=prompt, character_name=character_name, api_key=api_key)
