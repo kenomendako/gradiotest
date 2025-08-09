@@ -29,14 +29,9 @@ def generate_image(prompt: str, character_name: str, api_key: str) -> str:
 
         client = genai.Client(api_key=api_key)
 
-        # ▼▼▼ ここからが公式仕様に準拠した、最終的な正しい設定方法 ▼▼▼
+        # ▼▼▼ configパラメータは、response_modalitiesを指定するためだけに使用する ▼▼▼
         generation_config = types.GenerateContentConfig(
-            response_modalities=['IMAGE', 'TEXT'],
-            # image_generation_config という専用のオブジェクトの中に設定を記述する
-            image_generation_config=types.ImageGenerationConfig(
-                # aspect_ratio には、専用のenum（定数）で値を指定する
-                aspect_ratio=types.ImageGenerationAspectRatio.LANDSCAPE
-            )
+            response_modalities=['IMAGE', 'TEXT']
         )
         # ▲▲▲ 修正ここまで ▲▲▲
 

@@ -708,8 +708,13 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
     style_prompt = style_prompts.get(style_choice, style_prompts["写真風 (デフォルト)"])
     negative_prompt = "Absolutely no text, letters, characters, signatures, or watermarks of any kind should be present in the image. Do not include people."
 
-    # 新しいプロンプト組立順序： (画風) (時間帯). (禁止事項) Depict: (構造)
-    prompt = f"{style_prompt} {dynamic_prompt}. {negative_prompt} Depict the following scene: {structural_prompt}"
+    # ▼▼▼ ここからが最終的なプロンプト組立ロジック ▼▼▼
+    # アスペクト比の指示を、具体的かつ命令的な言葉でプロンプトの最前線に配置する
+    aspect_ratio_instruction = "The image must have a 16:9 landscape aspect ratio."
+
+    # 新しいプロンプト組立順序： (アスペクト比) (画風) (時間帯). (禁止事項) Depict: (構造)
+    prompt = f"{aspect_ratio_instruction} {style_prompt} {dynamic_prompt}. {negative_prompt} Depict the following scene: {structural_prompt}"
+    # ▲▲▲ 修正ここまで ▲▲▲
     # ▲▲▲ 修正ここまで ▲▲▲
     gr.Info(f"「{style_choice}」で画像を生成します...")
 
