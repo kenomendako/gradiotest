@@ -202,6 +202,13 @@ def handle_message_submission(*args: Any):
         traceback.print_exc()
         response_data = {"response": f"[UIハンドラエラー: {e}]", "location_name": "（エラー）", "scenery": "（エラー）"}
 
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    # 返されたデータからツールの使用履歴を取得し、アラートとして表示
+    tools_used = response_data.get("tools_used", [])
+    if tools_used:
+        for tool_info in tools_used:
+            gr.Info(tool_info)
+    # ▲▲▲ 修正ここまで ▲▲▲
     final_response_text = response_data.get("response", "")
     location_name, scenery_text = response_data.get("location_name", "（取得失敗）"), response_data.get("scenery", "（取得失敗）")
 
