@@ -19,8 +19,7 @@ from langgraph.prebuilt import ToolNode
 # --- 必要なモジュールやツールのインポート ---
 from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import (
-    set_current_location, find_location_id_by_name,
-    read_world_settings, update_location_settings, add_new_location # read_specific_location_settings を削除
+    set_current_location, update_location_content, add_new_location
 )
 from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
@@ -28,16 +27,17 @@ from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from rag_manager import diary_search_tool, conversation_memory_search_tool
-from character_manager import get_world_settings_path, find_space_data_by_id_recursive
+from character_manager import get_world_settings_path
 from memory_manager import load_memory_data_safe
+import utils # ★ utilsを直接インポート
 
 all_tools = [
-    set_current_location, find_location_id_by_name, read_memory_by_path, edit_memory,
+    set_current_location, read_memory_by_path, edit_memory,
     add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
     update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
     read_url_tool, diary_search_tool, conversation_memory_search_tool,
     generate_image, read_full_memory, set_personal_alarm,
-    read_world_settings, update_location_settings, add_new_location # read_specific_location_settings を削除
+    update_location_content, add_new_location
 ]
 
 class AgentState(TypedDict):
@@ -73,119 +73,96 @@ def get_configured_llm(model_name: str, api_key: str):
     # ▲▲▲ 修正ここまで ▲▲▲
 
 # 3. ファイルのクラスや関数定義の前に、新しい「情景生成」関数を追加
-def get_location_list(character_name: str) -> List[Tuple[str, str]]:
+def get_location_list(character_name: str) -> List[str]:
     """
-    利用可能なすべての場所のリストを生成する。
+    利用可能なすべての場所のリストを「[エリア名] 場所名」の形式で生成する。
     """
     if not character_name: return []
     world_settings_path = get_world_settings_path(character_name)
     if not world_settings_path or not os.path.exists(world_settings_path): return []
 
-    from utils import parse_world_markdown
-    world_data = parse_world_markdown(world_settings_path)
+    # 新しいパーサーを使用
+    world_data = utils.parse_world_file(world_settings_path)
     if not world_data: return []
 
     locations = []
-    def find_locations_recursive(data: dict):
-        if not isinstance(data, dict): return
-        for key, value in data.items():
-            if isinstance(value, dict):
-                if 'name' in value:
-                    locations.append((value['name'], key))
-                find_locations_recursive(value)
+    for area_name, places in world_data.items():
+        for place_name in places.keys():
+            # 特殊なキーは除外
+            if place_name == "__area_description__": continue
+            locations.append(f"[{area_name}] {place_name}")
 
-    find_locations_recursive(world_data)
-    return sorted(list(set(locations)), key=lambda x: x[0])
+    return sorted(locations)
 
 
 def generate_scenery_context(character_name: str, api_key: str, force_regenerate: bool = False) -> Tuple[str, str, str]:
     """
     指定されたキャラクターの現在の場所に基づいて、情景を描写し、
-    場所の名前、定義、描写テキストのタプルを返す。
+    場所の名前、自由記述テキスト、描写テキストのタプルを返す。
     force_regenerate=True の場合、キャッシュを無視して必ず再生成する。
     """
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
     location_display_name = "（不明な場所）"
-    location_id = "living_space"
 
     try:
-        location_file_path = os.path.join("characters", character_name, "current_location.txt")
-        if os.path.exists(location_file_path):
-            with open(location_file_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                if content:
-                    location_id = content
+        # 1. 現在の場所名を取得
+        current_location_name = utils.get_current_location(character_name)
+        if not current_location_name:
+            current_location_name = "リビング" # デフォルト値
+            location_display_name = "リビング"
 
+        # 2. 世界設定をパース
         world_settings_path = get_world_settings_path(character_name)
+        world_data = utils.parse_world_file(world_settings_path)
 
+        # 3. 場所名に対応する定義(自由記述テキスト)を探す
+        found_location = False
+        for area, places in world_data.items():
+            if current_location_name in places:
+                space_def = places[current_location_name]
+                location_display_name = f"[{area}] {current_location_name}"
+                found_location = True
+                break
+
+        if not found_location:
+            space_def = f"（場所「{current_location_name}」の定義が見つかりません）"
+
+        # 4. キャッシュロジック
         from utils import get_season, get_time_of_day, load_scenery_cache, save_scenery_cache
+        import hashlib
+        # キャッシュキーは場所名と内容のハッシュ、季節、時間帯から生成
+        content_hash = hashlib.md5(space_def.encode('utf-8')).hexdigest()[:8]
         now = datetime.now()
-        cache_key = f"{location_id}_{get_season(now.month)}_{get_time_of_day(now.hour)}"
+        cache_key = f"{current_location_name}_{content_hash}_{get_season(now.month)}_{get_time_of_day(now.hour)}"
 
-        # ▼▼▼ キャッシュロジックを force_regenerate で制御 ▼▼▼
         if not force_regenerate:
             scenery_cache = load_scenery_cache(character_name)
-            world_file_mod_time = 0
-            if world_settings_path and os.path.exists(world_settings_path):
-                world_file_mod_time = os.path.getmtime(world_settings_path)
-
             if cache_key in scenery_cache:
                 cached_data = scenery_cache[cache_key]
-                cache_timestamp_str = cached_data.get("timestamp")
+                print(f"--- [有効な情景キャッシュを発見] ({cache_key})。APIコールをスキップします ---")
+                # キャッシュから返す場合も、最新の表示名を返す
+                return location_display_name, space_def, cached_data["scenery_text"]
 
-                is_cache_valid = False
-                if cache_timestamp_str and world_file_mod_time > 0:
-                    try:
-                        cache_time = datetime.fromisoformat(cache_timestamp_str).timestamp()
-                        if cache_time >= world_file_mod_time:
-                            is_cache_valid = True
-                    except ValueError:
-                        pass
+        # 5. 情景生成
+        if not space_def.startswith("（"):
+            log_message = "情景を強制的に再生成します" if force_regenerate else "情景をAPIで生成します"
+            print(f"--- {log_message} ({cache_key}) ---")
 
-                if is_cache_valid:
-                    print(f"--- [有効な情景キャッシュを発見] ({cache_key})。APIコールをスキップします ---")
-                    if world_settings_path and os.path.exists(world_settings_path):
-                        from utils import parse_world_markdown
-                        world_settings = parse_world_markdown(world_settings_path)
-                        if world_settings:
-                            space_data = find_space_data_by_id_recursive(world_settings, location_id)
-                            if space_data:
-                                space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
-                    return cached_data["location_name"], space_def, cached_data["scenery_text"]
-                else:
-                    print(f"--- [古い情景キャッシュを検出] ({cache_key})。世界設定が更新されたため、APIを呼び出します ---")
-        # ▲▲▲ キャッシュロジックここまで ▲▲▲
-
-        space_data = {}
-        if world_settings_path and os.path.exists(world_settings_path):
-            from utils import parse_world_markdown
-            world_settings = parse_world_markdown(world_settings_path)
-            if world_settings:
-                space_data = find_space_data_by_id_recursive(world_settings, location_id)
-
-        if space_data and isinstance(space_data, dict):
-            location_display_name = space_data.get("name", location_id)
-            space_def = json.dumps(space_data, ensure_ascii=False, indent=2)
-
-            if not space_def.startswith("（"):
-                log_message = "情景を強制的に再生成します" if force_regenerate else "情景をAPIで生成します"
-                print(f"--- {log_message} ({cache_key}) ---")
-
-                llm_flash = get_configured_llm("gemini-2.5-flash", api_key)
-                jst_now = datetime.now(pytz.timezone('Asia/Tokyo'))
-                scenery_prompt = (
-                    f"空間定義:{space_def}\n時刻:{jst_now.strftime('%H:%M')} / 季節:{jst_now.month}月\n\n"
-                    "以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n"
-                    "【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n"
-                    "- 1〜2文の簡潔な文章にまとめてください。\n"
-                    "- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。"
-                )
-                scenery_text = llm_flash.invoke(scenery_prompt).content
-
-                save_scenery_cache(character_name, cache_key, location_display_name, scenery_text)
-            else:
-                scenery_text = "（場所の定義がないため、情景を描写できません）"
+            llm_flash = get_configured_llm("gemini-2.5-flash", api_key) # モデル名を更新
+            jst_now = datetime.now(pytz.timezone('Asia/Tokyo'))
+            scenery_prompt = (
+                f"空間定義（自由記述テキスト）:\n---\n{space_def}\n---\n\n"
+                f"時刻:{jst_now.strftime('%H:%M')} / 季節:{jst_now.month}月\n\n"
+                "以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n"
+                "【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n"
+                "- 1〜2文の簡潔な文章にまとめてください。\n"
+                "- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。"
+            )
+            scenery_text = llm_flash.invoke(scenery_prompt).content
+            save_scenery_cache(character_name, cache_key, location_display_name, scenery_text)
+        else:
+            scenery_text = "（場所の定義がないため、情景を描写できません）"
 
     except Exception as e:
         print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}")
@@ -251,7 +228,8 @@ def context_generator_node(state: AgentState):
 
     available_locations = get_location_list(character_name)
     if available_locations:
-        location_list_str = "\n".join([f"- {name} (ID: `{id}`)" for name, id in available_locations])
+        # get_location_listは "[エリア名] 場所名" のリストを返す
+        location_list_str = "\n".join([f"- {loc}" for loc in available_locations])
         locations_section = f"【移動可能な場所】\n{location_list_str}\n"
     else:
         locations_section = "【移動可能な場所】\n（現在、定義されている移動先はありません）\n"
@@ -259,8 +237,8 @@ def context_generator_node(state: AgentState):
     final_system_prompt_text = (
         f"{formatted_core_prompt}\n\n---\n"
         f"【現在の場所と情景】\n"
-        f"- 場所の名前: {location_display_name}\n"
-        f"- 場所の定義: {space_def}\n"
+        f"- 場所: {location_display_name}\n"
+        f"- 場所の設定（自由記述）: \n{space_def}\n"
         f"- 今の情景: {scenery_text}\n"
         f"{locations_section}"
         "---"
