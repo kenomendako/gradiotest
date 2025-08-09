@@ -1,4 +1,4 @@
-# config_manager.py (v4: 完全堅牢化版)
+# config_manager.py (v5: 後方互換性対応・最終版)
 
 import json
 import os
@@ -55,7 +55,7 @@ def _save_config_file(config_data: dict):
 # --- 公開APIキー管理関数 ---
 def add_or_update_gemini_key(key_name: str, key_value: str):
     config = _load_config_file()
-    if "gemini_api_keys" not in config or not isinstance(config["gemini_api_keys"], dict):
+    if "gemini_api_keys" not in config or not isinstance(config.get("gemini_api_keys"), dict):
         config["gemini_api_keys"] = {}
     config["gemini_api_keys"][key_name] = key_value
     _save_config_file(config)
@@ -63,7 +63,7 @@ def add_or_update_gemini_key(key_name: str, key_value: str):
 
 def delete_gemini_key(key_name: str):
     config = _load_config_file()
-    if "gemini_api_keys" in config and isinstance(config["gemini_api_keys"], dict) and key_name in config["gemini_api_keys"]:
+    if "gemini_api_keys" in config and isinstance(config.get("gemini_api_keys"), dict) and key_name in config["gemini_api_keys"]:
         del config["gemini_api_keys"][key_name]
         if config.get("last_api_key_name") == key_name:
             config["last_api_key_name"] = None
@@ -113,19 +113,31 @@ def load_config():
     config = default_config.copy()
     config.update(user_config)
 
+    # ▼▼▼ ここからが後方互換性維持のための自己修復ロジック ▼▼▼
+    config_updated = False
+    if "api_keys" in config and "gemini_api_keys" not in user_config:
+        print("--- [情報] 古いAPIキー形式('api_keys')を検出しました。新しい形式('gemini_api_keys')に自動的に移行します。 ---")
+        config["gemini_api_keys"] = config.pop("api_keys")
+        config_updated = True
+    # ▲▲▲ 自己修復ロジックここまで ▲▲▲
+
     # 3. グローバル変数に値を設定
-    GEMINI_API_KEYS = config["gemini_api_keys"]
-    AVAILABLE_MODELS_GLOBAL = config["available_models"]
-    DEFAULT_MODEL_GLOBAL = config["default_model"]
-    initial_character_global = config["last_character"]
-    initial_model_global = config["last_model"]
-    initial_send_thoughts_to_api_global = config["last_send_thoughts_to_api"]
-    initial_api_history_limit_option_global = config["last_api_history_limit_option"]
-    initial_alarm_api_history_turns_global = config["alarm_api_history_turns"]
-    TAVILY_API_KEY = config["tavily_api_key"]
-    NOTIFICATION_SERVICE_GLOBAL = config["notification_service"]
-    NOTIFICATION_WEBHOOK_URL_GLOBAL = config["notification_webhook_url"]
-    PUSHOVER_CONFIG = {"user_key": config["pushover_user_key"], "app_token": config["pushover_app_token"]}
+    GEMINI_API_KEYS = config.get("gemini_api_keys", default_config["gemini_api_keys"])
+    AVAILABLE_MODELS_GLOBAL = config.get("available_models", default_config["available_models"])
+    DEFAULT_MODEL_GLOBAL = config.get("default_model", default_config["default_model"])
+    initial_character_global = config.get("last_character", default_config["last_character"])
+    # (以下、同様に .get() を使って安全に取得)
+    initial_model_global = config.get("last_model", default_config["last_model"])
+    initial_send_thoughts_to_api_global = config.get("last_send_thoughts_to_api", default_config["last_send_thoughts_to_api"])
+    initial_api_history_limit_option_global = config.get("last_api_history_limit_option", default_config["last_api_history_limit_option"])
+    initial_alarm_api_history_turns_global = config.get("alarm_api_history_turns", default_config["alarm_api_history_turns"])
+    TAVILY_API_KEY = config.get("tavily_api_key", default_config["tavily_api_key"])
+    NOTIFICATION_SERVICE_GLOBAL = config.get("notification_service", default_config["notification_service"])
+    NOTIFICATION_WEBHOOK_URL_GLOBAL = config.get("notification_webhook_url", default_config["notification_webhook_url"])
+    PUSHOVER_CONFIG = {
+        "user_key": config.get("pushover_user_key", default_config["pushover_user_key"]),
+        "app_token": config.get("pushover_app_token", default_config["pushover_app_token"])
+    }
 
     # 4. 有効なAPIキーリストを安全に生成
     valid_api_keys = [k for k, v in GEMINI_API_KEYS.items() if isinstance(v, str) and v and v != "YOUR_API_KEY_HERE"]
@@ -137,16 +149,15 @@ def load_config():
     elif valid_api_keys:
         initial_api_key_name_global = valid_api_keys[0]
     else:
-        # 有効なキーがない場合、ダミーキーのリストの先頭を設定
         initial_api_key_name_global = list(GEMINI_API_KEYS.keys())[0] if GEMINI_API_KEYS else "your_key_name"
 
-    # 6. 自己修復：不足しているキーがあれば設定ファイルに書き戻す
-    if not os.path.exists(constants.CONFIG_FILE) or any(key not in user_config for key in default_config):
+    # 6. 自己修復・初回起動時に設定ファイルを保存
+    if not os.path.exists(constants.CONFIG_FILE) or config_updated or any(key not in user_config for key in default_config):
         _save_config_file(config)
 
 
-# (get_effective_settings 関数の定義は変更なし)
 def get_effective_settings(character_name):
+    # (この関数の中身は変更ありません)
     char_config_path = os.path.join(constants.CHARACTERS_DIR, character_name, "character_config.json")
     effective_settings = {
         "model_name": DEFAULT_MODEL_GLOBAL, "voice_id": "iapetus", "voice_style_prompt": "",
