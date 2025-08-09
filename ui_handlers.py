@@ -1,3 +1,4 @@
+import shutil
 import pandas as pd
 import json
 import traceback
@@ -74,17 +75,27 @@ def handle_character_change(character_name: str, api_key_name: str):
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
-
-    # ▼▼▼ 修正ブロック ▼▼▼
-    # キャッシュの有無に関わらず、一度APIキーを取得する
     api_key = config_manager.API_KEYS.get(api_key_name)
-    # 常に generate_scenery_context を呼び出すことで、キャッシュの恩恵を受ける
-    current_location_name, _, scenery_text = generate_scenery_context(character_name, api_key)
-    scenery_image_path = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
-    # ▲▲▲ 修正ブロックここまで ▲▲▲
 
-    locations = _get_location_choices_for_ui(character_name)
-    location_dd_val = utils.get_current_location(character_name)
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    # まず、UIに表示するための移動先リストを生成する
+    locations_for_ui = _get_location_choices_for_ui(character_name)
+    valid_location_ids = [value for _name, value in locations_for_ui]
+
+    # 次に、ファイルに保存されている現在地を取得
+    current_location_from_file = utils.get_current_location(character_name)
+    location_dd_val = current_location_from_file
+
+    # 安全装置：保存されていた場所が、現在の有効な場所リストに存在するかチェック
+    if current_location_from_file and current_location_from_file not in valid_location_ids:
+        gr.Warning(f"最後にいた場所「{current_location_from_file}」が見つかりません。移動先を選択し直してください。")
+        # ドロップダウンの選択を一旦リセット
+        location_dd_val = None
+
+    # 情景描写と画像は、UIに設定する有効な場所IDに基づいて取得する
+    current_location_name, _, scenery_text = generate_scenery_context(character_name, api_key)
+    scenery_image_path = utils.find_scenery_image(character_name, location_dd_val)
+    # ▲▲▲ 修正ここまで ▲▲▲
 
     effective_settings = config_manager.get_effective_settings(character_name)
     all_models = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL
@@ -95,7 +106,7 @@ def handle_character_change(character_name: str, api_key_name: str):
     return (
         character_name, chat_history, mapping_list, "", profile_image, memory_str,
         character_name, character_name, notepad_content,
-        gr.update(choices=locations, value=location_dd_val),
+        gr.update(choices=locations_for_ui, value=location_dd_val), # UI用のリストと、検証済みの値を設定
         current_location_name, scenery_text,
         gr.update(choices=all_models, value=model_val),
         voice_display_name, voice_style_prompt_val,
