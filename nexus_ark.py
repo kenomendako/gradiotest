@@ -391,7 +391,7 @@ try:
         area_selector.change(
             fn=ui_handlers.handle_wb_area_select,
             inputs=[world_data_state, area_selector],
-            outputs=[place_selector, content_editor, save_button_row, delete_place_button]
+            outputs=[place_selector]  # 更新対象を場所セレクタのみに限定
         )
         place_selector.change(
             fn=ui_handlers.handle_wb_place_select,
