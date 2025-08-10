@@ -937,41 +937,19 @@ def handle_character_change_for_all_tabs(character_name: str, api_key_name: str)
 
 
 def handle_wb_area_select(world_data: Dict, area_name: str):
-    """エリアが選択された時、場所のドロップダウンを更新し、他のUIをリセットする。"""
+    """エリアが選択された時、場所のドロップダウンを更新する。"""
     if not area_name or area_name not in world_data:
-        # エリアが未選択、または無効な場合は、すべてを空の状態にリセット
-        return gr.update(choices=[], value=None), "", gr.update(visible=False), gr.update(visible=False)
+        return gr.update(choices=[], value=None)
 
     places = sorted(world_data[area_name].keys())
-
-    # UIの期待通り、4つの値を返す
-    return (
-        gr.update(choices=places, value=None), # 1. place_selector を更新
-        "",                                    # 2. content_editor をクリア
-        gr.update(visible=False),              # 3. save_button_row を非表示
-        gr.update(visible=False)               # 4. delete_place_button を非表示
-    )
+    return gr.update(choices=places, value=None)
 
 def handle_wb_place_select(world_data: Dict, area_name: str, place_name: str):
     """場所が選択された時、内容エディタを更新し、ボタンを表示する。"""
-
-    # --- ▼▼▼ デバッグコード開始 ▼▼▼ ---
-    print("\n--- [デバッグ] 場所選択イベント (handle_wb_place_select) ---")
-    print(f"  - 入力 (area_name): '{area_name}'")
-    print(f"  - 入力 (place_name): '{place_name}'")
-    # --- ▲▲▲ デバッグコード終了 ▲▲▲ ---
-
     if not area_name or not place_name:
-        print("  - 条件分岐: エリア名または場所名がないため、UIをリセットします。")
         return "", gr.update(visible=False), gr.update(visible=False)
 
-    # 場所のコンテンツを取得
     content = world_data.get(area_name, {}).get(place_name, "")
-
-    # --- ▼▼▼ デバッグコード開始 ▼▼▼ ---
-    print(f"  - 辞書検索の結果 (content): '{content[:50]}...'") # 内容が長くてもいいように最初の50文字だけ表示
-    print("--- [デバッグ] 処理終了 ---\n")
-    # --- ▲▲▲ デバッグコード終了 ▲▲▲ ---
 
     return (
         content,
