@@ -80,46 +80,18 @@ try:
 
         # ▼▼▼ ここからが全体のUI構造の変更 ▼▼▼
         with gr.Tabs():
-            # --- 新しい最上位タブ：「記憶・メモ・人格」 ---
-            with gr.TabItem("🧠 記憶・メモ・人格"):
-                gr.Markdown("## 🧠 記憶・メモ・人格\nキャラクターの根幹をなす設定ファイルを、ここで直接編集できます。")
-                with gr.Tabs():
-                    with gr.TabItem("人格プロンプト"):
-                        system_prompt_editor = gr.Textbox(label="人格 (System Prompt)", interactive=True, lines=20, autoscroll=True)
-                        with gr.Row():
-                            save_prompt_button = gr.Button("人格を保存", variant="secondary")
-                            reload_prompt_button = gr.Button("再読込", variant="secondary")
-                    with gr.TabItem("記憶 (JSON)"):
-                        memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code")
-                        with gr.Row():
-                            save_memory_button = gr.Button("記憶を保存", variant="secondary")
-                            reload_memory_button = gr.Button("再読込", variant="secondary")
-                            core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
-                            rag_update_button = gr.Button("手帳の索引を更新", variant="secondary")
-                    with gr.TabItem("メモ帳 (Markdown)"):
-                        notepad_editor = gr.Textbox(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code", lines=20, autoscroll=True)
-                        with gr.Row():
-                            save_notepad_button = gr.Button("メモ帳を保存", variant="secondary")
-                            reload_notepad_button = gr.Button("再読込", variant="secondary")
-                            clear_notepad_button = gr.Button("メモ帳を全削除", variant="stop")
-
-            # --- 既存のタブ：チャット ---
+            # --- 1. チャットタブ ---
             with gr.TabItem("チャット"):
                 with gr.Row():
-                    # --- 左カラム（変更なし） ---
+                    # --- 左カラム ---
                     with gr.Column(scale=1, min_width=300):
-                        # ... (前回の修正で完成した左カラムのコードは、そのままここにペースト) ...
+                        # ... (チャットタブの左カラムのコードは、前回の完成版のままで変更なし) ...
                         profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                         character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
                         with gr.Accordion("🌄 情景描写・移動", open=False):
                             scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
                             generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
-                            scenery_style_radio = gr.Dropdown(
-                                choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
-                                label="画風を選択",
-                                value="写真風 (デフォルト)",
-                                interactive=True
-                            )
+                            scenery_style_radio = gr.Dropdown(choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"], label="画風を選択", value="写真風 (デフォルト)", interactive=True)
                             current_location_display = gr.Textbox(label="現在地", interactive=False)
                             current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
                             refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
@@ -142,6 +114,7 @@ try:
                                         pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
                                     timer_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="通知キャラ", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
                         with gr.Accordion("⚙️ 設定", open=False):
+                             # ... (「設定」アコーディオンの中身は、前回の完成版のままで変更なし) ...
                             with gr.Tabs():
                                 with gr.TabItem("共通設定"):
                                     gr.Markdown("#### ⚙️ 一般設定")
@@ -203,14 +176,14 @@ try:
                             with gr.Row():
                                 new_character_name_textbox = gr.Textbox(placeholder="新しいルーム名", show_label=False, scale=3); add_character_button = gr.Button("作成", variant="secondary", scale=1)
 
-                    # --- 右カラム（シンプル化） ---
+                    # --- 右カラム ---
                     with gr.Column(scale=3):
+                        # ... (チャットタブの右カラムのコードは、前回の完成版のままで変更なし) ...
                         chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
                         with gr.Row():
                             audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
                         with gr.Row(visible=False) as action_button_group:
                             play_audio_button = gr.Button("🔊 選択した発言を再生"); delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop"); cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
-
                         token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
                         tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
                         chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
@@ -221,30 +194,54 @@ try:
                         file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
                         gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
-            # --- 既存のタブ：ワールド・ビルダー ---
+            # --- 2. 記憶・メモ・人格タブ ---
+            with gr.TabItem("🧠 記憶・メモ・人格"):
+                gr.Markdown("## 🧠 記憶・メモ・人格\nキャラクターの根幹をなす設定ファイルを、ここで直接編集できます。")
+                with gr.Tabs():
+                    with gr.TabItem("人格プロンプト"):
+                        system_prompt_editor = gr.Textbox(label="人格 (System Prompt)", interactive=True, lines=20, autoscroll=True)
+                        with gr.Row():
+                            save_prompt_button = gr.Button("人格を保存", variant="secondary")
+                            reload_prompt_button = gr.Button("再読込", variant="secondary")
+                    with gr.TabItem("記憶 (JSON)"):
+                        memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code", lines=20)
+                        with gr.Row():
+                            save_memory_button = gr.Button("記憶を保存", variant="secondary")
+                            reload_memory_button = gr.Button("再読込", variant="secondary")
+                            core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
+                            rag_update_button = gr.Button("手帳の索引を更新", variant="secondary")
+                    with gr.TabItem("メモ帳 (Markdown)"):
+                        notepad_editor = gr.Textbox(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code", lines=20, autoscroll=True)
+                        with gr.Row():
+                            save_notepad_button = gr.Button("メモ帳を保存", variant="secondary")
+                            reload_notepad_button = gr.Button("再読込", variant="secondary")
+                            clear_notepad_button = gr.Button("メモ帳を全削除", variant="stop")
+
+            # --- 3. ワールド・ビルダータブ ---
             with gr.TabItem("ワールド・ビルダー") as world_builder_tab:
-                # ... (ワールド・ビルダーの中身は変更なし) ...
-                gr.Markdown("## 🌐 ワールド・ビルダー (Phase 2: エディタ)\n`world_settings.txt` の内容を、書式を意識せずに編集・保存できます。")
+                # ... (ワールド・ビルダーの中身は、前回の完成版のままで変更なし) ...
+                gr.Markdown("## 🌐 ワールド・ビルダー\n`world_settings.txt` の内容を、書式を意識せずに編集・保存できます。")
                 with gr.Row(equal_height=False):
                     with gr.Column(scale=1, min_width=250):
                         gr.Markdown("### 1. 編集対象を選択")
-                        area_selector = gr.Radio(label="エリア (`##`)", interactive=True)
-                        place_selector = gr.Radio(label="場所 (`###`)", interactive=True)
+                        area_selector = gr.Dropdown(label="エリア (`##`)", interactive=True)
+                        place_selector = gr.Dropdown(label="場所 (`###`)", interactive=True)
                         gr.Markdown("---")
-                        add_area_button_wb = gr.Button("エリアを新規作成")
-                        add_place_button_wb = gr.Button("場所を新規作成")
-                        with gr.Column(visible=False) as new_item_form_wb:
-                            new_item_form_title_wb = gr.Markdown("#### 新規作成")
-                            new_item_type_wb = gr.Textbox(visible=False)
-                            new_item_name_wb = gr.Textbox(label="エリア名 / 場所名 (必須)", placeholder="例: メインエントランス")
+                        add_area_button = gr.Button("エリアを新規作成")
+                        add_place_button = gr.Button("場所を新規作成")
+                        with gr.Column(visible=False) as new_item_form:
+                            new_item_form_title = gr.Markdown("#### 新規作成")
+                            new_item_type = gr.Textbox(visible=False)
+                            new_item_name = gr.Textbox(label="エリア名 / 場所名 (必須)", placeholder="例: メインエントランス")
                             with gr.Row():
-                                confirm_add_button_wb = gr.Button("決定", variant="primary")
-                                cancel_add_button_wb = gr.Button("キャンセル")
+                                confirm_add_button = gr.Button("決定", variant="primary")
+                                cancel_add_button = gr.Button("キャンセル")
                     with gr.Column(scale=3):
                         gr.Markdown("### 2. 内容を編集")
-                        content_editor_wb = gr.Textbox(label="世界設定を記述", lines=20, interactive=True)
-                        with gr.Row():
-                            save_button_wb = gr.Button("この場所の設定を保存", variant="primary")
+                        content_editor = gr.Textbox(label="世界設定を記述", lines=20, interactive=True, visible=False)
+                        with gr.Row(visible=False) as save_button_row:
+                            save_button = gr.Button("この場所の設定を保存", variant="primary")
+                            delete_place_button = gr.Button("この場所を削除", variant="stop")
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
@@ -357,49 +354,52 @@ try:
         )
 
         # --- ワールド・ビルダーのイベント ---
-        wb_outputs = [world_data_state, area_selector_wb, place_selector_wb, content_editor_wb]
-        world_builder_tab.select(fn=ui_handlers.handle_world_builder_load, inputs=[current_character_name], outputs=wb_outputs)
+        wb_outputs = [world_data_state, area_selector, place_selector, content_editor, save_button_row]
+        world_builder_tab.select(
+            fn=ui_handlers.handle_world_builder_load,
+            inputs=[current_character_name],
+            outputs=wb_outputs
+        )
 
-        area_selector_wb.change(
+        area_selector.change(
             fn=ui_handlers.handle_wb_area_select,
-            inputs=[world_data_state, area_selector_wb],
-            outputs=[place_selector_wb, content_editor_wb]
+            inputs=[world_data_state, area_selector],
+            outputs=[place_selector, content_editor, save_button_row]
         )
 
-        place_selector_wb.change(
+        place_selector.change(
             fn=ui_handlers.handle_wb_place_select,
-            inputs=[world_data_state, area_selector_wb, place_selector_wb],
-            outputs=[content_editor_wb]
+            inputs=[world_data_state, area_selector, place_selector],
+            outputs=[content_editor, save_button_row]
         )
 
-        save_button_wb.click(
+        save_button.click(
             fn=ui_handlers.handle_wb_save,
-            inputs=[current_character_name, world_data_state, area_selector_wb, place_selector_wb, content_editor_wb],
-            outputs=[world_data_state]
+            inputs=[current_character_name, world_data_state, area_selector, place_selector, content_editor],
+            outputs=[world_data_state] # 保存してもUIは変わらないが、stateは更新
         )
 
-        add_area_button_wb.click(
-            fn=ui_handlers.handle_wb_add_area,
-            inputs=[current_character_name, world_data_state, new_area_name_wb],
-            outputs=[world_data_state, area_selector_wb]
-        ).then(lambda: "", outputs=[new_area_name_wb])
-
-        add_place_button_wb.click(
-            fn=ui_handlers.handle_wb_add_place,
-            inputs=[current_character_name, world_data_state, area_selector_wb, new_place_name_wb],
-            outputs=[world_data_state, place_selector_wb]
-        ).then(lambda: "", outputs=[new_place_name_wb])
-
-        delete_area_button_wb.click(
-            fn=ui_handlers.handle_wb_delete_area,
-            inputs=[current_character_name, world_data_state, area_selector_wb],
-            outputs=[world_data_state, area_selector_wb, place_selector_wb, content_editor_wb]
-        )
-
-        delete_place_button_wb.click(
+        delete_place_button.click(
             fn=ui_handlers.handle_wb_delete_place,
-            inputs=[current_character_name, world_data_state, area_selector_wb, place_selector_wb],
-            outputs=[world_data_state, place_selector_wb, content_editor_wb]
+            inputs=[current_character_name, world_data_state, area_selector, place_selector],
+            outputs=[world_data_state, place_selector, content_editor, save_button_row]
+        )
+
+        add_area_button.click(
+            fn=lambda: gr.update(visible=True), outputs=[new_item_form]
+        )
+        add_place_button.click(
+            fn=lambda: gr.update(visible=True), outputs=[new_item_form]
+        )
+        cancel_add_button.click(
+            fn=lambda: (gr.update(visible=False), ""), outputs=[new_item_form, new_item_name]
+        )
+        confirm_add_button.click(
+            fn=ui_handlers.handle_wb_add_item,
+            inputs=[current_character_name, world_data_state, area_selector, new_item_name],
+            outputs=[world_data_state, area_selector, place_selector]
+        ).then(
+            lambda: (gr.update(visible=False), ""), outputs=[new_item_form, new_item_name]
         )
 
         # ▼▼▼ この行を末尾に追加 ▼▼▼
