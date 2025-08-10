@@ -760,7 +760,7 @@ def handle_api_connection_test(api_key_name: str):
     gr.Info(f"APIキー '{api_key_name}' を使って、必須モデルへの接続をテストしています...")
 
     # ここではgemini_apiを直接インポートする
-    import google.generativeai as genai
+    import google.genai as genai
 
     # チェックするモデルのリスト
     required_models = {
@@ -960,7 +960,6 @@ def handle_notification_service_change(service_choice: str):
     if service_choice in ["Discord", "Pushover"]:
         config_manager.save_config("notification_service", service_choice.lower())
         gr.Info(f"通知サービスを「{service_choice}」に設定しました。")
-    return service_choice.lower()
 
 def handle_save_discord_webhook(webhook_url: str):
     """Discord Webhook URLを保存するハンドラ"""
