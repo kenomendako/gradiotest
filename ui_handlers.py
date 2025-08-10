@@ -380,6 +380,16 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
     history, mapping_list = utils.format_history_for_gradio(visible_history, character_name)
     return history, mapping_list
 
+def handle_wb_add_place_button_click(area_selector_value: Optional[str]):
+    """場所追加ボタンが押されたとき、エリアが選択されていればフォームを表示する"""
+    if not area_selector_value:
+        gr.Warning("まず、場所を追加したいエリアを選択してください。")
+        # フォームは表示しない
+        return "place", gr.update(visible=False), "#### 新しい場所の作成"
+
+    # エリアが選択されていればフォームを表示する
+    return "place", gr.update(visible=True), "#### 新しい場所の作成"
+
 def handle_save_memory_click(character_name, json_string_data):
     if not character_name: gr.Warning("キャラクターが選択されていません。"); return gr.update()
     try: return save_memory_data(character_name, json_string_data)
@@ -927,6 +937,49 @@ def handle_wb_delete_place(character_name: str, world_data: Dict, area_name: str
 
     place_choices = sorted(world_data[area_name].keys())
     return world_data, gr.update(choices=place_choices, value=None), ""
+
+def handle_wb_confirm_add(character_name: str, world_data: Dict, selected_area: str, item_type: str, item_name: str):
+    """エリアまたは場所の追加を確定するハンドラ。"""
+    if not character_name or not item_name:
+        gr.Warning("キャラクターが選択されていないか、名前が入力されていません。")
+        return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name
+
+    item_name = item_name.strip()
+    if not item_name:
+        gr.Warning("名前が空です。")
+        return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name
+
+    if item_type == "area":
+        if item_name in world_data:
+            gr.Warning(f"エリア '{item_name}' は既に存在します。")
+            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name
+
+        world_data[item_name] = {}
+        save_world_data(character_name, world_data)
+        gr.Info(f"新しいエリア '{item_name}' を追加しました。")
+
+        area_choices = sorted(world_data.keys())
+        return world_data, gr.update(choices=area_choices, value=item_name), gr.update(choices=[], value=None), gr.update(visible=False), ""
+
+    elif item_type == "place":
+        if not selected_area:
+            gr.Warning("場所を追加するエリアを選択してください。")
+            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name
+
+        if item_name in world_data.get(selected_area, {}):
+            gr.Warning(f"場所 '{item_name}' はエリア '{selected_area}' に既に存在します。")
+            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name
+
+        world_data[selected_area][item_name] = "新しい場所です。説明を記述してください。"
+        save_world_data(character_name, world_data)
+        gr.Info(f"エリア '{selected_area}' に新しい場所 '{item_name}' を追加しました。")
+
+        place_choices = sorted(world_data[selected_area].keys())
+        return world_data, gr.update(), gr.update(choices=place_choices, value=item_name), gr.update(visible=False), ""
+
+    else:
+        gr.Error(f"不明なアイテムタイプです: {item_type}")
+        return world_data, gr.update(), gr.update(), gr.update(visible=False), ""
 
 def handle_save_gemini_key(key_name, key_value):
     if not key_name or not key_value:
