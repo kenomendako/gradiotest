@@ -953,12 +953,20 @@ def handle_wb_area_select(world_data: Dict, area_name: str):
     )
 
 def handle_wb_place_select(world_data: Dict, area_name: str, place_name: str):
-    """場所が選択された時、内容エディタを更新する。"""
+    """場所が選択された時、内容エディタを更新し、ボタンを表示する。"""
     if not area_name or not place_name:
-        return ""
+        # 場所が選択されていない場合は、エディタとボタンを隠す
+        return "", gr.update(visible=False), gr.update(visible=False)
 
+    # 場所のコンテンツを取得
     content = world_data.get(area_name, {}).get(place_name, "")
-    return content
+
+    # UIの期待通り、3つの値をタプルで返す
+    return (
+        content,                  # 1. content_editor の内容
+        gr.update(visible=True),  # 2. save_button_row を表示
+        gr.update(visible=True)   # 3. delete_place_button を表示
+    )
 
 def handle_wb_save(character_name: str, world_data: Dict, area_name: str, place_name: str, content: str):
     """保存ボタンが押された時の処理。"""
