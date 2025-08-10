@@ -103,10 +103,13 @@ def handle_character_change(character_name: str, api_key_name: str):
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "vindemiatrix"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
 
+    # handle_character_change 関数の最後にある return 文を以下に置き換える
     return (
-        character_name, chat_history, mapping_list, "", profile_image, memory_str,
-        character_name, character_name, notepad_content,
-        gr.update(choices=locations_for_ui, value=location_dd_val), # UI用のリストと、検証済みの値を設定
+        character_name, chat_history, mapping_list, "", profile_image,
+        # ↓↓↓ 3つのエディタに初期値を設定する部分 ↓↓↓
+        memory_str, notepad_content, load_system_prompt_content(character_name),
+        character_name, character_name,
+        gr.update(choices=locations_for_ui, value=location_dd_val),
         current_location_name, scenery_text,
         gr.update(choices=all_models, value=model_val),
         voice_display_name, voice_style_prompt_val,
@@ -752,7 +755,6 @@ def handle_api_connection_test(api_key_name: str):
         gr.Warning("テストするAPIキーが選択されていません。")
         return
 
-    # ▼▼▼ 修正の核心：プロジェクト規約に準拠した正しいAPI呼び出し方法に変更 ▼▼▼
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         gr.Error(f"APIキー '{api_key_name}' は無効です。config.jsonを確認してください。")
@@ -760,25 +762,27 @@ def handle_api_connection_test(api_key_name: str):
 
     gr.Info(f"APIキー '{api_key_name}' を使って、必須モデルへの接続をテストしています...")
 
+    # ここではgemini_apiを直接インポートする
+    import google.generativeai as genai
+
     # チェックするモデルのリスト
     required_models = {
-        "models/gemini-2.5-pro": "通常チャット",
-        "models/gemini-2.5-flash": "情景描写生成",
-        "models/gemini-2.0-flash-preview-image-generation": "画像生成"
+        "models/gemini-1.5-pro-latest": "通常チャット",
+        "models/gemini-1.5-flash-latest": "情景描写生成",
+        "models/gemini-1.0-pro-vision-latest": "画像生成" # 仮
     }
 
     results = []
     all_ok = True
 
     try:
-        # 正しいClientオブジェクトを作成
-        import google.genai as genai
-        client = genai.Client(api_key=api_key)
+        # クライアントの初期化は一度だけ行う
+        genai.configure(api_key=api_key)
 
         for model_name, purpose in required_models.items():
             try:
                 # 各モデルの情報を取得しようと試みる
-                client.models.get(model=model_name)
+                genai.get_model(model_name)
                 results.append(f"✅ **{purpose} ({model_name.split('/')[-1]})**: 利用可能です。")
             except Exception as model_e:
                 results.append(f"❌ **{purpose} ({model_name.split('/')[-1]})**: 利用できません。")
@@ -796,7 +800,6 @@ def handle_api_connection_test(api_key_name: str):
         error_message = f"❌ **APIサーバーへの接続自体に失敗しました。**\n\nAPIキーが無効か、ネットワークの問題が発生している可能性があります。\n\n詳細: {str(e)}"
         print(f"--- API接続テストエラー ---\n{traceback.format_exc()}")
         gr.Error(error_message)
-    # ▲▲▲ 修正ここまで ▲▲▲
 
 #
 # ワールド・ビルダー関連の新しいハンドラ群
@@ -960,8 +963,43 @@ def handle_notification_service_change(service_choice: str):
     if service_choice in ["Discord", "Pushover"]:
         config_manager.save_config("notification_service", service_choice.lower())
         gr.Info(f"通知サービスを「{service_choice}」に設定しました。")
+    return service_choice.lower()
 
 def handle_save_discord_webhook(webhook_url: str):
     """Discord Webhook URLを保存するハンドラ"""
     config_manager.save_config("notification_webhook_url", webhook_url)
     gr.Info("Discord Webhook URLを保存しました。")
+
+def load_system_prompt_content(character_name: str) -> str:
+    """SystemPrompt.txtの内容を読み込む"""
+    if not character_name: return ""
+    _, system_prompt_path, _, _, _ = get_character_files_paths(character_name)
+    if system_prompt_path and os.path.exists(system_prompt_path):
+        with open(system_prompt_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return ""
+
+def handle_save_system_prompt(character_name: str, content: str) -> None:
+    """SystemPrompt.txtの内容を保存する"""
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return
+    _, system_prompt_path, _, _, _ = get_character_files_paths(character_name)
+    if not system_prompt_path:
+        gr.Error(f"「{character_name}」のプロンプトパス取得失敗。")
+        return
+    try:
+        with open(system_prompt_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        gr.Info(f"「{character_name}」の人格プロンプトを保存しました。")
+    except Exception as e:
+        gr.Error(f"人格プロンプトの保存エラー: {e}")
+
+def handle_reload_system_prompt(character_name: str) -> str:
+    """SystemPrompt.txtを再読み込みしてエディタに表示する"""
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return ""
+    content = load_system_prompt_content(character_name)
+    gr.Info(f"「{character_name}」の人格プロンプトを再読み込みしました。")
+    return content
