@@ -78,16 +78,39 @@ try:
         selected_message_state = gr.State(None)
         current_log_map_state = gr.State([])
 
+        # ▼▼▼ ここからが全体のUI構造の変更 ▼▼▼
         with gr.Tabs():
+            # --- 新しい最上位タブ：「記憶・メモ・人格」 ---
+            with gr.TabItem("🧠 記憶・メモ・人格"):
+                gr.Markdown("## 🧠 記憶・メモ・人格\nキャラクターの根幹をなす設定ファイルを、ここで直接編集できます。")
+                with gr.Tabs():
+                    with gr.TabItem("人格プロンプト"):
+                        system_prompt_editor = gr.Textbox(label="人格 (System Prompt)", interactive=True, lines=20, autoscroll=True)
+                        with gr.Row():
+                            save_prompt_button = gr.Button("人格を保存", variant="secondary")
+                            reload_prompt_button = gr.Button("再読込", variant="secondary")
+                    with gr.TabItem("記憶 (JSON)"):
+                        memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code")
+                        with gr.Row():
+                            save_memory_button = gr.Button("記憶を保存", variant="secondary")
+                            reload_memory_button = gr.Button("再読込", variant="secondary")
+                            core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
+                            rag_update_button = gr.Button("手帳の索引を更新", variant="secondary")
+                    with gr.TabItem("メモ帳 (Markdown)"):
+                        notepad_editor = gr.Textbox(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code", lines=20, autoscroll=True)
+                        with gr.Row():
+                            save_notepad_button = gr.Button("メモ帳を保存", variant="secondary")
+                            reload_notepad_button = gr.Button("再読込", variant="secondary")
+                            clear_notepad_button = gr.Button("メモ帳を全削除", variant="stop")
+
+            # --- 既存のタブ：チャット ---
             with gr.TabItem("チャット"):
                 with gr.Row():
+                    # --- 左カラム（変更なし） ---
                     with gr.Column(scale=1, min_width=300):
+                        # ... (前回の修正で完成した左カラムのコードは、そのままここにペースト) ...
                         profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                         character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
-
-                        # ▼▼▼ ここからがアコーディオンの新しい順序と名前 ▼▼▼
-
-                        # 1. 情景描写・移動
                         with gr.Accordion("🌄 情景描写・移動", open=False):
                             scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
                             generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
@@ -101,12 +124,9 @@ try:
                             current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
                             refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
                             location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True)
-
-                        # 2. 時間管理
                         with gr.Accordion("⏰ 時間管理", open=False):
                             with gr.Tabs():
                                 with gr.TabItem("アラーム"):
-                                    # ... (アラームタブの中身は変更なし) ...
                                     gr.Markdown("ℹ️ **操作方法**: リストから操作したいアラームの行を選択し、下のボタンで操作します。")
                                     alarm_dataframe = gr.Dataframe(headers=["状態", "時刻", "予定", "キャラ", "内容"], datatype=["bool", "str", "str", "str", "str"], interactive=True, row_count=(5, "dynamic"), col_count=5, wrap=True, elem_id="alarm_dataframe_display")
                                     selection_feedback_markdown = gr.Markdown("アラームを選択してください", elem_id="selection_feedback")
@@ -115,20 +135,15 @@ try:
                                     gr.Markdown("---"); gr.Markdown("#### 新規 / 更新")
                                     alarm_hour_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(24)], label="時", value="08"); alarm_minute_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(60)], label="分", value="00"); alarm_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラ"); alarm_theme_input = gr.Textbox(label="テーマ", placeholder="例：朝の目覚まし"); alarm_prompt_input = gr.Textbox(label="プロンプト（オプション）", placeholder="例：今日も一日頑張ろう！"); alarm_emergency_checkbox = gr.Checkbox(label="緊急通知として送信 (マナーモードを貫通)", value=False, interactive=True); alarm_days_checkboxgroup = gr.CheckboxGroup(choices=["月", "火", "水", "木", "金", "土", "日"], label="曜日", value=[]); alarm_add_button = gr.Button("アラーム追加")
                                 with gr.TabItem("タイマー"):
-                                    # ... (タイマータブの中身は変更なし) ...
                                     timer_type_radio = gr.Radio(["通常タイマー", "ポモドーロタイマー"], label="タイマー種別", value="通常タイマー")
                                     with gr.Column(visible=True) as normal_timer_ui:
                                         timer_duration_number = gr.Number(label="タイマー時間 (分)", value=10, minimum=1, step=1); normal_timer_theme_input = gr.Textbox(label="通常タイマーのテーマ", placeholder="例: タイマー終了！")
                                     with gr.Column(visible=False) as pomo_timer_ui:
                                         pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
                                     timer_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="通知キャラ", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
-
-                        # 3. 設定
                         with gr.Accordion("⚙️ 設定", open=False):
-                            # ... (設定アコーディオンの中身は変更なし) ...
                             with gr.Tabs():
                                 with gr.TabItem("共通設定"):
-                                    # --- 1. 一般設定（一番上に移動） ---
                                     gr.Markdown("#### ⚙️ 一般設定")
                                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
                                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
@@ -136,7 +151,6 @@ try:
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
                                     gr.Markdown("---")
-                                    # --- 2. 通知サービス設定 ---
                                     gr.Markdown("#### 📢 通知サービス設定")
                                     notification_service_radio = gr.Radio(
                                         ["Discord", "Pushover"],
@@ -145,7 +159,6 @@ try:
                                         interactive=True
                                     )
                                     gr.Markdown("---")
-                                    # --- 3. APIキー / Webhook管理 ---
                                     with gr.Accordion("🔑 APIキー / Webhook管理", open=False):
                                         with gr.Accordion("Gemini APIキー", open=True):
                                             gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
@@ -186,84 +199,52 @@ try:
                                     char_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
                                     gr.Markdown("---")
                                     save_char_settings_button = gr.Button("このキャラクターの設定を保存", variant="primary")
-
-                        # 4. 新しいルームを作成する
                         with gr.Accordion("🗨️ 新しいルームを作成する", open=False):
                             with gr.Row():
                                 new_character_name_textbox = gr.Textbox(placeholder="新しいルーム名", show_label=False, scale=3); add_character_button = gr.Button("作成", variant="secondary", scale=1)
 
+                    # --- 右カラム（シンプル化） ---
                     with gr.Column(scale=3):
                         chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
-
                         with gr.Row():
-                            audio_player = gr.Audio(
-                                label="音声プレーヤー",
-                                visible=False,
-                                autoplay=True,
-                                interactive=True,
-                                elem_id="main_audio_player"
-                            )
+                            audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
                         with gr.Row(visible=False) as action_button_group:
                             play_audio_button = gr.Button("🔊 選択した発言を再生"); delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop"); cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
 
-                        # ▼▼▼ ここからが「記憶とメモの編集」の新しい場所 ▼▼▼
-                        with gr.Tabs():
-                            with gr.TabItem("📝 入力"):
-                                token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
-                                tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
-                                chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
-                                with gr.Row():
-                                    submit_button = gr.Button("送信", variant="primary")
-                                    chat_reload_button = gr.Button("🔄 履歴を更新")
-                                allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
-                                file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
-                                gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
+                        token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
+                        tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
+                        chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
+                        with gr.Row():
+                            submit_button = gr.Button("送信", variant="primary")
+                            chat_reload_button = gr.Button("🔄 履歴を更新")
+                        allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
+                        file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
+                        gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
-                            with gr.TabItem("🧠 記憶・メモ・人格"):
-                                with gr.Tabs():
-                                    with gr.TabItem("人格プロンプト"):
-                                        system_prompt_editor = gr.Textbox(label="人格 (System Prompt)", interactive=True, lines=15, autoscroll=True)
-                                        with gr.Row():
-                                            save_prompt_button = gr.Button("人格を保存", variant="secondary")
-                                            reload_prompt_button = gr.Button("再読込", variant="secondary")
-                                    with gr.TabItem("記憶 (JSON)"):
-                                        memory_json_editor = gr.Code(label="記憶データ", language="json", interactive=True, elem_id="memory_json_editor_code")
-                                        with gr.Row():
-                                            save_memory_button = gr.Button("記憶を保存", variant="secondary")
-                                            reload_memory_button = gr.Button("再読込", variant="secondary")
-                                            core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
-                                            rag_update_button = gr.Button("手帳の索引を更新", variant="secondary")
-                                    with gr.TabItem("メモ帳 (Markdown)"):
-                                        notepad_editor = gr.Textbox(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code", lines=15, autoscroll=True)
-                                        with gr.Row():
-                                            save_notepad_button = gr.Button("メモ帳を保存", variant="secondary")
-                                            reload_notepad_button = gr.Button("再読込", variant="secondary")
-                                            clear_notepad_button = gr.Button("メモ帳を全削除", variant="stop")
-
+            # --- 既存のタブ：ワールド・ビルダー ---
             with gr.TabItem("ワールド・ビルダー") as world_builder_tab:
-                gr.Markdown("## 🌐 ワールド・ビルダー\n`world_settings.txt` の内容を直感的に編集します。")
+                # ... (ワールド・ビルダーの中身は変更なし) ...
+                gr.Markdown("## 🌐 ワールド・ビルダー (Phase 2: エディタ)\n`world_settings.txt` の内容を、書式を意識せずに編集・保存できます。")
                 with gr.Row(equal_height=False):
-                    with gr.Column(scale=1, min_width=300):
-                        area_selector_wb = gr.Dropdown(label="エリア (##)", interactive=True)
-                        place_selector_wb = gr.Dropdown(label="場所 (###)", interactive=True)
+                    with gr.Column(scale=1, min_width=250):
+                        gr.Markdown("### 1. 編集対象を選択")
+                        area_selector = gr.Radio(label="エリア (`##`)", interactive=True)
+                        place_selector = gr.Radio(label="場所 (`###`)", interactive=True)
                         gr.Markdown("---")
-                        with gr.Accordion("エリアを編集", open=False):
-                            new_area_name_wb = gr.Textbox(label="新しいエリア名", placeholder="例：商業地区")
-                            add_area_button_wb = gr.Button("この名前でエリアを追加")
-                            delete_area_button_wb = gr.Button("選択中のエリアを削除", variant="stop")
-                        with gr.Accordion("場所を編集", open=False):
-                            new_place_name_wb = gr.Textbox(label="新しい場所名", placeholder="例：中央広場")
-                            add_place_button_wb = gr.Button("この名前で場所を追加")
-                            delete_place_button_wb = gr.Button("選択中の場所を削除", variant="stop")
-
+                        add_area_button_wb = gr.Button("エリアを新規作成")
+                        add_place_button_wb = gr.Button("場所を新規作成")
+                        with gr.Column(visible=False) as new_item_form_wb:
+                            new_item_form_title_wb = gr.Markdown("#### 新規作成")
+                            new_item_type_wb = gr.Textbox(visible=False)
+                            new_item_name_wb = gr.Textbox(label="エリア名 / 場所名 (必須)", placeholder="例: メインエントランス")
+                            with gr.Row():
+                                confirm_add_button_wb = gr.Button("決定", variant="primary")
+                                cancel_add_button_wb = gr.Button("キャンセル")
                     with gr.Column(scale=3):
-                        content_editor_wb = gr.Textbox(
-                            label="世界設定を記述",
-                            lines=20,
-                            interactive=True,
-                            placeholder="ここに選択された場所の内容が表示されます..."
-                        )
-                        save_button_wb = gr.Button("変更を保存", variant="primary")
+                        gr.Markdown("### 2. 内容を編集")
+                        content_editor_wb = gr.Textbox(label="世界設定を記述", lines=20, interactive=True)
+                        with gr.Row():
+                            save_button_wb = gr.Button("この場所の設定を保存", variant="primary")
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
