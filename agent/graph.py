@@ -26,6 +26,8 @@ from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_note
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
+# ▼▼▼ 新しいタイマーツールをインポート ▼▼▼
+from tools.timer_tools import set_timer, set_pomodoro_timer
 from rag_manager import diary_search_tool, conversation_memory_search_tool
 from character_manager import get_world_settings_path
 from memory_manager import load_memory_data_safe
@@ -37,7 +39,9 @@ all_tools = [
     update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
     read_url_tool, diary_search_tool, conversation_memory_search_tool,
     generate_image, read_full_memory, set_personal_alarm,
-    update_location_content, add_new_location
+    update_location_content, add_new_location,
+    # ▼▼▼ 新しいツールをリストの末尾に追加 ▼▼▼
+    set_timer, set_pomodoro_timer
 ]
 
 class AgentState(TypedDict):

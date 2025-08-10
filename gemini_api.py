@@ -162,6 +162,21 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒント
                     if tool_name == 'set_current_location':
                         location = args.get('location_id', '不明な場所')
                         display_text = f'現在地を「{location}」に設定しました。'
+
+                    # --- ▼▼▼ ここからが修正・追加箇所 ▼▼▼ ---
+
+                    elif tool_name == 'set_timer':
+                        duration = str(args.get('duration_minutes', '?')).split('.')[0]
+                        display_text = f"タイマーをセットしました（{duration}分）"
+
+                    elif tool_name == 'set_pomodoro_timer':
+                        work = str(args.get('work_minutes', '?')).split('.')[0]
+                        brk = str(args.get('break_minutes', '?')).split('.')[0]
+                        cycles = str(args.get('cycles', '?')).split('.')[0]
+                        display_text = f"ポモドーロタイマーをセットしました（{work}分・{brk}分・{cycles}セット）"
+
+                    # --- ▲▲▲ 修正・追加ここまで ▲▲▲ ---
+
                     elif tool_name == 'web_search_tool':
                         query = args.get('query', '...')
                         display_text = f'Webで「{query}」を検索しました。'
@@ -178,7 +193,6 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒント
                         display_text = '新しい画像を生成しました。'
                     else:
                         # 上記以外のツールは、主要な引数だけを表示
-                        # ユーザーに見せる必要のない引数を除外
                         args_to_display = {k: v for k, v in args.items() if k not in ['character_name', 'api_key', 'tavily_api_key']}
                         if args_to_display:
                             args_str = ", ".join([f"{k}='{str(v)[:20]}...'" for k, v in args_to_display.items()])
