@@ -920,17 +920,13 @@ from world_builder import get_world_data, save_world_data
 def handle_world_builder_load(character_name: str):
     """ワールド・ビルダータブが選択された時や、キャラクターが変更された時の初期化処理。"""
     if not character_name:
-        return {}, gr.update(choices=[], value=None), gr.update(choices=[], value=None), ""
+        return {}, gr.update(choices=[], value=None) # 返り値の数を2つに修正
 
     world_data = get_world_data(character_name)
     area_choices = sorted(world_data.keys())
 
-    return (
-        world_data,
-        gr.update(choices=area_choices, value=None),
-        gr.update(choices=[], value=None),
-        "" # content_editor
-    )
+    # UIの期待通り、2つの値だけを返す
+    return world_data, gr.update(choices=area_choices, value=None)
 
 def handle_character_change_for_all_tabs(character_name: str, api_key_name: str):
     """キャラクター変更時にすべてのタブを更新する司令塔。"""
@@ -941,12 +937,20 @@ def handle_character_change_for_all_tabs(character_name: str, api_key_name: str)
 
 
 def handle_wb_area_select(world_data: Dict, area_name: str):
-    """エリアが選択された時、場所のドロップダウンを更新する。"""
+    """エリアが選択された時、場所のドロップダウンを更新し、他のUIをリセットする。"""
     if not area_name or area_name not in world_data:
-        return gr.update(choices=[], value=None), ""
+        # エリアが未選択、または無効な場合は、すべてを空の状態にリセット
+        return gr.update(choices=[], value=None), "", gr.update(visible=False), gr.update(visible=False)
 
     places = sorted(world_data[area_name].keys())
-    return gr.update(choices=places, value=None), ""
+
+    # UIの期待通り、4つの値を返す
+    return (
+        gr.update(choices=places, value=None), # 1. place_selector を更新
+        "",                                    # 2. content_editor をクリア
+        gr.update(visible=False),              # 3. save_button_row を非表示
+        gr.update(visible=False)               # 4. delete_place_button を非表示
+    )
 
 def handle_wb_place_select(world_data: Dict, area_name: str, place_name: str):
     """場所が選択された時、内容エディタを更新する。"""
