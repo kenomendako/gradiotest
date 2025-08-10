@@ -29,9 +29,11 @@ def generate_image(prompt: str, character_name: str, api_key: str) -> str:
 
         client = genai.Client(api_key=api_key)
 
+        # ▼▼▼ configパラメータは、response_modalitiesを指定するためだけに使用する ▼▼▼
         generation_config = types.GenerateContentConfig(
             response_modalities=['IMAGE', 'TEXT']
         )
+        # ▲▲▲ 修正ここまで ▲▲▲
 
         response = client.models.generate_content(
             model=IMAGE_GEN_MODEL,

@@ -3,6 +3,7 @@
 import traceback
 from typing import Any, List, Union, Optional, Dict
 import os
+import json
 import io
 import base64
 from PIL import Image
@@ -68,8 +69,7 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
     return result.total_tokens
 
-def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
-    # (この関数の中身は変更ありません)
+def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒントを修正
     (textbox_content, current_character_name,
      current_api_key_name_state, file_input_list,
      api_history_limit_state, debug_mode_state) = args
@@ -77,17 +77,18 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     from agent.graph import app
     effective_settings = config_manager.get_effective_settings(current_character_name)
     current_model_name, send_thoughts_state = effective_settings["model_name"], effective_settings["send_thoughts"]
-    api_key = config_manager.API_KEYS.get(current_api_key_name_state)
-    is_internal_call = textbox_content and textbox_content.startswith("（システム")
-    default_error_response = {"response": "", "location_name": "（エラー）", "scenery": "（エラー）"}
+    api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
+    # ▼▼▼ 戻り値のデフォルトに "tools_used" を追加 ▼▼▼
+    default_error_response = {"response": "", "location_name": "（エラー）", "scenery": "（エラー）", "tools_used": []}
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         return {**default_error_response, "response": f"[エラー: APIキー '{current_api_key_name_state}' が有効ではありません。]"}
 
+    # ... (この間の履歴読み込みやメッセージ構築のロジックは変更なし) ...
     user_input_text = textbox_content.strip() if textbox_content else ""
+    is_internal_call = user_input_text.startswith("（システム")
     if not user_input_text and not file_input_list and not is_internal_call:
          return {**default_error_response, "response": "[エラー: テキスト入力またはファイル添付がありません]"}
-
     messages = []
     log_file, _, _, _, _ = get_character_files_paths(current_character_name)
     raw_history = utils.load_chat_log(log_file, current_character_name)
@@ -102,7 +103,6 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
             final_content = content if send_thoughts_state else utils.remove_thoughts_from_text(content)
             if final_content: messages.append(AIMessage(content=final_content))
         elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
-
     user_message_parts = []
     if user_input_text: user_message_parts.append({"type": "text", "text": user_input_text})
     if file_input_list:
@@ -131,35 +131,46 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
         "location_name": "（初期化中）", "scenery_text": "（初期化中）",
         "debug_mode": debug_mode_state
     }
+
     try:
-        # ▼▼▼ ここからが修正箇所 ▼▼▼
         max_retries = 2
         for attempt in range(max_retries + 1):
             final_state = app.invoke(initial_state)
-
             final_response_text = ""
             if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
                 final_response_text = str(final_state['messages'][-1].content or "").strip()
-
-            # 応答が空でなく、かつエラーメッセージでない場合にループを抜ける
             if final_response_text and not final_response_text.startswith("【エラー】"):
                 break
-
-            # 応答が空またはエラーだった場合の処理
             if attempt < max_retries:
                 print(f"--- 警告: AIからの応答が空、またはエラーです。リトライします... ({attempt + 1}/{max_retries}) ---")
                 print(f"  - AIからの応答: {final_response_text[:200]}")
-                # リトライの間に短い待機時間を設ける
                 import time
                 time.sleep(1)
             else:
                 print(f"--- エラー: リトライ上限({max_retries}回)に達しても、AIから正常な応答を得られませんでした。---")
+
+        # ▼▼▼ ここからが修正の核心 ▼▼▼
+        # 実行結果のメッセージ履歴から、AIが呼び出したツールをすべて抽出する
+        tools_used_summary = []
+        for message in final_state.get('messages', []):
+            if isinstance(message, AIMessage) and message.tool_calls:
+                for tool_call in message.tool_calls:
+                    tool_name = tool_call.get('name', '不明なツール')
+                    tool_args = json.dumps(tool_call.get('args', {}), ensure_ascii=False)
+                    # パスワードのような機密情報が含まれる可能性のある引数は表示しない
+                    if "api_key" in tool_args or "tavily_api_key" in tool_args:
+                        tool_args = "{...}"
+                    tools_used_summary.append(f"🛠️ ツール使用: {tool_name}({tool_args})")
         # ▲▲▲ 修正ここまで ▲▲▲
 
-        location_name = final_state.get('location_name', '（場所不明）'); scenery_text = final_state.get('scenery_text', '（情景不明）')
-        return {"response": final_response_text, "location_name": location_name, "scenery": scenery_text}
+        location_name = final_state.get('location_name', '（場所不明）')
+        scenery_text = final_state.get('scenery_text', '（情景不明）')
+
+        # ▼▼▼ 戻り値の辞書に "tools_used" を追加 ▼▼▼
+        return {"response": final_response_text, "location_name": location_name, "scenery": scenery_text, "tools_used": tools_used_summary}
     except Exception as e:
-        traceback.print_exc(); return {**default_error_response, "response": f"[エージェント実行エラー: {e}]"}
+        traceback.print_exc()
+        return {**default_error_response, "response": f"[エージェント実行エラー: {e}]"}
 
 def count_input_tokens(**kwargs):
     character_name = kwargs.get("character_name")
@@ -167,7 +178,7 @@ def count_input_tokens(**kwargs):
     api_history_limit = kwargs.get("api_history_limit") # 新しい引数を受け取る
     parts = kwargs.get("parts", [])
 
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): return "トークン数: (APIキーエラー)"
 
     try:

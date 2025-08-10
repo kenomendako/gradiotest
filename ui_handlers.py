@@ -75,7 +75,7 @@ def handle_character_change(character_name: str, api_key_name: str):
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(character_name)
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
     # ▼▼▼ ここからが修正の核心 ▼▼▼
     # まず、UIに表示するための移動先リストを生成する
@@ -202,6 +202,13 @@ def handle_message_submission(*args: Any):
         traceback.print_exc()
         response_data = {"response": f"[UIハンドラエラー: {e}]", "location_name": "（エラー）", "scenery": "（エラー）"}
 
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    # 返されたデータからツールの使用履歴を取得し、アラートとして表示
+    tools_used = response_data.get("tools_used", [])
+    if tools_used:
+        for tool_info in tools_used:
+            gr.Info(tool_info)
+    # ▲▲▲ 修正ここまで ▲▲▲
     final_response_text = response_data.get("response", "")
     location_name, scenery_text = response_data.get("location_name", "（取得失敗）"), response_data.get("scenery", "（取得失敗）")
 
@@ -242,7 +249,7 @@ def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str,
     if not character_name or not api_key_name:
         return "（キャラクターまたはAPIキーが未選択です）", "（キャラクターまたはAPIキーが未選択です）", None
 
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return "（APIキーエラー）", "（APIキーエラー）", None
@@ -267,7 +274,7 @@ def handle_location_change(character_name: str, selected_value: str, api_key_nam
     if not selected_value or selected_value.startswith("__AREA_HEADER_"):
         # ヘッダーがクリックされたか、値がない場合は何もしない
         # 現在の状態をそのまま返す
-        location_name, _, scenery_text = generate_scenery_context(character_name, config_manager.API_KEYS.get(api_key_name))
+        location_name, _, scenery_text = generate_scenery_context(character_name, config_manager.GEMINI_API_KEYS.get(api_key_name))
         scenery_image_path = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
         return location_name, scenery_text, scenery_image_path
 
@@ -297,7 +304,7 @@ def handle_location_change(character_name: str, selected_value: str, api_key_nam
 
     # ▼▼▼ 修正の核心 ▼▼▼
     # 移動後に、キャッシュを考慮した情景取得関数を呼び出す
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return "（APIキーエラー）", "（APIキーエラー）", None
@@ -483,7 +490,7 @@ def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_
 
 def handle_rag_update_button_click(character_name: str, api_key_name: str):
     if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{character_name}」のRAG索引の更新を開始します...")
     import rag_manager
@@ -499,7 +506,7 @@ def _run_core_memory_update(character_name: str, api_key: str):
 
 def handle_core_memory_update_click(character_name: str, api_key_name: str):
     if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{character_name}」のコアメモリ更新をバックグラウンドで開始しました。")
     threading.Thread(target=_run_core_memory_update, args=(character_name, api_key)).start()
@@ -541,7 +548,7 @@ def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], c
 
         effective_settings = config_manager.get_effective_settings(character_name)
         voice_id, voice_style_prompt = effective_settings.get("voice_id", "iapetus"), effective_settings.get("voice_style_prompt", "")
-        api_key = config_manager.API_KEYS.get(api_key_name)
+        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         if not api_key:
             gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
             return
@@ -580,7 +587,7 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
 
     try:
         voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
-        api_key = config_manager.API_KEYS.get(api_key_name)
+        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         if not voice_id or not api_key:
             gr.Warning("声またはAPIキーが無効です。")
             return
@@ -604,40 +611,46 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
         )
 
 def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_name: str, style_choice: str) -> Optional[str]:
-    """「情景画像を生成/更新」ボタン専用ハンドラ。常に同じファイル名で上書き保存する。"""
+    """「情景画像を生成/更新」ボタン専用ハンドラ。シーンディレクターAIを起動してプロンプトを生成する。"""
     if not character_name or not api_key_name:
         gr.Warning("キャラクターとAPIキーを選択してください。")
         return None
 
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return None
 
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
     location_id = utils.get_current_location(character_name)
     existing_image_path = utils.find_scenery_image(character_name, location_id)
 
     if not location_id:
         gr.Warning("現在地が特定できません。")
-        # 既存の画像があればそれを返し、なければNoneを返す
         return existing_image_path
-    # ▲▲▲ 修正ここまで ▲▲▲
 
-    # --- プロンプトキャッシュとプロンプト生成のロジック ---
-    char_base_path = os.path.join(constants.CHARACTERS_DIR, character_name)
-    world_settings_path = character_manager.get_world_settings_path(character_name)
-    prompt_cache_path = os.path.join(char_base_path, "cache", "image_prompts.json")
-    structural_prompt = ""
-
+    final_prompt = ""
+    # --- シーンディレクターAIによるプロンプト生成 ---
+    gr.Info("シーンディレクターAIがプロンプトを構成しています...")
     try:
-        # 世界設定ファイルが.txtに変更されたことを想定し、新しいパーサーを使う
+        # 1. 現在の状況を定義する
+        now = datetime.datetime.now()
+        time_of_day = utils.get_time_of_day(now.hour)
+        season = utils.get_season(now.month)
+        style_prompts = {
+            "写真風 (デフォルト)": "An ultra-detailed, photorealistic masterpiece with cinematic lighting.",
+            "イラスト風": "A beautiful and detailed anime-style illustration, pixiv contest winner.",
+            "アニメ風": "A high-quality screenshot from a modern animated film.",
+            "水彩画風": "A gentle and emotional watercolor painting."
+        }
+        style_choice_text = style_prompts.get(style_choice, style_prompts["写真風 (デフォルト)"])
+
+        # 2. 場所の基本設定テキストを取得
+        world_settings_path = character_manager.get_world_settings_path(character_name)
         world_settings = utils.parse_world_file(world_settings_path)
         if not world_settings:
             gr.Error("世界設定の読み込みに失敗しました。")
             return existing_image_path
 
-        # 新しいデータ構造から場所のテキストを取得する
         space_text = None
         for area, places in world_settings.items():
             if location_id in places:
@@ -648,66 +661,64 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
             gr.Error("現在の場所の定義が見つかりません。")
             return existing_image_path
 
-        current_hash = hashlib.md5(space_text.encode('utf-8')).hexdigest()
+        # 3. シーンディレクターAI（gemini-2.5-flash）を準備
+        from agent.graph import get_configured_llm
+        scene_director_llm = get_configured_llm("gemini-2.5-flash", api_key)
 
-        with open(prompt_cache_path, 'r', encoding='utf-8') as f:
-            prompt_cache = json.load(f)
+        # 4. AIへの指示書（プロンプト）を作成
+        director_prompt = f"""
+You are a master scene director AI for a high-end image generation model.
+Your sole purpose is to synthesize all available information into a single, cohesive, and flawless prompt.
 
-        cached_entry = prompt_cache.get("prompts", {}).get(location_id, {})
-        cached_hash = cached_entry.get("source_hash")
+**Objective:**
+Generate one final, masterful prompt for an image generation AI.
 
-        if current_hash == cached_hash and cached_entry.get("prompt_text"):
-            structural_prompt = cached_entry["prompt_text"]
-            print(f"--- [画像プロンプトキャッシュHIT] 場所 '{location_id}' のプロンプトをキャッシュから使用します ---")
-        else:
-            print(f"--- [画像プロンプトキャッシュMISS] 場所 '{location_id}' の定義が変更されたため、プロンプトを再生成します ---")
-            from agent.graph import get_configured_llm
-            translator_llm = get_configured_llm("gemini-2.5-flash", api_key)
+**Core Principles:**
+1.  **Foundation First (Absolute Priority):** The 'Base Location Description' is the undeniable truth of the world. Your final prompt **must be a faithful and accurate visual representation** of all objects, furniture, materials, and architectural structures described within it. Do not omit, add, or change these fundamental elements.
+2.  **Synthesize, Don't Contradict:** Read the 'Base Location Description' and the 'Current Scene Conditions'. Your final prompt must logically integrate both. If there are contradictions (e.g., the description mentions 'natural light' but the condition is 'night'), you MUST resolve them by prioritizing the 'Current Scene Conditions' while upholding Principle #1.
+3.  **Strictly Visual:** The output must be a purely visual and descriptive paragraph in English. Exclude any narrative, metaphors, sounds, or non-visual elements.
+4.  **Mandatory Inclusions:** Your final prompt MUST incorporate the specified 'Aspect Ratio' and adhere to the 'Style Definition'.
+5.  **Absolute Prohibitions:** Strictly enforce all 'Negative Prompts'.
+6.  **Output Format:** Output ONLY the final, single-paragraph prompt. Do not include any of your own thoughts, acknowledgments, or conversational text.
 
-            translation_prompt_text = (
-                "You are a professional translator for an image generation AI. "
-                "Your task is to read the following free-form text, which describes a location, "
-                "and convert it into a concise, visually descriptive paragraph in English. "
-                "Focus strictly on physical, visible attributes like structure, objects, materials, and lighting. "
-                "Do not include any narrative, story elements, or metaphors. Output only the resulting English paragraph.\n\n"
-                f"Location Description:\n{space_text}"
-            )
+---
+**Information Dossier:**
 
-            structural_prompt = translator_llm.invoke(translation_prompt_text).content.strip()
+**1. Base Location Description (The ground truth for all structures and objects):**
+{space_text}
 
-            if "prompts" not in prompt_cache: prompt_cache["prompts"] = {}
-            prompt_cache["prompts"][location_id] = { "source_hash": current_hash, "prompt_text": structural_prompt }
-            with open(prompt_cache_path, 'w', encoding='utf-8') as f:
-                json.dump(prompt_cache, f, indent=2, ensure_ascii=False)
-            print(f"  - 場所 '{location_id}' の新しいプロンプトをキャッシュに保存しました。")
+**2. Current Scene Conditions (This defines the current atmosphere and overrides conflicting light sources):**
+- Time of Day: {time_of_day}
+- Season: {season}
+
+**3. Style Definition (Incorporate this aesthetic):**
+- {style_choice_text}
+
+**4. Mandatory Technical Specs:**
+- Aspect Ratio: The final image must have a 16:9 landscape aspect ratio.
+
+**5. Negative Prompts (Strictly enforce these exclusions):**
+- Absolutely no text, letters, characters, signatures, or watermarks. Do not include people.
+---
+
+**Final Master Prompt:**
+"""
+
+        # 5. AIにプロンプト生成を依頼
+        final_prompt = scene_director_llm.invoke(director_prompt).content.strip()
 
     except Exception as e:
-        gr.Error(f"画像プロンプトの準備中にエラーが発生しました: {e}")
+        gr.Error(f"シーンディレクターAIによるプロンプト生成中にエラーが発生しました: {e}")
         traceback.print_exc()
         return existing_image_path
 
-    if not structural_prompt:
-        gr.Error("画像生成の元となる構造プロンプトを生成できませんでした。")
+    if not final_prompt:
+        gr.Error("シーンディレクターAIが有効なプロンプトを生成できませんでした。")
         return existing_image_path
 
-    # --- 最終的なプロンプトの組み立てと画像生成 ---
-    now = datetime.datetime.now()
-    time_of_day = utils.get_time_of_day(now.hour); season = utils.get_season(now.month)
-    dynamic_prompt = f"The current season is {season}, and the time of day is {time_of_day}."
-
-    style_prompts = {
-        "写真風 (デフォルト)": "An ultra-detailed, photorealistic masterpiece with cinematic lighting.",
-        "イラスト風": "A beautiful and detailed anime-style illustration, pixiv contest winner.",
-        "アニメ風": "A high-quality screenshot from a modern animated film.",
-        "水彩画風": "A gentle and emotional watercolor painting."
-    }
-    base_prompt = style_prompts.get(style_choice, style_prompts["写真風 (デフォルト)"])
-    negative_prompt = "Absolutely no text, letters, characters, signatures, or watermarks of any kind should be present in the image. Do not include people."
-
-    prompt = f"{base_prompt} {negative_prompt} Depict the following scene: {structural_prompt} {dynamic_prompt}"
+    # --- 画像生成AIへの最終的な依頼 ---
     gr.Info(f"「{style_choice}」で画像を生成します...")
-
-    result = generate_image_tool_func.func(prompt=prompt, character_name=character_name, api_key=api_key)
+    result = generate_image_tool_func.func(prompt=final_prompt, character_name=character_name, api_key=api_key)
 
     # --- 生成画像の保存とUI更新 ---
     if "Generated Image:" in result:
@@ -741,7 +752,7 @@ def handle_api_connection_test(api_key_name: str):
         gr.Warning("テストするAPIキーが選択されていません。")
         return
 
-    api_key = config_manager.API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         gr.Error(f"APIキー '{api_key_name}' は無効です。config.jsonを確認してください。")
         return
@@ -913,3 +924,33 @@ def handle_wb_delete_place(character_name: str, world_data: Dict, area_name: str
 
     place_choices = sorted(world_data[area_name].keys())
     return world_data, gr.update(choices=place_choices, value=None), ""
+
+def handle_save_gemini_key(key_name, key_value):
+    if not key_name or not key_value:
+        gr.Warning("キーの名前と値の両方を入力してください。")
+        return gr.update(), gr.update()
+
+    config_manager.add_or_update_gemini_key(key_name, key_value)
+    gr.Info(f"Gemini APIキー「{key_name}」を保存しました。")
+
+    new_keys = list(config_manager.GEMINI_API_KEYS.keys())
+    return pd.DataFrame(new_keys, columns=["Geminiキー名"]), gr.update(choices=new_keys)
+
+def handle_delete_gemini_key(key_name):
+    if not key_name:
+        gr.Warning("削除するキーの名前を入力してください。")
+        return gr.update(), gr.update()
+
+    config_manager.delete_gemini_key(key_name)
+    gr.Info(f"Gemini APIキー「{key_name}」を削除しました。")
+
+    new_keys = list(config_manager.GEMINI_API_KEYS.keys())
+    return pd.DataFrame(new_keys, columns=["Geminiキー名"]), gr.update(choices=new_keys, value=new_keys[0] if new_keys else None)
+
+def handle_save_pushover_config(user_key, app_token):
+    config_manager.update_pushover_config(user_key, app_token)
+    gr.Info("Pushover設定を保存しました。")
+
+def handle_save_tavily_key(api_key):
+    config_manager.update_tavily_key(api_key)
+    gr.Info("Tavily APIキーを保存しました。")
