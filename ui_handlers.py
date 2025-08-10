@@ -526,7 +526,9 @@ def handle_add_or_update_alarm(editing_id, h, m, char, context, days_ja, is_emer
 
     if editing_id:
         alarm_manager.delete_alarm(editing_id)
-        gr.Info(f"アラームID:{editing_id}を更新します。")
+        gr.Info(f"アラームID:{editing_id} を更新しました。")
+    else:
+        gr.Info(f"新しいアラームを追加しました。")
 
     set_personal_alarm.func(time=f"{h}:{m}", context_memo=context_memo, character_name=char, days=days_en, date=None, is_emergency=is_emergency)
 
@@ -534,16 +536,23 @@ def handle_add_or_update_alarm(editing_id, h, m, char, context, days_ja, is_emer
     all_chars = character_manager.get_character_list()
     default_char = all_chars[0] if all_chars else "Default"
 
+    # 選択解除のための戻り値
+    new_selected_ids = []
+    feedback_text = "アラームを選択してください"
+
     return (
         new_df_with_ids,
         get_display_df(new_df_with_ids),
-        "アラーム追加",
-        "",
-        gr.update(choices=all_chars, value=default_char),
-        [],
-        False,
-        "08", "00",
-        None
+        "アラーム追加",                                    # ボタンのテキストをリセット
+        "",                                              # context_input をリセット
+        gr.update(choices=all_chars, value=default_char),# char_dropdown をリセット
+        [],                                              # days_checkboxgroup をリセット
+        False,                                           # emergency_checkbox をリセット
+        "08",                                            # hour_dropdown をリセット
+        "00",                                            # minute_dropdown をリセット
+        None,                                            # editing_alarm_id_state をリセット
+        new_selected_ids,                                # selected_alarm_ids_state をリセット
+        feedback_text                                    # selection_feedback_markdown をリセット
     )
 
 def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_theme, brk_theme, api_key_name, normal_theme):

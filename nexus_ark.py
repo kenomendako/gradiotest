@@ -333,7 +333,9 @@ try:
                 alarm_emergency_checkbox,
                 alarm_hour_dropdown,
                 alarm_minute_dropdown,
-                editing_alarm_id_state
+                editing_alarm_id_state,
+                selected_alarm_ids_state,
+                selection_feedback_markdown
             ]
         )
         timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
