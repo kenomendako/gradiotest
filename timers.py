@@ -86,18 +86,26 @@ class UnifiedTimer:
             traceback.print_exc()
 
     def _run_pomodoro(self):
-        """ポモドーロサイクルの管理"""
+        """ポモドーロサイクルの管理（修正版）"""
         for i in range(self.cycles):
-            if self._stop_event.is_set(): return
+            # ループの開始時に停止イベントをチェック
+            if self._stop_event.is_set():
+                print("--- [ポモドーロタイマー] ユーザーにより停止されました ---")
+                return
 
-            # 作業タイマー
+            # --- 作業タイマーの実行 ---
+            print(f"--- [ポモドーロ開始: 作業 {i+1}/{self.cycles}] ---")
             self._run_single_timer(self.work_duration, self.work_theme, f"ポモドーロ作業 {i+1}/{self.cycles}")
-            if self._stop_event.is_set(): return
 
-            # 休憩タイマー（最後のサイクルでは実行しない）
-            if i < self.cycles - 1:
-                self._run_single_timer(self.break_duration, self.break_theme, f"ポモドーロ休憩 {i+1}/{self.cycles}")
-                if self._stop_event.is_set(): return
+            # 作業後に停止イベントをチェック
+            if self._stop_event.is_set():
+                print("--- [ポモドーロタイマー] ユーザーにより停止されました ---")
+                return
+
+            # --- 休憩タイマーの実行 ---
+            # 最後のサイクルでも休憩を実行するように修正
+            print(f"--- [ポモドーロ開始: 休憩 {i+1}/{self.cycles}] ---")
+            self._run_single_timer(self.break_duration, self.break_theme, f"ポモドーロ休憩 {i+1}/{self.cycles}")
 
         print("--- [ポモドーロタイマー] 全サイクル完了 ---")
 
