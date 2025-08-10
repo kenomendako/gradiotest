@@ -224,7 +224,6 @@ try:
                             save_button = gr.Button("この場所の設定を保存", variant="primary")
                             delete_place_button = gr.Button("この場所を削除", variant="stop")
 
-    if __name__ == "__main__":
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
         context_token_calc_inputs = [current_character_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
