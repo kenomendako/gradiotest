@@ -457,6 +457,11 @@ def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame) -> List
     return [str(df_with_id.iloc[r[0] if isinstance(r, tuple) else r]['ID']) for r in indices if isinstance(r, (int, tuple)) and 0 <= (r[0] if isinstance(r, tuple) else r) < len(df_with_id)]
 
 def handle_alarm_selection_for_all_updates(evt: gr.SelectData, df_with_id: pd.DataFrame):
+    # --- ▼▼▼ ここからデバッグコード ▼▼▼ ---
+    print("\n--- [デバッグ] アラーム選択イベント発生 ---")
+    print(f"  - Gradioからのイベントデータ (evt): {evt}")
+    # --- ▲▲▲ デバッグコードここまで ▲▲▲ ---
+
     selected_ids = handle_alarm_selection(evt, df_with_id)
     feedback_text = "アラームを選択してください" if not selected_ids else f"{len(selected_ids)} 件のアラームを選択中"
 
@@ -465,6 +470,12 @@ def handle_alarm_selection_for_all_updates(evt: gr.SelectData, df_with_id: pd.Da
 
     if len(selected_ids) == 1:
         alarm = next((a for a in alarm_manager.load_alarms() if a.get("id") == selected_ids[0]), None)
+
+        # --- ▼▼▼ ここからデバッグコード ▼▼▼ ---
+        print(f"  - 選択されたアラームID: {selected_ids[0]}")
+        print(f"  - 読み込んだアラームデータ: {alarm}")
+        # --- ▲▲▲ デバッグコードここまで ▲▲▲ ---
+
         if alarm:
             h, m = alarm.get("time", "08:00").split(":")
             days_ja = [DAY_MAP_EN_TO_JA.get(d.lower(), d.upper()) for d in alarm.get("days", [])]
@@ -478,10 +489,20 @@ def handle_alarm_selection_for_all_updates(evt: gr.SelectData, df_with_id: pd.Da
                 h, m,
                 selected_ids[0]
             )
+
+            # --- ▼▼▼ ここからデバッグコード ▼▼▼ ---
+            print(f"  - UIに返すフォーム更新データ: {form_updates}")
+            print("--- [デバッグ] 処理終了 ---\n")
+            # --- ▲▲▲ デバッグコードここまで ▲▲▲ ---
+
         else:
             form_updates = ("アラーム追加", "", default_char, [], False, "08", "00", None)
+            print("  - 選択されたIDに一致するアラームが見つかりませんでした。")
+            print("--- [デバッグ] 処理終了 ---\n")
     else:
         form_updates = ("アラーム追加", "", default_char, [], False, "08", "00", None)
+        print("  - 選択されたアラームが1件ではないため、フォームをリセットします。")
+        print("--- [デバッグ] 処理終了 ---\n")
 
     return (selected_ids, feedback_text) + form_updates
 
