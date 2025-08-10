@@ -149,18 +149,44 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒント
             else:
                 print(f"--- エラー: リトライ上限({max_retries}回)に達しても、AIから正常な応答を得られませんでした。---")
 
-        # ▼▼▼ ここからが修正の核心 ▼▼▼
-        # 実行結果のメッセージ履歴から、AIが呼び出したツールをすべて抽出する
+        # ▼▼▼ ここからが「翻訳機」ロジック ▼▼▼
         tools_used_summary = []
         for message in final_state.get('messages', []):
             if isinstance(message, AIMessage) and message.tool_calls:
                 for tool_call in message.tool_calls:
                     tool_name = tool_call.get('name', '不明なツール')
-                    tool_args = json.dumps(tool_call.get('args', {}), ensure_ascii=False)
-                    # パスワードのような機密情報が含まれる可能性のある引数は表示しない
-                    if "api_key" in tool_args or "tavily_api_key" in tool_args:
-                        tool_args = "{...}"
-                    tools_used_summary.append(f"🛠️ ツール使用: {tool_name}({tool_args})")
+                    args = tool_call.get('args', {})
+
+                    # ツール名に応じて表示をカスタマイズ
+                    display_text = ""
+                    if tool_name == 'set_current_location':
+                        location = args.get('location_id', '不明な場所')
+                        display_text = f'現在地を「{location}」に設定しました。'
+                    elif tool_name == 'web_search_tool':
+                        query = args.get('query', '...')
+                        display_text = f'Webで「{query}」を検索しました。'
+                    elif tool_name == 'add_to_notepad':
+                        entry = args.get('entry', '...')
+                        display_text = f'メモ帳に「{entry[:30]}...」を追加しました。'
+                    elif tool_name == 'update_notepad':
+                        new_entry = args.get('new_entry', '...')
+                        display_text = f'メモ帳を「{new_entry[:30]}...」に更新しました。'
+                    elif tool_name == 'delete_from_notepad':
+                        entry = args.get('entry_to_delete', '...')
+                        display_text = f'メモ帳から「{entry[:30]}...」を削除しました。'
+                    elif tool_name == 'generate_image':
+                        display_text = '新しい画像を生成しました。'
+                    else:
+                        # 上記以外のツールは、主要な引数だけを表示
+                        # ユーザーに見せる必要のない引数を除外
+                        args_to_display = {k: v for k, v in args.items() if k not in ['character_name', 'api_key', 'tavily_api_key']}
+                        if args_to_display:
+                            args_str = ", ".join([f"{k}='{str(v)[:20]}...'" for k, v in args_to_display.items()])
+                            display_text = f'{tool_name} を実行しました ({args_str})'
+                        else:
+                            display_text = f'{tool_name} を実行しました。'
+
+                    tools_used_summary.append(f"🛠️ {display_text}")
         # ▲▲▲ 修正ここまで ▲▲▲
 
         location_name = final_state.get('location_name', '（場所不明）')
