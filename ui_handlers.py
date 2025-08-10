@@ -954,3 +954,15 @@ def handle_save_pushover_config(user_key, app_token):
 def handle_save_tavily_key(api_key):
     config_manager.update_tavily_key(api_key)
     gr.Info("Tavily APIキーを保存しました。")
+
+def handle_notification_service_change(service_choice: str):
+    """通知サービスの設定を保存するハンドラ"""
+    if service_choice in ["Discord", "Pushover"]:
+        config_manager.save_config("notification_service", service_choice.lower())
+        gr.Info(f"通知サービスを「{service_choice}」に設定しました。")
+    return service_choice.lower()
+
+def handle_save_discord_webhook(webhook_url: str):
+    """Discord Webhook URLを保存するハンドラ"""
+    config_manager.save_config("notification_webhook_url", webhook_url)
+    gr.Info("Discord Webhook URLを保存しました。")

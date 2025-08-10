@@ -128,6 +128,16 @@ try:
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
 
+                                    # --- 以下のブロックを api_test_button の下に追加 ---
+                                    gr.Markdown("---")
+                                    gr.Markdown("#### 📢 通知サービス設定")
+                                    notification_service_radio = gr.Radio(
+                                        ["Discord", "Pushover"],
+                                        label="アラーム通知に使用するサービス",
+                                        value=config_manager.NOTIFICATION_SERVICE_GLOBAL,
+                                        interactive=True
+                                    )
+
                                     with gr.Accordion("🔑 APIキー管理", open=False):
                                         gr.Markdown("### 登録済みのキー")
                                         gemini_keys_display = gr.DataFrame(headers=["Geminiキー名"], col_count=(1, "fixed"), interactive=False, value=lambda: pd.DataFrame(list(config_manager.GEMINI_API_KEYS.keys()), columns=["Geminiキー名"]))
@@ -147,6 +157,14 @@ try:
                                             with gr.TabItem("Tavily"):
                                                 tavily_key_input = gr.Textbox(label="Tavily API Key", type="password", value=lambda: config_manager.TAVILY_API_KEY)
                                                 save_tavily_key_button = gr.Button("Tavilyキーを保存", variant="primary")
+                                        # with gr.TabItem("Tavily"): のブロックの後に、以下のブロックを追加
+                                        with gr.TabItem("Discord"):
+                                            discord_webhook_input = gr.Textbox(
+                                                label="Discord Webhook URL",
+                                                type="password",
+                                                value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL
+                                            )
+                                            save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
                                         gr.Warning("APIキーはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
                         with gr.Accordion("📗 記憶とメモの編集", open=False):
                             with gr.Tabs():
@@ -392,6 +410,22 @@ try:
 
         # ▼▼▼ この行を末尾に追加 ▼▼▼
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
+
+        # --- 以下の2つのイベント接続を、ファイルの末尾近くのイベント定義エリアに追加 ---
+
+        # 通知サービス選択のイベント
+        notification_service_radio.change(
+            fn=ui_handlers.handle_notification_service_change,
+            inputs=[notification_service_radio],
+            outputs=[] # UIに直接返す値はないが、バックエンドの状態は更新される
+        )
+
+        # Discord Webhook保存ボタンのイベント
+        save_discord_webhook_button.click(
+            fn=ui_handlers.handle_save_discord_webhook,
+            inputs=[discord_webhook_input],
+            outputs=[]
+        )
 
     if __name__ == "__main__":
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")

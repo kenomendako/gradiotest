@@ -89,11 +89,24 @@ def _send_pushover_notification(app_token, user_key, message_text, char_name, al
         print(f"Pushover通知送信エラー: {e}")
 
 def send_notification(char_name, message_text, alarm_config):
-    service = config_manager.NOTIFICATION_SERVICE_GLOBAL
+    """設定に応じて、適切な通知サービスに通知を送信する"""
+    # config_managerから現在選択されているサービスを取得
+    service = config_manager.NOTIFICATION_SERVICE_GLOBAL.lower()
+
     if service == "pushover":
-        _send_pushover_notification(config_manager.PUSHOVER_APP_TOKEN_GLOBAL, config_manager.PUSHOVER_USER_KEY_GLOBAL, message_text, char_name, alarm_config)
-    else:
+        print(f"--- 通知サービス: Pushover を選択 ---")
+        # Pushoverのグローバル設定変数を参照するように修正
+        _send_pushover_notification(
+            config_manager.PUSHOVER_CONFIG.get("app_token"),
+            config_manager.PUSHOVER_CONFIG.get("user_key"),
+            message_text,
+            char_name,
+            alarm_config
+        )
+    else: # デフォルトはDiscord
+        print(f"--- 通知サービス: Discord を選択 ---")
         notification_message = f"⏰  {char_name}\n\n{message_text}\n"
+        # Discordのグローバル設定変数を参照するように修正
         _send_discord_notification(config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL, notification_message)
 
 def trigger_alarm(alarm_config, current_api_key_name):
