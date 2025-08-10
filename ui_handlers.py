@@ -453,30 +453,22 @@ def get_display_df(df_with_id: pd.DataFrame):
 
 def handle_alarm_selection(evt: gr.SelectData, df_with_id: pd.DataFrame) -> List[str]:
     """
-    Dataframeの選択イベントを処理し、選択された行のIDリストを返す（堅牢化版）。
-    Gradioが複数行のインデックスを渡してきた場合でも、最後のものだけを返す。
+    Dataframeの選択イベントをシンプルに処理し、選択された行のIDを返す。
     """
+    # イベントデータ、特にインデックスが存在しない場合は、空のリストを返す
     if not hasattr(evt, 'index') or evt.index is None or df_with_id is None or df_with_id.empty:
         return []
 
-    # evt.indexはタプル(行, 列)またはタプルのリスト
-    indices = evt.index
+    # GradioのSelectDataから行番号を取得 (evt.indexは (行, 列) のタプル)
+    row_index = evt.index[0]
 
-    # 最後にクリックされた行のインデックスを取得
-    last_row_index = -1
-    if isinstance(indices, list) and len(indices) > 0:
-        # 複数選択されている場合、最後の要素（最新のクリック）を取得
-        last_selection = indices[-1]
-        if isinstance(last_selection, tuple) and len(last_selection) > 0:
-            last_row_index = last_selection[0]
-    elif isinstance(indices, tuple) and len(indices) > 0:
-        # 単一選択の場合
-        last_row_index = indices[0]
+    # 行番号が有効な範囲にあるか確認
+    if 0 <= row_index < len(df_with_id):
+        # 正しい行のIDを抽出し、リストに入れて返す
+        selected_id = str(df_with_id.iloc[row_index]['ID'])
+        return [selected_id]
 
-    if 0 <= last_row_index < len(df_with_id):
-        # 最後にクリックされた行のIDのみをリストとして返す
-        return [str(df_with_id.iloc[last_row_index]['ID'])]
-
+    # 有効な行でなければ空のリストを返す
     return []
 
 def handle_alarm_selection_for_all_updates(evt: gr.SelectData, df_with_id: pd.DataFrame):
