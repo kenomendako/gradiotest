@@ -485,20 +485,18 @@ def handle_alarm_selection_for_all_updates(evt: gr.SelectData, df_with_id: pd.Da
             days_ja = [DAY_MAP_EN_TO_JA.get(d.lower(), d.upper()) for d in alarm.get("days", [])]
 
             form_updates = (
-                "アラーム更新",
-                alarm.get("context_memo", ""),
-                alarm.get("character", default_char),
-                days_ja,
-                alarm.get("is_emergency", False),
-                h, m,
-                selected_ids[0]
+                "アラーム更新", alarm.get("context_memo", ""), alarm.get("character", default_char),
+                days_ja, alarm.get("is_emergency", False), h, m, selected_ids[0]
             )
-        else:
+            cancel_button_visibility = gr.update(visible=True) # キャンセルボタンを表示
+        else: # 念のための安全策
             form_updates = ("アラーム追加", "", default_char, [], False, "08", "00", None)
-    else:
+            cancel_button_visibility = gr.update(visible=False) # キャンセルボタンを非表示
+    else: # 選択解除時
         form_updates = ("アラーム追加", "", default_char, [], False, "08", "00", None)
+        cancel_button_visibility = gr.update(visible=False) # キャンセルボタンを非表示
 
-    return (selected_ids, feedback_text) + form_updates
+    return (selected_ids, feedback_text) + form_updates + (cancel_button_visibility,)
 
 def toggle_selected_alarms_status(selected_ids: list, target_status: bool):
     if not selected_ids: gr.Warning("状態を変更するアラームが選択されていません。")
@@ -534,6 +532,18 @@ def handle_delete_alarms_and_update_ui(selected_ids: list):
 
     return new_df_with_ids, display_df, new_selected_ids, feedback_text
 
+def handle_cancel_alarm_edit():
+    """アラーム編集をキャンセルし、フォームを初期状態に戻す"""
+    all_chars = character_manager.get_character_list()
+    default_char = all_chars[0] if all_chars else "Default"
+
+    # フォームと選択状態を完全にリセット
+    return (
+        "アラーム追加", "", gr.update(choices=all_chars, value=default_char),
+        [], False, "08", "00", None, [], "アラームを選択してください",
+        gr.update(visible=False) # キャンセルボタン自身を非表示に
+    )
+
 def handle_add_or_update_alarm(editing_id, h, m, char, context, days_ja, is_emergency):
     from tools.alarm_tools import set_personal_alarm
     context_memo = context.strip() if context and context.strip() else "時間になりました"
@@ -551,23 +561,11 @@ def handle_add_or_update_alarm(editing_id, h, m, char, context, days_ja, is_emer
     all_chars = character_manager.get_character_list()
     default_char = all_chars[0] if all_chars else "Default"
 
-    # 選択解除のための戻り値
-    new_selected_ids = []
-    feedback_text = "アラームを選択してください"
-
     return (
-        new_df_with_ids,
-        get_display_df(new_df_with_ids),
-        "アラーム追加",                                    # ボタンのテキストをリセット
-        "",                                              # context_input をリセット
-        gr.update(choices=all_chars, value=default_char),# char_dropdown をリセット
-        [],                                              # days_checkboxgroup をリセット
-        False,                                           # emergency_checkbox をリセット
-        "08",                                            # hour_dropdown をリセット
-        "00",                                            # minute_dropdown をリセット
-        None,                                            # editing_alarm_id_state をリセット
-        new_selected_ids,                                # selected_alarm_ids_state をリセット
-        feedback_text                                    # selection_feedback_markdown をリセット
+        new_df_with_ids, get_display_df(new_df_with_ids),
+        "アラーム追加", "", gr.update(choices=all_chars, value=default_char),
+        [], False, "08", "00", None, [], "アラームを選択してください",
+        gr.update(visible=False) # キャンセルボタンを非表示
     )
 
 def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_theme, brk_theme, api_key_name, normal_theme):

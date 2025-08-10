@@ -101,7 +101,15 @@ try:
                                     with gr.Row():
                                         enable_button = gr.Button("✔️ 選択を有効化"); disable_button = gr.Button("❌ 選択を無効化"); delete_alarm_button = gr.Button("🗑️ 選択したアラームを削除", variant="stop")
                                     gr.Markdown("---"); gr.Markdown("#### 新規 / 更新")
-                                    alarm_hour_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(24)], label="時", value="08"); alarm_minute_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(60)], label="分", value="00"); alarm_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラ"); alarm_context_input = gr.Textbox(label="内容", placeholder="AIに伝える内容や目的を簡潔に記述します。\n例：朝の目覚まし、今日も一日頑張ろう！", lines=3); alarm_emergency_checkbox = gr.Checkbox(label="緊急通知として送信 (マナーモードを貫通)", value=False, interactive=True); alarm_days_checkboxgroup = gr.CheckboxGroup(choices=["月", "火", "水", "木", "金", "土", "日"], label="曜日", value=[]); alarm_add_button = gr.Button("アラーム追加")
+                                    alarm_hour_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(24)], label="時", value="08")
+                                    alarm_minute_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(60)], label="分", value="00")
+                                    alarm_char_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラ")
+                                    alarm_context_input = gr.Textbox(label="内容", placeholder="AIに伝える内容や目的を簡潔に記述します。\n例：朝の目覚まし、今日も一日頑張ろう！", lines=3)
+                                    alarm_emergency_checkbox = gr.Checkbox(label="緊急通知として送信 (マナーモードを貫通)", value=False, interactive=True)
+                                    alarm_days_checkboxgroup = gr.CheckboxGroup(choices=["月", "火", "水", "木", "金", "土", "日"], label="曜日", value=[])
+                                    with gr.Row():
+                                        alarm_add_button = gr.Button("アラーム追加")
+                                        cancel_edit_button = gr.Button("編集をキャンセル", visible=False)
                                 with gr.TabItem("タイマー"):
                                     timer_type_radio = gr.Radio(["通常タイマー", "ポモドーロタイマー"], label="タイマー種別", value="通常タイマー")
                                     with gr.Column(visible=True) as normal_timer_ui:
@@ -296,7 +304,8 @@ try:
                 alarm_emergency_checkbox,
                 alarm_hour_dropdown,
                 alarm_minute_dropdown,
-                editing_alarm_id_state
+                editing_alarm_id_state,
+                cancel_edit_button
             ],
             show_progress=False
         )
@@ -335,9 +344,29 @@ try:
                 alarm_minute_dropdown,
                 editing_alarm_id_state,
                 selected_alarm_ids_state,
-                selection_feedback_markdown
+                selection_feedback_markdown,
+                cancel_edit_button
             ]
         )
+
+        cancel_edit_button.click(
+            fn=ui_handlers.handle_cancel_alarm_edit,
+            inputs=None,
+            outputs=[
+                alarm_add_button,
+                alarm_context_input,
+                alarm_char_dropdown,
+                alarm_days_checkboxgroup,
+                alarm_emergency_checkbox,
+                alarm_hour_dropdown,
+                alarm_minute_dropdown,
+                editing_alarm_id_state,
+                selected_alarm_ids_state,
+                selection_feedback_markdown,
+                cancel_edit_button
+            ]
+        )
+
         timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
         timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
 
