@@ -752,6 +752,7 @@ def handle_api_connection_test(api_key_name: str):
         gr.Warning("テストするAPIキーが選択されていません。")
         return
 
+    # ▼▼▼ 修正の核心：プロジェクト規約に準拠した正しいAPI呼び出し方法に変更 ▼▼▼
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         gr.Error(f"APIキー '{api_key_name}' は無効です。config.jsonを確認してください。")
@@ -759,27 +760,25 @@ def handle_api_connection_test(api_key_name: str):
 
     gr.Info(f"APIキー '{api_key_name}' を使って、必須モデルへの接続をテストしています...")
 
-    # ここではgemini_apiを直接インポートする
-    import google.genai as genai
-
     # チェックするモデルのリスト
     required_models = {
-        "models/gemini-1.5-pro-latest": "通常チャット",
-        "models/gemini-1.5-flash-latest": "情景描写生成",
-        "models/gemini-1.0-pro-vision-latest": "画像生成" # 仮
+        "models/gemini-2.5-pro": "通常チャット",
+        "models/gemini-2.5-flash": "情景描写生成",
+        "models/gemini-2.0-flash-preview-image-generation": "画像生成"
     }
 
     results = []
     all_ok = True
 
     try:
-        # クライアントの初期化は一度だけ行う
-        genai.configure(api_key=api_key)
+        # 正しいClientオブジェクトを作成
+        import google.genai as genai
+        client = genai.Client(api_key=api_key)
 
         for model_name, purpose in required_models.items():
             try:
                 # 各モデルの情報を取得しようと試みる
-                genai.get_model(model_name)
+                client.models.get(model=model_name)
                 results.append(f"✅ **{purpose} ({model_name.split('/')[-1]})**: 利用可能です。")
             except Exception as model_e:
                 results.append(f"❌ **{purpose} ({model_name.split('/')[-1]})**: 利用できません。")
@@ -797,6 +796,7 @@ def handle_api_connection_test(api_key_name: str):
         error_message = f"❌ **APIサーバーへの接続自体に失敗しました。**\n\nAPIキーが無効か、ネットワークの問題が発生している可能性があります。\n\n詳細: {str(e)}"
         print(f"--- API接続テストエラー ---\n{traceback.format_exc()}")
         gr.Error(error_message)
+    # ▲▲▲ 修正ここまで ▲▲▲
 
 #
 # ワールド・ビルダー関連の新しいハンドラ群

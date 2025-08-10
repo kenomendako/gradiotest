@@ -139,15 +139,7 @@ try:
                                     )
 
                                     with gr.Accordion("🔑 APIキー管理", open=False):
-                                        gr.Markdown("### 登録済みのキー")
-                                        gemini_keys_display = gr.DataFrame(
-                                            headers=["Geminiキー名"],
-                                            col_count=(1, "fixed"),
-                                            interactive=False,
-                                            value=lambda: pd.DataFrame(list(config_manager.GEMINI_API_KEYS.keys()), columns=["Geminiキー名"])
-                                        )
-
-                                        gr.Markdown("### 新規登録 / 更新")
+                                        # ▼▼▼ 登録済みキーのDataFrameと「新規登録 / 更新」のMarkdownを削除 ▼▼▼
                                         with gr.Tabs():
                                             with gr.TabItem("Gemini"):
                                                 gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
@@ -159,7 +151,6 @@ try:
                                                 pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("user_key"))
                                                 pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("app_token"))
                                                 save_pushover_config_button = gr.Button("Pushover設定を保存", variant="primary")
-                                            # ▼▼▼ ここからが修正箇所 ▼▼▼
                                             with gr.TabItem("Discord"):
                                                 discord_webhook_input = gr.Textbox(
                                                     label="Discord Webhook URL",
@@ -170,7 +161,6 @@ try:
                                             with gr.TabItem("Tavily"):
                                                 tavily_key_input = gr.Textbox(label="Tavily API Key", type="password", value=lambda: config_manager.TAVILY_API_KEY)
                                                 save_tavily_key_button = gr.Button("Tavilyキーを保存", variant="primary")
-                                            # ▲▲▲ 修正ここまで ▲▲▲
 
                                         gr.Warning("APIキーはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
                         with gr.Accordion("📗 記憶とメモの編集", open=False):
@@ -347,12 +337,12 @@ try:
         save_gemini_key_button.click(
             fn=ui_handlers.handle_save_gemini_key,
             inputs=[gemini_key_name_input, gemini_key_value_input],
-            outputs=[gemini_keys_display, api_key_dropdown]
+            outputs=[api_key_dropdown]
         )
         delete_gemini_key_button.click(
             fn=ui_handlers.handle_delete_gemini_key,
             inputs=[gemini_key_name_input],
-            outputs=[gemini_keys_display, api_key_dropdown]
+            outputs=[api_key_dropdown]
         )
 
         # Pushover設定の保存
