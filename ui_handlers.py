@@ -954,18 +954,29 @@ def handle_wb_area_select(world_data: Dict, area_name: str):
 
 def handle_wb_place_select(world_data: Dict, area_name: str, place_name: str):
     """場所が選択された時、内容エディタを更新し、ボタンを表示する。"""
+
+    # --- ▼▼▼ デバッグコード開始 ▼▼▼ ---
+    print("\n--- [デバッグ] 場所選択イベント (handle_wb_place_select) ---")
+    print(f"  - 入力 (area_name): '{area_name}'")
+    print(f"  - 入力 (place_name): '{place_name}'")
+    # --- ▲▲▲ デバッグコード終了 ▲▲▲ ---
+
     if not area_name or not place_name:
-        # 場所が選択されていない場合は、エディタとボタンを隠す
+        print("  - 条件分岐: エリア名または場所名がないため、UIをリセットします。")
         return "", gr.update(visible=False), gr.update(visible=False)
 
     # 場所のコンテンツを取得
     content = world_data.get(area_name, {}).get(place_name, "")
 
-    # UIの期待通り、3つの値をタプルで返す
+    # --- ▼▼▼ デバッグコード開始 ▼▼▼ ---
+    print(f"  - 辞書検索の結果 (content): '{content[:50]}...'") # 内容が長くてもいいように最初の50文字だけ表示
+    print("--- [デバッグ] 処理終了 ---\n")
+    # --- ▲▲▲ デバッグコード終了 ▲▲▲ ---
+
     return (
-        content,                  # 1. content_editor の内容
-        gr.update(visible=True),  # 2. save_button_row を表示
-        gr.update(visible=True)   # 3. delete_place_button を表示
+        content,
+        gr.update(visible=True),
+        gr.update(visible=True)
     )
 
 def handle_wb_save(character_name: str, world_data: Dict, area_name: str, place_name: str, content: str):
