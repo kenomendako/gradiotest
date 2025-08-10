@@ -128,29 +128,33 @@ try:
 
                                     gr.Markdown("---")
 
-                                    # --- 3. APIキー管理 ---
+                                    # --- 3. APIキー / Webhook管理 ---
                                     with gr.Accordion("🔑 APIキー / Webhook管理", open=False):
-                                        with gr.Tabs():
-                                            with gr.TabItem("Gemini"):
-                                                gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
-                                                gemini_key_value_input = gr.Textbox(label="APIキーの値", type="password")
-                                                with gr.Row():
-                                                    save_gemini_key_button = gr.Button("Geminiキーを保存", variant="primary")
-                                                    delete_gemini_key_button = gr.Button("削除")
-                                            with gr.TabItem("Pushover"):
-                                                pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("user_key"))
-                                                pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("app_token"))
-                                                save_pushover_config_button = gr.Button("Pushover設定を保存", variant="primary")
-                                            with gr.TabItem("Discord"):
-                                                discord_webhook_input = gr.Textbox(
-                                                    label="Discord Webhook URL",
-                                                    type="password",
-                                                    value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL or ""
-                                                )
-                                                save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
-                                            with gr.TabItem("Tavily"):
-                                                tavily_key_input = gr.Textbox(label="Tavily API Key", type="password", value=lambda: config_manager.TAVILY_API_KEY)
-                                                save_tavily_key_button = gr.Button("Tavilyキーを保存", variant="primary")
+                                        # ▼▼▼ Tabsを完全に削除し、各項目を独立したAccordionに置き換える ▼▼▼
+                                        with gr.Accordion("Gemini APIキー", open=True):
+                                            gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
+                                            gemini_key_value_input = gr.Textbox(label="APIキーの値", type="password")
+                                            with gr.Row():
+                                                save_gemini_key_button = gr.Button("Geminiキーを保存", variant="primary")
+                                                delete_gemini_key_button = gr.Button("削除")
+
+                                        with gr.Accordion("Pushover", open=False):
+                                            pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("user_key"))
+                                            pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("app_token"))
+                                            save_pushover_config_button = gr.Button("Pushover設定を保存", variant="primary")
+
+                                        with gr.Accordion("Discord", open=False):
+                                            discord_webhook_input = gr.Textbox(
+                                                label="Discord Webhook URL",
+                                                type="password",
+                                                value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL or ""
+                                            )
+                                            save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
+
+                                        with gr.Accordion("Tavily (Web検索)", open=False):
+                                            tavily_key_input = gr.Textbox(label="Tavily API Key", type="password", value=lambda: config_manager.TAVILY_API_KEY)
+                                            save_tavily_key_button = gr.Button("Tavilyキーを保存", variant="primary")
+
                                         gr.Warning("APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
 
                                 with gr.TabItem("個別設定"):
