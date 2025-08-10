@@ -105,21 +105,31 @@ try:
                             # change_location_button = gr.Button("移動")
                         with gr.Accordion("⚙️ 設定", open=False):
                             with gr.Tabs():
-                                # ▼▼▼ 「共通設定」タブを先に定義し、「キャラクター個別設定」を後に定義する ▼▼▼
+                                # ▼▼▼ 「共通設定」タブの内部構造を、ご希望の順序に再配置 ▼▼▼
                                 with gr.TabItem("共通設定"):
-                                    # --- 通知サービス設定 ---
+                                    # --- 1. 一般設定（一番上に移動） ---
+                                    gr.Markdown("#### ⚙️ 一般設定")
+                                    model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
+                                    api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
+                                    api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
+                                    debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
+                                    api_test_button = gr.Button("API接続をテスト", variant="secondary")
+
+                                    gr.Markdown("---")
+
+                                    # --- 2. 通知サービス設定 ---
                                     gr.Markdown("#### 📢 通知サービス設定")
                                     notification_service_radio = gr.Radio(
                                         ["Discord", "Pushover"],
                                         label="アラーム通知に使用するサービス",
-                                        value=config_manager.NOTIFICATION_SERVICE_GLOBAL.capitalize(), # 先頭を大文字に
-                                        interactive=True,
-                                        # ボタンのような見た目にするための設定
-                                        container=False,
-                                        scale=1,
+                                        value=config_manager.NOTIFICATION_SERVICE_GLOBAL.capitalize(),
+                                        interactive=True
                                     )
-                                    # --- APIキー管理 ---
-                                    with gr.Accordion("🔑 APIキー管理", open=False):
+
+                                    gr.Markdown("---")
+
+                                    # --- 3. APIキー管理 ---
+                                    with gr.Accordion("🔑 APIキー / Webhook管理", open=False):
                                         with gr.Tabs():
                                             with gr.TabItem("Gemini"):
                                                 gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
@@ -141,32 +151,29 @@ try:
                                             with gr.TabItem("Tavily"):
                                                 tavily_key_input = gr.Textbox(label="Tavily API Key", type="password", value=lambda: config_manager.TAVILY_API_KEY)
                                                 save_tavily_key_button = gr.Button("Tavilyキーを保存", variant="primary")
-                                        gr.Warning("APIキーはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
+                                        gr.Warning("APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
 
-                                    # --- 一般設定 ---
-                                    gr.Markdown("---")
-                                    gr.Markdown("#### ⚙️ 一般設定")
-                                    model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
-                                    api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
-                                    api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
-                                    debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
-                                    api_test_button = gr.Button("API接続をテスト", variant="secondary")
-
-                                # ▼▼▼ 「キャラクター個別設定」を「個別設定」にリネーム ▼▼▼
                                 with gr.TabItem("個別設定"):
                                     char_settings_info = gr.Markdown("ℹ️ *現在選択中のキャラクター「...」にのみ適用される設定です。*")
                                     char_model_dropdown = gr.Dropdown(label="使用するAIモデル（個別）", interactive=True)
-                                    char_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
-                                    char_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
-                                    with gr.Row():
-                                        char_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
-                                        char_preview_voice_button = gr.Button("試聴", scale=1)
+
+                                    # ▼▼▼ 音声設定をアコーディオンに格納 ▼▼▼
+                                    with gr.Accordion("🎤 音声設定", open=False):
+                                        char_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
+                                        char_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
+                                        with gr.Row():
+                                            char_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
+                                            char_preview_voice_button = gr.Button("試聴", scale=1)
+
+                                    # --- API送信コンテキスト設定 ---
+                                    gr.Markdown("#### APIコンテキスト設定")
                                     char_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
                                     char_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
                                     char_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
                                     char_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
                                     char_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
                                     char_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
+
                                     gr.Markdown("---")
                                     save_char_settings_button = gr.Button("このキャラクターの設定を保存", variant="primary")
                         with gr.Accordion("📗 記憶とメモの編集", open=False):
