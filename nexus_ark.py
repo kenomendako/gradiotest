@@ -315,7 +315,7 @@ try:
             outputs=[place_selector, content_editor, save_button_row, delete_place_button]
         )
         place_selector.change(
-            fn=ui_handlers.handle_wb_place_selection,
+            fn=ui_handlers.handle_wb_place_select,
             inputs=[world_data_state, area_selector, place_selector],
             outputs=[content_editor, save_button_row, delete_place_button]
         )
