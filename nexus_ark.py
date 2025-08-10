@@ -320,7 +320,7 @@ try:
             outputs=[content_editor, save_button_row, delete_place_button]
         )
         save_button.click(
-            fn=ui_handlers.handle_wb_save_content,
+            fn=ui_handlers.handle_wb_save,
             inputs=[current_character_name, world_data_state, area_selector, place_selector, content_editor],
             outputs=[world_data_state]
         )
