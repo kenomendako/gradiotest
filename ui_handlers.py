@@ -19,8 +19,10 @@ import pytz
 
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
+# ▼▼▼ 新しいタイマーツールをインポート ▼▼▼
+from tools import timer_tools
 from agent.graph import generate_scenery_context
-from timers import UnifiedTimer
+# from timers import UnifiedTimer # UnifiedTimerは直接使わなくなるので削除
 from character_manager import get_character_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
 from world_builder import get_world_data, save_world_data
@@ -495,11 +497,38 @@ def handle_add_or_update_alarm(editing_id, h, m, char, theme, prompt, days_ja, i
     return new_df_with_ids, get_display_df(new_df_with_ids), "アラーム追加", "", "", gr.update(choices=all_chars, value=default_char), [], False, "08", "00", None
 
 def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_theme, brk_theme, api_key_name, normal_theme):
-    if not char or not api_key_name: return "エラー：キャラクターとAPIキーを選択してください。"
+    if not char or not api_key_name:
+        return "エラー：キャラクターとAPIキーを選択してください。"
+
     try:
-        timer = UnifiedTimer(timer_type, float(duration or 0), float(work or 0), float(brk or 0), int(cycles or 0), char, work_theme, brk_theme, api_key_name, normal_theme=normal_theme)
-        timer.start(); gr.Info(f"{timer_type}を開始しました。"); return f"{timer_type}を開始しました。"
-    except Exception as e: return f"タイマー開始エラー: {e}"
+        if timer_type == "通常タイマー":
+            # ▼▼▼ 通常タイマーツールを呼び出す ▼▼▼
+            result_message = timer_tools.set_timer.func(
+                duration_minutes=int(duration),
+                theme=normal_theme or "時間になりました！",
+                character_name=char
+            )
+            gr.Info(f"通常タイマーを設定しました。")
+        elif timer_type == "ポモドーロタイマー":
+            # ▼▼▼ ポモドーロタイマーツールを呼び出す ▼▼▼
+            result_message = timer_tools.set_pomodoro_timer.func(
+                work_minutes=int(work),
+                break_minutes=int(brk),
+                cycles=int(cycles),
+                work_theme=work_theme or "作業終了の時間です。",
+                break_theme=brk_theme or "休憩終了の時間です。",
+                character_name=char
+            )
+            gr.Info(f"ポモドーロタイマーを設定しました。")
+        else:
+            result_message = "エラー: 不明なタイマー種別です。"
+
+        # ツールからの成功/エラーメッセージをUIに表示
+        return result_message
+
+    except Exception as e:
+        traceback.print_exc()
+        return f"タイマー開始エラー: {e}"
 
 def handle_rag_update_button_click(character_name: str, api_key_name: str):
     if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
