@@ -310,7 +310,7 @@ try:
             outputs=[world_data_state, area_selector]
         )
         area_selector.change(
-            fn=ui_handlers.handle_wb_area_selection,
+            fn=ui_handlers.handle_wb_area_select,
             inputs=[world_data_state, area_selector],
             outputs=[place_selector, content_editor, save_button_row, delete_place_button]
         )
