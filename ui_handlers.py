@@ -873,14 +873,15 @@ def handle_api_connection_test(api_key_name: str):
 
     gr.Info(f"APIキー '{api_key_name}' を使って、必須モデルへの接続をテストしています...")
 
-    # ここではgemini_apiを直接インポートする
-    import google.generativeai as genai
+    # 正しいSDKをインポート
+    import google.genai as genai
 
-    # チェックするモデルのリスト
+    # チェックするモデルのリストを、現在のアプリケーション仕様に更新
     required_models = {
-        "models/gemini-1.5-pro-latest": "通常チャット",
-        "models/gemini-1.5-flash-latest": "情景描写生成",
-        "models/gemini-1.0-pro-vision-latest": "画像生成" # 仮
+        "models/gemini-2.5-pro": "メインエージェント (agent_node)",
+        "models/gemini-2.5-flash": "高速処理 (context_generator)",
+        # 注意: 画像生成モデルは 'generate_content' APIではテストできないため、リストから除外。
+        # 代わりに、主要なテキストモデルへのアクセスを保証します。
     }
 
     results = []
@@ -888,12 +889,12 @@ def handle_api_connection_test(api_key_name: str):
 
     try:
         # クライアントの初期化は一度だけ行う
-        genai.configure(api_key=api_key)
+        client = genai.Client(api_key=api_key)
 
         for model_name, purpose in required_models.items():
             try:
                 # 各モデルの情報を取得しようと試みる
-                genai.get_model(model_name)
+                client.models.get(model=model_name)
                 results.append(f"✅ **{purpose} ({model_name.split('/')[-1]})**: 利用可能です。")
             except Exception as model_e:
                 results.append(f"❌ **{purpose} ({model_name.split('/')[-1]})**: 利用できません。")
