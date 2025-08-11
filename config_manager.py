@@ -5,6 +5,8 @@ import os
 import constants
 
 # --- グローバル変数 ---
+# ▼▼▼ 以下の1行を新しく追加 ▼▼▼
+CONFIG_GLOBAL = {}
 GEMINI_API_KEYS = {}
 AVAILABLE_MODELS_GLOBAL = []
 DEFAULT_MODEL_GLOBAL = "gemini-2.5-pro"
@@ -91,12 +93,11 @@ def save_config(key, value):
 
 # --- メインの読み込み関数 (最重要修正箇所) ---
 def load_config():
-    global GEMINI_API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global
+    global CONFIG_GLOBAL, GEMINI_API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global
     global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global
     global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, TAVILY_API_KEY
     global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
 
-    # 1. マスターとなるデフォルト設定を定義
     default_config = {
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
         "available_models": ["gemini-2.5-pro"], "default_model": "gemini-2.5-pro",
@@ -106,27 +107,27 @@ def load_config():
         "alarm_api_history_turns": constants.DEFAULT_ALARM_API_HISTORY_TURNS,
         "tavily_api_key": "", "notification_service": "discord",
         "notification_webhook_url": None, "pushover_app_token": "", "pushover_user_key": "",
+        "log_archive_threshold_mb": 10,
+        "log_keep_size_mb": 5,
     }
 
-    # 2. ユーザー設定を読み込み、マスターデフォルトで全項目を補完
     user_config = _load_config_file()
     config = default_config.copy()
     config.update(user_config)
 
-    # ▼▼▼ ここからが後方互換性維持のための自己修復ロジック ▼▼▼
+    # ▼▼▼ 読み込んだ設定をグローバル辞書に格納 ▼▼▼
+    CONFIG_GLOBAL = config.copy()
+
     config_updated = False
     if "api_keys" in config and "gemini_api_keys" not in user_config:
         print("--- [情報] 古いAPIキー形式('api_keys')を検出しました。新しい形式('gemini_api_keys')に自動的に移行します。 ---")
         config["gemini_api_keys"] = config.pop("api_keys")
         config_updated = True
-    # ▲▲▲ 自己修復ロジックここまで ▲▲▲
 
-    # 3. グローバル変数に値を設定
     GEMINI_API_KEYS = config.get("gemini_api_keys", default_config["gemini_api_keys"])
     AVAILABLE_MODELS_GLOBAL = config.get("available_models", default_config["available_models"])
     DEFAULT_MODEL_GLOBAL = config.get("default_model", default_config["default_model"])
     initial_character_global = config.get("last_character", default_config["last_character"])
-    # (以下、同様に .get() を使って安全に取得)
     initial_model_global = config.get("last_model", default_config["last_model"])
     initial_send_thoughts_to_api_global = config.get("last_send_thoughts_to_api", default_config["last_send_thoughts_to_api"])
     initial_api_history_limit_option_global = config.get("last_api_history_limit_option", default_config["last_api_history_limit_option"])
@@ -139,10 +140,8 @@ def load_config():
         "app_token": config.get("pushover_app_token", default_config["pushover_app_token"])
     }
 
-    # 4. 有効なAPIキーリストを安全に生成
     valid_api_keys = [k for k, v in GEMINI_API_KEYS.items() if isinstance(v, str) and v and v != "YOUR_API_KEY_HERE"]
 
-    # 5. 初期APIキー名を安全に決定
     last_key = config.get("last_api_key_name")
     if last_key and last_key in valid_api_keys:
         initial_api_key_name_global = last_key
@@ -151,7 +150,6 @@ def load_config():
     else:
         initial_api_key_name_global = list(GEMINI_API_KEYS.keys())[0] if GEMINI_API_KEYS else "your_key_name"
 
-    # 6. 自己修復・初回起動時に設定ファイルを保存
     if not os.path.exists(constants.CONFIG_FILE) or config_updated or any(key not in user_config for key in default_config):
         _save_config_file(config)
 

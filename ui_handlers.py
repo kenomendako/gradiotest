@@ -220,10 +220,23 @@ def handle_message_submission(*args: Any):
     if final_response_text and final_response_text.strip():
         log_f, _, _, _, _ = get_character_files_paths(current_character_name)
         final_log_message = "\n\n".join(log_message_parts).strip()
+
+        # ▼▼▼ 以下のブロックを、この新しいコードに置き換えてください ▼▼▼
+        archive_message = None
         if final_log_message:
             user_header = utils._get_user_header_from_log(log_f, current_character_name)
-            utils.save_message_to_log(log_f, user_header, final_log_message)
-        utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
+            archive_message = utils.save_message_to_log(log_f, user_header, final_log_message)
+
+        # AIの応答も保存し、アーカイブメッセージを受け取る
+        ai_archive_message = utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
+
+        # どちらかでアーカイブが発生していれば、そのメッセージを採用
+        if ai_archive_message:
+            archive_message = ai_archive_message
+
+        if archive_message:
+            gr.Info(archive_message)
+        # ▲▲▲ 修正ここまで ▲▲▲
 
     # 応答処理が完了した後の最終状態でUIを更新
     formatted_history, new_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
