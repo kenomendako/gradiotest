@@ -552,7 +552,7 @@ def parse_world_file(file_path: str) -> dict:
 def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete: Dict[str, str], character_name: str) -> Optional[str]:
     """
     指定されたAIのメッセージと、その直前のユーザーのメッセージをログから削除し、
-    そのユーザーメッセージの内容を返す。
+    そのユーザーメッセージの内容を返す。（_get_user_header_from_logへの依存を削除した修正版）
     """
     if not all([log_file_path, os.path.exists(log_file_path), ai_message_to_delete, character_name]):
         return None
@@ -560,37 +560,38 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
     try:
         all_messages = load_chat_log(log_file_path, character_name)
 
-        # 削除対象のAIメッセージのインデックスを探す
         try:
-            target_index = all_messages.index(ai_message_to_delete)
+            # contentとresponderの両方で、削除対象のメッセージを正確に特定
+            target_index = -1
+            for i, msg in enumerate(all_messages):
+                if (msg.get("content") == ai_message_to_delete.get("content") and
+                    msg.get("responder") == ai_message_to_delete.get("responder")):
+                    target_index = i
+                    break
+
+            if target_index == -1:
+                raise ValueError("Message not found in log")
+
         except ValueError:
             print(f"警告: ログファイル内に削除対象のAIメッセージが見つかりませんでした。")
             return None
 
         # AIのメッセージがリストの先頭にある、またはその直前がユーザーメッセージでない場合はエラー
-        if target_index == 0 or all_messages[target_index - 1].get("role") != "user":
+        if target_index == 0 or all_messages[target_index - 1].get("responder") != "ユーザー":
             print(f"警告: 削除対象のAIメッセージの直前に、対応するユーザーメッセージが見つかりません。")
-            # この場合、AIのメッセージだけを削除する
             all_messages.pop(target_index)
-            restored_input = None # ユーザー入力は復元できない
+            restored_input = None
         else:
-            # AIのメッセージと、その直前のユーザーメッセージを両方削除
             user_message = all_messages.pop(target_index - 1)
-            all_messages.pop(target_index - 1) # インデックスがずれるので再度同じインデックスを削除
-
-            # ▼▼▼ 以下の2行を新しく追加 ▼▼▼
-            # 復元するテキストから、古いタイムスタンプを除去する
+            all_messages.pop(target_index - 1)
             content_without_timestamp = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_message.get("content", ""), flags=re.MULTILINE)
             restored_input = content_without_timestamp.strip()
-            # ▲▲▲ 修正ここまで ▲▲▲
 
         # ログファイルを再構築して書き込む
         log_content_parts = []
-        user_header = _get_user_header_from_log(log_file_path, character_name)
-        ai_header = f"## {character_name}:"
-
         for msg in all_messages:
-            header = ai_header if msg.get('role') in ['model', 'assistant'] else user_header
+            responder_name = msg.get("responder", "不明")
+            header = f"## {responder_name}:"
             content = msg.get('content', '').strip()
             if content:
                 log_content_parts.append(f"{header}\n{content}")
@@ -599,7 +600,6 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
         with open(log_file_path, "w", encoding="utf-8") as f:
             f.write(new_log_content)
 
-        # ファイルの末尾に空行を追加しておく
         if new_log_content:
             with open(log_file_path, "a", encoding="utf-8") as f:
                 f.write("\n\n")
