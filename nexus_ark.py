@@ -175,7 +175,10 @@ try:
                         with gr.Row():
                             audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
                         with gr.Row(visible=False) as action_button_group:
-                            play_audio_button = gr.Button("🔊 選択した発言を再生"); delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop"); cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
+                            rerun_button = gr.Button("🔄 再生成")
+                            play_audio_button = gr.Button("🔊 選択した発言を再生")
+                            delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
+                            cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
                         token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
                         tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
                         chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
@@ -260,6 +263,34 @@ try:
 
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state])
         chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state, current_log_map_state], outputs=[selected_message_state, action_button_group], show_progress=False)
+
+        # ▼▼▼ このイベント定義を追加 ▼▼▼
+        rerun_button.click(
+            fn=ui_handlers.handle_rerun_button_click,
+            inputs=[
+                selected_message_state,
+                current_character_name,
+                current_api_key_name_state,
+                file_upload_button, # file_upload_button は将来的な拡張のため inputs に含めておく
+                api_history_limit_state,
+                debug_mode_checkbox
+            ],
+            outputs=[
+                chatbot_display,
+                current_log_map_state,
+                chat_input_textbox,
+                file_upload_button,
+                token_count_display,
+                current_location_display,
+                current_scenery_display,
+                alarm_dataframe_original_data,
+                alarm_dataframe,
+                scenery_image_display,
+                action_button_group # アクションボタンを非表示にする
+            ]
+        )
+        # ▲▲▲ 追加ここまで ▲▲▲
+
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
         api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, current_log_map_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         chat_inputs = [chat_input_textbox, current_character_name, current_api_key_name_state, file_upload_button, api_history_limit_state, debug_mode_checkbox]
