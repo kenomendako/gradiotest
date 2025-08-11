@@ -105,3 +105,23 @@ def add_new_location(character_name: str, area_name: str, new_place_name: str, d
         return f"Success: New location '{new_place_name}' has been added to Area '{area_name}'."
     except Exception as e:
         return f"【Error】Failed to add new location: {e}"
+
+@tool
+def read_world_settings(character_name: str) -> str:
+    """
+    現在の世界設定（world_settings.txt）の全てのエリアと場所の定義を、テキスト形式で読み取る。
+    場所の編集や追加を行う前に、既存のエリア名や場所の名前、そして全体構造を確認するために使用する。
+    """
+    if not character_name:
+        return "【Error】character_name is required."
+
+    world_settings_path = get_world_settings_path(character_name)
+    if not world_settings_path or not os.path.exists(world_settings_path):
+        return f"【Error】Could not find world settings file for character '{character_name}'."
+
+    try:
+        with open(world_settings_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return content if content.strip() else "【情報】世界設定ファイルは空です。"
+    except Exception as e:
+        return f"【Error】Failed to read world settings file: {e}"
