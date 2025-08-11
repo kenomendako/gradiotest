@@ -172,6 +172,7 @@ def handle_message_submission(*args: Any):
     (textbox_content, current_character_name, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
      current_console_content, participant_list) = args
+    participant_list = participant_list or []
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
@@ -180,7 +181,7 @@ def handle_message_submission(*args: Any):
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
         return
 
-    # --- 1. ユーザーの入力を主役のログに記録 ---
+    # --- 1. ユーザーの入力を構築 ---
     effective_settings = config_manager.get_effective_settings(current_character_name)
     add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
 
@@ -194,28 +195,20 @@ def handle_message_submission(*args: Any):
         for file_obj in file_input_list:
             log_message_parts.append(f"[ファイル添付: {file_obj.name}]")
 
-    final_log_message = "\n\n".join(log_message_parts).strip()
-    if final_log_message:
-        log_f, _, _, _, _ = get_character_files_paths(current_character_name)
-
-        # ▼▼▼ この行を修正 ▼▼▼
-        # 修正前: user_header = utils._get_user_header_from_log(log_f, current_character_name)
-        # 修正後:
-        user_header = "## ユーザー:" # 固定のヘッダーを使用
-        # ▲▲▲ 修正ここまで ▲▲▲
-
-        utils.save_message_to_log(log_f, user_header, final_log_message)
-
+    user_input_for_log = "\n\n".join(log_message_parts).strip()
 
     # --- 2. 対話シーケンスの開始 ---
     previous_responses = {}
+    if user_input_for_log:
+        previous_responses["ユーザー"] = user_input_for_log
 
-    all_characters_in_scene = [current_character_name] + (participant_list or [])
+    all_characters_in_scene = [current_character_name] + participant_list
+    response_data = {}
 
-    full_conversation_log = []
-    if final_log_message:
-        user_header = utils._get_user_header_from_log(get_character_files_paths(current_character_name)[0], current_character_name)
-        full_conversation_log.append(f"{user_header}\n{final_log_message}")
+    # Main character's log file is the primary log for this interaction
+    main_log_f, _, _, _, _ = get_character_files_paths(current_character_name)
+    if user_input_for_log:
+        utils.save_message_to_log(main_log_f, "## ユーザー:", user_input_for_log)
 
     for character_to_respond in all_characters_in_scene:
         chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
@@ -230,10 +223,11 @@ def handle_message_submission(*args: Any):
                     prompt_for_ai = textbox_content
                     files_for_ai = file_input_list
                 else:
-                    context_parts = [f"（システム：ユーザーは「{user_prompt_from_textbox}」と言いました。"]
+                    context_parts = []
                     for char, resp in previous_responses.items():
-                        context_parts.append(f"それに対し、{char}は「{utils.remove_thoughts_from_text(resp)}」と返しました。")
-                    context_parts.append("これらを踏まえて、あなたの応答を生成してください。）")
+                        role = "ユーザー" if char == "ユーザー" else f"キャラクター「{char}」"
+                        context_parts.append(f"（{role}の発言: 「{utils.remove_thoughts_from_text(resp)}」）")
+                    context_parts.append("\n（システム: 上記の発言を踏まえて、あなたの応答を生成してください。）")
                     prompt_for_ai = "\n".join(context_parts)
                     files_for_ai = None
 
@@ -244,7 +238,7 @@ def handle_message_submission(*args: Any):
                 response_text = response_data.get("response", "")
                 if response_text.strip():
                     previous_responses[character_to_respond] = response_text
-                    full_conversation_log.append(f"## {character_to_respond}:\n{response_text}")
+                    utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", response_text)
 
                 current_console_content += captured_output.getvalue()
 
@@ -252,30 +246,35 @@ def handle_message_submission(*args: Any):
                 traceback.print_exc()
                 current_console_content += captured_output.getvalue()
 
-    # --- 3. 全員のログファイルに、この会話の完全な記録を保存 ---
-    full_log_text = "\n\n".join(full_conversation_log)
-    for character_name_in_scene in all_characters_in_scene:
-        log_f, _, _, _, _ = get_character_files_paths(character_name_in_scene)
-        if log_f:
-            # 既存のログを消さずに追記するために、ファイルを開いて追記する
-            with open(log_f, "a", encoding="utf-8") as f:
-                # ファイルが空でなければ、セパレータを追加
-                if f.tell() > 0:
-                    f.write("\n\n")
-                f.write(full_log_text)
+    # --- 3. 参加者のログファイルに、この会話の完全な記録を保存 ---
+    if participant_list:
+        full_log_parts = []
+        if "ユーザー" in previous_responses:
+            full_log_parts.append(f"## ユーザー:\n{previous_responses['ユーザー']}")
+
+        for char_name in all_characters_in_scene:
+            if char_name in previous_responses and char_name != "ユーザー":
+                full_log_parts.append(f"## {char_name}:\n{previous_responses[char_name]}")
+
+        full_log_text = "\n\n".join(full_log_parts)
+
+        for participant_name in participant_list:
+            log_f, _, _, _, _ = get_character_files_paths(participant_name)
+            if log_f:
+                utils.save_message_to_log(log_f, "## システム(会話記録):", f"以下の会話が記録されました。\n\n{full_log_text}")
 
     # --- 4. 最終的なUI状態の更新 ---
+    final_chatbot_history, final_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
     token_count_text = gemini_api.count_input_tokens(
         character_name=current_character_name, api_key_name=current_api_key_name_state,
         api_history_limit=api_history_limit_state, parts=[], **config_manager.get_effective_settings(current_character_name)
     )
-    final_chatbot_history, final_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
     final_df_with_ids = render_alarms_as_dataframe()
     final_df = get_display_df(final_df_with_ids)
 
-    location_name = response_data.get("location_name") if 'response_data' in locals() else "（不明）"
-    scenery_text = response_data.get("scenery") if 'response_data' in locals() else "（不明）"
-    scenery_image = utils.find_scenery_image(current_character_name, utils.get_current_location(current_character_name)) if 'response_data' in locals() else None
+    location_name = response_data.get("location_name", "（不明）")
+    scenery_text = response_data.get("scenery", "（不明）")
+    scenery_image = utils.find_scenery_image(current_character_name, utils.get_current_location(current_character_name))
 
     yield (final_chatbot_history, final_mapping_list, gr.update(), gr.update(), token_count_text,
            location_name, scenery_text,
