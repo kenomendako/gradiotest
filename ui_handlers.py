@@ -169,7 +169,10 @@ def handle_message_submission(*args: Any):
     # 引数を展開
     (textbox_content, current_character_name, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
-     current_console_content) = args # <--- console_state を受け取る
+     current_console_content, participant_list) = args # <--- participant_list を受け取る
+
+    # ▼▼▼ 参加者リストをターミナルに出力（Phase 1のゴール）▼▼▼
+    print(f"--- メッセージ送信: 主役='{current_character_name}', 参加者={participant_list} ---")
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
@@ -953,7 +956,13 @@ def handle_character_change_for_all_tabs(character_name: str, api_key_name: str)
     print(f"--- UI司令塔(handle_character_change_for_all_tabs)実行: {character_name} ---")
     chat_tab_updates = handle_character_change(character_name, api_key_name)
     world_builder_updates = handle_world_builder_load(character_name)
-    return chat_tab_updates + world_builder_updates
+
+    # ▼▼▼ 参加者チェックボックスを更新するロジックを追加 ▼▼▼
+    all_characters = character_manager.get_character_list()
+    other_characters = sorted([c for c in all_characters if c != character_name])
+    participant_checkbox_update = gr.update(choices=other_characters, value=[])
+
+    return chat_tab_updates + world_builder_updates + (participant_checkbox_update,)
 
 
 def handle_wb_area_select(world_data: Dict, area_name: str):
@@ -1189,8 +1198,11 @@ def handle_rerun_button_click(
     file_list: Optional[List],
     api_history_limit: str,
     debug_mode: bool,
-    current_console_content: str # <--- console_state を受け取る
+    current_console_content: str,
+    participant_list: List[str] # <--- participant_list を受け取る
 ):
+    # ...
+
     # ... (関数の先頭)
     if not selected_message or not character_name:
         gr.Warning("再生成するメッセージが選択されていません。")
@@ -1217,9 +1229,9 @@ def handle_rerun_button_click(
     # ▼▼▼ handle_message_submission の呼び出しを修正 ▼▼▼
     submission_generator = handle_message_submission(
         restored_input_text, character_name, api_key_name, None,
-        api_history_limit, debug_mode, current_console_content # <--- 引数を追加
+        api_history_limit, debug_mode, current_console_content,
+        participant_list # <--- 引数を追加
     )
-
     try:
         first_yield = next(submission_generator)
         yield first_yield[:-2] + (gr.update(visible=False),) + first_yield[-2:]
