@@ -208,9 +208,10 @@ def _perform_log_archiving(log_file_path: str, character_name: str) -> Optional[
     """ログファイルのサイズをチェックし、必要であればアーカイブを実行する"""
     try:
         # configから閾値を取得
-        # config.jsonから直接読むのではなく、起動時にロードされたグローバル変数から読むように修正
-        threshold_bytes = config_manager.config.get("log_archive_threshold_mb", 10) * 1024 * 1024
-        keep_bytes = config_manager.config.get("log_keep_size_mb", 5) * 1024 * 1024
+        # ▼▼▼ 以下の2行を修正 ▼▼▼
+        threshold_bytes = config_manager.CONFIG_GLOBAL.get("log_archive_threshold_mb", 10) * 1024 * 1024
+        keep_bytes = config_manager.CONFIG_GLOBAL.get("log_keep_size_mb", 5) * 1024 * 1024
+        # ▲▲▲ 修正ここまで ▲▲▲
 
         if os.path.getsize(log_file_path) <= threshold_bytes:
             return None # 閾値以下なので何もしない
