@@ -1178,16 +1178,13 @@ def handle_rerun_button_click(
     """
     if not selected_message or not character_name:
         gr.Warning("再生成するメッセージが選択されていません。")
-        # 何もせずに現在のチャット状態を返す
         history, mapping_list = reload_chat_log(character_name, api_history_limit)
-        # 戻り値の数を揃える
+        # 戻り値の数を11個に揃える
         return (history, mapping_list, gr.update(), gr.update(), gr.update(),
                 gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                 gr.update(visible=False))
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
-
-    # ユーザーの入力内容を復元し、関連するログを削除
     restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, character_name)
 
     if restored_input_text is None:
@@ -1199,18 +1196,29 @@ def handle_rerun_button_click(
 
     gr.Info("応答を再生成します...")
 
-    # handle_message_submission の非同期処理を模倣
-    # まず、UIを「思考中」の状態に更新
-    chatbot_history, _ = reload_chat_log(character_name, api_history_limit)
-    chatbot_history.append((restored_input_text, "思考中... ▌"))
-
-    # handle_message_submission に処理を委譲
-    # yield from を使って、handle_message_submission の yield を中継する
-    yield from handle_message_submission(
-        restored_input_text, # 復元したテキスト
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    # handle_message_submission が返す値を一旦受け取り、加工してから yield する
+    submission_generator = handle_message_submission(
+        restored_input_text,
         character_name,
         api_key_name,
-        None, # 再実行時はファイル添付をサポートしない
+        None,
         api_history_limit,
         debug_mode
     )
+
+    try:
+        # 最初のyield（思考中に更新する部分）
+        first_yield = next(submission_generator)
+        # 11番目の戻り値（ボタン非表示）を追加して返す
+        yield first_yield + (gr.update(visible=False),)
+
+        # 最後のyield（最終結果）
+        last_yield = next(submission_generator)
+        # 11番目の戻り値（ボタン非表示）を追加して返す
+        yield last_yield + (gr.update(visible=False),)
+
+    except StopIteration:
+        # ジェネレータが予期せず終了した場合の安全策
+        pass
+    # ▲▲▲ 修正ここまで ▲▲▲
