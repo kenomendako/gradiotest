@@ -87,15 +87,6 @@ try:
                         profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                         character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
 
-                    # ▼▼▼ 以下のUIブロックをまるごと追加 ▼▼▼
-                    with gr.Accordion("🗨️ 他の参加者を選択", open=False):
-                        participant_checkbox_group = gr.CheckboxGroup(
-                            label="会話に参加するキャラクター",
-                            choices=sorted([c for c in character_list_on_startup if c != effective_initial_character]),
-                            interactive=True
-                        )
-                    # ▲▲▲ 追加ここまで ▲▲▲
-
                         with gr.Accordion("🌄 情景描写・移動", open=False):
                             scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
                             generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
@@ -178,6 +169,14 @@ try:
                                     char_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
                                     gr.Markdown("---")
                                     save_char_settings_button = gr.Button("このキャラクターの設定を保存", variant="primary")
+
+                        with gr.Accordion("🗨️ 他の参加者を選択", open=False):
+                            participant_checkbox_group = gr.CheckboxGroup(
+                                label="会話に参加するキャラクター",
+                                choices=sorted([c for c in character_list_on_startup if c != effective_initial_character]),
+                                interactive=True
+                            )
+
                         with gr.Accordion("🗨️ 新しいルームを作成する", open=False):
                             with gr.Row():
                                 new_character_name_textbox = gr.Textbox(placeholder="新しいルーム名", show_label=False, scale=3); add_character_button = gr.Button("作成", variant="secondary", scale=1)
