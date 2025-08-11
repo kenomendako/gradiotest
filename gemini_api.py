@@ -10,6 +10,7 @@ from PIL import Image
 import google.genai as genai
 import filetype
 import httpx  # エラーハンドリングのためにインポート
+from google.api_core.exceptions import ResourceExhausted
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import config_manager
@@ -149,34 +150,24 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒント
             else:
                 print(f"--- エラー: リトライ上限({max_retries}回)に達しても、AIから正常な応答を得られませんでした。---")
 
-        # ▼▼▼ ここからが「翻訳機」ロジック ▼▼▼
         tools_used_summary = []
         for message in final_state.get('messages', []):
             if isinstance(message, AIMessage) and message.tool_calls:
                 for tool_call in message.tool_calls:
                     tool_name = tool_call.get('name', '不明なツール')
                     args = tool_call.get('args', {})
-
-                    # ツール名に応じて表示をカスタマイズ
                     display_text = ""
                     if tool_name == 'set_current_location':
                         location = args.get('location_id', '不明な場所')
                         display_text = f'現在地を「{location}」に設定しました。'
-
-                    # --- ▼▼▼ ここからが修正・追加箇所 ▼▼▼ ---
-
                     elif tool_name == 'set_timer':
                         duration = str(args.get('duration_minutes', '?')).split('.')[0]
                         display_text = f"タイマーをセットしました（{duration}分）"
-
                     elif tool_name == 'set_pomodoro_timer':
                         work = str(args.get('work_minutes', '?')).split('.')[0]
                         brk = str(args.get('break_minutes', '?')).split('.')[0]
                         cycles = str(args.get('cycles', '?')).split('.')[0]
                         display_text = f"ポモドーロタイマーをセットしました（{work}分・{brk}分・{cycles}セット）"
-
-                    # --- ▲▲▲ 修正・追加ここまで ▲▲▲ ---
-
                     elif tool_name == 'web_search_tool':
                         query = args.get('query', '...')
                         display_text = f'Webで「{query}」を検索しました。'
@@ -192,22 +183,31 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒント
                     elif tool_name == 'generate_image':
                         display_text = '新しい画像を生成しました。'
                     else:
-                        # 上記以外のツールは、主要な引数だけを表示
                         args_to_display = {k: v for k, v in args.items() if k not in ['character_name', 'api_key', 'tavily_api_key']}
                         if args_to_display:
                             args_str = ", ".join([f"{k}='{str(v)[:20]}...'" for k, v in args_to_display.items()])
                             display_text = f'{tool_name} を実行しました ({args_str})'
                         else:
                             display_text = f'{tool_name} を実行しました。'
-
                     tools_used_summary.append(f"🛠️ {display_text}")
-        # ▲▲▲ 修正ここまで ▲▲▲
 
         location_name = final_state.get('location_name', '（場所不明）')
         scenery_text = final_state.get('scenery_text', '（情景不明）')
-
-        # ▼▼▼ 戻り値の辞書に "tools_used" を追加 ▼▼▼
         return {"response": final_response_text, "location_name": location_name, "scenery": scenery_text, "tools_used": tools_used_summary}
+
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    except ResourceExhausted as e:
+        # 1日の上限エラーかどうかを、エラーメッセージの内容で判定
+        if "PerDay" in str(e):
+            print("--- [APIエラー検知] 1日のリクエスト上限に達しました ---")
+            error_message = "[APIエラー: 無料利用枠の1日あたりのリクエスト上限に達しました。申し訳ありませんが、本日はこれ以上お話しすることができません。また明日、お会いしましょう。]"
+            return {**default_error_response, "response": error_message}
+        else:
+            # 1分あたりの上限などで、LangGraph内部のリトライが尽きた場合
+            print(f"--- [APIエラー検知] リソース上限エラー（リトライ失敗）: {e} ---")
+            traceback.print_exc()
+            # 汎用的なエラーとして、次のexceptブロックで処理させるために再スローする
+            raise e
     except Exception as e:
         traceback.print_exc()
         return {**default_error_response, "response": f"[エージェント実行エラー: {e}]"}
