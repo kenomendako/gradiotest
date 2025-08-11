@@ -134,26 +134,34 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒント
     }
 
     try:
-        max_retries = 2
-        for attempt in range(max_retries + 1):
-            final_state = app.invoke(initial_state)
-            final_response_text = ""
-            if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
-                final_response_text = str(final_state['messages'][-1].content or "").strip()
-            if final_response_text and not final_response_text.startswith("【エラー】"):
-                break
-            if attempt < max_retries:
-                print(f"--- 警告: AIからの応答が空、またはエラーです。リトライします... ({attempt + 1}/{max_retries}) ---")
-                print(f"  - AIからの応答: {final_response_text[:200]}")
-                import time
-                time.sleep(1)
-            else:
-                print(f"--- エラー: リトライ上限({max_retries}回)に達しても、AIから正常な応答を得られませんでした。---")
+        # ▼▼▼ forループによるリトライ機構を完全に削除 ▼▼▼
+        # app.invokeは一度だけ呼び出す
+        final_state = app.invoke(initial_state)
+
+        # 応答が空だった場合のチェックはここで行う
+        final_response_text = ""
+        if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
+            final_response_text = str(final_state['messages'][-1].content or "").strip()
+
+        # もしLangChainの内部リトライが尽きて応答が空だった場合、
+        # ユーザーに状況を伝えるメッセージを設定する
+        if not final_response_text:
+             print("--- [警告] LangChainの内部リトライが尽き、AIから有効な応答を得られませんでした。---")
+             # ここでツール呼び出しがなかったことを確認してからメッセージを出す
+             is_tool_call = False
+             if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
+                 if final_state['messages'][-1].tool_calls:
+                     is_tool_call = True
+
+             if not is_tool_call:
+                 final_response_text = "[エラー: AIとの通信が一時的に不安定になっているようです。しばらくしてから、もう一度お試しください。]"
+        # ▲▲▲ 修正ここまで ▲▲▲
 
         tools_used_summary = []
         for message in final_state.get('messages', []):
             if isinstance(message, AIMessage) and message.tool_calls:
                 for tool_call in message.tool_calls:
+                    # (このforループの中身は変更なし)
                     tool_name = tool_call.get('name', '不明なツール')
                     args = tool_call.get('args', {})
                     display_text = ""
@@ -195,19 +203,16 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒント
         scenery_text = final_state.get('scenery_text', '（情景不明）')
         return {"response": final_response_text, "location_name": location_name, "scenery": scenery_text, "tools_used": tools_used_summary}
 
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
     except ResourceExhausted as e:
-        # 1日の上限エラーかどうかを、エラーメッセージの内容で判定
         if "PerDay" in str(e):
             print("--- [APIエラー検知] 1日のリクエスト上限に達しました ---")
-            error_message = "[APIエラー: 無料利用枠の1日あたりのリクエスト上限に達しました。申し訳ありませんが、本日はこれ以上お話しすることができません。また明日、お会いしましょう。]"
+            error_message = "[APIエラー: 無料利用枠の1日あたりのリクエスト上限に達しました。]"
             return {**default_error_response, "response": error_message}
         else:
-            # 1分あたりの上限などで、LangGraph内部のリトライが尽きた場合
-            print(f"--- [APIエラー検知] リソース上限エラー（リトライ失敗）: {e} ---")
-            traceback.print_exc()
-            # 汎用的なエラーとして、次のexceptブロックで処理させるために再スローする
-            raise e
+            # LangChainの内部リトライが尽きた最終的な例外
+            print(f"--- [APIエラー検知] リソース上限エラー（リトライ最終失敗）: {e} ---")
+            error_message = "[APIエラー: AIとの通信が一時的に混み合っているようです。しばらくしてから、もう一度お試しください。]"
+            return {**default_error_response, "response": error_message}
     except Exception as e:
         traceback.print_exc()
         return {**default_error_response, "response": f"[エージェント実行エラー: {e}]"}
