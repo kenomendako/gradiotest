@@ -17,6 +17,8 @@ import json
 import time
 import uuid
 from bs4 import BeautifulSoup
+import io                 # <--- この行を追加
+import contextlib         # <--- この行を追加
 
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
@@ -566,7 +568,12 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
             # AIのメッセージと、その直前のユーザーメッセージを両方削除
             user_message = all_messages.pop(target_index - 1)
             all_messages.pop(target_index - 1) # インデックスがずれるので再度同じインデックスを削除
-            restored_input = user_message.get("content")
+
+            # ▼▼▼ 以下の2行を新しく追加 ▼▼▼
+            # 復元するテキストから、古いタイムスタンプを除去する
+            content_without_timestamp = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_message.get("content", ""), flags=re.MULTILINE)
+            restored_input = content_without_timestamp.strip()
+            # ▲▲▲ 修正ここまで ▲▲▲
 
         # ログファイルを再構築して書き込む
         log_content_parts = []
@@ -595,3 +602,19 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
         print(f"エラー: 再生成のためのログ削除中に予期せぬエラー: {e}")
         traceback.print_exc()
         return None
+
+@contextlib.contextmanager
+def capture_prints():
+    """
+    withブロック内のすべてのprint文（標準出力・標準エラー出力）を捕捉するコンテキストマネージャ。
+    """
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    string_io = io.StringIO()
+    sys.stdout = string_io
+    sys.stderr = string_io
+    try:
+        yield string_io
+    finally:
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr

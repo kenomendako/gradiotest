@@ -166,13 +166,18 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
     )
 
 def handle_message_submission(*args: Any):
+    # 引数を展開
     (textbox_content, current_character_name, current_api_key_name_state,
-     file_input_list, api_history_limit_state, debug_mode_state) = args
+     file_input_list, api_history_limit_state, debug_mode_state,
+     current_console_content) = args # <--- console_state を受け取る
+
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
-        # 戻り値の数を10個に揃える
-        return chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        # ... (この部分は変更なし)
+        return (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(),
+                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                current_console_content, current_console_content) # <--- 戻り値の数を揃える
 
     effective_settings = config_manager.get_effective_settings(current_character_name)
     add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
@@ -193,27 +198,34 @@ def handle_message_submission(*args: Any):
 
     chatbot_history.append((None, "思考中... ▌"))
 
-    # ▼▼▼ 修正箇所1: yieldで返す値の数を10個にする ▼▼▼
-    yield (chatbot_history, [], gr.update(value=""), gr.update(value=None), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
-
-    response_data = {}
-    try:
-        agent_args = (
-            textbox_content, current_character_name, current_api_key_name_state,
-            file_input_list, api_history_limit_state, debug_mode_state
-        )
-        response_data = gemini_api.invoke_nexus_agent(*agent_args)
-    except Exception as e:
-        traceback.print_exc()
-        response_data = {"response": f"[UIハンドラエラー: {e}]", "location_name": "（エラー）", "scenery": "（エラー）"}
+    # 戻り値の数を12個に揃える
+    yield (chatbot_history, [], gr.update(value=""), gr.update(value=None),
+           gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+           current_console_content, current_console_content)
 
     # ▼▼▼ ここからが修正の核心 ▼▼▼
-    # 返されたデータからツールの使用履歴を取得し、アラートとして表示
+    response_data = {}
+    captured_text = ""
+    with utils.capture_prints() as captured_output:
+        try:
+            agent_args = (
+                textbox_content, current_character_name, current_api_key_name_state,
+                file_input_list, api_history_limit_state, debug_mode_state
+            )
+            response_data = gemini_api.invoke_nexus_agent(*agent_args)
+        except Exception as e:
+            traceback.print_exc() # これはコンソールに出力される
+            response_data = {"response": f"[UIハンドラエラー: {e}]"}
+
+        captured_text = captured_output.getvalue()
+
+    new_console_content = current_console_content + captured_text
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     tools_used = response_data.get("tools_used", [])
     if tools_used:
         for tool_info in tools_used:
             gr.Info(tool_info)
-    # ▲▲▲ 修正ここまで ▲▲▲
     final_response_text = response_data.get("response", "")
     location_name, scenery_text = response_data.get("location_name", "（取得失敗）"), response_data.get("scenery", "（取得失敗）")
 
@@ -221,22 +233,18 @@ def handle_message_submission(*args: Any):
         log_f, _, _, _, _ = get_character_files_paths(current_character_name)
         final_log_message = "\n\n".join(log_message_parts).strip()
 
-        # ▼▼▼ 以下のブロックを、この新しいコードに置き換えてください ▼▼▼
         archive_message = None
         if final_log_message:
             user_header = utils._get_user_header_from_log(log_f, current_character_name)
             archive_message = utils.save_message_to_log(log_f, user_header, final_log_message)
 
-        # AIの応答も保存し、アーカイブメッセージを受け取る
         ai_archive_message = utils.save_message_to_log(log_f, f"## {current_character_name}:", final_response_text)
 
-        # どちらかでアーカイブが発生していれば、そのメッセージを採用
         if ai_archive_message:
             archive_message = ai_archive_message
 
         if archive_message:
             gr.Info(archive_message)
-        # ▲▲▲ 修正ここまで ▲▲▲
 
     # 応答処理が完了した後の最終状態でUIを更新
     formatted_history, new_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
@@ -244,23 +252,21 @@ def handle_message_submission(*args: Any):
     new_display_df = get_display_df(new_alarm_df_with_ids)
     scenery_image_path = utils.find_scenery_image(current_character_name, utils.get_current_location(current_character_name))
 
-    # ▼▼▼ 修正箇所2: トークン数を再計算して追加する ▼▼▼
     token_count_text = gemini_api.count_input_tokens(
         character_name=current_character_name,
         api_key_name=current_api_key_name_state,
         api_history_limit=api_history_limit_state,
-        parts=[], # 入力ボックスは空なので空リストを渡す
+        parts=[],
         add_timestamp=effective_settings["add_timestamp"], send_thoughts=effective_settings["send_thoughts"],
         send_notepad=effective_settings["send_notepad"], use_common_prompt=effective_settings["use_common_prompt"],
         send_core_memory=effective_settings["send_core_memory"], send_scenery=effective_settings["send_scenery"]
     )
-    # ▲▲▲ 修正ここまで ▲▲▲
 
-    # ▼▼▼ 修正箇所3: 戻り値のタプルに token_count_text を含める ▼▼▼
+    # 最後の yield を修正
     yield (formatted_history, new_mapping_list, gr.update(), gr.update(value=None),
            token_count_text, location_name, scenery_text, new_alarm_df_with_ids,
-           new_display_df, scenery_image_path)
-    # ▲▲▲ 修正ここまで ▲▲▲
+           new_display_df, scenery_image_path,
+           new_console_content, new_console_content) # <--- 戻り値を追加
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     """「情景を更新」ボタン専用ハンドラ。キャッシュを無視して強制的に再生成する。"""
@@ -1176,62 +1182,49 @@ def handle_reload_system_prompt(character_name: str) -> str:
     gr.Info(f"「{character_name}」の人格プロンプトを再読み込みしました。")
     return content
 
-# ▼▼▼ この関数を新しく追加 ▼▼▼
 def handle_rerun_button_click(
     selected_message: Optional[Dict[str, str]],
     character_name: str,
     api_key_name: str,
     file_list: Optional[List],
     api_history_limit: str,
-    debug_mode: bool
+    debug_mode: bool,
+    current_console_content: str # <--- console_state を受け取る
 ):
-    """
-    「再生成」ボタンが押された際の処理。
-    選択されたAIの応答とその直前のユーザー入力を削除し、再度AIに応答を生成させる。
-    """
+    # ... (関数の先頭)
     if not selected_message or not character_name:
         gr.Warning("再生成するメッセージが選択されていません。")
         history, mapping_list = reload_chat_log(character_name, api_history_limit)
-        # 戻り値の数を11個に揃える
+        # 戻り値の数を12個に揃える
         return (history, mapping_list, gr.update(), gr.update(), gr.update(),
                 gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                gr.update(visible=False))
+                gr.update(visible=False), current_console_content, current_console_content)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
     restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, character_name)
 
+    # ... (restored_input_text is None のブロック)
     if restored_input_text is None:
         gr.Error("再生成の元となるユーザー入力の特定に失敗しました。")
         history, mapping_list = reload_chat_log(character_name, api_history_limit)
+        # 戻り値の数を12個に揃える
         return (history, mapping_list, gr.update(), gr.update(), gr.update(),
                 gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                gr.update(visible=False))
+                gr.update(visible=False), current_console_content, current_console_content)
 
     gr.Info("応答を再生成します...")
 
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
-    # handle_message_submission が返す値を一旦受け取り、加工してから yield する
+    # ▼▼▼ handle_message_submission の呼び出しを修正 ▼▼▼
     submission_generator = handle_message_submission(
-        restored_input_text,
-        character_name,
-        api_key_name,
-        None,
-        api_history_limit,
-        debug_mode
+        restored_input_text, character_name, api_key_name, None,
+        api_history_limit, debug_mode, current_console_content # <--- 引数を追加
     )
 
     try:
-        # 最初のyield（思考中に更新する部分）
         first_yield = next(submission_generator)
-        # 11番目の戻り値（ボタン非表示）を追加して返す
-        yield first_yield + (gr.update(visible=False),)
+        yield first_yield[:-2] + (gr.update(visible=False),) + first_yield[-2:]
 
-        # 最後のyield（最終結果）
         last_yield = next(submission_generator)
-        # 11番目の戻り値（ボタン非表示）を追加して返す
-        yield last_yield + (gr.update(visible=False),)
-
+        yield last_yield[:-2] + (gr.update(visible=False),) + last_yield[-2:]
     except StopIteration:
-        # ジェネレータが予期せず終了した場合の安全策
         pass
-    # ▲▲▲ 修正ここまで ▲▲▲
