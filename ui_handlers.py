@@ -1162,3 +1162,55 @@ def handle_reload_system_prompt(character_name: str) -> str:
     content = load_system_prompt_content(character_name)
     gr.Info(f"「{character_name}」の人格プロンプトを再読み込みしました。")
     return content
+
+# ▼▼▼ この関数を新しく追加 ▼▼▼
+def handle_rerun_button_click(
+    selected_message: Optional[Dict[str, str]],
+    character_name: str,
+    api_key_name: str,
+    file_list: Optional[List],
+    api_history_limit: str,
+    debug_mode: bool
+):
+    """
+    「再生成」ボタンが押された際の処理。
+    選択されたAIの応答とその直前のユーザー入力を削除し、再度AIに応答を生成させる。
+    """
+    if not selected_message or not character_name:
+        gr.Warning("再生成するメッセージが選択されていません。")
+        # 何もせずに現在のチャット状態を返す
+        history, mapping_list = reload_chat_log(character_name, api_history_limit)
+        # 戻り値の数を揃える
+        return (history, mapping_list, gr.update(), gr.update(), gr.update(),
+                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                gr.update(visible=False))
+
+    log_f, _, _, _, _ = get_character_files_paths(character_name)
+
+    # ユーザーの入力内容を復元し、関連するログを削除
+    restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, character_name)
+
+    if restored_input_text is None:
+        gr.Error("再生成の元となるユーザー入力の特定に失敗しました。")
+        history, mapping_list = reload_chat_log(character_name, api_history_limit)
+        return (history, mapping_list, gr.update(), gr.update(), gr.update(),
+                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                gr.update(visible=False))
+
+    gr.Info("応答を再生成します...")
+
+    # handle_message_submission の非同期処理を模倣
+    # まず、UIを「思考中」の状態に更新
+    chatbot_history, _ = reload_chat_log(character_name, api_history_limit)
+    chatbot_history.append((restored_input_text, "思考中... ▌"))
+
+    # handle_message_submission に処理を委譲
+    # yield from を使って、handle_message_submission の yield を中継する
+    yield from handle_message_submission(
+        restored_input_text, # 復元したテキスト
+        character_name,
+        api_key_name,
+        None, # 再実行時はファイル添付をサポートしない
+        api_history_limit,
+        debug_mode
+    )
