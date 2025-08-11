@@ -10,6 +10,7 @@ from PIL import Image
 import google.genai as genai
 import filetype
 import httpx  # エラーハンドリングのためにインポート
+from google.api_core.exceptions import ResourceExhausted
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import config_manager
@@ -133,50 +134,48 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒント
     }
 
     try:
-        max_retries = 2
-        for attempt in range(max_retries + 1):
-            final_state = app.invoke(initial_state)
-            final_response_text = ""
-            if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
-                final_response_text = str(final_state['messages'][-1].content or "").strip()
-            if final_response_text and not final_response_text.startswith("【エラー】"):
-                break
-            if attempt < max_retries:
-                print(f"--- 警告: AIからの応答が空、またはエラーです。リトライします... ({attempt + 1}/{max_retries}) ---")
-                print(f"  - AIからの応答: {final_response_text[:200]}")
-                import time
-                time.sleep(1)
-            else:
-                print(f"--- エラー: リトライ上限({max_retries}回)に達しても、AIから正常な応答を得られませんでした。---")
+        # ▼▼▼ forループによるリトライ機構を完全に削除 ▼▼▼
+        # app.invokeは一度だけ呼び出す
+        final_state = app.invoke(initial_state)
 
-        # ▼▼▼ ここからが「翻訳機」ロジック ▼▼▼
+        # 応答が空だった場合のチェックはここで行う
+        final_response_text = ""
+        if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
+            final_response_text = str(final_state['messages'][-1].content or "").strip()
+
+        # もしLangChainの内部リトライが尽きて応答が空だった場合、
+        # ユーザーに状況を伝えるメッセージを設定する
+        if not final_response_text:
+             print("--- [警告] LangChainの内部リトライが尽き、AIから有効な応答を得られませんでした。---")
+             # ここでツール呼び出しがなかったことを確認してからメッセージを出す
+             is_tool_call = False
+             if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
+                 if final_state['messages'][-1].tool_calls:
+                     is_tool_call = True
+
+             if not is_tool_call:
+                 final_response_text = "[エラー: AIとの通信が一時的に不安定になっているようです。しばらくしてから、もう一度お試しください。]"
+        # ▲▲▲ 修正ここまで ▲▲▲
+
         tools_used_summary = []
         for message in final_state.get('messages', []):
             if isinstance(message, AIMessage) and message.tool_calls:
                 for tool_call in message.tool_calls:
+                    # (このforループの中身は変更なし)
                     tool_name = tool_call.get('name', '不明なツール')
                     args = tool_call.get('args', {})
-
-                    # ツール名に応じて表示をカスタマイズ
                     display_text = ""
                     if tool_name == 'set_current_location':
                         location = args.get('location_id', '不明な場所')
                         display_text = f'現在地を「{location}」に設定しました。'
-
-                    # --- ▼▼▼ ここからが修正・追加箇所 ▼▼▼ ---
-
                     elif tool_name == 'set_timer':
                         duration = str(args.get('duration_minutes', '?')).split('.')[0]
                         display_text = f"タイマーをセットしました（{duration}分）"
-
                     elif tool_name == 'set_pomodoro_timer':
                         work = str(args.get('work_minutes', '?')).split('.')[0]
                         brk = str(args.get('break_minutes', '?')).split('.')[0]
                         cycles = str(args.get('cycles', '?')).split('.')[0]
                         display_text = f"ポモドーロタイマーをセットしました（{work}分・{brk}分・{cycles}セット）"
-
-                    # --- ▲▲▲ 修正・追加ここまで ▲▲▲ ---
-
                     elif tool_name == 'web_search_tool':
                         query = args.get('query', '...')
                         display_text = f'Webで「{query}」を検索しました。'
@@ -192,22 +191,28 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒント
                     elif tool_name == 'generate_image':
                         display_text = '新しい画像を生成しました。'
                     else:
-                        # 上記以外のツールは、主要な引数だけを表示
                         args_to_display = {k: v for k, v in args.items() if k not in ['character_name', 'api_key', 'tavily_api_key']}
                         if args_to_display:
                             args_str = ", ".join([f"{k}='{str(v)[:20]}...'" for k, v in args_to_display.items()])
                             display_text = f'{tool_name} を実行しました ({args_str})'
                         else:
                             display_text = f'{tool_name} を実行しました。'
-
                     tools_used_summary.append(f"🛠️ {display_text}")
-        # ▲▲▲ 修正ここまで ▲▲▲
 
         location_name = final_state.get('location_name', '（場所不明）')
         scenery_text = final_state.get('scenery_text', '（情景不明）')
-
-        # ▼▼▼ 戻り値の辞書に "tools_used" を追加 ▼▼▼
         return {"response": final_response_text, "location_name": location_name, "scenery": scenery_text, "tools_used": tools_used_summary}
+
+    except ResourceExhausted as e:
+        if "PerDay" in str(e):
+            print("--- [APIエラー検知] 1日のリクエスト上限に達しました ---")
+            error_message = "[APIエラー: 無料利用枠の1日あたりのリクエスト上限に達しました。]"
+            return {**default_error_response, "response": error_message}
+        else:
+            # LangChainの内部リトライが尽きた最終的な例外
+            print(f"--- [APIエラー検知] リソース上限エラー（リトライ最終失敗）: {e} ---")
+            error_message = "[APIエラー: AIとの通信が一時的に混み合っているようです。しばらくしてから、もう一度お試しください。]"
+            return {**default_error_response, "response": error_message}
     except Exception as e:
         traceback.print_exc()
         return {**default_error_response, "response": f"[エージェント実行エラー: {e}]"}
