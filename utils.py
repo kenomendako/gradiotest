@@ -326,28 +326,39 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
         return False
 
     try:
+        # 1. 高度なパーサーで、各メッセージの発言者(responder)を含む完全なログを読み込む
         all_messages = load_chat_log(log_file_path, character_name)
 
-        try:
-            all_messages.remove(message_to_delete)
-        except ValueError:
+        # 2. 削除対象のメッセージをリストから除去する
+        #    辞書は完全に一致する必要があるため、contentとresponderで照合
+        original_len = len(all_messages)
+        all_messages = [
+            msg for msg in all_messages
+            if not (
+                msg.get("content") == message_to_delete.get("content") and
+                msg.get("responder") == message_to_delete.get("responder")
+            )
+        ]
+
+        if len(all_messages) >= original_len:
             print(f"警告: ログファイル内に削除対象のメッセージが見つかりませんでした。")
-            print(f"  - 検索対象: {message_to_delete}")
             return False
 
+        # 3. 読み込んだログの情報だけを元に、ファイルをゼロから再構築する
         log_content_parts = []
-        user_header = _get_user_header_from_log(log_file_path, character_name)
-        ai_header = f"## {character_name}:"
-
         for msg in all_messages:
-            header = ai_header if msg['role'] == 'model' else user_header
-            content = msg['content'].strip()
-            log_content_parts.append(f"{header}\n{content}")
+            # 読み込んだメッセージが持つ「responder」情報を正としてヘッダーを生成
+            responder_name = msg.get("responder", "不明")
+            header = f"## {responder_name}:"
+            content = msg.get('content', '').strip()
+            if content:
+                log_content_parts.append(f"{header}\n{content}")
 
         new_log_content = "\n\n".join(log_content_parts)
         with open(log_file_path, "w", encoding="utf-8") as f:
             f.write(new_log_content)
 
+        # ファイルの末尾に空行を追加しておく
         if new_log_content:
             with open(log_file_path, "a", encoding="utf-8") as f:
                 f.write("\n\n")
@@ -359,23 +370,6 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
         traceback.print_exc()
         return False
 
-def _get_user_header_from_log(log_file_path: str, ai_character_name: str) -> str:
-    default_user_header = "## ユーザー:"
-    if not log_file_path or not os.path.exists(log_file_path):
-        return default_user_header
-
-    last_identified_user_header = default_user_header
-    try:
-        with open(log_file_path, "r", encoding="utf-8") as f:
-            for line in f:
-                stripped_line = line.strip()
-                if stripped_line.startswith("## ") and stripped_line.endswith(":"):
-                    if not stripped_line.startswith(f"## {ai_character_name}:") and not stripped_line.startswith("## システム("):
-                        last_identified_user_header = stripped_line
-        return last_identified_user_header
-    except Exception as e:
-        print(f"エラー: ユーザーヘッダー取得エラー: {e}")
-        return default_user_header
 
 def remove_thoughts_from_text(text: str) -> str:
     if not text:
