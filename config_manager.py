@@ -5,6 +5,7 @@ import os
 import constants
 
 # --- グローバル変数 ---
+config = {}
 GEMINI_API_KEYS = {}
 AVAILABLE_MODELS_GLOBAL = []
 DEFAULT_MODEL_GLOBAL = "gemini-2.5-pro"
@@ -91,6 +92,7 @@ def save_config(key, value):
 
 # --- メインの読み込み関数 (最重要修正箇所) ---
 def load_config():
+    global config
     global GEMINI_API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global
     global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global
     global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, TAVILY_API_KEY
@@ -106,6 +108,8 @@ def load_config():
         "alarm_api_history_turns": constants.DEFAULT_ALARM_API_HISTORY_TURNS,
         "tavily_api_key": "", "notification_service": "discord",
         "notification_webhook_url": None, "pushover_app_token": "", "pushover_user_key": "",
+        "log_archive_threshold_mb": 10, # アーカイブを開始するファイルサイズ(MB)
+        "log_keep_size_mb": 5,          # アーカイブ後に残すファイルサイズ(MB)
     }
 
     # 2. ユーザー設定を読み込み、マスターデフォルトで全項目を補完

@@ -8,6 +8,7 @@ import html
 from typing import List, Dict, Optional, Tuple, Union
 import gradio as gr
 import character_manager
+import config_manager # config_managerをインポート
 import constants
 import sys
 import psutil
@@ -203,20 +204,104 @@ def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_a
 
     return "".join(final_parts)
 
-def save_message_to_log(log_file_path: str, header: str, text_content: str) -> None:
-    if not all([log_file_path, header, text_content, text_content.strip()]):
-        return
+def _perform_log_archiving(log_file_path: str, character_name: str) -> Optional[str]:
+    """ログファイルのサイズをチェックし、必要であればアーカイブを実行する"""
     try:
+        # configから閾値を取得
+        # config.jsonから直接読むのではなく、起動時にロードされたグローバル変数から読むように修正
+        threshold_bytes = config_manager.config.get("log_archive_threshold_mb", 10) * 1024 * 1024
+        keep_bytes = config_manager.config.get("log_keep_size_mb", 5) * 1024 * 1024
+
+        if os.path.getsize(log_file_path) <= threshold_bytes:
+            return None # 閾値以下なので何もしない
+
+        print(f"--- [ログアーカイブ開始] {log_file_path} が {threshold_bytes / 1024 / 1024:.1f}MB を超えました ---")
+
+        with open(log_file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # 正規表現でメッセージのペアを分割
+        log_parts = re.split(r'^(## .*?:)$', content, flags=re.MULTILINE)
+
+        messages = []
+        header = None
+        for part in log_parts:
+            part_strip = part.strip()
+            if not part_strip: continue
+            if part_strip.startswith("## ") and part_strip.endswith(":"):
+                header = part
+            elif header:
+                messages.append(header + part)
+                header = None
+
+        # 末尾から保持サイズ分のメッセージを探す
+        current_size = 0
+        split_index = len(messages)
+        for i in range(len(messages) - 1, -1, -1):
+            current_size += len(messages[i].encode('utf-8'))
+            if current_size >= keep_bytes:
+                # ユーザー入力から始まるように、AI応答の次で分割する
+                if messages[i].strip().startswith(f"## {character_name}:"):
+                    split_index = i + 1
+                else:
+                    split_index = i
+                break
+
+        if split_index >= len(messages) or split_index == 0:
+            print("--- [ログアーカイブ] 適切な分割点が見つからなかったため、処理を中断しました ---")
+            return None
+
+        content_to_archive = "".join(messages[:split_index])
+        content_to_keep = "".join(messages[split_index:])
+
+        # アーカイブファイルに書き出す
+        archive_dir = os.path.join(os.path.dirname(log_file_path), "log_archives")
+        os.makedirs(archive_dir, exist_ok=True)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        archive_path = os.path.join(archive_dir, f"log_archive_{timestamp}.txt")
+
+        with open(archive_path, "w", encoding="utf-8") as f:
+            f.write(content_to_archive.strip())
+
+        # 元のログファイルに上書きする
+        with open(log_file_path, "w", encoding="utf-8") as f:
+            f.write(content_to_keep.strip() + "\n\n")
+
+        archive_size_mb = os.path.getsize(archive_path) / 1024 / 1024
+        message = f"古いログをアーカイブしました ({archive_size_mb:.2f}MB)"
+        print(f"--- [ログアーカイブ完了] {message} -> {archive_path} ---")
+        return message
+
+    except Exception as e:
+        print(f"!!! [ログアーカイブエラー] {e}")
+        traceback.print_exc()
+        return None
+
+
+# ▼▼▼ save_message_to_log 関数を、この新しいバージョンに置き換えてください ▼▼▼
+def save_message_to_log(log_file_path: str, header: str, text_content: str) -> Optional[str]:
+    """メッセージをログに保存し、その後アーカイブ処理を呼び出す。アーカイブが発生した場合はメッセージを返す。"""
+    if not all([log_file_path, header, text_content, text_content.strip()]):
+        return None
+    try:
+        # 書き込みロジックをよりシンプルで確実に
+        content_to_append = f"{header.strip()}\n{text_content.strip()}\n\n"
+
+        # ファイルが空の場合、先頭の空行を防ぐ
         if not os.path.exists(log_file_path) or os.path.getsize(log_file_path) == 0:
-            content_to_append = f"{header}\n{text_content.strip()}"
-        else:
-            content_to_append = f"\n\n{header}\n{text_content.strip()}"
+             content_to_append = content_to_append.lstrip()
 
         with open(log_file_path, "a", encoding="utf-8") as f:
             f.write(content_to_append)
+
+        # 書き込み後にアーカイブ処理を呼び出す
+        character_name = os.path.basename(os.path.dirname(log_file_path))
+        return _perform_log_archiving(log_file_path, character_name)
+
     except Exception as e:
         print(f"エラー: ログファイル '{log_file_path}' 書き込みエラー: {e}")
         traceback.print_exc()
+        return None
 
 def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str], character_name: str) -> bool:
     if not log_file_path or not os.path.exists(log_file_path) or not message_to_delete:
