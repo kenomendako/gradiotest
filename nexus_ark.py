@@ -77,6 +77,7 @@ try:
         editing_alarm_id_state = gr.State(None)
         selected_message_state = gr.State(None)
         current_log_map_state = gr.State([])
+        debug_console_state = gr.State("") # コンソールの内容を保持するState
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -235,6 +236,16 @@ try:
                             save_button = gr.Button("この場所の設定を保存", variant="primary")
                             delete_place_button = gr.Button("この場所を削除", variant="stop")
 
+            with gr.TabItem("デバッグコンソール"):
+                gr.Markdown("## デバッグコンソール\nアプリケーションの内部的な動作ログ（ターミナルに出力される内容）をここに表示します。")
+                debug_console_output = gr.Textbox(
+                    label="コンソール出力",
+                    lines=30,
+                    interactive=False,
+                    autoscroll=True
+                )
+                clear_debug_console_button = gr.Button("コンソールをクリア", variant="secondary")
+
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
         context_token_calc_inputs = [current_character_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
@@ -273,7 +284,8 @@ try:
                 current_api_key_name_state,
                 file_upload_button, # file_upload_button は将来的な拡張のため inputs に含めておく
                 api_history_limit_state,
-                debug_mode_checkbox
+                debug_mode_checkbox,
+                debug_console_state # <--- これを追加
             ],
             outputs=[
                 chatbot_display,
@@ -286,15 +298,26 @@ try:
                 alarm_dataframe_original_data,
                 alarm_dataframe,
                 scenery_image_display,
-                action_button_group # アクションボタンを非表示にする
+                action_button_group, # アクションボタンを非表示にする
+                debug_console_state, debug_console_output # <--- この2つを追加
             ]
         )
         # ▲▲▲ 追加ここまで ▲▲▲
 
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
         api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, current_log_map_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-        chat_inputs = [chat_input_textbox, current_character_name, current_api_key_name_state, file_upload_button, api_history_limit_state, debug_mode_checkbox]
-        chat_submit_outputs = [chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button, token_count_display, current_location_display, current_scenery_display, alarm_dataframe_original_data, alarm_dataframe, scenery_image_display]
+        chat_submit_outputs = [
+            chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button,
+            token_count_display, current_location_display, current_scenery_display,
+            alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
+            debug_console_state, debug_console_output # <--- この2つを追加
+        ]
+
+        chat_inputs = [
+            chat_input_textbox, current_character_name, current_api_key_name_state,
+            file_upload_button, api_history_limit_state, debug_mode_checkbox,
+            debug_console_state # <--- これを追加
+        ]
         save_char_settings_button.click(fn=ui_handlers.handle_save_char_settings, inputs=[current_character_name, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox] + context_checkboxes, outputs=None).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         char_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[char_voice_dropdown, char_voice_style_prompt_textbox, char_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, char_preview_voice_button])
         for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
@@ -456,6 +479,12 @@ try:
         cancel_add_button.click(
             fn=lambda: (gr.update(visible=False), ""),
             outputs=[new_item_form, new_item_name]
+        )
+
+        # ▼▼▼ ファイルの末尾近く、demo.queue().launch() の直前に、新しいイベント定義を追加 ▼▼▼
+        clear_debug_console_button.click(
+            fn=lambda: ("", ""), # StateとTextboxの両方を空にする
+            outputs=[debug_console_state, debug_console_output]
         )
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")

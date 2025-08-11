@@ -1,0 +1,8 @@
+/home/jules/.pyenv/versions/3.12.11/lib/python3.12/site-packages/gradio/helpers.py:1130: UserWarning: APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。
+  warnings.warn(message)
+/app/nexus_ark.py:175: UserWarning: You have not specified a value for the `type` parameter. Defaulting to the 'tuples' format for chatbot messages, but this is deprecated and will be removed in a future version of Gradio. Please set type='messages' instead, which uses openai-style dictionaries with 'role' and 'content' keys.
+  chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
+/home/jules/.pyenv/versions/3.12.11/lib/python3.12/site-packages/gradio/utils.py:1054: UserWarning: Expected 6 arguments for function <function handle_rerun_button_click at 0x7f2854772f20>, received 7.
+  warnings.warn(
+/home/jules/.pyenv/versions/3.12.11/lib/python3.12/site-packages/gradio/utils.py:1062: UserWarning: Expected maximum 6 arguments for function <function handle_rerun_button_click at 0x7f2854772f20>, received 7.
+  warnings.warn(
