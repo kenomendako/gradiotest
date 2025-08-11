@@ -196,8 +196,15 @@ def handle_message_submission(*args: Any):
 
     final_log_message = "\n\n".join(log_message_parts).strip()
     if final_log_message:
-        user_header = utils._get_user_header_from_log(get_character_files_paths(current_character_name)[0], current_character_name)
-        utils.save_message_to_log(get_character_files_paths(current_character_name)[0], user_header, final_log_message)
+        log_f, _, _, _, _ = get_character_files_paths(current_character_name)
+
+        # ▼▼▼ この行を修正 ▼▼▼
+        # 修正前: user_header = utils._get_user_header_from_log(log_f, current_character_name)
+        # 修正後:
+        user_header = "## ユーザー:" # 固定のヘッダーを使用
+        # ▲▲▲ 修正ここまで ▲▲▲
+
+        utils.save_message_to_log(log_f, user_header, final_log_message)
 
 
     # --- 2. 対話シーケンスの開始 ---
