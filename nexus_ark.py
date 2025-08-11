@@ -175,10 +175,10 @@ try:
                         with gr.Row():
                             audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
                         with gr.Row(visible=False) as action_button_group:
-    rerun_button = gr.Button("🔄 再生成") # このボタンを追加
-    play_audio_button = gr.Button("🔊 選択した発言を再生")
-    delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
-    cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
+                            rerun_button = gr.Button("🔄 再生成")
+                            play_audio_button = gr.Button("🔊 選択した発言を再生")
+                            delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
+                            cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
                         token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
                         tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
                         chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
