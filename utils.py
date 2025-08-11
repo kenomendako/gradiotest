@@ -93,9 +93,6 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
     if not character_name or not file_path or not os.path.exists(file_path):
         return messages
 
-    ai_header = f"## {character_name}:"
-    alarm_header = "## システム(アラーム):"
-
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -114,15 +111,29 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
         if part.startswith("## ") and part.endswith(":"):
             header = part
         elif header:
-            if header == ai_header:
-                role = 'model'
+            if header.startswith(f"## {character_name}:") or header.startswith("## システム("): # 主役とシステムは 'model'
+                 role = 'model'
+                 responder = character_name
             else:
-                role = 'user'
-            messages.append({"role": role, "content": part})
+                # ユーザーの発言か、他のキャラクターの発言かを判定
+                match = re.match(r"^## (.*?):$", header)
+                if match:
+                    responder_name = match.group(1)
+                    if character_manager.is_character_name(responder_name):
+                        role = 'model' # 他のキャラもAIなので 'model'
+                        responder = responder_name
+                    else:
+                        role = 'user'
+                        responder = responder_name # ユーザー名も保持
+                else: # マッチしない場合 (安全策)
+                    role = 'user'
+                    responder = "不明"
+
+            messages.append({"role": role, "content": part, "responder": responder})
             header = None
     return messages
 
-def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name: str) -> Tuple[List[Tuple[Union[str, Tuple, None], Union[str, Tuple, None]]], List[int]]:
+def format_history_for_gradio(raw_history: List[Dict[str, str]], main_character_name: str) -> Tuple[List[Tuple[...]], List[int]]:
     if not raw_history:
         return [], []
 
@@ -131,22 +142,20 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
     intermediate_list = []
-    # ▼▼▼ 修正の核心 ▼▼▼
-    # enumerateは渡されたraw_history(既にスライスされている)に対するインデックス(0, 1, 2...)を返すため、
-    # original_indexは常に「表示されているログの中での」正しい座標になる。
     for i, msg in enumerate(raw_history):
-    # ▲▲▲ 修正ここまで ▲▲▲
         content = msg.get("content", "").strip()
         if not content: continue
+
+        responder = msg.get("responder", main_character_name)
 
         last_end = 0
         for match in image_tag_pattern.finditer(content):
             if match.start() > last_end:
-                intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:match.start()].strip(), "original_index": i})
-            intermediate_list.append({"type": "image", "role": "model", "content": match.group(1).strip(), "original_index": i})
+                intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:match.start()].strip(), "original_index": i, "responder": responder})
+            intermediate_list.append({"type": "image", "role": "model", "content": match.group(1).strip(), "original_index": i, "responder": responder})
             last_end = match.end()
         if last_end < len(content):
-            intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:].strip(), "original_index": i})
+            intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:].strip(), "original_index": i, "responder": responder})
 
     text_parts_with_anchors = []
     for item in intermediate_list:
@@ -162,7 +171,8 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
             prev_anchor = text_parts_with_anchors[text_part_index - 1]["anchor_id"] if text_part_index > 0 else None
             next_anchor = text_parts_with_anchors[text_part_index + 1]["anchor_id"] if text_part_index < len(text_parts_with_anchors) - 1 else None
 
-            html_content = _format_text_content_for_gradio(item["content"], item["anchor_id"], prev_anchor, next_anchor)
+            responder_name = item.get("responder", main_character_name)
+            html_content = _format_text_content_for_gradio(item["content"], responder_name, item["anchor_id"], prev_anchor, next_anchor)
 
             if item["role"] == "user":
                 gradio_history.append((html_content, None))
@@ -180,18 +190,24 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
 
     return gradio_history, mapping_list
 
-def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
-    # ▼▼▼ この行を修正 ▼▼▼
+def _format_text_content_for_gradio(content: str, character_name: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
     up_button = f"<a href='#{current_anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
     down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
     delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
-
     button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
+
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    # 発言者ヘッダーを作成
+    speaker_header = f"<div style='font-weight: bold; margin-bottom: 5px; color: #a1c9f7;'>{html.escape(character_name)}:</div>"
 
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     thought_match = thoughts_pattern.search(content)
 
     final_parts = [f"<span id='{current_anchor_id}'></span>"]
+
+    # 最初に発言者ヘッダーを追加
+    final_parts.append(speaker_header)
+    # ▲▲▲ 修正ここまで ▲▲▲
 
     if thought_match:
         thoughts_content = thought_match.group(1).strip()
@@ -201,7 +217,6 @@ def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_a
     main_text = thoughts_pattern.sub("", content).strip()
     escaped_text = html.escape(main_text).replace('\n', '<br>')
     final_parts.append(f"<div>{escaped_text}</div>")
-
     final_parts.append(button_container)
 
     return "".join(final_parts)

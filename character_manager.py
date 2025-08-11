@@ -126,3 +126,14 @@ def get_world_settings_path(character_name: str):
     if not character_name or not ensure_character_files(character_name): return None
     # ▼▼▼ .md から .txt に変更 ▼▼▼
     return os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "world_settings.txt")
+
+def is_character_name(name: str) -> bool:
+    """指定された名前が有効なキャラクター（ディレクトリ）として存在するかどうかを判定する。"""
+    if not name or not isinstance(name, str) or not name.strip():
+        return False
+    # 安全のため、ディレクトリトラバーサルを防ぐ
+    if ".." in name or "/" in name or "\\" in name:
+        return False
+
+    char_dir = os.path.join(constants.CHARACTERS_DIR, name)
+    return os.path.isdir(char_dir)
