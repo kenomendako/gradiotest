@@ -166,6 +166,12 @@ try:
                                         gr.Markdown("このキャラクターの応答の「創造性」と「安全性」を調整します。")
                                         char_temperature_slider = gr.Slider(minimum=0.0, maximum=2.0, step=0.05, label="Temperature", info="値が高いほど、AIの応答がより創造的で多様になります。(推奨: 0.7 ~ 0.9)")
                                         char_top_p_slider = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, label="Top-P", info="値が低いほど、ありふれた単語が選ばれやすくなります。(推奨: 0.95)")
+                                        # ★★★ ここからが修正箇所 ★★★
+                                        char_max_output_tokens_slider = gr.Slider(
+                                            minimum=1024, maximum=16384, step=256, label="Max Output Tokens",
+                                            info="AIが一度に生成できる応答の最大長。応答が途切れる場合に増やしてください。(推奨: 8192)"
+                                        )
+                                        # ★★★ 修正ここまで ★★★
 
                                         safety_choices = ["ブロックしない", "低リスク以上をブロック", "中リスク以上をブロック", "高リスクのみブロック"]
 
@@ -285,6 +291,9 @@ try:
             char_voice_style_prompt_textbox,
             # ▼▼▼ 新しいUI部品を出力リストに追加 ▼▼▼
             char_temperature_slider, char_top_p_slider,
+            # ★★★ ここからが修正箇所 ★★★
+            char_max_output_tokens_slider,
+            # ★★★ 修正ここまで ★★★
             char_safety_harassment_dropdown, char_safety_hate_speech_dropdown,
             char_safety_sexually_explicit_dropdown, char_safety_dangerous_content_dropdown
         ] + context_checkboxes + [char_settings_info, scenery_image_display]
@@ -358,6 +367,9 @@ try:
         ]
         gen_settings_inputs = [
             char_temperature_slider, char_top_p_slider,
+            # ★★★ ここからが修正箇所 ★★★
+            char_max_output_tokens_slider,
+            # ★★★ 修正ここまで ★★★
             char_safety_harassment_dropdown, char_safety_hate_speech_dropdown,
             char_safety_sexually_explicit_dropdown, char_safety_dangerous_content_dropdown
         ]

@@ -84,6 +84,7 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
         max_retries=6,
         temperature=generation_config.get("temperature", 0.8),
         top_p=generation_config.get("top_p", 0.95),
+        max_output_tokens=generation_config.get("max_output_tokens", 8192), # この行を追加
         safety_settings=safety_settings
     )
 
