@@ -156,16 +156,34 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     # --- 最終的な出力を整形して返す ---
     final_response = {}
     if final_state and isinstance(final_state, dict):
-        last_message = next(reversed(final_state.get("agent", {}).get("messages", [])), None)
+        # agentノードの最終状態から、最後のメッセージを取得
+        agent_final_state = final_state.get("agent", {})
+        last_message = next(reversed(agent_final_state.get("messages", [])), None)
+
         final_response_text = ""
         if isinstance(last_message, AIMessage):
             final_response_text = str(last_message.content or "").strip()
 
-        # 応答が空でも、ツール呼び出しがあれば成功と見なす
-        if not final_response_text and isinstance(last_message, AIMessage) and last_message.tool_calls:
-             final_response_text = "" # ツール呼び出しのみの場合はテキストは空
+            # ▼▼▼ ここからが修正の核心 ▼▼▼
+            # 応答が空で、ツール呼び出しもない場合、その理由を調査する
+            if not final_response_text and not last_message.tool_calls:
+                finish_reason = ""
+                # response_metadataから終了理由を取得
+                if hasattr(last_message, 'response_metadata') and isinstance(last_message.response_metadata, dict):
+                    finish_reason = last_message.response_metadata.get('finish_reason', '')
 
-        elif not final_response_text:
+                if finish_reason == 'SAFETY':
+                    print("--- [警告] AIの応答が安全フィルターによってブロックされました ---")
+                    final_response_text = "[エラー: AIの応答が安全フィルターによってブロックされました。不適切な内容と判断された可能性があります。お手数ですが、表現を変えてもう一度お試しください。]"
+                elif finish_reason == 'RECITATION':
+                     print("--- [警告] AIの応答が引用フィルターによってブロックされました ---")
+                     final_response_text = "[エラー: AIの応答が、学習元データからの長すぎる引用と判断されたため、ブロックされました。]"
+                else:
+                    print(f"--- [警告] AIが空の応答を返しました (終了理由: {finish_reason or '不明'}) ---")
+                    final_response_text = "[エラー: AIが予期せず空の応答を返しました。通信が不安定か、AIが応答を生成できなかった可能性があります。]"
+            # ▲▲▲ 修正ここまで ▲▲▲
+
+        else: # last_message が AIMessage でない場合 (通常は起こらない)
              final_response_text = final_state.get("response", "[エラー: AIから予期せぬ形式の応答がありました。]")
 
         final_response["response"] = final_response_text
