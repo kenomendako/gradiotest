@@ -72,12 +72,12 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 
 def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをステップごとにストリーミングで返し、
-    最終的な応答と状態も返すジェネレータ。(v2: アーキテクチャ修復版)
+    LangGraphの思考プロセスをストリーミングで返す。(v4: 履歴重複修正版)
     """
     (textbox_content, current_character_name,
      current_api_key_name_state, file_input_list,
-     api_history_limit_state, debug_mode_state) = args
+     api_history_limit_state, debug_mode_state,
+     history_override_log_path) = args
 
     from agent.graph import app
     effective_settings = config_manager.get_effective_settings(current_character_name)
@@ -88,45 +88,30 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
         yield {"final_output": {"response": f"[エラー: APIキー '{current_api_key_name_state}' が有効ではありません。]"}}
         return
 
-    user_input_text = textbox_content.strip() if textbox_content else ""
-    is_internal_call = user_input_text.startswith("（システム")
-    if not user_input_text and not file_input_list and not is_internal_call:
-        yield {"final_output": {"response": "[エラー: テキスト入力またはファイル添付がありません]"}}
-        return
-
-    # --- 履歴と入力メッセージの構築 ---
+    # --- 履歴の構築（唯一の真実の情報源） ---
     messages = []
-    log_file, _, _, _, _ = get_character_files_paths(current_character_name)
-    # ここでは、呼び出し元のキャラクター自身の履歴のみを取得する
-    raw_history = utils.load_chat_log(log_file, current_character_name)
-    limit = int(api_history_limit_state) if api_history_limit_state.isdigit() else 0
-    if limit > 0 and len(raw_history) > limit * 2:
-        raw_history = raw_history[-(limit * 2):]
+    log_file_to_read = history_override_log_path if history_override_log_path else get_character_files_paths(current_character_name)[0]
 
-    for h_item in raw_history:
-        role, content = h_item.get('role'), h_item.get('content', '').strip()
-        if not content: continue
-        # ログから読み込む際は、思考ログは除去しない（AIの思考の文脈として重要）
-        if h_item.get('responder', 'model') != 'user':
-            messages.append(AIMessage(content=content))
-        else:
-            messages.append(HumanMessage(content=content))
+    if log_file_to_read and os.path.exists(log_file_to_read):
+        raw_history = utils.load_chat_log(log_file_to_read, current_character_name)
+        limit = int(api_history_limit_state) if api_history_limit_state.isdigit() else 0
+        if limit > 0 and len(raw_history) > limit * 2:
+            raw_history = raw_history[-(limit * 2):]
 
-    user_message_parts = []
-    if user_input_text: user_message_parts.append({"type": "text", "text": user_input_text})
-    if file_input_list:
-        for file_obj in file_input_list:
-            filepath = file_obj.name
-            try:
-                kind = filetype.guess(filepath); mime_type = kind.mime if kind else "application/octet-stream"
-                if mime_type.startswith("image/"):
-                    with open(filepath, "rb") as f: file_data = base64.b64encode(f.read()).decode("utf-8")
-                    user_message_parts.append({"type": "image_url", "image_url": { "url": f"data:{mime_type};base64,{file_data}"}})
-                else: # 音声・動画・テキストファイル
-                    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f: text_content = f.read()
-                    user_message_parts.append({"type": "text", "text": f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---"})
-            except Exception as e: print(f"警告: ファイル '{os.path.basename(filepath)}' の処理に失敗。スキップ。エラー: {e}")
-    if user_message_parts: messages.append(HumanMessage(content=user_message_parts))
+        for h_item in raw_history:
+            content = h_item.get('content', '').strip()
+            if not content: continue
+            if h_item.get('responder', 'model') != 'user' and h_item.get('responder') != 'ユーザー':
+                messages.append(AIMessage(content=content))
+            else:
+                messages.append(HumanMessage(content=content))
+
+    # ▼▼▼ 【最重要】ここから、重複の原因となっていたコードを完全に削除 ▼▼▼
+    # user_message_parts = []
+    # if user_input_text: ...
+    # if file_input_list: ...
+    # if user_message_parts: messages.append(HumanMessage(content=user_message_parts))
+    # ▲▲▲ 削除ここまで ▲▲▲
 
     initial_state = {
         "messages": messages, "character_name": current_character_name, "api_key": api_key,

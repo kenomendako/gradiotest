@@ -168,13 +168,14 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理し、LangGraphのストリームをリアルタイムでUIに反映させる。(v4: エラーログ同期対応版)
+    ユーザーからのメッセージ送信を処理し、LangGraphのストリームをリアルタイムでUIに反映させる。(v6: 履歴重複修正版)
     """
     (textbox_content, current_character_name, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
      current_console_content, participant_list) = args
     participant_list = participant_list or []
 
+    # --- 1. ユーザー入力のログ保存 ---
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
     if not user_prompt_from_textbox and not file_input_list:
         chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
@@ -183,27 +184,28 @@ def handle_message_submission(*args: Any):
                current_console_content, current_console_content)
         return
 
-    # --- 1. ユーザー入力のログ保存 ---
     effective_settings = config_manager.get_effective_settings(current_character_name)
     add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
-    log_message_parts = []
-    if user_prompt_from_textbox:
-        timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
-        processed_user_message = user_prompt_from_textbox + timestamp
-        log_message_parts.append(processed_user_message)
+    user_input_for_log = user_prompt_from_textbox
+    if add_timestamp_checkbox:
+        user_input_for_log += f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+
+    # ファイル添付がある場合は、それもログに追記する
+    file_log_parts = []
     if file_input_list:
         for file_obj in file_input_list:
-            log_message_parts.append(f"[ファイル添付: {file_obj.name}]")
-    user_input_for_log = "\n\n".join(log_message_parts).strip()
+            file_log_parts.append(f"[ファイル添付: {os.path.basename(file_obj.name)}]")
+
+    user_input_for_log = "\n".join([user_input_for_log] + file_log_parts).strip()
+
+    main_log_f, _, _, _, _ = get_character_files_paths(current_character_name)
+    if user_input_for_log:
+        utils.save_message_to_log(main_log_f, "## ユーザー:", user_input_for_log)
 
     # --- 2. 対話シーケンス ---
     all_characters_in_scene = [current_character_name] + participant_list
     previous_responses = { "ユーザー": user_input_for_log }
     response_data_for_ui = {}
-
-    main_log_f, _, _, _, _ = get_character_files_paths(current_character_name)
-    if user_input_for_log:
-        utils.save_message_to_log(main_log_f, "## ユーザー:", user_input_for_log)
 
     for character_to_respond in all_characters_in_scene:
         chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
@@ -213,21 +215,17 @@ def handle_message_submission(*args: Any):
                render_alarms_as_dataframe(), get_display_df(render_alarms_as_dataframe()), gr.update(),
                current_console_content, current_console_content)
 
-        # プロンプトと引数を構築
-        if character_to_respond == current_character_name:
-            prompt_for_ai, files_for_ai = textbox_content, file_input_list
-        else:
-            context_parts = [f"（システム：ユーザーは「{user_prompt_from_textbox}」と言いました。"]
-            for char, resp in previous_responses.items():
-                if char != "ユーザー":
-                    context_parts.append(f"それに対し、{char}は「{utils.remove_thoughts_from_text(resp)}」と返しました。")
-            context_parts.append("\nこれら全ての会話を踏まえた上で、**あなた自身の応答のみを生成してください。**")
-            context_parts.append("他のキャラクターのセリフを代弁する必要はありません。）")
-            prompt_for_ai = "\n".join(context_parts)
-            files_for_ai = None
-
-        agent_stream_args = (prompt_for_ai, character_to_respond, current_api_key_name_state,
-                             files_for_ai, api_history_limit_state, debug_mode_state)
+        # ▼▼▼ APIへの引数を、新しい契約に合わせる ▼▼▼
+        agent_stream_args = (
+            textbox_content, # この引数はAPI側で無視されるが、形式を保つために残す
+            character_to_respond,
+            current_api_key_name_state,
+            None, # ファイルはログに記録済みなので、APIには直接渡さない
+            api_history_limit_state,
+            debug_mode_state,
+            main_log_f
+        )
+        # ▲▲▲ 修正ここまで ▲▲▲
 
         final_response_text = ""
         tool_call_happened = False
@@ -1234,20 +1232,14 @@ def handle_reload_system_prompt(character_name: str) -> str:
     gr.Info(f"「{character_name}」の人格プロンプトを再読み込みしました。")
     return content
 
-def handle_rerun_button_click(
-    selected_message: Optional[Dict[str, str]],
-    character_name: str,
-    api_key_name: str,
-    file_list: Optional[List],
-    api_history_limit: str,
-    debug_mode: bool,
-    current_console_content: str,
-    participant_list: List[str]
-):
+def handle_rerun_button_click(*args: Any):
     """
-    「再生成」ボタンが押された際の処理。
-    選択されたメッセージがAIかユーザーかで挙動を変える。(v5: 統合版)
+    「再生成」ボタンが押された際の処理。(v6: 履歴重複修正版)
     """
+    (selected_message, character_name, api_key_name,
+     file_list, api_history_limit, debug_mode,
+     current_console_content, participant_list) = args
+
     if not selected_message or not character_name:
         gr.Warning("再生成するメッセージが選択されていません。")
         history, mapping_list = reload_chat_log(character_name, api_history_limit)
@@ -1273,11 +1265,12 @@ def handle_rerun_button_click(
 
     gr.Info("応答を再生成します...")
 
+    # ▼▼▼ APIへの引数を、新しい契約に合わせる ▼▼▼
     yield from handle_message_submission(
-        restored_input_text,
+        restored_input_text, # 復元されたテキストを渡す
         character_name,
         api_key_name,
-        None,
+        None, # ファイルは元のログに含まれているはずなので、再添付はしない
         api_history_limit,
         debug_mode,
         current_console_content,
