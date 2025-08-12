@@ -162,6 +162,14 @@ def get_effective_settings(character_name):
         "add_timestamp": False, "send_thoughts": initial_send_thoughts_to_api_global,
         "send_notepad": True, "use_common_prompt": False,
         "send_core_memory": True, "send_scenery": True,
+        # --- ここから追加 ---
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "safety_block_threshold_harassment": "BLOCK_ONLY_HIGH",
+        "safety_block_threshold_hate_speech": "BLOCK_ONLY_HIGH",
+        "safety_block_threshold_sexually_explicit": "BLOCK_ONLY_HIGH",
+        "safety_block_threshold_dangerous_content": "BLOCK_ONLY_HIGH"
+        # --- 追加ここまで ---
     }
     if os.path.exists(char_config_path):
         try:
