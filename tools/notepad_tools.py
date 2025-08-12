@@ -27,7 +27,7 @@ def _write_notepad(character_name: str, lines: list[str]):
 
 @tool
 def add_to_notepad(entry: str, character_name: str = None) -> str:
-    """短期記憶用のメモ帳に、現在時刻のタイムスタンプを付けて新しい項目を一行追記する。"""
+    """メモ帳にタイムスタンプ付きで一行追記する。"""
     if not entry or not isinstance(entry, str) or not entry.strip():
         return "【エラー】メモに追加する内容が空です。"
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -40,11 +40,7 @@ def add_to_notepad(entry: str, character_name: str = None) -> str:
 
 @tool
 def update_notepad(old_entry: str, new_entry: str, character_name: str = None) -> str:
-    """
-    短期記憶用のメモ帳の項目を更新する。
-    `old_entry`のキーワードを含む最も新しい項目を探し出し、`new_entry`の内容で完全に置き換える（新しいタイムスタンプが付与される）。
-    もし `new_entry` が空文字列の場合、該当項目は削除される。
-    """
+    """メモ帳の項目を更新または削除する。old_entryで最新の項目を検索し、new_entryで置換。new_entryが空なら削除。"""
     if not old_entry or not isinstance(old_entry, str) or not old_entry.strip():
         return "【エラー】更新/削除対象のキーワードが空です。"
 
@@ -77,10 +73,7 @@ def update_notepad(old_entry: str, new_entry: str, character_name: str = None) -
 
 @tool
 def delete_from_notepad(entry_to_delete: str, character_name: str = None) -> str:
-    """
-    短期記憶用のメモ帳から項目を削除する。
-    `entry_to_delete`のキーワードを含む最も新しい項目を探し出して削除する。
-    """
+    """メモ帳から項目を削除する。entry_to_deleteで最新の項目を検索し、削除。"""
     # ★★★ この関数自身のロジックで削除を行うように変更 ★★★
     if not entry_to_delete or not isinstance(entry_to_delete, str) or not entry_to_delete.strip():
         return "【エラー】削除対象のキーワードが空です。"
@@ -105,7 +98,7 @@ def delete_from_notepad(entry_to_delete: str, character_name: str = None) -> str
 
 @tool
 def read_full_notepad(character_name: str = None) -> str:
-    """短期記憶用のメモ帳の全内容を読み上げる。内容がなければその旨を伝える。"""
+    """メモ帳の全内容を読む。"""
     lines = _read_notepad(character_name)
     if not lines:
         return "【メモ帳は空です】"

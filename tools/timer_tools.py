@@ -8,12 +8,7 @@ from typing import Optional
 
 @tool
 def set_timer(duration_minutes: int, theme: str, character_name: str) -> str:
-    """
-    指定された分数後に、特定のテーマで通知するシンプルなタイマーを設定します。
-    duration_minutes: タイマーの分数。
-    theme: タイマー終了時にAIが話す内容のテーマ。
-    character_name: 通知するキャラクターの名前。
-    """
+    """指定分数後に通知するタイマーを設定する。"""
     if not character_name:
         return "エラー: 通知するキャラクターが指定されていません。"
     try:
@@ -35,15 +30,7 @@ def set_timer(duration_minutes: int, theme: str, character_name: str) -> str:
 
 @tool
 def set_pomodoro_timer(work_minutes: int, break_minutes: int, cycles: int, work_theme: str, break_theme: str, character_name: str) -> str:
-    """
-    作業時間、休憩時間、サイクル数を指定してポモドーロタイマーを設定します。
-    work_minutes: 1サイクルの作業時間（分）。
-    break_minutes: 1サイクルの休憩時間（分）。
-    cycles: 作業と休憩を繰り返す回数。
-    work_theme: 作業終了時にAIが話す内容のテーマ。
-    break_theme: 休憩終了時にAIが話す内容のテーマ。
-    character_name: 通知するキャラクターの名前。
-    """
+    """作業と休憩を繰り返すポモドーロタイマーを設定する。"""
     if not character_name:
         return "エラー: 通知するキャラクターが指定されていません。"
     try:

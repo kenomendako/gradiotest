@@ -117,9 +117,6 @@ def handle_character_change(character_name: str, api_key_name: str):
     }
     temp_val = effective_settings.get("temperature", 0.8)
     top_p_val = effective_settings.get("top_p", 0.95)
-    # ★★★ ここからが修正箇所 ★★★
-    max_tokens_val = effective_settings.get("max_output_tokens", 8192)
-    # ★★★ 修正ここまで ★★★
     harassment_val = safety_display_map.get(effective_settings.get("safety_block_threshold_harassment"))
     hate_val = safety_display_map.get(effective_settings.get("safety_block_threshold_hate_speech"))
     sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
@@ -135,9 +132,7 @@ def handle_character_change(character_name: str, api_key_name: str):
         gr.update(choices=all_models, value=model_val),
         voice_display_name, voice_style_prompt_val,
         # ▼▼▼ 新しい戻り値を追加 ▼▼▼
-        # ★★★ ここからが修正箇所 ★★★
-        temp_val, top_p_val, max_tokens_val, harassment_val, hate_val, sexual_val, dangerous_val,
-        # ★★★ 修正ここまで ★★★
+        temp_val, top_p_val, harassment_val, hate_val, sexual_val, dangerous_val,
         # ▲▲▲ 追加ここまで ▲▲▲
         effective_settings["add_timestamp"], effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
@@ -147,8 +142,7 @@ def handle_character_change(character_name: str, api_key_name: str):
 
 def handle_save_char_settings(
     character_name: str, model_name: str, voice_name: str, voice_style_prompt: str,
-    temp: float, top_p: float, max_tokens: int, # 'max_tokens' を追加
-    harassment: str, hate: str, sexual: str, dangerous: str,
+    temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool, send_scenery: bool
 ):
@@ -167,7 +161,6 @@ def handle_save_char_settings(
         "voice_style_prompt": voice_style_prompt.strip(),
         "temperature": temp,
         "top_p": top_p,
-        "max_output_tokens": int(max_tokens), # この行を追加
         "safety_block_threshold_harassment": safety_value_map.get(harassment),
         "safety_block_threshold_hate_speech": safety_value_map.get(hate),
         "safety_block_threshold_sexually_explicit": safety_value_map.get(sexual),

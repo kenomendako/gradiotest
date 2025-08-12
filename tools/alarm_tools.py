@@ -43,15 +43,7 @@ def set_personal_alarm(
     days: List[str] = None,
     is_emergency: bool = False
 ) -> str:
-    """
-    ユーザーとの対話の中で、未来の特定の日時に送信するためのアラームを設定する。
-    time: "HH:MM"形式の時刻。
-    context_memo: アラームの目的や背景を要約した短いメモ。
-    character_name: アラームを設定するキャラクター名。
-    date: "YYYY-MM-DD"や"tomorrow"など、アラームを設定する単発の日付。
-    days: ["Monday", "Friday"]など、アラームを繰り返す曜日のリスト。
-    is_emergency: Trueの場合、緊急通知として送信する。
-    """
+    """未来の日時にアラームを設定する。単発はdate、繰り返しはdaysで指定。"""
     try:
         alarm_dt_obj = parse(time)
         time_str = alarm_dt_obj.strftime("%H:%M")

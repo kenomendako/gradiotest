@@ -77,15 +77,13 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(generation_config.get("safety_block_threshold_dangerous_content")),
     }
 
-    # パラメータは、シンプルにキーワード引数として渡す（これが最も安定していた初期の実装）
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
-        convert_system_message_to_human=False, # この設定はFalseのままが最も基本
+        convert_system_message_to_human=False,
         max_retries=6,
         temperature=generation_config.get("temperature", 0.8),
         top_p=generation_config.get("top_p", 0.95),
-        max_output_tokens=generation_config.get("max_output_tokens", 8192),
         safety_settings=safety_settings
     )
 
@@ -283,9 +281,16 @@ def agent_node(state: AgentState):
 
     llm_with_tools = llm.bind_tools(all_tools)
 
-    # メッセージ構築は、最もシンプルな形に戻す
-    # システムプロンプト + 正規化された履歴
-    messages_for_agent = [state['system_prompt']] + state['messages']
+    # AIに渡す直前に、履歴からファイル添付のプレースホルダーを除去
+    messages_for_agent = [state['system_prompt']]
+    for msg in state['messages']:
+        if isinstance(msg.content, str):
+            cleaned_content = re.sub(r"\[ファイル添付:.*?\]", "", msg.content, flags=re.DOTALL).strip()
+            if cleaned_content:
+                msg.content = cleaned_content
+                messages_for_agent.append(msg)
+        else:
+            messages_for_agent.append(msg)
 
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}

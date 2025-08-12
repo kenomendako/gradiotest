@@ -12,7 +12,7 @@ import google.genai as genai
 import filetype
 import httpx
 from google.api_core.exceptions import ResourceExhausted
-import re # ★ この行を追加 ★
+import re
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 import config_manager
@@ -73,14 +73,13 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 
 def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v9: 歴史正規化アーキテクチャ)
+    LangGraphの思考プロセスをストリーミングで返す。(v8: 共有歴史アーキテクチャ)
     """
     (character_to_respond, api_key_name,
      api_history_limit, debug_mode,
      history_log_path, file_input_list, user_prompt_text) = args
 
     from agent.graph import app
-    import re # この関数内でreを使うため、ローカルインポート
 
     effective_settings = config_manager.get_effective_settings(character_to_respond)
     model_name = effective_settings["model_name"]
@@ -90,59 +89,37 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
         yield {"final_output": {"response": f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"}}
         return
 
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
-    # 1. 生のログ履歴を読み込む
-    raw_history = []
+    messages = []
     if history_log_path and os.path.exists(history_log_path):
         raw_history = utils.load_chat_log(history_log_path, character_to_respond)
+        limit = int(api_history_limit) if api_history_limit.isdigit() else 0
+        if limit > 0 and len(raw_history) > limit * 2:
+            raw_history = raw_history[-(limit * 2):]
 
-    # 2. 履歴制限を適用
-    limit = int(api_history_limit) if api_history_limit.isdigit() else 0
-    if limit > 0 and len(raw_history) > limit * 2:
-        raw_history = raw_history[-(limit * 2):]
+        for h_item in raw_history:
+            content, responder = h_item.get('content', '').strip(), h_item.get('responder', '')
+            if not content: continue
+            if responder != 'user' and responder != 'ユーザー':
+                messages.append(AIMessage(content=content))
+            else:
+                # ユーザーの発言は、ファイル情報を含まない、純粋なテキストとして履歴に追加
+                text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
+                messages.append(HumanMessage(content=text_only_content))
 
-    # 3. 「歴史正規化」処理
-    normalized_messages = []
-    ai_buffer = [] # 連続するAIの応答を一時的に溜めるバッファ
-    for h_item in raw_history:
-        content, responder = h_item.get('content', '').strip(), h_item.get('responder', '')
-        if not content: continue
-
-        is_user = responder == 'user' or responder == 'ユーザー'
-
-        if is_user:
-            # ユーザーの発言が来たら、溜まっていたAIの応答を結合して確定させる
-            if ai_buffer:
-                combined_content = "\n\n".join(ai_buffer)
-                normalized_messages.append(AIMessage(content=combined_content))
-                ai_buffer = [] # バッファをクリア
-            # ユーザーの発言を追加
-            text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
-            normalized_messages.append(HumanMessage(content=text_only_content))
-        else:
-            # AIの発言は、誰の発言かわかるようにしてバッファに追加
-            ai_buffer.append(f"{responder}: {content}")
-
-    # ループ終了後、最後に残ったAI応答バッファを確定させる
-    if ai_buffer:
-        combined_content = "\n\n".join(ai_buffer)
-        normalized_messages.append(AIMessage(content=combined_content))
-
-    # 4. ユーザーの最新の発言を、ファイル情報と共に、履歴の最後に追加
+    # ユーザーの最新の発言を、ファイル情報と共に、履歴の最後に追加
     user_message_parts = []
     if user_prompt_text:
         user_message_parts.append({"type": "text", "text": user_prompt_text})
     if file_input_list:
         for file_obj in file_input_list:
-            # この部分は将来的なファイル添付処理のために残します
-            pass
+            # ... (ファイル処理ロジック) ...
+            pass # この部分は、将来的に堅牢化
 
     if user_message_parts:
-        normalized_messages.append(HumanMessage(content=user_message_parts))
-    # ▲▲▲ 修正ここまで ▲▲▲
+        messages.append(HumanMessage(content=user_message_parts))
 
     initial_state = {
-        "messages": normalized_messages, # ★ 正規化されたメッセージを渡す
+        "messages": messages,
         "character_name": character_to_respond,
         "api_key": api_key,
         "tavily_api_key": config_manager.TAVILY_API_KEY,

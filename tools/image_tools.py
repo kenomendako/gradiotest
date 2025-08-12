@@ -14,11 +14,7 @@ IMAGE_GEN_MODEL = "gemini-2.0-flash-preview-image-generation"
 
 @tool
 def generate_image(prompt: str, character_name: str, api_key: str) -> str:
-    """
-    ユーザーの要望や会話の文脈に応じて、情景、キャラクター、アイテムなどのイラストを生成する。
-    成功した場合は、UIに表示するための特別な画像タグを返す。
-    prompt: 画像生成のための詳細な指示（英語が望ましい）。
-    """
+    """情景、キャラ、アイテム等のイラストを生成する。promptは英語推奨。"""
     print(f"--- 画像生成ツール実行 (Model: {IMAGE_GEN_MODEL}, Prompt: '{prompt}') ---")
     if not character_name or not api_key:
         return "【エラー】画像生成にはキャラクター名とAPIキーが必須です。"
