@@ -205,7 +205,7 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理する。(v9: 動的聖域アーキテクチャ)
+    ユーザーからのメッセージ送信を処理する。(v10: 魂の器アーキテクチャ)
     """
     (textbox_content, current_character_name, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
@@ -263,24 +263,14 @@ def handle_message_submission(*args: Any):
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content)
 
-        history_log_path_for_ai = main_log_f
-
-        if character_to_respond != current_character_name:
-            # 参加者の場合は、今回のユーザー発言から始まる動的聖域を作成
-            sanctuary_path = utils.create_dynamic_sanctuary(main_log_f, user_input_for_log)
-            if sanctuary_path:
-                history_log_path_for_ai = sanctuary_path
-            else:
-                print(f"警告: {character_to_respond} の動的聖域の作成に失敗。完全なログを使用します。")
-
         agent_stream_args = (
-            textbox_content, # この引数はAPI側で無視されるが、形式を保つために残す
-            character_to_respond,
+            textbox_content,
+            character_to_respond, # <-- 思考の主体（魂）を正しく渡す
             current_api_key_name_state,
             file_input_list if character_to_respond == current_character_name else None,
             api_history_limit_state,
             debug_mode_state,
-            history_log_path_for_ai
+            main_log_f # <-- 共有された現実
         )
 
         final_response_text = ""
@@ -1280,7 +1270,7 @@ def handle_reload_system_prompt(character_name: str) -> str:
 
 def handle_rerun_button_click(*args: Any):
     """
-    「再生成」ボタンが押された際の処理。(v6: 履歴重複修正版)
+    「再生成」ボタンが押された際の処理。(v10: 魂の器アーキテクチャ)
     """
     (selected_message, character_name, api_key_name,
      file_list, api_history_limit, debug_mode,
@@ -1311,14 +1301,13 @@ def handle_rerun_button_click(*args: Any):
 
     gr.Info("応答を再生成します...")
 
-    # ▼▼▼ APIへの引数を、新しい契約に合わせる ▼▼▼
     yield from handle_message_submission(
-        restored_input_text, # 復元されたテキストを渡す
-        character_name,
+        restored_input_text,
+        character_name, # <-- 主役キャラクター（器）
         api_key_name,
-        None, # ファイルは元のログに含まれているはずなので、再添付はしない
+        None,
         api_history_limit,
         debug_mode,
         current_console_content,
-        participant_list
+        participant_list # <-- 再生成に参加するキャラクター
     )
