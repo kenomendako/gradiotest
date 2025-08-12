@@ -382,11 +382,18 @@ def handle_add_new_character(character_name: str):
 def _get_display_history_count(api_history_limit_value: str) -> int: return int(api_history_limit_value) if api_history_limit_value.isdigit() else constants.UI_HISTORY_MAX_LIMIT
 
 def handle_chatbot_selection(character_name: str, api_history_limit_state: str, mapping_list: list, evt: gr.SelectData):
-    if not character_name or evt.index is None or not mapping_list: return None, gr.update(visible=False)
+    """
+    チャットボットのメッセージが選択された際の処理。
+    選択されたメッセージがAIのものかユーザーのものかを判定し、ボタンの表示/非表示を制御する。
+    """
+    if not character_name or evt.index is None or not mapping_list:
+        return None, gr.update(visible=False), gr.update(interactive=True)
+
     try:
         clicked_ui_index = evt.index[0]
         if not (0 <= clicked_ui_index < len(mapping_list)):
-            gr.Warning(f"クリックされたメッセージを特定できませんでした (UI index {clicked_ui_index} out of bounds for mapping list size {len(mapping_list)})."); return None, gr.update(visible=False)
+            gr.Warning(f"クリックされたメッセージを特定できませんでした (UI index out of bounds).")
+            return None, gr.update(visible=False), gr.update(interactive=True)
 
         log_f, _, _, _, _ = get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_f, character_name)
@@ -395,12 +402,23 @@ def handle_chatbot_selection(character_name: str, api_history_limit_state: str, 
 
         original_log_index = mapping_list[clicked_ui_index]
         if 0 <= original_log_index < len(visible_raw_history):
-            return visible_raw_history[original_log_index], gr.update(visible=True)
+            selected_msg = visible_raw_history[original_log_index]
+
+            # 選択されたメッセージがユーザーのものかAIのものかでボタンの状態を変える
+            is_ai_message = selected_msg.get("responder") != "ユーザー"
+
+            return (
+                selected_msg,
+                gr.update(visible=True),
+                gr.update(interactive=is_ai_message) # ユーザー発言なら音声再生ボタンを非活性化
+            )
         else:
-            gr.Warning(f"クリックされたメッセージを特定できませんでした (Original log index {original_log_index} out of bounds for visible history size {len(visible_raw_history)})."); return None, gr.update(visible=False)
+            gr.Warning(f"クリックされたメッセージを特定できませんでした (Original log index out of bounds).")
+            return None, gr.update(visible=False), gr.update(interactive=True)
+
     except Exception as e:
         print(f"チャットボット選択中のエラー: {e}"); traceback.print_exc()
-        return None, gr.update(visible=False)
+        return None, gr.update(visible=False), gr.update(interactive=True)
 
 def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], character_name: str, api_history_limit: str):
     if not message_to_delete:
@@ -1227,7 +1245,8 @@ def handle_rerun_button_click(
     participant_list: List[str]
 ):
     """
-    「再生成」ボタンが押された際の処理。(Gradioルール準拠・最終完成版)
+    「再生成」ボタンが押された際の処理。
+    選択されたメッセージがAIかユーザーかで挙動を変える。(v5: 統合版)
     """
     if not selected_message or not character_name:
         gr.Warning("再生成するメッセージが選択されていません。")
@@ -1235,19 +1254,26 @@ def handle_rerun_button_click(
         return (history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                 gr.update(), gr.update(), gr.update(), current_console_content, current_console_content)
 
-    log_f, _, _, _, _ = get_character_files_paths(character_name)
-    restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, character_name)
+    is_ai_message = selected_message.get("responder") != "ユーザー"
+
+    if is_ai_message:
+        # AIの発言が選択された場合：これまでのロジック
+        log_f, _, _, _, _ = get_character_files_paths(character_name)
+        restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, character_name)
+    else:
+        # ユーザーの発言が選択された場合：新しいロジック
+        log_f, _, _, _, _ = get_character_files_paths(character_name)
+        restored_input_text = utils.delete_user_message_and_after(log_f, selected_message, character_name)
 
     if restored_input_text is None:
-        gr.Error("再生成の元となるユーザー入力の特定に失敗しました。")
+        gr.Error("再生成の元となるユーザー入力の特定/復元に失敗しました。")
         history, mapping_list = reload_chat_log(character_name, api_history_limit)
         return (history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                 gr.update(), gr.update(), gr.update(), current_console_content, current_console_content)
 
     gr.Info("応答を再生成します...")
 
-    # handle_message_submission が返すジェネレータを、正しく最後まで処理する
-    submission_generator = handle_message_submission(
+    yield from handle_message_submission(
         restored_input_text,
         character_name,
         api_key_name,
@@ -1257,7 +1283,3 @@ def handle_rerun_button_click(
         current_console_content,
         participant_list
     )
-
-    # handle_message_submission が返す12個の値を、そのままGradioに渡す
-    for yielded_value in submission_generator:
-        yield yielded_value
