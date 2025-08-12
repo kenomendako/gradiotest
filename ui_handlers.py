@@ -279,17 +279,25 @@ def handle_message_submission(*args: Any):
 
     # --- 4. 最終的なUI状態の更新 ---
     final_chatbot_history, final_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
-    token_count_text = gemini_api.count_input_tokens(
-        character_name=current_character_name, api_key_name=current_api_key_name_state,
-        api_history_limit=api_history_limit_state, parts=[], **config_manager.get_effective_settings(current_character_name)
-    )
-    final_df_with_ids = render_alarms_as_dataframe()
-    final_df = get_display_df(final_df_with_ids)
-    location_name = response_data_for_ui.get("location_name", "（不明）")
-    scenery_text = response_data_for_ui.get("scenery", "（不明）")
+
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    # response_data_for_ui に頼るのではなく、主役キャラクターの最新の情景を再取得する
+    api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
+    location_name, _, scenery_text = generate_scenery_context(current_character_name, api_key)
     scenery_image = utils.find_scenery_image(current_character_name, utils.get_current_location(current_character_name))
 
-    yield (final_chatbot_history, final_mapping_list, gr.update(), gr.update(), token_count_text,
+    # トークン数は、最後の応答が完了した「後」の状態で計算する
+    token_count_text = gemini_api.count_input_tokens(
+        character_name=current_character_name, api_key_name=current_api_key_name_state,
+        api_history_limit=api_history_limit_state, parts=[],
+        **config_manager.get_effective_settings(current_character_name)
+    )
+    # ▲▲▲ 修正ここまで ▲▲▲
+
+    final_df_with_ids = render_alarms_as_dataframe()
+    final_df = get_display_df(final_df_with_ids)
+
+    yield (final_chatbot_history, final_mapping_list, gr.update(), gr.update(value=None), token_count_text,
            location_name, scenery_text,
            final_df_with_ids, final_df, scenery_image,
            current_console_content, current_console_content)
