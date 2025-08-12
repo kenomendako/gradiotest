@@ -1,7 +1,8 @@
-# gemini_api.py (堅牢化対応版)
-
+#
+# gemini_api.py の内容を、この最終版テキストで完全に置き換えてください
+#
 import traceback
-from typing import Any, List, Union, Optional, Dict
+from typing import Any, List, Union, Optional, Dict, Iterator
 import os
 import json
 import io
@@ -9,15 +10,16 @@ import base64
 from PIL import Image
 import google.genai as genai
 import filetype
-import httpx  # エラーハンドリングのためにインポート
+import httpx
 from google.api_core.exceptions import ResourceExhausted
 
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 import config_manager
 import constants
 import utils
 from character_manager import get_character_files_paths
 
+# (get_model_token_limits, _convert_lc_to_gg_for_count, count_tokens_from_lc_messages は変更なし)
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
     if model_name in utils._model_token_limits_cache: return utils._model_token_limits_cache[model_name]
     if not api_key or api_key.startswith("YOUR_API_KEY"): return None
@@ -32,7 +34,6 @@ def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, 
     except Exception as e: print(f"モデル情報の取得中にエラー: {e}"); return None
 
 def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage, AIMessage]]) -> List[Dict]:
-    # (この関数の中身は変更ありません)
     contents = []
     for msg in messages:
         role = "model" if isinstance(msg, AIMessage) else "user"
@@ -56,7 +57,6 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
     return contents
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
-    # (この関数の中身は変更ありませんが、呼び出し元でエラーが捕捉されるようになります)
     if not messages: return 0
     client = genai.Client(api_key=api_key)
     contents_for_api = _convert_lc_to_gg_for_count(messages)
@@ -70,40 +70,48 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
     return result.total_tokens
 
-def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒントを修正
+def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
+    """
+    LangGraphの思考プロセスをステップごとにストリーミングで返し、
+    最終的な応答と状態も返すジェネレータ。(v2: アーキテクチャ修復版)
+    """
     (textbox_content, current_character_name,
      current_api_key_name_state, file_input_list,
      api_history_limit_state, debug_mode_state) = args
 
     from agent.graph import app
     effective_settings = config_manager.get_effective_settings(current_character_name)
-    current_model_name, send_thoughts_state = effective_settings["model_name"], effective_settings["send_thoughts"]
+    current_model_name = effective_settings["model_name"]
     api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
-    # ▼▼▼ 戻り値のデフォルトに "tools_used" を追加 ▼▼▼
-    default_error_response = {"response": "", "location_name": "（エラー）", "scenery": "（エラー）", "tools_used": []}
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        return {**default_error_response, "response": f"[エラー: APIキー '{current_api_key_name_state}' が有効ではありません。]"}
+        yield {"final_output": {"response": f"[エラー: APIキー '{current_api_key_name_state}' が有効ではありません。]"}}
+        return
 
-    # ... (この間の履歴読み込みやメッセージ構築のロジックは変更なし) ...
     user_input_text = textbox_content.strip() if textbox_content else ""
     is_internal_call = user_input_text.startswith("（システム")
     if not user_input_text and not file_input_list and not is_internal_call:
-         return {**default_error_response, "response": "[エラー: テキスト入力またはファイル添付がありません]"}
+        yield {"final_output": {"response": "[エラー: テキスト入力またはファイル添付がありません]"}}
+        return
+
+    # --- 履歴と入力メッセージの構築 ---
     messages = []
     log_file, _, _, _, _ = get_character_files_paths(current_character_name)
+    # ここでは、呼び出し元のキャラクター自身の履歴のみを取得する
     raw_history = utils.load_chat_log(log_file, current_character_name)
-    limit = 0
-    if api_history_limit_state.isdigit():
-        limit = int(api_history_limit_state)
-    if limit > 0 and len(raw_history) > limit * 2: raw_history = raw_history[-(limit * 2):]
+    limit = int(api_history_limit_state) if api_history_limit_state.isdigit() else 0
+    if limit > 0 and len(raw_history) > limit * 2:
+        raw_history = raw_history[-(limit * 2):]
+
     for h_item in raw_history:
         role, content = h_item.get('role'), h_item.get('content', '').strip()
         if not content: continue
-        if role in ['model', 'assistant', current_character_name]:
-            final_content = content if send_thoughts_state else utils.remove_thoughts_from_text(content)
-            if final_content: messages.append(AIMessage(content=final_content))
-        elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
+        # ログから読み込む際は、思考ログは除去しない（AIの思考の文脈として重要）
+        if h_item.get('responder', 'model') != 'user':
+            messages.append(AIMessage(content=content))
+        else:
+            messages.append(HumanMessage(content=content))
+
     user_message_parts = []
     if user_input_text: user_message_parts.append({"type": "text", "text": user_input_text})
     if file_input_list:
@@ -114,10 +122,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒント
                 if mime_type.startswith("image/"):
                     with open(filepath, "rb") as f: file_data = base64.b64encode(f.read()).decode("utf-8")
                     user_message_parts.append({"type": "image_url", "image_url": { "url": f"data:{mime_type};base64,{file_data}"}})
-                elif mime_type.startswith(("audio/", "video/")):
-                     with open(filepath, "rb") as f: file_data = base64.b64encode(f.read()).decode("utf-8")
-                     user_message_parts.append({"type": "media", "mime_type": mime_type, "data": file_data})
-                else:
+                else: # 音声・動画・テキストファイル
                     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f: text_content = f.read()
                     user_message_parts.append({"type": "text", "text": f"--- 添付ファイル「{os.path.basename(filepath)}」の内容 ---\n{text_content}\n--- ファイル内容ここまで ---"})
             except Exception as e: print(f"警告: ファイル '{os.path.basename(filepath)}' の処理に失敗。スキップ。エラー: {e}")
@@ -129,98 +134,68 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, Any]: # 戻り値の型ヒント
         "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True),
         "send_notepad": effective_settings.get("send_notepad", True),
-        "location_name": "（初期化中）", "scenery_text": "（初期化中）",
         "debug_mode": debug_mode_state
     }
 
+    final_state = None
     try:
-        # ▼▼▼ forループによるリトライ機構を完全に削除 ▼▼▼
-        # app.invokeは一度だけ呼び出す
-        final_state = app.invoke(initial_state)
-
-        # 応答が空だった場合のチェックはここで行う
-        final_response_text = ""
-        if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
-            final_response_text = str(final_state['messages'][-1].content or "").strip()
-
-        # もしLangChainの内部リトライが尽きて応答が空だった場合、
-        # ユーザーに状況を伝えるメッセージを設定する
-        if not final_response_text:
-             print("--- [警告] LangChainの内部リトライが尽き、AIから有効な応答を得られませんでした。---")
-             # ここでツール呼び出しがなかったことを確認してからメッセージを出す
-             is_tool_call = False
-             if final_state['messages'] and isinstance(final_state['messages'][-1], AIMessage):
-                 if final_state['messages'][-1].tool_calls:
-                     is_tool_call = True
-
-             if not is_tool_call:
-                 final_response_text = "[エラー: AIとの通信が一時的に不安定になっているようです。しばらくしてから、もう一度お試しください。]"
-        # ▲▲▲ 修正ここまで ▲▲▲
-
-        tools_used_summary = []
-        for message in final_state.get('messages', []):
-            if isinstance(message, AIMessage) and message.tool_calls:
-                for tool_call in message.tool_calls:
-                    # (このforループの中身は変更なし)
-                    tool_name = tool_call.get('name', '不明なツール')
-                    args = tool_call.get('args', {})
-                    display_text = ""
-                    if tool_name == 'set_current_location':
-                        location = args.get('location_id', '不明な場所')
-                        display_text = f'現在地を「{location}」に設定しました。'
-                    elif tool_name == 'set_timer':
-                        duration = str(args.get('duration_minutes', '?')).split('.')[0]
-                        display_text = f"タイマーをセットしました（{duration}分）"
-                    elif tool_name == 'set_pomodoro_timer':
-                        work = str(args.get('work_minutes', '?')).split('.')[0]
-                        brk = str(args.get('break_minutes', '?')).split('.')[0]
-                        cycles = str(args.get('cycles', '?')).split('.')[0]
-                        display_text = f"ポモドーロタイマーをセットしました（{work}分・{brk}分・{cycles}セット）"
-                    elif tool_name == 'web_search_tool':
-                        query = args.get('query', '...')
-                        display_text = f'Webで「{query}」を検索しました。'
-                    elif tool_name == 'add_to_notepad':
-                        entry = args.get('entry', '...')
-                        display_text = f'メモ帳に「{entry[:30]}...」を追加しました。'
-                    elif tool_name == 'update_notepad':
-                        new_entry = args.get('new_entry', '...')
-                        display_text = f'メモ帳を「{new_entry[:30]}...」に更新しました。'
-                    elif tool_name == 'delete_from_notepad':
-                        entry = args.get('entry_to_delete', '...')
-                        display_text = f'メモ帳から「{entry[:30]}...」を削除しました。'
-                    elif tool_name == 'generate_image':
-                        display_text = '新しい画像を生成しました。'
-                    else:
-                        args_to_display = {k: v for k, v in args.items() if k not in ['character_name', 'api_key', 'tavily_api_key']}
-                        if args_to_display:
-                            args_str = ", ".join([f"{k}='{str(v)[:20]}...'" for k, v in args_to_display.items()])
-                            display_text = f'{tool_name} を実行しました ({args_str})'
-                        else:
-                            display_text = f'{tool_name} を実行しました。'
-                    tools_used_summary.append(f"🛠️ {display_text}")
-
-        location_name = final_state.get('location_name', '（場所不明）')
-        scenery_text = final_state.get('scenery_text', '（情景不明）')
-        return {"response": final_response_text, "location_name": location_name, "scenery": scenery_text, "tools_used": tools_used_summary}
+        # app.stream() を使って、各ステップの状態を受け取る
+        for update in app.stream(initial_state):
+            yield {"stream_update": update}
+            final_state = update # 最後の更新が最終状態になる
 
     except ResourceExhausted as e:
         if "PerDay" in str(e):
-            print("--- [APIエラー検知] 1日のリクエスト上限に達しました ---")
-            error_message = "[APIエラー: 無料利用枠の1日あたりのリクエスト上限に達しました。]"
-            return {**default_error_response, "response": error_message}
+            final_state = {"response": "[APIエラー: 無料利用枠の1日あたりのリクエスト上限に達しました。]"}
         else:
-            # LangChainの内部リトライが尽きた最終的な例外
-            print(f"--- [APIエラー検知] リソース上限エラー（リトライ最終失敗）: {e} ---")
-            error_message = "[APIエラー: AIとの通信が一時的に混み合っているようです。しばらくしてから、もう一度お試しください。]"
-            return {**default_error_response, "response": error_message}
+            final_state = {"response": "[APIエラー: AIとの通信が一時的に混み合っているようです。]"}
     except Exception as e:
         traceback.print_exc()
-        return {**default_error_response, "response": f"[エージェント実行エラー: {e}]"}
+        final_state = {"response": f"[エージェント実行エラー: {e}]"}
+
+    # --- 最終的な出力を整形して返す ---
+    final_response = {}
+    if final_state and isinstance(final_state, dict):
+        # agentノードの最終状態から、最後のメッセージを取得
+        agent_final_state = final_state.get("agent", {})
+        last_message = next(reversed(agent_final_state.get("messages", [])), None)
+
+        final_response_text = ""
+        if isinstance(last_message, AIMessage):
+            final_response_text = str(last_message.content or "").strip()
+
+            # ▼▼▼ ここからが修正の核心 ▼▼▼
+            # 応答が空で、ツール呼び出しもない場合、その理由を調査する
+            if not final_response_text and not last_message.tool_calls:
+                finish_reason = ""
+                # response_metadataから終了理由を取得
+                if hasattr(last_message, 'response_metadata') and isinstance(last_message.response_metadata, dict):
+                    finish_reason = last_message.response_metadata.get('finish_reason', '')
+
+                if finish_reason == 'SAFETY':
+                    print("--- [警告] AIの応答が安全フィルターによってブロックされました ---")
+                    final_response_text = "[エラー: AIの応答が安全フィルターによってブロックされました。不適切な内容と判断された可能性があります。お手数ですが、表現を変えてもう一度お試しください。]"
+                elif finish_reason == 'RECITATION':
+                     print("--- [警告] AIの応答が引用フィルターによってブロックされました ---")
+                     final_response_text = "[エラー: AIの応答が、学習元データからの長すぎる引用と判断されたため、ブロックされました。]"
+                else:
+                    print(f"--- [警告] AIが空の応答を返しました (終了理由: {finish_reason or '不明'}) ---")
+                    final_response_text = "[エラー: AIが予期せず空の応答を返しました。通信が不安定か、AIが応答を生成できなかった可能性があります。]"
+            # ▲▲▲ 修正ここまで ▲▲▲
+
+        else: # last_message が AIMessage でない場合 (通常は起こらない)
+             final_response_text = final_state.get("response", "[エラー: AIから予期せぬ形式の応答がありました。]")
+
+        final_response["response"] = final_response_text
+        final_response["location_name"] = final_state.get("context_generator", {}).get("location_name", "（不明）")
+        final_response["scenery"] = final_state.get("context_generator", {}).get("scenery_text", "（不明）")
+
+    yield {"final_output": final_response}
 
 def count_input_tokens(**kwargs):
     character_name = kwargs.get("character_name")
     api_key_name = kwargs.get("api_key_name")
-    api_history_limit = kwargs.get("api_history_limit") # 新しい引数を受け取る
+    api_history_limit = kwargs.get("api_history_limit")
     parts = kwargs.get("parts", [])
 
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
@@ -228,6 +203,7 @@ def count_input_tokens(**kwargs):
 
     try:
         effective_settings = config_manager.get_effective_settings(character_name)
+        # kwargsから渡された設定で上書き
         if kwargs.get("add_timestamp") is not None: effective_settings["add_timestamp"] = kwargs["add_timestamp"]
         if kwargs.get("send_thoughts") is not None: effective_settings["send_thoughts"] = kwargs["send_thoughts"]
         if kwargs.get("send_notepad") is not None: effective_settings["send_notepad"] = kwargs["send_notepad"]
@@ -237,6 +213,7 @@ def count_input_tokens(**kwargs):
         model_name = effective_settings.get("model_name") or config_manager.DEFAULT_MODEL_GLOBAL
         messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
+        # --- システムプロンプトの構築 ---
         from agent.prompts import CORE_PROMPT_TEMPLATE
         from agent.graph import all_tools
         char_prompt_path = os.path.join(constants.CHARACTERS_DIR, character_name, "SystemPrompt.txt")
@@ -269,24 +246,23 @@ def count_input_tokens(**kwargs):
             system_prompt_text += "\n\n---\n【現在の場所と情景】\n（トークン計算ではAPIコールを避けるため、実際の情景は含めず、存在することを示すプレースホルダのみ考慮）\n- 場所の名前: サンプル\n- 場所の定義: サンプル\n- 今の情景: サンプル\n---"
         messages.append(SystemMessage(content=system_prompt_text))
 
+        # --- 履歴の構築 ---
         log_file, _, _, _, _ = get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_file, character_name)
-
-        limit = 0
-        if api_history_limit and api_history_limit.isdigit():
-            limit = int(api_history_limit)
-
+        limit = int(api_history_limit) if api_history_limit and api_history_limit.isdigit() else 0
         if limit > 0 and len(raw_history) > limit * 2:
             raw_history = raw_history[-(limit * 2):]
 
         for h_item in raw_history:
-            role, content = h_item.get('role'), h_item.get('content', '').strip()
+            content = h_item.get('content', '').strip()
             if not content: continue
-            if role in ['model', 'assistant', character_name]:
-                final_content = content if effective_settings.get("send_thoughts", True) else utils.remove_thoughts_from_text(content)
-                if final_content: messages.append(AIMessage(content=final_content))
-            elif role in ['user', 'human']: messages.append(HumanMessage(content=content))
+            # トークン計算時は、思考ログは除去しない（APIに渡される状態を正確にシミュレートするため）
+            if h_item.get('responder', 'model') != 'user':
+                 messages.append(AIMessage(content=content))
+            else:
+                 messages.append(HumanMessage(content=content))
 
+        # --- 現在の入力の構築 ---
         if parts:
             formatted_parts = []
             for part in parts:
@@ -300,8 +276,8 @@ def count_input_tokens(**kwargs):
                     except Exception as img_e: print(f"画像変換エラー（トークン計算中）: {img_e}"); formatted_parts.append({"type": "text", "text": "[画像変換エラー]"})
             if formatted_parts: messages.append(HumanMessage(content=formatted_parts))
 
+        # --- トークン数の計算 ---
         total_tokens = count_tokens_from_lc_messages(messages, model_name, api_key)
-        if total_tokens == -1: return "トークン数: (計算エラー)"
 
         limit_info = get_model_token_limits(model_name, api_key)
         if limit_info and 'input' in limit_info: return f"入力トークン数: {total_tokens} / {limit_info['input']}"

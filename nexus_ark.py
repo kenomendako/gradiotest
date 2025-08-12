@@ -77,6 +77,7 @@ try:
         editing_alarm_id_state = gr.State(None)
         selected_message_state = gr.State(None)
         current_log_map_state = gr.State([])
+        participant_characters_state = gr.State([])
         debug_console_state = gr.State("") # コンソールの内容を保持するState
 
         with gr.Tabs():
@@ -85,6 +86,7 @@ try:
                     with gr.Column(scale=1, min_width=300):
                         profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
                         character_dropdown = gr.Dropdown(choices=character_list_on_startup, value=effective_initial_character, label="キャラクターを選択", interactive=True)
+
                         with gr.Accordion("🌄 情景描写・移動", open=False):
                             scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
                             generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
@@ -167,6 +169,14 @@ try:
                                     char_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
                                     gr.Markdown("---")
                                     save_char_settings_button = gr.Button("このキャラクターの設定を保存", variant="primary")
+
+                        with gr.Accordion("🗨️ 他の参加者を選択", open=False):
+                            participant_checkbox_group = gr.CheckboxGroup(
+                                label="会話に参加するキャラクター",
+                                choices=sorted([c for c in character_list_on_startup if c != effective_initial_character]),
+                                interactive=True
+                            )
+
                         with gr.Accordion("🗨️ 新しいルームを作成する", open=False):
                             with gr.Row():
                                 new_character_name_textbox = gr.Textbox(placeholder="新しいルーム名", show_label=False, scale=3); add_character_button = gr.Button("作成", variant="secondary", scale=1)
@@ -263,12 +273,14 @@ try:
         )
 
         char_change_world_builder_outputs = [world_data_state, area_selector]
-        all_char_change_outputs = initial_load_chat_outputs + char_change_world_builder_outputs
+        all_char_change_outputs = initial_load_chat_outputs + char_change_world_builder_outputs + [participant_checkbox_group]
+
+    # ▼▼▼ character_dropdown.change の fn を handle_character_change_for_all_tabs に変更 ▼▼▼
         character_dropdown.change(
-            fn=ui_handlers.handle_character_change_for_all_tabs,
-            inputs=[character_dropdown, api_key_dropdown],
-            outputs=all_char_change_outputs
-        ).then(
+        fn=ui_handlers.handle_character_change_for_all_tabs,
+        inputs=[character_dropdown, api_key_dropdown],
+        outputs=all_char_change_outputs
+    ).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
@@ -285,7 +297,8 @@ try:
                 file_upload_button, # file_upload_button は将来的な拡張のため inputs に含めておく
                 api_history_limit_state,
                 debug_mode_checkbox,
-                debug_console_state # <--- これを追加
+                debug_console_state, # <--- これを追加
+                participant_checkbox_group # <--- これを追加
             ],
             outputs=[
                 chatbot_display,
@@ -316,7 +329,8 @@ try:
         chat_inputs = [
             chat_input_textbox, current_character_name, current_api_key_name_state,
             file_upload_button, api_history_limit_state, debug_mode_checkbox,
-            debug_console_state # <--- これを追加
+            debug_console_state,
+            participant_checkbox_group # <--- これを追加
         ]
         save_char_settings_button.click(fn=ui_handlers.handle_save_char_settings, inputs=[current_character_name, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox] + context_checkboxes, outputs=None).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         char_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[char_voice_dropdown, char_voice_style_prompt_textbox, char_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, char_preview_voice_button])

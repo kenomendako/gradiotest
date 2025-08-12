@@ -93,9 +93,6 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
     if not character_name or not file_path or not os.path.exists(file_path):
         return messages
 
-    ai_header = f"## {character_name}:"
-    alarm_header = "## システム(アラーム):"
-
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -114,15 +111,29 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
         if part.startswith("## ") and part.endswith(":"):
             header = part
         elif header:
-            if header == ai_header:
-                role = 'model'
+            if header.startswith(f"## {character_name}:") or header.startswith("## システム("): # 主役とシステムは 'model'
+                 role = 'model'
+                 responder = character_name
             else:
-                role = 'user'
-            messages.append({"role": role, "content": part})
+                # ユーザーの発言か、他のキャラクターの発言かを判定
+                match = re.match(r"^## (.*?):$", header)
+                if match:
+                    responder_name = match.group(1)
+                    if character_manager.is_character_name(responder_name):
+                        role = 'model' # 他のキャラもAIなので 'model'
+                        responder = responder_name
+                    else:
+                        role = 'user'
+                        responder = responder_name # ユーザー名も保持
+                else: # マッチしない場合 (安全策)
+                    role = 'user'
+                    responder = "不明"
+
+            messages.append({"role": role, "content": part, "responder": responder})
             header = None
     return messages
 
-def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name: str) -> Tuple[List[Tuple[Union[str, Tuple, None], Union[str, Tuple, None]]], List[int]]:
+def format_history_for_gradio(raw_history: List[Dict[str, str]], main_character_name: str) -> Tuple[List[Tuple[...]], List[int]]:
     if not raw_history:
         return [], []
 
@@ -131,22 +142,20 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
     intermediate_list = []
-    # ▼▼▼ 修正の核心 ▼▼▼
-    # enumerateは渡されたraw_history(既にスライスされている)に対するインデックス(0, 1, 2...)を返すため、
-    # original_indexは常に「表示されているログの中での」正しい座標になる。
     for i, msg in enumerate(raw_history):
-    # ▲▲▲ 修正ここまで ▲▲▲
         content = msg.get("content", "").strip()
         if not content: continue
+
+        responder = msg.get("responder", main_character_name)
 
         last_end = 0
         for match in image_tag_pattern.finditer(content):
             if match.start() > last_end:
-                intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:match.start()].strip(), "original_index": i})
-            intermediate_list.append({"type": "image", "role": "model", "content": match.group(1).strip(), "original_index": i})
+                intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:match.start()].strip(), "original_index": i, "responder": responder})
+            intermediate_list.append({"type": "image", "role": "model", "content": match.group(1).strip(), "original_index": i, "responder": responder})
             last_end = match.end()
         if last_end < len(content):
-            intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:].strip(), "original_index": i})
+            intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:].strip(), "original_index": i, "responder": responder})
 
     text_parts_with_anchors = []
     for item in intermediate_list:
@@ -162,7 +171,8 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
             prev_anchor = text_parts_with_anchors[text_part_index - 1]["anchor_id"] if text_part_index > 0 else None
             next_anchor = text_parts_with_anchors[text_part_index + 1]["anchor_id"] if text_part_index < len(text_parts_with_anchors) - 1 else None
 
-            html_content = _format_text_content_for_gradio(item["content"], item["anchor_id"], prev_anchor, next_anchor)
+            responder_name = item.get("responder", main_character_name)
+            html_content = _format_text_content_for_gradio(item["content"], responder_name, item["anchor_id"], prev_anchor, next_anchor)
 
             if item["role"] == "user":
                 gradio_history.append((html_content, None))
@@ -180,18 +190,24 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name:
 
     return gradio_history, mapping_list
 
-def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
-    # ▼▼▼ この行を修正 ▼▼▼
+def _format_text_content_for_gradio(content: str, character_name: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
     up_button = f"<a href='#{current_anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
     down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
     delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
-
     button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
+
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    # 発言者ヘッダーを作成
+    speaker_header = f"<div style='font-weight: bold; margin-bottom: 5px; color: #a1c9f7;'>{html.escape(character_name)}:</div>"
 
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     thought_match = thoughts_pattern.search(content)
 
     final_parts = [f"<span id='{current_anchor_id}'></span>"]
+
+    # 最初に発言者ヘッダーを追加
+    final_parts.append(speaker_header)
+    # ▲▲▲ 修正ここまで ▲▲▲
 
     if thought_match:
         thoughts_content = thought_match.group(1).strip()
@@ -201,7 +217,6 @@ def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_a
     main_text = thoughts_pattern.sub("", content).strip()
     escaped_text = html.escape(main_text).replace('\n', '<br>')
     final_parts.append(f"<div>{escaped_text}</div>")
-
     final_parts.append(button_container)
 
     return "".join(final_parts)
@@ -311,28 +326,39 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
         return False
 
     try:
+        # 1. 高度なパーサーで、各メッセージの発言者(responder)を含む完全なログを読み込む
         all_messages = load_chat_log(log_file_path, character_name)
 
-        try:
-            all_messages.remove(message_to_delete)
-        except ValueError:
+        # 2. 削除対象のメッセージをリストから除去する
+        #    辞書は完全に一致する必要があるため、contentとresponderで照合
+        original_len = len(all_messages)
+        all_messages = [
+            msg for msg in all_messages
+            if not (
+                msg.get("content") == message_to_delete.get("content") and
+                msg.get("responder") == message_to_delete.get("responder")
+            )
+        ]
+
+        if len(all_messages) >= original_len:
             print(f"警告: ログファイル内に削除対象のメッセージが見つかりませんでした。")
-            print(f"  - 検索対象: {message_to_delete}")
             return False
 
+        # 3. 読み込んだログの情報だけを元に、ファイルをゼロから再構築する
         log_content_parts = []
-        user_header = _get_user_header_from_log(log_file_path, character_name)
-        ai_header = f"## {character_name}:"
-
         for msg in all_messages:
-            header = ai_header if msg['role'] == 'model' else user_header
-            content = msg['content'].strip()
-            log_content_parts.append(f"{header}\n{content}")
+            # 読み込んだメッセージが持つ「responder」情報を正としてヘッダーを生成
+            responder_name = msg.get("responder", "不明")
+            header = f"## {responder_name}:"
+            content = msg.get('content', '').strip()
+            if content:
+                log_content_parts.append(f"{header}\n{content}")
 
         new_log_content = "\n\n".join(log_content_parts)
         with open(log_file_path, "w", encoding="utf-8") as f:
             f.write(new_log_content)
 
+        # ファイルの末尾に空行を追加しておく
         if new_log_content:
             with open(log_file_path, "a", encoding="utf-8") as f:
                 f.write("\n\n")
@@ -344,23 +370,6 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
         traceback.print_exc()
         return False
 
-def _get_user_header_from_log(log_file_path: str, ai_character_name: str) -> str:
-    default_user_header = "## ユーザー:"
-    if not log_file_path or not os.path.exists(log_file_path):
-        return default_user_header
-
-    last_identified_user_header = default_user_header
-    try:
-        with open(log_file_path, "r", encoding="utf-8") as f:
-            for line in f:
-                stripped_line = line.strip()
-                if stripped_line.startswith("## ") and stripped_line.endswith(":"):
-                    if not stripped_line.startswith(f"## {ai_character_name}:") and not stripped_line.startswith("## システム("):
-                        last_identified_user_header = stripped_line
-        return last_identified_user_header
-    except Exception as e:
-        print(f"エラー: ユーザーヘッダー取得エラー: {e}")
-        return default_user_header
 
 def remove_thoughts_from_text(text: str) -> str:
     if not text:
@@ -433,6 +442,48 @@ def save_scenery_cache(character_name: str, cache_key: str, location_name: str, 
     except Exception as e:
         print(f"!! エラー: 情景キャッシュの保存に失敗しました: {e}")
 # ▲▲▲ 追加箇所ここまで ▲▲▲
+
+def format_tool_result_for_ui(tool_name: str, tool_result: str) -> Optional[str]:
+    """ツールの実行結果を、gr.Info()で表示するための簡潔なテキストに整形する。"""
+    if not tool_name or not tool_result:
+        return None
+
+    if "Error" in tool_result or "エラー" in tool_result:
+        return f"⚠️ ツール「{tool_name}」の実行に失敗しました。"
+
+    display_text = ""
+    if tool_name == 'set_current_location':
+        location_match = re.search(r"set to '(.*?)'", tool_result)
+        if location_match:
+            display_text = f'現在地を「{location_match.group(1)}」に設定しました。'
+    elif tool_name == 'set_timer':
+        duration_match = re.search(r"for (\d+) minutes", tool_result)
+        if duration_match:
+            display_text = f"タイマーをセットしました（{duration_match.group(1)}分）"
+    elif tool_name == 'set_pomodoro_timer':
+        match = re.search(r"(\d+) cycles \((\d+) min work, (\d+) min break\)", tool_result)
+        if match:
+            display_text = f"ポモドーロタイマーをセットしました（{match.group(2)}分・{match.group(3)}分・{match.group(1)}セット）"
+    elif tool_name == 'web_search_tool':
+        display_text = 'Web検索を実行しました。'
+    elif tool_name == 'add_to_notepad':
+        entry_match = re.search(r'entry "(.*?)" was added', tool_result)
+        if entry_match:
+            display_text = f'メモ帳に「{entry_match.group(1)[:30]}...」を追加しました。'
+    elif tool_name == 'update_notepad':
+        entry_match = re.search(r'updated to "(.*?)"', tool_result)
+        if entry_match:
+            display_text = f'メモ帳を「{entry_match.group(1)[:30]}...」に更新しました。'
+    elif tool_name == 'delete_from_notepad':
+        entry_match = re.search(r'deleted from the notepad', tool_result)
+        if entry_match:
+            display_text = f'メモ帳から項目を削除しました。'
+    elif tool_name == 'generate_image':
+        display_text = '新しい画像を生成しました。'
+
+    # 他のツールも同様に追加可能
+
+    return f"🛠️ {display_text}" if display_text else f"🛠️ ツール「{tool_name}」を実行しました。"
 
 
 def get_season(month: int) -> str:
@@ -543,7 +594,7 @@ def parse_world_file(file_path: str) -> dict:
 def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete: Dict[str, str], character_name: str) -> Optional[str]:
     """
     指定されたAIのメッセージと、その直前のユーザーのメッセージをログから削除し、
-    そのユーザーメッセージの内容を返す。
+    そのユーザーメッセージの内容を返す。（_get_user_header_from_logへの依存を削除した修正版）
     """
     if not all([log_file_path, os.path.exists(log_file_path), ai_message_to_delete, character_name]):
         return None
@@ -551,37 +602,38 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
     try:
         all_messages = load_chat_log(log_file_path, character_name)
 
-        # 削除対象のAIメッセージのインデックスを探す
         try:
-            target_index = all_messages.index(ai_message_to_delete)
+            # contentとresponderの両方で、削除対象のメッセージを正確に特定
+            target_index = -1
+            for i, msg in enumerate(all_messages):
+                if (msg.get("content") == ai_message_to_delete.get("content") and
+                    msg.get("responder") == ai_message_to_delete.get("responder")):
+                    target_index = i
+                    break
+
+            if target_index == -1:
+                raise ValueError("Message not found in log")
+
         except ValueError:
             print(f"警告: ログファイル内に削除対象のAIメッセージが見つかりませんでした。")
             return None
 
         # AIのメッセージがリストの先頭にある、またはその直前がユーザーメッセージでない場合はエラー
-        if target_index == 0 or all_messages[target_index - 1].get("role") != "user":
+        if target_index == 0 or all_messages[target_index - 1].get("responder") != "ユーザー":
             print(f"警告: 削除対象のAIメッセージの直前に、対応するユーザーメッセージが見つかりません。")
-            # この場合、AIのメッセージだけを削除する
             all_messages.pop(target_index)
-            restored_input = None # ユーザー入力は復元できない
+            restored_input = None
         else:
-            # AIのメッセージと、その直前のユーザーメッセージを両方削除
             user_message = all_messages.pop(target_index - 1)
-            all_messages.pop(target_index - 1) # インデックスがずれるので再度同じインデックスを削除
-
-            # ▼▼▼ 以下の2行を新しく追加 ▼▼▼
-            # 復元するテキストから、古いタイムスタンプを除去する
+            all_messages.pop(target_index - 1)
             content_without_timestamp = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_message.get("content", ""), flags=re.MULTILINE)
             restored_input = content_without_timestamp.strip()
-            # ▲▲▲ 修正ここまで ▲▲▲
 
         # ログファイルを再構築して書き込む
         log_content_parts = []
-        user_header = _get_user_header_from_log(log_file_path, character_name)
-        ai_header = f"## {character_name}:"
-
         for msg in all_messages:
-            header = ai_header if msg.get('role') in ['model', 'assistant'] else user_header
+            responder_name = msg.get("responder", "不明")
+            header = f"## {responder_name}:"
             content = msg.get('content', '').strip()
             if content:
                 log_content_parts.append(f"{header}\n{content}")
@@ -590,7 +642,6 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
         with open(log_file_path, "w", encoding="utf-8") as f:
             f.write(new_log_content)
 
-        # ファイルの末尾に空行を追加しておく
         if new_log_content:
             with open(log_file_path, "a", encoding="utf-8") as f:
                 f.write("\n\n")
