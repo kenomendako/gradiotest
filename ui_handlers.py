@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 from typing import List, Optional, Dict, Any, Tuple
+from langchain_core.messages import ToolMessage
 import gradio as gr
 import datetime
 from PIL import Image
