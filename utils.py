@@ -593,8 +593,8 @@ def parse_world_file(file_path: str) -> dict:
 
 def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete: Dict[str, str], character_name: str) -> Optional[str]:
     """
-    指定されたAIのメッセージと、その直前のユーザーのメッセージをログから削除し、
-    そのユーザーメッセージの内容を返す。(復活版)
+    指定されたAIのメッセージ「以降」の全てのAIメッセージと、それらの直前のユーザーメッセージをログから削除し、
+    そのユーザーメッセージの内容を返す。(最終完成版)
     """
     if not all([log_file_path, os.path.exists(log_file_path), ai_message_to_delete, character_name]):
         return None
@@ -602,33 +602,36 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
     try:
         all_messages = load_chat_log(log_file_path, character_name)
 
-        target_index = -1
+        # 1. 削除を開始するAIメッセージのインデックスを探す
+        target_start_index = -1
         for i, msg in enumerate(all_messages):
             if (msg.get("content") == ai_message_to_delete.get("content") and
                 msg.get("responder") == ai_message_to_delete.get("responder")):
-                target_index = i
+                target_start_index = i
                 break
 
-        if target_index == -1:
+        if target_start_index == -1:
             print(f"警告: ログファイル内に削除対象のAIメッセージが見つかりませんでした。")
             return None
 
-        # ユーザーの発言が、選択されたAIの発言の直前にあることを確認
-        if target_index > 0 and all_messages[target_index - 1].get("responder") == "ユーザー":
-            user_message = all_messages.pop(target_index - 1)
-            # user_messageを削除したので、AIメッセージのインデックスが一つずれる
-            all_messages.pop(target_index - 1)
-            content_without_timestamp = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_message.get("content", ""), flags=re.MULTILINE)
-            restored_input = content_without_timestamp.strip()
-        else:
-            # 見つからない場合は、AIの応答だけを削除して、再生成は行わない
-            print(f"警告: 削除対象のAIメッセージの直前に、対応するユーザーメッセージが見つかりません。")
-            all_messages.pop(target_index)
-            restored_input = None
+        # 2. 削除開始インデックスから遡って、最後にユーザーが発言したインデックスを探す
+        last_user_message_index = -1
+        for i in range(target_start_index - 1, -1, -1):
+            if all_messages[i].get("responder") == "ユーザー":
+                last_user_message_index = i
+                break
 
-        # ログファイルを再構築
+        if last_user_message_index == -1:
+            print(f"警告: 再生成の起点となるユーザーメッセージが見つかりませんでした。")
+            return None
+
+        # 3. ユーザーの発言内容を保持し、それ以降のメッセージを全て削除対象とする
+        user_message_content = all_messages[last_user_message_index].get("content", "")
+        messages_to_keep = all_messages[:last_user_message_index]
+
+        # 4. ログを再構築する
         log_content_parts = []
-        for msg in all_messages:
+        for msg in messages_to_keep:
             responder_name = msg.get("responder", "不明")
             header = f"## {responder_name}:"
             content = msg.get('content', '').strip()
@@ -642,7 +645,11 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
             with open(log_file_path, "a", encoding="utf-8") as f:
                 f.write("\n\n")
 
-        print("--- Successfully deleted message pair for rerun ---")
+        # 5. タイムスタンプを除去したユーザーの発言内容を返す
+        content_without_timestamp = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_message_content, flags=re.MULTILINE)
+        restored_input = content_without_timestamp.strip()
+
+        print("--- Successfully reset conversation to the last user input for rerun ---")
         return restored_input
 
     except Exception as e:
