@@ -106,28 +106,65 @@ def handle_character_change(character_name: str, api_key_name: str):
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "vindemiatrix"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
 
-    # handle_character_change 関数の最後にある return 文を以下に置き換える
+    voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
+
+    # ▼▼▼ 新しいパラメータの読み込みロジックを追加 ▼▼▼
+    safety_display_map = {
+        "BLOCK_NONE": "ブロックしない",
+        "BLOCK_LOW_AND_ABOVE": "低リスク以上をブロック",
+        "BLOCK_MEDIUM_AND_ABOVE": "中リスク以上をブロック",
+        "BLOCK_ONLY_HIGH": "高リスクのみブロック"
+    }
+    temp_val = effective_settings.get("temperature", 0.8)
+    top_p_val = effective_settings.get("top_p", 0.95)
+    harassment_val = safety_display_map.get(effective_settings.get("safety_block_threshold_harassment"))
+    hate_val = safety_display_map.get(effective_settings.get("safety_block_threshold_hate_speech"))
+    sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
+    dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
+    # ▲▲▲ 追加ここまで ▲▲▲
+
     return (
         character_name, chat_history, mapping_list, "", profile_image,
-        # ↓↓↓ 3つのエディタに初期値を設定する部分 ↓↓↓
         memory_str, notepad_content, load_system_prompt_content(character_name),
         character_name, character_name,
         gr.update(choices=locations_for_ui, value=location_dd_val),
         current_location_name, scenery_text,
         gr.update(choices=all_models, value=model_val),
         voice_display_name, voice_style_prompt_val,
+        # ▼▼▼ 新しい戻り値を追加 ▼▼▼
+        temp_val, top_p_val, harassment_val, hate_val, sexual_val, dangerous_val,
+        # ▲▲▲ 追加ここまで ▲▲▲
         effective_settings["add_timestamp"], effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
         effective_settings["send_core_memory"], effective_settings["send_scenery"],
         f"ℹ️ *現在選択中のキャラクター「{character_name}」にのみ適用される設定です。*", scenery_image_path
     )
 
-def handle_save_char_settings(character_name: str, model_name: str, voice_name: str, voice_style_prompt: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
+def handle_save_char_settings(
+    character_name: str, model_name: str, voice_name: str, voice_style_prompt: str,
+    temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
+    add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
+    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool
+):
     if not character_name: gr.Warning("設定を保存するキャラクターが選択されていません。"); return
+
+    safety_value_map = {
+        "ブロックしない": "BLOCK_NONE",
+        "低リスク以上をブロック": "BLOCK_LOW_AND_ABOVE",
+        "中リスク以上をブロック": "BLOCK_MEDIUM_AND_ABOVE",
+        "高リスクのみブロック": "BLOCK_ONLY_HIGH"
+    }
+
     new_settings = {
         "model_name": model_name if model_name != "デフォルト" else None,
         "voice_id": next((k for k, v in config_manager.SUPPORTED_VOICES.items() if v == voice_name), None),
         "voice_style_prompt": voice_style_prompt.strip(),
+        "temperature": temp,
+        "top_p": top_p,
+        "safety_block_threshold_harassment": safety_value_map.get(harassment),
+        "safety_block_threshold_hate_speech": safety_value_map.get(hate),
+        "safety_block_threshold_sexually_explicit": safety_value_map.get(sexual),
+        "safety_block_threshold_dangerous_content": safety_value_map.get(dangerous),
         "add_timestamp": bool(add_timestamp), "send_thoughts": bool(send_thoughts), "send_notepad": bool(send_notepad),
         "use_common_prompt": bool(use_common_prompt), "send_core_memory": bool(send_core_memory), "send_scenery": bool(send_scenery),
     }
@@ -848,7 +885,8 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
 
         # 3. シーンディレクターAI（gemini-2.5-flash）を準備
         from agent.graph import get_configured_llm
-        scene_director_llm = get_configured_llm("gemini-2.5-flash", api_key)
+        effective_settings = config_manager.get_effective_settings(character_name)
+        scene_director_llm = get_configured_llm("gemini-2.5-flash", api_key, effective_settings)
 
         # 4. AIへの指示書（プロンプト）を作成
         director_prompt = f"""

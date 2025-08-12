@@ -79,10 +79,18 @@ def ensure_character_files(character_name):
             default_char_config = {
                 "version": 1, "last_updated": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 "override_settings": {
-                    "model_name": None, "voice_id": "iapetus", # ★ "nova" から "iapetus" に変更
+                    "model_name": None, "voice_id": "iapetus",
                     "voice_style_prompt": "",
                     "add_timestamp": False, "send_thoughts": None, "send_notepad": None,
-                    "use_common_prompt": None, "send_core_memory": None, "send_scenery": None
+                    "use_common_prompt": None, "send_core_memory": None, "send_scenery": None,
+                    # --- ここから追加 ---
+                    "temperature": 0.8,
+                    "top_p": 0.95,
+                    "safety_block_threshold_harassment": "BLOCK_ONLY_HIGH",
+                    "safety_block_threshold_hate_speech": "BLOCK_ONLY_HIGH",
+                    "safety_block_threshold_sexually_explicit": "BLOCK_ONLY_HIGH",
+                    "safety_block_threshold_dangerous_content": "BLOCK_ONLY_HIGH"
+                    # --- 追加ここまで ---
                 }
             }
             with open(config_file, "w", encoding="utf-8") as f:

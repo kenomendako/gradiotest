@@ -32,6 +32,7 @@ from rag_manager import diary_search_tool, conversation_memory_search_tool
 from character_manager import get_world_settings_path
 from memory_manager import load_memory_data_safe
 import utils # ★ utilsを直接インポート
+import config_manager
 
 all_tools = [
     set_current_location, read_memory_by_path, edit_memory,
@@ -58,23 +59,33 @@ class AgentState(TypedDict):
     scenery_text: str
     debug_mode: bool
 
-def get_configured_llm(model_name: str, api_key: str):
-    # レート制限エラー(429)やサーバーエラー(500)に対応するため、リトライ回数を増やす
-    # ▼▼▼ 修正の核心：「langchain_google_genai」ライブラリ自身が提供する型を直接使用する ▼▼▼
-    safety_settings = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
+    """
+    キャラクターごとの設定を含む、LangChain用のLLMインスタンスを生成する。
+    """
+    threshold_map = {
+        "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
+        "BLOCK_LOW_AND_ABOVE": HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
+        "BLOCK_MEDIUM_AND_ABOVE": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        "BLOCK_ONLY_HIGH": HarmBlockThreshold.BLOCK_ONLY_HIGH,
     }
+
+    safety_settings = {
+        HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(generation_config.get("safety_block_threshold_harassment")),
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(generation_config.get("safety_block_threshold_hate_speech")),
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: threshold_map.get(generation_config.get("safety_block_threshold_sexually_explicit")),
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(generation_config.get("safety_block_threshold_dangerous_content")),
+    }
+
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
         convert_system_message_to_human=False,
-        max_retries=6, # これはAPI接続自体のリトライ回数
+        max_retries=6,
+        temperature=generation_config.get("temperature", 0.8),
+        top_p=generation_config.get("top_p", 0.95),
         safety_settings=safety_settings
     )
-    # ▲▲▲ 修正ここまで ▲▲▲
 
 # 3. ファイルのクラスや関数定義の前に、新しい「情景生成」関数を追加
 def get_location_list(character_name: str) -> List[str]:
@@ -153,7 +164,8 @@ def generate_scenery_context(character_name: str, api_key: str, force_regenerate
             log_message = "情景を強制的に再生成します" if force_regenerate else "情景をAPIで生成します"
             print(f"--- {log_message} ({cache_key}) ---")
 
-            llm_flash = get_configured_llm("gemini-2.5-flash", api_key) # モデル名を更新
+            effective_settings = config_manager.get_effective_settings(character_name)
+            llm_flash = get_configured_llm("gemini-2.5-flash", api_key, effective_settings)
             jst_now = datetime.now(pytz.timezone('Asia/Tokyo'))
             scenery_prompt = (
                 f"空間定義（自由記述テキスト）:\n---\n{space_def}\n---\n\n"
@@ -263,7 +275,12 @@ def agent_node(state: AgentState):
         print(state['system_prompt'].content)
         print("----------------------------------------------------------")
 
-    llm = get_configured_llm(state['model_name'], state['api_key'])
+    effective_settings = config_manager.get_effective_settings(state['character_name'])
+    llm = get_configured_llm(
+        state['model_name'],
+        state['api_key'],
+        effective_settings
+    )
     llm_with_tools = llm.bind_tools(all_tools)
     messages_for_agent = [state['system_prompt']] + state['messages']
     response = llm_with_tools.invoke(messages_for_agent)

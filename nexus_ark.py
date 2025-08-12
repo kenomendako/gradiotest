@@ -160,6 +160,23 @@ try:
                                         with gr.Row():
                                             char_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
                                             char_preview_voice_button = gr.Button("試聴", scale=1)
+
+                                    # ▼▼▼ 新しいアコーディオンを、この位置にまるごと追加 ▼▼▼
+                                    with gr.Accordion("🔬 AI生成パラメータ調整", open=False):
+                                        gr.Markdown("このキャラクターの応答の「創造性」と「安全性」を調整します。")
+                                        char_temperature_slider = gr.Slider(minimum=0.0, maximum=2.0, step=0.05, label="Temperature", info="値が高いほど、AIの応答がより創造的で多様になります。(推奨: 0.7 ~ 0.9)")
+                                        char_top_p_slider = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, label="Top-P", info="値が低いほど、ありふれた単語が選ばれやすくなります。(推奨: 0.95)")
+
+                                        safety_choices = ["ブロックしない", "低リスク以上をブロック", "中リスク以上をブロック", "高リスクのみブロック"]
+
+                                        with gr.Row():
+                                            char_safety_harassment_dropdown = gr.Dropdown(choices=safety_choices, label="嫌がらせコンテンツ", interactive=True)
+                                            char_safety_hate_speech_dropdown = gr.Dropdown(choices=safety_choices, label="ヘイトスピーチ", interactive=True)
+                                        with gr.Row():
+                                            char_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
+                                            char_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
+                                    # ▲▲▲ 追加ここまで ▲▲▲
+
                                     gr.Markdown("#### APIコンテキスト設定")
                                     char_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
                                     char_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
@@ -265,7 +282,11 @@ try:
             memory_json_editor, notepad_editor, system_prompt_editor,
             alarm_char_dropdown, timer_char_dropdown, location_dropdown,
             current_location_display, current_scenery_display, char_model_dropdown, char_voice_dropdown,
-            char_voice_style_prompt_textbox
+            char_voice_style_prompt_textbox,
+            # ▼▼▼ 新しいUI部品を出力リストに追加 ▼▼▼
+            char_temperature_slider, char_top_p_slider,
+            char_safety_harassment_dropdown, char_safety_hate_speech_dropdown,
+            char_safety_sexually_explicit_dropdown, char_safety_dangerous_content_dropdown
         ] + context_checkboxes + [char_settings_info, scenery_image_display]
         initial_load_outputs = [alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown] + initial_load_chat_outputs
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
@@ -333,9 +354,18 @@ try:
             chat_input_textbox, current_character_name, current_api_key_name_state,
             file_upload_button, api_history_limit_state, debug_mode_checkbox,
             debug_console_state,
-            participant_checkbox_group # <--- これを追加
+            participant_checkbox_group
         ]
-        save_char_settings_button.click(fn=ui_handlers.handle_save_char_settings, inputs=[current_character_name, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox] + context_checkboxes, outputs=None).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
+        gen_settings_inputs = [
+            char_temperature_slider, char_top_p_slider,
+            char_safety_harassment_dropdown, char_safety_hate_speech_dropdown,
+            char_safety_sexually_explicit_dropdown, char_safety_dangerous_content_dropdown
+        ]
+        save_char_settings_button.click(
+            fn=ui_handlers.handle_save_char_settings,
+            inputs=[current_character_name, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes,
+            outputs=None
+        )
         char_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[char_voice_dropdown, char_voice_style_prompt_textbox, char_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, char_preview_voice_button])
         for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
