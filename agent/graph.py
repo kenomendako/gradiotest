@@ -59,7 +59,7 @@ class AgentState(TypedDict):
     scenery_text: str
     debug_mode: bool
 
-def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
+def get_configured_llm(model_name: str, api_key: str, generation_config_from_state: dict):
     """
     キャラクターごとの設定を含む、LangChain用のLLMインスタンスを生成する。
     """
@@ -71,10 +71,16 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     }
 
     safety_settings = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(generation_config.get("safety_block_threshold_harassment")),
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(generation_config.get("safety_block_threshold_hate_speech")),
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: threshold_map.get(generation_config.get("safety_block_threshold_sexually_explicit")),
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(generation_config.get("safety_block_threshold_dangerous_content")),
+        HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(generation_config_from_state.get("safety_block_threshold_harassment")),
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(generation_config_from_state.get("safety_block_threshold_hate_speech")),
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: threshold_map.get(generation_config_from_state.get("safety_block_threshold_sexually_explicit")),
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(generation_config_from_state.get("safety_block_threshold_dangerous_content")),
+    }
+
+    final_generation_config = {
+        "temperature": generation_config_from_state.get("temperature", 0.8),
+        "top_p": generation_config_from_state.get("top_p", 0.95),
+        "max_output_tokens": generation_config_from_state.get("max_output_tokens", 8192),
     }
 
     return ChatGoogleGenerativeAI(
@@ -82,9 +88,7 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
         google_api_key=api_key,
         convert_system_message_to_human=False,
         max_retries=6,
-        temperature=generation_config.get("temperature", 0.8),
-        top_p=generation_config.get("top_p", 0.95),
-        max_output_tokens=generation_config.get("max_output_tokens", 8192), # この行を追加
+        generation_config=final_generation_config,
         safety_settings=safety_settings
     )
 
@@ -282,16 +286,31 @@ def agent_node(state: AgentState):
 
     llm_with_tools = llm.bind_tools(all_tools)
 
+    # ▼▼▼ 理解の確認儀式ロジック ▼▼▼
+    system_prompt_message = state['system_prompt']
+    history_messages = state['messages']
+
     # AIに渡す直前に、履歴からファイル添付のプレースホルダーを除去
-    messages_for_agent = [state['system_prompt']]
-    for msg in state['messages']:
+    cleaned_history = []
+    for msg in history_messages:
         if isinstance(msg.content, str):
             cleaned_content = re.sub(r"\[ファイル添付:.*?\]", "", msg.content, flags=re.DOTALL).strip()
             if cleaned_content:
-                msg.content = cleaned_content
-                messages_for_agent.append(msg)
-        else:
-            messages_for_agent.append(msg)
+                # 元のメッセージオブジェクトを汚染しないように、新しいインスタンスを作成
+                # (langgraph内で同じオブジェクトが再利用される可能性があるため)
+                if isinstance(msg, AIMessage):
+                    cleaned_history.append(AIMessage(content=cleaned_content))
+                else: # HumanMessage, SystemMessageなど
+                    cleaned_history.append(type(msg)(content=cleaned_content))
+        else: # list形式のcontentの場合 (画像など)
+            cleaned_history.append(msg)
+
+    # システムプロンプトをAIに理解させるための「儀式」を組み込む
+    messages_for_agent = [
+        system_prompt_message,
+        AIMessage(content="はい、承知いたしました。対話を開始します。"),
+    ] + cleaned_history
+    # ▲▲▲ ここまで ▲▲▲
 
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}
