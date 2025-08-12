@@ -285,7 +285,12 @@ try:
         )
 
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state])
-        chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state, current_log_map_state], outputs=[selected_message_state, action_button_group], show_progress=False)
+        chatbot_display.select(
+            fn=ui_handlers.handle_chatbot_selection,
+            inputs=[current_character_name, api_history_limit_state, current_log_map_state],
+            outputs=[selected_message_state, action_button_group, play_audio_button], # play_audio_button を追加
+            show_progress=False
+        )
 
         rerun_button.click(
             fn=ui_handlers.handle_rerun_button_click,
