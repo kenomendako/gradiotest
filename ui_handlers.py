@@ -1220,57 +1220,83 @@ def handle_reload_system_prompt(character_name: str) -> str:
     gr.Info(f"「{character_name}」の人格プロンプトを再読み込みしました。")
     return content
 
-def handle_rerun_button_click(
+def handle_regenerate_one_response(
     selected_message: Optional[Dict[str, str]],
-    character_name: str,
+    main_character_name: str,
     api_key_name: str,
-    file_list: Optional[List],
     api_history_limit: str,
     debug_mode: bool,
-    current_console_content: str,
-    participant_list: List[str] # <--- participant_list を受け取る
+    current_console_content: str
 ):
-    # ...
-
-    # ... (関数の先頭)
-    if not selected_message or not character_name:
+    """
+    選択されたAIの応答「だけ」を削除し、直前の文脈を引き継いで再生成する。
+    """
+    if not selected_message or not main_character_name:
         gr.Warning("再生成するメッセージが選択されていません。")
-        history, mapping_list = reload_chat_log(character_name, api_history_limit)
-        # 戻り値の数を12個に揃える
-        return (history, mapping_list, gr.update(), gr.update(), gr.update(),
-                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                gr.update(visible=False), current_console_content, current_console_content)
+        history, mapping_list = reload_chat_log(main_character_name, api_history_limit)
+        return history, mapping_list, gr.update(visible=False), current_console_content, current_console_content
 
-    log_f, _, _, _, _ = get_character_files_paths(character_name)
-    restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, character_name)
+    # 応答を生成すべきキャラクターの名前を、選択されたメッセージから特定する
+    character_to_regenerate = selected_message.get("responder")
+    if not character_to_regenerate or not character_manager.is_character_name(character_to_regenerate):
+        gr.Error("再生成するAIの特定に失敗しました。ユーザーの発言は再生成できません。")
+        history, mapping_list = reload_chat_log(main_character_name, api_history_limit)
+        return history, mapping_list, gr.update(visible=False), current_console_content, current_console_content
 
-    # ... (restored_input_text is None のブロック)
-    if restored_input_text is None:
-        gr.Error("再生成の元となるユーザー入力の特定に失敗しました。")
-        history, mapping_list = reload_chat_log(character_name, api_history_limit)
-        # 戻り値の数を12個に揃える
-        return (history, mapping_list, gr.update(), gr.update(), gr.update(),
-                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                gr.update(visible=False), current_console_content, current_console_content)
+    gr.Info(f"「{character_to_regenerate}」の応答を再生成します...")
 
-    gr.Info("応答を再生成します...")
+    # --- 1. 選択された応答だけを、全ての関連ログから削除 ---
+    all_characters_in_log = utils.get_all_characters_in_log(main_character_name, api_history_limit)
+    for char_name in all_characters_in_log:
+        log_f, _, _, _, _ = get_character_files_paths(char_name)
+        if log_f:
+            utils.delete_message_from_log(log_f, selected_message, char_name)
 
-    # ▼▼▼ handle_message_submission の呼び出しを修正 ▼▼▼
-    submission_generator = handle_message_submission(
-        restored_input_text,
-        character_name,
-        api_key_name,
-        None, # 再実行時はファイル添付をサポートしない
-        api_history_limit,
-        debug_mode,
-        current_console_content,
-        participant_list # <--- 受け取った参加者リストをそのまま渡す
-    )
-    try:
-        first_yield = next(submission_generator)
-        yield first_yield[:-2] + (gr.update(visible=False),) + first_yield[-2:]
+    # --- 2. UIを「思考中」状態に更新 ---
+    chatbot_history, mapping_list = reload_chat_log(main_character_name, api_history_limit)
+    chatbot_history.append((None, f"思考中 ({character_to_regenerate})... ▌"))
+    yield (chatbot_history, mapping_list, gr.update(visible=False),
+           current_console_content, current_console_content)
 
-        last_yield = next(submission_generator)
-        yield last_yield[:-2] + (gr.update(visible=False),) + last_yield[-2:]
-    except StopIteration:
-        pass
+    # --- 3. 再生成の実行 ---
+    final_response_text = "[エラー: 再生成に失敗しました]"
+    with utils.capture_prints() as captured_output:
+        # ログから最新の文脈を取得
+        main_log_f, _, _, _, _ = get_character_files_paths(main_character_name)
+        remaining_log = utils.load_chat_log(main_log_f, main_character_name)
+
+        # 参加者向けプロンプトを構築するロジックを再利用
+        context_parts = []
+        for msg in remaining_log:
+            role = msg.get("responder", "不明")
+            content = msg.get("content", "")
+            if role == "ユーザー":
+                 context_parts.append(f"（ユーザーの発言: 「{utils.remove_thoughts_from_text(content)}」）")
+            else:
+                 context_parts.append(f"（{role}の発言: 「{utils.remove_thoughts_from_text(content)}」）")
+
+        context_parts.append("\n（システム: 上記の発言を踏まえて、あなたの応答を生成してください。）")
+        prompt_for_ai = "\n".join(context_parts)
+
+        # AIに応答を生成させる
+        agent_stream_args = (prompt_for_ai, character_to_regenerate, api_key_name,
+                             None, api_history_limit, debug_mode)
+
+        for update in gemini_api.invoke_nexus_agent_stream(*agent_stream_args):
+            if "final_output" in update:
+                final_response_text = update["final_output"].get("response", final_response_text)
+                break
+
+        current_console_content += captured_output.getvalue()
+
+    # --- 4. 新しい応答をログに保存 & UIを最終更新 ---
+    if final_response_text.strip():
+        for char_name in all_characters_in_log:
+             log_f, _, _, _, _ = get_character_files_paths(char_name)
+             if log_f:
+                 utils.save_message_to_log(log_f, f"## {character_to_regenerate}:", final_response_text)
+
+    final_chatbot_history, final_mapping_list = reload_chat_log(main_character_name, api_history_limit)
+    yield (final_chatbot_history, final_mapping_list, gr.update(visible=False),
+           current_console_content, current_console_content)
+

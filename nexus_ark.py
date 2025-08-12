@@ -289,30 +289,23 @@ try:
 
         # ▼▼▼ このイベント定義を追加 ▼▼▼
         rerun_button.click(
-            fn=ui_handlers.handle_rerun_button_click,
+            # ▼▼▼ fn を新しいハンドラ名に変更 ▼▼▼
+            fn=ui_handlers.handle_regenerate_one_response,
+            # ▼▼▼ inputsからparticipant_checkbox_groupを削除（不要になるため）▼▼▼
             inputs=[
                 selected_message_state,
                 current_character_name,
                 current_api_key_name_state,
-                file_upload_button, # file_upload_button は将来的な拡張のため inputs に含めておく
                 api_history_limit_state,
                 debug_mode_checkbox,
-                debug_console_state, # <--- これを追加
-                participant_checkbox_group # <--- これを追加
+                debug_console_state
             ],
             outputs=[
                 chatbot_display,
                 current_log_map_state,
-                chat_input_textbox,
-                file_upload_button,
-                token_count_display,
-                current_location_display,
-                current_scenery_display,
-                alarm_dataframe_original_data,
-                alarm_dataframe,
-                scenery_image_display,
-                action_button_group, # アクションボタンを非表示にする
-                debug_console_state, debug_console_output # <--- この2つを追加
+                action_button_group,
+                debug_console_state,
+                debug_console_output
             ]
         )
         # ▲▲▲ 追加ここまで ▲▲▲
