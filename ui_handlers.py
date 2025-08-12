@@ -167,7 +167,7 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理し、主役キャラクターと参加者キャラクターの応答を順に生成する。
+    ユーザーからのメッセージ送信を処理し、LangGraphのストリームをリアルタイムでUIに反映させる。(v2)
     """
     (textbox_content, current_character_name, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
@@ -181,7 +181,7 @@ def handle_message_submission(*args: Any):
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
         return
 
-    # --- 1. ユーザーの入力を構築 ---
+    # --- 1. ユーザー入力のログ保存 ---
     effective_settings = config_manager.get_effective_settings(current_character_name)
     add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
 
@@ -197,15 +197,12 @@ def handle_message_submission(*args: Any):
 
     user_input_for_log = "\n\n".join(log_message_parts).strip()
 
-    # --- 2. 対話シーケンスの開始 ---
-    previous_responses = {}
-    if user_input_for_log:
-        previous_responses["ユーザー"] = user_input_for_log
-
+    # --- 2. 対話シーケンス ---
     all_characters_in_scene = [current_character_name] + participant_list
-    response_data = {}
+    previous_responses = { "ユーザー": user_input_for_log }
+    response_data_for_ui = {}
 
-    # Main character's log file is the primary log for this interaction
+    # 複数キャラのログを、主役キャラのログファイルに一時的に記録する
     main_log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     if user_input_for_log:
         utils.save_message_to_log(main_log_f, "## ユーザー:", user_input_for_log)
@@ -217,34 +214,36 @@ def handle_message_submission(*args: Any):
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content)
 
+        # プロンプトと引数を構築
+        if character_to_respond == current_character_name:
+            prompt_for_ai, files_for_ai = textbox_content, file_input_list
+        else:
+            context_parts = [f"（システム：ユーザーは「{user_prompt_from_textbox}」と言いました。"]
+            for char, resp in previous_responses.items():
+                if char != "ユーザー":
+                    context_parts.append(f"それに対し、{char}は「{utils.remove_thoughts_from_text(resp)}」と返しました。")
+            context_parts.append("これらを踏まえて、あなたの応答を生成してください。）")
+            prompt_for_ai = "\n".join(context_parts)
+            files_for_ai = None
+
+        agent_stream_args = (prompt_for_ai, character_to_respond, current_api_key_name_state,
+                             files_for_ai, api_history_limit_state, debug_mode_state)
+
+        final_response_text = ""
         with utils.capture_prints() as captured_output:
-            try:
-                if character_to_respond == current_character_name:
-                    prompt_for_ai = textbox_content
-                    files_for_ai = file_input_list
-                else:
-                    context_parts = []
-                    for char, resp in previous_responses.items():
-                        role = "ユーザー" if char == "ユーザー" else f"キャラクター「{char}」"
-                        context_parts.append(f"（{role}の発言: 「{utils.remove_thoughts_from_text(resp)}」）")
-                    context_parts.append("\n（システム: 上記の発言を踏まえて、あなたの応答を生成してください。）")
-                    prompt_for_ai = "\n".join(context_parts)
-                    files_for_ai = None
+            for update in gemini_api.invoke_nexus_agent_stream(*agent_stream_args):
+                if "stream_update" in update:
+                    # ここで中間ステップをUIに反映できる（将来的な拡張）
+                    pass
+                elif "final_output" in update:
+                    response_data_for_ui = update["final_output"]
+                    final_response_text = response_data_for_ui.get("response", "")
+                    break
 
-                agent_args = (prompt_for_ai, character_to_respond, current_api_key_name_state,
-                              files_for_ai, api_history_limit_state, debug_mode_state)
-                response_data = gemini_api.invoke_nexus_agent(*agent_args)
-
-                response_text = response_data.get("response", "")
-                if response_text.strip():
-                    previous_responses[character_to_respond] = response_text
-                    utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", response_text)
-
-                current_console_content += captured_output.getvalue()
-
-            except Exception as e:
-                traceback.print_exc()
-                current_console_content += captured_output.getvalue()
+        current_console_content += captured_output.getvalue()
+        if final_response_text.strip():
+            previous_responses[character_to_respond] = final_response_text
+            utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", final_response_text)
 
     # --- 3. 参加者のログファイルに、この会話の完全な記録を保存 ---
     if participant_list:
@@ -272,8 +271,8 @@ def handle_message_submission(*args: Any):
     final_df_with_ids = render_alarms_as_dataframe()
     final_df = get_display_df(final_df_with_ids)
 
-    location_name = response_data.get("location_name", "（不明）")
-    scenery_text = response_data.get("scenery", "（不明）")
+    location_name = response_data_for_ui.get("location_name", "（不明）")
+    scenery_text = response_data_for_ui.get("scenery", "（不明）")
     scenery_image = utils.find_scenery_image(current_character_name, utils.get_current_location(current_character_name))
 
     yield (final_chatbot_history, final_mapping_list, gr.update(), gr.update(), token_count_text,
