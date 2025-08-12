@@ -222,7 +222,12 @@ def handle_message_submission(*args: Any):
             for char, resp in previous_responses.items():
                 if char != "ユーザー":
                     context_parts.append(f"それに対し、{char}は「{utils.remove_thoughts_from_text(resp)}」と返しました。")
-            context_parts.append("これらを踏まえて、あなたの応答を生成してください。）")
+
+            # ▼▼▼ 以下の行を修正・追加 ▼▼▼
+            context_parts.append("\nこれら全ての会話を踏まえた上で、**あなた自身の応答のみを生成してください。**")
+            context_parts.append("他のキャラクターのセリフを代弁する必要はありません。）")
+            # ▲▲▲ 修正ここまで ▲▲▲
+
             prompt_for_ai = "\n".join(context_parts)
             files_for_ai = None
 
