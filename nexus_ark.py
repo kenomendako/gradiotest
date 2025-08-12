@@ -310,7 +310,6 @@ try:
                 alarm_dataframe_original_data,
                 alarm_dataframe,
                 scenery_image_display,
-                action_button_group,
                 debug_console_state,
                 debug_console_output
             ]

@@ -1227,15 +1227,13 @@ def handle_rerun_button_click(
     participant_list: List[str]
 ):
     """
-    「再生成」ボタンが押された際の処理。(yield完全継承・最終修正版)
-    選択されたAIの応答とその直前のユーザー入力を削除し、再度対話シーケンスを最初から実行する。
+    「再生成」ボタンが押された際の処理。(Gradioルール準拠・最終完成版)
     """
     if not selected_message or not character_name:
         gr.Warning("再生成するメッセージが選択されていません。")
         history, mapping_list = reload_chat_log(character_name, api_history_limit)
         return (history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                gr.update(), gr.update(), gr.update(), gr.update(visible=False),
-                current_console_content, current_console_content)
+                gr.update(), gr.update(), gr.update(), current_console_content, current_console_content)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
     restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, character_name)
@@ -1244,8 +1242,7 @@ def handle_rerun_button_click(
         gr.Error("再生成の元となるユーザー入力の特定に失敗しました。")
         history, mapping_list = reload_chat_log(character_name, api_history_limit)
         return (history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                gr.update(), gr.update(), gr.update(), gr.update(visible=False),
-                current_console_content, current_console_content)
+                gr.update(), gr.update(), gr.update(), current_console_content, current_console_content)
 
     gr.Info("応答を再生成します...")
 
@@ -1261,8 +1258,6 @@ def handle_rerun_button_click(
         participant_list
     )
 
+    # handle_message_submission が返す12個の値を、そのままGradioに渡す
     for yielded_value in submission_generator:
-        # handle_message_submission は12個の値を返す。
-        # handle_rerun_button_click は13個の値を返す必要がある。
-        # 最後の値（action_button_groupの更新）を追加して、yieldする。
-        yield yielded_value + (gr.update(visible=False),)
+        yield yielded_value
