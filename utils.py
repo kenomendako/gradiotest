@@ -443,6 +443,48 @@ def save_scenery_cache(character_name: str, cache_key: str, location_name: str, 
         print(f"!! エラー: 情景キャッシュの保存に失敗しました: {e}")
 # ▲▲▲ 追加箇所ここまで ▲▲▲
 
+def format_tool_result_for_ui(tool_name: str, tool_result: str) -> Optional[str]:
+    """ツールの実行結果を、gr.Info()で表示するための簡潔なテキストに整形する。"""
+    if not tool_name or not tool_result:
+        return None
+
+    if "Error" in tool_result or "エラー" in tool_result:
+        return f"⚠️ ツール「{tool_name}」の実行に失敗しました。"
+
+    display_text = ""
+    if tool_name == 'set_current_location':
+        location_match = re.search(r"set to '(.*?)'", tool_result)
+        if location_match:
+            display_text = f'現在地を「{location_match.group(1)}」に設定しました。'
+    elif tool_name == 'set_timer':
+        duration_match = re.search(r"for (\d+) minutes", tool_result)
+        if duration_match:
+            display_text = f"タイマーをセットしました（{duration_match.group(1)}分）"
+    elif tool_name == 'set_pomodoro_timer':
+        match = re.search(r"(\d+) cycles \((\d+) min work, (\d+) min break\)", tool_result)
+        if match:
+            display_text = f"ポモドーロタイマーをセットしました（{match.group(2)}分・{match.group(3)}分・{match.group(1)}セット）"
+    elif tool_name == 'web_search_tool':
+        display_text = 'Web検索を実行しました。'
+    elif tool_name == 'add_to_notepad':
+        entry_match = re.search(r'entry "(.*?)" was added', tool_result)
+        if entry_match:
+            display_text = f'メモ帳に「{entry_match.group(1)[:30]}...」を追加しました。'
+    elif tool_name == 'update_notepad':
+        entry_match = re.search(r'updated to "(.*?)"', tool_result)
+        if entry_match:
+            display_text = f'メモ帳を「{entry_match.group(1)[:30]}...」に更新しました。'
+    elif tool_name == 'delete_from_notepad':
+        entry_match = re.search(r'deleted from the notepad', tool_result)
+        if entry_match:
+            display_text = f'メモ帳から項目を削除しました。'
+    elif tool_name == 'generate_image':
+        display_text = '新しい画像を生成しました。'
+
+    # 他のツールも同様に追加可能
+
+    return f"🛠️ {display_text}" if display_text else f"🛠️ ツール「{tool_name}」を実行しました。"
+
 
 def get_season(month: int) -> str:
     """月情報から季節を返す"""

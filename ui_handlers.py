@@ -167,7 +167,7 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理し、LangGraphのストリームをリアルタイムでUIに反映させる。(v2)
+    ユーザーからのメッセージ送信を処理し、LangGraphのストリームをリアルタイムでUIに反映させる。(v3: ストリーム中間処理対応版)
     """
     (textbox_content, current_character_name, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
@@ -202,7 +202,6 @@ def handle_message_submission(*args: Any):
     previous_responses = { "ユーザー": user_input_for_log }
     response_data_for_ui = {}
 
-    # 複数キャラのログを、主役キャラのログファイルに一時的に記録する
     main_log_f, _, _, _, _ = get_character_files_paths(current_character_name)
     if user_input_for_log:
         utils.save_message_to_log(main_log_f, "## ユーザー:", user_input_for_log)
@@ -231,19 +230,34 @@ def handle_message_submission(*args: Any):
 
         final_response_text = ""
         with utils.capture_prints() as captured_output:
+            # gemini_api.invoke_nexus_agent_stream を呼び出す
             for update in gemini_api.invoke_nexus_agent_stream(*agent_stream_args):
                 if "stream_update" in update:
-                    # ここで中間ステップをUIに反映できる（将来的な拡張）
-                    pass
+                    # ▼▼▼ ここからが修正の核心 ▼▼▼
+                    # ストリームの中間ステップを解析する
+                    node_name = list(update["stream_update"].keys())[0]
+                    node_output = update["stream_update"][node_name]
+
+                    if node_name == "safe_tool_node":
+                        # ツール実行の結果を解析してポップアップを表示
+                        tool_messages = node_output.get("messages", [])
+                        for tool_msg in tool_messages:
+                            if isinstance(tool_msg, ToolMessage):
+                                display_text = utils.format_tool_result_for_ui(tool_msg.name, tool_msg.content)
+                                if display_text:
+                                    gr.Info(display_text)
+                    # ▲▲▲ 修正ここまで ▲▲▲
                 elif "final_output" in update:
                     response_data_for_ui = update["final_output"]
                     final_response_text = response_data_for_ui.get("response", "")
                     break
 
         current_console_content += captured_output.getvalue()
-        if final_response_text.strip():
-            previous_responses[character_to_respond] = final_response_text
-            utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", final_response_text)
+        if final_response_text.strip() or ("stream_update" in update and "safe_tool_node" in update["stream_update"]): # ツール使用時もログ保存
+            if final_response_text.strip():
+                previous_responses[character_to_respond] = final_response_text
+            # ツール呼び出しのみで応答テキストがない場合も、空の応答としてログに記録する
+            utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", final_response_text or "")
 
     # --- 3. 参加者のログファイルに、この会話の完全な記録を保存 ---
     if participant_list:
