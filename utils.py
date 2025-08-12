@@ -591,6 +591,65 @@ def parse_world_file(file_path: str) -> dict:
 
     return world_data
 
+def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete: Dict[str, str], character_name: str) -> Optional[str]:
+    """
+    指定されたAIのメッセージと、その直前のユーザーのメッセージをログから削除し、
+    そのユーザーメッセージの内容を返す。(復活版)
+    """
+    if not all([log_file_path, os.path.exists(log_file_path), ai_message_to_delete, character_name]):
+        return None
+
+    try:
+        all_messages = load_chat_log(log_file_path, character_name)
+
+        target_index = -1
+        for i, msg in enumerate(all_messages):
+            if (msg.get("content") == ai_message_to_delete.get("content") and
+                msg.get("responder") == ai_message_to_delete.get("responder")):
+                target_index = i
+                break
+
+        if target_index == -1:
+            print(f"警告: ログファイル内に削除対象のAIメッセージが見つかりませんでした。")
+            return None
+
+        # ユーザーの発言が、選択されたAIの発言の直前にあることを確認
+        if target_index > 0 and all_messages[target_index - 1].get("responder") == "ユーザー":
+            user_message = all_messages.pop(target_index - 1)
+            # user_messageを削除したので、AIメッセージのインデックスが一つずれる
+            all_messages.pop(target_index - 1)
+            content_without_timestamp = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_message.get("content", ""), flags=re.MULTILINE)
+            restored_input = content_without_timestamp.strip()
+        else:
+            # 見つからない場合は、AIの応答だけを削除して、再生成は行わない
+            print(f"警告: 削除対象のAIメッセージの直前に、対応するユーザーメッセージが見つかりません。")
+            all_messages.pop(target_index)
+            restored_input = None
+
+        # ログファイルを再構築
+        log_content_parts = []
+        for msg in all_messages:
+            responder_name = msg.get("responder", "不明")
+            header = f"## {responder_name}:"
+            content = msg.get('content', '').strip()
+            if content:
+                log_content_parts.append(f"{header}\n{content}")
+
+        new_log_content = "\n\n".join(log_content_parts)
+        with open(log_file_path, "w", encoding="utf-8") as f:
+            f.write(new_log_content)
+        if new_log_content:
+            with open(log_file_path, "a", encoding="utf-8") as f:
+                f.write("\n\n")
+
+        print("--- Successfully deleted message pair for rerun ---")
+        return restored_input
+
+    except Exception as e:
+        print(f"エラー: 再生成のためのログ削除中に予期せぬエラー: {e}")
+        traceback.print_exc()
+        return None
+
 def get_all_characters_in_log(main_character_name: str, api_history_limit_key: str) -> List[str]:
     """
     指定されたキャラクターのログを解析し、指定された履歴範囲内に登場するすべての

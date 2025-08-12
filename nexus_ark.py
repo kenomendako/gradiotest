@@ -288,18 +288,28 @@ try:
         chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state, current_log_map_state], outputs=[selected_message_state, action_button_group], show_progress=False)
 
         rerun_button.click(
-            fn=ui_handlers.handle_regenerate_one_response,
+            fn=ui_handlers.handle_rerun_button_click,
             inputs=[
                 selected_message_state,
                 current_character_name,
                 current_api_key_name_state,
+                file_upload_button,
                 api_history_limit_state,
                 debug_mode_checkbox,
-                debug_console_state
+                debug_console_state,
+                participant_checkbox_group
             ],
             outputs=[
                 chatbot_display,
                 current_log_map_state,
+                chat_input_textbox,
+                file_upload_button,
+                token_count_display,
+                current_location_display,
+                current_scenery_display,
+                alarm_dataframe_original_data,
+                alarm_dataframe,
+                scenery_image_display,
                 action_button_group,
                 debug_console_state,
                 debug_console_output
