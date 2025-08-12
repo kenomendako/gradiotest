@@ -59,10 +59,15 @@ class AgentState(TypedDict):
     scenery_text: str
     debug_mode: bool
 
-def get_configured_llm(model_name: str, api_key: str, generation_config_from_state: dict):
+def get_configured_llm(
+    model_name: str,
+    api_key: str,
+    generation_config_from_state: dict,
+    system_prompt_text: str  # ★★★ システムプロンプトの「テキスト」を直接受け取るように変更 ★★★
+):
     """
     キャラクターごとの設定を含む、LangChain用のLLMインスタンスを生成する。
-    【v3: パラメータ展開対応・最終版】
+    【v4: 魂の事前注入・最終確定版】
     """
     threshold_map = {
         "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
@@ -71,14 +76,12 @@ def get_configured_llm(model_name: str, api_key: str, generation_config_from_sta
         "BLOCK_ONLY_HIGH": HarmBlockThreshold.BLOCK_ONLY_HIGH,
     }
 
-    # 1. AIの応答方法に関する設定（創造性、最大長など）を辞書として集約
     generation_params = {
         "temperature": generation_config_from_state.get("temperature", 0.8),
         "top_p": generation_config_from_state.get("top_p", 0.95),
         "max_output_tokens": generation_config_from_state.get("max_output_tokens", 8192),
     }
 
-    # 2. 安全性に関する設定は別の辞書として管理
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(generation_config_from_state.get("safety_block_threshold_harassment")),
         HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(generation_config_from_state.get("safety_block_threshold_hate_speech")),
@@ -86,12 +89,13 @@ def get_configured_llm(model_name: str, api_key: str, generation_config_from_sta
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(generation_config_from_state.get("safety_block_threshold_dangerous_content")),
     }
 
-    # 3. ChatGoogleGenerativeAIを呼び出す際に、**（ダブルアスタリスク）で辞書を展開して渡す
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
-        # ★★★ ここを True に変更 ★★★
-        convert_system_message_to_human=True,
+        # ★★★ ここからが修正の核心 ★★★
+        system_instruction=system_prompt_text, # 専用の引数で魂を注入
+        convert_system_message_to_human=False, # 不要になった古い設定はFalseに戻す
+        # ★★★ 修正ここまで ★★★
         max_retries=6,
         safety_settings=safety_settings,
         **generation_params
@@ -283,16 +287,20 @@ def agent_node(state: AgentState):
         print("-----------------------------------------")
 
     effective_settings = config_manager.get_effective_settings(state['character_name'])
+
+    # ★★★ ここからが修正の核心 ★★★
+    # 1. LLMを初期化する際に、システムプロンプトの「テキスト」を直接渡す
     llm = get_configured_llm(
         state['model_name'],
         state['api_key'],
-        effective_settings
+        effective_settings,
+        state['system_prompt'].content # SystemMessageオブジェクトから内容(str)を抽出
     )
 
     llm_with_tools = llm.bind_tools(all_tools)
 
-    # AIに渡す直前に、履歴からファイル添付のプレースホルダーを除去
-    messages_for_agent = [state['system_prompt']]
+    # 2. AIに渡すメッセージリストには、もはやシステムプロンプトを含めない
+    messages_for_agent = []
     for msg in state['messages']:
         if isinstance(msg.content, str):
             cleaned_content = re.sub(r"\[ファイル添付:.*?\]", "", msg.content, flags=re.DOTALL).strip()
@@ -301,6 +309,7 @@ def agent_node(state: AgentState):
                 messages_for_agent.append(msg)
         else:
             messages_for_agent.append(msg)
+    # ★★★ 修正ここまで ★★★
 
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}
