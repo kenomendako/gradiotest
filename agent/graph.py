@@ -59,15 +59,9 @@ class AgentState(TypedDict):
     scenery_text: str
     debug_mode: bool
 
-def get_configured_llm(
-    model_name: str,
-    api_key: str,
-    generation_config_from_state: dict,
-    system_prompt_text: str  # ★★★ システムプロンプトの「テキスト」を直接受け取るように変更 ★★★
-):
+def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     """
     キャラクターごとの設定を含む、LangChain用のLLMインスタンスを生成する。
-    【v4: 魂の事前注入・最終確定版】
     """
     threshold_map = {
         "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
@@ -76,29 +70,23 @@ def get_configured_llm(
         "BLOCK_ONLY_HIGH": HarmBlockThreshold.BLOCK_ONLY_HIGH,
     }
 
-    generation_params = {
-        "temperature": generation_config_from_state.get("temperature", 0.8),
-        "top_p": generation_config_from_state.get("top_p", 0.95),
-        "max_output_tokens": generation_config_from_state.get("max_output_tokens", 8192),
-    }
-
     safety_settings = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(generation_config_from_state.get("safety_block_threshold_harassment")),
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(generation_config_from_state.get("safety_block_threshold_hate_speech")),
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: threshold_map.get(generation_config_from_state.get("safety_block_threshold_sexually_explicit")),
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(generation_config_from_state.get("safety_block_threshold_dangerous_content")),
+        HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(generation_config.get("safety_block_threshold_harassment")),
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(generation_config.get("safety_block_threshold_hate_speech")),
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: threshold_map.get(generation_config.get("safety_block_threshold_sexually_explicit")),
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(generation_config.get("safety_block_threshold_dangerous_content")),
     }
 
+    # パラメータは、シンプルにキーワード引数として渡す（これが最も安定していた初期の実装）
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
-        # ★★★ ここからが修正の核心 ★★★
-        system_instruction=system_prompt_text, # 専用の引数で魂を注入
-        convert_system_message_to_human=False, # 不要になった古い設定はFalseに戻す
-        # ★★★ 修正ここまで ★★★
+        convert_system_message_to_human=False, # この設定はFalseのままが最も基本
         max_retries=6,
-        safety_settings=safety_settings,
-        **generation_params
+        temperature=generation_config.get("temperature", 0.8),
+        top_p=generation_config.get("top_p", 0.95),
+        max_output_tokens=generation_config.get("max_output_tokens", 8192),
+        safety_settings=safety_settings
     )
 
 # 3. ファイルのクラスや関数定義の前に、新しい「情景生成」関数を追加
@@ -287,29 +275,17 @@ def agent_node(state: AgentState):
         print("-----------------------------------------")
 
     effective_settings = config_manager.get_effective_settings(state['character_name'])
-
-    # ★★★ ここからが修正の核心 ★★★
-    # 1. LLMを初期化する際に、システムプロンプトの「テキスト」を直接渡す
     llm = get_configured_llm(
         state['model_name'],
         state['api_key'],
-        effective_settings,
-        state['system_prompt'].content # SystemMessageオブジェクトから内容(str)を抽出
+        effective_settings
     )
 
     llm_with_tools = llm.bind_tools(all_tools)
 
-    # 2. AIに渡すメッセージリストには、もはやシステムプロンプトを含めない
-    messages_for_agent = []
-    for msg in state['messages']:
-        if isinstance(msg.content, str):
-            cleaned_content = re.sub(r"\[ファイル添付:.*?\]", "", msg.content, flags=re.DOTALL).strip()
-            if cleaned_content:
-                msg.content = cleaned_content
-                messages_for_agent.append(msg)
-        else:
-            messages_for_agent.append(msg)
-    # ★★★ 修正ここまで ★★★
+    # メッセージ構築は、最もシンプルな形に戻す
+    # システムプロンプト + 正規化された履歴
+    messages_for_agent = [state['system_prompt']] + state['messages']
 
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}
