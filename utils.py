@@ -593,8 +593,8 @@ def parse_world_file(file_path: str) -> dict:
 
 def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete: Dict[str, str], character_name: str) -> Optional[str]:
     """
-    指定されたAIのメッセージと、その直前のユーザーのメッセージをログから削除し、
-    そのユーザーメッセージの内容を返す。（_get_user_header_from_logへの依存を削除した修正版）
+    指定されたAIのメッセージ「以降」の全てのAIメッセージと、それらの直前のユーザーメッセージをログから削除し、
+    そのユーザーメッセージの内容を返す。(最終完成版)
     """
     if not all([log_file_path, os.path.exists(log_file_path), ai_message_to_delete, character_name]):
         return None
@@ -602,36 +602,36 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
     try:
         all_messages = load_chat_log(log_file_path, character_name)
 
-        try:
-            # contentとresponderの両方で、削除対象のメッセージを正確に特定
-            target_index = -1
-            for i, msg in enumerate(all_messages):
-                if (msg.get("content") == ai_message_to_delete.get("content") and
-                    msg.get("responder") == ai_message_to_delete.get("responder")):
-                    target_index = i
-                    break
+        # 1. 削除を開始するAIメッセージのインデックスを探す
+        target_start_index = -1
+        for i, msg in enumerate(all_messages):
+            if (msg.get("content") == ai_message_to_delete.get("content") and
+                msg.get("responder") == ai_message_to_delete.get("responder")):
+                target_start_index = i
+                break
 
-            if target_index == -1:
-                raise ValueError("Message not found in log")
-
-        except ValueError:
+        if target_start_index == -1:
             print(f"警告: ログファイル内に削除対象のAIメッセージが見つかりませんでした。")
             return None
 
-        # AIのメッセージがリストの先頭にある、またはその直前がユーザーメッセージでない場合はエラー
-        if target_index == 0 or all_messages[target_index - 1].get("responder") != "ユーザー":
-            print(f"警告: 削除対象のAIメッセージの直前に、対応するユーザーメッセージが見つかりません。")
-            all_messages.pop(target_index)
-            restored_input = None
-        else:
-            user_message = all_messages.pop(target_index - 1)
-            all_messages.pop(target_index - 1)
-            content_without_timestamp = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_message.get("content", ""), flags=re.MULTILINE)
-            restored_input = content_without_timestamp.strip()
+        # 2. 削除開始インデックスから遡って、最後にユーザーが発言したインデックスを探す
+        last_user_message_index = -1
+        for i in range(target_start_index - 1, -1, -1):
+            if all_messages[i].get("responder") == "ユーザー":
+                last_user_message_index = i
+                break
 
-        # ログファイルを再構築して書き込む
+        if last_user_message_index == -1:
+            print(f"警告: 再生成の起点となるユーザーメッセージが見つかりませんでした。")
+            return None
+
+        # 3. ユーザーの発言内容を保持し、それ以降のメッセージを全て削除対象とする
+        user_message_content = all_messages[last_user_message_index].get("content", "")
+        messages_to_keep = all_messages[:last_user_message_index]
+
+        # 4. ログを再構築する
         log_content_parts = []
-        for msg in all_messages:
+        for msg in messages_to_keep:
             responder_name = msg.get("responder", "不明")
             header = f"## {responder_name}:"
             content = msg.get('content', '').strip()
@@ -641,18 +641,57 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
         new_log_content = "\n\n".join(log_content_parts)
         with open(log_file_path, "w", encoding="utf-8") as f:
             f.write(new_log_content)
-
         if new_log_content:
             with open(log_file_path, "a", encoding="utf-8") as f:
                 f.write("\n\n")
 
-        print("--- Successfully deleted message pair for rerun ---")
+        # 5. タイムスタンプを除去したユーザーの発言内容を返す
+        content_without_timestamp = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_message_content, flags=re.MULTILINE)
+        restored_input = content_without_timestamp.strip()
+
+        print("--- Successfully reset conversation to the last user input for rerun ---")
         return restored_input
 
     except Exception as e:
         print(f"エラー: 再生成のためのログ削除中に予期せぬエラー: {e}")
         traceback.print_exc()
         return None
+
+def get_all_characters_in_log(main_character_name: str, api_history_limit_key: str) -> List[str]:
+    """
+    指定されたキャラクターのログを解析し、指定された履歴範囲内に登場するすべての
+    キャラクター名（ユーザー含む）のユニークなリストを返す。
+    """
+    if not main_character_name:
+        return []
+
+    log_file_path, _, _, _, _ = character_manager.get_character_files_paths(main_character_name)
+    if not log_file_path or not os.path.exists(log_file_path):
+        return [main_character_name]
+
+    full_log = load_chat_log(log_file_path, main_character_name)
+
+    # 履歴制限を適用
+    limit = constants.API_HISTORY_LIMIT_OPTIONS.get(api_history_limit_key)
+    if limit is not None and limit.isdigit():
+        display_turns = int(limit)
+        limited_log = full_log[-(display_turns * 2):]
+    else: # "全ログ" or other cases
+        limited_log = full_log
+
+    # 登場キャラクターを収集
+    characters = set()
+    for message in limited_log:
+        responder = message.get("responder")
+        if responder:
+            characters.add(responder)
+
+    # 主人公がリストに含まれていることを保証する
+    characters.add(main_character_name)
+
+    # "ユーザー"はキャラクターではないので除外
+    return sorted([char for char in list(characters) if char != "ユーザー"])
+
 
 @contextlib.contextmanager
 def capture_prints():

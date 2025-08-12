@@ -6,7 +6,7 @@ import hashlib
 import os
 import re
 from typing import List, Optional, Dict, Any, Tuple
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import ToolMessage, AIMessage
 import gradio as gr
 import datetime
 from PIL import Image
@@ -168,7 +168,7 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理し、LangGraphのストリームをリアルタイムでUIに反映させる。(v3: ストリーム中間処理対応版)
+    ユーザーからのメッセージ送信を処理し、LangGraphのストリームをリアルタイムでUIに反映させる。(v4: エラーログ同期対応版)
     """
     (textbox_content, current_character_name, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
@@ -179,23 +179,21 @@ def handle_message_submission(*args: Any):
     if not user_prompt_from_textbox and not file_input_list:
         chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
         yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
-               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+               gr.update(), render_alarms_as_dataframe(), get_display_df(render_alarms_as_dataframe()), gr.update(),
+               current_console_content, current_console_content)
         return
 
     # --- 1. ユーザー入力のログ保存 ---
     effective_settings = config_manager.get_effective_settings(current_character_name)
     add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
-
     log_message_parts = []
     if user_prompt_from_textbox:
         timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         processed_user_message = user_prompt_from_textbox + timestamp
         log_message_parts.append(processed_user_message)
-
     if file_input_list:
         for file_obj in file_input_list:
             log_message_parts.append(f"[ファイル添付: {file_obj.name}]")
-
     user_input_for_log = "\n\n".join(log_message_parts).strip()
 
     # --- 2. 対話シーケンス ---
@@ -211,7 +209,8 @@ def handle_message_submission(*args: Any):
         chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
         chatbot_history.append((None, f"思考中 ({character_to_respond})... ▌"))
         yield (chatbot_history, mapping_list, gr.update(value=""), gr.update(value=None),
-               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+               gr.update(), gr.update(), gr.update(),
+               render_alarms_as_dataframe(), get_display_df(render_alarms_as_dataframe()), gr.update(),
                current_console_content, current_console_content)
 
         # プロンプトと引数を構築
@@ -222,12 +221,8 @@ def handle_message_submission(*args: Any):
             for char, resp in previous_responses.items():
                 if char != "ユーザー":
                     context_parts.append(f"それに対し、{char}は「{utils.remove_thoughts_from_text(resp)}」と返しました。")
-
-            # ▼▼▼ 以下の行を修正・追加 ▼▼▼
             context_parts.append("\nこれら全ての会話を踏まえた上で、**あなた自身の応答のみを生成してください。**")
             context_parts.append("他のキャラクターのセリフを代弁する必要はありません。）")
-            # ▲▲▲ 修正ここまで ▲▲▲
-
             prompt_for_ai = "\n".join(context_parts)
             files_for_ai = None
 
@@ -235,48 +230,50 @@ def handle_message_submission(*args: Any):
                              files_for_ai, api_history_limit_state, debug_mode_state)
 
         final_response_text = ""
+        tool_call_happened = False
         with utils.capture_prints() as captured_output:
-            # gemini_api.invoke_nexus_agent_stream を呼び出す
             for update in gemini_api.invoke_nexus_agent_stream(*agent_stream_args):
                 if "stream_update" in update:
-                    # ▼▼▼ ここからが修正の核心 ▼▼▼
-                    # ストリームの中間ステップを解析する
                     node_name = list(update["stream_update"].keys())[0]
                     node_output = update["stream_update"][node_name]
-
                     if node_name == "safe_tool_node":
-                        # ツール実行の結果を解析してポップアップを表示
                         tool_messages = node_output.get("messages", [])
                         for tool_msg in tool_messages:
                             if isinstance(tool_msg, ToolMessage):
                                 display_text = utils.format_tool_result_for_ui(tool_msg.name, tool_msg.content)
                                 if display_text:
                                     gr.Info(display_text)
-                    # ▲▲▲ 修正ここまで ▲▲▲
+                    for state in update.get("stream_update", {}).values():
+                        for msg in state.get("messages", []):
+                            if isinstance(msg, AIMessage) and msg.tool_calls:
+                                tool_call_happened = True
                 elif "final_output" in update:
                     response_data_for_ui = update["final_output"]
                     final_response_text = response_data_for_ui.get("response", "")
                     break
 
         current_console_content += captured_output.getvalue()
-        if final_response_text.strip() or ("stream_update" in update and "safe_tool_node" in update["stream_update"]): # ツール使用時もログ保存
-            if final_response_text.strip():
-                previous_responses[character_to_respond] = final_response_text
-            # ツール呼び出しのみで応答テキストがない場合も、空の応答としてログに記録する
-            utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", final_response_text or "")
+
+        # ▼▼▼ ここからが修正の核心 ▼▼▼
+        # 応答が空だった場合のエラーメッセージも、AIの発言として扱う
+        if not final_response_text.strip():
+             if not tool_call_happened:
+                 final_response_text = "[エラー: AIが予期せず空の応答を返しました。通信が不安定か、AIが応答を生成できなかった可能性があります。]"
+        # ▲▲▲ 修正ここまで ▲▲▲
+
+        if final_response_text.strip():
+            previous_responses[character_to_respond] = final_response_text
+            utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", final_response_text)
 
     # --- 3. 参加者のログファイルに、この会話の完全な記録を保存 ---
     if participant_list:
         full_log_parts = []
         if "ユーザー" in previous_responses:
             full_log_parts.append(f"## ユーザー:\n{previous_responses['ユーザー']}")
-
         for char_name in all_characters_in_scene:
             if char_name in previous_responses and char_name != "ユーザー":
                 full_log_parts.append(f"## {char_name}:\n{previous_responses[char_name]}")
-
         full_log_text = "\n\n".join(full_log_parts)
-
         for participant_name in participant_list:
             log_f, _, _, _, _ = get_character_files_paths(participant_name)
             if log_f:
@@ -290,7 +287,6 @@ def handle_message_submission(*args: Any):
     )
     final_df_with_ids = render_alarms_as_dataframe()
     final_df = get_display_df(final_df_with_ids)
-
     location_name = response_data_for_ui.get("location_name", "（不明）")
     scenery_text = response_data_for_ui.get("scenery", "（不明）")
     scenery_image = utils.find_scenery_image(current_character_name, utils.get_current_location(current_character_name))
@@ -1228,44 +1224,40 @@ def handle_rerun_button_click(
     api_history_limit: str,
     debug_mode: bool,
     current_console_content: str,
-    participant_list: List[str] # <--- participant_list を受け取る
+    participant_list: List[str]
 ):
-    # ...
-
-    # ... (関数の先頭)
+    """
+    「再生成」ボタンが押された際の処理。(Gradioルール準拠・最終完成版)
+    """
     if not selected_message or not character_name:
         gr.Warning("再生成するメッセージが選択されていません。")
         history, mapping_list = reload_chat_log(character_name, api_history_limit)
-        # 戻り値の数を12個に揃える
-        return (history, mapping_list, gr.update(), gr.update(), gr.update(),
-                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                gr.update(visible=False), current_console_content, current_console_content)
+        return (history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                gr.update(), gr.update(), gr.update(), current_console_content, current_console_content)
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
     restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, character_name)
 
-    # ... (restored_input_text is None のブロック)
     if restored_input_text is None:
         gr.Error("再生成の元となるユーザー入力の特定に失敗しました。")
         history, mapping_list = reload_chat_log(character_name, api_history_limit)
-        # 戻り値の数を12個に揃える
-        return (history, mapping_list, gr.update(), gr.update(), gr.update(),
-                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                gr.update(visible=False), current_console_content, current_console_content)
+        return (history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                gr.update(), gr.update(), gr.update(), current_console_content, current_console_content)
 
     gr.Info("応答を再生成します...")
 
-    # ▼▼▼ handle_message_submission の呼び出しを修正 ▼▼▼
+    # handle_message_submission が返すジェネレータを、正しく最後まで処理する
     submission_generator = handle_message_submission(
-        restored_input_text, character_name, api_key_name, None,
-        api_history_limit, debug_mode, current_console_content,
-        participant_list # <--- 引数を追加
+        restored_input_text,
+        character_name,
+        api_key_name,
+        None,
+        api_history_limit,
+        debug_mode,
+        current_console_content,
+        participant_list
     )
-    try:
-        first_yield = next(submission_generator)
-        yield first_yield[:-2] + (gr.update(visible=False),) + first_yield[-2:]
 
-        last_yield = next(submission_generator)
-        yield last_yield[:-2] + (gr.update(visible=False),) + last_yield[-2:]
-    except StopIteration:
-        pass
+    # handle_message_submission が返す12個の値を、そのままGradioに渡す
+    for yielded_value in submission_generator:
+        yield yielded_value
