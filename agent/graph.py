@@ -62,6 +62,7 @@ class AgentState(TypedDict):
 def get_configured_llm(model_name: str, api_key: str, generation_config_from_state: dict):
     """
     キャラクターごとの設定を含む、LangChain用のLLMインスタンスを生成する。
+    【v3: パラメータ展開対応・最終版】
     """
     threshold_map = {
         "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
@@ -70,6 +71,14 @@ def get_configured_llm(model_name: str, api_key: str, generation_config_from_sta
         "BLOCK_ONLY_HIGH": HarmBlockThreshold.BLOCK_ONLY_HIGH,
     }
 
+    # 1. AIの応答方法に関する設定（創造性、最大長など）を辞書として集約
+    generation_params = {
+        "temperature": generation_config_from_state.get("temperature", 0.8),
+        "top_p": generation_config_from_state.get("top_p", 0.95),
+        "max_output_tokens": generation_config_from_state.get("max_output_tokens", 8192),
+    }
+
+    # 2. 安全性に関する設定は別の辞書として管理
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(generation_config_from_state.get("safety_block_threshold_harassment")),
         HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(generation_config_from_state.get("safety_block_threshold_hate_speech")),
@@ -77,19 +86,14 @@ def get_configured_llm(model_name: str, api_key: str, generation_config_from_sta
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(generation_config_from_state.get("safety_block_threshold_dangerous_content")),
     }
 
-    final_generation_config = {
-        "temperature": generation_config_from_state.get("temperature", 0.8),
-        "top_p": generation_config_from_state.get("top_p", 0.95),
-        "max_output_tokens": generation_config_from_state.get("max_output_tokens", 8192),
-    }
-
+    # 3. ChatGoogleGenerativeAIを呼び出す際に、**（ダブルアスタリスク）で辞書を展開して渡す
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
         convert_system_message_to_human=False,
         max_retries=6,
-        generation_config=final_generation_config,
-        safety_settings=safety_settings
+        safety_settings=safety_settings,
+        **generation_params  # ここが 핵심！辞書を展開してキーワード引数として渡す
     )
 
 # 3. ファイルのクラスや関数定義の前に、新しい「情景生成」関数を追加
@@ -286,23 +290,17 @@ def agent_node(state: AgentState):
 
     llm_with_tools = llm.bind_tools(all_tools)
 
-    # ▼▼▼ 理解の確認儀式ロジック ▼▼▼
+    # AIに渡す直前に、履歴からファイル添付のプレースホルダーを除去
     system_prompt_message = state['system_prompt']
     history_messages = state['messages']
-
-    # AIに渡す直前に、履歴からファイル添付のプレースホルダーを除去
     cleaned_history = []
     for msg in history_messages:
         if isinstance(msg.content, str):
             cleaned_content = re.sub(r"\[ファイル添付:.*?\]", "", msg.content, flags=re.DOTALL).strip()
             if cleaned_content:
-                # 元のメッセージオブジェクトを汚染しないように、新しいインスタンスを作成
-                # (langgraph内で同じオブジェクトが再利用される可能性があるため)
-                if isinstance(msg, AIMessage):
-                    cleaned_history.append(AIMessage(content=cleaned_content))
-                else: # HumanMessage, SystemMessageなど
-                    cleaned_history.append(type(msg)(content=cleaned_content))
-        else: # list形式のcontentの場合 (画像など)
+                msg.content = cleaned_content
+                cleaned_history.append(msg)
+        else: # ファイル添付などのリスト形式の場合
             cleaned_history.append(msg)
 
     # システムプロンプトをAIに理解させるための「儀式」を組み込む
@@ -310,7 +308,6 @@ def agent_node(state: AgentState):
         system_prompt_message,
         AIMessage(content="はい、承知いたしました。対話を開始します。"),
     ] + cleaned_history
-    # ▲▲▲ ここまで ▲▲▲
 
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}
