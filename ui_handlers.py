@@ -1257,9 +1257,14 @@ def handle_rerun_button_click(
 
     # ▼▼▼ handle_message_submission の呼び出しを修正 ▼▼▼
     submission_generator = handle_message_submission(
-        restored_input_text, character_name, api_key_name, None,
-        api_history_limit, debug_mode, current_console_content,
-        participant_list # <--- 引数を追加
+        restored_input_text,
+        character_name,
+        api_key_name,
+        None, # 再実行時はファイル添付をサポートしない
+        api_history_limit,
+        debug_mode,
+        current_console_content,
+        participant_list # <--- 受け取った参加者リストをそのまま渡す
     )
     try:
         first_yield = next(submission_generator)
