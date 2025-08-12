@@ -287,35 +287,24 @@ try:
         chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_character_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state])
         chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state, current_log_map_state], outputs=[selected_message_state, action_button_group], show_progress=False)
 
-        # ▼▼▼ このイベント定義を追加 ▼▼▼
         rerun_button.click(
-            fn=ui_handlers.handle_rerun_button_click,
+            fn=ui_handlers.handle_regenerate_one_response,
             inputs=[
                 selected_message_state,
                 current_character_name,
                 current_api_key_name_state,
-                file_upload_button, # file_upload_button は将来的な拡張のため inputs に含めておく
                 api_history_limit_state,
                 debug_mode_checkbox,
-                debug_console_state, # <--- これを追加
-                participant_checkbox_group # <--- これを追加
+                debug_console_state
             ],
             outputs=[
                 chatbot_display,
                 current_log_map_state,
-                chat_input_textbox,
-                file_upload_button,
-                token_count_display,
-                current_location_display,
-                current_scenery_display,
-                alarm_dataframe_original_data,
-                alarm_dataframe,
-                scenery_image_display,
-                action_button_group, # アクションボタンを非表示にする
-                debug_console_state, debug_console_output # <--- この2つを追加
+                action_button_group,
+                debug_console_state,
+                debug_console_output
             ]
         )
-        # ▲▲▲ 追加ここまで ▲▲▲
 
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
         api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, current_log_map_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
