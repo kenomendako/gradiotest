@@ -90,10 +90,11 @@ def get_configured_llm(model_name: str, api_key: str, generation_config_from_sta
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
-        convert_system_message_to_human=False,
+        # ★★★ ここを True に変更 ★★★
+        convert_system_message_to_human=True,
         max_retries=6,
         safety_settings=safety_settings,
-        **generation_params  # ここが 핵심！辞書を展開してキーワード引数として渡す
+        **generation_params
     )
 
 # 3. ファイルのクラスや関数定義の前に、新しい「情景生成」関数を追加
@@ -291,23 +292,15 @@ def agent_node(state: AgentState):
     llm_with_tools = llm.bind_tools(all_tools)
 
     # AIに渡す直前に、履歴からファイル添付のプレースホルダーを除去
-    system_prompt_message = state['system_prompt']
-    history_messages = state['messages']
-    cleaned_history = []
-    for msg in history_messages:
+    messages_for_agent = [state['system_prompt']]
+    for msg in state['messages']:
         if isinstance(msg.content, str):
             cleaned_content = re.sub(r"\[ファイル添付:.*?\]", "", msg.content, flags=re.DOTALL).strip()
             if cleaned_content:
                 msg.content = cleaned_content
-                cleaned_history.append(msg)
-        else: # ファイル添付などのリスト形式の場合
-            cleaned_history.append(msg)
-
-    # システムプロンプトをAIに理解させるための「儀式」を組み込む
-    messages_for_agent = [
-        system_prompt_message,
-        AIMessage(content="はい、承知いたしました。対話を開始します。"),
-    ] + cleaned_history
+                messages_for_agent.append(msg)
+        else:
+            messages_for_agent.append(msg)
 
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}
