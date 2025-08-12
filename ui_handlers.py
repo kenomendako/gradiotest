@@ -205,52 +205,30 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理する。(v12: スナップショット・アーキテクチャ)
+    ユーザーからのメッセージ送信を処理する。(v13: 共有歴史アーキテクチャ)
     """
     (textbox_content, current_character_name, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
      current_console_content, participant_list) = args
     participant_list = participant_list or []
 
-    utils.cleanup_sanctuaries()
-
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
-    if not user_prompt_from_textbox and not file_input_list:
-        chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
-        api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
-        location_name, _, scenery_text = generate_scenery_context(current_character_name, api_key)
-        scenery_image = utils.find_scenery_image(current_character_name, utils.get_current_location(current_character_name))
-        token_count_text = gemini_api.count_input_tokens(
-            character_name=current_character_name, api_key_name=current_api_key_name_state,
-            api_history_limit=api_history_limit_state, parts=[],
-            **config_manager.get_effective_settings(current_character_name)
-        )
-        final_df_with_ids = render_alarms_as_dataframe()
-        final_df = get_display_df(final_df_with_ids)
-        yield (chatbot_history, mapping_list, gr.update(), gr.update(value=None), token_count_text,
-               location_name, scenery_text,
-               final_df_with_ids, final_df, scenery_image,
-               current_console_content, current_console_content)
-        return
 
-    # 1. ユーザー入力のログ保存
-    effective_settings = config_manager.get_effective_settings(current_character_name)
-    add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
+    # ログに保存するユーザーの完全な発言を構築
     log_message_parts = []
-    user_input_for_log = ""
     if user_prompt_from_textbox:
+        effective_settings = config_manager.get_effective_settings(current_character_name)
+        add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
         timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
-        user_input_for_log = user_prompt_from_textbox + timestamp
-        log_message_parts.append(user_input_for_log)
-
-    file_log_parts = []
+        user_prompt_from_textbox_with_ts = user_prompt_from_textbox + timestamp
+        log_message_parts.append(user_prompt_from_textbox_with_ts)
     if file_input_list:
         for file_obj in file_input_list:
-            file_log_parts.append(f"[ファイル添付: {os.path.basename(file_obj.name)}]")
-
-    full_user_log_entry = "\n".join(log_message_parts + file_log_parts).strip()
+            log_message_parts.append(f"[ファイル添付: {os.path.basename(file_obj.name)}]")
+    full_user_log_entry = "\n".join(log_message_parts).strip()
 
     main_log_f, _, _, _, _ = get_character_files_paths(current_character_name)
+    # ユーザーの発言は、APIコールループの前に、一度だけ記録する
     if full_user_log_entry:
         utils.save_message_to_log(main_log_f, "## ユーザー:", full_user_log_entry)
 
@@ -263,24 +241,14 @@ def handle_message_submission(*args: Any):
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content)
 
-        history_log_path_for_ai = main_log_f
-        files_for_ai = file_input_list
-
-        if character_to_respond != current_character_name:
-            snapshot_path = utils.create_turn_snapshot(main_log_f, user_input_for_log)
-            if snapshot_path:
-                history_log_path_for_ai = snapshot_path
-                files_for_ai = None # スナップショットにはファイル情報は含まれないため
-            else:
-                print(f"警告: {character_to_respond} のスナップショット作成に失敗。")
-
         agent_stream_args = (
             character_to_respond,
             current_api_key_name_state,
             api_history_limit_state,
             debug_mode_state,
-            history_log_path_for_ai,
-            files_for_ai
+            main_log_f, # <-- 全員が、共有された歴史を参照
+            file_input_list if character_to_respond == current_character_name else None, # ファイルは主役のターンにのみ渡す
+            user_prompt_from_textbox if character_to_respond == current_character_name else "" # テキストも主役のターンにのみ渡す
         )
 
         final_response_text = ""
@@ -311,6 +279,7 @@ def handle_message_submission(*args: Any):
             final_response_text = "[エラー: AIが予期せず空の応答を返しました。]"
 
         if final_response_text.strip():
+            # 各キャラクターの応答を、共有された歴史に記録
             utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", final_response_text)
 
     if participant_list:

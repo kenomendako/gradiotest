@@ -267,13 +267,10 @@ def agent_node(state: AgentState):
     print(f"  - 使用モデル: {state['model_name']}")
     print(f"  - システムプロンプト長: {len(state['system_prompt'].content)} 文字")
 
-    # デバッグモードがTrueの場合のみ、システムプロンプトの全文を出力する
     if state.get("debug_mode", False):
-        print("--- [DEBUG MODE] システムプロンプトの内容（AIへの最終指示書） ---")
-        # 出力が長くなりすぎないよう、最初の数千文字などに制限しても良い
-        # print(state['system_prompt'].content[:3000] + "...")
+        print("--- [DEBUG MODE] システムプロンプトの内容 ---")
         print(state['system_prompt'].content)
-        print("----------------------------------------------------------")
+        print("-----------------------------------------")
 
     effective_settings = config_manager.get_effective_settings(state['character_name'])
     llm = get_configured_llm(
@@ -281,8 +278,20 @@ def agent_node(state: AgentState):
         state['api_key'],
         effective_settings
     )
+
     llm_with_tools = llm.bind_tools(all_tools)
-    messages_for_agent = [state['system_prompt']] + state['messages']
+
+    # AIに渡す直前に、履歴からファイル添付のプレースホルダーを除去
+    messages_for_agent = [state['system_prompt']]
+    for msg in state['messages']:
+        if isinstance(msg.content, str):
+            cleaned_content = re.sub(r"\[ファイル添付:.*?\]", "", msg.content, flags=re.DOTALL).strip()
+            if cleaned_content:
+                msg.content = cleaned_content
+                messages_for_agent.append(msg)
+        else:
+            messages_for_agent.append(msg)
+
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}
 

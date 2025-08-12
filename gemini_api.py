@@ -72,11 +72,11 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 
 def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v7: スナップショット・アーキテクチャ)
+    LangGraphの思考プロセスをストリーミングで返す。(v8: 共有歴史アーキテクチャ)
     """
     (character_to_respond, api_key_name,
      api_history_limit, debug_mode,
-     history_log_path, file_input_list) = args
+     history_log_path, file_input_list, user_prompt_text) = args
 
     from agent.graph import app
 
@@ -98,19 +98,24 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
         for h_item in raw_history:
             content, responder = h_item.get('content', '').strip(), h_item.get('responder', '')
             if not content: continue
-
-            # ファイル添付情報を再構築
-            final_content_parts = []
-            if file_input_list and (responder == 'user' or responder == 'ユーザー'):
-                 for file_obj in file_input_list:
-                     # ... (ファイル処理ロジック) ...
-                     # この部分は、将来的に、より堅牢なファイル参照方法を検討
-                     pass
-
             if responder != 'user' and responder != 'ユーザー':
                 messages.append(AIMessage(content=content))
             else:
-                messages.append(HumanMessage(content=content))
+                # ユーザーの発言は、ファイル情報を含まない、純粋なテキストとして履歴に追加
+                text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
+                messages.append(HumanMessage(content=text_only_content))
+
+    # ユーザーの最新の発言を、ファイル情報と共に、履歴の最後に追加
+    user_message_parts = []
+    if user_prompt_text:
+        user_message_parts.append({"type": "text", "text": user_prompt_text})
+    if file_input_list:
+        for file_obj in file_input_list:
+            # ... (ファイル処理ロジック) ...
+            pass # この部分は、将来的に堅牢化
+
+    if user_message_parts:
+        messages.append(HumanMessage(content=user_message_parts))
 
     initial_state = {
         "messages": messages,
