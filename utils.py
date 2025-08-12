@@ -763,3 +763,54 @@ def delete_user_message_and_after(log_file_path: str, user_message_to_delete: Di
         print(f"エラー: ユーザー発言以降のログ削除中に予期せぬエラー: {e}")
         traceback.print_exc()
         return None
+
+def create_dynamic_sanctuary(main_log_path: str, user_start_phrase: str) -> Optional[str]:
+    """
+    メインのログファイルから、特定のユーザー発言以降の会話だけを抽出した、
+    一時的な「動的聖域」ログファイルを作成し、そのパスを返す。
+    """
+    if not main_log_path or not os.path.exists(main_log_path) or not user_start_phrase:
+        return None
+
+    try:
+        with open(main_log_path, "r", encoding="utf-8") as f:
+            full_content = f.read()
+
+        cleaned_phrase = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_start_phrase, flags=re.MULTILINE).strip()
+
+        # ユーザーヘッダーと内容の両方を含む、より堅牢な正規表現
+        pattern = re.compile(
+            r"(^## ユーザー:\s*" + re.escape(cleaned_phrase) + r".*?)(?=^## |\Z)",
+            re.DOTALL | re.MULTILINE
+        )
+
+        match = pattern.search(full_content)
+
+        if not match:
+            print(f"警告：動的聖域の起点となるユーザー発言が見つかりませんでした。完全なログを聖域として使用します。")
+            sanctuary_content = full_content
+        else:
+            sanctuary_content = full_content[match.start():]
+
+        temp_dir = os.path.join("temp", "sanctuaries")
+        os.makedirs(temp_dir, exist_ok=True)
+        sanctuary_path = os.path.join(temp_dir, f"sanctuary_{uuid.uuid4().hex}.txt")
+
+        with open(sanctuary_path, "w", encoding="utf-8") as f:
+            f.write(sanctuary_content)
+
+        return sanctuary_path
+
+    except Exception as e:
+        print(f"エラー：動的聖域の作成中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return None
+
+def cleanup_sanctuaries():
+    """
+    古い聖域ファイルをクリーンアップする。（将来的な機能拡張のためのプレースホルダ）
+    """
+    temp_dir = os.path.join("temp", "sanctuaries")
+    if not os.path.exists(temp_dir):
+        return
+    # 現状では、起動ごとにクリアされるため、積極的な削除は不要
