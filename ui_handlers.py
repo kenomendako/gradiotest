@@ -205,7 +205,7 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理する。(v11: 二層コンテキスト・システム)
+    ユーザーからのメッセージ送信を処理する。(v12: スナップショット・アーキテクチャ)
     """
     (textbox_content, current_character_name, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
@@ -256,9 +256,6 @@ def handle_message_submission(*args: Any):
 
     all_characters_in_scene = [current_character_name] + participant_list
 
-    # このターンにおける、各キャラクターの発言を一時的に保存する
-    turn_responses = {}
-
     for character_to_respond in all_characters_in_scene:
         chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
         chatbot_history.append((None, f"思考中 ({character_to_respond})... ▌"))
@@ -267,34 +264,23 @@ def handle_message_submission(*args: Any):
                current_console_content, current_console_content)
 
         history_log_path_for_ai = main_log_f
-        prompt_for_ai = textbox_content
         files_for_ai = file_input_list
 
-        # ▼▼▼ 【最重要】参加者の場合、コンテキストを要約する ▼▼▼
         if character_to_respond != current_character_name:
-            history_log_path_for_ai = None # 参加者は過去ログを直接参照しない
-            files_for_ai = None
-
-            context_summary = [
-                f"（システム：あなたはキャラクター「{character_to_respond}」です。",
-                f"ユーザーが「{user_prompt_from_textbox}」と発言しました。"
-            ]
-            if turn_responses:
-                for speaker, response in turn_responses.items():
-                    context_summary.append(f"それに対し、キャラクター「{speaker}」は「{utils.remove_thoughts_from_text(response)}」と応答しました。")
-
-            context_summary.append("これらの状況を踏まえ、あなた自身の応答を生成してください。）")
-            prompt_for_ai = "\n".join(context_summary)
-        # ▲▲▲ 修正ここまで ▲▲▲
+            snapshot_path = utils.create_turn_snapshot(main_log_f, user_input_for_log)
+            if snapshot_path:
+                history_log_path_for_ai = snapshot_path
+                files_for_ai = None # スナップショットにはファイル情報は含まれないため
+            else:
+                print(f"警告: {character_to_respond} のスナップショット作成に失敗。")
 
         agent_stream_args = (
-            prompt_for_ai,
             character_to_respond,
             current_api_key_name_state,
-            files_for_ai,
             api_history_limit_state,
             debug_mode_state,
-            history_log_path_for_ai
+            history_log_path_for_ai,
+            files_for_ai
         )
 
         final_response_text = ""
@@ -325,12 +311,8 @@ def handle_message_submission(*args: Any):
             final_response_text = "[エラー: AIが予期せず空の応答を返しました。]"
 
         if final_response_text.strip():
-            # 全ての発言は、まず主役のログ（公式記録）に記録される
             utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", final_response_text)
-            # このターンの応答として保存
-            turn_responses[character_to_respond] = final_response_text
 
-    # ... (参加者ログへの記録、最終的なUI更新は変更なし) ...
     if participant_list:
         # ... (この部分は将来的な拡張領域として、現状のままとします)
         pass

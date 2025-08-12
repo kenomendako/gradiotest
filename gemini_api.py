@@ -72,52 +72,56 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 
 def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v6: 魂の器アーキテクチャ)
+    LangGraphの思考プロセスをストリーミングで返す。(v7: スナップショット・アーキテクチャ)
     """
-    (textbox_content, character_to_respond, # 引数名を current_character_name から変更
-     current_api_key_name_state, file_input_list,
-     api_history_limit_state, debug_mode_state,
-     history_override_log_path) = args
+    (character_to_respond, api_key_name,
+     api_history_limit, debug_mode,
+     history_log_path, file_input_list) = args
 
     from agent.graph import app
 
-    # ▼▼▼ 【最重要】思考の主体となる「話者」の人格・設定を読み込む ▼▼▼
     effective_settings = config_manager.get_effective_settings(character_to_respond)
-    current_model_name = effective_settings["model_name"]
-    api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
+    model_name = effective_settings["model_name"]
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        yield {"final_output": {"response": f"[エラー: APIキー '{current_api_key_name_state}' が有効ではありません。]"}}
+        yield {"final_output": {"response": f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"}}
         return
 
-    # --- 履歴の構築（history_override_log_path が「共有された現実」となる） ---
     messages = []
-    log_file_to_read = history_override_log_path if history_override_log_path else get_character_files_paths(character_to_respond)[0]
-
-    if log_file_to_read and os.path.exists(log_file_to_read):
-        raw_history = utils.load_chat_log(log_file_to_read, character_to_respond) # 第2引数は便宜上
-        limit = int(api_history_limit_state) if api_history_limit_state.isdigit() else 0
+    if history_log_path and os.path.exists(history_log_path):
+        raw_history = utils.load_chat_log(history_log_path, character_to_respond)
+        limit = int(api_history_limit) if api_history_limit.isdigit() else 0
         if limit > 0 and len(raw_history) > limit * 2:
             raw_history = raw_history[-(limit * 2):]
 
         for h_item in raw_history:
-            content = h_item.get('content', '').strip()
+            content, responder = h_item.get('content', '').strip(), h_item.get('responder', '')
             if not content: continue
-            if h_item.get('responder', 'model') != 'user' and h_item.get('responder') != 'ユーザー':
+
+            # ファイル添付情報を再構築
+            final_content_parts = []
+            if file_input_list and (responder == 'user' or responder == 'ユーザー'):
+                 for file_obj in file_input_list:
+                     # ... (ファイル処理ロジック) ...
+                     # この部分は、将来的に、より堅牢なファイル参照方法を検討
+                     pass
+
+            if responder != 'user' and responder != 'ユーザー':
                 messages.append(AIMessage(content=content))
             else:
                 messages.append(HumanMessage(content=content))
 
     initial_state = {
         "messages": messages,
-        "character_name": character_to_respond, # <-- 思考の主体（魂）
+        "character_name": character_to_respond,
         "api_key": api_key,
         "tavily_api_key": config_manager.TAVILY_API_KEY,
-        "model_name": current_model_name,
+        "model_name": model_name,
         "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True),
         "send_notepad": effective_settings.get("send_notepad", True),
-        "debug_mode": debug_mode_state
+        "debug_mode": debug_mode
     }
 
     final_state = None

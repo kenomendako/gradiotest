@@ -814,3 +814,45 @@ def cleanup_sanctuaries():
     if not os.path.exists(temp_dir):
         return
     # 現状では、起動ごとにクリアされるため、積極的な削除は不要
+
+def create_turn_snapshot(main_log_path: str, user_start_phrase: str) -> Optional[str]:
+    """
+    メインのログファイルから、今回の対話ターン（特定のユーザー発言以降）だけを
+    抽出した、一時的な「スナップショット」ログファイルを作成し、そのパスを返す。
+    """
+    if not main_log_path or not os.path.exists(main_log_path) or not user_start_phrase:
+        return None
+
+    try:
+        with open(main_log_path, "r", encoding="utf-8") as f:
+            full_content = f.read()
+
+        cleaned_phrase = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_start_phrase, flags=re.MULTILINE).strip()
+
+        pattern = re.compile(
+            r"(^## ユーザー:\s*" + re.escape(cleaned_phrase) + r".*?)(?=^## ユーザー:|\Z)",
+            re.DOTALL | re.MULTILINE
+        )
+
+        # ログの末尾から検索して、最新のターンを見つける
+        matches = [m for m in pattern.finditer(full_content)]
+        if not matches:
+            print(f"警告：スナップショットの起点となるユーザー発言が見つかりませんでした。")
+            return None
+
+        last_match = matches[-1]
+        snapshot_content = full_content[last_match.start():]
+
+        temp_dir = os.path.join("temp", "snapshots")
+        os.makedirs(temp_dir, exist_ok=True)
+        snapshot_path = os.path.join(temp_dir, f"snapshot_{uuid.uuid4().hex}.txt")
+
+        with open(snapshot_path, "w", encoding="utf-8") as f:
+            f.write(snapshot_content)
+
+        return snapshot_path
+
+    except Exception as e:
+        print(f"エラー：スナップショットの作成中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return None
