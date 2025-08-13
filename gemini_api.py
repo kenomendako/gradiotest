@@ -73,14 +73,16 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 
 def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v10: レート制限対応リトライ機構搭載版)
+    LangGraphの思考プロセスをストリーミングで返す。(v11: 500エラー対応・最終リトライ機構)
     """
     (character_to_respond, api_key_name,
      api_history_limit, debug_mode,
      history_log_path, file_input_list, user_prompt_text) = args
 
+    # 必要なモジュールをインポート
     from agent.graph import app
     import time
+    from google.api_core.exceptions import ResourceExhausted, InternalServerError
 
     effective_settings = config_manager.get_effective_settings(character_to_respond)
     model_name = effective_settings["model_name"]
@@ -119,7 +121,7 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     if user_prompt_text:
         user_message_parts.append({"type": "text", "text": user_prompt_text})
     if file_input_list:
-        pass
+        pass # ファイル処理ロジック
 
     if user_message_parts:
         messages.append(HumanMessage(content=user_message_parts))
@@ -160,26 +162,37 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
                 if finish_reason == 'STOP':
                     print(f"--- [警告] 試行 {attempt + 1}: AIが空の応答を返しました (理由: STOP)。 ---")
                     if not is_final_attempt:
-                        print("    -> 1秒待機してリトライします...")
                         time.sleep(1)
                         continue
                 else:
                     print(f"--- 試行 {attempt + 1}: リトライ対象外の理由 ({finish_reason}) で処理を終了します。 ---")
                     break
 
+        except InternalServerError as e:
+            print(f"--- [警告] 試行 {attempt + 1}: 500 内部サーバーエラーが発生しました。 ---")
+            if not is_final_attempt:
+                wait_time = (attempt + 1) * 2  # 2秒、4秒と待機時間を増やす
+                print(f"    -> {wait_time}秒待機してリトライします...")
+                time.sleep(wait_time)
+                continue
+            else:
+                final_state = {"response": "[APIエラー: サーバー内部エラー(500)が繰り返し発生しました。時間をおいて再度お試しください。]"}
+                break
+
         except ResourceExhausted as e:
             error_str = str(e)
             if "PerMinute" in error_str:
                 print(f"--- [警告] 試行 {attempt + 1}: 1分あたりの利用上限に達しました。 ---")
                 if not is_final_attempt:
-                    wait_time = 61 # 1分間のレート制限を確実に回避するための待機時間
+                    wait_time = 61
                     print(f"    -> {wait_time}秒待機してリトライします...")
                     time.sleep(wait_time)
-                    continue # 次の試行へ
+                    continue
 
             final_state = {"response": "[APIエラー: 無料利用枠の1日あたりのリクエスト上限か、サーバーの負荷上限に達しました。]"}
             print(f"--- 回復不能なAPIリソース枯渇エラー: {e} ---")
-            break # 回復不能なエラー、または最終試行だったのでループを抜ける
+            break
+
         except Exception as e:
             final_state = {"response": f"[エージェント実行エラー: {e}]"}
             traceback.print_exc()
