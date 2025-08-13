@@ -73,7 +73,7 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 
 def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v9: リトライ機構搭載版)
+    LangGraphの思考プロセスをストリーミングで返す。(v10: レート制限対応リトライ機構搭載版)
     """
     (character_to_respond, api_key_name,
      api_history_limit, debug_mode,
@@ -119,7 +119,6 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     if user_prompt_text:
         user_message_parts.append({"type": "text", "text": user_prompt_text})
     if file_input_list:
-        # (この部分は将来的な堅牢化のため、現状のファイル処理ロジックを想定)
         pass
 
     if user_message_parts:
@@ -139,26 +138,23 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     last_message = None
 
     for attempt in range(max_retries):
-        print(f"--- エージェント実行試行: {attempt + 1}/{max_retries} ---")
         is_final_attempt = (attempt == max_retries - 1)
 
         try:
-            # LangGraphのストリームを実行
+            print(f"--- エージェント実行試行: {attempt + 1}/{max_retries} ---")
+
             for update in app.stream(initial_state, {"recursion_limit": 15}):
                 yield {"stream_update": update}
                 final_state = update
 
-            # 最終状態から最後のメッセージを取得
             if final_state and isinstance(final_state, dict):
                 agent_final_state = final_state.get("agent", {})
                 last_message = next(reversed(agent_final_state.get("messages", [])), None)
 
-            # 応答が有効かチェック
             if isinstance(last_message, AIMessage) and (last_message.content or last_message.tool_calls):
                 print(f"--- 試行 {attempt + 1}: 有効な応答を受信しました。 ---")
-                break  # 成功したのでリトライループを抜ける
+                break
 
-            # 応答が空の場合の処理
             if isinstance(last_message, AIMessage):
                 finish_reason = last_message.response_metadata.get('finish_reason', '')
                 if finish_reason == 'STOP':
@@ -166,25 +162,34 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
                     if not is_final_attempt:
                         print("    -> 1秒待機してリトライします...")
                         time.sleep(1)
-                        continue # 次の試行へ
+                        continue
                 else:
-                    # SAFETYやRECITATIONなど、リトライすべきでない理由
                     print(f"--- 試行 {attempt + 1}: リトライ対象外の理由 ({finish_reason}) で処理を終了します。 ---")
-                    break # ループを抜けて通常のエラー処理へ
+                    break
 
         except ResourceExhausted as e:
+            error_str = str(e)
+            if "PerMinute" in error_str:
+                print(f"--- [警告] 試行 {attempt + 1}: 1分あたりの利用上限に達しました。 ---")
+                if not is_final_attempt:
+                    wait_time = 61 # 1分間のレート制限を確実に回避するための待機時間
+                    print(f"    -> {wait_time}秒待機してリトライします...")
+                    time.sleep(wait_time)
+                    continue # 次の試行へ
+
             final_state = {"response": "[APIエラー: 無料利用枠の1日あたりのリクエスト上限か、サーバーの負荷上限に達しました。]"}
-            print(f"--- APIリソース枯渇エラー: {e} ---")
-            break
+            print(f"--- 回復不能なAPIリソース枯渇エラー: {e} ---")
+            break # 回復不能なエラー、または最終試行だったのでループを抜ける
         except Exception as e:
             final_state = {"response": f"[エージェント実行エラー: {e}]"}
             traceback.print_exc()
             break
 
-    # --- 最終的な出力を整形して返す ---
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     final_response = {}
     if final_state and isinstance(final_state, dict):
-        final_response["response"] = final_state.get("response", "") # エラー時の応答をまず取得
+        final_response["response"] = final_state.get("response", "")
         final_response["location_name"] = final_state.get("context_generator", {}).get("location_name", "（不明）")
         final_response["scenery"] = final_state.get("context_generator", {}).get("scenery_text", "（不明）")
 
@@ -199,14 +204,11 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
                 elif finish_reason == 'RECITATION':
                     final_response_text = "[エラー: AIの応答が、学習元データからの長すぎる引用と判断されたため、ブロックされました。]"
                 else:
-                    # リトライ上限に達しても空だった場合
                     final_response_text = "[エラー: リトライを試みましたが、AIからの有効な応答がありませんでした。APIが不安定か、プロンプトが複雑すぎる可能性があります。]"
 
-        # エラー応答が既にある場合を除き、生成したテキストで上書き
-        if not final_response["response"]:
+        if not final_response.get("response"):
             final_response["response"] = final_response_text
 
-    # ループを抜けてもfinal_stateがNoneの場合の安全策
     if not final_response:
         final_response["response"] = "[エラー: 不明な理由でエージェントの実行が完了しませんでした。]"
 
