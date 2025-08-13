@@ -12,6 +12,7 @@ import google.genai as genai
 import filetype
 import httpx
 from google.api_core.exceptions import ResourceExhausted
+import re
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 import config_manager
