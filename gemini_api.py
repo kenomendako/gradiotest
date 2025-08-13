@@ -106,17 +106,28 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
                 text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
                 messages.append(HumanMessage(content=text_only_content))
 
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    # 履歴の最後のメッセージが、現在のユーザープロンプトと重複していないかチェックし、
+    # 重複している場合は一度削除してから、ファイル情報と結合した完全版に置き換える。
+    if (messages and
+        isinstance(messages[-1], HumanMessage) and
+        isinstance(messages[-1].content, str) and
+        user_prompt_text and
+        messages[-1].content.strip() == user_prompt_text.strip()):
+        messages.pop()
+
     # ユーザーの最新の発言を、ファイル情報と共に、履歴の最後に追加
     user_message_parts = []
     if user_prompt_text:
         user_message_parts.append({"type": "text", "text": user_prompt_text})
     if file_input_list:
         for file_obj in file_input_list:
-            # ... (ファイル処理ロジック) ...
+            # ... (この部分のファイル処理ロジックは変更なし) ...
             pass # この部分は、将来的に堅牢化
 
     if user_message_parts:
         messages.append(HumanMessage(content=user_message_parts))
+    # ▲▲▲ 修正ここまで ▲▲▲
 
     initial_state = {
         "messages": messages,
