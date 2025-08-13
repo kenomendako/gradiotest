@@ -327,7 +327,11 @@ def safe_tool_executor(state: AgentState):
                 traceback.print_exc()
 
         tool_outputs.append(
-            ToolMessage(content=str(output), tool_call_id=tool_call["id"])
+            ToolMessage(
+                content=str(output),
+                tool_call_id=tool_call["id"],
+                name=tool_name  # ツール名を明示的に追加することが重要です
+            )
         )
 
     return {"messages": tool_outputs}
@@ -351,13 +355,17 @@ def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"
         new_tool_messages = state["messages"][last_ai_message_index + 1:]
         for msg in new_tool_messages:
             if isinstance(msg, ToolMessage):
+                # ▼▼▼ ログ出力に name を使うように修正 ▼▼▼
                 content_to_log = (str(msg.content)[:200] + '...') if len(str(msg.content)) > 200 else str(msg.content)
-                print(f"    ✅ ツール実行結果: {msg.name} | 結果: {content_to_log}")
+                print(f"    ✅ ツール実行結果: {msg.name or 'Unnamed Tool'} | 結果: {content_to_log}")
+
     last_ai_message_with_tool_call = next((msg for msg in reversed(state['messages']) if isinstance(msg, AIMessage) and msg.tool_calls), None)
     if last_ai_message_with_tool_call:
+        # ▼▼▼ この if ブロック全体をご確認ください ▼▼▼
         if any(call['name'] == 'set_current_location' for call in last_ai_message_with_tool_call.tool_calls):
-            print("  - `set_current_location` が実行されたため、コンテキスト再生成へ。")
-            return "context_generator"
+            print("  - `set_current_location` が実行されたため、コンテキストを更新する必要があります。一度エージェントに戻り、次のターンで更新させます。")
+            return "agent" # コンテキスト再生成ではなく、一度エージェントに戻す
+
     print("  - 通常のツール実行完了。エージェントの思考へ。")
     return "agent"
 
