@@ -822,37 +822,63 @@ def create_turn_snapshot(main_log_path: str, user_start_phrase: str) -> Optional
     """
     if not main_log_path or not os.path.exists(main_log_path) or not user_start_phrase:
         return None
-
     try:
         with open(main_log_path, "r", encoding="utf-8") as f:
             full_content = f.read()
-
-        cleaned_phrase = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_start_phrase, flags=re.MULTILINE).strip()
-
+        cleaned_phrase = re.sub(r'\[ファイル添付:.*?\]', '', user_start_phrase, flags=re.DOTALL).strip()
+        cleaned_phrase = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', cleaned_phrase, flags=re.MULTILINE).strip()
         pattern = re.compile(
-            r"(^## ユーザー:\s*" + re.escape(cleaned_phrase) + r".*?)(?=^## ユーザー:|\Z)",
+            r"(^## (?:ユーザー|ユーザー):" + re.escape(cleaned_phrase) + r".*?)(?=^## (?:ユーザー|ユーザー):|\Z)",
             re.DOTALL | re.MULTILINE
         )
-
-        # ログの末尾から検索して、最新のターンを見つける
         matches = [m for m in pattern.finditer(full_content)]
         if not matches:
-            print(f"警告：スナップショットの起点となるユーザー発言が見つかりませんでした。")
-            return None
-
-        last_match = matches[-1]
-        snapshot_content = full_content[last_match.start():]
-
+            snapshot_content = f"## ユーザー:\n{user_start_phrase.strip()}\n\n"
+        else:
+            last_match = matches[-1]
+            snapshot_content = full_content[last_match.start():]
         temp_dir = os.path.join("temp", "snapshots")
         os.makedirs(temp_dir, exist_ok=True)
         snapshot_path = os.path.join(temp_dir, f"snapshot_{uuid.uuid4().hex}.txt")
-
         with open(snapshot_path, "w", encoding="utf-8") as f:
             f.write(snapshot_content)
-
         return snapshot_path
-
     except Exception as e:
-        print(f"エラー：スナップショットの作成中にエラーが発生しました: {e}")
-        traceback.print_exc()
+        print(f"エラー：スナップショットの作成中にエラーが発生しました: {e}"); traceback.print_exc()
         return None
+
+def convert_raw_log_to_lc_messages(raw_history: list) -> list:
+    """
+    load_chat_logで読み込んだ生の履歴辞書を、LangChainのMessageオブジェクトのリストに変換する。
+    """
+    from langchain_core.messages import HumanMessage, AIMessage
+    lc_messages = []
+    for h_item in raw_history:
+        content, responder = h_item.get('content', '').strip(), h_item.get('responder', '')
+        if not content: continue
+        is_user = (responder == 'user' or responder == 'ユーザー')
+        if is_user:
+            text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
+            if text_only_content:
+                lc_messages.append(HumanMessage(content=text_only_content))
+        else:
+            lc_messages.append(AIMessage(content=content, name=responder))
+    return lc_messages
+
+def merge_consecutive_ais(messages: list) -> list:
+    """
+    LangChainのMessageリスト内で、連続するAIMessageを結合する。
+    """
+    from langchain_core.messages import AIMessage
+    if not messages:
+        return []
+    merged = [messages[0]]
+    for i in range(1, len(messages)):
+        current_msg = messages[i]
+        last_merged_msg = merged[-1]
+        if isinstance(current_msg, AIMessage) and isinstance(last_merged_msg, AIMessage):
+            separator = f"\n\n---\n{current_msg.name or 'AI'}:\n"
+            last_merged_msg.content += separator + current_msg.content
+        else:
+            merged.append(current_msg)
+    return merged
