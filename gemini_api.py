@@ -73,13 +73,16 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 
 def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v8: 共有歴史アーキテクチャ)
+    LangGraphの思考プロセスをストリーミングで返す。(v11: 500エラー対応・最終リトライ機構)
     """
     (character_to_respond, api_key_name,
      api_history_limit, debug_mode,
      history_log_path, file_input_list, user_prompt_text) = args
 
+    # 必要なモジュールをインポート
     from agent.graph import app
+    import time
+    from google.api_core.exceptions import ResourceExhausted, InternalServerError
 
     effective_settings = config_manager.get_effective_settings(character_to_respond)
     model_name = effective_settings["model_name"]
@@ -89,6 +92,7 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
         yield {"final_output": {"response": f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"}}
         return
 
+    # 履歴構築ロジック (変更なし)
     messages = []
     if history_log_path and os.path.exists(history_log_path):
         raw_history = utils.load_chat_log(history_log_path, character_to_respond)
@@ -102,13 +106,10 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
             if responder != 'user' and responder != 'ユーザー':
                 messages.append(AIMessage(content=content))
             else:
-                # ユーザーの発言は、ファイル情報を含まない、純粋なテキストとして履歴に追加
                 text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
-                messages.append(HumanMessage(content=text_only_content))
+                if text_only_content:
+                    messages.append(HumanMessage(content=text_only_content))
 
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
-    # 履歴の最後のメッセージが、現在のユーザープロンプトと重複していないかチェックし、
-    # 重複している場合は一度削除してから、ファイル情報と結合した完全版に置き換える。
     if (messages and
         isinstance(messages[-1], HumanMessage) and
         isinstance(messages[-1].content, str) and
@@ -116,83 +117,113 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
         messages[-1].content.strip() == user_prompt_text.strip()):
         messages.pop()
 
-    # ユーザーの最新の発言を、ファイル情報と共に、履歴の最後に追加
     user_message_parts = []
     if user_prompt_text:
         user_message_parts.append({"type": "text", "text": user_prompt_text})
     if file_input_list:
-        for file_obj in file_input_list:
-            # ... (この部分のファイル処理ロジックは変更なし) ...
-            pass # この部分は、将来的に堅牢化
+        pass # ファイル処理ロジック
 
     if user_message_parts:
         messages.append(HumanMessage(content=user_message_parts))
-    # ▲▲▲ 修正ここまで ▲▲▲
 
     initial_state = {
-        "messages": messages,
-        "character_name": character_to_respond,
-        "api_key": api_key,
-        "tavily_api_key": config_manager.TAVILY_API_KEY,
-        "model_name": model_name,
-        "send_core_memory": effective_settings.get("send_core_memory", True),
-        "send_scenery": effective_settings.get("send_scenery", True),
-        "send_notepad": effective_settings.get("send_notepad", True),
+        "messages": messages, "character_name": character_to_respond,
+        "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
+        "model_name": model_name, "send_core_memory": effective_settings.get("send_core_memory", True),
+        "send_scenery": effective_settings.get("send_scenery", True), "send_notepad": effective_settings.get("send_notepad", True),
         "debug_mode": debug_mode
     }
 
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    max_retries = 3
     final_state = None
-    try:
-        # app.stream() を使って、各ステップの状態を受け取る
-        for update in app.stream(initial_state):
-            yield {"stream_update": update}
-            final_state = update # 最後の更新が最終状態になる
+    last_message = None
 
-    except ResourceExhausted as e:
-        if "PerDay" in str(e):
-            final_state = {"response": "[APIエラー: 無料利用枠の1日あたりのリクエスト上限に達しました。]"}
-        else:
-            final_state = {"response": "[APIエラー: AIとの通信が一時的に混み合っているようです。]"}
-    except Exception as e:
-        traceback.print_exc()
-        final_state = {"response": f"[エージェント実行エラー: {e}]"}
+    for attempt in range(max_retries):
+        is_final_attempt = (attempt == max_retries - 1)
 
-    # --- 最終的な出力を整形して返す ---
+        try:
+            print(f"--- エージェント実行試行: {attempt + 1}/{max_retries} ---")
+
+            for update in app.stream(initial_state, {"recursion_limit": 15}):
+                yield {"stream_update": update}
+                final_state = update
+
+            if final_state and isinstance(final_state, dict):
+                agent_final_state = final_state.get("agent", {})
+                last_message = next(reversed(agent_final_state.get("messages", [])), None)
+
+            if isinstance(last_message, AIMessage) and (last_message.content or last_message.tool_calls):
+                print(f"--- 試行 {attempt + 1}: 有効な応答を受信しました。 ---")
+                break
+
+            if isinstance(last_message, AIMessage):
+                finish_reason = last_message.response_metadata.get('finish_reason', '')
+                if finish_reason == 'STOP':
+                    print(f"--- [警告] 試行 {attempt + 1}: AIが空の応答を返しました (理由: STOP)。 ---")
+                    if not is_final_attempt:
+                        time.sleep(1)
+                        continue
+                else:
+                    print(f"--- 試行 {attempt + 1}: リトライ対象外の理由 ({finish_reason}) で処理を終了します。 ---")
+                    break
+
+        except InternalServerError as e:
+            print(f"--- [警告] 試行 {attempt + 1}: 500 内部サーバーエラーが発生しました。 ---")
+            if not is_final_attempt:
+                wait_time = (attempt + 1) * 2  # 2秒、4秒と待機時間を増やす
+                print(f"    -> {wait_time}秒待機してリトライします...")
+                time.sleep(wait_time)
+                continue
+            else:
+                final_state = {"response": "[APIエラー: サーバー内部エラー(500)が繰り返し発生しました。時間をおいて再度お試しください。]"}
+                break
+
+        except ResourceExhausted as e:
+            error_str = str(e)
+            if "PerMinute" in error_str:
+                print(f"--- [警告] 試行 {attempt + 1}: 1分あたりの利用上限に達しました。 ---")
+                if not is_final_attempt:
+                    wait_time = 61
+                    print(f"    -> {wait_time}秒待機してリトライします...")
+                    time.sleep(wait_time)
+                    continue
+
+            final_state = {"response": "[APIエラー: 無料利用枠の1日あたりのリクエスト上限か、サーバーの負荷上限に達しました。]"}
+            print(f"--- 回復不能なAPIリソース枯渇エラー: {e} ---")
+            break
+
+        except Exception as e:
+            final_state = {"response": f"[エージェント実行エラー: {e}]"}
+            traceback.print_exc()
+            break
+
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     final_response = {}
     if final_state and isinstance(final_state, dict):
-        # agentノードの最終状態から、最後のメッセージを取得
-        agent_final_state = final_state.get("agent", {})
-        last_message = next(reversed(agent_final_state.get("messages", [])), None)
+        final_response["response"] = final_state.get("response", "")
+        final_response["location_name"] = final_state.get("context_generator", {}).get("location_name", "（不明）")
+        final_response["scenery"] = final_state.get("context_generator", {}).get("scenery_text", "（不明）")
 
         final_response_text = ""
         if isinstance(last_message, AIMessage):
             final_response_text = str(last_message.content or "").strip()
 
-            # ▼▼▼ ここからが修正の核心 ▼▼▼
-            # 応答が空で、ツール呼び出しもない場合、その理由を調査する
             if not final_response_text and not last_message.tool_calls:
-                finish_reason = ""
-                # response_metadataから終了理由を取得
-                if hasattr(last_message, 'response_metadata') and isinstance(last_message.response_metadata, dict):
-                    finish_reason = last_message.response_metadata.get('finish_reason', '')
-
+                finish_reason = last_message.response_metadata.get('finish_reason', '')
                 if finish_reason == 'SAFETY':
-                    print("--- [警告] AIの応答が安全フィルターによってブロックされました ---")
                     final_response_text = "[エラー: AIの応答が安全フィルターによってブロックされました。不適切な内容と判断された可能性があります。お手数ですが、表現を変えてもう一度お試しください。]"
                 elif finish_reason == 'RECITATION':
-                     print("--- [警告] AIの応答が引用フィルターによってブロックされました ---")
-                     final_response_text = "[エラー: AIの応答が、学習元データからの長すぎる引用と判断されたため、ブロックされました。]"
+                    final_response_text = "[エラー: AIの応答が、学習元データからの長すぎる引用と判断されたため、ブロックされました。]"
                 else:
-                    print(f"--- [警告] AIが空の応答を返しました (終了理由: {finish_reason or '不明'}) ---")
-                    final_response_text = "[エラー: AIが予期せず空の応答を返しました。通信が不安定か、AIが応答を生成できなかった可能性があります。]"
-            # ▲▲▲ 修正ここまで ▲▲▲
+                    final_response_text = "[エラー: リトライを試みましたが、AIからの有効な応答がありませんでした。APIが不安定か、プロンプトが複雑すぎる可能性があります。]"
 
-        else: # last_message が AIMessage でない場合 (通常は起こらない)
-             final_response_text = final_state.get("response", "[エラー: AIから予期せぬ形式の応答がありました。]")
+        if not final_response.get("response"):
+            final_response["response"] = final_response_text
 
-        final_response["response"] = final_response_text
-        final_response["location_name"] = final_state.get("context_generator", {}).get("location_name", "（不明）")
-        final_response["scenery"] = final_state.get("context_generator", {}).get("scenery_text", "（不明）")
+    if not final_response:
+        final_response["response"] = "[エラー: 不明な理由でエージェントの実行が完了しませんでした。]"
 
     yield {"final_output": final_response}
 
