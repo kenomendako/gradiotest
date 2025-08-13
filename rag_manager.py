@@ -192,7 +192,7 @@ def search_relevant_chunks(character_name: str, query_text: str, api_key: str, t
 
 @tool
 def diary_search_tool(query: str, character_name: str, api_key: str) -> str:
-    """過去の記憶(memory.json)を検索する。AI自身の内面的な記録や感情、誓いなどを確認する。"""
+    """AI自身の意志で書き留めた「手帳(memory.json)」の内容を検索します。AI自身の内面的な誓い、秘密の独白、ユーザーから与えられた特別な許可、主観的な感情の記録など、魂の歴史を確認したい時に使用します。"""
     print(f"--- 手帳検索ツール呼び出し (Query: '{query}', Character: '{character_name}') ---")
     relevant_chunks = search_relevant_chunks(character_name, query, api_key, top_k=5) # top_kを5に戻す
 

@@ -58,6 +58,8 @@ class AgentState(TypedDict):
     location_name: str
     scenery_text: str
     debug_mode: bool
+    # ★★★ この行を追加 ★★★
+    ui_feedback: Optional[List[str]]
 
 def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     """
@@ -305,16 +307,16 @@ def safe_tool_executor(state: AgentState):
     tavily_api_key = state.get('tavily_api_key')
 
     tool_outputs = []
+    feedback_messages_for_ui = [] # UIへのフィードバックメッセージを貯めるリスト
+
     for tool_call in tool_invocations:
         tool_name = tool_call["name"]
         print(f"  - 準備中のツール: {tool_name} | 引数: {tool_call['args']}")
 
         if tool_name == 'generate_image' or tool_name == 'summarize_and_save_core_memory':
             tool_call['args']['api_key'] = api_key
-            print(f"    - 'api_key' を引数に追加しました。")
         elif tool_name == 'web_search_tool':
             tool_call['args']['api_key'] = tavily_api_key
-            print(f"    - 'tavily_api_key' を引数に追加しました。")
 
         selected_tool = next((t for t in all_tools if t.name == tool_name), None)
         if not selected_tool:
@@ -330,7 +332,13 @@ def safe_tool_executor(state: AgentState):
             ToolMessage(content=str(output), tool_call_id=tool_call["id"])
         )
 
-    return {"messages": tool_outputs}
+        # ★★★ ここからが修正の核心 ★★★
+        ui_message = utils.format_tool_result_for_ui(tool_name, str(output))
+        if ui_message:
+            feedback_messages_for_ui.append(ui_message)
+        # ★★★ 修正ここまで ★★★
+
+    return {"messages": tool_outputs, "ui_feedback": feedback_messages_for_ui}
 
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")

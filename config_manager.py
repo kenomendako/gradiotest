@@ -165,7 +165,6 @@ def get_effective_settings(character_name):
         # --- ここから追加 ---
         "temperature": 0.8,
         "top_p": 0.95,
-        "max_output_tokens": 8192,
         "safety_block_threshold_harassment": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_hate_speech": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_sexually_explicit": "BLOCK_ONLY_HIGH",

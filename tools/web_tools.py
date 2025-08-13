@@ -7,7 +7,7 @@ from langchain_core.tools import tool
 
 @tool
 def read_url_tool(urls: list[str]) -> str:
-    """URLリストの内容を読み、一つの文字列として返す。"""
+    """指定されたURLリストの内容を読み取り、結合して単一の文字列として返すツール。""" # ★ この一行を追加
     if not urls:
         return "URLが指定されていません。"
     # ... (以降のコードは変更なし)
@@ -16,7 +16,7 @@ def read_url_tool(urls: list[str]) -> str:
 # ★ ここに、agent/graph.pyから切り取った関数を貼り付ける
 @tool
 def web_search_tool(query: str, api_key: str = None) -> str:
-    """Webで最新情報を検索する。"""
+    """ユーザーからのクエリに基づいて、最新の情報を得るためにWeb検索を実行します。"""
     print(f"--- Web検索ツール実行 (Query: '{query}') ---")
 
     # 引数で渡されたキーを優先し、なければ環境変数を参照する

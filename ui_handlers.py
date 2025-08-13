@@ -258,7 +258,7 @@ def handle_message_submission(*args: Any):
                 # ★★★ ここからが修正箇所 ★★★
                 if "ui_feedback" in update:
                     gr.Info(update["ui_feedback"])
-                    continue # UIフィードバックはここで処理完了
+                    continue
                 # ★★★ 修正ここまで ★★★
 
                 if "stream_update" in update:

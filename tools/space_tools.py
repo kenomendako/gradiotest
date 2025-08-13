@@ -9,7 +9,10 @@ import utils
 
 @tool
 def set_current_location(location_id: str, character_name: str = None) -> str:
-    """AIの現在地を設定する。世界のどこにいるかを宣言する。"""
+    """
+    AIの現在地を設定する。この世界のどこにいるかを宣言するための、唯一の公式な手段。
+    location_id: "書斎"のような場所の正式名称（IDを兼ねる）を指定。
+    """
     if not location_id or not character_name:
         return "【Error】Location ID and character name are required."
     try:
@@ -23,7 +26,10 @@ def set_current_location(location_id: str, character_name: str = None) -> str:
 
 @tool
 def update_location_content(character_name: str, area_name: str, place_name: str, new_description: str) -> str:
-    """【更新専用】既存の場所の説明文を更新する。"""
+    """
+    【更新専用】既存の場所の説明文（description）を、新しい内容で更新する。
+    new_description: 場所の情景や設定を記述した、自然な文章。
+    """
     if not all([character_name, area_name, place_name, new_description is not None]):
         return "【Error】character_name, area_name, place_name, and new_description are required."
 
@@ -58,7 +64,10 @@ def update_location_content(character_name: str, area_name: str, place_name: str
 
 @tool
 def add_new_location(character_name: str, area_name: str, new_place_name: str, description: str) -> str:
-    """【新規作成専用】新しい場所を世界設定に追加する。"""
+    """
+    【新規作成専用】新しい場所を、その説明文と共に世界設定に追加する。
+    description: 新しい場所の情景や設定を記述した、自然な文章。
+    """
     if not all([character_name, area_name, new_place_name, description is not None]):
         return "【Error】character_name, area_name, new_place_name, and description are required."
 
@@ -99,7 +108,10 @@ def add_new_location(character_name: str, area_name: str, new_place_name: str, d
 
 @tool
 def read_world_settings(character_name: str) -> str:
-    """世界設定(world_settings.txt)の全体を読む。編集前の確認用。"""
+    """
+    現在の世界設定（world_settings.txt）の全てのエリアと場所の定義を、テキスト形式で読み取る。
+    場所の編集や追加を行う前に、既存のエリア名や場所の名前、そして全体構造を確認するために使用する。
+    """
     if not character_name:
         return "【Error】character_name is required."
 
