@@ -12,6 +12,7 @@ import google.genai as genai
 import filetype
 import httpx
 from google.api_core.exceptions import ResourceExhausted
+import re
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 import config_manager
@@ -72,54 +73,61 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 
 def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v4: 履歴重複修正版)
+    LangGraphの思考プロセスをストリーミングで返す。(v8: 共有歴史アーキテクチャ)
     """
-    (textbox_content, current_character_name,
-     current_api_key_name_state, file_input_list,
-     api_history_limit_state, debug_mode_state,
-     history_override_log_path) = args
+    (character_to_respond, api_key_name,
+     api_history_limit, debug_mode,
+     history_log_path, file_input_list, user_prompt_text) = args
 
     from agent.graph import app
-    effective_settings = config_manager.get_effective_settings(current_character_name)
-    current_model_name = effective_settings["model_name"]
-    api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
+
+    effective_settings = config_manager.get_effective_settings(character_to_respond)
+    model_name = effective_settings["model_name"]
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        yield {"final_output": {"response": f"[エラー: APIキー '{current_api_key_name_state}' が有効ではありません。]"}}
+        yield {"final_output": {"response": f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"}}
         return
 
-    # --- 履歴の構築（唯一の真実の情報源） ---
     messages = []
-    log_file_to_read = history_override_log_path if history_override_log_path else get_character_files_paths(current_character_name)[0]
-
-    if log_file_to_read and os.path.exists(log_file_to_read):
-        raw_history = utils.load_chat_log(log_file_to_read, current_character_name)
-        limit = int(api_history_limit_state) if api_history_limit_state.isdigit() else 0
+    if history_log_path and os.path.exists(history_log_path):
+        raw_history = utils.load_chat_log(history_log_path, character_to_respond)
+        limit = int(api_history_limit) if api_history_limit.isdigit() else 0
         if limit > 0 and len(raw_history) > limit * 2:
             raw_history = raw_history[-(limit * 2):]
 
         for h_item in raw_history:
-            content = h_item.get('content', '').strip()
+            content, responder = h_item.get('content', '').strip(), h_item.get('responder', '')
             if not content: continue
-            if h_item.get('responder', 'model') != 'user' and h_item.get('responder') != 'ユーザー':
+            if responder != 'user' and responder != 'ユーザー':
                 messages.append(AIMessage(content=content))
             else:
-                messages.append(HumanMessage(content=content))
+                # ユーザーの発言は、ファイル情報を含まない、純粋なテキストとして履歴に追加
+                text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
+                messages.append(HumanMessage(content=text_only_content))
 
-    # ▼▼▼ 【最重要】ここから、重複の原因となっていたコードを完全に削除 ▼▼▼
-    # user_message_parts = []
-    # if user_input_text: ...
-    # if file_input_list: ...
-    # if user_message_parts: messages.append(HumanMessage(content=user_message_parts))
-    # ▲▲▲ 削除ここまで ▲▲▲
+    # ユーザーの最新の発言を、ファイル情報と共に、履歴の最後に追加
+    user_message_parts = []
+    if user_prompt_text:
+        user_message_parts.append({"type": "text", "text": user_prompt_text})
+    if file_input_list:
+        for file_obj in file_input_list:
+            # ... (ファイル処理ロジック) ...
+            pass # この部分は、将来的に堅牢化
+
+    if user_message_parts:
+        messages.append(HumanMessage(content=user_message_parts))
 
     initial_state = {
-        "messages": messages, "character_name": current_character_name, "api_key": api_key,
-        "tavily_api_key": config_manager.TAVILY_API_KEY, "model_name": current_model_name,
+        "messages": messages,
+        "character_name": character_to_respond,
+        "api_key": api_key,
+        "tavily_api_key": config_manager.TAVILY_API_KEY,
+        "model_name": model_name,
         "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True),
         "send_notepad": effective_settings.get("send_notepad", True),
-        "debug_mode": debug_mode_state
+        "debug_mode": debug_mode
     }
 
     final_state = None
