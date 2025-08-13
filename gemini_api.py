@@ -134,6 +134,16 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     try:
         # app.stream() を使って、各ステップの状態を受け取る
         for update in app.stream(initial_state):
+            if "stream_update" in update:
+                for node_name, node_output in update["stream_update"].items():
+                    if node_name == "safe_tool_node":
+                        tool_messages = node_output.get("messages", [])
+                        for tool_msg in tool_messages:
+                            if isinstance(tool_msg, ToolMessage):
+                                display_text = utils.format_tool_result_for_ui(tool_msg.name, tool_msg.content)
+                                if display_text:
+                                    yield {"ui_feedback": display_text}
+
             yield {"stream_update": update}
             final_state = update # 最後の更新が最終状態になる
 

@@ -144,7 +144,7 @@ def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
         with open(core_memory_path, 'w', encoding='utf-8') as f:
             f.write(final_core_memory_text.strip())
 
-        return f"成功: ハイブリッド・コアメモリを更新し、{core_memory_path} に保存しました。"
+        return f"Success: The hybrid core memory has been updated and saved to {core_memory_path}."
 
     except Exception as e:
         return f"【エラー】コアメモリの生成または保存中にエラーが発生しました: {e}"

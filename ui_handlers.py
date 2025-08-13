@@ -255,16 +255,13 @@ def handle_message_submission(*args: Any):
         tool_call_happened = False
         with utils.capture_prints() as captured_output:
             for update in gemini_api.invoke_nexus_agent_stream(*agent_stream_args):
+                # ★★★ ここからが修正箇所 ★★★
+                if "ui_feedback" in update:
+                    gr.Info(update["ui_feedback"])
+                    continue # UIフィードバックはここで処理完了
+                # ★★★ 修正ここまで ★★★
+
                 if "stream_update" in update:
-                    node_name = list(update["stream_update"].keys())[0]
-                    node_output = update["stream_update"][node_name]
-                    if node_name == "safe_tool_node":
-                        tool_messages = node_output.get("messages", [])
-                        for tool_msg in tool_messages:
-                            if isinstance(tool_msg, ToolMessage):
-                                display_text = utils.format_tool_result_for_ui(tool_msg.name, tool_msg.content)
-                                if display_text:
-                                    gr.Info(display_text)
                     for state in update.get("stream_update", {}).values():
                         for msg in state.get("messages", []):
                             if isinstance(msg, AIMessage) and msg.tool_calls:
