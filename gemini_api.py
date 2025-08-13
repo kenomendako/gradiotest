@@ -12,7 +12,6 @@ import google.genai as genai
 import filetype
 import httpx
 from google.api_core.exceptions import ResourceExhausted
-import re # ★ この行を追加 ★
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 import config_manager
@@ -132,18 +131,11 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
 
     final_state = None
     try:
+        # app.stream() を使って、各ステップの状態を受け取る
         for update in app.stream(initial_state):
-            # ★★★ ここからが修正箇所 ★★★
-            for node_name, node_state in update.items():
-                if isinstance(node_state, dict) and "ui_feedback" in node_state:
-                    feedback_list = node_state.get("ui_feedback")
-                    if feedback_list and isinstance(feedback_list, list):
-                        for msg in feedback_list:
-                            yield {"ui_feedback": msg}
-            # ★★★ 修正ここまで ★★★
-
             yield {"stream_update": update}
-            final_state = update
+            final_state = update # 最後の更新が最終状態になる
+
     except ResourceExhausted as e:
         if "PerDay" in str(e):
             final_state = {"response": "[APIエラー: 無料利用枠の1日あたりのリクエスト上限に達しました。]"}
