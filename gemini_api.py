@@ -5,6 +5,8 @@ import traceback
 from typing import Any, List, Union, Optional, Dict, Iterator
 import os
 import json
+import character_manager
+import utils
 import io
 import base64
 from PIL import Image
@@ -17,8 +19,6 @@ import re
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 import config_manager
 import constants
-import utils
-from character_manager import get_character_files_paths
 
 # (get_model_token_limits, _convert_lc_to_gg_for_count, count_tokens_from_lc_messages は変更なし)
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
