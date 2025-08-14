@@ -5,6 +5,7 @@ import traceback
 from typing import Any, List, Union, Optional, Dict, Iterator
 import os
 import json
+import character_manager
 import io
 import base64
 from PIL import Image
