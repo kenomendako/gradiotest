@@ -5,6 +5,8 @@ import traceback
 from typing import Any, List, Union, Optional, Dict, Iterator
 import os
 import json
+import character_manager
+import utils
 import io
 import base64
 from PIL import Image
@@ -17,8 +19,6 @@ import re
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 import config_manager
 import constants
-import utils
-from character_manager import get_character_files_paths
 
 # (get_model_token_limits, _convert_lc_to_gg_for_count, count_tokens_from_lc_messages は変更なし)
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
@@ -71,20 +71,35 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
     return result.total_tokens
 
-def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
+def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v11: 500エラー対応・最終リトライ機構)
+    LangGraphの思考プロセスをストリーミングで返す。(v19: 辞書引数による最終FIX)
     """
-    (character_to_respond, api_key_name,
-     api_history_limit, debug_mode,
-     history_log_path, file_input_list, user_prompt_text) = args
-
-    # 必要なモジュールをインポート
+    # --- 必要なモジュールをインポート ---
     from agent.graph import app
     import time
     from google.api_core.exceptions import ResourceExhausted, InternalServerError
+    from langchain_core.messages import HumanMessage, AIMessage
 
-    effective_settings = config_manager.get_effective_settings(character_to_respond)
+    # --- 引数を辞書から展開 ---
+    character_to_respond = agent_args["character_to_respond"]
+    api_key_name = agent_args["api_key_name"]
+    api_history_limit = agent_args["api_history_limit"]
+    debug_mode = agent_args["debug_mode"]
+    history_log_path = agent_args["history_log_path"]
+    file_input_list = agent_args["file_input_list"]
+    user_prompt_text = agent_args["user_prompt_text"]
+    soul_vessel_character = agent_args["soul_vessel_character"]
+    active_participants = agent_args["active_participants"]
+    shared_location_name = agent_args["shared_location_name"]
+    shared_scenery_text = agent_args["shared_scenery_text"]
+
+    # (以降の処理は、前回の最終FIX版と全く同じです)
+    all_participants_list = [soul_vessel_character] + active_participants
+    effective_settings = config_manager.get_effective_settings(
+        character_to_respond,
+        use_common_prompt=(len(all_participants_list) <= 1)
+    )
     model_name = effective_settings["model_name"]
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
@@ -92,139 +107,100 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
         yield {"final_output": {"response": f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"}}
         return
 
-    # 履歴構築ロジック (変更なし)
+    # --- ハイブリッド履歴構築ロジック (v20 Final) ---
     messages = []
+
+    # 1. 応答するAI自身の過去ログを読み込む
+    responding_ai_log_f, _, _, _, _ = character_manager.get_character_files_paths(character_to_respond)
+    if responding_ai_log_f and os.path.exists(responding_ai_log_f):
+        own_history_raw = utils.load_chat_log(responding_ai_log_f, character_to_respond)
+        messages = utils.convert_raw_log_to_lc_messages(own_history_raw, character_to_respond)
+
+    # 2. 今回の対話ターンのスナップショット（公式史）を読み込む
     if history_log_path and os.path.exists(history_log_path):
-        raw_history = utils.load_chat_log(history_log_path, character_to_respond)
-        limit = int(api_history_limit) if api_history_limit.isdigit() else 0
-        if limit > 0 and len(raw_history) > limit * 2:
-            raw_history = raw_history[-(limit * 2):]
+        snapshot_history_raw = utils.load_chat_log(history_log_path, soul_vessel_character)
+        snapshot_messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, character_to_respond)
 
-        for h_item in raw_history:
-            content, responder = h_item.get('content', '').strip(), h_item.get('responder', '')
-            if not content: continue
-            if responder != 'user' and responder != 'ユーザー':
-                messages.append(AIMessage(content=content))
-            else:
-                text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
-                if text_only_content:
-                    messages.append(HumanMessage(content=text_only_content))
+        # 3. 自分のログとスナップショットを結合し、重複を除去
+        if snapshot_messages and messages:
+            first_snapshot_user_message_content = ""
+            if isinstance(snapshot_messages[0], HumanMessage):
+                # 人の発言は文字列なのでそのまま比較
+                first_snapshot_user_message_content = snapshot_messages[0].content.split("（")[0].strip()
 
-    if (messages and
-        isinstance(messages[-1], HumanMessage) and
-        isinstance(messages[-1].content, str) and
-        user_prompt_text and
-        messages[-1].content.strip() == user_prompt_text.strip()):
-        messages.pop()
+            if first_snapshot_user_message_content:
+                for i in range(len(messages) - 1, -1, -1):
+                    if isinstance(messages[i], HumanMessage):
+                        # 自分のログのユーザー発言も比較用に整形
+                        own_log_user_content = messages[i].content.split("（")[0].strip()
+                        if own_log_user_content == first_snapshot_user_message_content:
+                            messages = messages[:i] # 重複の開始点を見つけたら、そこまでをカット
+                            break
+            messages.extend(snapshot_messages)
+        elif snapshot_messages:
+            messages = snapshot_messages
 
-    user_message_parts = []
-    if user_prompt_text:
-        user_message_parts.append({"type": "text", "text": user_prompt_text})
-    if file_input_list:
-        pass # ファイル処理ロジック
-
-    if user_message_parts:
-        messages.append(HumanMessage(content=user_message_parts))
+    # 4. 履歴制限を適用
+    limit = int(api_history_limit) if api_history_limit.isdigit() else 0
+    if limit > 0 and len(messages) > limit * 2:
+        messages = messages[-(limit * 2):]
 
     initial_state = {
-        "messages": messages, "character_name": character_to_respond,
+        "messages": messages,
+        "character_name": character_to_respond,
         "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
         "model_name": model_name, "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True), "send_notepad": effective_settings.get("send_notepad", True),
-        "debug_mode": debug_mode
+        "debug_mode": debug_mode, "location_name": shared_location_name,
+        "scenery_text": shared_scenery_text, "all_participants": all_participants_list
     }
 
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    # --- エージェント実行ループ (リトライ機構は維持) ---
     max_retries = 3
     final_state = None
     last_message = None
-
     for attempt in range(max_retries):
         is_final_attempt = (attempt == max_retries - 1)
-
         try:
             print(f"--- エージェント実行試行: {attempt + 1}/{max_retries} ---")
-
             for update in app.stream(initial_state, {"recursion_limit": 15}):
                 yield {"stream_update": update}
                 final_state = update
-
             if final_state and isinstance(final_state, dict):
                 agent_final_state = final_state.get("agent", {})
                 last_message = next(reversed(agent_final_state.get("messages", [])), None)
-
             if isinstance(last_message, AIMessage) and (last_message.content or last_message.tool_calls):
-                print(f"--- 試行 {attempt + 1}: 有効な応答を受信しました。 ---")
-                break
-
+                print(f"--- 試行 {attempt + 1}: 有効な応答を受信しました。 ---"); break
             if isinstance(last_message, AIMessage):
                 finish_reason = last_message.response_metadata.get('finish_reason', '')
                 if finish_reason == 'STOP':
-                    print(f"--- [警告] 試行 {attempt + 1}: AIが空の応答を返しました (理由: STOP)。 ---")
-                    if not is_final_attempt:
-                        time.sleep(1)
-                        continue
-                else:
-                    print(f"--- 試行 {attempt + 1}: リトライ対象外の理由 ({finish_reason}) で処理を終了します。 ---")
-                    break
-
-        except InternalServerError as e:
-            print(f"--- [警告] 試行 {attempt + 1}: 500 内部サーバーエラーが発生しました。 ---")
-            if not is_final_attempt:
-                wait_time = (attempt + 1) * 2  # 2秒、4秒と待機時間を増やす
-                print(f"    -> {wait_time}秒待機してリトライします...")
-                time.sleep(wait_time)
-                continue
-            else:
-                final_state = {"response": "[APIエラー: サーバー内部エラー(500)が繰り返し発生しました。時間をおいて再度お試しください。]"}
-                break
-
+                    if not is_final_attempt: print(f"--- [警告] 試行 {attempt + 1}: AIが空応答 (STOP)。リトライします... ---"); time.sleep(1); continue
+                else: print(f"--- 試行 {attempt + 1}: リトライ対象外 ({finish_reason}) で終了。 ---"); break
+        except InternalServerError:
+            if not is_final_attempt: print(f"--- [警告] 試行 {attempt + 1}: 500エラー。リトライします... ---"); time.sleep((attempt + 1) * 2); continue
+            else: final_state = {"response": "[APIエラー: サーバー内部エラー(500)が頻発しました。]"}; break
         except ResourceExhausted as e:
-            error_str = str(e)
-            if "PerMinute" in error_str:
-                print(f"--- [警告] 試行 {attempt + 1}: 1分あたりの利用上限に達しました。 ---")
-                if not is_final_attempt:
-                    wait_time = 61
-                    print(f"    -> {wait_time}秒待機してリトライします...")
-                    time.sleep(wait_time)
-                    continue
-
-            final_state = {"response": "[APIエラー: 無料利用枠の1日あたりのリクエスト上限か、サーバーの負荷上限に達しました。]"}
-            print(f"--- 回復不能なAPIリソース枯渇エラー: {e} ---")
-            break
-
+            if "PerMinute" in str(e) and not is_final_attempt: print(f"--- [警告] 試行 {attempt + 1}: レート制限。61秒待機... ---"); time.sleep(61); continue
+            final_state = {"response": "[APIエラー: リソース上限に達しました。]"}; break
         except Exception as e:
-            final_state = {"response": f"[エージェント実行エラー: {e}]"}
-            traceback.print_exc()
-            break
+            final_state = {"response": f"[エージェント実行エラー: {e}]"}; traceback.print_exc(); break
 
-    # ▲▲▲ 修正ここまで ▲▲▲
-
+    # --- 最終的な出力を整形して返す (変更なし) ---
     final_response = {}
     if final_state and isinstance(final_state, dict):
         final_response["response"] = final_state.get("response", "")
         final_response["location_name"] = final_state.get("context_generator", {}).get("location_name", "（不明）")
         final_response["scenery"] = final_state.get("context_generator", {}).get("scenery_text", "（不明）")
-
         final_response_text = ""
         if isinstance(last_message, AIMessage):
             final_response_text = str(last_message.content or "").strip()
-
             if not final_response_text and not last_message.tool_calls:
                 finish_reason = last_message.response_metadata.get('finish_reason', '')
-                if finish_reason == 'SAFETY':
-                    final_response_text = "[エラー: AIの応答が安全フィルターによってブロックされました。不適切な内容と判断された可能性があります。お手数ですが、表現を変えてもう一度お試しください。]"
-                elif finish_reason == 'RECITATION':
-                    final_response_text = "[エラー: AIの応答が、学習元データからの長すぎる引用と判断されたため、ブロックされました。]"
-                else:
-                    final_response_text = "[エラー: リトライを試みましたが、AIからの有効な応答がありませんでした。APIが不安定か、プロンプトが複雑すぎる可能性があります。]"
-
-        if not final_response.get("response"):
-            final_response["response"] = final_response_text
-
-    if not final_response:
-        final_response["response"] = "[エラー: 不明な理由でエージェントの実行が完了しませんでした。]"
-
+                if finish_reason == 'SAFETY': final_response_text = "[エラー: 応答が安全フィルターにブロックされました。]"
+                elif finish_reason == 'RECITATION': final_response_text = "[エラー: 応答が引用要件によりブロックされました。]"
+                else: final_response_text = "[エラー: AIからの有効な応答がありませんでした。]"
+        if not final_response.get("response"): final_response["response"] = final_response_text
+    if not final_response: final_response["response"] = "[エラー: 不明な理由でエージェントが完了しませんでした。]"
     yield {"final_output": final_response}
 
 def count_input_tokens(**kwargs):
@@ -237,13 +213,14 @@ def count_input_tokens(**kwargs):
     if not api_key or api_key.startswith("YOUR_API_KEY"): return "トークン数: (APIキーエラー)"
 
     try:
-        effective_settings = config_manager.get_effective_settings(character_name)
-        # kwargsから渡された設定で上書き
-        if kwargs.get("add_timestamp") is not None: effective_settings["add_timestamp"] = kwargs["add_timestamp"]
-        if kwargs.get("send_thoughts") is not None: effective_settings["send_thoughts"] = kwargs["send_thoughts"]
-        if kwargs.get("send_notepad") is not None: effective_settings["send_notepad"] = kwargs["send_notepad"]
-        if kwargs.get("send_core_memory") is not None: effective_settings["send_core_memory"] = kwargs["send_core_memory"]
-        if kwargs.get("send_scenery") is not None: effective_settings["send_scenery"] = kwargs["send_scenery"]
+        # ▼▼▼【修正の核心】▼▼▼
+        # kwargs辞書からcharacter_nameを削除したコピーを作成し、それを渡す
+        # これで'character_name'が重複して渡されるのを防ぐ
+        kwargs_for_settings = kwargs.copy()
+        kwargs_for_settings.pop("character_name", None)
+
+        effective_settings = config_manager.get_effective_settings(character_name, **kwargs_for_settings)
+        # ▲▲▲ 修正ここまで ▲▲▲
 
         model_name = effective_settings.get("model_name") or config_manager.DEFAULT_MODEL_GLOBAL
         messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
@@ -262,7 +239,7 @@ def count_input_tokens(**kwargs):
                 with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
         notepad_section = ""
         if effective_settings.get("send_notepad", True):
-            _, _, _, _, notepad_path = get_character_files_paths(character_name)
+            _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
             if notepad_path and os.path.exists(notepad_path):
                 with open(notepad_path, 'r', encoding='utf-8') as f:
                     content = f.read().strip()
@@ -282,7 +259,7 @@ def count_input_tokens(**kwargs):
         messages.append(SystemMessage(content=system_prompt_text))
 
         # --- 履歴の構築 ---
-        log_file, _, _, _, _ = get_character_files_paths(character_name)
+        log_file, _, _, _, _ = character_manager.get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_file, character_name)
         limit = int(api_history_limit) if api_history_limit and api_history_limit.isdigit() else 0
         if limit > 0 and len(raw_history) > limit * 2:
@@ -291,7 +268,6 @@ def count_input_tokens(**kwargs):
         for h_item in raw_history:
             content = h_item.get('content', '').strip()
             if not content: continue
-            # トークン計算時は、思考ログは除去しない（APIに渡される状態を正確にシミュレートするため）
             if h_item.get('responder', 'model') != 'user':
                  messages.append(AIMessage(content=content))
             else:

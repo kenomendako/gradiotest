@@ -815,6 +815,7 @@ def cleanup_sanctuaries():
         return
     # 現状では、起動ごとにクリアされるため、積極的な削除は不要
 
+# utils.py の末尾に追加
 def create_turn_snapshot(main_log_path: str, user_start_phrase: str) -> Optional[str]:
     """
     メインのログファイルから、今回の対話ターン（特定のユーザー発言以降）だけを
@@ -822,37 +823,56 @@ def create_turn_snapshot(main_log_path: str, user_start_phrase: str) -> Optional
     """
     if not main_log_path or not os.path.exists(main_log_path) or not user_start_phrase:
         return None
-
     try:
         with open(main_log_path, "r", encoding="utf-8") as f:
             full_content = f.read()
-
-        cleaned_phrase = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_start_phrase, flags=re.MULTILINE).strip()
-
+        cleaned_phrase = re.sub(r'\[ファイル添付:.*?\]', '', user_start_phrase, flags=re.DOTALL).strip()
+        cleaned_phrase = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', cleaned_phrase, flags=re.MULTILINE).strip()
         pattern = re.compile(
-            r"(^## ユーザー:\s*" + re.escape(cleaned_phrase) + r".*?)(?=^## ユーザー:|\Z)",
+            r"(^## (?:ユーザー|ユーザー):" + re.escape(cleaned_phrase) + r".*?)(?=^## (?:ユーザー|ユーザー):|\Z)",
             re.DOTALL | re.MULTILINE
         )
-
-        # ログの末尾から検索して、最新のターンを見つける
         matches = [m for m in pattern.finditer(full_content)]
         if not matches:
-            print(f"警告：スナップショットの起点となるユーザー発言が見つかりませんでした。")
-            return None
-
-        last_match = matches[-1]
-        snapshot_content = full_content[last_match.start():]
-
+            snapshot_content = f"## ユーザー:\n{user_start_phrase.strip()}\n\n"
+        else:
+            last_match = matches[-1]
+            snapshot_content = full_content[last_match.start():]
         temp_dir = os.path.join("temp", "snapshots")
         os.makedirs(temp_dir, exist_ok=True)
         snapshot_path = os.path.join(temp_dir, f"snapshot_{uuid.uuid4().hex}.txt")
-
         with open(snapshot_path, "w", encoding="utf-8") as f:
             f.write(snapshot_content)
-
         return snapshot_path
-
     except Exception as e:
-        print(f"エラー：スナップショットの作成中にエラーが発生しました: {e}")
-        traceback.print_exc()
+        print(f"エラー：スナップショットの作成中にエラーが発生しました: {e}"); traceback.print_exc()
         return None
+
+def convert_raw_log_to_lc_messages(raw_history: list, responding_character_name: str) -> list:
+    """
+    生の履歴辞書を、応答するAIの視点からLangChainのMessageオブジェクトリストに変換する。
+    - 自分の発言はAIMessage
+    - ユーザーの発言はHumanMessage
+    - 他のAIの発言は、注釈付きのHumanMessageとして扱う
+    """
+    from langchain_core.messages import HumanMessage, AIMessage
+
+    lc_messages = []
+    for h_item in raw_history:
+        content, responder = h_item.get('content', '').strip(), h_item.get('responder', '')
+        if not content: continue
+
+        is_user = (responder == 'user' or responder == 'ユーザー')
+        is_self = (responder == responding_character_name)
+
+        if is_user:
+            text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
+            if text_only_content:
+                lc_messages.append(HumanMessage(content=text_only_content))
+        elif is_self:
+            lc_messages.append(AIMessage(content=content, name=responder))
+        else:
+            annotated_content = f"（{responder}の発言）:\n{content}"
+            lc_messages.append(HumanMessage(content=annotated_content))
+
+    return lc_messages

@@ -72,3 +72,35 @@ GradioアプリケーションにおけるUIとロジックの連携は、目に
     UIのコンポーネント（蛇口）と、ハンドラが返す値（水の塊）の**順番**が一致していないと、`UserWarning`や`TypeError`が発生すること。
 *   **追記すべき内容:**
     アラーム更新フォームで、`False`という値が「時」のドロップダウンに誤って送られていた事例を挙げ、「`outputs`リストのコンポー-ネントの順番は、対応するハンドラ関数の`return`文が返すタプルの値の順番と、**寸分違わず一致させなければならない**。Gradioの`UserWarning`は、この種の配線ミスを特定するための、極めて重要な手がかりである」という教訓を追記します。
+---
+
+### 教訓6：引数の鎖を断ち切れ：疎結合を実現する辞書という名の契約書
+
+*   **問題の核心:**
+    `ui_handlers.py`から`gemini_api.py`へ関数を呼び出す際、`*args`を使った**位置引数**に依存していた。この方式は、引数を一つでも追加・削除すると、`ValueError: not enough values to unpack`のようなエラーを即座に引き起こす、極めて脆弱な「鎖」であった。
+
+*   **解決アーキテクチャ：「辞書ベース（キーワード引数）」**
+    この種の連鎖的なエラーを根本的に防ぐための、唯一にして最も堅牢な解決策が、引数を辞書にまとめて渡すことである。
+
+    ```python
+    # 脆弱なコード (ui_handlers.py)
+    # agent_stream_args = (arg1, arg2, arg3, ...)
+    # gemini_api.invoke_nexus_agent_stream(*agent_stream_args)
+
+    # 堅牢なコード (ui_handlers.py)
+    agent_args_dict = {
+        "character_to_respond": ...,
+        "api_key_name": ...,
+        # ...
+    }
+    gemini_api.invoke_nexus_agent_stream(agent_args_dict)
+
+    # 堅牢なコード (gemini_api.py)
+    # def invoke_nexus_agent_stream(*args): ...
+    def invoke_nexus_agent_stream(agent_args: dict):
+        character_to_respond = agent_args["character_to_respond"]
+        # ...
+    ```
+
+*   **教訓:**
+    モジュールをまたいで複雑なデータを渡す際は、引数の**順番**という暗黙のルールに依存してはならない。引数名をキーとする**辞書**を一つの「契約書」として渡すことで、関数間の結合度を下げ（疎結合）、将来の仕様変更に強く、可読性の高い、保守性に優れたコードを構築できる。
