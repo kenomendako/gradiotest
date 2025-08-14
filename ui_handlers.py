@@ -212,8 +212,25 @@ def handle_message_submission(*args: Any):
      current_console_content, active_participants) = args
     active_participants = active_participants or []
 
-    # (ユーザー発言の構築部分は変更なし)
-    # ...
+    user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
+
+    log_message_parts = []
+    if user_prompt_from_textbox:
+        effective_settings = config_manager.get_effective_settings(soul_vessel_character)
+        add_timestamp = effective_settings.get("add_timestamp", False)
+        timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
+        log_message_parts.append(user_prompt_from_textbox + timestamp)
+
+    if file_input_list:
+        for file_obj in file_input_list:
+            log_message_parts.append(f"[ファイル添付: {os.path.basename(file_obj.name)}]")
+    full_user_log_entry = "\n".join(log_message_parts).strip()
+
+    if not full_user_log_entry:
+        history, mapping = reload_chat_log(soul_vessel_character, api_history_limit_state)
+        yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+               gr.update(), gr.update(), gr.update(), current_console_content, current_console_content)
+        return
 
     main_log_f, _, _, _, _ = get_character_files_paths(soul_vessel_character)
     utils.save_message_to_log(main_log_f, "## ユーザー:", full_user_log_entry)
@@ -221,7 +238,6 @@ def handle_message_submission(*args: Any):
     turn_recap_events = [f"## ユーザー:\n{full_user_log_entry}"]
     all_characters_in_scene = [soul_vessel_character] + active_participants
 
-    # --- 共有コンテキストを生成 ---
     api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
     shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_character, api_key)
 
@@ -232,13 +248,12 @@ def handle_message_submission(*args: Any):
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content)
 
-        # ▼▼▼ 辞書として引数を構築 ▼▼▼
         agent_args_dict = {
             "character_to_respond": character_to_respond,
             "api_key_name": current_api_key_name_state,
             "api_history_limit": api_history_limit_state,
             "debug_mode": debug_mode_state,
-            "history_log_path": main_log_f,
+            "history_log_path": main_log_f, # スナップショットではなく公式史を渡す
             "file_input_list": file_input_list if character_to_respond == soul_vessel_character else None,
             "user_prompt_text": user_prompt_from_textbox if character_to_respond == soul_vessel_character else "",
             "soul_vessel_character": soul_vessel_character,
@@ -246,12 +261,52 @@ def handle_message_submission(*args: Any):
             "shared_location_name": shared_location_name,
             "shared_scenery_text": shared_scenery_text,
         }
-        # ▲▲▲ 修正ここまで ▲▲▲
 
         final_response_text = ""
         with utils.capture_prints() as captured_output:
-            for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict): # 辞書を渡す
-                # ... (以降のループ処理は変更なし) ...
+            for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                if "stream_update" in update:
+                    node_name = list(update["stream_update"].keys())[0]
+                    node_output = update["stream_update"][node_name]
+                    if node_name == "safe_tool_node":
+                        tool_messages = node_output.get("messages", [])
+                        for tool_msg in tool_messages:
+                            if isinstance(tool_msg, ToolMessage):
+                                display_text = utils.format_tool_result_for_ui(tool_msg.name, tool_msg.content)
+                                if display_text:
+                                    gr.Info(display_text)
+                elif "final_output" in update:
+                    final_response_text = update["final_output"].get("response", "")
+                    break
+        current_console_content += captured_output.getvalue()
+
+        if final_response_text.strip():
+            utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", final_response_text)
+            turn_recap_events.append(f"## {character_to_respond}:\n{final_response_text}")
+
+    if active_participants:
+        recap_text = "\n\n".join(turn_recap_events)
+        full_recap_entry = f"【共有された対話ターン】\n{recap_text}\n【/共有された対話ターン】"
+        for participant_name in active_participants:
+            participant_log_f, _, _, _, _ = get_character_files_paths(participant_name)
+            if participant_log_f:
+                utils.save_message_to_log(participant_log_f, "## システム(対話記録):", full_recap_entry)
+
+    final_chatbot_history, final_mapping_list = reload_chat_log(soul_vessel_character, api_history_limit_state)
+    new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_character, api_key)
+    scenery_image = utils.find_scenery_image(soul_vessel_character, utils.get_current_location(soul_vessel_character))
+    token_count_text = gemini_api.count_input_tokens(
+        character_name=soul_vessel_character, api_key_name=current_api_key_name_state,
+        api_history_limit=api_history_limit_state, parts=[],
+        **config_manager.get_effective_settings(soul_vessel_character)
+    )
+    final_df_with_ids = render_alarms_as_dataframe()
+    final_df = get_display_df(final_df_with_ids)
+
+    yield (final_chatbot_history, final_mapping_list, gr.update(), gr.update(value=None), token_count_text,
+           new_location_name, new_scenery_text,
+           final_df_with_ids, final_df, scenery_image,
+           current_console_content, current_console_content)
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     """「情景を更新」ボタン専用ハンドラ。キャッシュを無視して強制的に再生成する。"""
