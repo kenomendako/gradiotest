@@ -79,7 +79,6 @@ try:
         current_log_map_state = gr.State([])
         participant_characters_state = gr.State([])
         debug_console_state = gr.State("") # コンソールの内容を保持するState
-        active_participants_state = gr.State([])
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -188,16 +187,12 @@ try:
                                     gr.Markdown("---")
                                     save_char_settings_button = gr.Button("このキャラクターの設定を保存", variant="primary")
 
-                        with gr.Accordion("🗨️ 複数人対話セッション", open=False):
-                            session_status_display = gr.Markdown("現在、1対1の会話モードです。")
+                        with gr.Accordion("🗨️ 他の参加者を選択", open=False):
                             participant_checkbox_group = gr.CheckboxGroup(
-                                label="会話に招待するキャラクター",
+                                label="会話に参加するキャラクター",
                                 choices=sorted([c for c in character_list_on_startup if c != effective_initial_character]),
                                 interactive=True
                             )
-                            with gr.Row():
-                                start_session_button = gr.Button("このメンバーで会話を開始 / 更新", variant="primary")
-                                end_session_button = gr.Button("会話を終了 (1対1に戻る)", variant="secondary")
 
                         with gr.Accordion("🗨️ 新しいルームを作成する", open=False):
                             with gr.Row():
@@ -279,17 +274,6 @@ try:
                 clear_debug_console_button = gr.Button("コンソールをクリア", variant="secondary")
 
         # --- イベントハンドラ定義 ---
-        start_session_button.click(
-            fn=ui_handlers.handle_start_session,
-            inputs=[current_character_name, participant_checkbox_group],
-            outputs=[active_participants_state, session_status_display]
-        )
-        end_session_button.click(
-            fn=ui_handlers.handle_end_session,
-            inputs=[current_character_name, active_participants_state],
-            outputs=[active_participants_state, session_status_display, participant_checkbox_group]
-        )
-
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
         context_token_calc_inputs = [current_character_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
 
@@ -299,26 +283,25 @@ try:
             alarm_char_dropdown, timer_char_dropdown, location_dropdown,
             current_location_display, current_scenery_display, char_model_dropdown, char_voice_dropdown,
             char_voice_style_prompt_textbox,
+            # ▼▼▼ 新しいUI部品を出力リストに追加 ▼▼▼
             char_temperature_slider, char_top_p_slider,
             char_safety_harassment_dropdown, char_safety_hate_speech_dropdown,
             char_safety_sexually_explicit_dropdown, char_safety_dangerous_content_dropdown
         ] + context_checkboxes + [char_settings_info, scenery_image_display]
         initial_load_outputs = [alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown] + initial_load_chat_outputs
-
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
         char_change_world_builder_outputs = [world_data_state, area_selector]
-        all_char_change_outputs = initial_load_chat_outputs + char_change_world_builder_outputs + [
-            active_participants_state, session_status_display, participant_checkbox_group
-        ]
+        all_char_change_outputs = initial_load_chat_outputs + char_change_world_builder_outputs + [participant_checkbox_group]
 
+    # ▼▼▼ character_dropdown.change の fn を handle_character_change_for_all_tabs に変更 ▼▼▼
         character_dropdown.change(
-            fn=ui_handlers.handle_character_change_for_all_tabs,
-            inputs=[character_dropdown, api_key_dropdown],
-            outputs=all_char_change_outputs
-        ).then(
+        fn=ui_handlers.handle_character_change_for_all_tabs,
+        inputs=[character_dropdown, api_key_dropdown],
+        outputs=all_char_change_outputs
+    ).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
@@ -326,43 +309,53 @@ try:
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
             inputs=[current_character_name, api_history_limit_state, current_log_map_state],
-            outputs=[selected_message_state, action_button_group, play_audio_button],
+            outputs=[selected_message_state, action_button_group, play_audio_button], # play_audio_button を追加
             show_progress=False
         )
 
         rerun_button.click(
             fn=ui_handlers.handle_rerun_button_click,
             inputs=[
-                selected_message_state, current_character_name, current_api_key_name_state,
-                file_upload_button, api_history_limit_state, debug_mode_checkbox,
+                selected_message_state,
+                current_character_name,
+                current_api_key_name_state,
+                file_upload_button,
+                api_history_limit_state,
+                debug_mode_checkbox,
                 debug_console_state,
-                active_participants_state
+                participant_checkbox_group
             ],
             outputs=[
-                chatbot_display, current_log_map_state, chat_input_textbox,
-                file_upload_button, token_count_display, current_location_display,
-                current_scenery_display, alarm_dataframe_original_data, alarm_dataframe,
-                scenery_image_display, debug_console_state, debug_console_output
+                chatbot_display,
+                current_log_map_state,
+                chat_input_textbox,
+                file_upload_button,
+                token_count_display,
+                current_location_display,
+                current_scenery_display,
+                alarm_dataframe_original_data,
+                alarm_dataframe,
+                scenery_image_display,
+                debug_console_state,
+                debug_console_output
             ]
         )
 
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
         api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, current_log_map_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-
         chat_submit_outputs = [
             chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button,
             token_count_display, current_location_display, current_scenery_display,
             alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
-            debug_console_state, debug_console_output
+            debug_console_state, debug_console_output # <--- この2つを追加
         ]
 
         chat_inputs = [
             chat_input_textbox, current_character_name, current_api_key_name_state,
             file_upload_button, api_history_limit_state, debug_mode_checkbox,
             debug_console_state,
-            active_participants_state
+            participant_checkbox_group
         ]
-
         gen_settings_inputs = [
             char_temperature_slider, char_top_p_slider,
             char_safety_harassment_dropdown, char_safety_hate_speech_dropdown,
@@ -499,7 +492,7 @@ try:
         area_selector.change(
             fn=ui_handlers.handle_wb_area_select,
             inputs=[world_data_state, area_selector],
-            outputs=[place_selector]
+            outputs=[place_selector]  # 更新対象を場所セレクタのみに限定
         )
         place_selector.change(
             fn=ui_handlers.handle_wb_place_select,
@@ -535,8 +528,9 @@ try:
             outputs=[new_item_form, new_item_name]
         )
 
+        # ▼▼▼ ファイルの末尾近く、demo.queue().launch() の直前に、新しいイベント定義を追加 ▼▼▼
         clear_debug_console_button.click(
-            fn=lambda: ("", ""),
+            fn=lambda: ("", ""), # StateとTextboxの両方を空にする
             outputs=[debug_console_state, debug_console_output]
         )
 

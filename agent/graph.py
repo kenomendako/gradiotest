@@ -58,7 +58,6 @@ class AgentState(TypedDict):
     location_name: str
     scenery_text: str
     debug_mode: bool
-    # ▼▼▼ 以下を追加 ▼▼▼
     all_participants: List[str] # セッションに参加している全キャラクターのリスト
 
 def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
@@ -209,7 +208,6 @@ def context_generator_node(state: AgentState):
 
     notepad_section = ""
     if state.get("send_notepad", True):
-        # ... (メモ帳の読み込み部分は変更なし) ...
         try:
             from character_manager import get_character_files_paths
             _, _, _, _, notepad_path = get_character_files_paths(character_name)
@@ -224,61 +222,32 @@ def context_generator_node(state: AgentState):
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
 
-
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
 
-    # ▼▼▼ 以下を追加 ▼▼▼
     # 複数人対話セッション中は、ツールプロンプトを無効化する
     if len(state.get('all_participants', [])) > 1:
         tools_list_str = "（グループ会話中はツールを使用できません）"
-    # ▲▲▲ 追加ここまで ▲▲▲
 
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
     prompt_vars = {'character_name': character_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
     formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
 
-    # --- 空間描写がOFFの場合 ---
-    if not state.get("send_scenery", True):
-        final_system_prompt_text = (
-            f"{formatted_core_prompt}\n\n---\n"
-            f"【現在の場所と情景】\n"
-            f"（空間描写は設定により無効化されています）\n"
-            "---"
-        )
-        return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": "（空間描写OFF）", "scenery_text": "（空間描写は設定により無効化されています）"}
+    # --- 空間描写がONの場合、共有コンテキストをシステムプロンプトに注入 ---
+    # location_name と scenery_text は gemini_api.py から渡される
+    location_display_name = state.get("location_name", "（不明な場所）")
+    scenery_text = state.get("scenery_text", "（情景不明）")
 
-    # --- 空間描写がONの場合 ---
-    location_display_name, space_def, scenery_text = generate_scenery_context(character_name, api_key)
+    final_system_prompt_text = f"{formatted_core_prompt}\n\n---\n【現在の場所と情景】\n- 場所: {location_display_name}\n- 今の情景: {scenery_text}\n---"
 
-    available_locations = get_location_list(character_name)
-    if available_locations:
-        # get_location_listは "[エリア名] 場所名" のリストを返す
-        location_list_str = "\n".join([f"- {loc}" for loc in available_locations])
-        locations_section = f"【移動可能な場所】\n{location_list_str}\n"
-    else:
-        locations_section = "【移動可能な場所】\n（現在、定義されている移動先はありません）\n"
-
-    final_system_prompt_text = (
-        f"{formatted_core_prompt}\n\n---\n"
-        f"【現在の場所と情景】\n"
-        f"- 場所: {location_display_name}\n"
-        f"- 場所の設定（自由記述）: \n{space_def}\n"
-        f"- 今の情景: {scenery_text}\n"
-        f"{locations_section}"
-        "---"
-    )
-
-    return {"system_prompt": SystemMessage(content=final_system_prompt_text), "location_name": location_display_name, "scenery_text": scenery_text}
+    return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
 
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
     base_system_prompt = state['system_prompt'].content
     final_system_prompt_text = base_system_prompt
 
-    # 複数人対話セッションの場合、ペルソナロック・プロンプトを注入する
     all_participants = state.get('all_participants', [])
     current_character = state['character_name']
 
@@ -292,14 +261,13 @@ def agent_node(state: AgentState):
         final_system_prompt_text = persona_lock_prompt + base_system_prompt
 
     final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
-    # ▲▲▲ 修正ここまで ▲▲▲
 
     print(f"  - 使用モデル: {state['model_name']}")
     print(f"  - 最終システムプロンプト長: {len(final_system_prompt_text)} 文字")
 
     if state.get("debug_mode", False):
         print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
-        print(final_system_prompt_text) # 最終版のプロンプトを出力
+        print(final_system_prompt_text)
         print("-----------------------------------------")
 
     effective_settings = config_manager.get_effective_settings(state['character_name'])
@@ -308,20 +276,14 @@ def agent_node(state: AgentState):
         state['api_key'],
         effective_settings
     )
-    llm_with_tools = llm.bind_tools(all_tools)
 
-    # AIに渡すメッセージリストの先頭を、最終版のシステムプロンプトに差し替える
-    messages_for_agent = [final_system_prompt_message]
-    for msg in state['messages']:
-        # ファイル添付のプレースホルダーを除去する既存のロジックはそのまま
-        if isinstance(msg.content, str):
-            cleaned_content = re.sub(r"\[ファイル添付:.*?\]", "", msg.content, flags=re.DOTALL).strip()
-            if cleaned_content:
-                new_msg = msg.copy()
-                new_msg.content = cleaned_content
-                messages_for_agent.append(new_msg)
-        else:
-            messages_for_agent.append(msg)
+    # グループ会話中はツールを無効化
+    if len(all_participants) > 1:
+        llm_with_tools = llm
+    else:
+        llm_with_tools = llm.bind_tools(all_tools)
+
+    messages_for_agent = [final_system_prompt_message] + state['messages']
 
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}

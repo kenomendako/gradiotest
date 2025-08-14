@@ -847,38 +847,33 @@ def create_turn_snapshot(main_log_path: str, user_start_phrase: str) -> Optional
         print(f"エラー：スナップショットの作成中にエラーが発生しました: {e}"); traceback.print_exc()
         return None
 
-def convert_raw_log_to_lc_messages(raw_history: list) -> list:
+def convert_raw_log_to_lc_messages(raw_history: list, responding_character_name: str) -> list:
     """
-    load_chat_logで読み込んだ生の履歴辞書を、LangChainのMessageオブジェクトのリストに変換する。
+    生の履歴辞書を、応答するAIの視点からLangChainのMessageオブジェクトリストに変換する。
+    - 自分の発言はAIMessage
+    - ユーザーの発言はHumanMessage
+    - 他のAIの発言は、注釈付きのHumanMessageとして扱う
     """
     from langchain_core.messages import HumanMessage, AIMessage
+
     lc_messages = []
     for h_item in raw_history:
         content, responder = h_item.get('content', '').strip(), h_item.get('responder', '')
         if not content: continue
+
         is_user = (responder == 'user' or responder == 'ユーザー')
+        is_self = (responder == responding_character_name)
+
         if is_user:
             text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
             if text_only_content:
                 lc_messages.append(HumanMessage(content=text_only_content))
-        else:
+        elif is_self:
+            # 自分の発言はAIMessage
             lc_messages.append(AIMessage(content=content, name=responder))
-    return lc_messages
-
-def merge_consecutive_ais(messages: list) -> list:
-    """
-    LangChainのMessageリスト内で、連続するAIMessageを結合する。
-    """
-    from langchain_core.messages import AIMessage
-    if not messages:
-        return []
-    merged = [messages[0]]
-    for i in range(1, len(messages)):
-        current_msg = messages[i]
-        last_merged_msg = merged[-1]
-        if isinstance(current_msg, AIMessage) and isinstance(last_merged_msg, AIMessage):
-            separator = f"\n\n---\n{current_msg.name or 'AI'}:\n"
-            last_merged_msg.content += separator + current_msg.content
         else:
-            merged.append(current_msg)
-    return merged
+            # 他のAIの発言は、誰の発言か明記したHumanMessageとして扱う
+            annotated_content = f"（{responder}の発言）:\n{content}"
+            lc_messages.append(HumanMessage(content=annotated_content))
+
+    return lc_messages

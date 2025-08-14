@@ -73,21 +73,23 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 
 def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v17: ペルソナロック＋共有コンテキスト)
+    LangGraphの思考プロセスをストリーミングで返す。(v18: 役割の明確化による最終FIX)
     """
     (character_to_respond, api_key_name,
      api_history_limit, debug_mode,
      history_log_path, file_input_list, user_prompt_text,
      soul_vessel_character, active_participants,
-     # ▼▼▼ 以下を追加 ▼▼▼
      shared_location_name, shared_scenery_text) = args
 
-    # 必要なモジュールをインポート
     from agent.graph import app
     import time
     from google.api_core.exceptions import ResourceExhausted, InternalServerError
+    from langchain_core.messages import HumanMessage, AIMessage
 
-    effective_settings = config_manager.get_effective_settings(character_to_respond)
+    effective_settings = config_manager.get_effective_settings(
+        character_to_respond,
+        use_common_prompt=(len(active_participants) == 0) # グループ会話中はツールプロンプトをOFF
+    )
     model_name = effective_settings["model_name"]
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
@@ -95,70 +97,45 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
         yield {"final_output": {"response": f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"}}
         return
 
-    # --- スナップショット履歴への完全移行 (v17 Final) ---
-    from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+    # ▼▼▼ UnboundLocalErrorの修正と、新しい履歴構築ロジック ▼▼▼
 
+    # 最初にinitial_stateの骨格を定義する
+    all_participants_list = [soul_vessel_character] + active_participants
+    initial_state = {
+        "messages": [], # この後で構築する
+        "character_name": character_to_respond,
+        "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
+        "model_name": model_name, "send_core_memory": effective_settings.get("send_core_memory", True),
+        "send_scenery": effective_settings.get("send_scenery", True), "send_notepad": effective_settings.get("send_notepad", True),
+        "debug_mode": debug_mode, "location_name": shared_location_name,
+        "scenery_text": shared_scenery_text, "all_participants": all_participants_list
+    }
+
+    # スナップショット（公式史）のみを読み込み、応答AIの視点で履歴を再構築
     messages = []
-
-    # 今回の対話ターンのスナップショット（公式史）のみを読み込む
     if history_log_path and os.path.exists(history_log_path):
-        main_character_name_for_snapshot = soul_vessel_character
-        snapshot_history_raw = utils.load_chat_log(history_log_path, main_character_name_for_snapshot)
-        messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw)
+        snapshot_history_raw = utils.load_chat_log(history_log_path, soul_vessel_character)
+        # 応答するAIの名前を渡して、役割を区別させる
+        messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, character_to_respond)
 
-    # 履歴制限を適用し、AIの連続応答を結合する
+    # 履歴制限を適用
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
         messages = messages[-(limit * 2):]
 
-    final_messages = utils.merge_consecutive_ais(messages)
+    initial_state["messages"] = messages
 
-    # ユーザーの最新の発言を履歴の最後に追加する（ファイル添付情報も考慮）
-    # (この部分は、スナップショットに既に最新発言が含まれているため不要になるが、安全策として残す)
-    user_message_parts = []
-    if user_prompt_text:
-        user_message_parts.append({"type": "text", "text": user_prompt_text})
-    if file_input_list:
-        # (ファイル処理ロジックはここに実装)
-        pass
-
-    if user_message_parts:
-        # スナップショットにユーザーの最新発言が含まれているため、ここでは追加しない
-        pass
-
-    initial_state["messages"] = final_messages
-
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
-    all_participants_list = [soul_vessel_character] + active_participants
-
-    initial_state = {
-        "messages": final_messages,
-        "character_name": character_to_respond,
-        "api_key": api_key,
-        "tavily_api_key": config_manager.TAVILY_API_KEY,
-        "model_name": model_name,
-        "send_core_memory": effective_settings.get("send_core_memory", True),
-        "send_scenery": effective_settings.get("send_scenery", True),
-        "send_notepad": effective_settings.get("send_notepad", True),
-        "debug_mode": debug_mode,
-        # ▼▼▼ 以下を修正・追加 ▼▼▼
-        "location_name": shared_location_name,
-        "scenery_text": shared_scenery_text,
-        "all_participants": all_participants_list
-    }
     # ▲▲▲ 修正ここまで ▲▲▲
 
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    # --- エージェント実行ループ (リトライ機構は維持) ---
     max_retries = 3
     final_state = None
     last_message = None
 
     for attempt in range(max_retries):
         is_final_attempt = (attempt == max_retries - 1)
-
         try:
             print(f"--- エージェント実行試行: {attempt + 1}/{max_retries} ---")
-
             for update in app.stream(initial_state, {"recursion_limit": 15}):
                 yield {"stream_update": update}
                 final_state = update
@@ -175,25 +152,23 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
                 finish_reason = last_message.response_metadata.get('finish_reason', '')
                 if finish_reason == 'STOP':
                     print(f"--- [警告] 試行 {attempt + 1}: AIが空の応答を返しました (理由: STOP)。 ---")
-                    if not is_final_attempt:
-                        time.sleep(1)
-                        continue
+                    if not is_final_attempt: time.sleep(1); continue
                 else:
                     print(f"--- 試行 {attempt + 1}: リトライ対象外の理由 ({finish_reason}) で処理を終了します。 ---")
                     break
-
         except InternalServerError as e:
+            # (500エラーのリトライ処理は変更なし)
             print(f"--- [警告] 試行 {attempt + 1}: 500 内部サーバーエラーが発生しました。 ---")
             if not is_final_attempt:
-                wait_time = (attempt + 1) * 2  # 2秒、4秒と待機時間を増やす
+                wait_time = (attempt + 1) * 2
                 print(f"    -> {wait_time}秒待機してリトライします...")
                 time.sleep(wait_time)
                 continue
             else:
                 final_state = {"response": "[APIエラー: サーバー内部エラー(500)が繰り返し発生しました。時間をおいて再度お試しください。]"}
                 break
-
         except ResourceExhausted as e:
+            # (レート制限のリトライ処理は変更なし)
             error_str = str(e)
             if "PerMinute" in error_str:
                 print(f"--- [警告] 試行 {attempt + 1}: 1分あたりの利用上限に達しました。 ---")
@@ -202,28 +177,23 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
                     print(f"    -> {wait_time}秒待機してリトライします...")
                     time.sleep(wait_time)
                     continue
-
             final_state = {"response": "[APIエラー: 無料利用枠の1日あたりのリクエスト上限か、サーバーの負荷上限に達しました。]"}
             print(f"--- 回復不能なAPIリソース枯渇エラー: {e} ---")
             break
-
         except Exception as e:
             final_state = {"response": f"[エージェント実行エラー: {e}]"}
             traceback.print_exc()
             break
 
-    # ▲▲▲ 修正ここまで ▲▲▲
-
+    # --- 最終的な出力を整形して返す (変更なし) ---
     final_response = {}
     if final_state and isinstance(final_state, dict):
         final_response["response"] = final_state.get("response", "")
         final_response["location_name"] = final_state.get("context_generator", {}).get("location_name", "（不明）")
         final_response["scenery"] = final_state.get("context_generator", {}).get("scenery_text", "（不明）")
-
         final_response_text = ""
         if isinstance(last_message, AIMessage):
             final_response_text = str(last_message.content or "").strip()
-
             if not final_response_text and not last_message.tool_calls:
                 finish_reason = last_message.response_metadata.get('finish_reason', '')
                 if finish_reason == 'SAFETY':
@@ -232,13 +202,10 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
                     final_response_text = "[エラー: AIの応答が、学習元データからの長すぎる引用と判断されたため、ブロックされました。]"
                 else:
                     final_response_text = "[エラー: リトライを試みましたが、AIからの有効な応答がありませんでした。APIが不安定か、プロンプトが複雑すぎる可能性があります。]"
-
         if not final_response.get("response"):
             final_response["response"] = final_response_text
-
     if not final_response:
         final_response["response"] = "[エラー: 不明な理由でエージェントの実行が完了しませんでした。]"
-
     yield {"final_output": final_response}
 
 def count_input_tokens(**kwargs):
