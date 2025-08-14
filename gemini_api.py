@@ -213,13 +213,9 @@ def count_input_tokens(**kwargs):
     if not api_key or api_key.startswith("YOUR_API_KEY"): return "トークン数: (APIキーエラー)"
 
     try:
-        effective_settings = config_manager.get_effective_settings(character_name)
-        # kwargsから渡された設定で上書き
-        if kwargs.get("add_timestamp") is not None: effective_settings["add_timestamp"] = kwargs["add_timestamp"]
-        if kwargs.get("send_thoughts") is not None: effective_settings["send_thoughts"] = kwargs["send_thoughts"]
-        if kwargs.get("send_notepad") is not None: effective_settings["send_notepad"] = kwargs["send_notepad"]
-        if kwargs.get("send_core_memory") is not None: effective_settings["send_core_memory"] = kwargs["send_core_memory"]
-        if kwargs.get("send_scenery") is not None: effective_settings["send_scenery"] = kwargs["send_scenery"]
+        # ▼▼▼ 修正箇所 ▼▼▼
+        # get_effective_settingsにkwargsを渡して、UIのリアルタイム設定を反映させる
+        effective_settings = config_manager.get_effective_settings(character_name, **kwargs)
 
         model_name = effective_settings.get("model_name") or config_manager.DEFAULT_MODEL_GLOBAL
         messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
@@ -258,7 +254,7 @@ def count_input_tokens(**kwargs):
         messages.append(SystemMessage(content=system_prompt_text))
 
         # --- 履歴の構築 ---
-        log_file, _, _, _, _ = get_character_files_paths(character_name)
+        log_file, _, _, _, _ = character_manager.get_character_files_paths(character_name)
         raw_history = utils.load_chat_log(log_file, character_name)
         limit = int(api_history_limit) if api_history_limit and api_history_limit.isdigit() else 0
         if limit > 0 and len(raw_history) > limit * 2:
@@ -267,7 +263,6 @@ def count_input_tokens(**kwargs):
         for h_item in raw_history:
             content = h_item.get('content', '').strip()
             if not content: continue
-            # トークン計算時は、思考ログは除去しない（APIに渡される状態を正確にシミュレートするため）
             if h_item.get('responder', 'model') != 'user':
                  messages.append(AIMessage(content=content))
             else:
