@@ -58,6 +58,8 @@ class AgentState(TypedDict):
     location_name: str
     scenery_text: str
     debug_mode: bool
+    # ▼▼▼ 以下を追加 ▼▼▼
+    all_participants: List[str] # セッションに参加している全キャラクターのリスト
 
 def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     """
@@ -264,12 +266,33 @@ def context_generator_node(state: AgentState):
 
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
+
+    # ▼▼▼ ここからが修正の核心 ▼▼▼
+    base_system_prompt = state['system_prompt'].content
+    final_system_prompt_text = base_system_prompt
+
+    # 複数人対話セッションの場合、ペルソナロック・プロンプトを注入する
+    all_participants = state.get('all_participants', [])
+    current_character = state['character_name']
+
+    if len(all_participants) > 1:
+        other_participants = [p for p in all_participants if p != current_character]
+        persona_lock_prompt = (
+            f"【最重要指示】あなたは「{current_character}」です。"
+            f"他の参加者（{', '.join(other_participants)}、そしてユーザー）の発言を参考に、必ずあなた自身の言葉で応答してください。"
+            "他のキャラクターの応答を代弁したり、生成してはいけません。\n\n---\n\n"
+        )
+        final_system_prompt_text = persona_lock_prompt + base_system_prompt
+
+    final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     print(f"  - 使用モデル: {state['model_name']}")
-    print(f"  - システムプロンプト長: {len(state['system_prompt'].content)} 文字")
+    print(f"  - 最終システムプロンプト長: {len(final_system_prompt_text)} 文字")
 
     if state.get("debug_mode", False):
-        print("--- [DEBUG MODE] システムプロンプトの内容 ---")
-        print(state['system_prompt'].content)
+        print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
+        print(final_system_prompt_text) # 最終版のプロンプトを出力
         print("-----------------------------------------")
 
     effective_settings = config_manager.get_effective_settings(state['character_name'])
@@ -278,17 +301,18 @@ def agent_node(state: AgentState):
         state['api_key'],
         effective_settings
     )
-
     llm_with_tools = llm.bind_tools(all_tools)
 
-    # AIに渡す直前に、履歴からファイル添付のプレースホルダーを除去
-    messages_for_agent = [state['system_prompt']]
+    # AIに渡すメッセージリストの先頭を、最終版のシステムプロンプトに差し替える
+    messages_for_agent = [final_system_prompt_message]
     for msg in state['messages']:
+        # ファイル添付のプレースホルダーを除去する既存のロジックはそのまま
         if isinstance(msg.content, str):
             cleaned_content = re.sub(r"\[ファイル添付:.*?\]", "", msg.content, flags=re.DOTALL).strip()
             if cleaned_content:
-                msg.content = cleaned_content
-                messages_for_agent.append(msg)
+                new_msg = msg.copy()
+                new_msg.content = cleaned_content
+                messages_for_agent.append(new_msg)
         else:
             messages_for_agent.append(msg)
 

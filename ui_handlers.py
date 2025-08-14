@@ -205,7 +205,7 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理する。(v16.1: ハイブリッド履歴＋セッション通知＋バグ修正)
+    ユーザーからのメッセージ送信を処理する。(v17.1: ペルソナロック＋共有コンテキスト＋ハイブリッド履歴)
     """
     (textbox_content, soul_vessel_character, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
@@ -214,7 +214,7 @@ def handle_message_submission(*args: Any):
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
 
-    # ログに保存するユーザーの完全な発言を構築
+    # (ユーザー発言の構築部分は変更なし)
     log_message_parts = []
     if user_prompt_from_textbox:
         effective_settings = config_manager.get_effective_settings(soul_vessel_character)
@@ -228,23 +228,23 @@ def handle_message_submission(*args: Any):
     full_user_log_entry = "\n".join(log_message_parts).strip()
 
     main_log_f, _, _, _, _ = get_character_files_paths(soul_vessel_character)
+    all_characters_in_scene = [soul_vessel_character] + active_participants
     turn_snapshot_path = None
 
+    # ユーザー発言があれば、全員のログに記録し、スナップショットを作成
     if full_user_log_entry:
-        # 1. ユーザー発言を全員の個人ログに記録
-        all_participants_for_user_log = [soul_vessel_character] + active_participants
-        for char_name in all_participants_for_user_log:
+        for char_name in all_characters_in_scene:
             log_f, _, _, _, _ = get_character_files_paths(char_name)
-            if log_f:
-                utils.save_message_to_log(log_f, "## ユーザー:", full_user_log_entry)
+            if log_f: utils.save_message_to_log(log_f, "## ユーザー:", full_user_log_entry)
 
-        # 2. 主役のログに書き込まれた後、スナップショットを作成
         snapshot_key_phrase = user_prompt_from_textbox + "\n" + "\n".join([f"[ファイル添付: {os.path.basename(f.name)}]" for f in file_input_list or []])
         turn_snapshot_path = utils.create_turn_snapshot(main_log_f, snapshot_key_phrase.strip())
 
-    all_characters_in_scene = [soul_vessel_character] + active_participants
+    # 共有コンテキストを生成
+    api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
+    shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_character, api_key)
 
-    # 思考の際はスナップショットを、なければ主役のログを渡す
+    # AIへの思考は、スナップショットがあればそれを、なければメインログを「公式史」として渡す
     log_path_for_agent = turn_snapshot_path if turn_snapshot_path else main_log_f
 
     for character_to_respond in all_characters_in_scene:
@@ -259,7 +259,8 @@ def handle_message_submission(*args: Any):
             debug_mode_state, log_path_for_agent,
             file_input_list if character_to_respond == soul_vessel_character else None,
             user_prompt_from_textbox if character_to_respond == soul_vessel_character else None,
-            soul_vessel_character, active_participants
+            soul_vessel_character, active_participants,
+            shared_location_name, shared_scenery_text
         )
 
         final_response_text = ""
@@ -274,8 +275,7 @@ def handle_message_submission(*args: Any):
                         for tool_msg in tool_messages:
                             if isinstance(tool_msg, ToolMessage):
                                 display_text = utils.format_tool_result_for_ui(tool_msg.name, tool_msg.content)
-                                if display_text:
-                                    gr.Info(display_text)
+                                if display_text: gr.Info(display_text)
                     for state in update.get("stream_update", {}).values():
                         for msg in state.get("messages", []):
                             if isinstance(msg, AIMessage) and msg.tool_calls:
@@ -290,25 +290,23 @@ def handle_message_submission(*args: Any):
             final_response_text = "[エラー: AIが予期せず空の応答を返しました。]"
 
         if final_response_text.strip():
+            # AIの応答も全員のログに記録
             for char_name in all_characters_in_scene:
                  log_f, _, _, _, _ = get_character_files_paths(char_name)
-                 if log_f:
-                    utils.save_message_to_log(log_f, f"## {character_to_respond}:", final_response_text)
+                 if log_f: utils.save_message_to_log(log_f, f"## {character_to_respond}:", final_response_text)
 
+    # (UI最終更新のロジックは変更なし)
     final_chatbot_history, final_mapping_list = reload_chat_log(soul_vessel_character, api_history_limit_state)
     api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
     location_name, _, scenery_text = generate_scenery_context(soul_vessel_character, api_key)
     scenery_image = utils.find_scenery_image(soul_vessel_character, utils.get_current_location(soul_vessel_character))
-
     token_count_text = gemini_api.count_input_tokens(
         character_name=soul_vessel_character, api_key_name=current_api_key_name_state,
         api_history_limit=api_history_limit_state, parts=[],
         **config_manager.get_effective_settings(soul_vessel_character)
     )
-
     final_df_with_ids = render_alarms_as_dataframe()
     final_df = get_display_df(final_df_with_ids)
-
     yield (final_chatbot_history, final_mapping_list, gr.update(), gr.update(value=None), token_count_text,
            location_name, scenery_text,
            final_df_with_ids, final_df, scenery_image,
