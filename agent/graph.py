@@ -226,6 +226,13 @@ def context_generator_node(state: AgentState):
 
 
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
+
+    # ▼▼▼ 以下を追加 ▼▼▼
+    # 複数人対話セッション中は、ツールプロンプトを無効化する
+    if len(state.get('all_participants', [])) > 1:
+        tools_list_str = "（グループ会話中はツールを使用できません）"
+    # ▲▲▲ 追加ここまで ▲▲▲
+
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
     prompt_vars = {'character_name': character_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}

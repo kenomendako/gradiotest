@@ -154,32 +154,44 @@ def load_config():
         _save_config_file(config)
 
 
-def get_effective_settings(character_name):
-    # (この関数の中身は変更ありません)
-    char_config_path = os.path.join(constants.CHARACTERS_DIR, character_name, "character_config.json")
+def get_effective_settings(character_name: str, **kwargs) -> dict:
+    """
+    キャラクターのファイル設定と、UIからのリアルタイムな設定（kwargs）をマージして、
+    最終的に適用される設定値を返す。
+    """
+    # 1. デフォルト設定を定義
     effective_settings = {
         "model_name": DEFAULT_MODEL_GLOBAL, "voice_id": "iapetus", "voice_style_prompt": "",
         "add_timestamp": False, "send_thoughts": initial_send_thoughts_to_api_global,
         "send_notepad": True, "use_common_prompt": False,
         "send_core_memory": True, "send_scenery": True,
-        # --- ここから追加 ---
-        "temperature": 0.8,
-        "top_p": 0.95,
+        "temperature": 0.8, "top_p": 0.95,
         "safety_block_threshold_harassment": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_hate_speech": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_sexually_explicit": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_dangerous_content": "BLOCK_ONLY_HIGH"
-        # --- 追加ここまで ---
     }
+
+    # 2. キャラクターの保存済み設定ファイルで上書き
+    char_config_path = os.path.join(constants.CHARACTERS_DIR, character_name, "character_config.json")
     if os.path.exists(char_config_path):
         try:
             with open(char_config_path, "r", encoding="utf-8") as f:
                 char_config = json.load(f)
             override_settings = char_config.get("override_settings", {})
             for k, v in override_settings.items():
-                if v is not None: effective_settings[k] = v
+                if v is not None:
+                    effective_settings[k] = v
         except Exception as e:
             print(f"キャラクター設定ファイル '{char_config_path}' の読み込みエラー: {e}")
+
+    # 3. UIから渡されたリアルタイムな設定（kwargs）で、さらに上書き
+    for key, value in kwargs.items():
+        if value is not None:
+            effective_settings[key] = value
+
+    # 4. モデル名が空の場合のフォールバック
     if not effective_settings.get("model_name"):
         effective_settings["model_name"] = DEFAULT_MODEL_GLOBAL
+
     return effective_settings
