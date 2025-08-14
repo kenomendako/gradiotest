@@ -181,7 +181,7 @@ try:
                                     gr.Markdown("---")
                                     save_char_settings_button = gr.Button("このキャラクターの設定を保存", variant="primary")
 
-                        with gr.Accordion("🗨️ 複数人対話セッション", open=False):
+                        with gr.Accordion("🧑‍🤝‍🧑 グループ会話", open=False):
                             session_status_display = gr.Markdown("現在、1対1の会話モードです。")
                             participant_checkbox_group = gr.CheckboxGroup(
                                 label="会話に招待するキャラクター",

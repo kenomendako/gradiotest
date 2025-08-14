@@ -238,7 +238,7 @@ def count_input_tokens(**kwargs):
                 with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
         notepad_section = ""
         if effective_settings.get("send_notepad", True):
-            _, _, _, _, notepad_path = get_character_files_paths(character_name)
+            _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
             if notepad_path and os.path.exists(notepad_path):
                 with open(notepad_path, 'r', encoding='utf-8') as f:
                     content = f.read().strip()
