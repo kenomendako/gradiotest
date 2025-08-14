@@ -5,7 +5,6 @@ import traceback
 from typing import Any, List, Union, Optional, Dict, Iterator
 import os
 import json
-import character_manager
 import io
 import base64
 from PIL import Image
@@ -72,23 +71,31 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
     return result.total_tokens
 
-def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
+def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v19: 役割分離による最終FIX)
+    LangGraphの思考プロセスをストリーミングで返す。(v19: 辞書引数による最終FIX)
     """
-    (character_to_respond, api_key_name,
-     api_history_limit, debug_mode,
-     history_log_path, file_input_list, user_prompt_text,
-     soul_vessel_character, active_participants,
-     shared_location_name, shared_scenery_text) = args
-
+    # --- 必要なモジュールをインポート ---
     from agent.graph import app
     import time
     from google.api_core.exceptions import ResourceExhausted, InternalServerError
     from langchain_core.messages import HumanMessage, AIMessage
 
-    all_participants_list = [soul_vessel_character] + active_participants
+    # --- 引数を辞書から展開 ---
+    character_to_respond = agent_args["character_to_respond"]
+    api_key_name = agent_args["api_key_name"]
+    api_history_limit = agent_args["api_history_limit"]
+    debug_mode = agent_args["debug_mode"]
+    history_log_path = agent_args["history_log_path"]
+    file_input_list = agent_args["file_input_list"]
+    user_prompt_text = agent_args["user_prompt_text"]
+    soul_vessel_character = agent_args["soul_vessel_character"]
+    active_participants = agent_args["active_participants"]
+    shared_location_name = agent_args["shared_location_name"]
+    shared_scenery_text = agent_args["shared_scenery_text"]
 
+    # (以降の処理は、前回の最終FIX版と全く同じです)
+    all_participants_list = [soul_vessel_character] + active_participants
     effective_settings = config_manager.get_effective_settings(
         character_to_respond,
         use_common_prompt=(len(all_participants_list) <= 1)
