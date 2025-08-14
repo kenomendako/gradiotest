@@ -73,17 +73,26 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     return result.total_tokens
 
 def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
+    """
+    LangGraphの思考プロセスをストリーミングで返す。(v19: 役割分離による最終FIX)
+    """
     (character_to_respond, api_key_name,
      api_history_limit, debug_mode,
      history_log_path, file_input_list, user_prompt_text,
-     soul_vessel_character, active_participants) = args # 引数を追加
+     soul_vessel_character, active_participants,
+     shared_location_name, shared_scenery_text) = args
 
     from agent.graph import app
     import time
     from google.api_core.exceptions import ResourceExhausted, InternalServerError
     from langchain_core.messages import HumanMessage, AIMessage
 
-    effective_settings = config_manager.get_effective_settings(character_to_respond)
+    all_participants_list = [soul_vessel_character] + active_participants
+
+    effective_settings = config_manager.get_effective_settings(
+        character_to_respond,
+        use_common_prompt=(len(all_participants_list) <= 1)
+    )
     model_name = effective_settings["model_name"]
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
@@ -91,117 +100,30 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
         yield {"final_output": {"response": f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"}}
         return
 
-    # この時点では initial_state はまだ定義されていないので、先に履歴を構築する
-
-    # --- ハイブリッド履歴構築ロジック (v16) ---
-    from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-
+    # --- 履歴構築ロジック ---
     messages = []
-
-    # 1. 応答するAI自身の過去ログを読み込み、LangChainメッセージに変換
-    responding_ai_log_f, _, _, _, _ = character_manager.get_character_files_paths(character_to_respond)
-    if responding_ai_log_f and os.path.exists(responding_ai_log_f):
-        own_history_raw = utils.load_chat_log(responding_ai_log_f, character_to_respond)
-        messages = utils.convert_raw_log_to_lc_messages(own_history_raw)
-
-    # 2. 今回の対話ターンのスナップショット（公式史）を読み込む
-    turn_snapshot_history_raw = []
-    main_character_name_for_snapshot = character_to_respond # デフォルトは自分
-    if 'active_participants' in locals() and active_participants: # active_participantsが定義されていれば使う
-        main_character_name_for_snapshot = soul_vessel_character
-
     if history_log_path and os.path.exists(history_log_path):
-        turn_snapshot_history_raw = utils.load_chat_log(history_log_path, main_character_name_for_snapshot)
+        snapshot_history_raw = utils.load_chat_log(history_log_path, soul_vessel_character)
+        messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, character_to_respond)
 
-    # 3. 自分のログとスナップショットを結合し、重複を除去
-    if turn_snapshot_history_raw:
-        snapshot_messages = utils.convert_raw_log_to_lc_messages(turn_snapshot_history_raw)
-
-        if snapshot_messages and messages:
-            # スナップショットの最初のユーザー発言を探す
-            first_snapshot_user_message_content = ''
-            for msg in snapshot_messages:
-                if isinstance(msg, HumanMessage):
-                    # HumanMessageのcontentがリストの場合と文字列の場合を考慮
-                    if isinstance(msg.content, list):
-                        for part in msg.content:
-                            if isinstance(part, dict) and part.get("type") == "text":
-                                first_snapshot_user_message_content = part.get("text", "").strip()
-                                break
-                    elif isinstance(msg.content, str):
-                        first_snapshot_user_message_content = msg.content.strip()
-                    if first_snapshot_user_message_content:
-                        break
-
-            if first_snapshot_user_message_content:
-                for i in range(len(messages) - 1, -1, -1):
-                    msg = messages[i]
-                    if isinstance(msg, HumanMessage):
-                        # こちらもcontentがリストか文字列かを判定
-                        msg_content_text = ""
-                        if isinstance(msg.content, list):
-                             for part in msg.content:
-                                if isinstance(part, dict) and part.get("type") == "text":
-                                    msg_content_text = part.get("text", "").strip()
-                                    break
-                        elif isinstance(msg.content, str):
-                            msg_content_text = msg.content.strip()
-
-                        if msg_content_text == first_snapshot_user_message_content:
-                            messages = messages[:i] # 重複部分をカット
-                            break
-        messages.extend(snapshot_messages)
-
-    # 4. 履歴制限を適用し、AIの連続応答を結合する
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
         messages = messages[-(limit * 2):]
 
-    final_messages = utils.merge_consecutive_ais(messages)
-
-    # 5. ユーザーの最新の発言を履歴の最後に追加する（ファイル添付情報も考慮）
-    user_message_parts = []
-    if user_prompt_text:
-        user_message_parts.append({"type": "text", "text": user_prompt_text})
-    if file_input_list:
-        # (ファイル処理ロジックはここに実装)
-        pass # このリクエストではファイル処理の実装はスコープ外
-
-    if user_message_parts:
-        # 最後のメッセージが同じユーザープロンプトなら置き換える（安全策）
-        last_msg_is_same = False
-        if (final_messages and isinstance(final_messages[-1], HumanMessage)):
-            last_msg_content = final_messages[-1].content
-            if isinstance(last_msg_content, str):
-                last_msg_is_same = last_msg_content.strip() == user_prompt_text
-            elif isinstance(last_msg_content, list):
-                 # リスト内のテキスト部分を比較
-                 text_in_last_msg = "".join([p.get("text", "") for p in last_msg_content if isinstance(p, dict) and p.get("type") == "text"]).strip()
-                 text_in_current_prompt = "".join([p.get("text", "") for p in user_message_parts if isinstance(p, dict) and p.get("type") == "text"]).strip()
-                 last_msg_is_same = text_in_last_msg == text_in_current_prompt
-
-        if last_msg_is_same:
-            final_messages[-1] = HumanMessage(content=user_message_parts)
-        else:
-            final_messages.append(HumanMessage(content=user_message_parts))
-
-    # initial_state の定義
     initial_state = {
-        "messages": final_messages,
+        "messages": messages,
         "character_name": character_to_respond,
         "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
         "model_name": model_name, "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True), "send_notepad": effective_settings.get("send_notepad", True),
-        "debug_mode": debug_mode,
-        "soul_vessel_character": soul_vessel_character, # 追加
-        "active_participants": active_participants      # 追加
+        "debug_mode": debug_mode, "location_name": shared_location_name,
+        "scenery_text": shared_scenery_text, "all_participants": all_participants_list
     }
 
     # --- エージェント実行ループ (リトライ機構は維持) ---
     max_retries = 3
     final_state = None
     last_message = None
-
     for attempt in range(max_retries):
         is_final_attempt = (attempt == max_retries - 1)
         try:
@@ -209,51 +131,24 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
             for update in app.stream(initial_state, {"recursion_limit": 15}):
                 yield {"stream_update": update}
                 final_state = update
-
             if final_state and isinstance(final_state, dict):
                 agent_final_state = final_state.get("agent", {})
                 last_message = next(reversed(agent_final_state.get("messages", [])), None)
-
             if isinstance(last_message, AIMessage) and (last_message.content or last_message.tool_calls):
-                print(f"--- 試行 {attempt + 1}: 有効な応答を受信しました。 ---")
-                break
-
+                print(f"--- 試行 {attempt + 1}: 有効な応答を受信しました。 ---"); break
             if isinstance(last_message, AIMessage):
                 finish_reason = last_message.response_metadata.get('finish_reason', '')
                 if finish_reason == 'STOP':
-                    print(f"--- [警告] 試行 {attempt + 1}: AIが空の応答を返しました (理由: STOP)。 ---")
-                    if not is_final_attempt: time.sleep(1); continue
-                else:
-                    print(f"--- 試行 {attempt + 1}: リトライ対象外の理由 ({finish_reason}) で処理を終了します。 ---")
-                    break
-        except InternalServerError as e:
-            # (500エラーのリトライ処理は変更なし)
-            print(f"--- [警告] 試行 {attempt + 1}: 500 内部サーバーエラーが発生しました。 ---")
-            if not is_final_attempt:
-                wait_time = (attempt + 1) * 2
-                print(f"    -> {wait_time}秒待機してリトライします...")
-                time.sleep(wait_time)
-                continue
-            else:
-                final_state = {"response": "[APIエラー: サーバー内部エラー(500)が繰り返し発生しました。時間をおいて再度お試しください。]"}
-                break
+                    if not is_final_attempt: print(f"--- [警告] 試行 {attempt + 1}: AIが空応答 (STOP)。リトライします... ---"); time.sleep(1); continue
+                else: print(f"--- 試行 {attempt + 1}: リトライ対象外 ({finish_reason}) で終了。 ---"); break
+        except InternalServerError:
+            if not is_final_attempt: print(f"--- [警告] 試行 {attempt + 1}: 500エラー。リトライします... ---"); time.sleep((attempt + 1) * 2); continue
+            else: final_state = {"response": "[APIエラー: サーバー内部エラー(500)が頻発しました。]"}; break
         except ResourceExhausted as e:
-            # (レート制限のリトライ処理は変更なし)
-            error_str = str(e)
-            if "PerMinute" in error_str:
-                print(f"--- [警告] 試行 {attempt + 1}: 1分あたりの利用上限に達しました。 ---")
-                if not is_final_attempt:
-                    wait_time = 61
-                    print(f"    -> {wait_time}秒待機してリトライします...")
-                    time.sleep(wait_time)
-                    continue
-            final_state = {"response": "[APIエラー: 無料利用枠の1日あたりのリクエスト上限か、サーバーの負荷上限に達しました。]"}
-            print(f"--- 回復不能なAPIリソース枯渇エラー: {e} ---")
-            break
+            if "PerMinute" in str(e) and not is_final_attempt: print(f"--- [警告] 試行 {attempt + 1}: レート制限。61秒待機... ---"); time.sleep(61); continue
+            final_state = {"response": "[APIエラー: リソース上限に達しました。]"}; break
         except Exception as e:
-            final_state = {"response": f"[エージェント実行エラー: {e}]"}
-            traceback.print_exc()
-            break
+            final_state = {"response": f"[エージェント実行エラー: {e}]"}; traceback.print_exc(); break
 
     # --- 最終的な出力を整形して返す (変更なし) ---
     final_response = {}
@@ -266,16 +161,11 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
             final_response_text = str(last_message.content or "").strip()
             if not final_response_text and not last_message.tool_calls:
                 finish_reason = last_message.response_metadata.get('finish_reason', '')
-                if finish_reason == 'SAFETY':
-                    final_response_text = "[エラー: AIの応答が安全フィルターによってブロックされました。不適切な内容と判断された可能性があります。お手数ですが、表現を変えてもう一度お試しください。]"
-                elif finish_reason == 'RECITATION':
-                    final_response_text = "[エラー: AIの応答が、学習元データからの長すぎる引用と判断されたため、ブロックされました。]"
-                else:
-                    final_response_text = "[エラー: リトライを試みましたが、AIからの有効な応答がありませんでした。APIが不安定か、プロンプトが複雑すぎる可能性があります。]"
-        if not final_response.get("response"):
-            final_response["response"] = final_response_text
-    if not final_response:
-        final_response["response"] = "[エラー: 不明な理由でエージェントの実行が完了しませんでした。]"
+                if finish_reason == 'SAFETY': final_response_text = "[エラー: 応答が安全フィルターにブロックされました。]"
+                elif finish_reason == 'RECITATION': final_response_text = "[エラー: 応答が引用要件によりブロックされました。]"
+                else: final_response_text = "[エラー: AIからの有効な応答がありませんでした。]"
+        if not final_response.get("response"): final_response["response"] = final_response_text
+    if not final_response: final_response["response"] = "[エラー: 不明な理由でエージェントが完了しませんでした。]"
     yield {"final_output": final_response}
 
 def count_input_tokens(**kwargs):
