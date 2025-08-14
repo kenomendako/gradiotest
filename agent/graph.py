@@ -192,6 +192,7 @@ def generate_scenery_context(character_name: str, api_key: str, force_regenerate
 
 def context_generator_node(state: AgentState):
     character_name = state['character_name']
+    all_participants = state.get('all_participants', [])
 
     # --- 共通のプロンプト部品を生成 ---
     char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
@@ -199,10 +200,12 @@ def context_generator_node(state: AgentState):
     character_prompt = ""
     if os.path.exists(char_prompt_path):
         with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
+
     core_memory = ""
     if state.get("send_core_memory", True):
         if os.path.exists(core_memory_path):
             with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
+
     notepad_section = ""
     if state.get("send_notepad", True):
         try:
@@ -220,7 +223,7 @@ def context_generator_node(state: AgentState):
 
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
     # グループ会話中はツールプロンプトを無効化
-    if len(state.get('all_participants', [])) > 1:
+    if len(all_participants) > 1:
         tools_list_str = "（グループ会話中はツールを使用できません）"
 
     class SafeDict(dict):
@@ -231,42 +234,42 @@ def context_generator_node(state: AgentState):
     # --- 空間描写 ---
     if not state.get("send_scenery", True):
         final_system_prompt_text = (f"{formatted_core_prompt}\n\n---\n【現在の場所と情景】\n（空間描写は設定により無効化されています）\n---")
-        return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
+    else:
+        # stateから共有コンテキストを取得して使用する
+        location_display_name = state.get("location_name", "（不明な場所）")
+        scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
 
-    # stateから共有コンテキストを取得
-    location_display_name = state.get("location_name", "（不明な場所）")
-    scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
+        # 場所の定義（space_def）は、メインAI（魂の器）の現在地から取得する
+        soul_vessel_character = all_participants[0] if all_participants else character_name
+        space_def = "（場所の定義を取得できませんでした）"
+        current_location_name = utils.get_current_location(soul_vessel_character)
+        if current_location_name:
+            world_settings_path = get_world_settings_path(soul_vessel_character)
+            world_data = utils.parse_world_file(world_settings_path)
+            for area, places in world_data.items():
+                if current_location_name in places:
+                    space_def = places[current_location_name]
+                    break
 
-    # 場所の定義（space_def）は、毎回ファイルから読み込む必要がある
-    space_def = "（場所の定義を取得できませんでした）"
-    current_location_name = utils.get_current_location(character_name)
-    if current_location_name:
-        world_settings_path = get_world_settings_path(character_name)
-        world_data = utils.parse_world_file(world_settings_path)
-        for area, places in world_data.items():
-            if current_location_name in places:
-                space_def = places[current_location_name]
-                break
+        available_locations = get_location_list(character_name) # 移動先は自分自身のもの
+        location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
 
-    available_locations = get_location_list(character_name)
-    location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
-
-    final_system_prompt_text = (
-        f"{formatted_core_prompt}\n\n---\n"
-        f"【現在の場所と情景】\n- 場所: {location_display_name}\n"
-        f"- 場所の設定（自由記述）: \n{space_def}\n- 今の情景: {scenery_text}\n"
-        f"【移動可能な場所】\n{location_list_str}\n---"
-    )
+        final_system_prompt_text = (
+            f"{formatted_core_prompt}\n\n---\n"
+            f"【現在の場所と情景】\n- 場所: {location_display_name}\n"
+            f"- 場所の設定（自由記述）: \n{space_def}\n- 今の情景: {scenery_text}\n"
+            f"【移動可能な場所】\n{location_list_str}\n---"
+        )
 
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
     base_system_prompt = state['system_prompt'].content
-    final_system_prompt_text = base_system_prompt
     all_participants = state.get('all_participants', [])
     current_character = state['character_name']
 
+    final_system_prompt_text = base_system_prompt
     if len(all_participants) > 1:
         other_participants = [p for p in all_participants if p != current_character]
         persona_lock_prompt = (
@@ -277,6 +280,7 @@ def agent_node(state: AgentState):
         final_system_prompt_text = persona_lock_prompt + base_system_prompt
 
     final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
+
     print(f"  - 使用モデル: {state['model_name']}")
     print(f"  - 最終システムプロンプト長: {len(final_system_prompt_text)} 文字")
 
@@ -290,7 +294,6 @@ def agent_node(state: AgentState):
     llm_with_tools = llm.bind_tools(all_tools)
 
     messages_for_agent = [final_system_prompt_message] + state['messages']
-
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}
 

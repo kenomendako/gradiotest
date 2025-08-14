@@ -107,12 +107,40 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         yield {"final_output": {"response": f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"}}
         return
 
-    # --- 履歴構築ロジック ---
+    # --- ハイブリッド履歴構築ロジック (v20 Final) ---
     messages = []
+
+    # 1. 応答するAI自身の過去ログを読み込む
+    responding_ai_log_f, _, _, _, _ = character_manager.get_character_files_paths(character_to_respond)
+    if responding_ai_log_f and os.path.exists(responding_ai_log_f):
+        own_history_raw = utils.load_chat_log(responding_ai_log_f, character_to_respond)
+        messages = utils.convert_raw_log_to_lc_messages(own_history_raw, character_to_respond)
+
+    # 2. 今回の対話ターンのスナップショット（公式史）を読み込む
     if history_log_path and os.path.exists(history_log_path):
         snapshot_history_raw = utils.load_chat_log(history_log_path, soul_vessel_character)
-        messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, character_to_respond)
+        snapshot_messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, character_to_respond)
 
+        # 3. 自分のログとスナップショットを結合し、重複を除去
+        if snapshot_messages and messages:
+            first_snapshot_user_message_content = ""
+            if isinstance(snapshot_messages[0], HumanMessage):
+                # 人の発言は文字列なのでそのまま比較
+                first_snapshot_user_message_content = snapshot_messages[0].content.split("（")[0].strip()
+
+            if first_snapshot_user_message_content:
+                for i in range(len(messages) - 1, -1, -1):
+                    if isinstance(messages[i], HumanMessage):
+                        # 自分のログのユーザー発言も比較用に整形
+                        own_log_user_content = messages[i].content.split("（")[0].strip()
+                        if own_log_user_content == first_snapshot_user_message_content:
+                            messages = messages[:i] # 重複の開始点を見つけたら、そこまでをカット
+                            break
+            messages.extend(snapshot_messages)
+        elif snapshot_messages:
+            messages = snapshot_messages
+
+    # 4. 履歴制限を適用
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
         messages = messages[-(limit * 2):]
