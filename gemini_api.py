@@ -213,9 +213,14 @@ def count_input_tokens(**kwargs):
     if not api_key or api_key.startswith("YOUR_API_KEY"): return "トークン数: (APIキーエラー)"
 
     try:
-        # ▼▼▼ 修正箇所 ▼▼▼
-        # get_effective_settingsにkwargsを渡して、UIのリアルタイム設定を反映させる
-        effective_settings = config_manager.get_effective_settings(character_name, **kwargs)
+        # ▼▼▼【修正の核心】▼▼▼
+        # kwargs辞書からcharacter_nameを削除したコピーを作成し、それを渡す
+        # これで'character_name'が重複して渡されるのを防ぐ
+        kwargs_for_settings = kwargs.copy()
+        kwargs_for_settings.pop("character_name", None)
+
+        effective_settings = config_manager.get_effective_settings(character_name, **kwargs_for_settings)
+        # ▲▲▲ 修正ここまで ▲▲▲
 
         model_name = effective_settings.get("model_name") or config_manager.DEFAULT_MODEL_GLOBAL
         messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
