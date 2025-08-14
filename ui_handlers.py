@@ -205,19 +205,18 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理する。(v13: 共有歴史アーキテクチャ)
+    ユーザーからのメッセージ送信を処理する。(v16: ハイブリッド履歴＋セッション通知)
     """
-    (textbox_content, current_character_name, current_api_key_name_state,
+    (textbox_content, soul_vessel_character, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
-     current_console_content, participant_list) = args
-    participant_list = participant_list or []
+     current_console_content, active_participants) = args
+    active_participants = active_participants or []
 
+    # ユーザー発言の構築
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
-
-    # ログに保存するユーザーの完全な発言を構築
     log_message_parts = []
     if user_prompt_from_textbox:
-        effective_settings = config_manager.get_effective_settings(current_character_name)
+        effective_settings = config_manager.get_effective_settings(soul_vessel_character)
         add_timestamp_checkbox = effective_settings.get("add_timestamp", False)
         timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp_checkbox else ""
         user_prompt_from_textbox_with_ts = user_prompt_from_textbox + timestamp
@@ -227,28 +226,42 @@ def handle_message_submission(*args: Any):
             log_message_parts.append(f"[ファイル添付: {os.path.basename(file_obj.name)}]")
     full_user_log_entry = "\n".join(log_message_parts).strip()
 
-    main_log_f, _, _, _, _ = get_character_files_paths(current_character_name)
-    # ユーザーの発言は、APIコールループの前に、一度だけ記録する
+    # ユーザーの発言は、APIコールループの前に、一度だけ全員のログに記録する
+    all_characters_in_scene = [soul_vessel_character] + active_participants
     if full_user_log_entry:
-        utils.save_message_to_log(main_log_f, "## ユーザー:", full_user_log_entry)
+        for char_name in all_characters_in_scene:
+            log_f, _, _, _, _ = get_character_files_paths(char_name)
+            utils.save_message_to_log(log_f, "## ユーザー:", full_user_log_entry)
 
-    all_characters_in_scene = [current_character_name] + participant_list
+    # 思考の起点となる「今回のターン」のスナップショットを作成
+    # ユーザーの入力テキスト（タイムスタンプなし）を渡す
+    main_log_f, _, _, _, _ = get_character_files_paths(soul_vessel_character)
+    turn_snapshot_path = utils.create_turn_snapshot(main_log_f, user_prompt_from_textbox)
+    if not turn_snapshot_path:
+        gr.Error("今回の対話ターンのスナップショット作成に失敗しました。処理を中断します。")
+        # UIの状態を元に戻すためのyield
+        history, mapping_list = reload_chat_log(soul_vessel_character, api_history_limit_state)
+        yield (history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+               gr.update(), gr.update(), gr.update(), current_console_content, current_console_content)
+        return
+
 
     for character_to_respond in all_characters_in_scene:
-        chatbot_history, mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
+        chatbot_history, mapping_list = reload_chat_log(soul_vessel_character, api_history_limit_state)
         chatbot_history.append((None, f"思考中 ({character_to_respond})... ▌"))
         yield (chatbot_history, mapping_list, gr.update(value=""), gr.update(value=None),
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content)
 
+        # 全員が、常に「今回のターンのスナップショット」を歴史として参照
+        log_path_for_agent = turn_snapshot_path
+
         agent_stream_args = (
-            character_to_respond,
-            current_api_key_name_state,
-            api_history_limit_state,
-            debug_mode_state,
-            main_log_f, # <-- 全員が、共有された歴史を参照
-            file_input_list if character_to_respond == current_character_name else None, # ファイルは主役のターンにのみ渡す
-            user_prompt_from_textbox if character_to_respond == current_character_name else "" # テキストも主役のターンにのみ渡す
+            character_to_respond, current_api_key_name_state, api_history_limit_state,
+            debug_mode_state, log_path_for_agent,
+            file_input_list if character_to_respond == soul_vessel_character else None,
+            user_prompt_from_textbox if character_to_respond == soul_vessel_character else None,
+            soul_vessel_character, active_participants
         )
 
         final_response_text = ""
@@ -256,6 +269,7 @@ def handle_message_submission(*args: Any):
         with utils.capture_prints() as captured_output:
             for update in gemini_api.invoke_nexus_agent_stream(*agent_stream_args):
                 if "stream_update" in update:
+                    # (ストリーム更新の処理は変更なし)
                     node_name = list(update["stream_update"].keys())[0]
                     node_output = update["stream_update"][node_name]
                     if node_name == "safe_tool_node":
@@ -263,8 +277,7 @@ def handle_message_submission(*args: Any):
                         for tool_msg in tool_messages:
                             if isinstance(tool_msg, ToolMessage):
                                 display_text = utils.format_tool_result_for_ui(tool_msg.name, tool_msg.content)
-                                if display_text:
-                                    gr.Info(display_text)
+                                if display_text: gr.Info(display_text)
                     for state in update.get("stream_update", {}).values():
                         for msg in state.get("messages", []):
                             if isinstance(msg, AIMessage) and msg.tool_calls:
@@ -279,26 +292,21 @@ def handle_message_submission(*args: Any):
             final_response_text = "[エラー: AIが予期せず空の応答を返しました。]"
 
         if final_response_text.strip():
-            # 各キャラクターの応答を、共有された歴史に記録
-            utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", final_response_text)
+            # 各キャラクターの応答を、全員のログに記録
+            for char_name in all_characters_in_scene:
+                log_f, _, _, _, _ = get_character_files_paths(char_name)
+                utils.save_message_to_log(log_f, f"## {character_to_respond}:", final_response_text)
 
-    if participant_list:
-        # ... (この部分は将来的な拡張領域として、現状のままとします)
-        pass
-
-    # 4. 最終的なUI状態の更新
-    final_chatbot_history, final_mapping_list = reload_chat_log(current_character_name, api_history_limit_state)
-
+    # 最終的なUI状態の更新
+    final_chatbot_history, final_mapping_list = reload_chat_log(soul_vessel_character, api_history_limit_state)
     api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
-    location_name, _, scenery_text = generate_scenery_context(current_character_name, api_key)
-    scenery_image = utils.find_scenery_image(current_character_name, utils.get_current_location(current_character_name))
-
+    location_name, _, scenery_text = generate_scenery_context(soul_vessel_character, api_key)
+    scenery_image = utils.find_scenery_image(soul_vessel_character, utils.get_current_location(soul_vessel_character))
     token_count_text = gemini_api.count_input_tokens(
-        character_name=current_character_name, api_key_name=current_api_key_name_state,
+        character_name=soul_vessel_character, api_key_name=current_api_key_name_state,
         api_history_limit=api_history_limit_state, parts=[],
-        **config_manager.get_effective_settings(current_character_name)
+        **config_manager.get_effective_settings(soul_vessel_character)
     )
-
     final_df_with_ids = render_alarms_as_dataframe()
     final_df = get_display_df(final_df_with_ids)
 
@@ -1012,12 +1020,65 @@ def handle_character_change_for_all_tabs(character_name: str, api_key_name: str)
     chat_tab_updates = handle_character_change(character_name, api_key_name)
     world_builder_updates = handle_world_builder_load(character_name)
 
-    # ▼▼▼ 参加者チェックボックスを更新するロジックを追加 ▼▼▼
+    # 参加者チェックボックスを更新し、セッション状態をリセットする
     all_characters = character_manager.get_character_list()
     other_characters = sorted([c for c in all_characters if c != character_name])
+
+    active_participants = []
+    session_status = "現在、1対1の会話モードです。"
     participant_checkbox_update = gr.update(choices=other_characters, value=[])
 
-    return chat_tab_updates + world_builder_updates + (participant_checkbox_update,)
+    return chat_tab_updates + world_builder_updates + (
+        active_participants,
+        session_status,
+        participant_checkbox_update
+    )
+
+#
+# セッション管理ハンドラ
+#
+
+def handle_start_session(main_character: str, participant_list: list) -> tuple:
+    """複数人対話セッションを開始または更新し、全参加者に通知する。"""
+    if not participant_list:
+        gr.Info("会話に参加するキャラクターを1人以上選択してください。")
+        # gr.update()を返すことで、対応するUIコンポーネントの値を変更しないようにする
+        return gr.update(), gr.update()
+
+    all_participants = [main_character] + participant_list
+    participants_text = "、".join(all_participants)
+    status_text = f"現在、**{participants_text}** を招待して会話中です。"
+
+    # システム通知メッセージを作成
+    session_start_message = f"（システム通知：{participants_text} との複数人対話セッションが開始されました。）"
+
+    # 各参加者のログファイルに通知を書き込む
+    for char_name in all_participants:
+        log_f, _, _, _, _ = character_manager.get_character_files_paths(char_name)
+        if log_f:
+            utils.save_message_to_log(log_f, "## システム(セッション管理):", session_start_message)
+
+    gr.Info(f"複数人対話セッションを開始しました。参加者: {participants_text}")
+    return participant_list, status_text
+
+
+def handle_end_session(main_character: str, active_participants: list) -> tuple:
+    """複数人対話セッションを終了し、全参加者に通知する。"""
+    if not active_participants:
+        gr.Info("現在、1対1の会話モードです。")
+        return [], "現在、1対1の会話モードです。", gr.update(value=[])
+
+    all_participants = [main_character] + active_participants
+    session_end_message = "（システム通知：複数人対話セッションが終了しました。）"
+
+    for char_name in all_participants:
+        log_f, _, _, _, _ = character_manager.get_character_files_paths(char_name)
+        if log_f:
+            utils.save_message_to_log(log_f, "## システム(セッション管理):", session_end_message)
+
+    gr.Info("複数人対話セッションを終了し、1対1の会話モードに戻りました。")
+    # 状態をリセットし、UIを更新する
+    return [], "現在、1対1の会話モードです。", gr.update(value=[])
 
 
 def handle_wb_area_select(world_data: Dict, area_name: str):
@@ -1247,12 +1308,9 @@ def handle_reload_system_prompt(character_name: str) -> str:
     return content
 
 def handle_rerun_button_click(*args: Any):
-    """
-    「再生成」ボタンが押された際の処理。(v10: 魂の器アーキテクチャ)
-    """
     (selected_message, character_name, api_key_name,
      file_list, api_history_limit, debug_mode,
-     current_console_content, participant_list) = args
+     current_console_content, active_participants) = args
 
     if not selected_message or not character_name:
         gr.Warning("再生成するメッセージが選択されていません。")
@@ -1263,11 +1321,9 @@ def handle_rerun_button_click(*args: Any):
     is_ai_message = selected_message.get("responder") != "ユーザー"
 
     if is_ai_message:
-        # AIの発言が選択された場合：これまでのロジック
         log_f, _, _, _, _ = get_character_files_paths(character_name)
         restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, character_name)
     else:
-        # ユーザーの発言が選択された場合：新しいロジック
         log_f, _, _, _, _ = get_character_files_paths(character_name)
         restored_input_text = utils.delete_user_message_and_after(log_f, selected_message, character_name)
 
@@ -1281,11 +1337,11 @@ def handle_rerun_button_click(*args: Any):
 
     yield from handle_message_submission(
         restored_input_text,
-        character_name, # <-- 主役キャラクター（器）
+        character_name,
         api_key_name,
-        None,
+        None, # file_list is not passed on rerun
         api_history_limit,
         debug_mode,
         current_console_content,
-        participant_list # <-- 再生成に参加するキャラクター
+        active_participants
     )

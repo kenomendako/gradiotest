@@ -72,24 +72,17 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     return result.total_tokens
 
 def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
-    """
-    LangGraphの思考プロセスをストリーミングで返す。(v18: 役割の明確化による最終FIX)
-    """
     (character_to_respond, api_key_name,
      api_history_limit, debug_mode,
      history_log_path, file_input_list, user_prompt_text,
-     soul_vessel_character, active_participants,
-     shared_location_name, shared_scenery_text) = args
+     soul_vessel_character, active_participants) = args # 引数を追加
 
     from agent.graph import app
     import time
     from google.api_core.exceptions import ResourceExhausted, InternalServerError
     from langchain_core.messages import HumanMessage, AIMessage
 
-    effective_settings = config_manager.get_effective_settings(
-        character_to_respond,
-        use_common_prompt=(len(active_participants) == 0) # グループ会話中はツールプロンプトをOFF
-    )
+    effective_settings = config_manager.get_effective_settings(character_to_respond)
     model_name = effective_settings["model_name"]
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
@@ -97,35 +90,111 @@ def invoke_nexus_agent_stream(*args: Any) -> Iterator[Dict[str, Any]]:
         yield {"final_output": {"response": f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"}}
         return
 
-    # ▼▼▼ UnboundLocalErrorの修正と、新しい履歴構築ロジック ▼▼▼
+    # この時点では initial_state はまだ定義されていないので、先に履歴を構築する
 
-    # 最初にinitial_stateの骨格を定義する
-    all_participants_list = [soul_vessel_character] + active_participants
-    initial_state = {
-        "messages": [], # この後で構築する
-        "character_name": character_to_respond,
-        "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
-        "model_name": model_name, "send_core_memory": effective_settings.get("send_core_memory", True),
-        "send_scenery": effective_settings.get("send_scenery", True), "send_notepad": effective_settings.get("send_notepad", True),
-        "debug_mode": debug_mode, "location_name": shared_location_name,
-        "scenery_text": shared_scenery_text, "all_participants": all_participants_list
-    }
+    # --- ハイブリッド履歴構築ロジック (v16) ---
+    from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
-    # スナップショット（公式史）のみを読み込み、応答AIの視点で履歴を再構築
     messages = []
-    if history_log_path and os.path.exists(history_log_path):
-        snapshot_history_raw = utils.load_chat_log(history_log_path, soul_vessel_character)
-        # 応答するAIの名前を渡して、役割を区別させる
-        messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, character_to_respond)
 
-    # 履歴制限を適用
+    # 1. 応答するAI自身の過去ログを読み込み、LangChainメッセージに変換
+    responding_ai_log_f, _, _, _, _ = character_manager.get_character_files_paths(character_to_respond)
+    if responding_ai_log_f and os.path.exists(responding_ai_log_f):
+        own_history_raw = utils.load_chat_log(responding_ai_log_f, character_to_respond)
+        messages = utils.convert_raw_log_to_lc_messages(own_history_raw)
+
+    # 2. 今回の対話ターンのスナップショット（公式史）を読み込む
+    turn_snapshot_history_raw = []
+    main_character_name_for_snapshot = character_to_respond # デフォルトは自分
+    if 'active_participants' in locals() and active_participants: # active_participantsが定義されていれば使う
+        main_character_name_for_snapshot = soul_vessel_character
+
+    if history_log_path and os.path.exists(history_log_path):
+        turn_snapshot_history_raw = utils.load_chat_log(history_log_path, main_character_name_for_snapshot)
+
+    # 3. 自分のログとスナップショットを結合し、重複を除去
+    if turn_snapshot_history_raw:
+        snapshot_messages = utils.convert_raw_log_to_lc_messages(turn_snapshot_history_raw)
+
+        if snapshot_messages and messages:
+            # スナップショットの最初のユーザー発言を探す
+            first_snapshot_user_message_content = ''
+            for msg in snapshot_messages:
+                if isinstance(msg, HumanMessage):
+                    # HumanMessageのcontentがリストの場合と文字列の場合を考慮
+                    if isinstance(msg.content, list):
+                        for part in msg.content:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                first_snapshot_user_message_content = part.get("text", "").strip()
+                                break
+                    elif isinstance(msg.content, str):
+                        first_snapshot_user_message_content = msg.content.strip()
+                    if first_snapshot_user_message_content:
+                        break
+
+            if first_snapshot_user_message_content:
+                for i in range(len(messages) - 1, -1, -1):
+                    msg = messages[i]
+                    if isinstance(msg, HumanMessage):
+                        # こちらもcontentがリストか文字列かを判定
+                        msg_content_text = ""
+                        if isinstance(msg.content, list):
+                             for part in msg.content:
+                                if isinstance(part, dict) and part.get("type") == "text":
+                                    msg_content_text = part.get("text", "").strip()
+                                    break
+                        elif isinstance(msg.content, str):
+                            msg_content_text = msg.content.strip()
+
+                        if msg_content_text == first_snapshot_user_message_content:
+                            messages = messages[:i] # 重複部分をカット
+                            break
+        messages.extend(snapshot_messages)
+
+    # 4. 履歴制限を適用し、AIの連続応答を結合する
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
         messages = messages[-(limit * 2):]
 
-    initial_state["messages"] = messages
+    final_messages = utils.merge_consecutive_ais(messages)
 
-    # ▲▲▲ 修正ここまで ▲▲▲
+    # 5. ユーザーの最新の発言を履歴の最後に追加する（ファイル添付情報も考慮）
+    user_message_parts = []
+    if user_prompt_text:
+        user_message_parts.append({"type": "text", "text": user_prompt_text})
+    if file_input_list:
+        # (ファイル処理ロジックはここに実装)
+        pass # このリクエストではファイル処理の実装はスコープ外
+
+    if user_message_parts:
+        # 最後のメッセージが同じユーザープロンプトなら置き換える（安全策）
+        last_msg_is_same = False
+        if (final_messages and isinstance(final_messages[-1], HumanMessage)):
+            last_msg_content = final_messages[-1].content
+            if isinstance(last_msg_content, str):
+                last_msg_is_same = last_msg_content.strip() == user_prompt_text
+            elif isinstance(last_msg_content, list):
+                 # リスト内のテキスト部分を比較
+                 text_in_last_msg = "".join([p.get("text", "") for p in last_msg_content if isinstance(p, dict) and p.get("type") == "text"]).strip()
+                 text_in_current_prompt = "".join([p.get("text", "") for p in user_message_parts if isinstance(p, dict) and p.get("type") == "text"]).strip()
+                 last_msg_is_same = text_in_last_msg == text_in_current_prompt
+
+        if last_msg_is_same:
+            final_messages[-1] = HumanMessage(content=user_message_parts)
+        else:
+            final_messages.append(HumanMessage(content=user_message_parts))
+
+    # initial_state の定義
+    initial_state = {
+        "messages": final_messages,
+        "character_name": character_to_respond,
+        "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
+        "model_name": model_name, "send_core_memory": effective_settings.get("send_core_memory", True),
+        "send_scenery": effective_settings.get("send_scenery", True), "send_notepad": effective_settings.get("send_notepad", True),
+        "debug_mode": debug_mode,
+        "soul_vessel_character": soul_vessel_character, # 追加
+        "active_participants": active_participants      # 追加
+    }
 
     # --- エージェント実行ループ (リトライ機構は維持) ---
     max_retries = 3
