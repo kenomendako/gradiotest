@@ -187,12 +187,16 @@ try:
                                     gr.Markdown("---")
                                     save_char_settings_button = gr.Button("このキャラクターの設定を保存", variant="primary")
 
-                        with gr.Accordion("🗨️ 他の参加者を選択", open=False):
-                            participant_checkbox_group = gr.CheckboxGroup(
-                                label="会話に参加するキャラクター",
-                                choices=sorted([c for c in character_list_on_startup if c != effective_initial_character]),
-                                interactive=True
-                            )
+with gr.Accordion("🗨️ 複数人対話セッション", open=False):
+    session_status_display = gr.Markdown("現在、1対1の会話モードです。")
+    participant_checkbox_group = gr.CheckboxGroup(
+        label="会話に招待するキャラクター",
+        choices=sorted([c for c in character_list_on_startup if c != effective_initial_character]),
+        interactive=True
+    )
+    with gr.Row():
+        start_session_button = gr.Button("このメンバーで会話を開始 / 更新", variant="primary")
+        end_session_button = gr.Button("会話を終了 (1対1に戻る)", variant="secondary")
 
                         with gr.Accordion("🗨️ 新しいルームを作成する", open=False):
                             with gr.Row():
