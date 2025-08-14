@@ -1,4 +1,4 @@
-# nexus_ark.py (UI確定・最終版)
+# nexus_ark.py (v18: 複数人対話セッションFIX・最終版)
 
 import os
 import sys
@@ -77,8 +77,8 @@ try:
         editing_alarm_id_state = gr.State(None)
         selected_message_state = gr.State(None)
         current_log_map_state = gr.State([])
-        participant_characters_state = gr.State([])
-        debug_console_state = gr.State("") # コンソールの内容を保持するState
+        active_participants_state = gr.State([]) # 現在アクティブな複数人対話の参加者リスト
+        debug_console_state = gr.State("")
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -160,23 +160,17 @@ try:
                                         with gr.Row():
                                             char_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
                                             char_preview_voice_button = gr.Button("試聴", scale=1)
-
-                                    # ▼▼▼ 新しいアコーディオンを、この位置にまるごと追加 ▼▼▼
                                     with gr.Accordion("🔬 AI生成パラメータ調整", open=False):
                                         gr.Markdown("このキャラクターの応答の「創造性」と「安全性」を調整します。")
                                         char_temperature_slider = gr.Slider(minimum=0.0, maximum=2.0, step=0.05, label="Temperature", info="値が高いほど、AIの応答がより創造的で多様になります。(推奨: 0.7 ~ 0.9)")
                                         char_top_p_slider = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, label="Top-P", info="値が低いほど、ありふれた単語が選ばれやすくなります。(推奨: 0.95)")
-
                                         safety_choices = ["ブロックしない", "低リスク以上をブロック", "中リスク以上をブロック", "高リスクのみブロック"]
-
                                         with gr.Row():
                                             char_safety_harassment_dropdown = gr.Dropdown(choices=safety_choices, label="嫌がらせコンテンツ", interactive=True)
                                             char_safety_hate_speech_dropdown = gr.Dropdown(choices=safety_choices, label="ヘイトスピーチ", interactive=True)
                                         with gr.Row():
                                             char_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
                                             char_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
-                                    # ▲▲▲ 追加ここまで ▲▲▲
-
                                     gr.Markdown("#### APIコンテキスト設定")
                                     char_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
                                     char_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
@@ -187,16 +181,16 @@ try:
                                     gr.Markdown("---")
                                     save_char_settings_button = gr.Button("このキャラクターの設定を保存", variant="primary")
 
-with gr.Accordion("🗨️ 複数人対話セッション", open=False):
-    session_status_display = gr.Markdown("現在、1対1の会話モードです。")
-    participant_checkbox_group = gr.CheckboxGroup(
-        label="会話に招待するキャラクター",
-        choices=sorted([c for c in character_list_on_startup if c != effective_initial_character]),
-        interactive=True
-    )
-    with gr.Row():
-        start_session_button = gr.Button("このメンバーで会話を開始 / 更新", variant="primary")
-        end_session_button = gr.Button("会話を終了 (1対1に戻る)", variant="secondary")
+                        with gr.Accordion("🗨️ 複数人対話セッション", open=False):
+                            session_status_display = gr.Markdown("現在、1対1の会話モードです。")
+                            participant_checkbox_group = gr.CheckboxGroup(
+                                label="会話に招待するキャラクター",
+                                choices=sorted([c for c in character_list_on_startup if c != effective_initial_character]),
+                                interactive=True
+                            )
+                            with gr.Row():
+                                start_session_button = gr.Button("このメンバーで会話を開始 / 更新", variant="primary")
+                                end_session_button = gr.Button("会話を終了 (1対1に戻る)", variant="secondary")
 
                         with gr.Accordion("🗨️ 新しいルームを作成する", open=False):
                             with gr.Row():
@@ -280,32 +274,67 @@ with gr.Accordion("🗨️ 複数人対話セッション", open=False):
         # --- イベントハンドラ定義 ---
         context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
         context_token_calc_inputs = [current_character_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
-
         initial_load_chat_outputs = [
             current_character_name, chatbot_display, current_log_map_state, chat_input_textbox, profile_image_display,
             memory_json_editor, notepad_editor, system_prompt_editor,
             alarm_char_dropdown, timer_char_dropdown, location_dropdown,
             current_location_display, current_scenery_display, char_model_dropdown, char_voice_dropdown,
             char_voice_style_prompt_textbox,
-            # ▼▼▼ 新しいUI部品を出力リストに追加 ▼▼▼
             char_temperature_slider, char_top_p_slider,
             char_safety_harassment_dropdown, char_safety_hate_speech_dropdown,
             char_safety_sexually_explicit_dropdown, char_safety_dangerous_content_dropdown
         ] + context_checkboxes + [char_settings_info, scenery_image_display]
         initial_load_outputs = [alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown] + initial_load_chat_outputs
+
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
         char_change_world_builder_outputs = [world_data_state, area_selector]
-        all_char_change_outputs = initial_load_chat_outputs + char_change_world_builder_outputs + [participant_checkbox_group]
 
-    # ▼▼▼ character_dropdown.change の fn を handle_character_change_for_all_tabs に変更 ▼▼▼
+        start_session_button.click(
+            fn=ui_handlers.handle_start_session,
+            inputs=[current_character_name, participant_checkbox_group],
+            outputs=[active_participants_state, session_status_display]
+        )
+        end_session_button.click(
+            fn=ui_handlers.handle_end_session,
+            inputs=[current_character_name, active_participants_state],
+            outputs=[active_participants_state, session_status_display, participant_checkbox_group]
+        )
+
+        chat_inputs = [
+            chat_input_textbox, current_character_name, current_api_key_name_state,
+            file_upload_button, api_history_limit_state, debug_mode_checkbox,
+            debug_console_state,
+            active_participants_state
+        ]
+
+        rerun_button.click(
+            fn=ui_handlers.handle_rerun_button_click,
+            inputs=[
+                selected_message_state, current_character_name, current_api_key_name_state,
+                file_upload_button, api_history_limit_state, debug_mode_checkbox,
+                debug_console_state,
+                active_participants_state
+            ],
+            outputs=[
+                chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button,
+                token_count_display, current_location_display, current_scenery_display,
+                alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
+                debug_console_state, debug_console_output
+            ]
+        )
+
+        all_char_change_outputs = initial_load_chat_outputs + char_change_world_builder_outputs + [
+            active_participants_state, session_status_display, participant_checkbox_group
+        ]
+
         character_dropdown.change(
-        fn=ui_handlers.handle_character_change_for_all_tabs,
-        inputs=[character_dropdown, api_key_dropdown],
-        outputs=all_char_change_outputs
-    ).then(
+            fn=ui_handlers.handle_character_change_for_all_tabs,
+            inputs=[character_dropdown, api_key_dropdown],
+            outputs=all_char_change_outputs
+        ).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
@@ -313,53 +342,19 @@ with gr.Accordion("🗨️ 複数人対話セッション", open=False):
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
             inputs=[current_character_name, api_history_limit_state, current_log_map_state],
-            outputs=[selected_message_state, action_button_group, play_audio_button], # play_audio_button を追加
+            outputs=[selected_message_state, action_button_group, play_audio_button],
             show_progress=False
         )
-
-        rerun_button.click(
-            fn=ui_handlers.handle_rerun_button_click,
-            inputs=[
-                selected_message_state,
-                current_character_name,
-                current_api_key_name_state,
-                file_upload_button,
-                api_history_limit_state,
-                debug_mode_checkbox,
-                debug_console_state,
-                participant_checkbox_group
-            ],
-            outputs=[
-                chatbot_display,
-                current_log_map_state,
-                chat_input_textbox,
-                file_upload_button,
-                token_count_display,
-                current_location_display,
-                current_scenery_display,
-                alarm_dataframe_original_data,
-                alarm_dataframe,
-                scenery_image_display,
-                debug_console_state,
-                debug_console_output
-            ]
-        )
-
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_character_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
         api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_character_name], outputs=[api_history_limit_state, chatbot_display, current_log_map_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
+
         chat_submit_outputs = [
             chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button,
             token_count_display, current_location_display, current_scenery_display,
             alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
-            debug_console_state, debug_console_output # <--- この2つを追加
+            debug_console_state, debug_console_output
         ]
 
-        chat_inputs = [
-            chat_input_textbox, current_character_name, current_api_key_name_state,
-            file_upload_button, api_history_limit_state, debug_mode_checkbox,
-            debug_console_state,
-            participant_checkbox_group
-        ]
         gen_settings_inputs = [
             char_temperature_slider, char_top_p_slider,
             char_safety_harassment_dropdown, char_safety_hate_speech_dropdown,
@@ -386,7 +381,6 @@ with gr.Accordion("🗨️ 複数人対話セッション", open=False):
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player, play_audio_button, char_preview_voice_button])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
 
-        # --- 記憶・メモ・人格タブのイベント ---
         save_prompt_button.click(fn=ui_handlers.handle_save_system_prompt, inputs=[current_character_name, system_prompt_editor], outputs=None)
         reload_prompt_button.click(fn=ui_handlers.handle_reload_system_prompt, inputs=[current_character_name], outputs=[system_prompt_editor])
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_character_name, memory_json_editor], outputs=[memory_json_editor])
@@ -394,23 +388,15 @@ with gr.Accordion("🗨️ 複数人対話セッション", open=False):
         save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_character_name, notepad_editor], outputs=[notepad_editor])
         reload_notepad_button.click(fn=ui_handlers.handle_reload_notepad, inputs=[current_character_name], outputs=[notepad_editor])
         clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_character_name], outputs=[notepad_editor])
-
-        # --- アラームとタイマーのイベント ---
         alarm_dataframe.select(
             fn=ui_handlers.handle_alarm_selection_for_all_updates,
             inputs=[alarm_dataframe_original_data],
             outputs=[
-                selected_alarm_ids_state,
-                selection_feedback_markdown,
-                alarm_add_button,
-                alarm_context_input,
-                alarm_char_dropdown,
-                alarm_days_checkboxgroup,
-                alarm_emergency_checkbox,
-                alarm_hour_dropdown,
-                alarm_minute_dropdown,
-                editing_alarm_id_state,
-                cancel_edit_button
+                selected_alarm_ids_state, selection_feedback_markdown,
+                alarm_add_button, alarm_context_input, alarm_char_dropdown,
+                alarm_days_checkboxgroup, alarm_emergency_checkbox,
+                alarm_hour_dropdown, alarm_minute_dropdown,
+                editing_alarm_id_state, cancel_edit_button
             ],
             show_progress=False
         )
@@ -420,62 +406,40 @@ with gr.Accordion("🗨️ 複数人対話セッション", open=False):
             fn=ui_handlers.handle_delete_alarms_and_update_ui,
             inputs=[selected_alarm_ids_state],
             outputs=[
-                alarm_dataframe_original_data,
-                alarm_dataframe,
-                selected_alarm_ids_state,
-                selection_feedback_markdown
+                alarm_dataframe_original_data, alarm_dataframe,
+                selected_alarm_ids_state, selection_feedback_markdown
             ]
         )
         alarm_add_button.click(
             fn=ui_handlers.handle_add_or_update_alarm,
             inputs=[
-                editing_alarm_id_state,
-                alarm_hour_dropdown,
-                alarm_minute_dropdown,
-                alarm_char_dropdown,
-                alarm_context_input,
-                alarm_days_checkboxgroup,
+                editing_alarm_id_state, alarm_hour_dropdown, alarm_minute_dropdown,
+                alarm_char_dropdown, alarm_context_input, alarm_days_checkboxgroup,
                 alarm_emergency_checkbox
             ],
             outputs=[
-                alarm_dataframe_original_data,
-                alarm_dataframe,
-                alarm_add_button,
-                alarm_context_input,
-                alarm_char_dropdown,
-                alarm_days_checkboxgroup,
-                alarm_emergency_checkbox,
-                alarm_hour_dropdown,
-                alarm_minute_dropdown,
-                editing_alarm_id_state,
-                selected_alarm_ids_state,
-                selection_feedback_markdown,
-                cancel_edit_button
+                alarm_dataframe_original_data, alarm_dataframe,
+                alarm_add_button, alarm_context_input, alarm_char_dropdown,
+                alarm_days_checkboxgroup, alarm_emergency_checkbox,
+                alarm_hour_dropdown, alarm_minute_dropdown,
+                editing_alarm_id_state, selected_alarm_ids_state,
+                selection_feedback_markdown, cancel_edit_button
             ]
         )
-
         cancel_edit_button.click(
             fn=ui_handlers.handle_cancel_alarm_edit,
             inputs=None,
             outputs=[
-                alarm_add_button,
-                alarm_context_input,
-                alarm_char_dropdown,
-                alarm_days_checkboxgroup,
-                alarm_emergency_checkbox,
-                alarm_hour_dropdown,
-                alarm_minute_dropdown,
-                editing_alarm_id_state,
-                selected_alarm_ids_state,
-                selection_feedback_markdown,
-                cancel_edit_button
+                alarm_add_button, alarm_context_input, alarm_char_dropdown,
+                alarm_days_checkboxgroup, alarm_emergency_checkbox,
+                alarm_hour_dropdown, alarm_minute_dropdown,
+                editing_alarm_id_state, selected_alarm_ids_state,
+                selection_feedback_markdown, cancel_edit_button
             ]
         )
-
         timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
         timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
 
-        # --- 共通設定のイベント ---
         notification_service_radio.change(fn=ui_handlers.handle_notification_service_change, inputs=[notification_service_radio], outputs=[])
         save_gemini_key_button.click(fn=ui_handlers.handle_save_gemini_key, inputs=[gemini_key_name_input, gemini_key_value_input], outputs=[api_key_dropdown])
         delete_gemini_key_button.click(fn=ui_handlers.handle_delete_gemini_key, inputs=[gemini_key_name_input], outputs=[api_key_dropdown])
@@ -487,7 +451,6 @@ with gr.Accordion("🗨️ 複数人対話セッション", open=False):
         generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_character_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
 
-        # --- ワールド・ビルダーのイベント ---
         world_builder_tab.select(
             fn=ui_handlers.handle_world_builder_load,
             inputs=[current_character_name],
@@ -496,7 +459,7 @@ with gr.Accordion("🗨️ 複数人対話セッション", open=False):
         area_selector.change(
             fn=ui_handlers.handle_wb_area_select,
             inputs=[world_data_state, area_selector],
-            outputs=[place_selector]  # 更新対象を場所セレクタのみに限定
+            outputs=[place_selector]
         )
         place_selector.change(
             fn=ui_handlers.handle_wb_place_select,
@@ -532,13 +495,12 @@ with gr.Accordion("🗨️ 複数人対話セッション", open=False):
             outputs=[new_item_form, new_item_name]
         )
 
-        # ▼▼▼ ファイルの末尾近く、demo.queue().launch() の直前に、新しいイベント定義を追加 ▼▼▼
         clear_debug_console_button.click(
-            fn=lambda: ("", ""), # StateとTextboxの両方を空にする
+            fn=lambda: ("", ""),
             outputs=[debug_console_state, debug_console_output]
         )
 
-        print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
+        print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
 
 except Exception as e:
