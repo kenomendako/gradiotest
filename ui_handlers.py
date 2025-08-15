@@ -203,15 +203,18 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
         use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
     )
 
+# ui_handlers.py の handle_message_submission を完全に置き換え
+
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理する。(v18: 辞書ベース引数による最終FIX)
+    ユーザーからのメッセージ送信を処理する。(v19: ポップアップ通知FIX)
     """
     (textbox_content, soul_vessel_character, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
      current_console_content, active_participants) = args
     active_participants = active_participants or []
 
+    # (ユーザー発言の構築部分は変更なし)
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
 
     log_message_parts = []
@@ -231,6 +234,7 @@ def handle_message_submission(*args: Any):
         yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), current_console_content, current_console_content)
         return
+    # ...
 
     main_log_f, _, _, _, _ = get_character_files_paths(soul_vessel_character)
     utils.save_message_to_log(main_log_f, "## ユーザー:", full_user_log_entry)
@@ -253,7 +257,7 @@ def handle_message_submission(*args: Any):
             "api_key_name": current_api_key_name_state,
             "api_history_limit": api_history_limit_state,
             "debug_mode": debug_mode_state,
-            "history_log_path": main_log_f, # スナップショットではなく公式史を渡す
+            "history_log_path": main_log_f,
             "file_input_list": file_input_list if character_to_respond == soul_vessel_character else None,
             "user_prompt_text": user_prompt_from_textbox if character_to_respond == soul_vessel_character else "",
             "soul_vessel_character": soul_vessel_character,
@@ -262,7 +266,10 @@ def handle_message_submission(*args: Any):
             "shared_scenery_text": shared_scenery_text,
         }
 
+        # ▼▼▼【ここからが修正箇所】▼▼▼
         final_response_text = ""
+        tool_popups = [] # ポップアップメッセージを収集するリスト
+
         with utils.capture_prints() as captured_output:
             for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                 if "stream_update" in update:
@@ -274,16 +281,23 @@ def handle_message_submission(*args: Any):
                             if isinstance(tool_msg, ToolMessage):
                                 display_text = utils.format_tool_result_for_ui(tool_msg.name, tool_msg.content)
                                 if display_text:
-                                    gr.Info(display_text)
+                                    tool_popups.append(display_text) # ここで収集
                 elif "final_output" in update:
                     final_response_text = update["final_output"].get("response", "")
                     break
+
         current_console_content += captured_output.getvalue()
+
+        # 思考完了後、収集したポップアップをまとめて表示
+        for popup_message in tool_popups:
+            gr.Info(popup_message)
+        # ▲▲▲【修正ここまで】▲▲▲
 
         if final_response_text.strip():
             utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", final_response_text)
             turn_recap_events.append(f"## {character_to_respond}:\n{final_response_text}")
 
+    # (以降のログ記録、最終的なUI更新のロジックは変更なし)
     if active_participants:
         recap_text = "\n\n".join(turn_recap_events)
         full_recap_entry = f"【共有された対話ターン】\n{recap_text}\n【/共有された対話ターン】"
@@ -307,6 +321,7 @@ def handle_message_submission(*args: Any):
            new_location_name, new_scenery_text,
            final_df_with_ids, final_df, scenery_image,
            current_console_content, current_console_content)
+    # ...
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     """「情景を更新」ボタン専用ハンドラ。キャッシュを無視して強制的に再生成する。"""
