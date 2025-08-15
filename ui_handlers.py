@@ -252,6 +252,8 @@ def handle_message_submission(*args: Any):
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content)
 
+# ui_handlers.py の handle_message_submission 内、agent_args_dict定義以降を置き換え
+
         agent_args_dict = {
             "character_to_respond": character_to_respond,
             "api_key_name": current_api_key_name_state,
@@ -266,28 +268,23 @@ def handle_message_submission(*args: Any):
             "shared_scenery_text": shared_scenery_text,
         }
 
-        # ▼▼▼【ここからが修正箇所】▼▼▼
         final_response_text = ""
-        tool_popups = [] # ポップアップメッセージを収集するリスト
+        tool_popups = [] # このターンのポップアップを初期化
 
         with utils.capture_prints() as captured_output:
             for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                 if "stream_update" in update:
-                    node_name = list(update["stream_update"].keys())[0]
-                    node_output = update["stream_update"][node_name]
-                    if node_name == "safe_tool_node":
-                        tool_messages = node_output.get("messages", [])
-                        for tool_msg in tool_messages:
-                            if isinstance(tool_msg, ToolMessage):
-                                display_text = utils.format_tool_result_for_ui(tool_msg.name, tool_msg.content)
-                                if display_text:
-                                    tool_popups.append(display_text) # ここで収集
+                    # ストリーム中はUIを更新しない
+                    pass
                 elif "final_output" in update:
-                    final_response_text = update["final_output"].get("response", "")
+                    final_output_data = update["final_output"]
+                    final_response_text = final_output_data.get("response", "")
+                    tool_popups = final_output_data.get("tool_popups", []) # 最終結果からポップアップを取得
                     break
 
         current_console_content += captured_output.getvalue()
 
+        # ▼▼▼【ここからが修正箇所】▼▼▼
         # 思考完了後、収集したポップアップをまとめて表示
         for popup_message in tool_popups:
             gr.Info(popup_message)
