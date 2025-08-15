@@ -71,16 +71,18 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
     return result.total_tokens
 
+# gemini_api.py の invoke_nexus_agent_stream を完全に置き換え
+
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v19: 辞書引数による最終FIX)
+    LangGraphの思考プロセスをストリーミングで返す。(v20: ポップアップFIX)
     """
-    # --- 必要なモジュールをインポート ---
     from agent.graph import app
     import time
     from google.api_core.exceptions import ResourceExhausted, InternalServerError
-    from langchain_core.messages import HumanMessage, AIMessage
+    from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
+    # ... (引数の展開、履歴構築、initial_state定義の部分は変更なし) ...
     # --- 引数を辞書から展開 ---
     character_to_respond = agent_args["character_to_respond"]
     api_key_name = agent_args["api_key_name"]
@@ -94,7 +96,6 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     shared_location_name = agent_args["shared_location_name"]
     shared_scenery_text = agent_args["shared_scenery_text"]
 
-    # (以降の処理は、前回の最終FIX版と全く同じです)
     all_participants_list = [soul_vessel_character] + active_participants
     effective_settings = config_manager.get_effective_settings(
         character_to_respond,
@@ -107,65 +108,71 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         yield {"final_output": {"response": f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"}}
         return
 
-    # --- ハイブリッド履歴構築ロジック (v20 Final) ---
     messages = []
-
-    # 1. 応答するAI自身の過去ログを読み込む
     responding_ai_log_f, _, _, _, _ = character_manager.get_character_files_paths(character_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
         own_history_raw = utils.load_chat_log(responding_ai_log_f, character_to_respond)
         messages = utils.convert_raw_log_to_lc_messages(own_history_raw, character_to_respond)
 
-    # 2. 今回の対話ターンのスナップショット（公式史）を読み込む
     if history_log_path and os.path.exists(history_log_path):
         snapshot_history_raw = utils.load_chat_log(history_log_path, soul_vessel_character)
         snapshot_messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, character_to_respond)
-
-        # 3. 自分のログとスナップショットを結合し、重複を除去
         if snapshot_messages and messages:
             first_snapshot_user_message_content = ""
             if isinstance(snapshot_messages[0], HumanMessage):
-                # 人の発言は文字列なのでそのまま比較
                 first_snapshot_user_message_content = snapshot_messages[0].content.split("（")[0].strip()
-
             if first_snapshot_user_message_content:
                 for i in range(len(messages) - 1, -1, -1):
                     if isinstance(messages[i], HumanMessage):
-                        # 自分のログのユーザー発言も比較用に整形
                         own_log_user_content = messages[i].content.split("（")[0].strip()
                         if own_log_user_content == first_snapshot_user_message_content:
-                            messages = messages[:i] # 重複の開始点を見つけたら、そこまでをカット
+                            messages = messages[:i]
                             break
             messages.extend(snapshot_messages)
         elif snapshot_messages:
             messages = snapshot_messages
-
-    # 4. 履歴制限を適用
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
         messages = messages[-(limit * 2):]
 
     initial_state = {
-        "messages": messages,
-        "character_name": character_to_respond,
-        "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
-        "model_name": model_name, "send_core_memory": effective_settings.get("send_core_memory", True),
-        "send_scenery": effective_settings.get("send_scenery", True), "send_notepad": effective_settings.get("send_notepad", True),
-        "debug_mode": debug_mode, "location_name": shared_location_name,
-        "scenery_text": shared_scenery_text, "all_participants": all_participants_list
+        "messages": messages, "character_name": character_to_respond, "api_key": api_key,
+        "tavily_api_key": config_manager.TAVILY_API_KEY, "model_name": model_name,
+        "send_core_memory": effective_settings.get("send_core_memory", True),
+        "send_scenery": effective_settings.get("send_scenery", True),
+        "send_notepad": effective_settings.get("send_notepad", True), "debug_mode": debug_mode,
+        "location_name": shared_location_name, "scenery_text": shared_scenery_text,
+        "all_participants": all_participants_list
     }
 
-    # --- エージェント実行ループ (リトライ機構は維持) ---
+    # --- エージェント実行ループ ---
     max_retries = 3
     final_state = None
     last_message = None
+    tool_popups = [] # ポップアップメッセージを収集するリスト
+
     for attempt in range(max_retries):
+        # ... (リトライ機構は変更なし) ...
         is_final_attempt = (attempt == max_retries - 1)
         try:
             print(f"--- エージェント実行試行: {attempt + 1}/{max_retries} ---")
             for update in app.stream(initial_state, {"recursion_limit": 15}):
                 yield {"stream_update": update}
                 final_state = update
+
+                # ▼▼▼【ここからが修正箇所】▼▼▼
+                # ストリームの途中でツール使用を検知し、ポップアップメッセージを収集
+                node_name = list(update.keys())[0]
+                if node_name == "safe_tool_node":
+                    tool_messages = update[node_name].get("messages", [])
+                    for tool_msg in tool_messages:
+                        if isinstance(tool_msg, ToolMessage):
+                            display_text = utils.format_tool_result_for_ui(tool_msg.name, tool_msg.content)
+                            if display_text:
+                                tool_popups.append(display_text)
+                # ▲▲▲【修正ここまで】▲▲▲
+
+            # ... (ループ内の残りの部分は変更なし) ...
             if final_state and isinstance(final_state, dict):
                 agent_final_state = final_state.get("agent", {})
                 last_message = next(reversed(agent_final_state.get("messages", [])), None)
@@ -185,9 +192,10 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         except Exception as e:
             final_state = {"response": f"[エージェント実行エラー: {e}]"}; traceback.print_exc(); break
 
-    # --- 最終的な出力を整形して返す (変更なし) ---
+    # --- 最終的な出力を整形して返す ---
     final_response = {}
     if final_state and isinstance(final_state, dict):
+        # ... (final_responseの構築部分は変更なし) ...
         final_response["response"] = final_state.get("response", "")
         final_response["location_name"] = final_state.get("context_generator", {}).get("location_name", "（不明）")
         final_response["scenery"] = final_state.get("context_generator", {}).get("scenery_text", "（不明）")
@@ -201,6 +209,9 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
                 else: final_response_text = "[エラー: AIからの有効な応答がありませんでした。]"
         if not final_response.get("response"): final_response["response"] = final_response_text
     if not final_response: final_response["response"] = "[エラー: 不明な理由でエージェントが完了しませんでした。]"
+
+    final_response["tool_popups"] = tool_popups # 収集したポップアップを最終結果に含める
+
     yield {"final_output": final_response}
 
 def count_input_tokens(**kwargs):
