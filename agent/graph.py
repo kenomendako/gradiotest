@@ -263,6 +263,8 @@ def context_generator_node(state: AgentState):
 
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
+# agent/graph.py の agent_node を完全に置き換え
+
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
     base_system_prompt = state['system_prompt'].content
@@ -293,7 +295,12 @@ def agent_node(state: AgentState):
     llm = get_configured_llm(state['model_name'], state['api_key'], effective_settings)
     llm_with_tools = llm.bind_tools(all_tools)
 
-    messages_for_agent = [final_system_prompt_message] + state['messages']
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # 履歴から古いSystemMessageを除去し、常に最新の一つだけが含まれるようにする
+    history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
+    messages_for_agent = [final_system_prompt_message] + history_messages
+    # ▲▲▲ 修正ここまで ▲▲▲
+
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}
 
