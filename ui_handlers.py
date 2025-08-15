@@ -1009,21 +1009,26 @@ def handle_api_connection_test(api_key_name: str):
 from world_builder import get_world_data, save_world_data
 
 def handle_world_builder_load(character_name: str):
-    """ワールド・ビルダータブが選択された時や、キャラクターが変更された時の初期化処理。"""
     if not character_name:
-        return {}, gr.update(choices=[], value=None) # 返り値の数を2つに修正
+        return {}, gr.update(choices=[], value=None), ""
 
     world_data = get_world_data(character_name)
     area_choices = sorted(world_data.keys())
 
-    # UIの期待通り、2つの値だけを返す
-    return world_data, gr.update(choices=area_choices, value=None)
+    world_settings_path = character_manager.get_world_settings_path(character_name)
+    raw_content = ""
+    if world_settings_path and os.path.exists(world_settings_path):
+        with open(world_settings_path, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+
+    return world_data, gr.update(choices=area_choices, value=None), raw_content
 
 def handle_character_change_for_all_tabs(character_name: str, api_key_name: str):
     """キャラクター変更時にすべてのタブを更新する司令塔。"""
     print(f"--- UI司令塔(handle_character_change_for_all_tabs)実行: {character_name} ---")
     chat_tab_updates = handle_character_change(character_name, api_key_name)
-    world_builder_updates = handle_world_builder_load(character_name)
+    wb_state, wb_area_selector, wb_raw_editor = handle_world_builder_load(character_name)
+    world_builder_updates = (wb_state, wb_area_selector, wb_raw_editor)
 
     # 参加者チェックボックスを更新し、セッション状態をリセットする
     all_characters = character_manager.get_character_list()
@@ -1111,12 +1116,10 @@ def handle_wb_place_select(world_data: Dict, area_name: str, place_name: str):
     )
 
 def handle_wb_save(character_name: str, world_data: Dict, area_name: str, place_name: str, content: str):
-    """保存ボタンが押された時の処理。"""
     if not character_name or not area_name or not place_name:
         gr.Warning("保存するにはエリアと場所を選択してください。")
-        return world_data
+        return world_data, gr.update() # 戻り値の数を合わせる
 
-    # world_data stateを更新
     if area_name in world_data and place_name in world_data[area_name]:
         world_data[area_name][place_name] = content
         save_world_data(character_name, world_data)
@@ -1124,7 +1127,14 @@ def handle_wb_save(character_name: str, world_data: Dict, area_name: str, place_
     else:
         gr.Error("保存対象のエリアまたは場所が見つかりません。")
 
-    return world_data
+    # RAWテキストエディタを更新するために、保存後のファイル内容を読み込む
+    world_settings_path = character_manager.get_world_settings_path(character_name)
+    raw_content = ""
+    if world_settings_path and os.path.exists(world_settings_path):
+        with open(world_settings_path, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+
+    return world_data, raw_content
 
 def handle_wb_add_area(character_name: str, world_data: Dict, area_name: Optional[str]):
     """エリア追加ボタン"""
@@ -1181,60 +1191,65 @@ def handle_wb_delete_place(character_name: str, world_data: Dict, area_name: str
     """場所削除ボタン"""
     if not area_name or not place_name:
         gr.Warning("削除するエリアと場所を選択してください。")
-        return world_data, gr.update(), ""
+        return world_data, gr.update()
     if area_name not in world_data or place_name not in world_data[area_name]:
         gr.Warning(f"場所 '{place_name}' がエリア '{area_name}' に見つかりません。")
-        return world_data, gr.update(), ""
+        return world_data, gr.update()
 
     del world_data[area_name][place_name]
     save_world_data(character_name, world_data)
     gr.Info(f"場所 '{place_name}' を削除しました。")
 
-    place_choices = sorted(world_data[area_name].keys())
-    return world_data, gr.update(choices=place_choices, value=None), ""
+    # RAWテキストエディタを更新するために、保存後のファイル内容を読み込む
+    world_settings_path = character_manager.get_world_settings_path(character_name)
+    raw_content = ""
+    if world_settings_path and os.path.exists(world_settings_path):
+        with open(world_settings_path, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+
+    # UIコンポーネントは更新されないが、指示通り2つの値を返す
+    return world_data, raw_content
 
 def handle_wb_confirm_add(character_name: str, world_data: Dict, selected_area: str, item_type: str, item_name: str):
     """エリアまたは場所の追加を確定するハンドラ。"""
     if not character_name or not item_name:
         gr.Warning("キャラクターが選択されていないか、名前が入力されていません。")
-        return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name
+        return world_data, gr.update()
 
     item_name = item_name.strip()
     if not item_name:
         gr.Warning("名前が空です。")
-        return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name
+        return world_data, gr.update()
 
     if item_type == "area":
         if item_name in world_data:
             gr.Warning(f"エリア '{item_name}' は既に存在します。")
-            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name
-
+            return world_data, gr.update()
         world_data[item_name] = {}
-        save_world_data(character_name, world_data)
         gr.Info(f"新しいエリア '{item_name}' を追加しました。")
-
-        area_choices = sorted(world_data.keys())
-        return world_data, gr.update(choices=area_choices, value=item_name), gr.update(choices=[], value=None), gr.update(visible=False), ""
 
     elif item_type == "place":
         if not selected_area:
             gr.Warning("場所を追加するエリアを選択してください。")
-            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name
-
+            return world_data, gr.update()
         if item_name in world_data.get(selected_area, {}):
             gr.Warning(f"場所 '{item_name}' はエリア '{selected_area}' に既に存在します。")
-            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name
-
+            return world_data, gr.update()
         world_data[selected_area][item_name] = "新しい場所です。説明を記述してください。"
-        save_world_data(character_name, world_data)
         gr.Info(f"エリア '{selected_area}' に新しい場所 '{item_name}' を追加しました。")
-
-        place_choices = sorted(world_data[selected_area].keys())
-        return world_data, gr.update(), gr.update(choices=place_choices, value=item_name), gr.update(visible=False), ""
-
     else:
         gr.Error(f"不明なアイテムタイプです: {item_type}")
-        return world_data, gr.update(), gr.update(), gr.update(visible=False), ""
+        return world_data, gr.update()
+
+    save_world_data(character_name, world_data)
+
+    world_settings_path = character_manager.get_world_settings_path(character_name)
+    raw_content = ""
+    if world_settings_path and os.path.exists(world_settings_path):
+        with open(world_settings_path, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+
+    return world_data, raw_content
 
 def handle_save_gemini_key(key_name, key_value):
     if not key_name or not key_value:
@@ -1346,3 +1361,46 @@ def handle_rerun_button_click(*args: Any):
         current_console_content,
         active_participants
     )
+
+
+def handle_save_world_settings_raw(character_name: str, raw_content: str):
+    """world_settings.txtの生の内容をファイルに保存する。"""
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return raw_content, gr.update()
+
+    world_settings_path = character_manager.get_world_settings_path(character_name)
+    if not world_settings_path:
+        gr.Error("世界設定ファイルのパスが取得できませんでした。")
+        return raw_content, gr.update()
+
+    try:
+        with open(world_settings_path, "w", encoding="utf-8") as f:
+            f.write(raw_content)
+
+        gr.Info("RAWテキストとして世界設定を保存しました。構造化エディタに反映されます。")
+
+        # 保存に成功したら、構造化エディタ側のデータも再読み込みして返す
+        new_world_data = get_world_data(character_name)
+        new_area_choices = sorted(new_world_data.keys())
+
+        return new_world_data, gr.update(choices=new_area_choices, value=None), gr.update(choices=[], value=None)
+
+    except Exception as e:
+        gr.Error(f"世界設定のRAW保存中にエラーが発生しました: {e}")
+        return gr.update(), gr.update(), gr.update()
+
+def handle_reload_world_settings_raw(character_name: str) -> str:
+    """world_settings.txtの生の内容を再読み込みして表示する。"""
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return ""
+
+    world_settings_path = character_manager.get_world_settings_path(character_name)
+    raw_content = ""
+    if world_settings_path and os.path.exists(world_settings_path):
+        with open(world_settings_path, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+
+    gr.Info("世界設定ファイルを再読み込みしました。")
+    return raw_content

@@ -238,28 +238,44 @@ try:
                             clear_notepad_button = gr.Button("メモ帳を全削除", variant="stop")
 
             with gr.TabItem("ワールド・ビルダー") as world_builder_tab:
-                gr.Markdown("## ワールド・ビルダー\n`world_settings.txt` の内容を、書式を意識せずに編集・保存できます。")
-                with gr.Row(equal_height=False):
-                    with gr.Column(scale=1, min_width=250):
-                        gr.Markdown("### 1. 編集対象を選択")
-                        area_selector = gr.Dropdown(label="エリア (`##`)", interactive=True)
-                        place_selector = gr.Dropdown(label="場所 (`###`)", interactive=True)
-                        gr.Markdown("---")
-                        add_area_button = gr.Button("エリアを新規作成")
-                        add_place_button = gr.Button("場所を新規作成")
-                        with gr.Column(visible=False) as new_item_form:
-                            new_item_form_title = gr.Markdown("#### 新規作成")
-                            new_item_type = gr.Textbox(visible=False)
-                            new_item_name = gr.Textbox(label="エリア名 / 場所名 (必須)", placeholder="例: メインエントランス")
-                            with gr.Row():
-                                confirm_add_button = gr.Button("決定", variant="primary")
-                                cancel_add_button = gr.Button("キャンセル")
-                    with gr.Column(scale=3):
-                        gr.Markdown("### 2. 内容を編集")
-                        content_editor = gr.Textbox(label="世界設定を記述", lines=20, interactive=True, visible=False)
-                        with gr.Row(visible=False) as save_button_row:
-                            save_button = gr.Button("この場所の設定を保存", variant="primary")
-                            delete_place_button = gr.Button("この場所を削除", variant="stop")
+                gr.Markdown("## ワールド・ビルダー\n`world_settings.txt` の内容を、直感的に、または直接的に編集・確認できます。")
+
+                with gr.Tabs():
+                    with gr.TabItem("構造化エディタ"):
+                        gr.Markdown("エリアと場所を選択して、その内容をピンポイントで編集します。")
+                        with gr.Row(equal_height=False):
+                            with gr.Column(scale=1, min_width=250):
+                                gr.Markdown("### 1. 編集対象を選択")
+                                area_selector = gr.Dropdown(label="エリア (`##`)", interactive=True)
+                                place_selector = gr.Dropdown(label="場所 (`###`)", interactive=True)
+                                gr.Markdown("---")
+                                add_area_button = gr.Button("エリアを新規作成")
+                                add_place_button = gr.Button("場所を新規作成")
+                                with gr.Column(visible=False) as new_item_form:
+                                    new_item_form_title = gr.Markdown("#### 新規作成")
+                                    new_item_type = gr.Textbox(visible=False)
+                                    new_item_name = gr.Textbox(label="エリア名 / 場所名 (必須)", placeholder="例: メインエントランス")
+                                    with gr.Row():
+                                        confirm_add_button = gr.Button("決定", variant="primary")
+                                        cancel_add_button = gr.Button("キャンセル")
+                            with gr.Column(scale=3):
+                                gr.Markdown("### 2. 内容を編集")
+                                content_editor = gr.Textbox(label="世界設定を記述", lines=20, interactive=True, visible=False)
+                                with gr.Row(visible=False) as save_button_row:
+                                    save_button = gr.Button("この場所の設定を保存", variant="primary")
+                                    delete_place_button = gr.Button("この場所を削除", variant="stop")
+
+                    with gr.TabItem("RAWテキストエディタ"):
+                        gr.Markdown("世界設定ファイル (`world_settings.txt`) の全体像を直接編集します。**書式（`##`や`###`）を崩さないようご注意ください。**")
+                        world_settings_raw_editor = gr.Code( # 変数名を _raw_display から _raw_editor に変更
+                            label="world_settings.txt",
+                            language="markdown",
+                            interactive=True, # 編集可能に
+                            lines=25
+                        )
+                        with gr.Row():
+                            save_raw_button = gr.Button("RAWテキスト全体を保存", variant="primary")
+                            reload_raw_button = gr.Button("最後に保存した内容を読み込む", variant="secondary")
 
             with gr.TabItem("デバッグコンソール"):
                 gr.Markdown("## デバッグコンソール\nアプリケーションの内部的な動作ログ（ターミナルに出力される内容）をここに表示します。")
@@ -290,7 +306,7 @@ try:
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
-        char_change_world_builder_outputs = [world_data_state, area_selector]
+        char_change_world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
 
         start_session_button.click(
             fn=ui_handlers.handle_start_session,
@@ -454,7 +470,7 @@ try:
         world_builder_tab.select(
             fn=ui_handlers.handle_world_builder_load,
             inputs=[current_character_name],
-            outputs=[world_data_state, area_selector]
+            outputs=[world_data_state, area_selector, world_settings_raw_editor]
         )
         area_selector.change(
             fn=ui_handlers.handle_wb_area_select,
@@ -469,12 +485,12 @@ try:
         save_button.click(
             fn=ui_handlers.handle_wb_save,
             inputs=[current_character_name, world_data_state, area_selector, place_selector, content_editor],
-            outputs=[world_data_state]
+            outputs=[world_data_state, world_settings_raw_editor]
         )
         delete_place_button.click(
             fn=ui_handlers.handle_wb_delete_place,
             inputs=[current_character_name, world_data_state, area_selector, place_selector],
-            outputs=[world_data_state, area_selector, place_selector, content_editor, save_button_row, delete_place_button]
+            outputs=[world_data_state, world_settings_raw_editor]
         )
         add_area_button.click(
             fn=lambda: ("area", gr.update(visible=True), "#### 新しいエリアの作成"),
@@ -488,11 +504,22 @@ try:
         confirm_add_button.click(
             fn=ui_handlers.handle_wb_confirm_add,
             inputs=[current_character_name, world_data_state, area_selector, new_item_type, new_item_name],
-            outputs=[world_data_state, area_selector, place_selector, new_item_form, new_item_name]
+            outputs=[world_data_state, world_settings_raw_editor]
         )
         cancel_add_button.click(
             fn=lambda: (gr.update(visible=False), ""),
             outputs=[new_item_form, new_item_name]
+        )
+
+        save_raw_button.click(
+            fn=ui_handlers.handle_save_world_settings_raw,
+            inputs=[current_character_name, world_settings_raw_editor],
+            outputs=[world_data_state, area_selector, place_selector]
+        )
+        reload_raw_button.click(
+            fn=ui_handlers.handle_reload_world_settings_raw,
+            inputs=[current_character_name],
+            outputs=[world_settings_raw_editor]
         )
 
         clear_debug_console_button.click(
