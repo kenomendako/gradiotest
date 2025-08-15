@@ -335,9 +335,12 @@ def safe_tool_executor(state: AgentState):
                 output = f"Error executing tool '{tool_name}': {e}"
                 traceback.print_exc()
 
+        # ▼▼▼【ここからが修正箇所】▼▼▼
+        # ToolMessageに、実行されたツールの名前を渡す
         tool_outputs.append(
-            ToolMessage(content=str(output), tool_call_id=tool_call["id"])
+            ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)
         )
+        # ▲▲▲【修正ここまで】▲▲▲
 
     return {"messages": tool_outputs}
 
