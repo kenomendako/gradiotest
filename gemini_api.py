@@ -162,7 +162,19 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
             tool_popups = []
 
             if isinstance(final_message, AIMessage):
-                response_text = final_message.content
+                # AIMessage.content が文字列の場合とリストの場合の両方に対応する
+                if isinstance(final_message.content, str):
+                    response_text = final_message.content
+                elif isinstance(final_message.content, list):
+                    text_parts = []
+                    for part in final_message.content:
+                        if isinstance(part, str):
+                            text_parts.append(part)
+                        elif isinstance(part, dict) and 'text' in part:
+                            text_parts.append(part['text'])
+                    response_text = "".join(text_parts)
+                else:
+                    response_text = "" # 予期しない形式の場合は空文字列
 
             # ツール実行結果のポップアップを生成
             # 1回の応答で複数のツールが実行された場合も考慮し、最後のAIメッセージ以降の全ツールメッセージを対象にする
