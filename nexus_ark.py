@@ -197,7 +197,7 @@ try:
                                 new_character_name_textbox = gr.Textbox(placeholder="新しいルーム名", show_label=False, scale=3); add_character_button = gr.Button("作成", variant="secondary", scale=1)
 
                     with gr.Column(scale=3):
-                        chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False, sanitize_html=False)
+                        chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
                         with gr.Row():
                             audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
                         with gr.Row(visible=False) as action_button_group:
