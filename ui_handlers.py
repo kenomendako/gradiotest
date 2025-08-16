@@ -224,20 +224,16 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
 
     return gemini_api.count_input_tokens(**kwargs)
 
-# ui_handlers.py の handle_message_submission を完全に置き換え
-
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理する。(v19: ポップアップ通知FIX)
+    ユーザーからのメッセージ送信を処理する。(v22: NameError FIX)
     """
     (textbox_content, soul_vessel_character, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
      current_console_content, active_participants) = args
     active_participants = active_participants or []
 
-    # (ユーザー発言の構築部分は変更なし)
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
-
     log_message_parts = []
     if user_prompt_from_textbox:
         effective_settings = config_manager.get_effective_settings(soul_vessel_character)
@@ -255,7 +251,6 @@ def handle_message_submission(*args: Any):
         yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), current_console_content, current_console_content)
         return
-    # ...
 
     main_log_f, _, _, _, _ = get_character_files_paths(soul_vessel_character)
     utils.save_message_to_log(main_log_f, "## ユーザー:", full_user_log_entry)
@@ -266,6 +261,7 @@ def handle_message_submission(*args: Any):
     api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
     shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_character, api_key)
 
+    all_turn_popups = []
     for character_to_respond in all_characters_in_scene:
         chatbot_history, mapping_list = reload_chat_log(soul_vessel_character, api_history_limit_state)
         chatbot_history.append((None, f"思考中 ({character_to_respond})... ▌"))
@@ -273,86 +269,64 @@ def handle_message_submission(*args: Any):
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content)
 
-        # ▼▼▼【ここからが修正箇所】▼▼▼
-        # ファイルが主役のターンにのみ渡され、かつ内容を正しく処理する
+        # ファイル処理ロジック
         processed_file_list = []
         if character_to_respond == soul_vessel_character and file_input_list:
             for file_obj in file_input_list:
                 try:
                     kind = filetype.guess(file_obj.name)
-                    if kind is None:
-                        # 不明なファイルはテキストとして扱う
-                        with open(file_obj.name, 'r', encoding='utf-8', errors='ignore') as f:
-                            content = f.read()
-                        processed_file_list.append({"type": "text", "text": f"添付ファイル「{os.path.basename(file_obj.name)}」の内容:\n---\n{content}\n---"})
-                        continue
-
-                    if kind.mime.startswith('image/'):
+                    if kind and kind.mime.startswith('image/'):
                         with open(file_obj.name, "rb") as f:
                             encoded_string = base64.b64encode(f.read()).decode("utf-8")
                         processed_file_list.append({
                             "type": "image_url",
                             "image_url": {"url": f"data:{kind.mime};base64,{encoded_string}"}
                         })
-                    elif kind.mime.startswith('text/'):
+                    else: # テキストやその他のファイル
                         with open(file_obj.name, 'r', encoding='utf-8', errors='ignore') as f:
                             content = f.read()
                         processed_file_list.append({"type": "text", "text": f"添付ファイル「{os.path.basename(file_obj.name)}」の内容:\n---\n{content}\n---"})
-                    else:
-                        # その他のファイル（音声、動画など）は、APIに直接渡さず、
-                        # 存在を示すプレースホルダーテキストのみを渡す
-                        processed_file_list.append({"type": "text", "text": f"（ファイル「{os.path.basename(file_obj.name)}」が添付されていますが、ここでは内容を展開しません）"})
-
                 except Exception as e:
-                    print(f"ファイル処理エラー ({file_obj.name}): {e}")
-                    processed_file_list.append({"type": "text", "text": f"（ファイル「{os.path.basename(file_obj.name)}」の処理中にエラーが発生しました）"})
+                    processed_file_list.append({"type": "text", "text": f"（ファイル「{os.path.basename(file_obj.name)}」の処理中にエラー）"})
 
         user_prompt_parts = []
-        if user_prompt_from_textbox:
-            user_prompt_parts.append({"type": "text", "text": user_prompt_from_textbox})
+        if user_prompt_from_textbox and character_to_respond == soul_vessel_character:
+             user_prompt_parts.append({"type": "text", "text": user_prompt_from_textbox})
         user_prompt_parts.extend(processed_file_list)
 
-        agent_stream_args = {
+        agent_args_dict = {
             "character_to_respond": character_to_respond,
             "api_key_name": current_api_key_name_state,
             "api_history_limit": api_history_limit_state,
             "debug_mode": debug_mode_state,
             "history_log_path": main_log_f,
-            "user_prompt_parts": user_prompt_parts if character_to_respond == soul_vessel_character else [],
+            "user_prompt_parts": user_prompt_parts,
             "soul_vessel_character": soul_vessel_character,
             "active_participants": active_participants,
             "shared_location_name": shared_location_name,
             "shared_scenery_text": shared_scenery_text,
         }
-        # ▲▲▲【修正ここまで】▲▲▲
 
         final_response_text = ""
-        tool_popups = [] # このターンのポップアップを初期化
-
         with utils.capture_prints() as captured_output:
             for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                 if "stream_update" in update:
-                    # ストリーム中はUIを更新しない
                     pass
                 elif "final_output" in update:
                     final_output_data = update["final_output"]
                     final_response_text = final_output_data.get("response", "")
-                    tool_popups = final_output_data.get("tool_popups", []) # 最終結果からポップアップを取得
+                    all_turn_popups.extend(final_output_data.get("tool_popups", []))
                     break
 
         current_console_content += captured_output.getvalue()
-
-        # ▼▼▼【ここからが修正箇所】▼▼▼
-        # 思考完了後、収集したポップアップをまとめて表示
-        for popup_message in tool_popups:
-            gr.Info(popup_message)
-        # ▲▲▲【修正ここまで】▲▲▲
 
         if final_response_text.strip():
             utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", final_response_text)
             turn_recap_events.append(f"## {character_to_respond}:\n{final_response_text}")
 
-    # (以降のログ記録、最終的なUI更新のロジックは変更なし)
+    for popup_message in all_turn_popups:
+        gr.Info(popup_message)
+
     if active_participants:
         recap_text = "\n\n".join(turn_recap_events)
         full_recap_entry = f"【共有された対話ターン】\n{recap_text}\n【/共有された対話ターン】"
@@ -364,11 +338,14 @@ def handle_message_submission(*args: Any):
     final_chatbot_history, final_mapping_list = reload_chat_log(soul_vessel_character, api_history_limit_state)
     new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_character, api_key)
     scenery_image = utils.find_scenery_image(soul_vessel_character, utils.get_current_location(soul_vessel_character))
+
+    # トークン計算用のkwargsを構築
+    token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_character)
     token_count_text = gemini_api.count_input_tokens(
         character_name=soul_vessel_character, api_key_name=current_api_key_name_state,
-        api_history_limit=api_history_limit_state, parts=[],
-        **config_manager.get_effective_settings(soul_vessel_character)
+        api_history_limit=api_history_limit_state, parts=[], **token_calc_kwargs
     )
+
     final_df_with_ids = render_alarms_as_dataframe()
     final_df = get_display_df(final_df_with_ids)
 
