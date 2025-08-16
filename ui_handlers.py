@@ -191,32 +191,49 @@ def handle_context_settings_change(character_name: str, api_key_name: str, api_h
     )
 
 def update_token_count_on_input(character_name: str, api_key_name: str, api_history_limit: str, textbox_content: str, file_list: list, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
-    if not character_name or not api_key_name: return "入力トークン数: -"
+    if not character_name or not api_key_name: return "トークン数: -"
+
     parts_for_api = []
     if textbox_content: parts_for_api.append(textbox_content)
-    if file_list:
-        for file_obj in file_list: parts_for_api.append(Image.open(file_obj.name))
-    return gemini_api.count_input_tokens(
-        character_name=character_name, api_key_name=api_key_name, parts=parts_for_api,
-        api_history_limit=api_history_limit,
-        add_timestamp=add_timestamp, send_thoughts=send_thoughts, send_notepad=send_notepad,
-        use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
-    )
 
-# ui_handlers.py の handle_message_submission を完全に置き換え
+    # ▼▼▼【修正の核心】▼▼▼
+    if file_list:
+        for file_obj in file_list:
+            try:
+                kind = filetype.guess(file_obj.name)
+                # 画像ファイルの場合のみImage.openを試みる
+                if kind and kind.mime.startswith('image/'):
+                    parts_for_api.append(Image.open(file_obj.name))
+                else:
+                    # 画像以外は、ファイル名とサイズでトークン数を近似計算するためのプレースホルダーを追加
+                    file_size = os.path.getsize(file_obj.name)
+                    parts_for_api.append(f"[ファイル添付: {os.path.basename(file_obj.name)}, サイズ: {file_size} bytes]")
+            except Exception as e:
+                print(f"トークン計算中のファイル処理エラー: {e}")
+                parts_for_api.append(f"[ファイル処理エラー: {os.path.basename(file_obj.name)}]")
+    # ▲▲▲ 修正ここまで ▲▲▲
+
+    # kwargsにUIのチェックボックスの状態を渡す
+    kwargs = {
+        "character_name": character_name, "api_key_name": api_key_name,
+        "api_history_limit": api_history_limit, "parts": parts_for_api,
+        "add_timestamp": add_timestamp, "send_thoughts": send_thoughts,
+        "send_notepad": send_notepad, "use_common_prompt": use_common_prompt,
+        "send_core_memory": send_core_memory, "send_scenery": send_scenery
+    }
+
+    return gemini_api.count_input_tokens(**kwargs)
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理する。(v19: ポップアップ通知FIX)
+    ユーザーからのメッセージ送信を処理する。(v22: NameError FIX)
     """
     (textbox_content, soul_vessel_character, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
      current_console_content, active_participants) = args
     active_participants = active_participants or []
 
-    # (ユーザー発言の構築部分は変更なし)
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
-
     log_message_parts = []
     if user_prompt_from_textbox:
         effective_settings = config_manager.get_effective_settings(soul_vessel_character)
@@ -234,7 +251,6 @@ def handle_message_submission(*args: Any):
         yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), current_console_content, current_console_content)
         return
-    # ...
 
     main_log_f, _, _, _, _ = get_character_files_paths(soul_vessel_character)
     utils.save_message_to_log(main_log_f, "## ユーザー:", full_user_log_entry)
@@ -245,6 +261,7 @@ def handle_message_submission(*args: Any):
     api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
     shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_character, api_key)
 
+    all_turn_popups = []
     for character_to_respond in all_characters_in_scene:
         chatbot_history, mapping_list = reload_chat_log(soul_vessel_character, api_history_limit_state)
         chatbot_history.append((None, f"思考中 ({character_to_respond})... ▌"))
@@ -252,7 +269,30 @@ def handle_message_submission(*args: Any):
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content)
 
-# ui_handlers.py の handle_message_submission 内、agent_args_dict定義以降を置き換え
+        # ファイル処理ロジック
+        processed_file_list = []
+        if character_to_respond == soul_vessel_character and file_input_list:
+            for file_obj in file_input_list:
+                try:
+                    kind = filetype.guess(file_obj.name)
+                    if kind and kind.mime.startswith('image/'):
+                        with open(file_obj.name, "rb") as f:
+                            encoded_string = base64.b64encode(f.read()).decode("utf-8")
+                        processed_file_list.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{kind.mime};base64,{encoded_string}"}
+                        })
+                    else: # テキストやその他のファイル
+                        with open(file_obj.name, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                        processed_file_list.append({"type": "text", "text": f"添付ファイル「{os.path.basename(file_obj.name)}」の内容:\n---\n{content}\n---"})
+                except Exception as e:
+                    processed_file_list.append({"type": "text", "text": f"（ファイル「{os.path.basename(file_obj.name)}」の処理中にエラー）"})
+
+        user_prompt_parts = []
+        if user_prompt_from_textbox and character_to_respond == soul_vessel_character:
+             user_prompt_parts.append({"type": "text", "text": user_prompt_from_textbox})
+        user_prompt_parts.extend(processed_file_list)
 
         agent_args_dict = {
             "character_to_respond": character_to_respond,
@@ -260,8 +300,7 @@ def handle_message_submission(*args: Any):
             "api_history_limit": api_history_limit_state,
             "debug_mode": debug_mode_state,
             "history_log_path": main_log_f,
-            "file_input_list": file_input_list if character_to_respond == soul_vessel_character else None,
-            "user_prompt_text": user_prompt_from_textbox if character_to_respond == soul_vessel_character else "",
+            "user_prompt_parts": user_prompt_parts,
             "soul_vessel_character": soul_vessel_character,
             "active_participants": active_participants,
             "shared_location_name": shared_location_name,
@@ -269,32 +308,25 @@ def handle_message_submission(*args: Any):
         }
 
         final_response_text = ""
-        tool_popups = [] # このターンのポップアップを初期化
-
         with utils.capture_prints() as captured_output:
             for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                 if "stream_update" in update:
-                    # ストリーム中はUIを更新しない
                     pass
                 elif "final_output" in update:
                     final_output_data = update["final_output"]
                     final_response_text = final_output_data.get("response", "")
-                    tool_popups = final_output_data.get("tool_popups", []) # 最終結果からポップアップを取得
+                    all_turn_popups.extend(final_output_data.get("tool_popups", []))
                     break
 
         current_console_content += captured_output.getvalue()
-
-        # ▼▼▼【ここからが修正箇所】▼▼▼
-        # 思考完了後、収集したポップアップをまとめて表示
-        for popup_message in tool_popups:
-            gr.Info(popup_message)
-        # ▲▲▲【修正ここまで】▲▲▲
 
         if final_response_text.strip():
             utils.save_message_to_log(main_log_f, f"## {character_to_respond}:", final_response_text)
             turn_recap_events.append(f"## {character_to_respond}:\n{final_response_text}")
 
-    # (以降のログ記録、最終的なUI更新のロジックは変更なし)
+    for popup_message in all_turn_popups:
+        gr.Info(popup_message)
+
     if active_participants:
         recap_text = "\n\n".join(turn_recap_events)
         full_recap_entry = f"【共有された対話ターン】\n{recap_text}\n【/共有された対話ターン】"
@@ -306,11 +338,14 @@ def handle_message_submission(*args: Any):
     final_chatbot_history, final_mapping_list = reload_chat_log(soul_vessel_character, api_history_limit_state)
     new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_character, api_key)
     scenery_image = utils.find_scenery_image(soul_vessel_character, utils.get_current_location(soul_vessel_character))
+
+    # トークン計算用のkwargsを構築
+    token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_character)
     token_count_text = gemini_api.count_input_tokens(
         character_name=soul_vessel_character, api_key_name=current_api_key_name_state,
-        api_history_limit=api_history_limit_state, parts=[],
-        **config_manager.get_effective_settings(soul_vessel_character)
+        api_history_limit=api_history_limit_state, parts=[], **token_calc_kwargs
     )
+
     final_df_with_ids = render_alarms_as_dataframe()
     final_df = get_display_df(final_df_with_ids)
 
@@ -1136,112 +1171,124 @@ def handle_wb_save(character_name: str, world_data: Dict, area_name: str, place_
 
     return world_data, raw_content
 
-def handle_wb_add_area(character_name: str, world_data: Dict, area_name: Optional[str]):
-    """エリア追加ボタン"""
-    if not area_name:
-        gr.Warning("新しいエリア名を入力してください。")
-        return world_data, gr.update()
-    if area_name in world_data:
-        gr.Warning(f"エリア '{area_name}' は既に存在します。")
-        return world_data, gr.update()
-
-    world_data[area_name] = {}
-    save_world_data(character_name, world_data)
-    gr.Info(f"新しいエリア '{area_name}' を追加しました。")
-
-    area_choices = sorted(world_data.keys())
-    return world_data, gr.update(choices=area_choices, value=area_name)
-
-def handle_wb_add_place(character_name: str, world_data: Dict, area_name: str, place_name: Optional[str]):
-    """場所追加ボタン"""
-    if not area_name:
-        gr.Warning("場所を追加するエリアを選択してください。")
-        return world_data, gr.update()
-    if not place_name:
-        gr.Warning("新しい場所名を入力してください。")
-        return world_data, gr.update()
-    if place_name in world_data.get(area_name, {}):
-        gr.Warning(f"場所 '{place_name}' はエリア '{area_name}' に既に存在します。")
-        return world_data, gr.update()
-
-    world_data[area_name][place_name] = "新しい場所です。説明を記述してください。"
-    save_world_data(character_name, world_data)
-    gr.Info(f"エリア '{area_name}' に新しい場所 '{place_name}' を追加しました。")
-
-    place_choices = sorted(world_data[area_name].keys())
-    return world_data, gr.update(choices=place_choices, value=place_name)
-
-def handle_wb_delete_area(character_name: str, world_data: Dict, area_name: str):
-    """エリア削除ボタン"""
-    if not area_name:
-        gr.Warning("削除するエリアを選択してください。")
-        return world_data, gr.update(), gr.update(), ""
-    if area_name not in world_data:
-        gr.Warning(f"エリア '{area_name}' が見つかりません。")
-        return world_data, gr.update(), gr.update(), ""
-
-    del world_data[area_name]
-    save_world_data(character_name, world_data)
-    gr.Info(f"エリア '{area_name}' を削除しました。")
-
-    area_choices = sorted(world_data.keys())
-    return world_data, gr.update(choices=area_choices, value=None), gr.update(choices=[], value=None), ""
-
 def handle_wb_delete_place(character_name: str, world_data: Dict, area_name: str, place_name: str):
     """場所削除ボタン"""
     if not area_name or not place_name:
         gr.Warning("削除するエリアと場所を選択してください。")
-        return world_data, gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
     if area_name not in world_data or place_name not in world_data[area_name]:
         gr.Warning(f"場所 '{place_name}' がエリア '{area_name}' に見つかりません。")
-        return world_data, gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
     del world_data[area_name][place_name]
     save_world_data(character_name, world_data)
     gr.Info(f"場所 '{place_name}' を削除しました。")
 
-    # RAWテキストエディタを更新するために、保存後のファイル内容を読み込む
+    # 削除後のUIを正しくリセットする
+    area_choices = sorted(world_data.keys())
+    place_choices = sorted(world_data.get(area_name, {}).keys())
+
     world_settings_path = character_manager.get_world_settings_path(character_name)
     raw_content = ""
     if world_settings_path and os.path.exists(world_settings_path):
         with open(world_settings_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
 
-    # UIコンポーネントは更新されないが、指示通り2つの値を返す
-    return world_data, raw_content
+    return (
+        world_data,
+        gr.update(choices=area_choices, value=area_name),
+        gr.update(choices=place_choices, value=None),
+        gr.update(value="", visible=False),
+        gr.update(visible=False),
+        gr.update(visible=False),
+        raw_content
+    )
 
 def handle_wb_confirm_add(character_name: str, world_data: Dict, selected_area: str, item_type: str, item_name: str):
     """エリアまたは場所の追加を確定するハンドラ。"""
+    # 戻り値の数を合わせるため、エラー時の戻り値に raw_content を追加
     if not character_name or not item_name:
         gr.Warning("キャラクターが選択されていないか、名前が入力されていません。")
-        return world_data, gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
 
     item_name = item_name.strip()
     if not item_name:
         gr.Warning("名前が空です。")
-        return world_data, gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+
+    raw_content = "" # 先に定義
 
     if item_type == "area":
         if item_name in world_data:
             gr.Warning(f"エリア '{item_name}' は既に存在します。")
-            return world_data, gr.update()
+            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+
         world_data[item_name] = {}
+        save_world_data(character_name, world_data)
         gr.Info(f"新しいエリア '{item_name}' を追加しました。")
+
+        area_choices = sorted(world_data.keys())
+        world_settings_path = character_manager.get_world_settings_path(character_name)
+        if world_settings_path and os.path.exists(world_settings_path):
+            with open(world_settings_path, "r", encoding="utf-8") as f: raw_content = f.read()
+        return world_data, gr.update(choices=area_choices, value=item_name), gr.update(choices=[], value=None), gr.update(visible=False), "", raw_content
 
     elif item_type == "place":
         if not selected_area:
             gr.Warning("場所を追加するエリアを選択してください。")
-            return world_data, gr.update()
+            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+
         if item_name in world_data.get(selected_area, {}):
             gr.Warning(f"場所 '{item_name}' はエリア '{selected_area}' に既に存在します。")
-            return world_data, gr.update()
+            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+
         world_data[selected_area][item_name] = "新しい場所です。説明を記述してください。"
+        save_world_data(character_name, world_data)
         gr.Info(f"エリア '{selected_area}' に新しい場所 '{item_name}' を追加しました。")
+
+        place_choices = sorted(world_data[selected_area].keys())
+        world_settings_path = character_manager.get_world_settings_path(character_name)
+        if world_settings_path and os.path.exists(world_settings_path):
+            with open(world_settings_path, "r", encoding="utf-8") as f: raw_content = f.read()
+
+        return world_data, gr.update(), gr.update(choices=place_choices, value=item_name), gr.update(visible=False), "", raw_content
+
     else:
         gr.Error(f"不明なアイテムタイプです: {item_type}")
-        return world_data, gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(visible=False), "", gr.update()
 
-    save_world_data(character_name, world_data)
+def handle_save_world_settings_raw(character_name: str, raw_content: str):
+    """world_settings.txtの生の内容をファイルに保存する。"""
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return raw_content, gr.update()
+
+    world_settings_path = character_manager.get_world_settings_path(character_name)
+    if not world_settings_path:
+        gr.Error("世界設定ファイルのパスが取得できませんでした。")
+        return raw_content, gr.update()
+
+    try:
+        with open(world_settings_path, "w", encoding="utf-8") as f:
+            f.write(raw_content)
+
+        gr.Info("RAWテキストとして世界設定を保存しました。構造化エディタに反映されます。")
+
+        # 保存に成功したら、構造化エディタ側のデータも再読み込みして返す
+        new_world_data = get_world_data(character_name)
+        new_area_choices = sorted(new_world_data.keys())
+
+        return new_world_data, gr.update(choices=new_area_choices, value=None), gr.update(choices=[], value=None)
+
+    except Exception as e:
+        gr.Error(f"世界設定のRAW保存中にエラーが発生しました: {e}")
+        return gr.update(), gr.update(), gr.update()
+
+def handle_reload_world_settings_raw(character_name: str) -> str:
+    """world_settings.txtの生の内容を再読み込みして表示する。"""
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        return ""
 
     world_settings_path = character_manager.get_world_settings_path(character_name)
     raw_content = ""
@@ -1249,7 +1296,8 @@ def handle_wb_confirm_add(character_name: str, world_data: Dict, selected_area: 
         with open(world_settings_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
 
-    return world_data, raw_content
+    gr.Info("世界設定ファイルを再読み込みしました。")
+    return raw_content
 
 def handle_save_gemini_key(key_name, key_value):
     if not key_name or not key_value:
@@ -1361,46 +1409,3 @@ def handle_rerun_button_click(*args: Any):
         current_console_content,
         active_participants
     )
-
-
-def handle_save_world_settings_raw(character_name: str, raw_content: str):
-    """world_settings.txtの生の内容をファイルに保存する。"""
-    if not character_name:
-        gr.Warning("キャラクターが選択されていません。")
-        return raw_content, gr.update()
-
-    world_settings_path = character_manager.get_world_settings_path(character_name)
-    if not world_settings_path:
-        gr.Error("世界設定ファイルのパスが取得できませんでした。")
-        return raw_content, gr.update()
-
-    try:
-        with open(world_settings_path, "w", encoding="utf-8") as f:
-            f.write(raw_content)
-
-        gr.Info("RAWテキストとして世界設定を保存しました。構造化エディタに反映されます。")
-
-        # 保存に成功したら、構造化エディタ側のデータも再読み込みして返す
-        new_world_data = get_world_data(character_name)
-        new_area_choices = sorted(new_world_data.keys())
-
-        return new_world_data, gr.update(choices=new_area_choices, value=None), gr.update(choices=[], value=None)
-
-    except Exception as e:
-        gr.Error(f"世界設定のRAW保存中にエラーが発生しました: {e}")
-        return gr.update(), gr.update(), gr.update()
-
-def handle_reload_world_settings_raw(character_name: str) -> str:
-    """world_settings.txtの生の内容を再読み込みして表示する。"""
-    if not character_name:
-        gr.Warning("キャラクターが選択されていません。")
-        return ""
-
-    world_settings_path = character_manager.get_world_settings_path(character_name)
-    raw_content = ""
-    if world_settings_path and os.path.exists(world_settings_path):
-        with open(world_settings_path, "r", encoding="utf-8") as f:
-            raw_content = f.read()
-
-    gr.Info("世界設定ファイルを再読み込みしました。")
-    return raw_content

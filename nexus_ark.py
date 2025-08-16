@@ -490,7 +490,7 @@ try:
         delete_place_button.click(
             fn=ui_handlers.handle_wb_delete_place,
             inputs=[current_character_name, world_data_state, area_selector, place_selector],
-            outputs=[world_data_state, world_settings_raw_editor]
+            outputs=[world_data_state, area_selector, place_selector, content_editor, save_button_row, delete_place_button, world_settings_raw_editor]
         )
         add_area_button.click(
             fn=lambda: ("area", gr.update(visible=True), "#### 新しいエリアの作成"),
@@ -504,13 +504,12 @@ try:
         confirm_add_button.click(
             fn=ui_handlers.handle_wb_confirm_add,
             inputs=[current_character_name, world_data_state, area_selector, new_item_type, new_item_name],
-            outputs=[world_data_state, world_settings_raw_editor]
+            outputs=[world_data_state, area_selector, place_selector, new_item_form, new_item_name, world_settings_raw_editor]
         )
         cancel_add_button.click(
             fn=lambda: (gr.update(visible=False), ""),
             outputs=[new_item_form, new_item_name]
         )
-
         save_raw_button.click(
             fn=ui_handlers.handle_save_world_settings_raw,
             inputs=[current_character_name, world_settings_raw_editor],

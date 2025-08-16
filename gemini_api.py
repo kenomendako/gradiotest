@@ -75,22 +75,20 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v20: ポップアップFIX)
+    LangGraphの思考プロセスをストリーミングで返す。(v23: 辞書引数FIX)
     """
     from agent.graph import app
     import time
     from google.api_core.exceptions import ResourceExhausted, InternalServerError
     from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
-    # ... (引数の展開、履歴構築、initial_state定義の部分は変更なし) ...
     # --- 引数を辞書から展開 ---
     character_to_respond = agent_args["character_to_respond"]
     api_key_name = agent_args["api_key_name"]
     api_history_limit = agent_args["api_history_limit"]
     debug_mode = agent_args["debug_mode"]
     history_log_path = agent_args["history_log_path"]
-    file_input_list = agent_args["file_input_list"]
-    user_prompt_text = agent_args["user_prompt_text"]
+    user_prompt_parts = agent_args["user_prompt_parts"]
     soul_vessel_character = agent_args["soul_vessel_character"]
     active_participants = agent_args["active_participants"]
     shared_location_name = agent_args["shared_location_name"]
@@ -108,6 +106,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         yield {"final_output": {"response": f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"}}
         return
 
+    # --- ハイブリッド履歴構築ロジック ---
     messages = []
     responding_ai_log_f, _, _, _, _ = character_manager.get_character_files_paths(character_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
@@ -118,101 +117,96 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         snapshot_history_raw = utils.load_chat_log(history_log_path, soul_vessel_character)
         snapshot_messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, character_to_respond)
         if snapshot_messages and messages:
-            first_snapshot_user_message_content = ""
-            if isinstance(snapshot_messages[0], HumanMessage):
-                first_snapshot_user_message_content = snapshot_messages[0].content.split("（")[0].strip()
+            first_snapshot_user_message_content = snapshot_messages[0].content if isinstance(snapshot_messages[0], HumanMessage) else ''
             if first_snapshot_user_message_content:
                 for i in range(len(messages) - 1, -1, -1):
-                    if isinstance(messages[i], HumanMessage):
-                        own_log_user_content = messages[i].content.split("（")[0].strip()
-                        if own_log_user_content == first_snapshot_user_message_content:
-                            messages = messages[:i]
-                            break
+                    if isinstance(messages[i], HumanMessage) and messages[i].content == first_snapshot_user_message_content:
+                        messages = messages[:i]; break
             messages.extend(snapshot_messages)
         elif snapshot_messages:
             messages = snapshot_messages
+
+    if user_prompt_parts:
+        messages.append(HumanMessage(content=user_prompt_parts))
+
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
         messages = messages[-(limit * 2):]
 
     initial_state = {
-        "messages": messages, "character_name": character_to_respond, "api_key": api_key,
-        "tavily_api_key": config_manager.TAVILY_API_KEY, "model_name": model_name,
-        "send_core_memory": effective_settings.get("send_core_memory", True),
-        "send_scenery": effective_settings.get("send_scenery", True),
-        "send_notepad": effective_settings.get("send_notepad", True), "debug_mode": debug_mode,
-        "location_name": shared_location_name, "scenery_text": shared_scenery_text,
-        "all_participants": all_participants_list
+        "messages": messages, "character_name": character_to_respond,
+        "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
+        "model_name": model_name, "send_core_memory": effective_settings.get("send_core_memory", True),
+        "send_scenery": effective_settings.get("send_scenery", True), "send_notepad": effective_settings.get("send_notepad", True),
+        "debug_mode": debug_mode, "location_name": shared_location_name,
+        "scenery_text": shared_scenery_text, "all_participants": all_participants_list
     }
 
     # --- エージェント実行ループ ---
     max_retries = 3
-    final_state = None
-    last_message = None
-    tool_popups = [] # ポップアップメッセージを収集するリスト
+    retry_delay = 5  # seconds
 
     for attempt in range(max_retries):
-        # ... (リトライ機構は変更なし) ...
-        is_final_attempt = (attempt == max_retries - 1)
         try:
-            print(f"--- エージェント実行試行: {attempt + 1}/{max_retries} ---")
-            for update in app.stream(initial_state, {"recursion_limit": 15}):
+            # 思考プロセスをストリーミングで実行
+            for update in app.stream(initial_state, stream_mode="values"):
+                # UIにストリームの更新を通知 (現在は未使用だが将来のために残す)
                 yield {"stream_update": update}
-                final_state = update
 
-                # ▼▼▼【ここからが修正箇所】▼▼▼
-                # ストリームの途中でツール使用を検知し、ポップアップメッセージを収集
-                node_name = list(update.keys())[0]
-                if node_name == "safe_tool_node":
-                    tool_messages = update[node_name].get("messages", [])
-                    for tool_msg in tool_messages:
-                        if isinstance(tool_msg, ToolMessage):
-                            display_text = utils.format_tool_result_for_ui(tool_msg.name, tool_msg.content)
-                            if display_text:
-                                tool_popups.append(display_text)
-                # ▲▲▲【修正ここまで】▲▲▲
+            # ストリームの最後の値が最終状態
+            final_state = update
 
-            # ... (ループ内の残りの部分は変更なし) ...
-            if final_state and isinstance(final_state, dict):
-                agent_final_state = final_state.get("agent", {})
-                last_message = next(reversed(agent_final_state.get("messages", [])), None)
-            if isinstance(last_message, AIMessage) and (last_message.content or last_message.tool_calls):
-                print(f"--- 試行 {attempt + 1}: 有効な応答を受信しました。 ---"); break
-            if isinstance(last_message, AIMessage):
-                finish_reason = last_message.response_metadata.get('finish_reason', '')
-                if finish_reason == 'STOP':
-                    if not is_final_attempt: print(f"--- [警告] 試行 {attempt + 1}: AIが空応答 (STOP)。リトライします... ---"); time.sleep(1); continue
-                else: print(f"--- 試行 {attempt + 1}: リトライ対象外 ({finish_reason}) で終了。 ---"); break
-        except InternalServerError:
-            if not is_final_attempt: print(f"--- [警告] 試行 {attempt + 1}: 500エラー。リトライします... ---"); time.sleep((attempt + 1) * 2); continue
-            else: final_state = {"response": "[APIエラー: サーバー内部エラー(500)が頻発しました。]"}; break
-        except ResourceExhausted as e:
-            if "PerMinute" in str(e) and not is_final_attempt: print(f"--- [警告] 試行 {attempt + 1}: レート制限。61秒待機... ---"); time.sleep(61); continue
-            final_state = {"response": "[APIエラー: リソース上限に達しました。]"}; break
+            # 最終的なAIの応答メッセージを取得
+            final_message = final_state["messages"][-1]
+            response_text = ""
+            tool_popups = []
+
+            if isinstance(final_message, AIMessage):
+                response_text = final_message.content
+
+            # ▼▼▼【ここからが修正の核心】▼▼▼
+            # ツール実行結果のポップアップを生成
+            # 履歴を遡り、「最後にツールを呼び出したAIMessage」を探す
+            last_ai_message_with_tool_call_index = -1
+            for i in range(len(final_state["messages"]) - 1, -1, -1):
+                msg = final_state["messages"][i]
+                if isinstance(msg, AIMessage) and msg.tool_calls:
+                    last_ai_message_with_tool_call_index = i
+                    break
+
+            # そのAIメッセージ以降の、全てのToolMessageをポップアップの対象とする
+            if last_ai_message_with_tool_call_index != -1:
+                messages_since_last_tool_call = final_state["messages"][last_ai_message_with_tool_call_index + 1:]
+                for msg in messages_since_last_tool_call:
+                    if isinstance(msg, ToolMessage):
+                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                        if popup_text:
+                            tool_popups.append(popup_text)
+            # ▲▲▲【修正ここまで】▲▲▲
+
+            yield {"final_output": {"response": response_text, "tool_popups": tool_popups}}
+            return # 正常に終了したのでループを抜ける
+
+        except (ResourceExhausted, InternalServerError) as e:
+            # サーバー側のエラー (リソース枯渇や内部エラー)
+            print(f"--- APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
+            if attempt < max_retries - 1:
+                print(f"    - {retry_delay}秒待機してリトライします...")
+                time.sleep(retry_delay)
+                # 次のリトライのために遅延を増やす
+                retry_delay *= 2
+            else:
+                error_message = f"[エラー: APIサーバーが応答しませんでした。時間をおいて再試行してください。詳細: {e}]"
+                yield {"final_output": {"response": error_message, "tool_popups": []}}
+                return
+
         except Exception as e:
-            final_state = {"response": f"[エージェント実行エラー: {e}]"}; traceback.print_exc(); break
-
-    # --- 最終的な出力を整形して返す ---
-    final_response = {}
-    if final_state and isinstance(final_state, dict):
-        # ... (final_responseの構築部分は変更なし) ...
-        final_response["response"] = final_state.get("response", "")
-        final_response["location_name"] = final_state.get("context_generator", {}).get("location_name", "（不明）")
-        final_response["scenery"] = final_state.get("context_generator", {}).get("scenery_text", "（不明）")
-        final_response_text = ""
-        if isinstance(last_message, AIMessage):
-            final_response_text = str(last_message.content or "").strip()
-            if not final_response_text and not last_message.tool_calls:
-                finish_reason = last_message.response_metadata.get('finish_reason', '')
-                if finish_reason == 'SAFETY': final_response_text = "[エラー: 応答が安全フィルターにブロックされました。]"
-                elif finish_reason == 'RECITATION': final_response_text = "[エラー: 応答が引用要件によりブロックされました。]"
-                else: final_response_text = "[エラー: AIからの有効な応答がありませんでした。]"
-        if not final_response.get("response"): final_response["response"] = final_response_text
-    if not final_response: final_response["response"] = "[エラー: 不明な理由でエージェントが完了しませんでした。]"
-
-    final_response["tool_popups"] = tool_popups # 収集したポップアップを最終結果に含める
-
-    yield {"final_output": final_response}
+            # その他の予期せぬエラー
+            print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
+            traceback.print_exc()
+            error_message = f"[エラー: 内部処理で問題が発生しました。詳細はターミナルを確認してください。エラー: {e}]"
+            yield {"final_output": {"response": error_message, "tool_popups": []}}
+            return
 
 def count_input_tokens(**kwargs):
     character_name = kwargs.get("character_name")

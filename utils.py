@@ -195,28 +195,31 @@ def _format_text_content_for_gradio(content: str, character_name: str, current_a
     down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
     delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
     button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
-
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
-    # 発言者ヘッダーを作成
     speaker_header = f"<div style='font-weight: bold; margin-bottom: 5px; color: #a1c9f7;'>{html.escape(character_name)}:</div>"
 
-    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-    thought_match = thoughts_pattern.search(content)
+    final_parts = [f"<span id='{current_anchor_id}'></span>", speaker_header]
 
-    final_parts = [f"<span id='{current_anchor_id}'></span>"]
+    # 1. 文字列の "先頭" にある思考ログのみを処理する正規表現
+    leading_thoughts_pattern = re.compile(r"^\s*【Thoughts】(.*?)【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
+    thought_match = leading_thoughts_pattern.search(content)
 
-    # 最初に発言者ヘッダーを追加
-    final_parts.append(speaker_header)
-    # ▲▲▲ 修正ここまで ▲▲▲
+    main_text_content = content # 元のコンテンツを保持
 
     if thought_match:
+        # 先頭の思考ログが見つかった場合
         thoughts_content = thought_match.group(1).strip()
         escaped_thoughts = html.escape(thoughts_content).replace('\n', '<br>')
         final_parts.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
 
-    main_text = thoughts_pattern.sub("", content).strip()
-    escaped_text = html.escape(main_text).replace('\n', '<br>')
-    final_parts.append(f"<div>{escaped_text}</div>")
+        # main_text_content から、処理した思考ログ部分を削除
+        main_text_content = leading_thoughts_pattern.sub("", content, count=1)
+
+    # 2. 残ったテキストをHTMLエスケープして表示する
+    #    これにより、文中にある 【Thoughts】 タグは通常のテキストとして扱われる
+    if main_text_content.strip():
+        escaped_text = html.escape(main_text_content.strip()).replace('\n', '<br>')
+        final_parts.append(f"<div>{escaped_text}</div>")
+
     final_parts.append(button_container)
 
     return "".join(final_parts)
@@ -453,7 +456,9 @@ def format_tool_result_for_ui(tool_name: str, tool_result: str) -> Optional[str]
 
     display_text = ""
     if tool_name == 'set_current_location':
-        location_match = re.search(r"set to '(.*?)'", tool_result)
+        # ▼▼▼ この行の正規表現を修正 ▼▼▼
+        location_match = re.search(r"現在地は '(.*?)' に設定されました", tool_result)
+        # ▲▲▲ 修正ここまで ▲▲▲
         if location_match:
             display_text = f'現在地を「{location_match.group(1)}」に設定しました。'
     elif tool_name == 'set_timer':
