@@ -263,8 +263,6 @@ def context_generator_node(state: AgentState):
 
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
-# agent/graph.py の agent_node を完全に置き換え
-
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
     base_system_prompt = state['system_prompt'].content
@@ -303,6 +301,57 @@ def agent_node(state: AgentState):
 
     response = llm_with_tools.invoke(messages_for_agent)
     return {"messages": [response]}
+
+
+# agent/graph.py (agent_node の直後に追加)
+
+def location_report_node(state: AgentState):
+    """
+    【最終版】場所移動タスクの完了を、キャラクター性を維持したまま自律的に報告するための専用思考ノード。
+    """
+    print("--- 場所移動報告ノード (location_report_node) 実行 ---")
+
+    last_tool_message = next((msg for msg in reversed(state['messages']) if isinstance(msg, ToolMessage) and msg.name == 'set_current_location'), None)
+    location_name = "指定の場所"
+    if last_tool_message:
+        match = re.search(r"現在地は '(.*?)' に設定されました", str(last_tool_message.content))
+        if match:
+            location_name = match.group(1)
+
+    base_system_prompt = state['system_prompt'].content
+    reporting_instruction = (
+        f"\n\n---\n【最重要指示】\nあなたは今、場所の移動を完了しました。"
+        f"ユーザーに、現在地が「{location_name}」に変わったことを、あなた自身の言葉で、自然な会話として報告してください。"
+        "この報告の返答が、あなたのこのターンの最終的な応答となります。他のツール呼び出しや提案は絶対に含めないでください。"
+    )
+    final_prompt_message = SystemMessage(content=base_system_prompt + reporting_instruction)
+
+    history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
+    messages_for_reporting = [final_prompt_message] + history_messages
+
+    if state.get("debug_mode", False):
+        print("--- [DEBUG MODE] 場所移動報告ノードの最終プロンプト ---")
+        print(final_prompt_message.content)
+        print("-------------------------------------------------")
+
+    effective_settings = config_manager.get_effective_settings(state['character_name'])
+    llm = get_configured_llm(state['model_name'], state['api_key'], effective_settings)
+    response = llm.invoke(messages_for_reporting)
+    return {"messages": [response]}
+
+
+def route_after_context(state: AgentState) -> Literal["location_report_node", "agent"]:
+    """
+    コンテキスト生成後、直前の操作が場所移動だったかどうかを判断し、処理を振り分けるルーター。
+    """
+    print("--- コンテキスト後ルーター (route_after_context) 実行 ---")
+    last_message = state["messages"][-1]
+    if isinstance(last_message, ToolMessage) and last_message.name == 'set_current_location':
+        print("  - `set_current_location` の完了を検知。報告生成ノードへ。")
+        return "location_report_node"
+
+    print("  - 通常のコンテキスト生成。エージェントの思考へ。")
+    return "agent"
 
 
 def safe_tool_executor(state: AgentState):
@@ -386,15 +435,21 @@ workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
 workflow.add_node("safe_tool_node", safe_tool_executor)
+workflow.add_node("location_report_node", location_report_node) # 新ノードを追加
 
-# グラフの接続を正しく定義
 workflow.add_edge(START, "context_generator")
 
-# ▼▼▼【ここからが修正箇所】▼▼▼
-# context_generatorの後は、必ずagentノードに接続する
-workflow.add_edge("context_generator", "agent")
+# context_generator の後は、新しいルーターで判断する
+workflow.add_conditional_edges(
+    "context_generator",
+    route_after_context,
+    {
+        "location_report_node": "location_report_node",
+        "agent": "agent",
+    },
+)
 
-# agentの後は、ツールを呼ぶか終了するかを判断する
+# agent（司令官）の後は、ツールを呼ぶか終了するかを判断
 workflow.add_conditional_edges(
     "agent",
     route_after_agent,
@@ -410,8 +465,9 @@ workflow.add_conditional_edges(
     route_after_tools,
     {"context_generator": "context_generator", "agent": "agent"},
 )
-# ▲▲▲【修正ここまで】▲▲▲
+
+# location_report_node（報告担当官）は、報告したらタスク完了
+workflow.add_edge("location_report_node", END)
 
 app = workflow.compile()
-# グラフのバージョンを更新
-print("--- 統合グラフ(v5)がコンパイルされました ---") # バージョン番号をv5に戻します
+print("--- 統合グラフ(v11)がコンパイルされました ---")
