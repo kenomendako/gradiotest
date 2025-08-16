@@ -200,10 +200,7 @@ def _format_text_content_for_gradio(content: str, character_name: str, current_a
     # 発言者ヘッダーを作成
     speaker_header = f"<div style='font-weight: bold; margin-bottom: 5px; color: #a1c9f7;'>{html.escape(character_name)}:</div>"
 
-    # ▼▼▼【ここが修正箇所】▼▼▼
-    # 正規表現を、行頭の【Thoughts】にのみマッチするように再度修正
-    thoughts_pattern = re.compile(r"^\s*【Thoughts】(.*?)\s*【/Thoughts】\s*", re.DOTALL | re.MULTILINE)
-    # ▲▲▲【修正ここまで】▲▲▲
+    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     thought_match = thoughts_pattern.search(content)
 
     final_parts = [f"<span id='{current_anchor_id}'></span>"]
