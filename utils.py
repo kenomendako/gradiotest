@@ -456,7 +456,9 @@ def format_tool_result_for_ui(tool_name: str, tool_result: str) -> Optional[str]
 
     display_text = ""
     if tool_name == 'set_current_location':
-        location_match = re.search(r"set to '(.*?)'", tool_result)
+        # ▼▼▼ この行の正規表現を修正 ▼▼▼
+        location_match = re.search(r"現在地は '(.*?)' に設定されました", tool_result)
+        # ▲▲▲ 修正ここまで ▲▲▲
         if location_match:
             display_text = f'現在地を「{location_match.group(1)}」に設定しました。'
     elif tool_name == 'set_timer':
