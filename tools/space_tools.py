@@ -20,7 +20,9 @@ def set_current_location(location_id: str, character_name: str = None) -> str:
         location_file_path = os.path.join(base_path, "current_location.txt")
         with open(location_file_path, "w", encoding="utf-8") as f:
             f.write(location_id.strip())
-        return f"Success: Current location has been set to '{location_id}'."
+        # ▼▼▼ この行を修正 ▼▼▼
+        return f"Success: 現在地は '{location_id}' に設定されました。この移動タスクは完了です。次に、この結果をユーザーに報告してください。"
+        # ▲▲▲ 修正ここまで ▲▲▲
     except Exception as e:
         return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
 
