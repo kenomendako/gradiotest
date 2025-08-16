@@ -191,17 +191,38 @@ def handle_context_settings_change(character_name: str, api_key_name: str, api_h
     )
 
 def update_token_count_on_input(character_name: str, api_key_name: str, api_history_limit: str, textbox_content: str, file_list: list, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
-    if not character_name or not api_key_name: return "入力トークン数: -"
+    if not character_name or not api_key_name: return "トークン数: -"
+
     parts_for_api = []
     if textbox_content: parts_for_api.append(textbox_content)
+
+    # ▼▼▼【修正の核心】▼▼▼
     if file_list:
-        for file_obj in file_list: parts_for_api.append(Image.open(file_obj.name))
-    return gemini_api.count_input_tokens(
-        character_name=character_name, api_key_name=api_key_name, parts=parts_for_api,
-        api_history_limit=api_history_limit,
-        add_timestamp=add_timestamp, send_thoughts=send_thoughts, send_notepad=send_notepad,
-        use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
-    )
+        for file_obj in file_list:
+            try:
+                kind = filetype.guess(file_obj.name)
+                # 画像ファイルの場合のみImage.openを試みる
+                if kind and kind.mime.startswith('image/'):
+                    parts_for_api.append(Image.open(file_obj.name))
+                else:
+                    # 画像以外は、ファイル名とサイズでトークン数を近似計算するためのプレースホルダーを追加
+                    file_size = os.path.getsize(file_obj.name)
+                    parts_for_api.append(f"[ファイル添付: {os.path.basename(file_obj.name)}, サイズ: {file_size} bytes]")
+            except Exception as e:
+                print(f"トークン計算中のファイル処理エラー: {e}")
+                parts_for_api.append(f"[ファイル処理エラー: {os.path.basename(file_obj.name)}]")
+    # ▲▲▲ 修正ここまで ▲▲▲
+
+    # kwargsにUIのチェックボックスの状態を渡す
+    kwargs = {
+        "character_name": character_name, "api_key_name": api_key_name,
+        "api_history_limit": api_history_limit, "parts": parts_for_api,
+        "add_timestamp": add_timestamp, "send_thoughts": send_thoughts,
+        "send_notepad": send_notepad, "use_common_prompt": use_common_prompt,
+        "send_core_memory": send_core_memory, "send_scenery": send_scenery
+    }
+
+    return gemini_api.count_input_tokens(**kwargs)
 
 # ui_handlers.py の handle_message_submission を完全に置き換え
 
@@ -252,21 +273,58 @@ def handle_message_submission(*args: Any):
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content)
 
-# ui_handlers.py の handle_message_submission 内、agent_args_dict定義以降を置き換え
+        # ▼▼▼【ここからが修正箇所】▼▼▼
+        # ファイルが主役のターンにのみ渡され、かつ内容を正しく処理する
+        processed_file_list = []
+        if character_to_respond == soul_vessel_character and file_input_list:
+            for file_obj in file_input_list:
+                try:
+                    kind = filetype.guess(file_obj.name)
+                    if kind is None:
+                        # 不明なファイルはテキストとして扱う
+                        with open(file_obj.name, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                        processed_file_list.append({"type": "text", "text": f"添付ファイル「{os.path.basename(file_obj.name)}」の内容:\n---\n{content}\n---"})
+                        continue
 
-        agent_args_dict = {
+                    if kind.mime.startswith('image/'):
+                        with open(file_obj.name, "rb") as f:
+                            encoded_string = base64.b64encode(f.read()).decode("utf-8")
+                        processed_file_list.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{kind.mime};base64,{encoded_string}"}
+                        })
+                    elif kind.mime.startswith('text/'):
+                        with open(file_obj.name, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                        processed_file_list.append({"type": "text", "text": f"添付ファイル「{os.path.basename(file_obj.name)}」の内容:\n---\n{content}\n---"})
+                    else:
+                        # その他のファイル（音声、動画など）は、APIに直接渡さず、
+                        # 存在を示すプレースホルダーテキストのみを渡す
+                        processed_file_list.append({"type": "text", "text": f"（ファイル「{os.path.basename(file_obj.name)}」が添付されていますが、ここでは内容を展開しません）"})
+
+                except Exception as e:
+                    print(f"ファイル処理エラー ({file_obj.name}): {e}")
+                    processed_file_list.append({"type": "text", "text": f"（ファイル「{os.path.basename(file_obj.name)}」の処理中にエラーが発生しました）"})
+
+        user_prompt_parts = []
+        if user_prompt_from_textbox:
+            user_prompt_parts.append({"type": "text", "text": user_prompt_from_textbox})
+        user_prompt_parts.extend(processed_file_list)
+
+        agent_stream_args = {
             "character_to_respond": character_to_respond,
             "api_key_name": current_api_key_name_state,
             "api_history_limit": api_history_limit_state,
             "debug_mode": debug_mode_state,
             "history_log_path": main_log_f,
-            "file_input_list": file_input_list if character_to_respond == soul_vessel_character else None,
-            "user_prompt_text": user_prompt_from_textbox if character_to_respond == soul_vessel_character else "",
+            "user_prompt_parts": user_prompt_parts if character_to_respond == soul_vessel_character else [],
             "soul_vessel_character": soul_vessel_character,
             "active_participants": active_participants,
             "shared_location_name": shared_location_name,
             "shared_scenery_text": shared_scenery_text,
         }
+        # ▲▲▲【修正ここまで】▲▲▲
 
         final_response_text = ""
         tool_popups = [] # このターンのポップアップを初期化

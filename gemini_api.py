@@ -89,8 +89,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     api_history_limit = agent_args["api_history_limit"]
     debug_mode = agent_args["debug_mode"]
     history_log_path = agent_args["history_log_path"]
-    file_input_list = agent_args["file_input_list"]
-    user_prompt_text = agent_args["user_prompt_text"]
+    user_prompt_parts = agent_args["user_prompt_parts"]
     soul_vessel_character = agent_args["soul_vessel_character"]
     active_participants = agent_args["active_participants"]
     shared_location_name = agent_args["shared_location_name"]
@@ -134,6 +133,10 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
         messages = messages[-(limit * 2):]
+
+    # 5. ユーザーの最新の発言（テキスト＋ファイル）を履歴の最後に追加する
+    if user_prompt_parts:
+        messages.append(HumanMessage(content=user_prompt_parts))
 
     initial_state = {
         "messages": messages, "character_name": character_to_respond, "api_key": api_key,
@@ -201,7 +204,21 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         final_response["scenery"] = final_state.get("context_generator", {}).get("scenery_text", "（不明）")
         final_response_text = ""
         if isinstance(last_message, AIMessage):
-            final_response_text = str(last_message.content or "").strip()
+            # ▼▼▼【ここからが修正箇所】▼▼▼
+            content = last_message.content
+            if isinstance(content, str):
+                final_response_text = content.strip()
+            elif isinstance(content, list):
+                # 応答がパーツのリストである場合、テキスト部分を結合する
+                text_parts = []
+                for part in content:
+                    if isinstance(part, str):
+                        text_parts.append(part)
+                    elif isinstance(part, dict) and 'text' in part:
+                        text_parts.append(part['text'])
+                final_response_text = "".join(text_parts).strip()
+            # ▲▲▲【修正ここまで】▲▲▲
+
             if not final_response_text and not last_message.tool_calls:
                 finish_reason = last_message.response_metadata.get('finish_reason', '')
                 if finish_reason == 'SAFETY': final_response_text = "[エラー: 応答が安全フィルターにブロックされました。]"
