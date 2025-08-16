@@ -190,6 +190,49 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], main_character_
 
     return gradio_history, mapping_list
 
+def _safe_markdown_to_html(text: str) -> str:
+    """
+    安全な一部のMarkdown記法のみをHTMLに変換する。
+    - ### Header -> <h3>Header</h3>
+    - **bold** -> <strong>bold</strong>
+    - リストアイテム (* or -) -> <ul><li>...</li></ul>
+    - 改行 -> <br>
+    リンクやコードブロックなど、Gradioで問題を起こす可能性のあるタグは変換しない。
+    """
+    # 最初に全体をエスケープして、意図しないHTMLタグを防ぐ
+    escaped_text = html.escape(text)
+
+    # 1. 見出し (###)
+    escaped_text = re.sub(r'^\s*### (.*)', r'<h3>\1</h3>', escaped_text, flags=re.MULTILINE)
+
+    # 2. 太字 (**)
+    escaped_text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', escaped_text)
+
+    # 3. リスト
+    # リスト項目を<li>で囲む
+    lines = escaped_text.split('\n')
+    in_list = False
+    processed_lines = []
+    for line in lines:
+        match = re.match(r'^\s*[-*]\s+(.*)', line)
+        if match:
+            if not in_list:
+                processed_lines.append('<ul>')
+                in_list = True
+            processed_lines.append(f'<li>{match.group(1).strip()}</li>')
+        else:
+            if in_list:
+                processed_lines.append('</ul>')
+                in_list = False
+            processed_lines.append(line)
+    if in_list:
+        processed_lines.append('</ul>') # ファイルの最後がリストの場合
+
+    escaped_text = '\n'.join(processed_lines)
+
+    # 4. 最後に、残りの改行を<br>に変換
+    return escaped_text.replace('\n', '<br>')
+
 def _format_text_content_for_gradio(content: str, character_name: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
     up_button = f"<a href='#{current_anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
     down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
@@ -215,8 +258,13 @@ def _format_text_content_for_gradio(content: str, character_name: str, current_a
         final_parts.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
 
     main_text = thoughts_pattern.sub("", content).strip()
-    escaped_text = html.escape(main_text).replace('\n', '<br>')
-    final_parts.append(f"<div>{escaped_text}</div>")
+
+    # ▼▼▼【ここからが修正箇所】▼▼▼
+    # 以前の単純なエスケープ処理を、新しい安全なMarkdown変換関数に置き換える
+    converted_html = _safe_markdown_to_html(main_text)
+    final_parts.append(f"<div>{converted_html}</div>")
+    # ▲▲▲【修正ここまで】▲▲▲
+
     final_parts.append(button_container)
 
     return "".join(final_parts)
