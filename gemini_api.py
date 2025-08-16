@@ -143,7 +143,66 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     }
 
     # --- エージェント実行ループ ---
-    # ... (このループ部分は変更なし) ...
+    max_retries = 3
+    retry_delay = 5  # seconds
+
+    for attempt in range(max_retries):
+        try:
+            # 思考プロセスをストリーミングで実行
+            for update in app.stream(initial_state, stream_mode="values"):
+                # UIにストリームの更新を通知 (現在は未使用だが将来のために残す)
+                yield {"stream_update": update}
+
+            # ストリームの最後の値が最終状態
+            final_state = update
+
+            # 最終的なAIの応答メッセージを取得
+            final_message = final_state["messages"][-1]
+            response_text = ""
+            tool_popups = []
+
+            if isinstance(final_message, AIMessage):
+                response_text = final_message.content
+
+            # ツール実行結果のポップアップを生成
+            # 1回の応答で複数のツールが実行された場合も考慮し、最後のAIメッセージ以降の全ツールメッセージを対象にする
+            last_ai_message_index = -1
+            for i in range(len(final_state["messages"]) - 1, -1, -1):
+                if isinstance(final_state["messages"][i], AIMessage):
+                    last_ai_message_index = i
+                    break
+
+            if last_ai_message_index != -1:
+                new_tool_messages = final_state["messages"][last_ai_message_index + 1:]
+                for msg in new_tool_messages:
+                    if isinstance(msg, ToolMessage):
+                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                        if popup_text:
+                            tool_popups.append(popup_text)
+
+            yield {"final_output": {"response": response_text, "tool_popups": tool_popups}}
+            return # 正常に終了したのでループを抜ける
+
+        except (ResourceExhausted, InternalServerError) as e:
+            # サーバー側のエラー (リソース枯渇や内部エラー)
+            print(f"--- APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
+            if attempt < max_retries - 1:
+                print(f"    - {retry_delay}秒待機してリトライします...")
+                time.sleep(retry_delay)
+                # 次のリトライのために遅延を増やす
+                retry_delay *= 2
+            else:
+                error_message = f"[エラー: APIサーバーが応答しませんでした。時間をおいて再試行してください。詳細: {e}]"
+                yield {"final_output": {"response": error_message, "tool_popups": []}}
+                return
+
+        except Exception as e:
+            # その他の予期せぬエラー
+            print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
+            traceback.print_exc()
+            error_message = f"[エラー: 内部処理で問題が発生しました。詳細はターミナルを確認してください。エラー: {e}]"
+            yield {"final_output": {"response": error_message, "tool_popups": []}}
+            return
 
 def count_input_tokens(**kwargs):
     character_name = kwargs.get("character_name")
