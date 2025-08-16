@@ -166,22 +166,15 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
 
             # ▼▼▼【ここからが修正の核心】▼▼▼
             # ツール実行結果のポップアップを生成
-            # 履歴を遡り、「最後にツールを呼び出したAIMessage」を探す
-            last_ai_message_with_tool_call_index = -1
-            for i in range(len(final_state["messages"]) - 1, -1, -1):
-                msg = final_state["messages"][i]
-                if isinstance(msg, AIMessage) and msg.tool_calls:
-                    last_ai_message_with_tool_call_index = i
-                    break
+            # 今回の処理で新しく追加された全てのメッセージを対象とする
+            initial_message_count = len(initial_state["messages"])
+            new_messages = final_state["messages"][initial_message_count:]
 
-            # そのAIメッセージ以降の、全てのToolMessageをポップアップの対象とする
-            if last_ai_message_with_tool_call_index != -1:
-                messages_since_last_tool_call = final_state["messages"][last_ai_message_with_tool_call_index + 1:]
-                for msg in messages_since_last_tool_call:
-                    if isinstance(msg, ToolMessage):
-                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                        if popup_text:
-                            tool_popups.append(popup_text)
+            for msg in new_messages:
+                if isinstance(msg, ToolMessage):
+                    popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                    if popup_text:
+                        tool_popups.append(popup_text)
             # ▲▲▲【修正ここまで】▲▲▲
 
             yield {"final_output": {"response": response_text, "tool_popups": tool_popups}}
