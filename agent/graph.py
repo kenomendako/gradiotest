@@ -379,30 +379,6 @@ def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"
     print("  - 通常のツール実行完了。エージェントの思考へ。")
     return "agent"
 
-def should_agent_respond(state: AgentState) -> Literal["agent", "__end__"]:
-    """
-    context_generatorの後に、エージェントに応答を生成させるべきか、
-    それともグラフを終了すべきかを判断する。
-    """
-    print("--- コンテキスト後ルーター (should_agent_respond) 実行 ---")
-
-    # 履歴から、ツール呼び出しを含む最後のAIメッセージを探す
-    last_ai_message_with_tool_call = next(
-        (msg for msg in reversed(state['messages']) if isinstance(msg, AIMessage) and msg.tool_calls),
-        None
-    )
-
-    if last_ai_message_with_tool_call:
-        # そのAIメッセージに set_current_location の呼び出しが含まれているかチェック
-        if any(call['name'] == 'set_current_location' for call in last_ai_message_with_tool_call.tool_calls):
-            # 履歴の最後が set_current_location のツール結果メッセージであるか確認
-            if isinstance(state['messages'][-1], ToolMessage) and state['messages'][-1].name == 'set_current_location':
-                print("  - `set_current_location` の実行とコンテキスト更新が完了。グラフを終了します。")
-                return "__end__"
-
-    print("  - 通常のコンテキスト生成完了。エージェントの思考へ。")
-    return "agent"
-
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
@@ -412,14 +388,7 @@ workflow.add_node("safe_tool_node", safe_tool_executor)
 workflow.add_edge(START, "context_generator")
 
 # context_generatorの後は、必ずshould_agent_respondルーターで判断する
-workflow.add_conditional_edges(
-    "context_generator",
-    should_agent_respond,
-    {
-        "agent": "agent",
-        "__end__": END,
-    },
-)
+workflow.add_edge("context_generator", "agent")
 
 # agentの後は、ツールを呼ぶか終了するかを判断する
 workflow.add_conditional_edges(
