@@ -318,26 +318,30 @@ def location_report_node(state: AgentState):
         if match:
             location_name = match.group(1)
 
-    base_system_prompt = state['system_prompt'].content
-    reporting_instruction = (
-        f"\n\n---\n【最重要指示】\nあなたは今、場所の移動を完了しました。"
-        f"ユーザーに、現在地が「{location_name}」に変わったことを、あなた自身の言葉で、自然な会話として報告してください。"
-        "この報告の返答が、あなたのこのターンの最終的な応答となります。他のツール呼び出しや提案は絶対に含めないでください。"
-    )
-    final_prompt_message = SystemMessage(content=base_system_prompt + reporting_instruction)
+        # 2. context_generatorが生成した完全なプロンプトを取得
+        base_system_prompt = state['system_prompt'].content
 
-    history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
-    messages_for_reporting = [final_prompt_message] + history_messages
+        # ▼▼▼【ここからが修正の核心】▼▼▼
+        # 3. 過剰な制約をなくし、シンプルで肯定的な指示に変更
+        reporting_instruction = (
+            f"\n\n---\n【現在の状況】\nあなたは今、ユーザーの指示に従って「{location_name}」への移動を完了しました。"
+            "この事実を、自然な会話の中でユーザーに伝えてください。"
+        )
+        # ▲▲▲【修正ここまで】▲▲▲
+        final_prompt_message = SystemMessage(content=base_system_prompt + reporting_instruction)
 
-    if state.get("debug_mode", False):
-        print("--- [DEBUG MODE] 場所移動報告ノードの最終プロンプト ---")
-        print(final_prompt_message.content)
-        print("-------------------------------------------------")
+        history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
+        messages_for_reporting = [final_prompt_message] + history_messages
 
-    effective_settings = config_manager.get_effective_settings(state['character_name'])
-    llm = get_configured_llm(state['model_name'], state['api_key'], effective_settings)
-    response = llm.invoke(messages_for_reporting)
-    return {"messages": [response]}
+        if state.get("debug_mode", False):
+            print("--- [DEBUG MODE] 場所移動報告ノードの最終プロンプト ---")
+            print(final_prompt_message.content)
+            print("-------------------------------------------------")
+
+        effective_settings = config_manager.get_effective_settings(state['character_name'])
+        llm = get_configured_llm(state['model_name'], state['api_key'], effective_settings)
+        response = llm.invoke(messages_for_reporting)
+        return {"messages": [response]}
 
 
 def route_after_context(state: AgentState) -> Literal["location_report_node", "agent"]:
@@ -470,4 +474,5 @@ workflow.add_conditional_edges(
 workflow.add_edge("location_report_node", END)
 
 app = workflow.compile()
-print("--- 統合グラフ(v11)がコンパイルされました ---")
+# ▼▼▼ バージョン番号を更新 ▼▼▼
+print("--- 統合グラフ(v12)がコンパイルされました ---")
