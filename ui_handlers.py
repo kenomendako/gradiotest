@@ -5,7 +5,9 @@ import traceback
 import hashlib
 import os
 import re
+import sys
 import locale
+import subprocess
 from typing import List, Optional, Dict, Any, Tuple
 from langchain_core.messages import ToolMessage, AIMessage
 import gradio as gr
@@ -1536,3 +1538,18 @@ def handle_rerun_button_click(*args: Any):
         if final_yield_value:
             yield final_yield_value + (None, gr.update(visible=False))
     # ▲▲▲【修正ここまで】▲▲▲
+
+def _run_core_memory_update(character_name: str, api_key: str):
+    print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
+    try:
+        from tools import memory_tools
+        result = memory_tools.summarize_and_save_core_memory.func(character_name=character_name, api_key=api_key)
+        print(f"--- [スレッド終了] コアメモリ更新処理完了 --- 結果: {result}")
+    except Exception: print(f"--- [スレッドエラー] コアメモリ更新中に予期せぬエラー ---"); traceback.print_exc()
+
+def handle_core_memory_update_click(character_name: str, api_key_name: str):
+    if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
+    gr.Info(f"「{character_name}」のコアメモリ更新をバックグラウンドで開始しました。")
+    threading.Thread(target=_run_core_memory_update, args=(character_name, api_key)).start()
