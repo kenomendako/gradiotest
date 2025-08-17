@@ -50,6 +50,7 @@ def get_mos_instance(character_name: str) -> MOS:
     mem_cube = GeneralMemCube(mem_cube_config)
 
     # Nexus Ark専用の、カスタム器官を、直接、生成
+    # ★★★ バッチ処理と通常の対話で、同じLLM (flash-lite) を使用する ★★★
     google_llm_config = GoogleGenAILLMConfig(
         model_name_or_path="gemini-2.5-flash-lite",
         google_api_key=api_key

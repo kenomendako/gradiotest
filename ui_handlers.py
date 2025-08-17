@@ -5,7 +5,7 @@ import traceback
 import hashlib
 import os
 import re
-import sys
+import locale
 from typing import List, Optional, Dict, Any, Tuple
 from langchain_core.messages import ToolMessage, AIMessage
 import gradio as gr
@@ -18,7 +18,6 @@ import io
 import uuid
 from tools.image_tools import generate_image as generate_image_tool_func
 import pytz
-import subprocess
 
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants, memos_manager
@@ -769,67 +768,51 @@ def handle_memos_batch_import(character_name: str, console_content: str):
     【ストリーミング対応版】
     MemOSのバッチインポート処理を開始し、その進捗をUIにリアルタイムで反映させる。
     """
+    # この関数はUIスレッドをブロックしないように設計されているため、
+    # threading.Threadは不要。Gradioがバックグラウンドで処理を管理する。
     if not character_name:
         gr.Warning("キャラクターが選択されていません。")
-        # ジェネレータ関数なので、タプルの形式で値を返す必要がある
         yield gr.update(), console_content, console_content
         return
 
     # --- 1. 即時フィードバック ---
     gr.Info(f"「{character_name}」の過去ログ取り込みをバックグラウンドで開始します。")
-    # ボタンを無効化し、テキストを変更 & コンソールに開始メッセージを追加
     initial_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 「{character_name}」の過去ログ取り込み処理を開始 ---\n"
-    yield (
-        gr.update(value="処理中...", interactive=False),
-        initial_console_text,
-        initial_console_text
-    )
+    yield gr.update(value="処理中...", interactive=False), initial_console_text, initial_console_text
 
     process = None
     try:
-        # --- 2. サブプロセスの実行と、出力のストリーミング ---
         archive_dir = os.path.join("characters", character_name, "archive", "log")
         if not os.path.isdir(archive_dir):
             gr.Error(f"アーカイブディレクトリが見つかりません: {archive_dir}")
-            # finallyブロックでボタンが有効化される
+            yield gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), console_content + f"[エラー] ディレクトリ {archive_dir} が見つかりません。", console_content + f"[エラー] ディレクトリ {archive_dir} が見つかりません。"
             return
 
-        # 仮想環境のPython実行可能ファイルのパスを取得
-        python_executable = sys.executable
-        command = [
-            python_executable, "batch_importer.py",
-            "--character", character_name,
-            "--logs-dir", archive_dir
-        ]
+        python_executable = sys.executable or "python"
+        command = [python_executable, "batch_importer.py", "--character", character_name, "--logs-dir", archive_dir]
 
         print(f"--- サブプロセス実行コマンド: {' '.join(command)} ---")
 
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, # エラー出力もstdoutにまとめる
-            text=True,
-            encoding='utf-8',
-            bufsize=1, # 行バッファリングを有効にする
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0 # Windowsでコンソールウィンドウ非表示
+            stderr=subprocess.STDOUT,
+            text=False, # ★★★ バイトモードで読み込むため False に変更 ★★★
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
 
-        # 出力を一行ずつ読み取り、UIにyieldで送信する
         updated_console_text = initial_console_text
         if process.stdout:
-            for line in iter(process.stdout.readline, ''):
-                if not line:
+            # ★★★ iterとdecodeを組み合わせた堅牢なループ ★★★
+            for byte_line in iter(process.stdout.readline, b''):
+                if not byte_line:
                     break
-                print(line, end='') # 実行元のターミナルにも表示
-                updated_console_text += line
-                yield (
-                    gr.update(), # ボタンの状態は「処理中」のまま
-                    updated_console_text,
-                    updated_console_text
-                )
+                line_str = byte_line.decode(locale.getpreferredencoding(False), errors='replace')
+                print(line_str, end='')
+                updated_console_text += line_str
+                yield gr.update(), updated_console_text, updated_console_text
 
-        # --- 3. 完了処理 ---
-        process.wait() # プロセスの終了を待つ
+        process.wait()
         if process.returncode == 0:
             gr.Info(f"「{character_name}」の過去ログ取り込みが正常に完了しました。")
             final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 処理正常終了 ---\n"
@@ -838,30 +821,20 @@ def handle_memos_batch_import(character_name: str, console_content: str):
             final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] エラー終了 (終了コード: {process.returncode}) ---\n"
 
         updated_console_text += final_message
-        yield (
-            gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), # ボタンを元に戻す
-            updated_console_text,
-            updated_console_text
-        )
+        yield gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), updated_console_text, updated_console_text
 
     except Exception as e:
-        gr.Error(f"インポート処理の起動に失敗しました: {e}")
+        error_message = f"インポート処理の起動に失敗しました: {e}"
+        gr.Error(error_message)
         traceback.print_exc()
-        error_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 処理の起動に失敗: {e} ---\n"
-        # エラー発生時も、必ずボタンを元に戻す
-        yield (
-            gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True),
-            error_console_text,
-            error_console_text
-        )
+        error_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] {error_message} ---\n"
+        yield gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), error_console_text, error_console_text
+
     finally:
-        # 念のため、万が一プロセスが残っていても終了させる
         if process and process.poll() is None:
             process.terminate()
             if process.stdout:
                 process.stdout.close()
-        # 最終的に必ずボタンを有効化して返す
-        yield gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), gr.update(), gr.update()
 
 def _run_core_memory_update(character_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
