@@ -233,7 +233,7 @@ try:
                     with gr.TabItem("客観的記憶 (MemOS)"):
                         gr.Markdown("## 客観的記憶 (MemOS) の管理")
                         gr.Markdown("過去の対話ログなどをMemOSに取り込み、AIの永続的な記憶を構築します。")
-                        memos_import_button = gr.Button("過去ログを客観記憶(MemOS)に取り込む", variant="primary")
+                        memos_import_button = gr.Button("過去ログを客観記憶(MemOS)に取り込む", variant="primary", elem_id="memos_import_button")
                         gr.Markdown("---")
                         gr.Markdown("### 索引管理（旧機能）")
                         rag_update_button = gr.Button("手帳の索引を更新", variant="secondary", visible=False) # 機能は削除されたが、UIハンドラに残っているので一旦非表示
@@ -475,7 +475,15 @@ try:
         save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
         save_tavily_key_button.click(fn=ui_handlers.handle_save_tavily_key, inputs=[tavily_key_input], outputs=[])
         auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
-        memos_import_button.click(fn=ui_handlers.handle_memos_batch_import, inputs=[current_character_name], outputs=None)
+        memos_import_button.click(
+            fn=ui_handlers.handle_memos_batch_import,
+            inputs=[current_character_name, debug_console_state],
+            outputs=[
+                memos_import_button,
+                debug_console_state,
+                debug_console_output
+            ]
+        )
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_character_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])

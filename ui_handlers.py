@@ -764,51 +764,104 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
     status = "有効" if auto_memory_enabled else "無効"
     gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
 
-def _run_batch_import(character_name: str):
+def handle_memos_batch_import(character_name: str, console_content: str):
     """
-    batch_importer.pyをサブプロセスとして実行する内部関数。
-    UIプロセスとは独立して動作させる。
+    【ストリーミング対応版】
+    MemOSのバッチインポート処理を開始し、その進捗をUIにリアルタイムで反映させる。
     """
-    gr.Info(f"キャラクター「{character_name}」の過去ログ（アーカイブ）のインポートを開始します...")
-
-    # 規約に基づいたアーカイブディレクトリのパスを生成
-    logs_dir = os.path.join("characters", character_name, "archive", "log")
-
-    if not os.path.isdir(logs_dir):
-        gr.Warning(f"アーカイブディレクトリが見つかりません: {logs_dir}")
-        print(f"インポート処理中止: ディレクトリが存在しません - {logs_dir}")
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        # ジェネレータ関数なので、タプルの形式で値を返す必要がある
+        yield gr.update(), console_content, console_content
         return
 
+    # --- 1. 即時フィードバック ---
+    gr.Info(f"「{character_name}」の過去ログ取り込みをバックグラウンドで開始します。")
+    # ボタンを無効化し、テキストを変更 & コンソールに開始メッセージを追加
+    initial_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 「{character_name}」の過去ログ取り込み処理を開始 ---\n"
+    yield (
+        gr.update(value="処理中...", interactive=False),
+        initial_console_text,
+        initial_console_text
+    )
+
+    process = None
     try:
-        # 実行中のPythonインタプリタを使用して、独立したプロセスとしてスクリプトを実行
+        # --- 2. サブプロセスの実行と、出力のストリーミング ---
+        archive_dir = os.path.join("characters", character_name, "archive", "log")
+        if not os.path.isdir(archive_dir):
+            gr.Error(f"アーカイブディレクトリが見つかりません: {archive_dir}")
+            # finallyブロックでボタンが有効化される
+            return
+
+        # 仮想環境のPython実行可能ファイルのパスを取得
+        python_executable = sys.executable
         command = [
-            sys.executable,
-            "batch_importer.py",
+            python_executable, "batch_importer.py",
             "--character", character_name,
-            "--logs-dir", logs_dir
+            "--logs-dir", archive_dir
         ]
 
         print(f"--- サブプロセス実行コマンド: {' '.join(command)} ---")
 
-        # 非同期で実行し、UIをブロックしない
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8')
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, # エラー出力もstdoutにまとめる
+            text=True,
+            encoding='utf-8',
+            bufsize=1, # 行バッファリングを有効にする
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0 # Windowsでコンソールウィンドウ非表示
+        )
 
-        # ここでは完了を待たずにUIにメッセージを出す
-        gr.Info(f"「{character_name}」のインポート処理をバックグラウンドで開始しました。詳細はターミナルを確認してください。")
+        # 出力を一行ずつ読み取り、UIにyieldで送信する
+        updated_console_text = initial_console_text
+        if process.stdout:
+            for line in iter(process.stdout.readline, ''):
+                if not line:
+                    break
+                print(line, end='') # 実行元のターミナルにも表示
+                updated_console_text += line
+                yield (
+                    gr.update(), # ボタンの状態は「処理中」のまま
+                    updated_console_text,
+                    updated_console_text
+                )
+
+        # --- 3. 完了処理 ---
+        process.wait() # プロセスの終了を待つ
+        if process.returncode == 0:
+            gr.Info(f"「{character_name}」の過去ログ取り込みが正常に完了しました。")
+            final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 処理正常終了 ---\n"
+        else:
+            gr.Error(f"過去ログの取り込み中にエラーが発生しました。詳細はデバッグコンソールを確認してください。")
+            final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] エラー終了 (終了コード: {process.returncode}) ---\n"
+
+        updated_console_text += final_message
+        yield (
+            gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), # ボタンを元に戻す
+            updated_console_text,
+            updated_console_text
+        )
 
     except Exception as e:
-        gr.Error(f"インポートプロセスの起動に失敗しました: {e}")
+        gr.Error(f"インポート処理の起動に失敗しました: {e}")
         traceback.print_exc()
-
-
-def handle_memos_batch_import(character_name: str):
-    """「過去ログを取り込む」ボタンのハンドラ"""
-    if not character_name:
-        gr.Warning("対象のキャラクターを選択してください。")
-        return
-
-    # UIが固まらないように別スレッドで実行
-    threading.Thread(target=_run_batch_import, args=(character_name,)).start()
+        error_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 処理の起動に失敗: {e} ---\n"
+        # エラー発生時も、必ずボタンを元に戻す
+        yield (
+            gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True),
+            error_console_text,
+            error_console_text
+        )
+    finally:
+        # 念のため、万が一プロセスが残っていても終了させる
+        if process and process.poll() is None:
+            process.terminate()
+            if process.stdout:
+                process.stdout.close()
+        # 最終的に必ずボタンを有効化して返す
+        yield gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), gr.update(), gr.update()
 
 def _run_core_memory_update(character_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
