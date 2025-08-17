@@ -1376,12 +1376,21 @@ def handle_reload_system_prompt(character_name: str) -> str:
     return content
 
 def handle_rerun_button_click(*args: Any):
+    """
+    再生成ボタンが押された際の処理。
+    ログを巻き戻し、handle_message_submissionを呼び出して再応答を生成させた後、
+    最後に選択状態を解除し、操作ボタン群を非表示にする。
+    """
     (selected_message, character_name, api_key_name,
      file_list, api_history_limit, debug_mode,
      current_console_content, active_participants) = args
 
     if not selected_message or not character_name:
-        # (エラー処理は変更なし) ...
+        gr.Warning("再生成の起点となるメッセージが選択されていません。")
+        # outputsの数に合わせてNoneを返す
+        yield (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+               None, gr.update(visible=True))
         return
 
     log_f, _, _, _, _ = get_character_files_paths(character_name)
@@ -1393,19 +1402,35 @@ def handle_rerun_button_click(*args: Any):
         restored_input_text = utils.delete_user_message_and_after(log_f, selected_message, character_name)
 
     if restored_input_text is None:
-        # (エラー処理は変更なし) ...
+        gr.Error("ログの巻き戻しに失敗しました。再生成できません。")
+        history, mapping = reload_chat_log(character_name, api_history_limit)
+        yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+               None, gr.update(visible=True))
         return
 
     gr.Info("応答を再生成します...")
 
-    # handle_message_submission を呼び出して引数を再構築する
-    yield from handle_message_submission(
-        restored_input_text,
-        character_name,
-        api_key_name,
-        None, # 再生成時はファイルを再添付しない
-        api_history_limit,
-        debug_mode,
-        current_console_content,
-        active_participants
+    # handle_message_submission を呼び出すための引数を再構築
+    submission_args = (
+        restored_input_text, character_name, api_key_name,
+        None, api_history_limit, debug_mode,
+        current_console_content, active_participants
     )
+
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # handle_message_submission の実行をラップし、最後のyieldにUI更新命令を追加する
+    submission_generator = handle_message_submission(*submission_args)
+    final_yield_value = None
+    try:
+        # ジェネレータの最後の値を取得するまでループ
+        while True:
+            final_yield_value = next(submission_generator)
+            # 途中の "思考中..." の更新はそのままUIに流す
+            # 最後の値以外は、追加の戻り値の分だけNoneで埋める
+            yield final_yield_value + (None, gr.update())
+    except StopIteration:
+        # ジェネレータが終了したら、最後に保持していた値に追加の命令を加えて返す
+        if final_yield_value:
+            yield final_yield_value + (None, gr.update(visible=False))
+    # ▲▲▲【修正ここまで】▲▲▲
