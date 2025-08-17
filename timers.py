@@ -57,26 +57,49 @@ class UnifiedTimer:
 
             print(f"--- [タイマー終了: {timer_id}] AIに応答生成を依頼します ---")
 
+            # ▼▼▼【ここからが修正の核心】▼▼▼
             synthesized_user_message = f"（システムタイマー：時間です。テーマ「{theme}」について、メッセージを伝えてください）"
 
-            agent_args = (
-                synthesized_user_message, self.character_name, self.api_key_name,
-                None, str(constants.DEFAULT_ALARM_API_HISTORY_TURNS), False
-            )
+            log_f, _, _, _, _ = character_manager.get_character_files_paths(self.character_name)
+            api_key = config_manager.GEMINI_API_KEYS.get(self.api_key_name)
 
-            response_data = gemini_api.invoke_nexus_agent(*agent_args)
-            raw_response = response_data.get('response', '')
+            if not log_f or not api_key:
+                print(f"警告: タイマー ({timer_id}) のキャラクターファイルまたはAPIキーが見つからないため、処理をスキップします。")
+                return
+
+            from agent.graph import generate_scenery_context
+            location_name, _, scenery_text = generate_scenery_context(self.character_name, api_key)
+
+            agent_args_dict = {
+                "character_to_respond": self.character_name,
+                "api_key_name": self.api_key_name,
+                "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
+                "debug_mode": False,
+                "history_log_path": log_f,
+                "user_prompt_parts": [{"type": "text", "text": synthesized_user_message}],
+                "soul_vessel_character": self.character_name,
+                "active_participants": [],
+                "shared_location_name": location_name,
+                "shared_scenery_text": scenery_text,
+            }
+
+            final_response_text = ""
+            for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                if "final_output" in update:
+                    final_response_text = update["final_output"].get("response", "")
+                    break
+
+            raw_response = final_response_text
             response_text = utils.remove_thoughts_from_text(raw_response)
+            # ▲▲▲【修正ここまで】▲▲▲
 
             if response_text and not response_text.startswith("[エラー"):
-                log_f, _, _, _, _ = utils.character_manager.get_character_files_paths(self.character_name)
                 message_for_log = f"（システムタイマー：{theme}）"
                 utils.save_message_to_log(log_f, "## システム(タイマー):", message_for_log)
                 utils.save_message_to_log(log_f, f"## {self.character_name}:", raw_response)
 
                 alarm_manager.send_notification(self.character_name, response_text, {})
 
-                # --- ▼▼▼ デスクトップ通知ロジックを追加 ▼▼▼ ---
                 if PLYER_AVAILABLE:
                     try:
                         display_message = (response_text[:250] + '...') if len(response_text) > 250 else response_text
@@ -89,7 +112,6 @@ class UnifiedTimer:
                         print("PCデスクトップ通知を送信しました。")
                     except Exception as e:
                         print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
-                # --- ▲▲▲ ここまで ▲▲▲
 
             else:
                 print(f"警告: タイマー応答の生成に失敗。AIからの生応答: '{raw_response}'")
