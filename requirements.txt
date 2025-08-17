@@ -9,6 +9,7 @@ requests
 
 # Used for UI data manipulation (e.g., alarms)
 pandas
+numpy # Required by pandas
 
 # For MemOS implementation
 MemoryOS[tree-mem]
