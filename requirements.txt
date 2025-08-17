@@ -13,6 +13,7 @@ numpy # Required by pandas
 
 # For MemOS implementation
 MemoryOS[tree-mem]
+torch # Required by transformers, a dependency of MemOS
 
 # --- LangGraph and LangChain libraries ---
 # Core LangGraph library - THIS WILL MANAGE ITS OWN DEPENDENCIES

@@ -10,32 +10,18 @@ class GoogleGenAILLMConfig(BaseLLMConfig):
 class GoogleGenAILLM(BaseLLM):
     def __init__(self, config: GoogleGenAILLMConfig):
         self.config = config
-        genai.configure(api_key=self.config.google_api_key)
+        self.client = genai.Client(api_key=self.config.google_api_key)
 
-    def generate(self, messages: MessageList, **kwargs) -> str:
+    def generate(self, messages: MessageList) -> str:
         contents = [
             {"role": msg["role"] if msg["role"] != "assistant" else "model", "parts": [msg["content"]]}
             for msg in messages
         ]
-        # In the new google-genai SDK, the client is no longer needed.
-        # We can call the model directly.
-        model = genai.GenerativeModel(f"models/{self.config.model_name_or_path}")
-        response = model.generate_content(
-            contents=contents,
-            **kwargs
+        response = self.client.models.generate_content(
+            model=f"models/{self.config.model_name_or_path}",
+            contents=contents
         )
         return response.text
 
     def generate_stream(self, messages: MessageList, **kwargs):
-        contents = [
-            {"role": msg["role"] if msg["role"] != "assistant" else "model", "parts": [msg["content"]]}
-            for msg in messages
-        ]
-        model = genai.GenerativeModel(f"models/{self.config.model_name_or_path}")
-        response = model.generate_content(
-            contents=contents,
-            stream=True,
-            **kwargs
-        )
-        for chunk in response:
-            yield chunk.text
+        raise NotImplementedError("Streaming is not yet implemented for GoogleGenAILLM.")
