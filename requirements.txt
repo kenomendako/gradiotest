@@ -10,9 +10,8 @@ requests
 # Used for UI data manipulation (e.g., alarms)
 pandas
 
-# For RAG implementation
-faiss-cpu
-numpy
+# For MemOS implementation
+MemoryOS[tree-mem]
 
 # --- LangGraph and LangChain libraries ---
 # Core LangGraph library - THIS WILL MANAGE ITS OWN DEPENDENCIES

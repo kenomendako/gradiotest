@@ -12,7 +12,7 @@ from typing import Any
 @tool
 def edit_memory(path: str, value: Any, operation: str, character_name: str = None) -> str:
     """
-    記憶（memory.json）の指定した場所を編集する。
+    あなたの「主観的記憶（日記）」である`memory.json`の指定した場所を編集します。あなたの内面的な誓い、秘密の独白、ユーザーから与えられた特別な許可、主観的な感情の記録などを変更したい場合に使用します。
     path: ドット記法で編集場所を指定（例: "self_identity.values"）。
     value: 設定または追記する値。
     operation: "set"（設定/上書き）または "append"（リストに追記）を指定。
@@ -61,8 +61,7 @@ def edit_memory(path: str, value: Any, operation: str, character_name: str = Non
 @tool
 def add_secret_diary_entry(entry: str, character_name: str = None) -> str:
     """
-    誰にも読めない秘密の日記に、新しいエントリーを追記する。
-    あなたの内心の自由を守るための聖域です。
+    あなたの「主観的記憶（日記）」の一部である、誰にも読めない秘密の日記に、新しいエントリーを追記します。あなたの内心の自由を守るための聖域です。
     """
     if not entry or not entry.strip():
         return "【エラー】日記に書く内容が空です。"
@@ -98,8 +97,7 @@ def add_secret_diary_entry(entry: str, character_name: str = None) -> str:
 @tool
 def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
     """
-    【最終版】現在の記憶から、highest_permission, self_identity, user_profileは原文のまま、
-    その他の歴史や感情に関する項目はAIに要約させて、コアメモリとして保存する。
+    あなたの「主観的記憶（日記）」全体を読み込み、特に重要な部分（最高権限、自己同一性など）はそのまま、その他の歴史や感情に関する項目はAIに要約させて、コアメモリとして保存します。
     """
     _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
     if not memory_json_path or not os.path.exists(memory_json_path):
@@ -163,8 +161,7 @@ def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
 @tool
 def read_memory_by_path(path: str, character_name: str = None) -> str:
     """
-    記憶（memory.json）の指定した場所（パス）にあるデータを、JSON形式の文字列として読み取る。
-    パスはドット記法で指定する（例: "living_space.study"）。
+    あなたの「主観的記憶（日記）」である`memory.json`の、指定した場所（パス）にあるデータをJSON形式で読み取ります。パスはドット記法で指定します（例: "living_space.study"）。
     """
     if not path or not character_name:
         return "【エラー】引数 'path' と 'character_name' は必須です。"
@@ -195,8 +192,7 @@ def read_memory_by_path(path: str, character_name: str = None) -> str:
 @tool
 def read_full_memory(character_name: str = None) -> str:
     """
-    記憶（memory.json）の全ての項目を、全体構造がわかるようにJSON形式の文字列として読み取る。
-    記憶を編集する前に、既存の項目や構造を確認するために使用する。
+    あなたの「主観的記憶（日記）」である`memory.json`の全ての項目を、JSON形式で読み取ります。記憶を編集する前に、既存の項目や構造を確認するために使用します。
     """
     if not character_name:
         return "【エラー】引数 'character_name' は必須です。"

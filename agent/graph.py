@@ -28,7 +28,7 @@ from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 # ▼▼▼ 新しいタイマーツールをインポート ▼▼▼
 from tools.timer_tools import set_timer, set_pomodoro_timer
-from rag_manager import diary_search_tool, conversation_memory_search_tool
+from tools.memos_tools import search_objective_memory
 from character_manager import get_world_settings_path
 from memory_manager import load_memory_data_safe
 import utils # ★ utilsを直接インポート
@@ -38,7 +38,7 @@ all_tools = [
     set_current_location, read_memory_by_path, edit_memory,
     add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
     update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
-    read_url_tool, diary_search_tool, conversation_memory_search_tool,
+    read_url_tool, search_objective_memory,
     generate_image, read_full_memory, set_personal_alarm,
     update_location_content, add_new_location,
     set_timer, set_pomodoro_timer,

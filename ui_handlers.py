@@ -19,7 +19,7 @@ from tools.image_tools import generate_image as generate_image_tool_func
 import pytz
 
 
-import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
+import gemini_api, config_manager, alarm_manager, character_manager, utils, constants, memos_manager
 # ▼▼▼ 新しいタイマーツールをインポート ▼▼▼
 from tools import timer_tools
 from agent.graph import generate_scenery_context
@@ -226,11 +226,11 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理する。(v22: NameError FIX)
+    ユーザーからのメッセージ送信を処理する。(v23: MemOS 自動記憶対応)
     """
     (textbox_content, soul_vessel_character, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
-     current_console_content, active_participants) = args
+     auto_memory_enabled, current_console_content, active_participants) = args
     active_participants = active_participants or []
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
@@ -353,7 +353,37 @@ def handle_message_submission(*args: Any):
            new_location_name, new_scenery_text,
            final_df_with_ids, final_df, scenery_image,
            current_console_content, current_console_content)
-    # ...
+
+    # --- 自動記憶処理 ---
+    if auto_memory_enabled:
+        try:
+            print(f"--- 自動記憶処理を開始: {soul_vessel_character} ---")
+            # このターンで生成されたメッセージを取得
+            # turn_recap_events には "## ユーザー:" と "## キャラクター名:" のヘッダーが含まれているので、
+            # これをパースしてMemOSが要求する形式に変換する
+            messages_to_save = []
+            # 最初のユーザー発言
+            user_content_match = re.search(r"## ユーザー:\n(.*)", turn_recap_events[0], re.DOTALL)
+            if user_content_match:
+                messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
+
+            # AIの応答（複数キャラクター対応）
+            for recap_event in turn_recap_events[1:]:
+                 ai_content_match = re.search(r"## .*?:\n(.*)", recap_event, re.DOTALL)
+                 if ai_content_match:
+                     messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
+
+            if len(messages_to_save) >= 2:
+                mos = memos_manager.get_mos_instance(soul_vessel_character)
+                mos.add(messages=messages_to_save)
+                print(f"--- 自動記憶処理完了: {soul_vessel_character} ---")
+            else:
+                print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
+
+        except Exception as e:
+            print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---")
+            traceback.print_exc()
+            gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     """「情景を更新」ボタン専用ハンドラ。キャッシュを無視して強制的に再生成する。"""
@@ -726,13 +756,39 @@ def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_
         traceback.print_exc()
         return f"タイマー開始エラー: {e}"
 
-def handle_rag_update_button_click(character_name: str, api_key_name: str):
-    if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-    if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
-    gr.Info(f"「{character_name}」のRAG索引の更新を開始します...")
-    import rag_manager
-    threading.Thread(target=lambda: rag_manager.create_or_update_index(character_name, api_key)).start()
+def handle_auto_memory_change(auto_memory_enabled: bool):
+    """自動記憶設定の変更を保存する"""
+    config_manager.save_memos_config("auto_memory_enabled", auto_memory_enabled)
+    status = "有効" if auto_memory_enabled else "無効"
+    gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
+
+def _run_batch_import(character_name: str):
+    """batch_importer.pyをサブプロセスとして実行する内部関数"""
+    gr.Info(f"キャラクター「{character_name}」の過去ログのインポートを開始します...")
+    try:
+        # ここで batch_importer の main 関数を直接呼び出す
+        # スクリプトとしてではなく、モジュールとして実行
+        from batch_importer import main as batch_importer_main
+        # コマンドライン引数を模倣
+        sys.argv = [
+            "batch_importer.py",
+            "--character", character_name,
+            "--logs-dir", os.path.join("characters", character_name, "logs")
+        ]
+        batch_importer_main()
+        gr.Info(f"キャラクター「{character_name}」のインポート処理が完了しました。詳細はターミナルを確認してください。")
+    except Exception as e:
+        gr.Error(f"インポート処理中にエラーが発生しました: {e}")
+        traceback.print_exc()
+
+def handle_memos_batch_import(character_name: str):
+    """「過去ログを取り込む」ボタンのハンドラ"""
+    if not character_name:
+        gr.Warning("対象のキャラクターを選択してください。")
+        return
+
+    # UIが固まらないように別スレッドで実行
+    threading.Thread(target=_run_batch_import, args=(character_name,)).start()
 
 def _run_core_memory_update(character_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")

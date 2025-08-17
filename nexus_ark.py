@@ -128,6 +128,7 @@ try:
                                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
+                                    auto_memory_checkbox = gr.Checkbox(label="対話の自動記憶を有効にする", value=lambda: config_manager.CONFIG_GLOBAL.get("memos_config", {}).get("auto_memory_enabled", False), interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
                                     gr.Markdown("---")
                                     gr.Markdown("#### 📢 通知サービス設定")
@@ -224,12 +225,18 @@ try:
                             save_prompt_button = gr.Button("プロンプトを保存", variant="secondary")
                             reload_prompt_button = gr.Button("再読込", variant="secondary")
                     with gr.TabItem("記憶 (JSON)"):
-                        memory_json_editor = gr.Code(label="記憶ファイル", language="json", interactive=True, elem_id="memory_json_editor_code", lines=20)
+                        memory_json_editor = gr.Code(label="主観的記憶（日記） - memory.json", language="json", interactive=True, elem_id="memory_json_editor_code", lines=20)
                         with gr.Row():
-                            save_memory_button = gr.Button("記憶を保存", variant="secondary")
+                            save_memory_button = gr.Button("主観的記憶を保存", variant="secondary")
                             reload_memory_button = gr.Button("再読込", variant="secondary")
                             core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
-                            rag_update_button = gr.Button("手帳の索引を更新", variant="secondary")
+                    with gr.TabItem("客観的記憶 (MemOS)"):
+                        gr.Markdown("## 客観的記憶 (MemOS) の管理")
+                        gr.Markdown("過去の対話ログなどをMemOSに取り込み、AIの永続的な記憶を構築します。")
+                        memos_import_button = gr.Button("過去ログを客観記憶(MemOS)に取り込む", variant="primary")
+                        gr.Markdown("---")
+                        gr.Markdown("### 索引管理（旧機能）")
+                        rag_update_button = gr.Button("手帳の索引を更新", variant="secondary", visible=False) # 機能は削除されたが、UIハンドラに残っているので一旦非表示
                     with gr.TabItem("メモ帳 (Markdown)"):
                         notepad_editor = gr.Textbox(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code", lines=20, autoscroll=True)
                         with gr.Row():
@@ -322,6 +329,7 @@ try:
         chat_inputs = [
             chat_input_textbox, current_character_name, current_api_key_name_state,
             file_upload_button, api_history_limit_state, debug_mode_checkbox,
+            auto_memory_checkbox, # ★★★ 自動記憶チェックボックスを追加
             debug_console_state,
             active_participants_state
         ]
@@ -466,7 +474,8 @@ try:
         save_pushover_config_button.click(fn=ui_handlers.handle_save_pushover_config, inputs=[pushover_user_key_input, pushover_app_token_input], outputs=[])
         save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
         save_tavily_key_button.click(fn=ui_handlers.handle_save_tavily_key, inputs=[tavily_key_input], outputs=[])
-        rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
+        auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
+        memos_import_button.click(fn=ui_handlers.handle_memos_batch_import, inputs=[current_character_name], outputs=None)
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_character_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
