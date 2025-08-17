@@ -116,38 +116,51 @@ def trigger_alarm(alarm_config, current_api_key_name):
 
     print(f"⏰ アラーム発火. ID: {alarm_id}, キャラクター: {char_name}, コンテキスト: '{context_to_use}'")
 
-    # ▼▼▼ ここからが修正の核心 ▼▼▼
     log_f, _, _, _, _ = character_manager.get_character_files_paths(char_name)
-    if not log_f or not current_api_key_name:
+    api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name)
+
+    if not log_f or not api_key:
         print(f"警告: アラーム (ID:{alarm_id}) のキャラクターファイルまたはAPIキーが見つからないため、処理をスキップします。")
         return
 
+    # ▼▼▼【ここからが修正の核心】▼▼▼
     # AIに渡すための、内部的なユーザーメッセージを合成
     synthesized_user_message = f"（システムアラーム：時間です。コンテキスト「{context_to_use}」について、アラームメッセージを伝えてください）"
 
     # ログに記録するための、シンプルなシステムメッセージ
     message_for_log = f"（システムアラーム：{alarm_config.get('time', '指定時刻')}）"
 
-    # invoke_nexus_agent に渡す引数を、UIからの呼び出しと完全に同じ形式に揃える
-    agent_args = (
-        synthesized_user_message,
-        char_name,
-        current_api_key_name,
-        None,  # file_input_list は存在しないのでNone
-        str(constants.DEFAULT_ALARM_API_HISTORY_TURNS), # api_history_limit_state
-        False  # debug_mode_state はFalse
-    )
+    # 契約書（辞書）を作成
+    from agent.graph import generate_scenery_context
+    location_name, _, scenery_text = generate_scenery_context(char_name, api_key)
 
-    # 応答生成は、すべてのコンテキスト構築を内包する invoke_nexus_agent に完全に任せる
-    response_data = gemini_api.invoke_nexus_agent(*agent_args)
+    agent_args_dict = {
+        "character_to_respond": char_name,
+        "api_key_name": current_api_key_name,
+        "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
+        "debug_mode": False,
+        "history_log_path": log_f,
+        "user_prompt_parts": [{"type": "text", "text": synthesized_user_message}],
+        "soul_vessel_character": char_name,
+        "active_participants": [],
+        "shared_location_name": location_name,
+        "shared_scenery_text": scenery_text,
+    }
 
-    # invoke_nexus_agent は思考ログを含む完全な応答を返すので、そこから表示用のテキストを抽出する
-    raw_response = response_data.get('response', '')
+    # 新しい約束の名を呼び、契約書を渡す
+    final_response_text = ""
+    for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+        if "final_output" in update:
+            final_response_text = update["final_output"].get("response", "")
+            break
+
+    # 思考ログを含む完全な応答を raw_response とする（ログ記録用）
+    raw_response = final_response_text
+    # 表示・通知用には思考ログを除去する
     response_text = utils.remove_thoughts_from_text(raw_response)
-    # ▲▲▲ 修正ここまで ▲▲▲
+    # ▲▲▲【修正ここまで】▲▲▲
 
     if response_text and not response_text.startswith("[エラー"):
-        # ログには、思考ログを含まないシステムメッセージと、思考ログを含む完全なAI応答を記録
         utils.save_message_to_log(log_f, "## システム(アラーム):", message_for_log)
         utils.save_message_to_log(log_f, f"## {char_name}:", raw_response)
         print(f"アラームログ記録完了 (ID:{alarm_id})")
@@ -160,7 +173,6 @@ def trigger_alarm(alarm_config, current_api_key_name):
             except Exception as e:
                 print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
     else:
-        # 応答が空だった場合やエラーだった場合のログを、より詳細にする
         print(f"警告: アラーム応答の生成に失敗 (ID:{alarm_id}). AIからの生応答: '{raw_response}'")
 
 def check_alarms():
