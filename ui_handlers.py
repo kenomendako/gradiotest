@@ -5,6 +5,7 @@ import traceback
 import hashlib
 import os
 import re
+import sys
 from typing import List, Optional, Dict, Any, Tuple
 from langchain_core.messages import ToolMessage, AIMessage
 import gradio as gr
@@ -17,6 +18,7 @@ import io
 import uuid
 from tools.image_tools import generate_image as generate_image_tool_func
 import pytz
+import subprocess
 
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils, constants, memos_manager
@@ -763,23 +765,41 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
     gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
 
 def _run_batch_import(character_name: str):
-    """batch_importer.pyをサブプロセスとして実行する内部関数"""
-    gr.Info(f"キャラクター「{character_name}」の過去ログのインポートを開始します...")
+    """
+    batch_importer.pyをサブプロセスとして実行する内部関数。
+    UIプロセスとは独立して動作させる。
+    """
+    gr.Info(f"キャラクター「{character_name}」の過去ログ（アーカイブ）のインポートを開始します...")
+
+    # 規約に基づいたアーカイブディレクトリのパスを生成
+    logs_dir = os.path.join("characters", character_name, "archive", "log")
+
+    if not os.path.isdir(logs_dir):
+        gr.Warning(f"アーカイブディレクトリが見つかりません: {logs_dir}")
+        print(f"インポート処理中止: ディレクトリが存在しません - {logs_dir}")
+        return
+
     try:
-        # ここで batch_importer の main 関数を直接呼び出す
-        # スクリプトとしてではなく、モジュールとして実行
-        from batch_importer import main as batch_importer_main
-        # コマンドライン引数を模倣
-        sys.argv = [
+        # 実行中のPythonインタプリタを使用して、独立したプロセスとしてスクリプトを実行
+        command = [
+            sys.executable,
             "batch_importer.py",
             "--character", character_name,
-            "--logs-dir", os.path.join("characters", character_name, "logs")
+            "--logs-dir", logs_dir
         ]
-        batch_importer_main()
-        gr.Info(f"キャラクター「{character_name}」のインポート処理が完了しました。詳細はターミナルを確認してください。")
+
+        print(f"--- サブプロセス実行コマンド: {' '.join(command)} ---")
+
+        # 非同期で実行し、UIをブロックしない
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8')
+
+        # ここでは完了を待たずにUIにメッセージを出す
+        gr.Info(f"「{character_name}」のインポート処理をバックグラウンドで開始しました。詳細はターミナルを確認してください。")
+
     except Exception as e:
-        gr.Error(f"インポート処理中にエラーが発生しました: {e}")
+        gr.Error(f"インポートプロセスの起動に失敗しました: {e}")
         traceback.print_exc()
+
 
 def handle_memos_batch_import(character_name: str):
     """「過去ログを取り込む」ボタンのハンドラ"""
