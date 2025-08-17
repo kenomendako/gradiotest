@@ -334,12 +334,16 @@ try:
                 debug_console_state,
                 active_participants_state
             ],
+            # ▼▼▼【ここからが修正箇所】▼▼▼
+            # outputsの最後に selected_message_state と action_button_group を追加
             outputs=[
                 chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button,
                 token_count_display, current_location_display, current_scenery_display,
                 alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
-                debug_console_state, debug_console_output
+                debug_console_state, debug_console_output,
+                selected_message_state, action_button_group  # ★ この2つを追加
             ]
+            # ▲▲▲【修正ここまで】▲▲▲
         )
 
         all_char_change_outputs = initial_load_chat_outputs + char_change_world_builder_outputs + [
