@@ -99,7 +99,7 @@ def get_mos_instance(character_name: str) -> MOS:
                 "dispatcher_llm": dummy_llm_config_factory,
                 "graph_db": { "backend": "neo4j", "config": neo4j_config },
                 "embedder": dummy_embedder_config_factory,
-                "reorganize": True
+                "reorganize": False # ★★★ Reorganizerを明確に無効化 ★★★
             }
         }
     )
@@ -109,9 +109,12 @@ def get_mos_instance(character_name: str) -> MOS:
     google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path="gemini-2.5-flash-lite", google_api_key=api_key))
     google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
+    # --- 移植手術：MOSインスタンスの心臓部をGoogle製に置換 ---
     mos.chat_llm = google_llm_instance
     mos.mem_reader.llm = google_llm_instance
     mos.mem_reader.embedder = google_embedder_instance
+
+    # --- 移植手術：MemCubeインスタンスの心臓部もGoogle製に置換 ---
     mem_cube.text_mem.extractor_llm = google_llm_instance
     mem_cube.text_mem.dispatcher_llm = google_llm_instance
     mem_cube.text_mem.embedder = google_embedder_instance
@@ -123,12 +126,10 @@ def get_mos_instance(character_name: str) -> MOS:
         mem_cube.dump(cube_path)
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
 
-    # ▼▼▼ 以下の3行を新しく追加 ▼▼▼
     print("--- 記憶の自動整理機能を、バッチ処理のために、完全に、停止します... ---")
     mos.mem_reorganizer_wait()
     mos.mem_reorganizer_off()
     print("--- 自動整理機能の、完全停止を、確認しました。 ---")
-    # ▲▲▲ ここまで ▲▲▲
 
     _mos_instances[character_name] = mos
     print(f"--- MemOSインスタンスの準備完了 (自動整理機能・停止済み): {character_name} ---")

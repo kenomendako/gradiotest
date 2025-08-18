@@ -1,4 +1,48 @@
-# [batch_importer.py を、この内容で完全に置き換える]
+# --- [ロギング設定の強制上書き] ---
+# Nexus Ark本体（メインプロセス）とログファイルを共有するため、
+# サブプロセスであるこのインポーターも、スレッドセーフなロギング設定に統一する。
+import logging
+import logging.config
+import os
+from pathlib import Path
+from sys import stdout
+
+# ログファイル用のディレクトリを定義
+LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE_PATH = LOGS_DIR / "nexus_ark.log" # 本体と同じログファイルを指定
+
+# スレッドセーフなロギング設定
+LOGGING_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s"
+        },
+    },
+    "handlers": {
+        "console": { "level": "INFO", "class": "logging.StreamHandler", "stream": stdout, "formatter": "standard" },
+        "file": {
+            "level": "DEBUG",
+            "class": "concurrent_log_handler.ConcurrentRotatingFileHandler",
+            "filename": LOG_FILE_PATH,
+            "maxBytes": 1024 * 1024 * 10,  # 10 MB
+            "backupCount": 5,
+            "formatter": "standard",
+            "use_gzip": True,
+        },
+    },
+    "root": { "level": "DEBUG", "handlers": ["console", "file"] },
+    "loggers": {
+        "memos": { "level": "WARNING", "propagate": True },
+        "neo4j": { "level": "WARNING", "propagate": True },
+    },
+}
+
+logging.config.dictConfig(LOGGING_CONFIG)
+# --- [ここまでが追加ブロック] ---
+
 
 import os
 import sys
