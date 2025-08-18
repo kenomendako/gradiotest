@@ -265,6 +265,16 @@ def context_generator_node(state: AgentState):
 
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
+
+    # ▼▼▼ 以下の診断コードブロックを、この場所に追加してください ▼▼▼
+    print("--- [診断] agent_node に渡された message の型をチェックします ---")
+    if not state['messages']:
+        print("  - messages リストは空です。")
+    for i, msg in enumerate(state['messages']):
+        print(f"  - Message[{i}]: Type={type(msg)}")
+    print("---------------------------------------------------------")
+    # ▲▲▲ ここまで ▲▲▲
+
     base_system_prompt = state['system_prompt'].content
     all_participants = state.get('all_participants', [])
     current_character = state['character_name']
