@@ -1527,6 +1527,7 @@ def handle_rerun_button_click(*args: Any):
     """
     (selected_message, character_name, api_key_name,
      file_list, api_history_limit, debug_mode,
+     auto_memory_state, # ★★★ この引数を新しく追加 ★★★
      current_console_content, active_participants) = args
 
     if not selected_message or not character_name:
@@ -1558,7 +1559,9 @@ def handle_rerun_button_click(*args: Any):
     # handle_message_submission を呼び出すための引数を再構築
     submission_args = (
         restored_input_text, character_name, api_key_name,
-        None, api_history_limit, debug_mode,
+        None, # file_input_list は再生成時には使わない
+        api_history_limit, debug_mode,
+        auto_memory_state, # ★★★ ここに受け取った状態変数を追加 ★★★
         current_console_content, active_participants
     )
 

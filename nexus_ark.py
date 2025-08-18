@@ -408,10 +408,10 @@ try:
             inputs=[
                 selected_message_state, current_character_name, current_api_key_name_state,
                 file_upload_button, api_history_limit_state, debug_mode_checkbox,
+                auto_memory_checkbox, # ★★★ この行を新しく追加 ★★★
                 debug_console_state,
-                active_participants_state
+                active_participants
             ],
-            # ▼▼▼【ここからが修正箇所】▼▼▼
             # outputsの最後に selected_message_state と action_button_group を追加
             outputs=[
                 chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button,
