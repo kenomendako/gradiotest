@@ -17,9 +17,11 @@ class GoogleGenAILLM(BaseLLM):
             {"role": msg["role"] if msg["role"] != "assistant" else "model", "parts": [{"text": msg["content"]}]}
             for msg in messages
         ]
+        generation_config = {"max_output_tokens": 8192}
         response = self.client.models.generate_content(
             model=f"models/{self.config.model_name_or_path}",
-            contents=contents
+            contents=contents,
+            generation_config=generation_config
         )
         return response.text
 
