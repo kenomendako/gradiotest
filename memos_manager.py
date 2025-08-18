@@ -1,6 +1,10 @@
-# [memos_manager.py を、この内容で完全に置き換える]
+# [memos_manager.py の get_mos_instance 関数を、これで完全に置き換える]
 
 from memos import MOS, MOSConfig, GeneralMemCube, GeneralMemCubeConfig
+# ★★★ この行を追加 ★★★
+from memos.mem_reader.factory import MemReaderFactory
+from memos.configs.mem_reader import SimpleStructMemReaderConfig
+# ★★★ ここまで ★★★
 import config_manager
 import os
 import uuid
@@ -29,41 +33,29 @@ def get_mos_instance(character_name: str) -> MOS:
     # --- 2. キャラクター固有のデータベース名を生成 ---
     NEXUSARK_NAMESPACE = uuid.UUID('0ef9569c-368c-4448-99b2-320956435a26')
     char_uuid = uuid.uuid5(NEXUSARK_NAMESPACE, character_name)
-    db_name_for_char = f"nexusark-{char_uuid.hex}" # ★★★ アンダースコアを、ダッシュに、変更 ★★★
+    db_name_for_char = f"nexusark-{char_uuid.hex}"
     neo4j_config["db_name"] = db_name_for_char
 
-    # --- 3. ★★★【核心部分】データベースの存在確認と、自動作成 ★★★ ---
+    # --- 3. データベースの存在確認と、自動作成 ---
     driver = None
     try:
-        # まず、システムデータベースに接続するためのドライバーを作成
         driver = neo4j.GraphDatabase.driver(
             neo4j_config["uri"],
             auth=(neo4j_config["user"], neo4j_config["password"])
         )
-
-        # データベースが存在するか確認するクエリ
         with driver.session(database="system") as session:
             result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=db_name_for_char)
             db_exists = len([record for record in result]) > 0
-
-        # 存在しない場合のみ、作成コマンドを実行
         if not db_exists:
             print(f"--- データベース '{db_name_for_char}' が存在しません。新規作成します... ---")
             with driver.session(database="system") as session:
-                # データベース作成コマンドは非同期で完了しないことがある
                 session.run(f"CREATE DATABASE `{db_name_for_char}` IF NOT EXISTS")
-
             print("--- データベースがオンラインになるのを待っています... ---")
-
-            # ★★★ ここからが、修正の核心 ★★★
-            # データベースがSHOW DATABASESでリストされるまで、少し待つ
-            for _ in range(15): # 最大15秒待つ
+            for _ in range(15):
                 with driver.session(database="system") as session:
                     result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=db_name_for_char)
-                    # single()ではなく、リストとして評価し、空でないことを確認する
                     records = list(result)
                     if records:
-                        # データベースがリストされたら、次にその状態を確認
                         status_result = session.run("SHOW DATABASE `$db_name` YIELD currentStatus", db_name=db_name_for_char)
                         single_record = status_result.single()
                         if single_record and single_record["currentStatus"] == "online":
@@ -72,22 +64,16 @@ def get_mos_instance(character_name: str) -> MOS:
                 print("    - まだ作成中です。1秒待機します...")
                 time.sleep(1)
             else:
-                # ループがbreakせずに終了した場合（タイムアウト）
                 raise Exception(f"データベース '{db_name_for_char}' の起動をタイムアウトしました。")
-            # ★★★ ここまでが、修正の核心 ★★★
     finally:
         if driver:
             driver.close()
-    # --- ここまでが核心部分 ---
 
-    # 4. MemOSの初期化 (これ以降は変更なし)
-    # ... (前回のコードと同じダミー設定と、カスタム器官の移植ロジック) ...
-    dummy_llm_config_for_validation = {
-        "backend": "ollama", "config": {"model_name_or_path": "placeholder"},
-    }
-    dummy_embedder_config_for_validation = {
-        "backend": "ollama", "config": {"model_name_or_path": "placeholder"},
-    }
+    # --- 4. ダミー設定の定義 ---
+    dummy_llm_config_for_validation = { "backend": "ollama", "config": {"model_name_or_path": "placeholder"} }
+    dummy_embedder_config_for_validation = { "backend": "ollama", "config": {"model_name_or_path": "placeholder"} }
+
+    # --- 5. MOSとMemCubeの、ダミーでの、初期化 ---
     mos_config = MOSConfig(
         user_id=character_name,
         chat_model=dummy_llm_config_for_validation,
@@ -100,14 +86,12 @@ def get_mos_instance(character_name: str) -> MOS:
             },
         }
     )
-    # ★★★ 修正後の正しいコード ★★★
     mem_cube_config = GeneralMemCubeConfig(
         user_id=character_name,
         cube_id=f"{character_name}_main_cube",
         text_mem={
             "backend": "tree_text",
             "config": {
-                # "調理済みの料理"ではなく、"生の食材"を渡す
                 "extractor_llm": dummy_llm_config_for_validation,
                 "dispatcher_llm": dummy_llm_config_for_validation,
                 "graph_db": { "backend": "neo4j", "config": neo4j_config },
@@ -115,30 +99,37 @@ def get_mos_instance(character_name: str) -> MOS:
             }
         }
     )
-    # ★★★ ここまで ★★★
     mos = MOS(mos_config)
     mem_cube = GeneralMemCube(mem_cube_config)
 
-    # Nexus Ark専用の、カスタム器官を、直接、生成
-    google_llm_config = GoogleGenAILLMConfig(
-        model_name_or_path="gemini-2.5-flash-lite",
-        google_api_key=api_key
-    )
-    google_llm_instance = GoogleGenAILLM(google_llm_config)
+    # --- 6. Nexus Ark専用の、カスタム器官の、生成 ---
+    google_llm_config_factory = {
+        "backend": "google_genai",
+        "config": { "model_name_or_path": "gemini-2.5-flash-lite", "google_api_key": api_key }
+    }
+    google_embedder_config_factory = {
+        "backend": "google_genai",
+        "config": { "model_name_or_path": "embedding-001", "google_api_key": api_key }
+    }
+    google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path="gemini-2.5-flash-lite", google_api_key=api_key))
+    google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
-    google_embedder_config = GoogleGenAIEmbedderConfig(
-        model_name_or_path="embedding-001",
-        google_api_key=api_key
+    # ★★★【核心部分】本物の、MemReaderを、生成する ★★★
+    real_mem_reader_config = SimpleStructMemReaderConfig(
+        llm=google_llm_config_factory,
+        embedder=google_embedder_config_factory,
+        chunker={"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}}
     )
-    google_embedder_instance = GoogleGenAIEmbedder(google_embedder_config)
+    real_mem_reader = MemReaderFactory.from_config({"backend": "simple_struct", "config": real_mem_reader_config})
 
-    # 初期化された、MOSとMemCubeの、各コンポーネントを、本物の、カスタム器官に、置き換える
+    # --- 7. 最後の、移植手術 ---
     mos.chat_llm = google_llm_instance
+    mos.mem_reader = real_mem_reader # ★★★ 忘れられていた、臓器の、移植 ★★★
     mem_cube.text_mem.extractor_llm = google_llm_instance
     mem_cube.text_mem.dispatcher_llm = google_llm_instance
     mem_cube.text_mem.embedder = google_embedder_instance
 
-    # 5. CubeをMOSに登録
+    # --- 8. Cubeの登録と、キャッシュへの、保存 ---
     cube_path = os.path.join("characters", character_name, "memos_cube")
     if not os.path.exists(cube_path):
         os.makedirs(cube_path, exist_ok=True)
