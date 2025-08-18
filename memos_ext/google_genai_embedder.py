@@ -14,7 +14,6 @@ class GoogleGenAIEmbedder(BaseEmbedder):
     def embed(self, texts: list[str]) -> list[list[float]]:
         response = self.client.models.embed_content(
             model=f"models/{self.config.model_name_or_path}",
-            contents=texts,
-            task_type="RETRIEVAL_DOCUMENT"
+            contents=texts
         )
         return [embedding['values'] for embedding in response.embeddings]

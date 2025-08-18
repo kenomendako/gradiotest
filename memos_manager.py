@@ -102,10 +102,10 @@ def get_mos_instance(character_name: str) -> MOS:
     # 5. 【完全なる移植手術】生成された、インスタンスの、内部にある、全ての、ダミー器官を、本物に、置き換える
     mos.chat_llm = google_llm_instance
     mos.mem_reader.llm = google_llm_instance
-    mos.mem_reader.embedder = google_embedder_instance
+    mos.mem_reader.embedder = google_embedder_instance # ★★★ この行を追加 ★★★
     mem_cube.text_mem.extractor_llm = google_llm_instance
     mem_cube.text_mem.dispatcher_llm = google_llm_instance
-    mem_cube.text_mem.embedder = google_embedder_instance
+    mem_cube.text_mem.embedder = google_embedder_instance # ★★★ この行を追加 ★★★
     # ★★★ ここまで ★★★
 
     # 6. CubeをMOSに登録
