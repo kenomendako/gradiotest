@@ -49,3 +49,6 @@ beautifulsoup4
 
 # For parsing Markdown/YAML-like world files
 PyYAML
+
+# For thread-safe logging to prevent file contention
+concurrent-log-handler

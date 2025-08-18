@@ -1,3 +1,67 @@
+# --- [ロギング設定の強制上書き] ---
+# GradioやMemOSのマルチスレッド/プロセス動作によるログファイルの競合を防ぐため、
+# アプリケーション全体のロギング設定を、起動時にスレッドセーフなものに上書きする。
+import logging
+import logging.config
+import os
+from pathlib import Path
+from sys import stdout
+
+# ログファイル用のディレクトリを定義
+LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE_PATH = LOGS_DIR / "nexus_ark.log" # ログファイル名を nexus_ark.log に変更
+
+# スレッドセーフなロギング設定
+LOGGING_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s"
+        },
+    },
+    "handlers": {
+        "console": {
+            "level": "INFO",
+            "class": "logging.StreamHandler",
+            "stream": stdout,
+            "formatter": "standard",
+        },
+        "file": {
+            "level": "DEBUG",
+            "class": "concurrent_log_handler.ConcurrentRotatingFileHandler",
+            "filename": LOG_FILE_PATH,
+            "maxBytes": 1024 * 1024 * 10,  # 10 MB
+            "backupCount": 5,
+            "formatter": "standard",
+            "use_gzip": True,
+        },
+    },
+    "root": {
+        "level": "DEBUG",
+        "handlers": ["console", "file"],
+    },
+    "loggers": {
+        "memos": {
+            "level": "WARNING", # MemOSライブラリのログレベルをWARNINGに設定し、不要なINFOログを抑制
+            "propagate": True,
+        },
+        "gradio": {
+            "level": "WARNING", # GradioライブラリのログレベルをWARNINGに設定
+            "propagate": True,
+        },
+         "httpx": {
+            "level": "WARNING", # httpxライブラリのログレベルをWARNINGに設定
+            "propagate": True,
+        },
+    },
+}
+
+logging.config.dictConfig(LOGGING_CONFIG)
+# --- [ここまでが追加ブロック] ---
+
+
 # nexus_ark.py (v18: 複数人対話セッションFIX・最終版)
 
 import os
