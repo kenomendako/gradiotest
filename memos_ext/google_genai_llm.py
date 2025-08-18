@@ -14,7 +14,7 @@ class GoogleGenAILLM(BaseLLM):
 
     def generate(self, messages: MessageList) -> str:
         contents = [
-            {"role": msg["role"] if msg["role"] != "assistant" else "model", "parts": [msg["content"]]}
+            {"role": msg["role"] if msg["role"] != "assistant" else "model", "parts": [{"text": msg["content"]}]}
             for msg in messages
         ]
         response = self.client.models.generate_content(
