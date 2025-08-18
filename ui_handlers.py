@@ -799,20 +799,26 @@ def handle_memos_batch_import(character_name: str, console_content: str):
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            # ▼▼▼ 以下の2行を修正・追加 ▼▼▼
             text=False, # ★★★ バイトモードで読み込むため False に変更 ★★★
+            encoding=None, # ★★★ text=False のため None に設定 ★★★
+            # ▲▲▲ ここまで ▲▲▲
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
 
         updated_console_text = initial_console_text
         if process.stdout:
+            # ▼▼▼ このループ処理を、より堅牢なものに置き換え ▼▼▼
             # ★★★ iterとdecodeを組み合わせた堅牢なループ ★★★
+            import locale
             for byte_line in iter(process.stdout.readline, b''):
                 if not byte_line:
                     break
                 line_str = byte_line.decode(locale.getpreferredencoding(False), errors='replace')
-                print(line_str, end='')
+                print(line_str, end='') # printはターミナルに直接出力
                 updated_console_text += line_str
                 yield gr.update(), updated_console_text, updated_console_text
+            # ▲▲▲ ここまで ▲▲▲
 
         process.wait()
         if process.returncode == 0:
