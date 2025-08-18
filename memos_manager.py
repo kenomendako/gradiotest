@@ -30,31 +30,47 @@ def get_mos_instance(character_name: str) -> MOS:
     db_name_for_char = f"nexusark-{char_uuid.hex}"
     neo4j_config["db_name"] = db_name_for_char
 
+    # --- 3. ★★★【核心部分】データベースの「作成命令」と「起動確認」の、儀式 ★★★ ---
     driver = None
     try:
-        driver = neo4j.GraphDatabase.driver(neo4j_config["uri"], auth=(neo4j_config["user"], neo4j_config["password"]))
+        # まず、システムデータベースに接続するためのドライバーを作成
+        driver = neo4j.GraphDatabase.driver(
+            neo4j_config["uri"],
+            auth=(neo4j_config["user"], neo4j_config["password"])
+        )
+
+        # 1. まず、「存在しなければ、作成せよ」と、無条件に、命令する
+        # このコマンドは、既に、存在していても、エラーを、起こさない
+        print(f"--- データベース '{db_name_for_char}' の存在を保証します... ---")
         with driver.session(database="system") as session:
-            result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=db_name_for_char)
-            db_exists = len([record for record in result]) > 0
-        if not db_exists:
-            print(f"--- データベース '{db_name_for_char}' が存在しません。新規作成します... ---")
-            with driver.session(database="system") as session:
-                session.run(f"CREATE DATABASE `{db_name_for_char}` IF NOT EXISTS")
-            print("--- データベースがオンラインになるのを待っています... ---")
-            for _ in range(120): # ★★★ 最大120秒（2分間）待つ ★★★
+            session.run(f"CREATE DATABASE `{db_name_for_char}` IF NOT EXISTS")
+
+        # 2. 次に、「その、データベースが、オンラインになるまで、ひたすら、待つ」
+        print("--- データベースがオンラインになるのを待っています... ---")
+        for i in range(120): # 最大120秒（2分間）待つ
+            is_online = False
+            try:
                 with driver.session(database="system") as session:
-                    result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=db_name_for_char)
-                    records = list(result)
-                    if records:
-                        status_result = session.run("SHOW DATABASE `$db_name` YIELD currentStatus", db_name=db_name_for_char)
-                        single_record = status_result.single()
-                        if single_record and single_record["currentStatus"] == "online":
-                            print(f"--- データベース '{db_name_for_char}' がオンラインになりました。 ---")
-                            break
-                print("    - まだ作成中です。1秒待機します...")
-                time.sleep(1)
-            else:
-                raise Exception(f"データベース '{db_name_for_char}' の起動をタイムアウトしました。")
+                    # SHOW DATABASE コマンドで、直接、状態を、確認する
+                    result = session.run(f"SHOW DATABASE `{db_name_for_char}` YIELD currentStatus")
+                    record = result.single()
+                    # レコードが、存在し、かつ、状態が、'online'であることを、確認
+                    if record and record["currentStatus"] == "online":
+                        is_online = True
+            except Exception as e:
+                # データベースが、まだ、完全に、リストされていない場合、エラーが、発生することがある
+                print(f"    - 状態確認中に、一時的な、エラー: {e}")
+
+            if is_online:
+                print(f"--- データベース '{db_name_for_char}' が、正常に、オンラインです。 ---")
+                break
+
+            print(f"    - 待機中... ({i+1}/120秒)")
+            time.sleep(1)
+        else:
+            # ループが、breakせずに、終了した場合（タイムアウト）
+            raise Exception(f"データベース '{db_name_for_char}' の起動を、タイムアウトしました。")
+
     finally:
         if driver:
             driver.close()
