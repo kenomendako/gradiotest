@@ -3,6 +3,7 @@
 from memos import MOS, MOSConfig, GeneralMemCube, GeneralMemCubeConfig
 import config_manager
 import os
+import uuid # ★★★ この行を追加 ★★★
 
 # ★★★【核心的な修正】ローカルの、カスタム器官を、インポートする ★★★
 from memos_ext.google_genai_llm import GoogleGenAILLM, GoogleGenAILLMConfig
@@ -21,10 +22,14 @@ def get_mos_instance(character_name: str) -> MOS:
     # neo4j_config の読み込み部分を、以下のように修正
     neo4j_config = memos_config_data.get("neo4j_config", {}).copy() # ★ .copy()で安全なコピーを作成
 
-    # ★★★【核心的な修正】キャラクター固有のDB名を生成し、設定に注入する ★★★
-    # 安全なファイル名/DB名に変換するロジック
-    safe_char_name = "".join(c for c in character_name if c.isalnum())
-    db_name_for_char = f"nexusark_{safe_char_name.lower()}"
+    # ★★★【核心的な修正】ここから ★★★
+    # キャラクター名から、常に、同じ、ユニークなIDを、生成する（決定論的UUID）
+    # これにより、日本語名でも、安全な、データベース名が、作られる
+    NEXUSARK_NAMESPACE = uuid.UUID('0ef9569c-368c-4448-99b2-320956435a26') # プロジェクト固定のID
+    char_uuid = uuid.uuid5(NEXUSARK_NAMESPACE, character_name)
+
+    # UUIDを、ハイフンなしの、短い、文字列に、変換して、名前に、使用する
+    db_name_for_char = f"nexusark_{char_uuid.hex}"
     neo4j_config["db_name"] = db_name_for_char
     # ★★★ ここまで ★★★
 
