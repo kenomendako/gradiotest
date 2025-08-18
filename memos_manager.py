@@ -133,11 +133,14 @@ def get_mos_instance(character_name: str) -> MOS:
 
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
 
-    # ★★★【核心的な修正】起動してしまった、Reorganizerに、明確な、停止命令を、下す ★★★
-    print("--- 記憶の自動整理機能を、バッチ処理のために、一時的に、停止します... ---")
-    mos.mem_reorganizer_off()
-    print("--- 自動整理機能の、停止を、確認しました。 ---")
+        # ★★★【核心的な修正】ここから ★★★
+        # バッチ処理の、邪魔をしないよう、MemOSの、バックグラウンド処理を、完全に、停止させる
+        print("--- 記憶の自動整理機能を、バッチ処理のために、完全に、停止します... ---")
+        mos.mem_reorganizer_wait() # 現在の、タスクが、あれば、それが、終わるのを待つ
+        mos.mem_reorganizer_off()  # 新しい、タスクの、受付を、停止し、スレッドを、終了させる
+        print("--- 自動整理機能の、完全停止を、確認しました。 ---")
+        # ★★★ ここまで ★★★
 
-    _mos_instances[character_name] = mos
-    print(f"--- MemOSインスタンスの準備完了 (完全な器官移植済み): {character_name} ---")
-    return mos
+        _mos_instances[character_name] = mos
+        print(f"--- MemOSインスタンスの準備完了 (自動整理機能・停止済み): {character_name} ---")
+        return mos
