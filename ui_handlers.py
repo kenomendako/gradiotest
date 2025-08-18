@@ -1521,18 +1521,17 @@ def handle_reload_system_prompt(character_name: str) -> str:
 
 def handle_rerun_button_click(*args: Any):
     """
-    【v2: 直接API呼び出し版】
+    【v4: タイムスタンプ更新対応・最終版】
     再生成ボタンが押された際の処理。
-    ログを巻き戻し、handle_message_submission を介さずに直接APIを呼び出す。
+    ログを巻き戻し、ユーザー発言の場合はタイムスタンプを更新して再ログ保存してから、APIを呼び出す。
     """
     (selected_message, character_name, api_key_name,
-     _file_list, api_history_limit, debug_mode, # _file_list は再生成では使わない
+     _file_list, api_history_limit, debug_mode,
      auto_memory_enabled, current_console_content, active_participants) = args
     active_participants = active_participants or []
 
     if not selected_message or not character_name:
         gr.Warning("再生成の起点となるメッセージが選択されていません。")
-        # ジェネレータとして空のyieldを返す
         yield (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                None, gr.update(visible=True))
@@ -1541,19 +1540,35 @@ def handle_rerun_button_click(*args: Any):
     log_f, _, _, _, _ = character_manager.get_character_files_paths(character_name)
     is_ai_message = selected_message.get("responder") != "ユーザー"
 
-    # ログを巻き戻す処理は、AIの発言かユーザーの発言かで分岐
+    restored_input_text = None
     if is_ai_message:
-        # AIの発言を削除し、その直前のユーザー発言まで戻す
-        utils.delete_message_and_after(log_f, selected_message, character_name)
-    else:
-        # ユーザーの発言と、それ以降のAIの発言をすべて削除
-        utils.delete_user_message_and_after(log_f, selected_message, character_name)
+        # AIの発言を選択した場合：その発言とそれ以降を削除し、直前のユーザー発言を取得
+        restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, character_name)
+    else: # ユーザーの発言を選択した場合
+        # ユーザーの発言とその応答を削除し、その発言内容を取得
+        restored_input_text = utils.delete_user_message_and_after(log_f, selected_message, character_name)
+
+    if restored_input_text is None:
+        gr.Error("ログの巻き戻しに失敗しました。再生成できません。")
+        history, mapping = reload_chat_log(character_name, api_history_limit)
+        yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+               None, gr.update(visible=True))
+        return
+
+    # ★★★ 重要な処理：巻き戻して取得したユーザー発言を、新しいタイムスタンプで再度ログに保存する ★★★
+    effective_settings = config_manager.get_effective_settings(character_name)
+    add_timestamp = effective_settings.get("add_timestamp", False)
+    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
+    full_user_log_entry = restored_input_text + timestamp
+    utils.save_message_to_log(log_f, "## ユーザー:", full_user_log_entry)
+
+    # APIにはタイムスタンプなしの純粋なテキストを渡す
+    user_prompt_parts_for_api = [{"type": "text", "text": restored_input_text}]
 
     gr.Info("応答を再生成します...")
 
-    # --- ここからが新しいロジック ---
-    # handle_message_submission を呼び出すのではなく、その中核部分を直接実行する。
-    # これにより、HumanMessageの重複を防ぐ。
+    # --- handle_message_submission の中核部分を直接実行 ---
 
     all_characters_in_scene = [character_name] + active_participants
 
@@ -1562,21 +1577,20 @@ def handle_rerun_button_click(*args: Any):
 
     all_turn_popups = []
 
-    # 再生成なので、応答するのは常にメインキャラクター一人
     chatbot_history, mapping_list = reload_chat_log(character_name, api_history_limit)
     chatbot_history.append((None, f"思考中 ({character_name})... ▌"))
     yield (chatbot_history, mapping_list, gr.update(), gr.update(value=None),
            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
            current_console_content, current_console_content,
-           None, gr.update(visible=False)) # 選択状態を解除し、ボタンを非表示
+           None, gr.update(visible=False))
 
     agent_args_dict = {
         "character_to_respond": character_name,
         "api_key_name": api_key_name,
         "api_history_limit": api_history_limit,
         "debug_mode": debug_mode,
-        "history_log_path": log_f, # 巻き戻し後のログを直接参照
-        "user_prompt_parts": [], # ★★★ 新しいユーザー入力はないので空リスト ★★★
+        "history_log_path": log_f,
+        "user_prompt_parts": user_prompt_parts_for_api,
         "soul_vessel_character": character_name,
         "active_participants": active_participants,
         "shared_location_name": shared_location_name,
@@ -1597,7 +1611,6 @@ def handle_rerun_button_click(*args: Any):
     if final_response_text.strip():
         utils.save_message_to_log(log_f, f"## {character_name}:", final_response_text)
 
-    # (handle_message_submissionの後処理をここに持ってくる)
     for popup_message in all_turn_popups:
         gr.Info(popup_message)
 
@@ -1614,14 +1627,27 @@ def handle_rerun_button_click(*args: Any):
     final_df_with_ids = render_alarms_as_dataframe()
     final_df = get_display_df(final_df_with_ids)
 
-    # 最後のyield
     yield (final_chatbot_history, final_mapping_list, gr.update(), gr.update(value=None), token_count_text,
            new_location_name, new_scenery_text,
            final_df_with_ids, final_df, scenery_image,
            current_console_content, current_console_content,
            None, gr.update(visible=False))
 
-    # (自動記憶処理は再生成時には不要)
+    if auto_memory_enabled:
+        try:
+            print(f"--- 自動記憶処理を開始 (再生成): {character_name} ---")
+            messages_to_save = [
+                {"role": "user", "content": restored_input_text},
+                {"role": "assistant", "content": final_response_text}
+            ]
+            if len(messages_to_save) >= 2:
+                mos = memos_manager.get_mos_instance(character_name)
+                mos.add(messages=messages_to_save)
+                print(f"--- 自動記憶処理完了 (再生成): {character_name} ---")
+        except Exception as e:
+            print(f"--- 自動記憶処理中にエラーが発生しました (再生成): {e} ---")
+            traceback.print_exc()
+            gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
 
 def _run_core_memory_update(character_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
