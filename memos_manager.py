@@ -103,6 +103,7 @@ def get_mos_instance(character_name: str) -> MOS:
                 "dispatcher_llm": dummy_llm_config_factory,
                 "graph_db": { "backend": "neo4j", "config": neo4j_config },
                 "embedder": dummy_embedder_config_factory,
+                "reorganize": False # ★★★ この一行を追加 ★★★
             }
         }
     )
