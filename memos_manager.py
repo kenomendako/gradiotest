@@ -50,20 +50,31 @@ def get_mos_instance(character_name: str) -> MOS:
         if not db_exists:
             print(f"--- データベース '{db_name_for_char}' が存在しません。新規作成します... ---")
             with driver.session(database="system") as session:
+                # データベース作成コマンドは非同期で完了しないことがある
                 session.run(f"CREATE DATABASE `{db_name_for_char}` IF NOT EXISTS")
 
-            # データベースがオンラインになるまで少し待つ
             print("--- データベースがオンラインになるのを待っています... ---")
-            for _ in range(10): # 最大10秒待つ
+
+            # ★★★ ここからが、修正の核心 ★★★
+            # データベースがSHOW DATABASESでリストされるまで、少し待つ
+            for _ in range(15): # 最大15秒待つ
                 with driver.session(database="system") as session:
-                    result = session.run("SHOW DATABASE `{db_name}` YIELD currentStatus", db_name=db_name_for_char)
-                    status = result.single()["currentStatus"]
-                    if status == "online":
-                        print(f"--- データベース '{db_name_for_char}' がオンラインになりました。 ---")
-                        break
+                    result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=db_name_for_char)
+                    # single()ではなく、リストとして評価し、空でないことを確認する
+                    records = list(result)
+                    if records:
+                        # データベースがリストされたら、次にその状態を確認
+                        status_result = session.run("SHOW DATABASE `$db_name` YIELD currentStatus", db_name=db_name_for_char)
+                        single_record = status_result.single()
+                        if single_record and single_record["currentStatus"] == "online":
+                            print(f"--- データベース '{db_name_for_char}' がオンラインになりました。 ---")
+                            break
+                print("    - まだ作成中です。1秒待機します...")
                 time.sleep(1)
             else:
+                # ループがbreakせずに終了した場合（タイムアウト）
                 raise Exception(f"データベース '{db_name_for_char}' の起動をタイムアウトしました。")
+            # ★★★ ここまでが、修正の核心 ★★★
     finally:
         if driver:
             driver.close()
