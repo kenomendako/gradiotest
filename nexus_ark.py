@@ -143,6 +143,7 @@ try:
         current_log_map_state = gr.State([])
         active_participants_state = gr.State([]) # 現在アクティブな複数人対話の参加者リスト
         debug_console_state = gr.State("")
+        importer_process_state = gr.State(None) # インポーターのサブプロセスを管理
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -297,7 +298,11 @@ try:
                     with gr.TabItem("客観的記憶 (MemOS)"):
                         gr.Markdown("## 客観的記憶 (MemOS) の管理")
                         gr.Markdown("過去の対話ログなどをMemOSに取り込み、AIの永続的な記憶を構築します。")
-                        memos_import_button = gr.Button("過去ログを客観記憶(MemOS)に取り込む", variant="primary", elem_id="memos_import_button")
+                        # ▼▼▼ 以下の <gr.Row> を追加 ▼▼▼
+                        with gr.Row():
+                            memos_import_button = gr.Button("過去ログを客観記憶(MemOS)に取り込む", variant="primary", scale=3)
+                            importer_stop_button = gr.Button("処理を中断", variant="stop", visible=False, scale=1)
+                        # ▲▲▲ ここまで ▲▲▲
                         gr.Markdown("---")
                         gr.Markdown("### 索引管理（旧機能）")
                         rag_update_button = gr.Button("手帳の索引を更新", variant="secondary", visible=False) # 機能は削除されたが、UIハンドラに残っているので一旦非表示
@@ -542,16 +547,31 @@ try:
         memos_import_button.click(
             fn=ui_handlers.handle_memos_batch_import,
             inputs=[current_character_name, debug_console_state],
-            # ▼▼▼ この outputs リストを修正 ▼▼▼
             outputs=[
                 memos_import_button,
+                importer_stop_button, # ★★★ 追加 ★★★
+                importer_process_state, # ★★★ 追加 ★★★
                 debug_console_state,
                 debug_console_output,
-                chat_input_textbox, # ★★★ 追加 ★★★
-                submit_button       # ★★★ 追加 ★★★
+                chat_input_textbox,
+                submit_button
             ]
-            # ▲▲▲ ここまで ▲▲▲
         )
+
+        # ▼▼▼ 以下のイベントハンドラを新しく追加 ▼▼▼
+        importer_stop_button.click(
+            fn=ui_handlers.handle_importer_stop,
+            inputs=[importer_process_state],
+            outputs=[
+                memos_import_button,
+                importer_stop_button,
+                importer_process_state,
+                chat_input_textbox,
+                submit_button
+            ],
+            cancels=[memos_import_button] # 実行中のインポート処理をキャンセル
+        )
+        # ▲▲▲ ここまで ▲▲▲
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_character_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])

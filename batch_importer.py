@@ -171,10 +171,10 @@ def main():
                         character_progress["progress"][filename] = pair_idx + 1
                         print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
 
-                        # 10ペアごとに進捗を保存
-                        if (pair_idx + 1) % 10 == 0:
-                           progress_data[args.character] = character_progress
-                           save_progress(progress_data)
+                        # ▼▼▼ ここの条件を削除し、常に保存するように変更 ▼▼▼
+                        progress_data[args.character] = character_progress
+                        save_progress(progress_data)
+                        # ▲▲▲ ここまで ▲▲▲
 
                         pair_idx += 1
                         time.sleep(1.1)

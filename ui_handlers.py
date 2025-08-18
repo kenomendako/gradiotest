@@ -1,4 +1,5 @@
 import shutil
+import psutil # ★★★ psutil をインポート ★★★
 import pandas as pd
 import json
 import traceback
@@ -766,26 +767,20 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
     gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
 
 def handle_memos_batch_import(character_name: str, console_content: str):
-    """
-    【ストリーミング・UIロック対応版】
-    MemOSのバッチインポート処理を開始し、その進捗をUIにリアルタイムで反映させる。
-    処理中はチャット関連のUIを無効化する。
-    """
     if not character_name:
         gr.Warning("キャラクターが選択されていません。")
-        # UIコンポーネントの数に合わせて戻り値を返す
-        yield gr.update(), console_content, console_content, gr.update(), gr.update()
+        yield gr.update(), gr.update(visible=False), None, console_content, console_content, gr.update(), gr.update()
         return
 
     # --- 1. UIを「処理中」モードに移行 ---
     gr.Info(f"「{character_name}」の過去ログ取り込みをバックグラウンドで開始します。")
     initial_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 「{character_name}」の過去ログ取り込み処理を開始 ---\n"
     yield (
-        gr.update(value="処理中...", interactive=False), # インポートボタンを無効化
-        initial_console_text,
-        initial_console_text,
-        gr.update(interactive=False), # チャット入力欄を無効化
-        gr.update(interactive=False)  # 送信ボタンを無効化
+        gr.update(value="処理中...", interactive=False),
+        gr.update(visible=True), # 中断ボタンを表示
+        None, # この時点ではプロセスはまだない
+        initial_console_text, initial_console_text,
+        gr.update(interactive=False), gr.update(interactive=False)
     )
 
     process = None
@@ -794,21 +789,20 @@ def handle_memos_batch_import(character_name: str, console_content: str):
         if not os.path.isdir(archive_dir):
             error_msg = f"[エラー] アーカイブディレクトリが見つかりません: {archive_dir}"
             gr.Error(error_msg)
-            yield gr.update(), console_content + error_msg, console_content + error_msg, gr.update(), gr.update()
+            yield gr.update(), gr.update(visible=False), None, console_content + error_msg, console_content + error_msg, gr.update(), gr.update()
             return
 
         python_executable = sys.executable or "python"
         command = [python_executable, "batch_importer.py", "--character", character_name, "--logs-dir", archive_dir]
 
-        print(f"--- サブプロセス実行コマンド: {' '.join(command)} ---")
-
         process = subprocess.Popen(
             command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=False,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=False,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
+
+        # UIにプロセス情報を渡して更新
+        yield gr.update(), gr.update(), process, gr.update(), gr.update(), gr.update(), gr.update()
 
         updated_console_text = initial_console_text
         if process.stdout:
@@ -818,41 +812,71 @@ def handle_memos_batch_import(character_name: str, console_content: str):
                 line_str = byte_line.decode(locale.getpreferredencoding(False), errors='replace')
                 print(line_str, end='')
                 updated_console_text += line_str
-                # ストリーミング中はUIコンポーネントの状態は変更しない
-                yield gr.update(), updated_console_text, updated_console_text, gr.update(), gr.update()
+                yield gr.update(), gr.update(), process, updated_console_text, updated_console_text, gr.update(), gr.update()
 
         process.wait()
         if process.returncode == 0:
             gr.Info(f"「{character_name}」の過去ログ取り込みが正常に完了しました。")
             final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 処理正常終了 ---\n"
+        elif process.returncode == -15: # SIGTERM by stop button
+             gr.Warning("ユーザーの指示により、インポート処理を中断しました。")
+             final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 処理中断 ---\n"
         else:
-            gr.Error(f"過去ログの取り込み中にエラーが発生しました。詳細はデバッグコンソールを確認してください。")
-            final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] エラー終了 (終了コード: {process.returncode}) ---\n"
+            gr.Error(f"過去ログの取り込み中にエラーが発生しました。")
+            final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] エラー終了 (コード: {process.returncode}) ---\n"
 
         updated_console_text += final_message
-        yield gr.update(), updated_console_text, updated_console_text, gr.update(), gr.update()
+        yield gr.update(), gr.update(), None, updated_console_text, updated_console_text, gr.update(), gr.update()
 
     except Exception as e:
         error_message = f"インポート処理の起動に失敗しました: {e}"
-        gr.Error(error_message)
-        traceback.print_exc()
+        gr.Error(error_message); traceback.print_exc()
         error_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] {error_message} ---\n"
-        yield gr.update(), error_console_text, error_console_text, gr.update(), gr.update()
+        yield gr.update(), gr.update(visible=False), None, error_console_text, error_console_text, gr.update(), gr.update()
 
     finally:
-        if process and process.poll() is None:
-            process.terminate()
-            if process.stdout:
-                process.stdout.close()
-
-        # --- 2. 最後に必ずUIを「待機」モードに戻す ---
+        # --- 最後に必ずUIを「待機」モードに戻す ---
         yield (
-            gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), # インポートボタンを有効化
-            gr.update(),
-            gr.update(),
-            gr.update(interactive=True), # チャット入力欄を有効化
-            gr.update(interactive=True)  # 送信ボタンを有効化
+            gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True),
+            gr.update(visible=False), # 中断ボタンを非表示
+            None, # プロセス情報をクリア
+            gr.update(), gr.update(),
+            gr.update(interactive=True), gr.update(interactive=True)
         )
+
+# ▼▼▼ 以下の関数を ui_handlers.py に新しく追加 ▼▼▼
+def handle_importer_stop(process):
+    """インポーターの中断ボタンが押されたときの処理"""
+    if process and psutil.pid_exists(process.pid):
+        try:
+            # 親プロセスと、その全ての子プロセスを終了させる
+            parent = psutil.Process(process.pid)
+            for child in parent.children(recursive=True):
+                child.terminate()
+            parent.terminate()
+
+            # プロセスが終了するのを少し待つ
+            try:
+                parent.wait(timeout=5)
+            except psutil.TimeoutExpired:
+                parent.kill() # タイムアウトしたら強制終了
+
+            gr.Warning("インポート処理を中断しています...")
+        except psutil.NoSuchProcess:
+            gr.Info("プロセスは既に終了していました。")
+        except Exception as e:
+            gr.Error(f"プロセスの停止中にエラー: {e}")
+    else:
+        gr.Info("中断対象のプロセスが見つかりません。")
+
+    # UIを待機モードに戻す
+    return (
+        gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True),
+        gr.update(visible=False),
+        None,
+        gr.update(interactive=True),
+        gr.update(interactive=True)
+    )
 
 def _run_core_memory_update(character_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
