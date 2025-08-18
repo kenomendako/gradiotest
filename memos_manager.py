@@ -30,7 +30,22 @@ def get_mos_instance(character_name: str) -> MOS:
         "backend": "ollama", "config": {"model_name_or_path": "placeholder"},
     }
 
-    mos_config = MOSConfig(user_id=character_name, chat_model=dummy_llm_config_for_validation)
+    mos_config = MOSConfig(
+        user_id=character_name,
+        chat_model=dummy_llm_config_for_validation,
+        # 【追加】MemReaderのためのダミー設定を追加
+        mem_reader={
+            "backend": "simple_struct",
+            "config": {
+                "llm": dummy_llm_config_for_validation,
+                "embedder": dummy_embedder_config_for_validation,
+                "chunker": {
+                    "backend": "sentence",
+                    "config": {"tokenizer_or_token_counter": "gpt2"},
+                },
+            },
+        }
+    )
 
     mem_cube_config = GeneralMemCubeConfig(
         user_id=character_name,
