@@ -1,6 +1,6 @@
-# --- [ロギング設定の強制上書き] ---
-# Nexus Ark本体（メインプロセス）とログファイルを共有するため、
-# サブプロセスであるこのインポーターも、スレッドセーフなロギング設定に統一する。
+# [batch_importer.py のファイル先頭を、このブロックで完全に置き換える]
+
+# --- [ロギング設定の強制上書きと、ライブラリ設定の無効化] ---
 import logging
 import logging.config
 import os
@@ -10,27 +10,18 @@ from sys import stdout
 # ログファイル用のディレクトリを定義
 LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
-LOG_FILE_PATH = LOGS_DIR / "nexus_ark.log" # 本体と同じログファイルを指定
+LOG_FILE_PATH = LOGS_DIR / "nexus_ark.log"
 
-# スレッドセーフなロギング設定
+# ★★★ 1. まず、我々が意図したスレッドセーフな設定を確立する ★★★
 LOGGING_CONFIG = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "standard": {
-            "format": "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s"
-        },
-    },
+    "version": 1, "disable_existing_loggers": False,
+    "formatters": { "standard": { "format": "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s" } },
     "handlers": {
         "console": { "level": "INFO", "class": "logging.StreamHandler", "stream": stdout, "formatter": "standard" },
         "file": {
-            "level": "DEBUG",
-            "class": "concurrent_log_handler.ConcurrentRotatingFileHandler",
-            "filename": LOG_FILE_PATH,
-            "maxBytes": 1024 * 1024 * 10,  # 10 MB
-            "backupCount": 5,
-            "formatter": "standard",
-            "use_gzip": True,
+            "level": "DEBUG", "class": "concurrent_log_handler.ConcurrentRotatingFileHandler",
+            "filename": LOG_FILE_PATH, "maxBytes": 1024 * 1024 * 10, "backupCount": 5,
+            "formatter": "standard", "use_gzip": True,
         },
     },
     "root": { "level": "DEBUG", "handlers": ["console", "file"] },
@@ -39,26 +30,24 @@ LOGGING_CONFIG = {
         "neo4j": { "level": "WARNING", "propagate": True },
     },
 }
-
 logging.config.dictConfig(LOGGING_CONFIG)
-# --- [ここまでが追加ブロック] ---
+
+# ★★★ 2. これ以降、MemOSライブラリがdictConfigを呼び出しても何もしないように、関数自体を無効化する ★★★
+logging.config.dictConfig = lambda *args, **kwargs: None
+
+print("--- [Nexus Ark] ロギング設定を完全に掌握しました ---")
+# --- [ここまでが修正ブロック] ---
 
 
-import os
+import os # ★元からある os のインポートは、このままでOK
 import sys
 import json
 import argparse
 import time
 import re
 from typing import List, Dict
-import logging # ★★★ この行を追加 ★★★
 
-# ▼▼▼ 以下の2行を新しく追加 ▼▼▼
-# MemOSライブラリからの大量のWARNINGログを抑制し、PermissionErrorを防ぐ
-logging.getLogger("memos").setLevel(logging.ERROR)
-# ▲▲▲ ここまで ▲▲▲
-
-# 必要なモジュールをインポート
+# ★★★ 3. これで、MemOSをインポートしても、ログ設定は上書きされない ★★★
 import config_manager
 import memos_manager
 import character_manager
