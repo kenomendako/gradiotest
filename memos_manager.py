@@ -29,7 +29,7 @@ def get_mos_instance(character_name: str) -> MOS:
     # --- 2. キャラクター固有のデータベース名を生成 ---
     NEXUSARK_NAMESPACE = uuid.UUID('0ef9569c-368c-4448-99b2-320956435a26')
     char_uuid = uuid.uuid5(NEXUSARK_NAMESPACE, character_name)
-    db_name_for_char = f"nexusark_{char_uuid.hex}"
+    db_name_for_char = f"nexusark-{char_uuid.hex}" # ★★★ アンダースコアを、ダッシュに、変更 ★★★
     neo4j_config["db_name"] = db_name_for_char
 
     # --- 3. ★★★【核心部分】データベースの存在確認と、自動作成 ★★★ ---
