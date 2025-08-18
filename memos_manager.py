@@ -41,7 +41,7 @@ def get_mos_instance(character_name: str) -> MOS:
             with driver.session(database="system") as session:
                 session.run(f"CREATE DATABASE `{db_name_for_char}` IF NOT EXISTS")
             print("--- データベースがオンラインになるのを待っています... ---")
-            for _ in range(15):
+            for _ in range(120): # ★★★ 最大120秒（2分間）待つ ★★★
                 with driver.session(database="system") as session:
                     result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=db_name_for_char)
                     records = list(result)
