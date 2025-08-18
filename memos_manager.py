@@ -89,7 +89,6 @@ def get_mos_instance(character_name: str) -> MOS:
             },
         }
     )
-    # ▼▼▼【ここからが修正の核心】▼▼▼
     mem_cube_config = GeneralMemCubeConfig(
         user_id=character_name,
         cube_id=f"{character_name}_main_cube",
@@ -100,7 +99,7 @@ def get_mos_instance(character_name: str) -> MOS:
                 "dispatcher_llm": dummy_llm_config_factory,
                 "graph_db": { "backend": "neo4j", "config": neo4j_config },
                 "embedder": dummy_embedder_config_factory,
-                "reorganize": False # ★★★ Reorganizerを明確に無効化 ★★★
+                "reorganize": True
             }
         }
     )
@@ -110,16 +109,12 @@ def get_mos_instance(character_name: str) -> MOS:
     google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path="gemini-2.5-flash-lite", google_api_key=api_key))
     google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
-    # --- 移植手術：MOSインスタンスの心臓部をGoogle製に置換 ---
     mos.chat_llm = google_llm_instance
     mos.mem_reader.llm = google_llm_instance
     mos.mem_reader.embedder = google_embedder_instance
-
-    # --- 移植手術：MemCubeインスタンスの心臓部もGoogle製に置換 ---
     mem_cube.text_mem.extractor_llm = google_llm_instance
     mem_cube.text_mem.dispatcher_llm = google_llm_instance
     mem_cube.text_mem.embedder = google_embedder_instance
-    # ▲▲▲【修正ここまで】▲▲▲
 
     # --- 5. Cubeの登録と、バックグラウンド処理の停止 ---
     cube_path = os.path.join("characters", character_name, "memos_cube")

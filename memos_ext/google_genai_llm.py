@@ -17,12 +17,15 @@ class GoogleGenAILLM(BaseLLM):
             {"role": msg["role"] if msg["role"] != "assistant" else "model", "parts": [{"text": msg["content"]}]}
             for msg in messages
         ]
-        generation_config = {"max_output_tokens": 8192}
+        generation_config_object = {"max_output_tokens": 8192} # この行の名前を _object を付けてわかりやすく
+
+        # ▼▼▼ ここの引数名を修正 ▼▼▼
         response = self.client.models.generate_content(
             model=f"models/{self.config.model_name_or_path}",
             contents=contents,
-            generation_config=generation_config
+            config=generation_config_object  # 'generation_config' から 'config' へ変更
         )
+        # ▲▲▲ ここまで ▲▲▲
         return response.text
 
     def generate_stream(self, messages: MessageList, **kwargs):
