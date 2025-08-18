@@ -9,6 +9,7 @@ import re
 from typing import List, Dict
 
 # 必要なモジュールをインポート
+import config_manager
 import memos_manager
 import character_manager # ★★★ キャラクター名簿を参照するために、インポート ★★★
 
@@ -71,6 +72,7 @@ def save_progress(progress_data):
 
 # --- メイン処理 ---
 def main():
+    config_manager.load_config() # ★★★ この一行を追加 ★★★
     parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをMemOSに一括インポートするツール")
     parser.add_argument("--character", required=True, help="対象のキャラクター名")
     parser.add_argument("--logs-dir", required=True, help="過去ログファイル（.txt）が格納されているディレクトリのパス")
