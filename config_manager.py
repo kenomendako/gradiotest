@@ -122,7 +122,8 @@ def load_config():
           "neo4j_config": {
             "uri": "bolt://localhost:7687",
             "user": "neo4j",
-            "password": "YOUR_NEO4J_PASSWORD"
+            "password": "YOUR_NEO4J_PASSWORD",
+            "db_name": "neo4j"
           }
         }
     }

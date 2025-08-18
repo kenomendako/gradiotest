@@ -18,7 +18,16 @@ def get_mos_instance(character_name: str) -> MOS:
     print(f"--- MemOSインスタンスを初期化中: {character_name} ---")
 
     memos_config_data = config_manager.CONFIG_GLOBAL.get("memos_config", {})
-    neo4j_config = memos_config_data.get("neo4j_config", {})
+    # neo4j_config の読み込み部分を、以下のように修正
+    neo4j_config = memos_config_data.get("neo4j_config", {}).copy() # ★ .copy()で安全なコピーを作成
+
+    # ★★★【核心的な修正】キャラクター固有のDB名を生成し、設定に注入する ★★★
+    # 安全なファイル名/DB名に変換するロジック
+    safe_char_name = "".join(c for c in character_name if c.isalnum())
+    db_name_for_char = f"nexusark_{safe_char_name.lower()}"
+    neo4j_config["db_name"] = db_name_for_char
+    # ★★★ ここまで ★★★
+
     api_key_name = config_manager.initial_api_key_name_global
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name, "")
 
