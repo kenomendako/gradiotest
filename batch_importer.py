@@ -70,10 +70,7 @@ def parse_log_for_import(log_messages: List[Dict[str, str]]) -> List[List[Dict[s
 
 def main():
     """メイン処理"""
-    if not acquire_lock():
-        print("他のインポートプロセスが実行中のため、起動を中止しました。")
-        sys.exit(1)
-
+    # UIからサブプロセスとして呼び出されることを想定し、ロック処理は行わない
     try:
         parser = argparse.ArgumentParser(
             description="過去の会話ログをMemOSに一括でインポートするバッチ処理ツール。",
@@ -185,7 +182,6 @@ def main():
         print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {e}")
         traceback.print_exc()
     finally:
-        release_lock()
         print("インポーターを終了します。")
 
 if __name__ == "__main__":

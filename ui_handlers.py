@@ -837,6 +837,8 @@ def handle_memos_batch_import(character_name: str, console_content: str):
             process.terminate()
             if process.stdout:
                 process.stdout.close()
+        # 最終的に必ずボタンを有効化して返す
+        yield gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), gr.update(), gr.update()
 
 def _run_core_memory_update(character_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
