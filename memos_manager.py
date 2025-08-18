@@ -100,22 +100,22 @@ def get_mos_instance(character_name: str) -> MOS:
             },
         }
     )
+    # ★★★ 修正後の正しいコード ★★★
     mem_cube_config = GeneralMemCubeConfig(
         user_id=character_name,
         cube_id=f"{character_name}_main_cube",
         text_mem={
             "backend": "tree_text",
             "config": {
-                "extractor_llm": mos_config.chat_model,
-                "dispatcher_llm": mos_config.chat_model,
+                # "調理済みの料理"ではなく、"生の食材"を渡す
+                "extractor_llm": dummy_llm_config_for_validation,
+                "dispatcher_llm": dummy_llm_config_for_validation,
                 "graph_db": { "backend": "neo4j", "config": neo4j_config },
-                "embedder": {
-                     "backend": "google_genai",
-                     "config": { "model_name_or_path": "embedding-001", "google_api_key": api_key },
-                }
+                "embedder": dummy_embedder_config_for_validation,
             }
         }
     )
+    # ★★★ ここまで ★★★
     mos = MOS(mos_config)
     mem_cube = GeneralMemCube(mem_cube_config)
 
