@@ -179,7 +179,9 @@ def main():
     except KeyboardInterrupt:
         print("\n[情報] ユーザーの操作により処理が中断されました。進捗は保存されています。")
     except Exception as e:
-        print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {e}")
+        # エラーメッセージを、システムの、文字コードで、表示できるように、安全に、エンコード・デコードする
+        error_message = str(e).encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
+        print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {error_message}")
         traceback.print_exc()
     finally:
         print("インポーターを終了します。")
