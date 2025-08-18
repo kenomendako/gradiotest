@@ -124,14 +124,98 @@ def main():
 
             print(f"  - {len(conversation_pairs)} 件の会話ペアを検出。MemOSに記憶します...")
 
-            for pair_idx, pair in enumerate(conversation_pairs):
-                try:
-                    mos_instance.add(messages=pair)
-                    total_success_count += 1
-                    print(f"\r    - 進捗: {pair_idx + 1}/{len(conversation_pairs)}", end="")
-                    time.sleep(0.1)
-                except Exception as e:
-                    print(f"\n    - エラー: 会話ペア {pair_idx + 1} の記憶中にエラーが発生しました: {e}")
+            # ★★★ この for ループの中身を、以下のように、書き換える ★★★
+            pair_idx = 0 # ファイルごとの、ペアインデックスを、初期化
+            while pair_idx < len(conversation_pairs):
+                pair = conversation_pairs[pair_idx]
+
+                retry_attempt = 0
+                max_retries = 5
+
+                while retry_attempt < max_retries:
+                    try:
+                        mos_instance.add(messages=pair)
+                        total_success_count += 1
+                        print(f"\r    - 進捗: {pair_idx + 1}/{len(conversation_pairs)}", end="")
+
+                        # 成功
+                        pair_idx += 1 # 次のペアへ
+                        time.sleep(1.1) # APIへの負荷を考慮 (1秒より少し長く)
+                        break # リトライのループを抜ける
+
+                    except Exception as e:
+                        error_str = str(e)
+                        retry_attempt += 1
+
+                        # 1. レートリミットエラーの場合
+                        if "RESOURCE_EXHAUSTED" in error_str or "429" in error_str:
+                            # APIが推奨する待機時間を抽出
+                            delay_match = re.search(r"'retryDelay': '(\d+)s'", error_str)
+                            if delay_match:
+                                wait_time = int(delay_match.group(1)) + 1
+                                print(f"\n    - 警告: APIレートリミット。APIの指示に従い、{wait_time}秒待機します...")
+                            else:
+                                wait_time = 20 * retry_attempt
+                                print(f"\n    - 警告: APIレートリミット。{wait_time}秒待機して、リトライします... ({retry_attempt}/{max_retries})")
+
+                            time.sleep(wait_time)
+                            # このペアで、リトライを、継続
+                            continue
+
+                        # 2. その他のエラーの場合
+                        else:
+                            print(f"\n    - エラー: 会話ペア {pair_idx + 1} の記憶中に、予期せぬエラーが発生しました。")
+                            print(f"      詳細: {error_str[:200]}...") # エラーメッセージを短縮表示
+                            # ★★★ ここで、自動スキップせず、ユーザーに、判断を、仰ぐ ★★★
+                            while True:
+                                user_choice = input("      このペアの処理をどうしますか？ (r: 再試行, s: スキップ, q: 終了): ").lower()
+                                if user_choice == 'r':
+                                    # 同じペアで、リトライを、継続
+                                    break
+                                elif user_choice == 's':
+                                    # このペアを、スキップして、次のペアへ
+                                    pair_idx += 1
+                                    break
+                                elif user_choice == 'q':
+                                    # 処理を、完全に、中断
+                                    print("--- ユーザーの指示により、インポート処理を中断します。 ---")
+                                    # 進捗を保存して終了
+                                    character_progress["processed_files"] = list(processed_files)
+                                    character_progress["total_success_count"] = total_success_count
+                                    progress_data[args.character] = character_progress
+                                    save_progress(progress_data)
+                                    return # main関数を終了
+                                else:
+                                    print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
+
+                            if user_choice in ['s', 'r']:
+                                break # リトライのループを抜ける
+
+                # リトライ上限に達した場合
+                if retry_attempt >= max_retries:
+                    print(f"\n    - エラー: APIレートリミットのリトライ上限 ({max_retries}回) に達しました。")
+                    # ★★★ ここでも、ユーザーに、判断を、仰ぐ ★★★
+                    while True:
+                        user_choice = input("      このペアの処理をどうしますか？ (r: 再度リトライ, s: スキップ, q: 終了): ").lower()
+                        if user_choice == 'r':
+                            retry_attempt = 0 # リトライカウントをリセットして、再度挑戦
+                            continue
+                        elif user_choice == 's':
+                            pair_idx += 1 # スキップ
+                            break
+                        elif user_choice == 'q':
+                            print("--- ユーザーの指示により、インポート処理を中断します。 ---")
+                            character_progress["processed_files"] = list(processed_files)
+                            character_progress["total_success_count"] = total_success_count
+                            progress_data[args.character] = character_progress
+                            save_progress(progress_data)
+                            return
+                        else:
+                            print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
+
+                    if user_choice == 's':
+                        break # 次のペアへ
+            # ★★★ ここまでが、修正範囲 ★★★
 
             print("\n  - ファイルの処理が完了しました。")
             processed_files.add(filename)
