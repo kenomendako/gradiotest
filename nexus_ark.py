@@ -542,11 +542,15 @@ try:
         memos_import_button.click(
             fn=ui_handlers.handle_memos_batch_import,
             inputs=[current_character_name, debug_console_state],
+            # ▼▼▼ この outputs リストを修正 ▼▼▼
             outputs=[
                 memos_import_button,
                 debug_console_state,
-                debug_console_output
+                debug_console_output,
+                chat_input_textbox, # ★★★ 追加 ★★★
+                submit_button       # ★★★ 追加 ★★★
             ]
+            # ▲▲▲ ここまで ▲▲▲
         )
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_character_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])

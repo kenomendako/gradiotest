@@ -1,18 +1,22 @@
-# [batch_importer.py のファイル先頭を、このブロックで完全に置き換える]
+# [batch_importer.py を、この内容で完全に置き換える]
 
-# --- [ロギング設定の強制上書きと、ライブラリ設定の無効化] ---
+import os
+import sys
+import json
+import argparse
+import time
+import re
+from typing import List, Dict
 import logging
 import logging.config
-import os
 from pathlib import Path
 from sys import stdout
 
-# ログファイル用のディレクトリを定義
+# --- [ロギング設定の強制上書き] ---
 LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE_PATH = LOGS_DIR / "nexus_ark.log"
 
-# ★★★ 1. まず、我々が意図したスレッドセーフな設定を確立する ★★★
 LOGGING_CONFIG = {
     "version": 1, "disable_existing_loggers": False,
     "formatters": { "standard": { "format": "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s" } },
@@ -31,23 +35,11 @@ LOGGING_CONFIG = {
     },
 }
 logging.config.dictConfig(LOGGING_CONFIG)
-
-# ★★★ 2. これ以降、MemOSライブラリがdictConfigを呼び出しても何もしないように、関数自体を無効化する ★★★
 logging.config.dictConfig = lambda *args, **kwargs: None
+print("--- [Nexus Ark Importer] ロギング設定を完全に掌握しました ---")
+# --- [ここまでが追加ブロック] ---
 
-print("--- [Nexus Ark] ロギング設定を完全に掌握しました ---")
-# --- [ここまでが修正ブロック] ---
-
-
-import os # ★元からある os のインポートは、このままでOK
-import sys
-import json
-import argparse
-import time
-import re
-from typing import List, Dict
-
-# ★★★ 3. これで、MemOSをインポートしても、ログ設定は上書きされない ★★★
+# 必要なモジュールをインポート
 import config_manager
 import memos_manager
 import character_manager
@@ -105,7 +97,7 @@ def group_messages_into_pairs(messages: List[Dict[str, str]]) -> List[List[Dict[
         i += 1
     return pairs
 
-# --- 進捗管理 (変更なし) ---
+# --- 進捗管理 (v2: ペア単位) ---
 def load_progress():
     if os.path.exists(PROGRESS_FILE):
         try:
@@ -133,19 +125,14 @@ def main():
         mos_instance = memos_manager.get_mos_instance(args.character)
 
         progress_data = load_progress()
-        character_progress = progress_data.get(args.character, {})
-
-        processed_files = set(character_progress.get("processed_files", []))
-        total_success_count = character_progress.get("total_success_count", 0)
+        character_progress = progress_data.get(args.character, {"progress": {}, "total_success_count": 0})
 
         log_files = sorted([f for f in os.listdir(args.logs_dir) if f.endswith(".txt") and not f.endswith("_summary.txt")])
 
         print(f"--- {len(log_files)}個のログファイルを検出しました。インポート処理を開始します。 ---")
 
         for i, filename in enumerate(log_files):
-            if filename in processed_files:
-                print(f"\n[{i+1}/{len(log_files)}] ファイルは処理済みです: {filename} ... スキップします。")
-                continue
+            processed_pairs_count = character_progress["progress"].get(filename, 0)
 
             print(f"\n[{i+1}/{len(log_files)}] ファイル処理開始: {filename}")
             filepath = os.path.join(args.logs_dir, filename)
@@ -156,16 +143,22 @@ def main():
             all_messages = load_archived_log(content, all_characters)
             conversation_pairs = group_messages_into_pairs(all_messages)
 
-            if not conversation_pairs:
-                print("  - 会話ペアが見つかりませんでした。スキップします。")
-                processed_files.add(filename)
+            total_pairs_in_file = len(conversation_pairs)
+
+            if processed_pairs_count >= total_pairs_in_file:
+                print(f"  - ファイルは完全に処理済みです ({processed_pairs_count}/{total_pairs_in_file})。スキップします。")
                 continue
 
-            print(f"  - {len(conversation_pairs)} 件の会話ペアを検出。MemOSに記憶します...")
+            if not conversation_pairs:
+                print("  - 会話ペアが見つかりませんでした。スキップします。")
+                character_progress["progress"][filename] = 0
+                save_progress(progress_data)
+                continue
 
-            # ★★★ この for ループの中身を、以下のように、書き換える ★★★
-            pair_idx = 0 # ファイルごとの、ペアインデックスを、初期化
-            while pair_idx < len(conversation_pairs):
+            print(f"  - {total_pairs_in_file} 件の会話ペアを検出。{processed_pairs_count}件目から再開します...")
+
+            pair_idx = processed_pairs_count
+            while pair_idx < total_pairs_in_file:
                 pair = conversation_pairs[pair_idx]
 
                 retry_attempt = 0
@@ -174,104 +167,71 @@ def main():
                 while retry_attempt < max_retries:
                     try:
                         mos_instance.add(messages=pair)
-                        total_success_count += 1
-                        print(f"\r    - 進捗: {pair_idx + 1}/{len(conversation_pairs)}", end="")
+                        character_progress["total_success_count"] += 1
+                        character_progress["progress"][filename] = pair_idx + 1
+                        print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
 
-                        # 成功
-                        pair_idx += 1 # 次のペアへ
-                        time.sleep(1.1) # APIへの負荷を考慮 (1秒より少し長く)
-                        break # リトライのループを抜ける
+                        # 10ペアごとに進捗を保存
+                        if (pair_idx + 1) % 10 == 0:
+                           progress_data[args.character] = character_progress
+                           save_progress(progress_data)
+
+                        pair_idx += 1
+                        time.sleep(1.1)
+                        break
 
                     except Exception as e:
                         error_str = str(e)
                         retry_attempt += 1
 
-                        # 1. レートリミットエラーの場合
                         if "RESOURCE_EXHAUSTED" in error_str or "429" in error_str:
-                            # APIが推奨する待機時間を抽出
                             delay_match = re.search(r"'retryDelay': '(\d+)s'", error_str)
-                            if delay_match:
-                                wait_time = int(delay_match.group(1)) + 1
-                                print(f"\n    - 警告: APIレートリミット。APIの指示に従い、{wait_time}秒待機します...")
-                            else:
-                                wait_time = 20 * retry_attempt
-                                print(f"\n    - 警告: APIレートリミット。{wait_time}秒待機して、リトライします... ({retry_attempt}/{max_retries})")
-
+                            wait_time = int(delay_match.group(1)) + 1 if delay_match else 20 * retry_attempt
+                            print(f"\n    - 警告: APIレートリミット。{wait_time}秒待機してリトライします... ({retry_attempt}/{max_retries})")
                             time.sleep(wait_time)
-                            # このペアで、リトライを、継続
                             continue
-
-                        # 2. その他のエラーの場合
                         else:
                             print(f"\n    - エラー: 会話ペア {pair_idx + 1} の記憶中に、予期せぬエラーが発生しました。")
-                            print(f"      詳細: {error_str[:200]}...") # エラーメッセージを短縮表示
-                            # ★★★ ここで、自動スキップせず、ユーザーに、判断を、仰ぐ ★★★
+                            print(f"      詳細: {error_str[:200]}...")
                             while True:
                                 user_choice = input("      このペアの処理をどうしますか？ (r: 再試行, s: スキップ, q: 終了): ").lower()
-                                if user_choice == 'r':
-                                    # 同じペアで、リトライを、継続
-                                    break
-                                elif user_choice == 's':
-                                    # このペアを、スキップして、次のペアへ
-                                    pair_idx += 1
-                                    break
+                                if user_choice == 'r': break
+                                elif user_choice == 's': pair_idx += 1; break
                                 elif user_choice == 'q':
-                                    # 処理を、完全に、中断
                                     print("--- ユーザーの指示により、インポート処理を中断します。 ---")
-                                    # 進捗を保存して終了
-                                    character_progress["processed_files"] = list(processed_files)
-                                    character_progress["total_success_count"] = total_success_count
                                     progress_data[args.character] = character_progress
                                     save_progress(progress_data)
-                                    return # main関数を終了
-                                else:
-                                    print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
+                                    return
+                                else: print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
+                            if user_choice in ['s', 'r']: break
 
-                            if user_choice in ['s', 'r']:
-                                break # リトライのループを抜ける
-
-                # リトライ上限に達した場合
                 if retry_attempt >= max_retries:
                     print(f"\n    - エラー: APIレートリミットのリトライ上限 ({max_retries}回) に達しました。")
-                    # ★★★ ここでも、ユーザーに、判断を、仰ぐ ★★★
                     while True:
                         user_choice = input("      このペアの処理をどうしますか？ (r: 再度リトライ, s: スキップ, q: 終了): ").lower()
-                        if user_choice == 'r':
-                            retry_attempt = 0 # リトライカウントをリセットして、再度挑戦
-                            continue
-                        elif user_choice == 's':
-                            pair_idx += 1 # スキップ
-                            break
+                        if user_choice == 'r': retry_attempt = 0; continue
+                        elif user_choice == 's': pair_idx += 1; break
                         elif user_choice == 'q':
                             print("--- ユーザーの指示により、インポート処理を中断します。 ---")
-                            character_progress["processed_files"] = list(processed_files)
-                            character_progress["total_success_count"] = total_success_count
                             progress_data[args.character] = character_progress
                             save_progress(progress_data)
                             return
-                        else:
-                            print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
+                        else: print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
+                    if user_choice == 's': break
 
-                    if user_choice == 's':
-                        break # 次のペアへ
-            # ★★★ ここまでが、修正範囲 ★★★
-
-            print("\n  - ファイルの処理が完了しました。")
-            processed_files.add(filename)
-
-            character_progress["processed_files"] = list(processed_files)
-            character_progress["total_success_count"] = total_success_count
+            print("\n  - ファイルの処理が完了しました。最終進捗を保存します。")
             progress_data[args.character] = character_progress
             save_progress(progress_data)
 
         print("\n--- 全てのログファイルのインポートが完了しました。 ---")
-        print(f"最終結果: {total_success_count}件の会話を記憶しました。")
+        print(f"最終結果: {character_progress['total_success_count']}件の会話を記憶しました。")
 
     except Exception as e:
         error_message = str(e).encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
         print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {error_message}")
     finally:
         print("インポーターを終了します。")
+
 
 if __name__ == "__main__":
     main()

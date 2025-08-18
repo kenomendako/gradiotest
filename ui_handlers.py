@@ -767,27 +767,34 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
 
 def handle_memos_batch_import(character_name: str, console_content: str):
     """
-    【ストリーミング対応版】
+    【ストリーミング・UIロック対応版】
     MemOSのバッチインポート処理を開始し、その進捗をUIにリアルタイムで反映させる。
+    処理中はチャット関連のUIを無効化する。
     """
-    # この関数はUIスレッドをブロックしないように設計されているため、
-    # threading.Threadは不要。Gradioがバックグラウンドで処理を管理する。
     if not character_name:
         gr.Warning("キャラクターが選択されていません。")
-        yield gr.update(), console_content, console_content
+        # UIコンポーネントの数に合わせて戻り値を返す
+        yield gr.update(), console_content, console_content, gr.update(), gr.update()
         return
 
-    # --- 1. 即時フィードバック ---
+    # --- 1. UIを「処理中」モードに移行 ---
     gr.Info(f"「{character_name}」の過去ログ取り込みをバックグラウンドで開始します。")
     initial_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 「{character_name}」の過去ログ取り込み処理を開始 ---\n"
-    yield gr.update(value="処理中...", interactive=False), initial_console_text, initial_console_text
+    yield (
+        gr.update(value="処理中...", interactive=False), # インポートボタンを無効化
+        initial_console_text,
+        initial_console_text,
+        gr.update(interactive=False), # チャット入力欄を無効化
+        gr.update(interactive=False)  # 送信ボタンを無効化
+    )
 
     process = None
     try:
         archive_dir = os.path.join("characters", character_name, "archive", "log")
         if not os.path.isdir(archive_dir):
-            gr.Error(f"アーカイブディレクトリが見つかりません: {archive_dir}")
-            yield gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), console_content + f"[エラー] ディレクトリ {archive_dir} が見つかりません。", console_content + f"[エラー] ディレクトリ {archive_dir} が見つかりません。"
+            error_msg = f"[エラー] アーカイブディレクトリが見つかりません: {archive_dir}"
+            gr.Error(error_msg)
+            yield gr.update(), console_content + error_msg, console_content + error_msg, gr.update(), gr.update()
             return
 
         python_executable = sys.executable or "python"
@@ -799,20 +806,20 @@ def handle_memos_batch_import(character_name: str, console_content: str):
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=False, # ★★★ バイトモードで読み込むため False に変更 ★★★
+            text=False,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
 
         updated_console_text = initial_console_text
         if process.stdout:
-            # ★★★ iterとdecodeを組み合わせた堅牢なループ ★★★
+            import locale
             for byte_line in iter(process.stdout.readline, b''):
-                if not byte_line:
-                    break
+                if not byte_line: break
                 line_str = byte_line.decode(locale.getpreferredencoding(False), errors='replace')
                 print(line_str, end='')
                 updated_console_text += line_str
-                yield gr.update(), updated_console_text, updated_console_text
+                # ストリーミング中はUIコンポーネントの状態は変更しない
+                yield gr.update(), updated_console_text, updated_console_text, gr.update(), gr.update()
 
         process.wait()
         if process.returncode == 0:
@@ -823,22 +830,29 @@ def handle_memos_batch_import(character_name: str, console_content: str):
             final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] エラー終了 (終了コード: {process.returncode}) ---\n"
 
         updated_console_text += final_message
-        yield gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), updated_console_text, updated_console_text
+        yield gr.update(), updated_console_text, updated_console_text, gr.update(), gr.update()
 
     except Exception as e:
         error_message = f"インポート処理の起動に失敗しました: {e}"
         gr.Error(error_message)
         traceback.print_exc()
         error_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] {error_message} ---\n"
-        yield gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), error_console_text, error_console_text
+        yield gr.update(), error_console_text, error_console_text, gr.update(), gr.update()
 
     finally:
         if process and process.poll() is None:
             process.terminate()
             if process.stdout:
                 process.stdout.close()
-        # 最終的に必ずボタンを有効化して返す
-        yield gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), gr.update(), gr.update()
+
+        # --- 2. 最後に必ずUIを「待機」モードに戻す ---
+        yield (
+            gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True), # インポートボタンを有効化
+            gr.update(),
+            gr.update(),
+            gr.update(interactive=True), # チャット入力欄を有効化
+            gr.update(interactive=True)  # 送信ボタンを有効化
+        )
 
 def _run_core_memory_update(character_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
