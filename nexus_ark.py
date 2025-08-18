@@ -544,13 +544,16 @@ try:
         save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
         save_tavily_key_button.click(fn=ui_handlers.handle_save_tavily_key, inputs=[tavily_key_input], outputs=[])
         auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
-        memos_import_button.click(
+        # ▼▼▼ ここからが修正の核心 ▼▼▼
+
+        # 1. memos_import_buttonのクリックイベントを 'import_event' という変数に格納する
+        import_event = memos_import_button.click(
             fn=ui_handlers.handle_memos_batch_import,
             inputs=[current_character_name, debug_console_state],
             outputs=[
                 memos_import_button,
-                importer_stop_button, # ★★★ 追加 ★★★
-                importer_process_state, # ★★★ 追加 ★★★
+                importer_stop_button,
+                importer_process_state,
                 debug_console_state,
                 debug_console_output,
                 chat_input_textbox,
@@ -558,7 +561,7 @@ try:
             ]
         )
 
-        # ▼▼▼ 以下のイベントハンドラを新しく追加 ▼▼▼
+        # 2. importer_stop_buttonの 'cancels' 引数に、UI部品ではなく、上で作成したイベント変数を渡す
         importer_stop_button.click(
             fn=ui_handlers.handle_importer_stop,
             inputs=[importer_process_state],
@@ -569,8 +572,9 @@ try:
                 chat_input_textbox,
                 submit_button
             ],
-            cancels=[memos_import_button] # 実行中のインポート処理をキャンセル
+            cancels=[import_event] # ★★★ memos_import_button から import_event に変更 ★★★
         )
+
         # ▲▲▲ ここまで ▲▲▲
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_character_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
