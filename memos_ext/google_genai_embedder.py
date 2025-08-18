@@ -16,4 +16,4 @@ class GoogleGenAIEmbedder(BaseEmbedder):
             model=f"models/{self.config.model_name_or_path}",
             contents=texts
         )
-        return [embedding['values'] for embedding in response.embeddings]
+        return [embedding.values for embedding in response.embeddings] # ★★★ 正しい、オブジェクトの、作法 ★★★
