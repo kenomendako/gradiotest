@@ -103,7 +103,7 @@ def get_mos_instance(character_name: str) -> MOS:
                 "dispatcher_llm": dummy_llm_config_factory,
                 "graph_db": { "backend": "neo4j", "config": neo4j_config },
                 "embedder": dummy_embedder_config_factory,
-                "reorganize": False # ★★★ この一行を追加 ★★★
+                "reorganize": True # ★★★【核心的な修正】意図的に、Trueに、設定する ★★★
             }
         }
     )
@@ -130,7 +130,13 @@ def get_mos_instance(character_name: str) -> MOS:
     if not os.path.exists(cube_path):
         os.makedirs(cube_path, exist_ok=True)
         mem_cube.dump(cube_path)
+
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
+
+    # ★★★【核心的な修正】起動してしまった、Reorganizerに、明確な、停止命令を、下す ★★★
+    print("--- 記憶の自動整理機能を、バッチ処理のために、一時的に、停止します... ---")
+    mos.mem_reorganizer_off()
+    print("--- 自動整理機能の、停止を、確認しました。 ---")
 
     _mos_instances[character_name] = mos
     print(f"--- MemOSインスタンスの準備完了 (完全な器官移植済み): {character_name} ---")
