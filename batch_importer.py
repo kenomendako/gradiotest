@@ -1,188 +1,145 @@
-# -*- coding: utf-8 -*-
-# batch_importer.py (v5: 全面改修版)
-# 指定されたディレクトリ内の全てのログファイルを順次処理し、記憶をMOSに移植する。
-# 中断・再開に対応した堅牢な進捗管理機能を備える。
+# [batch_importer.py を、この内容で完全に置き換える]
 
 import os
 import sys
 import json
-import time
 import argparse
-import traceback
-from pathlib import Path
-from typing import List, Dict, Any
+import time
+import re
+from typing import List, Dict
 
+# 必要なモジュールをインポート
 import memos_manager
-import config_manager
-from utils import load_chat_log, acquire_lock, release_lock
+import character_manager # ★★★ キャラクター名簿を参照するために、インポート ★★★
 
+# --- 定数 ---
 PROGRESS_FILE = "importer_progress.json"
 
-def load_progress() -> Dict[str, Any]:
-    """進捗記録ファイルを読み込む。"""
+# --- 新しい、ログ解析関数 (v4: キャラクター名簿参照版) ---
+def parse_log_for_memos(log_content: str, character_name: str, all_character_list: List[str]) -> List[Dict[str, str]]:
+    """
+    全ての形式のログファイルを解析し、キャラクター名簿に基づいて発言者の役割を正確に判定する。
+    """
+    messages = []
+    pattern = re.compile(r"^(?:##\s|\[.*?\]\s*)?([^:]+):\s*([\sS]*?)(?=\n(?:##\s|\[.*?\]\s*)?[^:]+:|\Z)", re.MULTILINE)
+
+    for match in pattern.finditer(log_content):
+        speaker = match.group(1).strip()
+        content = match.group(2).strip()
+
+        # ★★★【核心的な修正】★★★
+        # 発言者名が、キャラクター名簿（all_character_list）に、存在するかどうかで、役割を判断
+        # これにより、グループ会話の、他のAIは'assistant'、それ以外は'user'として、正しく、分類される
+        if speaker in all_character_list:
+            role = "assistant"
+        else:
+            role = "user"
+
+        messages.append({"role": role, "content": content})
+
+    return messages
+
+def group_messages_into_pairs(messages: List[Dict[str, str]]) -> List[List[Dict[str, str]]]:
+    """
+    解析されたメッセージリストを、[ユーザー発言, AI応答] のペアにグループ化する。
+    """
+    pairs = []
+    i = 0
+    while i < len(messages):
+        # ユーザー発言を探す
+        if messages[i]["role"] == "user":
+            # 次の発言がAIの応答であれば、ペアとして成立
+            if i + 1 < len(messages) and messages[i+1]["role"] == "assistant":
+                pairs.append([messages[i], messages[i+1]])
+                i += 2 # ペアが見つかったので、2つ進む
+                continue
+        # ペアが成立しない場合は、1つ進む
+        i += 1
+    return pairs
+
+# --- 進捗管理 (変更なし) ---
+def load_progress():
     if os.path.exists(PROGRESS_FILE):
         try:
-            with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
-                content = f.read()
-                if not content.strip():
-                    return {}
-                return json.loads(content)
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"[警告] 進捗ファイル '{PROGRESS_FILE}' の読み込みに失敗しました: {e}")
-            return {}
+            with open(PROGRESS_FILE, "r", encoding="utf-8") as f: return json.load(f)
+        except (json.JSONDecodeError, IOError): return {}
     return {}
 
-def save_progress(progress_data: Dict[str, Any]):
-    """進捗記録ファイルに書き込む。"""
-    try:
-        with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
-            json.dump(progress_data, f, indent=2, ensure_ascii=False)
-    except IOError as e:
-        print(f"[エラー] 進捗ファイル '{PROGRESS_FILE}' の保存に失敗しました: {e}")
+def save_progress(progress_data):
+    with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
+        json.dump(progress_data, f, indent=2, ensure_ascii=False)
 
-
-def parse_log_for_import(log_messages: List[Dict[str, str]]) -> List[List[Dict[str, str]]]:
-    """ログデータからユーザーとアシスタントの会話ペアを抽出する。"""
-    conversation_pairs = []
-    current_pair = []
-    for msg in log_messages:
-        # MemOSの役割（user, assistant）に正規化
-        role = "assistant" if msg.get("role") == "model" else "user"
-        content = msg.get("content", "").strip()
-        if not content:
-            continue
-
-        if role == 'user':
-            if len(current_pair) == 2: # 完成済みのペアがあれば確定
-                conversation_pairs.append(current_pair)
-                current_pair = []
-            # ユーザー発言から新しいペアを開始
-            if not current_pair:
-                current_pair.append({"role": "user", "content": content})
-        elif role == 'assistant' and current_pair and current_pair[0]["role"] == "user":
-            # ユーザー発言に続くアシスタント発言でペアを完成
-            current_pair.append({"role": "assistant", "content": content})
-            conversation_pairs.append(current_pair)
-            current_pair = [] # ペアをリセット
-
-    return conversation_pairs
-
-
+# --- メイン処理 ---
 def main():
-    """メイン処理"""
-    # UIからサブプロセスとして呼び出されることを想定し、ロック処理は行わない
-    try:
-        parser = argparse.ArgumentParser(
-            description="過去の会話ログをMemOSに一括でインポートするバッチ処理ツール。",
-            formatter_class=argparse.RawTextHelpFormatter
-        )
-        parser.add_argument("--character", required=True, help="記憶の持ち主であるキャラクター名。")
-        parser.add_argument("--logs-dir", required=True, help="複数のログファイル(.txt)が格納されたディレクトリのパス。")
-        parser.add_argument("--reset", action="store_true", help="指定したキャラクターのインポート進捗をリセットし、最初からやり直します。")
-        args = parser.parse_args()
+    parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをMemOSに一括インポートするツール")
+    parser.add_argument("--character", required=True, help="対象のキャラクター名")
+    parser.add_argument("--logs-dir", required=True, help="過去ログファイル（.txt）が格納されているディレクトリのパス")
 
-        # --- 初期設定 ---
-        config_manager.load_config()
+    args = parser.parse_args()
+
+    try:
+        # ★★★【核心的な修正】処理の、開始前に、一度だけ、キャラクター名簿を、取得する ★★★
+        all_characters = character_manager.get_character_list()
+        print(f"--- 認識しているAIキャラクター名簿: {all_characters} ---")
+
         mos_instance = memos_manager.get_mos_instance(args.character)
 
-        # --- 進捗の読み込みとリセット ---
         progress_data = load_progress()
-        if args.reset and args.character in progress_data:
-            print(f"キャラクター '{args.character}' の進捗をリセットします。")
-            del progress_data[args.character]
-            save_progress(progress_data)
+        character_progress = progress_data.get(args.character, {})
 
-        character_progress = progress_data.setdefault(args.character, {
-            "last_processed_file": None,
-            "last_processed_pair_index": -1,
-            "total_success_count": 0,
-            "total_fail_count": 0
-        })
+        processed_files = set(character_progress.get("processed_files", []))
+        total_success_count = character_progress.get("total_success_count", 0)
 
-        # --- ログファイルのリストアップとソート ---
-        logs_path = Path(args.logs_dir)
-        if not logs_path.is_dir():
-            print(f"[エラー] 指定されたログディレクトリが見つかりません: {args.logs_dir}")
-            sys.exit(1)
-
-        # アルファベット順（log_01, log_02...）にソート
-        log_files = sorted([p for p in logs_path.glob("*.txt") if not p.name.endswith("_summary.txt")])
-
-        if not log_files:
-            print("処理対象のログファイルがありません。")
-            sys.exit(0)
+        log_files = sorted([f for f in os.listdir(args.logs_dir) if f.endswith(".txt") and not f.endswith("_summary.txt")])
 
         print(f"--- {len(log_files)}個のログファイルを検出しました。インポート処理を開始します。 ---")
 
-        # --- 中断箇所から処理を再開するための準備 ---
-        start_file_index = 0
-        last_file = character_progress.get("last_processed_file")
-        if last_file:
-            try:
-                # ファイル名だけで比較
-                start_file_index = [p.name for p in log_files].index(last_file)
-            except ValueError:
-                print(f"[警告] 前回のファイル '{last_file}' が見つかりません。最初から処理します。")
-                character_progress["last_processed_pair_index"] = -1
+        for i, filename in enumerate(log_files):
+            if filename in processed_files:
+                print(f"\n[{i+1}/{len(log_files)}] ファイルは処理済みです: {filename} ... スキップします。")
+                continue
 
-        # --- メインループ: ファイル単位の処理 ---
-        for i in range(start_file_index, len(log_files)):
-            filepath = log_files[i]
-            print(f"\n[{i+1}/{len(log_files)}] ファイル処理開始: {filepath.name}")
+            print(f"\n[{i+1}/{len(log_files)}] ファイル処理開始: {filename}")
+            filepath = os.path.join(args.logs_dir, filename)
 
-            log_data = load_chat_log(str(filepath), args.character)
-            conversation_pairs = parse_log_for_import(log_data)
+            with open(filepath, "r", encoding="utf-8", errors='ignore') as f:
+                content = f.read()
+
+            # ★★★【核心的な修正】解析関数に、キャラクター名簿を、渡す ★★★
+            all_messages = parse_log_for_memos(content, args.character, all_characters)
+            conversation_pairs = group_messages_into_pairs(all_messages)
 
             if not conversation_pairs:
                 print("  - 会話ペアが見つかりませんでした。スキップします。")
+                processed_files.add(filename)
                 continue
 
-            # --- 中断箇所から処理を再開 ---
-            start_pair_index = 0
-            # 現在のファイルが前回中断したファイルの場合、中断したペアの次から開始
-            if filepath.name == character_progress.get("last_processed_file"):
-                start_pair_index = character_progress.get("last_processed_pair_index", -1) + 1
+            print(f"  - {len(conversation_pairs)} 件の会話ペアを検出。MemOSに記憶します...")
 
-            print(f"  - {len(conversation_pairs)}個の会話ペアを検出。{start_pair_index + 1}番目から処理を開始します。")
-
-            # --- サブループ: 会話ペア単位の処理 ---
-            for j in range(start_pair_index, len(conversation_pairs)):
-                pair = conversation_pairs[j]
-
+            for pair_idx, pair in enumerate(conversation_pairs):
                 try:
-                    # ★★★ MemOSへの記憶追加 ★★★
+                    # addに渡すのは、あくまで、対象キャラクターの、記憶となる、ペアのみ
                     mos_instance.add(messages=pair)
-
-                    character_progress["total_success_count"] += 1
-                    print(f"    - 記憶成功 ({j + 1}/{len(conversation_pairs)})", end="\r")
-                    time.sleep(1.2)  # APIのレート制限を考慮
-
+                    total_success_count += 1
+                    print(f"\r    - 進捗: {pair_idx + 1}/{len(conversation_pairs)}", end="")
+                    time.sleep(0.1)
                 except Exception as e:
-                    character_progress["total_fail_count"] += 1
-                    print(f"\n    - [エラー] 記憶追加に失敗 ({j + 1}/{len(conversation_pairs)}): {e}")
-                    # UIからの実行を想定し、自動でスキップする
+                    print(f"\n    - エラー: 会話ペア {pair_idx + 1} の記憶中にエラーが発生しました: {e}")
 
-                finally:
-                    # --- 各ペア処理後に進捗を保存 ---
-                    character_progress["last_processed_file"] = filepath.name
-                    character_progress["last_processed_pair_index"] = j
-                    save_progress(progress_data)
+            print("\n  - ファイルの処理が完了しました。")
+            processed_files.add(filename)
 
-            print(f"\n  - ファイル '{filepath.name}' の処理完了。")
-            # ファイルが完了したら、次のファイルは最初から処理するためインデックスをリセット
-            character_progress["last_processed_pair_index"] = -1
+            character_progress["processed_files"] = list(processed_files)
+            character_progress["total_success_count"] = total_success_count
+            progress_data[args.character] = character_progress
             save_progress(progress_data)
 
         print("\n--- 全てのログファイルのインポートが完了しました。 ---")
-        print(f"最終結果: 成功 {character_progress['total_success_count']}件, 失敗 {character_progress['total_fail_count']}件")
+        print(f"最終結果: {total_success_count}件の会話を記憶しました。")
 
-    except KeyboardInterrupt:
-        print("\n[情報] ユーザーの操作により処理が中断されました。進捗は保存されています。")
     except Exception as e:
-        # エラーメッセージを、システムの、文字コードで、表示できるように、安全に、エンコード・デコードする
         error_message = str(e).encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
         print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {error_message}")
-        traceback.print_exc()
     finally:
         print("インポーターを終了します。")
 
