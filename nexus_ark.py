@@ -410,7 +410,7 @@ try:
                 file_upload_button, api_history_limit_state, debug_mode_checkbox,
                 auto_memory_checkbox, # ★★★ この行を新しく追加 ★★★
                 debug_console_state,
-                active_participants
+                active_participants_state # ★★★ 'active_participants' から '_state' を付けた正しい変数名に変更 ★★★
             ],
             # outputsの最後に selected_message_state と action_button_group を追加
             outputs=[
