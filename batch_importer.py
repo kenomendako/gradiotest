@@ -7,6 +7,12 @@ import argparse
 import time
 import re
 from typing import List, Dict
+import logging # ★★★ この行を追加 ★★★
+
+# ▼▼▼ 以下の2行を新しく追加 ▼▼▼
+# MemOSライブラリからの大量のWARNINGログを抑制し、PermissionErrorを防ぐ
+logging.getLogger("memos").setLevel(logging.ERROR)
+# ▲▲▲ ここまで ▲▲▲
 
 # 必要なモジュールをインポート
 import config_manager

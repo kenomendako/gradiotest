@@ -123,10 +123,12 @@ def get_mos_instance(character_name: str) -> MOS:
         mem_cube.dump(cube_path)
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
 
+    # ▼▼▼ 以下の3行を新しく追加 ▼▼▼
     print("--- 記憶の自動整理機能を、バッチ処理のために、完全に、停止します... ---")
     mos.mem_reorganizer_wait()
     mos.mem_reorganizer_off()
     print("--- 自動整理機能の、完全停止を、確認しました。 ---")
+    # ▲▲▲ ここまで ▲▲▲
 
     _mos_instances[character_name] = mos
     print(f"--- MemOSインスタンスの準備完了 (自動整理機能・停止済み): {character_name} ---")
