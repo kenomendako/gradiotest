@@ -1521,66 +1521,107 @@ def handle_reload_system_prompt(character_name: str) -> str:
 
 def handle_rerun_button_click(*args: Any):
     """
+    【v2: 直接API呼び出し版】
     再生成ボタンが押された際の処理。
-    ログを巻き戻し、handle_message_submissionを呼び出して再応答を生成させた後、
-    最後に選択状態を解除し、操作ボタン群を非表示にする。
+    ログを巻き戻し、handle_message_submission を介さずに直接APIを呼び出す。
     """
     (selected_message, character_name, api_key_name,
-     file_list, api_history_limit, debug_mode,
-     auto_memory_state, # ★★★ この引数を新しく追加 ★★★
-     current_console_content, active_participants) = args
+     _file_list, api_history_limit, debug_mode, # _file_list は再生成では使わない
+     auto_memory_enabled, current_console_content, active_participants) = args
+    active_participants = active_participants or []
 
     if not selected_message or not character_name:
         gr.Warning("再生成の起点となるメッセージが選択されていません。")
-        # outputsの数に合わせてNoneを返す
+        # ジェネレータとして空のyieldを返す
         yield (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                None, gr.update(visible=True))
         return
 
-    log_f, _, _, _, _ = get_character_files_paths(character_name)
+    log_f, _, _, _, _ = character_manager.get_character_files_paths(character_name)
     is_ai_message = selected_message.get("responder") != "ユーザー"
 
+    # ログを巻き戻す処理は、AIの発言かユーザーの発言かで分岐
     if is_ai_message:
-        restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, character_name)
+        # AIの発言を削除し、その直前のユーザー発言まで戻す
+        utils.delete_message_and_after(log_f, selected_message, character_name)
     else:
-        restored_input_text = utils.delete_user_message_and_after(log_f, selected_message, character_name)
-
-    if restored_input_text is None:
-        gr.Error("ログの巻き戻しに失敗しました。再生成できません。")
-        history, mapping = reload_chat_log(character_name, api_history_limit)
-        yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-               None, gr.update(visible=True))
-        return
+        # ユーザーの発言と、それ以降のAIの発言をすべて削除
+        utils.delete_user_message_and_after(log_f, selected_message, character_name)
 
     gr.Info("応答を再生成します...")
 
-    # handle_message_submission を呼び出すための引数を再構築
-    submission_args = (
-        restored_input_text, character_name, api_key_name,
-        None, # file_input_list は再生成時には使わない
-        api_history_limit, debug_mode,
-        auto_memory_state, # ★★★ ここに受け取った状態変数を追加 ★★★
-        current_console_content, active_participants
+    # --- ここからが新しいロジック ---
+    # handle_message_submission を呼び出すのではなく、その中核部分を直接実行する。
+    # これにより、HumanMessageの重複を防ぐ。
+
+    all_characters_in_scene = [character_name] + active_participants
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    shared_location_name, _, shared_scenery_text = generate_scenery_context(character_name, api_key)
+
+    all_turn_popups = []
+
+    # 再生成なので、応答するのは常にメインキャラクター一人
+    chatbot_history, mapping_list = reload_chat_log(character_name, api_history_limit)
+    chatbot_history.append((None, f"思考中 ({character_name})... ▌"))
+    yield (chatbot_history, mapping_list, gr.update(), gr.update(value=None),
+           gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+           current_console_content, current_console_content,
+           None, gr.update(visible=False)) # 選択状態を解除し、ボタンを非表示
+
+    agent_args_dict = {
+        "character_to_respond": character_name,
+        "api_key_name": api_key_name,
+        "api_history_limit": api_history_limit,
+        "debug_mode": debug_mode,
+        "history_log_path": log_f, # 巻き戻し後のログを直接参照
+        "user_prompt_parts": [], # ★★★ 新しいユーザー入力はないので空リスト ★★★
+        "soul_vessel_character": character_name,
+        "active_participants": active_participants,
+        "shared_location_name": shared_location_name,
+        "shared_scenery_text": shared_scenery_text,
+    }
+
+    final_response_text = ""
+    with utils.capture_prints() as captured_output:
+        for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+            if "final_output" in update:
+                final_output_data = update["final_output"]
+                final_response_text = final_output_data.get("response", "")
+                all_turn_popups.extend(final_output_data.get("tool_popups", []))
+                break
+
+    current_console_content += captured_output.getvalue()
+
+    if final_response_text.strip():
+        utils.save_message_to_log(log_f, f"## {character_name}:", final_response_text)
+
+    # (handle_message_submissionの後処理をここに持ってくる)
+    for popup_message in all_turn_popups:
+        gr.Info(popup_message)
+
+    final_chatbot_history, final_mapping_list = reload_chat_log(character_name, api_history_limit)
+    new_location_name, _, new_scenery_text = generate_scenery_context(character_name, api_key)
+    scenery_image = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
+
+    token_calc_kwargs = config_manager.get_effective_settings(character_name)
+    token_count_text = gemini_api.count_input_tokens(
+        character_name=character_name, api_key_name=api_key_name,
+        api_history_limit=api_history_limit, parts=[], **token_calc_kwargs
     )
 
-    # ▼▼▼【ここからが修正の核心】▼▼▼
-    # handle_message_submission の実行をラップし、最後のyieldにUI更新命令を追加する
-    submission_generator = handle_message_submission(*submission_args)
-    final_yield_value = None
-    try:
-        # ジェネレータの最後の値を取得するまでループ
-        while True:
-            final_yield_value = next(submission_generator)
-            # 途中の "思考中..." の更新はそのままUIに流す
-            # 最後の値以外は、追加の戻り値の分だけNoneで埋める
-            yield final_yield_value + (None, gr.update())
-    except StopIteration:
-        # ジェネレータが終了したら、最後に保持していた値に追加の命令を加えて返す
-        if final_yield_value:
-            yield final_yield_value + (None, gr.update(visible=False))
-    # ▲▲▲【修正ここまで】▲▲▲
+    final_df_with_ids = render_alarms_as_dataframe()
+    final_df = get_display_df(final_df_with_ids)
+
+    # 最後のyield
+    yield (final_chatbot_history, final_mapping_list, gr.update(), gr.update(value=None), token_count_text,
+           new_location_name, new_scenery_text,
+           final_df_with_ids, final_df, scenery_image,
+           current_console_content, current_console_content,
+           None, gr.update(visible=False))
+
+    # (自動記憶処理は再生成時には不要)
 
 def _run_core_memory_update(character_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
