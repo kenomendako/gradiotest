@@ -3,7 +3,9 @@
 from memos import MOS, MOSConfig, GeneralMemCube, GeneralMemCubeConfig
 import config_manager
 import os
-import uuid # ★★★ この行を追加 ★★★
+import uuid
+import neo4j # ★★★ この行を追加 ★★★
+import time  # ★★★ この行を追加 ★★★
 
 # ★★★【核心的な修正】ローカルの、カスタム器官を、インポートする ★★★
 from memos_ext.google_genai_llm import GoogleGenAILLM, GoogleGenAILLMConfig
@@ -18,68 +20,95 @@ def get_mos_instance(character_name: str) -> MOS:
 
     print(f"--- MemOSインスタンスを初期化中: {character_name} ---")
 
+    # --- 1. 設定とAPIキーの取得 ---
     memos_config_data = config_manager.CONFIG_GLOBAL.get("memos_config", {})
-    # neo4j_config の読み込み部分を、以下のように修正
-    neo4j_config = memos_config_data.get("neo4j_config", {}).copy() # ★ .copy()で安全なコピーを作成
-
-    # ★★★【核心的な修正】ここから ★★★
-    # キャラクター名から、常に、同じ、ユニークなIDを、生成する（決定論的UUID）
-    # これにより、日本語名でも、安全な、データベース名が、作られる
-    NEXUSARK_NAMESPACE = uuid.UUID('0ef9569c-368c-4448-99b2-320956435a26') # プロジェクト固定のID
-    char_uuid = uuid.uuid5(NEXUSARK_NAMESPACE, character_name)
-
-    # UUIDを、ハイフンなしの、短い、文字列に、変換して、名前に、使用する
-    db_name_for_char = f"nexusark_{char_uuid.hex}"
-    neo4j_config["db_name"] = db_name_for_char
-    # ★★★ ここまで ★★★
-
+    neo4j_config = memos_config_data.get("neo4j_config", {}).copy()
     api_key_name = config_manager.initial_api_key_name_global
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name, "")
 
-    # Pydanticの型検証を通過させるため、ダミーのバックエンドで設定オブジェクトを作成
+    # --- 2. キャラクター固有のデータベース名を生成 ---
+    NEXUSARK_NAMESPACE = uuid.UUID('0ef9569c-368c-4448-99b2-320956435a26')
+    char_uuid = uuid.uuid5(NEXUSARK_NAMESPACE, character_name)
+    db_name_for_char = f"nexusark_{char_uuid.hex}"
+    neo4j_config["db_name"] = db_name_for_char
+
+    # --- 3. ★★★【核心部分】データベースの存在確認と、自動作成 ★★★ ---
+    driver = None
+    try:
+        # まず、システムデータベースに接続するためのドライバーを作成
+        driver = neo4j.GraphDatabase.driver(
+            neo4j_config["uri"],
+            auth=(neo4j_config["user"], neo4j_config["password"])
+        )
+
+        # データベースが存在するか確認するクエリ
+        with driver.session(database="system") as session:
+            result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=db_name_for_char)
+            db_exists = len([record for record in result]) > 0
+
+        # 存在しない場合のみ、作成コマンドを実行
+        if not db_exists:
+            print(f"--- データベース '{db_name_for_char}' が存在しません。新規作成します... ---")
+            with driver.session(database="system") as session:
+                session.run(f"CREATE DATABASE `{db_name_for_char}` IF NOT EXISTS")
+
+            # データベースがオンラインになるまで少し待つ
+            print("--- データベースがオンラインになるのを待っています... ---")
+            for _ in range(10): # 最大10秒待つ
+                with driver.session(database="system") as session:
+                    result = session.run("SHOW DATABASE `{db_name}` YIELD currentStatus", db_name=db_name_for_char)
+                    status = result.single()["currentStatus"]
+                    if status == "online":
+                        print(f"--- データベース '{db_name_for_char}' がオンラインになりました。 ---")
+                        break
+                time.sleep(1)
+            else:
+                raise Exception(f"データベース '{db_name_for_char}' の起動をタイムアウトしました。")
+    finally:
+        if driver:
+            driver.close()
+    # --- ここまでが核心部分 ---
+
+    # 4. MemOSの初期化 (これ以降は変更なし)
+    # ... (前回のコードと同じダミー設定と、カスタム器官の移植ロジック) ...
     dummy_llm_config_for_validation = {
         "backend": "ollama", "config": {"model_name_or_path": "placeholder"},
     }
     dummy_embedder_config_for_validation = {
         "backend": "ollama", "config": {"model_name_or_path": "placeholder"},
     }
-
     mos_config = MOSConfig(
         user_id=character_name,
         chat_model=dummy_llm_config_for_validation,
-        # 【追加】MemReaderのためのダミー設定を追加
         mem_reader={
             "backend": "simple_struct",
             "config": {
                 "llm": dummy_llm_config_for_validation,
                 "embedder": dummy_embedder_config_for_validation,
-                "chunker": {
-                    "backend": "sentence",
-                    "config": {"tokenizer_or_token_counter": "gpt2"},
-                },
+                "chunker": {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}},
             },
         }
     )
-
     mem_cube_config = GeneralMemCubeConfig(
         user_id=character_name,
         cube_id=f"{character_name}_main_cube",
         text_mem={
             "backend": "tree_text",
             "config": {
-                "extractor_llm": dummy_llm_config_for_validation,
-                "dispatcher_llm": dummy_llm_config_for_validation,
+                "extractor_llm": mos_config.chat_model,
+                "dispatcher_llm": mos_config.chat_model,
                 "graph_db": { "backend": "neo4j", "config": neo4j_config },
-                "embedder": dummy_embedder_config_for_validation,
+                "embedder": {
+                     "backend": "google_genai",
+                     "config": { "model_name_or_path": "embedding-001", "google_api_key": api_key },
+                }
             }
         }
     )
-
     mos = MOS(mos_config)
     mem_cube = GeneralMemCube(mem_cube_config)
 
     # Nexus Ark専用の、カスタム器官を、直接、生成
-    # ★★★ バッチ処理と通常の対話で、同じLLM (flash-lite) を使用する ★★★
     google_llm_config = GoogleGenAILLMConfig(
         model_name_or_path="gemini-2.5-flash-lite",
         google_api_key=api_key
@@ -98,12 +127,11 @@ def get_mos_instance(character_name: str) -> MOS:
     mem_cube.text_mem.dispatcher_llm = google_llm_instance
     mem_cube.text_mem.embedder = google_embedder_instance
 
-    # CubeをMOSに登録
+    # 5. CubeをMOSに登録
     cube_path = os.path.join("characters", character_name, "memos_cube")
     if not os.path.exists(cube_path):
         os.makedirs(cube_path, exist_ok=True)
         mem_cube.dump(cube_path)
-
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
 
     _mos_instances[character_name] = mos
