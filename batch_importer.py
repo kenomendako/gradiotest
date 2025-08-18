@@ -11,32 +11,43 @@ from typing import List, Dict
 # 必要なモジュールをインポート
 import config_manager
 import memos_manager
-import character_manager # ★★★ キャラクター名簿を参照するために、インポート ★★★
+import character_manager
 
 # --- 定数 ---
 PROGRESS_FILE = "importer_progress.json"
 
-# --- 新しい、ログ解析関数 (v4: キャラクター名簿参照版) ---
-def parse_log_for_memos(log_content: str, character_name: str, all_character_list: List[str]) -> List[Dict[str, str]]:
+# --- 新しい、ログ解析関数 (v5: utils.pyベースの、歴史家) ---
+def load_archived_log(log_content: str, all_character_list: List[str]) -> List[Dict[str, str]]:
     """
-    全ての形式のログファイルを解析し、キャラクター名簿に基づいて発言者の役割を正確に判定する。
+    Nexus Arkの、全ての、ログ形式（過去と現在）を、解析する、堅牢な、パーサー。
+    utils.load_chat_logを、バッチ処理用に、改造したもの。
     """
     messages = []
-    pattern = re.compile(r"^(?:##\s|\[.*?\]\s*)?([^:]+):\s*([\sS]*?)(?=\n(?:##\s|\[.*?\]\s*)?[^:]+:|\Z)", re.MULTILINE)
+    # `re.split`を、使い、ヘッダー行で、ログを、確実に、分割する
+    log_parts = re.split(r'^(## .*?:)$', log_content, flags=re.MULTILINE)
 
-    for match in pattern.finditer(log_content):
-        speaker = match.group(1).strip()
-        content = match.group(2).strip()
+    header = None
+    for part in log_parts:
+        part = part.strip()
+        if not part:
+            continue
 
-        # ★★★【核心的な修正】★★★
-        # 発言者名が、キャラクター名簿（all_character_list）に、存在するかどうかで、役割を判断
-        # これにより、グループ会話の、他のAIは'assistant'、それ以外は'user'として、正しく、分類される
-        if speaker in all_character_list:
-            role = "assistant"
-        else:
-            role = "user"
+        # ヘッダー行（## Speaker:）を、見つけた場合
+        if part.startswith("## ") and part.endswith(":"):
+            header = part
+        # 内容部分を、見つけた場合
+        elif header:
+            # ヘッダーから、発言者名を、抽出
+            match = re.match(r"^## (.*?):$", header)
+            if match:
+                speaker = match.group(1).strip()
+                content = part.strip()
 
-        messages.append({"role": role, "content": content})
+                # ★★★【核心部分】キャラクター名簿を、参照し、役割を、判定 ★★★
+                role = "assistant" if speaker in all_character_list else "user"
+                messages.append({"role": role, "content": content})
+
+            header = None # 次の、ヘッダーに、備える
 
     return messages
 
@@ -47,14 +58,11 @@ def group_messages_into_pairs(messages: List[Dict[str, str]]) -> List[List[Dict[
     pairs = []
     i = 0
     while i < len(messages):
-        # ユーザー発言を探す
         if messages[i]["role"] == "user":
-            # 次の発言がAIの応答であれば、ペアとして成立
             if i + 1 < len(messages) and messages[i+1]["role"] == "assistant":
                 pairs.append([messages[i], messages[i+1]])
-                i += 2 # ペアが見つかったので、2つ進む
+                i += 2
                 continue
-        # ペアが成立しない場合は、1つ進む
         i += 1
     return pairs
 
@@ -72,7 +80,7 @@ def save_progress(progress_data):
 
 # --- メイン処理 ---
 def main():
-    config_manager.load_config() # ★★★ この一行を追加 ★★★
+    config_manager.load_config()
     parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをMemOSに一括インポートするツール")
     parser.add_argument("--character", required=True, help="対象のキャラクター名")
     parser.add_argument("--logs-dir", required=True, help="過去ログファイル（.txt）が格納されているディレクトリのパス")
@@ -80,7 +88,6 @@ def main():
     args = parser.parse_args()
 
     try:
-        # ★★★【核心的な修正】処理の、開始前に、一度だけ、キャラクター名簿を、取得する ★★★
         all_characters = character_manager.get_character_list()
         print(f"--- 認識しているAIキャラクター名簿: {all_characters} ---")
 
@@ -107,8 +114,7 @@ def main():
             with open(filepath, "r", encoding="utf-8", errors='ignore') as f:
                 content = f.read()
 
-            # ★★★【核心的な修正】解析関数に、キャラクター名簿を、渡す ★★★
-            all_messages = parse_log_for_memos(content, args.character, all_characters)
+            all_messages = load_archived_log(content, all_characters)
             conversation_pairs = group_messages_into_pairs(all_messages)
 
             if not conversation_pairs:
@@ -120,7 +126,6 @@ def main():
 
             for pair_idx, pair in enumerate(conversation_pairs):
                 try:
-                    # addに渡すのは、あくまで、対象キャラクターの、記憶となる、ペアのみ
                     mos_instance.add(messages=pair)
                     total_success_count += 1
                     print(f"\r    - 進捗: {pair_idx + 1}/{len(conversation_pairs)}", end="")
