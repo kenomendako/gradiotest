@@ -25,16 +25,18 @@ def get_mos_instance(character_name: str) -> MOS:
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name, "")
 
     # ▼▼▼【ここからが修正の核心】▼▼▼
-    # --- 2. データベース名を固定値に統一し、設定ファイル自体を更新する ---
+    # --- 2. データベース名を安全に更新する ---
     DB_NAME = "nexusark-memos-db"
-    # MemOSが起動する前に、config.json内のneo4j_configのdb_nameを永続的に更新
-    # これにより、設定ソースが完全に統一される
-    config_manager.save_memos_config("neo4j_config", {
-        "uri": "bolt://localhost:7687",
-        "user": "neo4j",
-        "password": "YOUR_NEO4J_PASSWORD", # ★ここはconfig.jsonの値で上書きされるのでダミーでOK
-        "db_name": DB_NAME
-    })
+
+    # 既存のneo4j設定を読み込む
+    current_memos_config = config_manager.CONFIG_GLOBAL.get("memos_config", {})
+    current_neo4j_config = current_memos_config.get("neo4j_config", {})
+
+    # db_nameだけを更新し、他の値（特にパスワード）は維持する
+    current_neo4j_config["db_name"] = DB_NAME
+
+    # 更新した設定をファイルに書き戻す
+    config_manager.save_memos_config("neo4j_config", current_neo4j_config)
 
     # 更新された最新の設定を再度読み込む
     memos_config_data = config_manager.CONFIG_GLOBAL.get("memos_config", {})
@@ -44,8 +46,8 @@ def get_mos_instance(character_name: str) -> MOS:
     driver = None
     try:
         driver = neo4j.GraphDatabase.driver(
-            neo4j_config_for_memos["uri"],
-            auth=(neo4j_config_for_memos["user"], neo4j_config_for_memos["password"])
+            neo4j_config_for_memos.get("uri", "bolt://localhost:7687"),
+            auth=(neo4j_config_for_memos.get("user", "neo4j"), neo4j_config_for_memos.get("password"))
         )
 
         with driver.session(database="system") as session:
