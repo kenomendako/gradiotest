@@ -91,6 +91,14 @@ def save_config(key, value):
     _save_config_file(config)
     load_config()
 
+def save_memos_config(key, value):
+    config = _load_config_file()
+    if "memos_config" not in config:
+        config["memos_config"] = {}
+    config["memos_config"][key] = value
+    _save_config_file(config)
+    load_config()
+
 # --- メインの読み込み関数 (最重要修正箇所) ---
 def load_config():
     global CONFIG_GLOBAL, GEMINI_API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global
@@ -109,6 +117,15 @@ def load_config():
         "notification_webhook_url": None, "pushover_app_token": "", "pushover_user_key": "",
         "log_archive_threshold_mb": 10,
         "log_keep_size_mb": 5,
+        "memos_config": {
+          "auto_memory_enabled": False,
+          "neo4j_config": {
+            "uri": "bolt://localhost:7687",
+            "user": "neo4j",
+            "password": "YOUR_NEO4J_PASSWORD",
+            "db_name": "neo4j"
+          }
+        }
     }
 
     user_config = _load_config_file()

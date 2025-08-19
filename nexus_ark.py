@@ -1,3 +1,67 @@
+# --- [ロギング設定の強制上書き] ---
+# GradioやMemOSのマルチスレッド/プロセス動作によるログファイルの競合を防ぐため、
+# アプリケーション全体のロギング設定を、起動時にスレッドセーフなものに上書きする。
+import logging
+import logging.config
+import os
+from pathlib import Path
+from sys import stdout
+
+# ログファイル用のディレクトリを定義
+LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE_PATH = LOGS_DIR / "nexus_ark.log" # ログファイル名を nexus_ark.log に変更
+
+# スレッドセーフなロギング設定
+LOGGING_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s"
+        },
+    },
+    "handlers": {
+        "console": {
+            "level": "INFO",
+            "class": "logging.StreamHandler",
+            "stream": stdout,
+            "formatter": "standard",
+        },
+        "file": {
+            "level": "DEBUG",
+            "class": "concurrent_log_handler.ConcurrentRotatingFileHandler",
+            "filename": LOG_FILE_PATH,
+            "maxBytes": 1024 * 1024 * 10,  # 10 MB
+            "backupCount": 5,
+            "formatter": "standard",
+            "use_gzip": True,
+        },
+    },
+    "root": {
+        "level": "DEBUG",
+        "handlers": ["console", "file"],
+    },
+    "loggers": {
+        "memos": {
+            "level": "WARNING", # MemOSライブラリのログレベルをWARNINGに設定し、不要なINFOログを抑制
+            "propagate": True,
+        },
+        "gradio": {
+            "level": "WARNING", # GradioライブラリのログレベルをWARNINGに設定
+            "propagate": True,
+        },
+         "httpx": {
+            "level": "WARNING", # httpxライブラリのログレベルをWARNINGに設定
+            "propagate": True,
+        },
+    },
+}
+
+logging.config.dictConfig(LOGGING_CONFIG)
+# --- [ここまでが追加ブロック] ---
+
+
 # nexus_ark.py (v18: 複数人対話セッションFIX・最終版)
 
 import os
@@ -79,6 +143,7 @@ try:
         current_log_map_state = gr.State([])
         active_participants_state = gr.State([]) # 現在アクティブな複数人対話の参加者リスト
         debug_console_state = gr.State("")
+        importer_process_state = gr.State(None) # インポーターのサブプロセスを管理
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -128,6 +193,7 @@ try:
                                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
+                                    auto_memory_checkbox = gr.Checkbox(label="対話の自動記憶を有効にする", value=lambda: config_manager.CONFIG_GLOBAL.get("memos_config", {}).get("auto_memory_enabled", False), interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
                                     gr.Markdown("---")
                                     gr.Markdown("#### 📢 通知サービス設定")
@@ -224,12 +290,22 @@ try:
                             save_prompt_button = gr.Button("プロンプトを保存", variant="secondary")
                             reload_prompt_button = gr.Button("再読込", variant="secondary")
                     with gr.TabItem("記憶 (JSON)"):
-                        memory_json_editor = gr.Code(label="記憶ファイル", language="json", interactive=True, elem_id="memory_json_editor_code", lines=20)
+                        memory_json_editor = gr.Code(label="主観的記憶（日記） - memory.json", language="json", interactive=True, elem_id="memory_json_editor_code", lines=20)
                         with gr.Row():
-                            save_memory_button = gr.Button("記憶を保存", variant="secondary")
+                            save_memory_button = gr.Button("主観的記憶を保存", variant="secondary")
                             reload_memory_button = gr.Button("再読込", variant="secondary")
                             core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
-                            rag_update_button = gr.Button("手帳の索引を更新", variant="secondary")
+                    with gr.TabItem("客観的記憶 (MemOS)"):
+                        gr.Markdown("## 客観的記憶 (MemOS) の管理")
+                        gr.Markdown("過去の対話ログなどをMemOSに取り込み、AIの永続的な記憶を構築します。")
+                        # ▼▼▼ 以下の <gr.Row> を追加 ▼▼▼
+                        with gr.Row():
+                            memos_import_button = gr.Button("過去ログを客観記憶(MemOS)に取り込む", variant="primary", scale=3)
+                            importer_stop_button = gr.Button("処理を中断", variant="stop", visible=False, scale=1)
+                        # ▲▲▲ ここまで ▲▲▲
+                        gr.Markdown("---")
+                        gr.Markdown("### 索引管理（旧機能）")
+                        rag_update_button = gr.Button("手帳の索引を更新", variant="secondary", visible=False) # 機能は削除されたが、UIハンドラに残っているので一旦非表示
                     with gr.TabItem("メモ帳 (Markdown)"):
                         notepad_editor = gr.Textbox(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code", lines=20, autoscroll=True)
                         with gr.Row():
@@ -322,6 +398,7 @@ try:
         chat_inputs = [
             chat_input_textbox, current_character_name, current_api_key_name_state,
             file_upload_button, api_history_limit_state, debug_mode_checkbox,
+            auto_memory_checkbox, # ★★★ 自動記憶チェックボックスを追加
             debug_console_state,
             active_participants_state
         ]
@@ -331,10 +408,10 @@ try:
             inputs=[
                 selected_message_state, current_character_name, current_api_key_name_state,
                 file_upload_button, api_history_limit_state, debug_mode_checkbox,
+                auto_memory_checkbox, # ★★★ この行を新しく追加 ★★★
                 debug_console_state,
-                active_participants_state
+                active_participants_state # ★★★ 'active_participants' から '_state' を付けた正しい変数名に変更 ★★★
             ],
-            # ▼▼▼【ここからが修正箇所】▼▼▼
             # outputsの最後に selected_message_state と action_button_group を追加
             outputs=[
                 chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button,
@@ -466,7 +543,39 @@ try:
         save_pushover_config_button.click(fn=ui_handlers.handle_save_pushover_config, inputs=[pushover_user_key_input, pushover_app_token_input], outputs=[])
         save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
         save_tavily_key_button.click(fn=ui_handlers.handle_save_tavily_key, inputs=[tavily_key_input], outputs=[])
-        rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
+        auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
+        # ▼▼▼ ここからが修正の核心 ▼▼▼
+
+        # 1. memos_import_buttonのクリックイベントを 'import_event' という変数に格納する
+        import_event = memos_import_button.click(
+            fn=ui_handlers.handle_memos_batch_import,
+            inputs=[current_character_name, debug_console_state],
+            outputs=[
+                memos_import_button,
+                importer_stop_button,
+                importer_process_state,
+                debug_console_state,
+                debug_console_output,
+                chat_input_textbox,
+                submit_button
+            ]
+        )
+
+        # 2. importer_stop_buttonの 'cancels' 引数に、UI部品ではなく、上で作成したイベント変数を渡す
+        importer_stop_button.click(
+            fn=ui_handlers.handle_importer_stop,
+            inputs=[importer_process_state],
+            outputs=[
+                memos_import_button,
+                importer_stop_button,
+                importer_process_state,
+                chat_input_textbox,
+                submit_button
+            ],
+            cancels=[import_event] # ★★★ memos_import_button から import_event に変更 ★★★
+        )
+
+        # ▲▲▲ ここまで ▲▲▲
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_character_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])

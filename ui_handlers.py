@@ -1,10 +1,14 @@
 import shutil
+import psutil # ★★★ psutil をインポート ★★★
 import pandas as pd
 import json
 import traceback
 import hashlib
 import os
 import re
+import sys
+import locale
+import subprocess
 from typing import List, Optional, Dict, Any, Tuple
 from langchain_core.messages import ToolMessage, AIMessage
 import gradio as gr
@@ -19,7 +23,7 @@ from tools.image_tools import generate_image as generate_image_tool_func
 import pytz
 
 
-import gemini_api, config_manager, alarm_manager, character_manager, utils, constants
+import gemini_api, config_manager, alarm_manager, character_manager, utils, constants, memos_manager
 # ▼▼▼ 新しいタイマーツールをインポート ▼▼▼
 from tools import timer_tools
 from agent.graph import generate_scenery_context
@@ -226,11 +230,11 @@ def update_token_count_on_input(character_name: str, api_key_name: str, api_hist
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理する。(v22: NameError FIX)
+    ユーザーからのメッセージ送信を処理する。(v23: MemOS 自動記憶対応)
     """
     (textbox_content, soul_vessel_character, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
-     current_console_content, active_participants) = args
+     auto_memory_enabled, current_console_content, active_participants) = args
     active_participants = active_participants or []
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
@@ -353,7 +357,37 @@ def handle_message_submission(*args: Any):
            new_location_name, new_scenery_text,
            final_df_with_ids, final_df, scenery_image,
            current_console_content, current_console_content)
-    # ...
+
+    # --- 自動記憶処理 ---
+    if auto_memory_enabled:
+        try:
+            print(f"--- 自動記憶処理を開始: {soul_vessel_character} ---")
+            # このターンで生成されたメッセージを取得
+            # turn_recap_events には "## ユーザー:" と "## キャラクター名:" のヘッダーが含まれているので、
+            # これをパースしてMemOSが要求する形式に変換する
+            messages_to_save = []
+            # 最初のユーザー発言
+            user_content_match = re.search(r"## ユーザー:\n(.*)", turn_recap_events[0], re.DOTALL)
+            if user_content_match:
+                messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
+
+            # AIの応答（複数キャラクター対応）
+            for recap_event in turn_recap_events[1:]:
+                 ai_content_match = re.search(r"## .*?:\n(.*)", recap_event, re.DOTALL)
+                 if ai_content_match:
+                     messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
+
+            if len(messages_to_save) >= 2:
+                mos = memos_manager.get_mos_instance(soul_vessel_character)
+                mos.add(messages=messages_to_save)
+                print(f"--- 自動記憶処理完了: {soul_vessel_character} ---")
+            else:
+                print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
+
+        except Exception as e:
+            print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---")
+            traceback.print_exc()
+            gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
 
 def handle_scenery_refresh(character_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     """「情景を更新」ボタン専用ハンドラ。キャッシュを無視して強制的に再生成する。"""
@@ -726,13 +760,123 @@ def handle_timer_submission(timer_type, duration, work, brk, cycles, char, work_
         traceback.print_exc()
         return f"タイマー開始エラー: {e}"
 
-def handle_rag_update_button_click(character_name: str, api_key_name: str):
-    if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-    if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
-    gr.Info(f"「{character_name}」のRAG索引の更新を開始します...")
-    import rag_manager
-    threading.Thread(target=lambda: rag_manager.create_or_update_index(character_name, api_key)).start()
+def handle_auto_memory_change(auto_memory_enabled: bool):
+    """自動記憶設定の変更を保存する"""
+    config_manager.save_memos_config("auto_memory_enabled", auto_memory_enabled)
+    status = "有効" if auto_memory_enabled else "無効"
+    gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
+
+def handle_memos_batch_import(character_name: str, console_content: str):
+    if not character_name:
+        gr.Warning("キャラクターが選択されていません。")
+        yield gr.update(), gr.update(visible=False), None, console_content, console_content, gr.update(), gr.update()
+        return
+
+    # --- 1. UIを「処理中」モードに移行 ---
+    gr.Info(f"「{character_name}」の過去ログ取り込みをバックグラウンドで開始します。")
+    initial_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 「{character_name}」の過去ログ取り込み処理を開始 ---\n"
+    yield (
+        gr.update(value="処理中...", interactive=False),
+        gr.update(visible=True), # 中断ボタンを表示
+        None, # この時点ではプロセスはまだない
+        initial_console_text, initial_console_text,
+        gr.update(interactive=False), gr.update(interactive=False)
+    )
+
+    process = None
+    try:
+        archive_dir = os.path.join("characters", character_name, "archive", "log")
+        if not os.path.isdir(archive_dir):
+            error_msg = f"[エラー] アーカイブディレクトリが見つかりません: {archive_dir}"
+            gr.Error(error_msg)
+            yield gr.update(), gr.update(visible=False), None, console_content + error_msg, console_content + error_msg, gr.update(), gr.update()
+            return
+
+        python_executable = sys.executable or "python"
+        command = [python_executable, "batch_importer.py", "--character", character_name, "--logs-dir", archive_dir]
+
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=False,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+        )
+
+        # UIにプロセス情報を渡して更新
+        yield gr.update(), gr.update(), process, gr.update(), gr.update(), gr.update(), gr.update()
+
+        updated_console_text = initial_console_text
+        if process.stdout:
+            import locale
+            for byte_line in iter(process.stdout.readline, b''):
+                if not byte_line: break
+                line_str = byte_line.decode(locale.getpreferredencoding(False), errors='replace')
+                print(line_str, end='')
+                updated_console_text += line_str
+                yield gr.update(), gr.update(), process, updated_console_text, updated_console_text, gr.update(), gr.update()
+
+        process.wait()
+        if process.returncode == 0:
+            gr.Info(f"「{character_name}」の過去ログ取り込みが正常に完了しました。")
+            final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 処理正常終了 ---\n"
+        elif process.returncode == -15: # SIGTERM by stop button
+             gr.Warning("ユーザーの指示により、インポート処理を中断しました。")
+             final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 処理中断 ---\n"
+        else:
+            gr.Error(f"過去ログの取り込み中にエラーが発生しました。")
+            final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] エラー終了 (コード: {process.returncode}) ---\n"
+
+        updated_console_text += final_message
+        yield gr.update(), gr.update(), None, updated_console_text, updated_console_text, gr.update(), gr.update()
+
+    except Exception as e:
+        error_message = f"インポート処理の起動に失敗しました: {e}"
+        gr.Error(error_message); traceback.print_exc()
+        error_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] {error_message} ---\n"
+        yield gr.update(), gr.update(visible=False), None, error_console_text, error_console_text, gr.update(), gr.update()
+
+    finally:
+        # --- 最後に必ずUIを「待機」モードに戻す ---
+        yield (
+            gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True),
+            gr.update(visible=False), # 中断ボタンを非表示
+            None, # プロセス情報をクリア
+            gr.update(), gr.update(),
+            gr.update(interactive=True), gr.update(interactive=True)
+        )
+
+# ▼▼▼ 以下の関数を ui_handlers.py に新しく追加 ▼▼▼
+def handle_importer_stop(process):
+    """インポーターの中断ボタンが押されたときの処理"""
+    if process and psutil.pid_exists(process.pid):
+        try:
+            # 親プロセスと、その全ての子プロセスを終了させる
+            parent = psutil.Process(process.pid)
+            for child in parent.children(recursive=True):
+                child.terminate()
+            parent.terminate()
+
+            # プロセスが終了するのを少し待つ
+            try:
+                parent.wait(timeout=5)
+            except psutil.TimeoutExpired:
+                parent.kill() # タイムアウトしたら強制終了
+
+            gr.Warning("インポート処理を中断しています...")
+        except psutil.NoSuchProcess:
+            gr.Info("プロセスは既に終了していました。")
+        except Exception as e:
+            gr.Error(f"プロセスの停止中にエラー: {e}")
+    else:
+        gr.Info("中断対象のプロセスが見つかりません。")
+
+    # UIを待機モードに戻す
+    return (
+        gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True),
+        gr.update(visible=False),
+        None,
+        gr.update(interactive=True),
+        gr.update(interactive=True)
+    )
 
 def _run_core_memory_update(character_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
@@ -1377,28 +1521,31 @@ def handle_reload_system_prompt(character_name: str) -> str:
 
 def handle_rerun_button_click(*args: Any):
     """
+    【v4: タイムスタンプ更新対応・最終版】
     再生成ボタンが押された際の処理。
-    ログを巻き戻し、handle_message_submissionを呼び出して再応答を生成させた後、
-    最後に選択状態を解除し、操作ボタン群を非表示にする。
+    ログを巻き戻し、ユーザー発言の場合はタイムスタンプを更新して再ログ保存してから、APIを呼び出す。
     """
     (selected_message, character_name, api_key_name,
-     file_list, api_history_limit, debug_mode,
-     current_console_content, active_participants) = args
+     _file_list, api_history_limit, debug_mode,
+     auto_memory_enabled, current_console_content, active_participants) = args
+    active_participants = active_participants or []
 
     if not selected_message or not character_name:
         gr.Warning("再生成の起点となるメッセージが選択されていません。")
-        # outputsの数に合わせてNoneを返す
         yield (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                None, gr.update(visible=True))
         return
 
-    log_f, _, _, _, _ = get_character_files_paths(character_name)
+    log_f, _, _, _, _ = character_manager.get_character_files_paths(character_name)
     is_ai_message = selected_message.get("responder") != "ユーザー"
 
+    restored_input_text = None
     if is_ai_message:
+        # AIの発言を選択した場合：その発言とそれ以降を削除し、直前のユーザー発言を取得
         restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, character_name)
-    else:
+    else: # ユーザーの発言を選択した場合
+        # ユーザーの発言とその応答を削除し、その発言内容を取得
         restored_input_text = utils.delete_user_message_and_after(log_f, selected_message, character_name)
 
     if restored_input_text is None:
@@ -1409,28 +1556,110 @@ def handle_rerun_button_click(*args: Any):
                None, gr.update(visible=True))
         return
 
+    # ★★★ 重要な処理：巻き戻して取得したユーザー発言を、新しいタイムスタンプで再度ログに保存する ★★★
+    effective_settings = config_manager.get_effective_settings(character_name)
+    add_timestamp = effective_settings.get("add_timestamp", False)
+    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
+    full_user_log_entry = restored_input_text + timestamp
+    utils.save_message_to_log(log_f, "## ユーザー:", full_user_log_entry)
+
+    # APIにはタイムスタンプなしの純粋なテキストを渡す
+    user_prompt_parts_for_api = [{"type": "text", "text": restored_input_text}]
+
     gr.Info("応答を再生成します...")
 
-    # handle_message_submission を呼び出すための引数を再構築
-    submission_args = (
-        restored_input_text, character_name, api_key_name,
-        None, api_history_limit, debug_mode,
-        current_console_content, active_participants
+    # --- handle_message_submission の中核部分を直接実行 ---
+
+    all_characters_in_scene = [character_name] + active_participants
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    shared_location_name, _, shared_scenery_text = generate_scenery_context(character_name, api_key)
+
+    all_turn_popups = []
+
+    chatbot_history, mapping_list = reload_chat_log(character_name, api_history_limit)
+    chatbot_history.append((None, f"思考中 ({character_name})... ▌"))
+    yield (chatbot_history, mapping_list, gr.update(), gr.update(value=None),
+           gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+           current_console_content, current_console_content,
+           None, gr.update(visible=False))
+
+    agent_args_dict = {
+        "character_to_respond": character_name,
+        "api_key_name": api_key_name,
+        "api_history_limit": api_history_limit,
+        "debug_mode": debug_mode,
+        "history_log_path": log_f,
+        "user_prompt_parts": user_prompt_parts_for_api,
+        "soul_vessel_character": character_name,
+        "active_participants": active_participants,
+        "shared_location_name": shared_location_name,
+        "shared_scenery_text": shared_scenery_text,
+    }
+
+    final_response_text = ""
+    with utils.capture_prints() as captured_output:
+        for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+            if "final_output" in update:
+                final_output_data = update["final_output"]
+                final_response_text = final_output_data.get("response", "")
+                all_turn_popups.extend(final_output_data.get("tool_popups", []))
+                break
+
+    current_console_content += captured_output.getvalue()
+
+    if final_response_text.strip():
+        utils.save_message_to_log(log_f, f"## {character_name}:", final_response_text)
+
+    for popup_message in all_turn_popups:
+        gr.Info(popup_message)
+
+    final_chatbot_history, final_mapping_list = reload_chat_log(character_name, api_history_limit)
+    new_location_name, _, new_scenery_text = generate_scenery_context(character_name, api_key)
+    scenery_image = utils.find_scenery_image(character_name, utils.get_current_location(character_name))
+
+    token_calc_kwargs = config_manager.get_effective_settings(character_name)
+    token_count_text = gemini_api.count_input_tokens(
+        character_name=character_name, api_key_name=api_key_name,
+        api_history_limit=api_history_limit, parts=[], **token_calc_kwargs
     )
 
-    # ▼▼▼【ここからが修正の核心】▼▼▼
-    # handle_message_submission の実行をラップし、最後のyieldにUI更新命令を追加する
-    submission_generator = handle_message_submission(*submission_args)
-    final_yield_value = None
+    final_df_with_ids = render_alarms_as_dataframe()
+    final_df = get_display_df(final_df_with_ids)
+
+    yield (final_chatbot_history, final_mapping_list, gr.update(), gr.update(value=None), token_count_text,
+           new_location_name, new_scenery_text,
+           final_df_with_ids, final_df, scenery_image,
+           current_console_content, current_console_content,
+           None, gr.update(visible=False))
+
+    if auto_memory_enabled:
+        try:
+            print(f"--- 自動記憶処理を開始 (再生成): {character_name} ---")
+            messages_to_save = [
+                {"role": "user", "content": restored_input_text},
+                {"role": "assistant", "content": final_response_text}
+            ]
+            if len(messages_to_save) >= 2:
+                mos = memos_manager.get_mos_instance(character_name)
+                mos.add(messages=messages_to_save)
+                print(f"--- 自動記憶処理完了 (再生成): {character_name} ---")
+        except Exception as e:
+            print(f"--- 自動記憶処理中にエラーが発生しました (再生成): {e} ---")
+            traceback.print_exc()
+            gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
+
+def _run_core_memory_update(character_name: str, api_key: str):
+    print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Character: {character_name}) ---")
     try:
-        # ジェネレータの最後の値を取得するまでループ
-        while True:
-            final_yield_value = next(submission_generator)
-            # 途中の "思考中..." の更新はそのままUIに流す
-            # 最後の値以外は、追加の戻り値の分だけNoneで埋める
-            yield final_yield_value + (None, gr.update())
-    except StopIteration:
-        # ジェネレータが終了したら、最後に保持していた値に追加の命令を加えて返す
-        if final_yield_value:
-            yield final_yield_value + (None, gr.update(visible=False))
-    # ▲▲▲【修正ここまで】▲▲▲
+        from tools import memory_tools
+        result = memory_tools.summarize_and_save_core_memory.func(character_name=character_name, api_key=api_key)
+        print(f"--- [スレッド終了] コアメモリ更新処理完了 --- 結果: {result}")
+    except Exception: print(f"--- [スレッドエラー] コアメモリ更新中に予期せぬエラー ---"); traceback.print_exc()
+
+def handle_core_memory_update_click(character_name: str, api_key_name: str):
+    if not character_name or not api_key_name: gr.Warning("キャラクターとAPIキーを選択してください。"); return
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
+    gr.Info(f"「{character_name}」のコアメモリ更新をバックグラウンドで開始しました。")
+    threading.Thread(target=_run_core_memory_update, args=(character_name, api_key)).start()

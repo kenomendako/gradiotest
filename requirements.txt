@@ -9,10 +9,12 @@ requests
 
 # Used for UI data manipulation (e.g., alarms)
 pandas
+numpy # Required by pandas
 
-# For RAG implementation
-faiss-cpu
-numpy
+# For MemOS implementation
+MemoryOS[tree-mem]
+chonkie
+torch # Required by transformers, a dependency of MemOS
 
 # --- LangGraph and LangChain libraries ---
 # Core LangGraph library - THIS WILL MANAGE ITS OWN DEPENDENCIES
@@ -47,3 +49,6 @@ beautifulsoup4
 
 # For parsing Markdown/YAML-like world files
 PyYAML
+
+# For thread-safe logging to prevent file contention
+concurrent-log-handler
