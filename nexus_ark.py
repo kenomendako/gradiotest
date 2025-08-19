@@ -55,10 +55,6 @@ LOGGING_CONFIG = {
             "level": "WARNING", # httpxライブラリのログレベルをWARNINGに設定
             "propagate": True,
         },
-        "google_genai": {
-            "level": "WARNING",
-            "propagate": True,
-        },
     },
 }
 

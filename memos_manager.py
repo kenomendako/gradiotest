@@ -22,56 +22,54 @@ def get_mos_instance(character_name: str) -> MOS:
 
     # --- 1. 設定とAPIキーの取得 ---
     memos_config_data = config_manager.CONFIG_GLOBAL.get("memos_config", {})
-    neo4j_config = memos_config_data.get("neo4j_config", {}).copy()
+    neo4j_config_from_file = memos_config_data.get("neo4j_config", {}).copy()
     api_key_name = config_manager.initial_api_key_name_global
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name, "")
 
-    # --- 2. キャラクター固有のデータベース名を生成 ---
-    NEXUSARK_NAMESPACE = uuid.UUID('0ef9569c-368c-4448-99b2-320956435a26')
-    char_uuid = uuid.uuid5(NEXUSARK_NAMESPACE, character_name)
-    db_name_for_char = f"nexusark-{char_uuid.hex}"
-    neo4j_config["db_name"] = db_name_for_char
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # --- 2. データベース名を固定値に統一 ---
+    DB_NAME = "nexusark-memos-db"
+
+    # 最終的にMemOSに渡す設定を作成
+    neo4j_config_for_memos = neo4j_config_from_file.copy()
+    neo4j_config_for_memos["db_name"] = DB_NAME
 
     # --- 3. データベースの存在確認と、自動作成 ---
     driver = None
     try:
         driver = neo4j.GraphDatabase.driver(
-            neo4j_config["uri"],
-            auth=(neo4j_config["user"], neo4j_config["password"])
+            neo4j_config_from_file["uri"],
+            auth=(neo4j_config_from_file["user"], neo4j_config_from_file["password"])
         )
 
         with driver.session(database="system") as session:
-            result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=db_name_for_char)
+            result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=DB_NAME)
             db_exists = len([record for record in result]) > 0
 
         if not db_exists:
-            print(f"--- データベース '{db_name_for_char}' が存在しません。新規作成します... ---")
+            print(f"--- データベース '{DB_NAME}' が存在しません。新規作成します... ---")
             with driver.session(database="system") as session:
-                session.run(f"CREATE DATABASE `{db_name_for_char}` IF NOT EXISTS")
+                session.run(f"CREATE DATABASE `{DB_NAME}` IF NOT EXISTS")
 
             print("--- データベースがオンラインになるのを待っています... ---")
             for i in range(120):
                 is_online = False
                 try:
                     with driver.session(database="system") as session:
-                        result = session.run(f"SHOW DATABASE `{db_name_for_char}` YIELD currentStatus")
+                        result = session.run(f"SHOW DATABASE `{DB_NAME}` YIELD currentStatus")
                         record = result.single()
                         if record and record["currentStatus"] == "online":
                             is_online = True
-                except Exception:
-                    pass
-
+                except Exception: pass
                 if is_online:
-                    print(f"--- データベース '{db_name_for_char}' が、正常に、オンラインです。 ---")
+                    print(f"--- データベース '{DB_NAME}' が、正常に、オンラインです。 ---")
                     break
-
                 print(f"    - 待機中... ({i+1}/120秒)")
                 time.sleep(1)
             else:
-                raise Exception(f"データベース '{db_name_for_char}' の起動を、タイムアウトしました。")
+                raise Exception(f"データベース '{DB_NAME}' の起動をタイムアウトしました。")
     finally:
-        if driver:
-            driver.close()
+        if driver: driver.close()
 
     # --- 4. MemOSの初期化 ---
     dummy_llm_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
@@ -97,12 +95,13 @@ def get_mos_instance(character_name: str) -> MOS:
             "config": {
                 "extractor_llm": dummy_llm_config_factory,
                 "dispatcher_llm": dummy_llm_config_factory,
-                "graph_db": { "backend": "neo4j", "config": neo4j_config },
+                "graph_db": { "backend": "neo4j", "config": neo4j_config_for_memos }, # 修正後の設定を使用
                 "embedder": dummy_embedder_config_factory,
-                "reorganize": False # ★★★ Reorganizerを明確に無効化 ★★★
+                "reorganize": False
             }
         }
     )
+    # ▲▲▲【修正ここまで】▲▲▲
     mos = MOS(mos_config)
     mem_cube = GeneralMemCube(mem_cube_config)
 
