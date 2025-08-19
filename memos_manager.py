@@ -21,25 +21,31 @@ def get_mos_instance(character_name: str) -> MOS:
     print(f"--- MemOSインスタンスを初期化中: {character_name} ---")
 
     # --- 1. 設定とAPIキーの取得 ---
-    memos_config_data = config_manager.CONFIG_GLOBAL.get("memos_config", {})
-    neo4j_config_from_file = memos_config_data.get("neo4j_config", {}).copy()
     api_key_name = config_manager.initial_api_key_name_global
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name, "")
 
     # ▼▼▼【ここからが修正の核心】▼▼▼
-    # --- 2. データベース名を固定値に統一 ---
+    # --- 2. データベース名を固定値に統一し、設定ファイル自体を更新する ---
     DB_NAME = "nexusark-memos-db"
+    # MemOSが起動する前に、config.json内のneo4j_configのdb_nameを永続的に更新
+    # これにより、設定ソースが完全に統一される
+    config_manager.save_memos_config("neo4j_config", {
+        "uri": "bolt://localhost:7687",
+        "user": "neo4j",
+        "password": "YOUR_NEO4J_PASSWORD", # ★ここはconfig.jsonの値で上書きされるのでダミーでOK
+        "db_name": DB_NAME
+    })
 
-    # 最終的にMemOSに渡す設定を作成
-    neo4j_config_for_memos = neo4j_config_from_file.copy()
-    neo4j_config_for_memos["db_name"] = DB_NAME
+    # 更新された最新の設定を再度読み込む
+    memos_config_data = config_manager.CONFIG_GLOBAL.get("memos_config", {})
+    neo4j_config_for_memos = memos_config_data.get("neo4j_config", {})
 
     # --- 3. データベースの存在確認と、自動作成 ---
     driver = None
     try:
         driver = neo4j.GraphDatabase.driver(
-            neo4j_config_from_file["uri"],
-            auth=(neo4j_config_from_file["user"], neo4j_config_from_file["password"])
+            neo4j_config_for_memos["uri"],
+            auth=(neo4j_config_for_memos["user"], neo4j_config_for_memos["password"])
         )
 
         with driver.session(database="system") as session:
@@ -58,8 +64,7 @@ def get_mos_instance(character_name: str) -> MOS:
                     with driver.session(database="system") as session:
                         result = session.run(f"SHOW DATABASE `{DB_NAME}` YIELD currentStatus")
                         record = result.single()
-                        if record and record["currentStatus"] == "online":
-                            is_online = True
+                        if record and record["currentStatus"] == "online": is_online = True
                 except Exception: pass
                 if is_online:
                     print(f"--- データベース '{DB_NAME}' が、正常に、オンラインです。 ---")
@@ -78,47 +83,36 @@ def get_mos_instance(character_name: str) -> MOS:
     mos_config = MOSConfig(
         user_id=character_name,
         chat_model=dummy_llm_config_factory,
-        mem_reader={
-            "backend": "simple_struct",
-            "config": {
-                "llm": dummy_llm_config_factory,
-                "embedder": dummy_embedder_config_factory,
-                "chunker": {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}},
-            },
-        }
+        mem_reader={"backend": "simple_struct", "config": {
+            "llm": dummy_llm_config_factory, "embedder": dummy_embedder_config_factory,
+            "chunker": {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}},
+        }}
     )
     mem_cube_config = GeneralMemCubeConfig(
         user_id=character_name,
         cube_id=f"{character_name}_main_cube",
-        text_mem={
-            "backend": "tree_text",
-            "config": {
-                "extractor_llm": dummy_llm_config_factory,
-                "dispatcher_llm": dummy_llm_config_factory,
-                "graph_db": { "backend": "neo4j", "config": neo4j_config_for_memos }, # 修正後の設定を使用
-                "embedder": dummy_embedder_config_factory,
-                "reorganize": False
-            }
-        }
+        text_mem={ "backend": "tree_text", "config": {
+            "extractor_llm": dummy_llm_config_factory, "dispatcher_llm": dummy_llm_config_factory,
+            "graph_db": { "backend": "neo4j", "config": neo4j_config_for_memos },
+            "embedder": dummy_embedder_config_factory, "reorganize": False
+        }}
     )
     # ▲▲▲【修正ここまで】▲▲▲
+
     mos = MOS(mos_config)
     mem_cube = GeneralMemCube(mem_cube_config)
 
     google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path="gemini-2.5-flash-lite", google_api_key=api_key))
     google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
-    # --- 移植手術：MOSインスタンスの心臓部をGoogle製に置換 ---
+    # --- (移植手術と、それ以降のコードは変更なし) ---
     mos.chat_llm = google_llm_instance
     mos.mem_reader.llm = google_llm_instance
     mos.mem_reader.embedder = google_embedder_instance
-
-    # --- 移植手術：MemCubeインスタンスの心臓部もGoogle製に置換 ---
     mem_cube.text_mem.extractor_llm = google_llm_instance
     mem_cube.text_mem.dispatcher_llm = google_llm_instance
     mem_cube.text_mem.embedder = google_embedder_instance
 
-    # --- 5. Cubeの登録と、バックグラウンド処理の停止 ---
     cube_path = os.path.join("characters", character_name, "memos_cube")
     if not os.path.exists(cube_path):
         os.makedirs(cube_path, exist_ok=True)
