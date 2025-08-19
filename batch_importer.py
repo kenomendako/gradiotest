@@ -32,6 +32,8 @@ LOGGING_CONFIG = {
     "loggers": {
         "memos": { "level": "WARNING", "propagate": True },
         "neo4j": { "level": "WARNING", "propagate": True },
+        "httpx": { "level": "WARNING", "propagate": True },
+        "google_genai": { "level": "WARNING", "propagate": True },
     },
 }
 logging.config.dictConfig(LOGGING_CONFIG)
