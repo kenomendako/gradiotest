@@ -25,31 +25,30 @@ def get_mos_instance(character_name: str) -> MOS:
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name, "")
 
     # ▼▼▼【ここからが修正の核心】▼▼▼
-    # --- 2. データベース名を安全に更新する ---
+    # --- 2. 接続情報をプログラム内で直接定義し、汚染の可能性を排除 ---
     DB_NAME = "nexusark-memos-db"
 
-    # 既存のneo4j設定を読み込む
-    current_memos_config = config_manager.CONFIG_GLOBAL.get("memos_config", {})
-    current_neo4j_config = current_memos_config.get("neo4j_config", {})
+    # config.jsonから認証情報のみを読み込む
+    neo4j_auth_config = config_manager.CONFIG_GLOBAL.get("memos_config", {}).get("neo4j_config", {})
+    NEO4J_URI = neo4j_auth_config.get("uri", "bolt://localhost:7687")
+    NEO4J_USER = neo4j_auth_config.get("user", "neo4j")
+    NEO4J_PASSWORD = neo4j_auth_config.get("password")
 
-    # db_nameだけを更新し、他の値（特にパスワード）は維持する
-    current_neo4j_config["db_name"] = DB_NAME
+    if not NEO4J_PASSWORD or NEO4J_PASSWORD == "YOUR_NEO4J_PASSWORD":
+        raise ValueError("Neo4jのパスワードがconfig.jsonに設定されていません。")
 
-    # 更新した設定をファイルに書き戻す
-    config_manager.save_memos_config("neo4j_config", current_neo4j_config)
-
-    # 更新された最新の設定を再度読み込む
-    memos_config_data = config_manager.CONFIG_GLOBAL.get("memos_config", {})
-    neo4j_config_for_memos = memos_config_data.get("neo4j_config", {})
+    # MemOSに直接注入するための最終的な設定オブジェクトを作成
+    neo4j_config_for_memos = {
+        "uri": NEO4J_URI,
+        "user": NEO4J_USER,
+        "password": NEO4J_PASSWORD,
+        "db_name": DB_NAME
+    }
 
     # --- 3. データベースの存在確認と、自動作成 ---
     driver = None
     try:
-        driver = neo4j.GraphDatabase.driver(
-            neo4j_config_for_memos.get("uri", "bolt://localhost:7687"),
-            auth=(neo4j_config_for_memos.get("user", "neo4j"), neo4j_config_for_memos.get("password"))
-        )
-
+        driver = neo4j.GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
         with driver.session(database="system") as session:
             result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=DB_NAME)
             db_exists = len([record for record in result]) > 0
@@ -58,21 +57,16 @@ def get_mos_instance(character_name: str) -> MOS:
             print(f"--- データベース '{DB_NAME}' が存在しません。新規作成します... ---")
             with driver.session(database="system") as session:
                 session.run(f"CREATE DATABASE `{DB_NAME}` IF NOT EXISTS")
-
-            print("--- データベースがオンラインになるのを待っています... ---")
-            for i in range(120):
-                is_online = False
+            time.sleep(5) # DB作成後に少し待機
+            print(f"--- データベース '{DB_NAME}' を作成しました。オンラインになるのを待ちます... ---")
+            for _ in range(24): # 2分待つ
                 try:
-                    with driver.session(database="system") as session:
-                        result = session.run(f"SHOW DATABASE `{DB_NAME}` YIELD currentStatus")
-                        record = result.single()
-                        if record and record["currentStatus"] == "online": is_online = True
-                except Exception: pass
-                if is_online:
-                    print(f"--- データベース '{DB_NAME}' が、正常に、オンラインです。 ---")
+                    with driver.session(database=DB_NAME) as db_session:
+                        db_session.run("RETURN 1")
+                    print(f"--- データベース '{DB_NAME}' は正常にオンラインです。 ---")
                     break
-                print(f"    - 待機中... ({i+1}/120秒)")
-                time.sleep(1)
+                except Exception:
+                    time.sleep(5)
             else:
                 raise Exception(f"データベース '{DB_NAME}' の起動をタイムアウトしました。")
     finally:
@@ -107,7 +101,7 @@ def get_mos_instance(character_name: str) -> MOS:
     google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path="gemini-2.5-flash-lite", google_api_key=api_key))
     google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
-    # --- (移植手術と、それ以降のコードは変更なし) ---
+    # (移植手術と、それ以降のコードは変更なし)
     mos.chat_llm = google_llm_instance
     mos.mem_reader.llm = google_llm_instance
     mos.mem_reader.embedder = google_embedder_instance
