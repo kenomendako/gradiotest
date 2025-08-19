@@ -8,6 +8,7 @@ import os
 import uuid
 import neo4j
 import time
+import shutil
 
 from memos_ext.google_genai_llm import GoogleGenAILLM, GoogleGenAILLMConfig
 from memos_ext.google_genai_embedder import GoogleGenAIEmbedder, GoogleGenAIEmbedderConfig
@@ -93,7 +94,6 @@ def get_mos_instance(character_name: str) -> MOS:
             "embedder": dummy_embedder_config_factory, "reorganize": False
         }}
     )
-    # ▲▲▲【修正ここまで】▲▲▲
 
     mos = MOS(mos_config)
     mem_cube = GeneralMemCube(mem_cube_config)
@@ -101,7 +101,6 @@ def get_mos_instance(character_name: str) -> MOS:
     google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path="gemini-2.5-flash-lite", google_api_key=api_key))
     google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
-    # (移植手術と、それ以降のコードは変更なし)
     mos.chat_llm = google_llm_instance
     mos.mem_reader.llm = google_llm_instance
     mos.mem_reader.embedder = google_embedder_instance
@@ -109,10 +108,20 @@ def get_mos_instance(character_name: str) -> MOS:
     mem_cube.text_mem.dispatcher_llm = google_llm_instance
     mem_cube.text_mem.embedder = google_embedder_instance
 
+    # --- 5. 汚染された古いCubeを浄化し、クリーンな状態で登録する ---
     cube_path = os.path.join("characters", character_name, "memos_cube")
-    if not os.path.exists(cube_path):
-        os.makedirs(cube_path, exist_ok=True)
-        mem_cube.dump(cube_path)
+
+    # もし古いキャッシュディレクトリが存在すれば、それを完全に削除する
+    if os.path.exists(cube_path):
+        print(f"--- [警告] 古い、あるいは汚染されたMemCubeキャッシュ ({cube_path}) を検出しました。")
+        print("---      これを強制的に削除し、クリーンな状態で再構築します。")
+        shutil.rmtree(cube_path)
+
+    # 常に新しい、クリーンなディレクトリを作成し、正しい設定でCubeを保存する
+    os.makedirs(cube_path, exist_ok=True)
+    mem_cube.dump(cube_path)
+
+    # クリーンな状態のCubeを登録する
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
 
     print("--- 記憶の自動整理機能を、バッチ処理のために、完全に、停止します... ---")
