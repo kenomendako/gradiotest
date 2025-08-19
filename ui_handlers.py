@@ -1049,28 +1049,35 @@ def handle_generate_or_regenerate_scenery_image(character_name: str, api_key_nam
         scene_director_llm = get_configured_llm("gemini-2.5-flash", api_key, effective_settings)
 
         # 4. AIへの指示書（プロンプト）を作成
+        # ▼▼▼ director_prompt の定義を、以下で完全に置き換える ▼▼▼
         director_prompt = f"""
 You are a master scene director AI for a high-end image generation model.
-Your sole purpose is to synthesize all available information into a single, cohesive, and flawless prompt.
+Your sole purpose is to synthesize all available information into a single, cohesive, and flawless English prompt.
 
 **Objective:**
-Generate one final, masterful prompt for an image generation AI.
+Generate ONE final, masterful prompt for an image generation AI based on a strict hierarchy of information.
 
-**Core Principles:**
-1.  **Foundation First (Absolute Priority):** The 'Base Location Description' is the undeniable truth of the world. Your final prompt **must be a faithful and accurate visual representation** of all objects, furniture, materials, and architectural structures described within it. Do not omit, add, or change these fundamental elements.
-2.  **Synthesize, Don't Contradict:** Read the 'Base Location Description' and the 'Current Scene Conditions'. Your final prompt must logically integrate both. If there are contradictions (e.g., the description mentions 'natural light' but the condition is 'night'), you MUST resolve them by prioritizing the 'Current Scene Conditions' while upholding Principle #1.
-3.  **Strictly Visual:** The output must be a purely visual and descriptive paragraph in English. Exclude any narrative, metaphors, sounds, or non-visual elements.
-4.  **Mandatory Inclusions:** Your final prompt MUST incorporate the specified 'Aspect Ratio' and adhere to the 'Style Definition'.
-5.  **Absolute Prohibitions:** Strictly enforce all 'Negative Prompts'.
-6.  **Output Format:** Output ONLY the final, single-paragraph prompt. Do not include any of your own thoughts, acknowledgments, or conversational text.
+**--- [Primary Directive: The Hierarchy of Truth] ---**
+1.  **Analyze the "Base Location Description" FIRST.** Look for any explicit or implicit descriptions of the **time of day, lighting, weather, or atmosphere** (e.g., "always night," "sunlight streaming through," "rainy," "gloomy").
+2.  **If such descriptions exist, they are the ABSOLUTE TRUTH.** You MUST base the visual atmosphere of the prompt on these descriptions. In this case, you MUST IGNORE the "Current Scene Conditions" regarding time and season, as the location's inherent properties override reality.
+3.  **If, and ONLY IF, the "Base Location Description" contains NO information about time or lighting,** you must then use the "Current Scene Conditions" to determine the time and season for the prompt.
+
+**--- [Core Principles] ---**
+-   **Foundation First:** The "Base Location Description" is the undeniable truth for all physical structures, objects, furniture, and materials. Your prompt MUST be a faithful visual representation of these elements.
+-   **Strictly Visual:** The output must be a purely visual and descriptive paragraph in English. Exclude any narrative, metaphors, sounds, or non-visual elements.
+-   **Mandatory Inclusions:** Your prompt MUST incorporate the specified "Aspect Ratio" and adhere to the "Style Definition".
+-   **Absolute Prohibitions:** Strictly enforce all "Negative Prompts".
+-   **Output Format:** Output ONLY the final, single-paragraph prompt. Do not include any of your own thoughts or conversational text.
 
 ---
-**Information Dossier:**
+**[Information Dossier]**
 
-**1. Base Location Description (The ground truth for all structures and objects):**
+**1. Base Location Description (Absolute truth for atmosphere if specified, otherwise for objects):**
+```
 {space_text}
+```
 
-**2. Current Scene Conditions (This defines the current atmosphere and overrides conflicting light sources):**
+**2. Current Scene Conditions (Use ONLY if time/lighting is NOT specified in the description above):**
 - Time of Day: {time_of_day}
 - Season: {season}
 
@@ -1078,7 +1085,7 @@ Generate one final, masterful prompt for an image generation AI.
 - {style_choice_text}
 
 **4. Mandatory Technical Specs:**
-- Aspect Ratio: The final image must have a 16:9 landscape aspect ratio.
+- Aspect Ratio: 16:9 landscape aspect ratio.
 
 **5. Negative Prompts (Strictly enforce these exclusions):**
 - Absolutely no text, letters, characters, signatures, or watermarks. Do not include people.
@@ -1086,6 +1093,7 @@ Generate one final, masterful prompt for an image generation AI.
 
 **Final Master Prompt:**
 """
+        # ▲▲▲ 置き換えここまで ▲▲▲
 
         # 5. AIにプロンプト生成を依頼
         final_prompt = scene_director_llm.invoke(director_prompt).content.strip()
