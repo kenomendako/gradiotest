@@ -168,14 +168,26 @@ def generate_scenery_context(character_name: str, api_key: str, force_regenerate
             effective_settings = config_manager.get_effective_settings(character_name)
             llm_flash = get_configured_llm("gemini-2.5-flash", api_key, effective_settings)
             jst_now = datetime.now(pytz.timezone('Asia/Tokyo'))
+
+            # ▼▼▼【ここからが修正の核心】▼▼▼
+            # AIが誤解しないよう、明確な時間情報と役割を与える
+            from utils import get_time_of_day # get_time_of_dayをここでインポート
+            time_str = jst_now.strftime('%H:%M')
+            time_of_day_ja = {
+                "morning": "朝", "daytime": "昼",
+                "evening": "夕方", "night": "夜"
+            }.get(get_time_of_day(jst_now.hour), "不明な時間帯")
+
             scenery_prompt = (
-                f"空間定義（自由記述テキスト）:\n---\n{space_def}\n---\n\n"
-                f"時刻:{jst_now.strftime('%H:%M')} / 季節:{jst_now.month}月\n\n"
-                "以上の情報から、あなたはこの空間の「今この瞬間」を切り取る情景描写の専門家です。\n"
-                "【ルール】\n- 人物やキャラクターの描写は絶対に含めないでください。\n"
-                "- 1〜2文の簡潔な文章にまとめてください。\n"
-                "- 窓の外の季節感や時間帯、室内の空気感や陰影など、五感に訴えかける精緻で写実的な描写を重視してください。"
+                "あなたは、二つの異なる情報源を比較し、その間にある不思議さや特異性を描き出す、情景描写の専門家です。\n\n"
+                f"【情報源1：現実世界の状況】\n- 現在の時刻: {time_str}\n- 現在の時間帯: {time_of_day_ja}\n- 現在の季節: {jst_now.month}月\n\n"
+                f"【情報源2：この空間が持つ固有の設定（自由記述テキスト）】\n---\n{space_def}\n---\n\n"
+                "【あなたのタスク】\n以上の二つの情報を比較し、「今、この瞬間」の情景を1〜2文の簡潔な文章で描写してください。\n\n"
+                "【最重要ルール】\n- もし【情報源1】と【情報源2】の間に矛盾（例：現実は昼なのに、空間は常に夜の設定など）がある場合は、その**『にも関わらず』**という感覚や、その空間の**不思議な空気感**に焦点を当てて描写してください。\n"
+                "- 人物やキャラクターの描写は絶対に含めないでください。\n"
+                "- 五感に訴えかける、精緻で写実的な描写を重視してください。"
             )
+            # ▲▲▲ 修正ここまで ▲▲▲
             scenery_text = llm_flash.invoke(scenery_prompt).content
             save_scenery_cache(character_name, cache_key, location_display_name, scenery_text)
         else:
