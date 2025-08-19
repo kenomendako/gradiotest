@@ -1,5 +1,4 @@
-# [memos_manager.py の get_mos_instance 関数を、これで完全に置き換える]
-
+# [memos_manager.py の全文を、これで完全に置き換える]
 from memos import MOS, MOSConfig, GeneralMemCube, GeneralMemCubeConfig
 from memos.mem_reader.factory import MemReaderFactory
 from memos.configs.mem_reader import SimpleStructMemReaderConfig
@@ -8,6 +7,7 @@ import os
 import uuid
 import neo4j
 import time
+import shutil
 
 from memos_ext.google_genai_llm import GoogleGenAILLM, GoogleGenAILLMConfig
 from memos_ext.google_genai_embedder import GoogleGenAIEmbedder, GoogleGenAIEmbedderConfig
@@ -21,57 +21,49 @@ def get_mos_instance(character_name: str) -> MOS:
     print(f"--- MemOSインスタンスを初期化中: {character_name} ---")
 
     # --- 1. 設定とAPIキーの取得 ---
-    memos_config_data = config_manager.CONFIG_GLOBAL.get("memos_config", {})
-    neo4j_config = memos_config_data.get("neo4j_config", {}).copy()
     api_key_name = config_manager.initial_api_key_name_global
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name, "")
 
-    # --- 2. キャラクター固有のデータベース名を生成 ---
-    NEXUSARK_NAMESPACE = uuid.UUID('0ef9569c-368c-4448-99b2-320956435a26')
-    char_uuid = uuid.uuid5(NEXUSARK_NAMESPACE, character_name)
-    db_name_for_char = f"nexusark-{char_uuid.hex}"
-    neo4j_config["db_name"] = db_name_for_char
+    # --- 2. 接続情報をconfig.jsonから直接取得 ---
+    # この時点でconfig_manager.load_config()は実行済みなので、CONFIG_GLOBALは最新
+    memos_config_data = config_manager.CONFIG_GLOBAL.get("memos_config", {})
+    neo4j_config_for_memos = memos_config_data.get("neo4j_config", {})
+    
+    DB_NAME = neo4j_config_for_memos.get("db_name")
+    NEO4J_URI = neo4j_config_for_memos.get("uri")
+    NEO4J_USER = neo4j_config_for_memos.get("user")
+    NEO4J_PASSWORD = neo4j_config_for_memos.get("password")
 
+    if not all([DB_NAME, NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
+        raise ValueError("config.json内のneo4j_config設定が不完全です。")
+    
     # --- 3. データベースの存在確認と、自動作成 ---
     driver = None
     try:
-        driver = neo4j.GraphDatabase.driver(
-            neo4j_config["uri"],
-            auth=(neo4j_config["user"], neo4j_config["password"])
-        )
-
+        driver = neo4j.GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
         with driver.session(database="system") as session:
-            result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=db_name_for_char)
+            result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=DB_NAME)
             db_exists = len([record for record in result]) > 0
 
         if not db_exists:
-            print(f"--- データベース '{db_name_for_char}' が存在しません。新規作成します... ---")
+            print(f"--- データベース '{DB_NAME}' が存在しません。新規作成します... ---")
             with driver.session(database="system") as session:
-                session.run(f"CREATE DATABASE `{db_name_for_char}` IF NOT EXISTS")
-
-            print("--- データベースがオンラインになるのを待っています... ---")
-            for i in range(120):
-                is_online = False
+                session.run(f"CREATE DATABASE `{DB_NAME}` IF NOT EXISTS")
+            
+            print(f"--- データベース '{DB_NAME}' のオンライン待機中... ---")
+            time.sleep(5) # DB作成直後は少し待つ
+            for _ in range(24): # 最大2分間待機
                 try:
-                    with driver.session(database="system") as session:
-                        result = session.run(f"SHOW DATABASE `{db_name_for_char}` YIELD currentStatus")
-                        record = result.single()
-                        if record and record["currentStatus"] == "online":
-                            is_online = True
-                except Exception:
-                    pass
-
-                if is_online:
-                    print(f"--- データベース '{db_name_for_char}' が、正常に、オンラインです。 ---")
+                    with driver.session(database=DB_NAME) as db_session:
+                        db_session.run("RETURN 1").consume()
+                    print(f"--- データベース '{DB_NAME}' は正常にオンラインです。 ---")
                     break
-
-                print(f"    - 待機中... ({i+1}/120秒)")
-                time.sleep(1)
+                except Exception:
+                    time.sleep(5)
             else:
-                raise Exception(f"データベース '{db_name_for_char}' の起動を、タイムアウトしました。")
+                raise Exception(f"データベース '{DB_NAME}' の起動をタイムアウトしました。")
     finally:
-        if driver:
-            driver.close()
+        if driver: driver.close()
 
     # --- 4. MemOSの初期化 ---
     dummy_llm_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
@@ -80,52 +72,47 @@ def get_mos_instance(character_name: str) -> MOS:
     mos_config = MOSConfig(
         user_id=character_name,
         chat_model=dummy_llm_config_factory,
-        mem_reader={
-            "backend": "simple_struct",
-            "config": {
-                "llm": dummy_llm_config_factory,
-                "embedder": dummy_embedder_config_factory,
-                "chunker": {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}},
-            },
-        }
+        mem_reader={"backend": "simple_struct", "config": {
+            "llm": dummy_llm_config_factory, "embedder": dummy_embedder_config_factory,
+            "chunker": {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}},
+        }}
     )
     mem_cube_config = GeneralMemCubeConfig(
         user_id=character_name,
         cube_id=f"{character_name}_main_cube",
-        text_mem={
-            "backend": "tree_text",
-            "config": {
-                "extractor_llm": dummy_llm_config_factory,
-                "dispatcher_llm": dummy_llm_config_factory,
-                "graph_db": { "backend": "neo4j", "config": neo4j_config },
-                "embedder": dummy_embedder_config_factory,
-                "reorganize": False # ★★★ Reorganizerを明確に無効化 ★★★
-            }
-        }
+        text_mem={ "backend": "tree_text", "config": {
+            "extractor_llm": dummy_llm_config_factory, "dispatcher_llm": dummy_llm_config_factory,
+            "graph_db": { "backend": "neo4j", "config": neo4j_config_for_memos },
+            "embedder": dummy_embedder_config_factory, "reorganize": False
+        }}
     )
+    
     mos = MOS(mos_config)
     mem_cube = GeneralMemCube(mem_cube_config)
 
     google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path="gemini-2.5-flash-lite", google_api_key=api_key))
     google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
-    # --- 移植手術：MOSインスタンスの心臓部をGoogle製に置換 ---
+    # --- 移植手術 ---
     mos.chat_llm = google_llm_instance
     mos.mem_reader.llm = google_llm_instance
     mos.mem_reader.embedder = google_embedder_instance
-
-    # --- 移植手術：MemCubeインスタンスの心臓部もGoogle製に置換 ---
     mem_cube.text_mem.extractor_llm = google_llm_instance
     mem_cube.text_mem.dispatcher_llm = google_llm_instance
     mem_cube.text_mem.embedder = google_embedder_instance
 
-    # --- 5. Cubeの登録と、バックグラウンド処理の停止 ---
+    # --- 5. 汚染された古いCubeを浄化し、クリーンな状態で登録する ---
     cube_path = os.path.join("characters", character_name, "memos_cube")
-    if not os.path.exists(cube_path):
-        os.makedirs(cube_path, exist_ok=True)
-        mem_cube.dump(cube_path)
+    if os.path.exists(cube_path):
+        print(f"--- [警告] 古いMemCubeキャッシュ ({cube_path}) を検出。削除して再構築します。")
+        shutil.rmtree(cube_path)
+    
+    os.makedirs(cube_path, exist_ok=True)
+    mem_cube.dump(cube_path)
+    
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
 
+    # --- 6. Reorganizerの強制停止 ---
     print("--- 記憶の自動整理機能を、バッチ処理のために、完全に、停止します... ---")
     mos.mem_reorganizer_wait()
     mos.mem_reorganizer_off()
