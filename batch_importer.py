@@ -167,18 +167,28 @@ def main():
                     character_progress["total_success_count"] += 1
                     character_progress["progress"][filename] = pair_idx + 1
                     print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
+                    sys.stdout.flush() # ★★★ バッファをフラッシュ ★★★
                     save_progress(progress_data)
                     pair_idx += 1
                     time.sleep(1.1)
                     continue
 
+                # ▼▼▼【ここからが修正の核心】▼▼▼
                 # result が "failed_retry" または "failed_critical" の場合
                 while True:
-                    user_choice = input(f"\n      会話ペア {pair_idx + 1} の処理に失敗しました。どうしますか？ (r: このペアを再試行, s: このペアをスキップ, q: 終了): ").lower()
+                    # ユーザーに選択を促す前に、必ず出力をフラッシュする
+                    print(f"\n      会話ペア {pair_idx + 1} の処理に失敗しました。どうしますか？ (r: このペアを再試行, s: このペアをスキップ, q: 終了): ", end="")
+                    sys.stdout.flush() # ★★★ input()の前に必ずフラッシュ ★★★
+
+                    user_choice = input().lower()
+
                     if user_choice == 'r':
-                        break # 内側のループを抜けて、外側のループで同じペアを再試行
+                        break
                     elif user_choice == 's':
-                        pair_idx += 1 # 次のペアへ
+                        # スキップする場合、進捗ファイルに「このペアは処理した」と記録する
+                        character_progress["progress"][filename] = pair_idx + 1
+                        save_progress(progress_data)
+                        pair_idx += 1
                         break
                     elif user_choice == 'q':
                         print("--- ユーザーの指示により、インポート処理を中断します。 ---")
@@ -188,8 +198,9 @@ def main():
                         print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
 
                 if user_choice in ['s', 'q']:
-                    if user_choice == 's': continue # 次のペアの処理へ
-                    else: break # ファイル処理ループを抜ける
+                    if user_choice == 's': continue
+                    else: break
+                # ▲▲▲【修正ここまで】▲▲▲
 
             print("\n  - ファイルの処理が完了しました。")
 
@@ -201,7 +212,8 @@ def main():
         print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {error_message}")
     finally:
         print("インポーターを終了します。")
-# ▲▲▲【修正ここまで】▲▲▲
+
+# (以降のコードは変更なし)
 
 if __name__ == "__main__":
     main()
