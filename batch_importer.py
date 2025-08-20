@@ -161,8 +161,10 @@ def main():
                 pair = conversation_pairs[pair_idx]
 
                 retry_count = 0
-                max_retries = 3 # APIエラーに対する合計リトライ回数
+                max_retries = 3
 
+                # ▼▼▼【ここからが修正の核心】▼▼▼
+                operation_successful = False
                 while retry_count < max_retries:
                     try:
                         mos_instance.add(messages=pair)
@@ -174,9 +176,8 @@ def main():
                         progress_data[args.character] = character_progress
                         save_progress(progress_data)
 
-                        pair_idx += 1
-                        time.sleep(1.1)
-                        break # 成功したのでリトライ・ループを抜ける
+                        operation_successful = True
+                        break
 
                     except Exception as e:
                         error_str = str(e)
@@ -187,40 +188,45 @@ def main():
                             wait_time = int(delay_match.group(1)) + 1 if delay_match else 20 * retry_count
                             print(f"\n    - 警告: APIレートリミット。{wait_time}秒待機してリトライします... ({retry_count}/{max_retries})")
                             time.sleep(wait_time)
-                            continue # リトライを試みる
                         elif isinstance(e, AttributeError) and "'NoneType' object" in error_str:
                             wait_time = 10 * retry_count
                             print(f"\n    - 警告: APIからの応答が不完全 (AttributeError)。{wait_time}秒待機してリトライします... ({retry_count}/{max_retries})")
                             time.sleep(wait_time)
-                            continue # リトライを試みる
                         else:
+                            # 自動リトライ対象外の予期せぬエラー
                             print(f"\n    - エラー: 会話ペア {pair_idx + 1} の記憶中に、予期せぬエラーが発生しました。")
                             print(f"      詳細: {error_str[:200]}...")
-                            while True:
-                                user_choice = input("      このペアの処理をどうしますか？ (r: 再試行, s: スキップ, q: 終了): ").lower()
-                                if user_choice == 'r': retry_count = 0; break
-                                elif user_choice == 's': pair_idx += 1; break
-                                elif user_choice == 'q':
-                                    print("--- ユーザーの指示により、インポート処理を中断します。 ---")
-                                    progress_data[args.character] = character_progress
-                                    save_progress(progress_data)
-                                    return
-                                else: print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
-                            if user_choice in ['s', 'r']: break # ユーザー対話が終わったらリトライ・ループを抜ける
+                            break # 自動リトライを中断し、ユーザー対話へ
 
-                if retry_count >= max_retries:
-                    print(f"\n    - エラー: 自動リトライ上限 ({max_retries}回) に達しました。")
-                    while True:
-                        user_choice = input("      このペアの処理をどうしますか？ (r: 再度リトライ, s: スキップ, q: 終了): ").lower()
-                        if user_choice == 'r': retry_count = 0; continue
-                        elif user_choice == 's': pair_idx += 1; break
-                        elif user_choice == 'q':
-                            print("--- ユーザーの指示により、インポート処理を中断します。 ---")
-                            progress_data[args.character] = character_progress
-                            save_progress(progress_data)
-                            return
-                        else: print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
-                    if user_choice == 's': continue
+                if operation_successful:
+                    pair_idx += 1
+                    time.sleep(1.1)
+                    continue
+
+                # --- リトライ上限に達したか、または予期せぬエラーでループを抜けた場合の処理 ---
+                while True:
+                    user_choice = input(f"      会話ペア {pair_idx + 1} の処理に失敗しました。どうしますか？ (r: 再試行, s: このペアをスキップ, q: 終了): ").lower()
+                    if user_choice == 'r':
+                        # ループの先頭に戻って、再度リトライ処理を開始する
+                        break
+                    elif user_choice == 's':
+                        # このペアをスキップして、次のペアに進む
+                        pair_idx += 1
+                        break
+                    elif user_choice == 'q':
+                        print("--- ユーザーの指示により、インポート処理を中断します。 ---")
+                        progress_data[args.character] = character_progress
+                        save_progress(progress_data)
+                        return # main関数を終了
+                    else:
+                        print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
+
+                if user_choice == 'r':
+                    continue # while pair_idx < total_pairs_in_file: のループを継続
+                elif user_choice == 's':
+                    continue # while pair_idx < total_pairs_in_file: のループを継続
+
+            # ▲▲▲【修正ここまで】▲▲▲
 
             print("\n  - ファイルの処理が完了しました。最終進捗を保存します。")
             progress_data[args.character] = character_progress
