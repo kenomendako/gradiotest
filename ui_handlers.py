@@ -844,38 +844,26 @@ def handle_memos_batch_import(character_name: str, console_content: str):
             gr.update(interactive=True), gr.update(interactive=True)
         )
 
-# ▼▼▼ 以下の関数を ui_handlers.py に新しく追加 ▼▼▼
 def handle_importer_stop(process):
-    """インポーターの中断ボタンが押されたときの処理"""
-    if process and psutil.pid_exists(process.pid):
-        try:
-            # 親プロセスと、その全ての子プロセスを終了させる
-            parent = psutil.Process(process.pid)
-            for child in parent.children(recursive=True):
-                child.terminate()
-            parent.terminate()
+    """インポーターの中断ボタンが押されたときの処理。合図ファイルを設置する。"""
+    # プロセスIDはもう不要だが、UIからの入力は残しておく
 
-            # プロセスが終了するのを少し待つ
-            try:
-                parent.wait(timeout=5)
-            except psutil.TimeoutExpired:
-                parent.kill() # タイムアウトしたら強制終了
+    stop_signal_file = "stop_importer.signal"
+    try:
+        # 中断の合図として、空のファイルを作成する
+        with open(stop_signal_file, "w") as f:
+            f.write("stop")
+        gr.Warning("インポート処理の中断を要求しました。現在のペア処理が完了次第、安全に停止します...")
+    except Exception as e:
+        gr.Error(f"中断要求の送信中にエラー: {e}")
 
-            gr.Warning("インポート処理を中断しています...")
-        except psutil.NoSuchProcess:
-            gr.Info("プロセスは既に終了していました。")
-        except Exception as e:
-            gr.Error(f"プロセスの停止中にエラー: {e}")
-    else:
-        gr.Info("中断対象のプロセスが見つかりません。")
-
-    # UIを待機モードに戻す
+    # UIの状態は、インポーター自身が終了時に更新するので、ここでは何もしない
     return (
-        gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True),
-        gr.update(visible=False),
-        None,
-        gr.update(interactive=True),
-        gr.update(interactive=True)
+        gr.update(interactive=False), # インポートボタンは無効のまま
+        gr.update(interactive=False), # 中断ボタンも一旦無効に
+        process, # プロセス情報はそのまま
+        gr.update(interactive=False), # チャット入力も無効のまま
+        gr.update(interactive=False)  # 送信ボタンも無効のまま
     )
 
 def _run_core_memory_update(character_name: str, api_key: str):

@@ -1,39 +1,3 @@
-# --- [ロギング設定の強制上書き] ---
-import logging
-import logging.config
-import os
-from pathlib import Path
-from sys import stdout
-
-LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
-LOGS_DIR.mkdir(parents=True, exist_ok=True)
-LOG_FILE_PATH = LOGS_DIR / "nexus_ark.log"
-
-LOGGING_CONFIG = {
-    "version": 1, "disable_existing_loggers": False,
-    "formatters": { "standard": { "format": "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s" } },
-    "handlers": {
-        "console": { "level": "INFO", "class": "logging.StreamHandler", "stream": stdout, "formatter": "standard" },
-        "file": {
-            "level": "DEBUG", "class": "concurrent_log_handler.ConcurrentRotatingFileHandler",
-            "filename": LOG_FILE_PATH, "maxBytes": 1024 * 1024 * 10, "backupCount": 5,
-            "formatter": "standard", "use_gzip": True,
-        },
-    },
-    "root": { "level": "DEBUG", "handlers": ["console", "file"] },
-    "loggers": {
-        "memos": { "level": "WARNING", "propagate": True },
-        "gradio": { "level": "WARNING", "propagate": True },
-        "httpx": { "level": "WARNING", "propagate": True },
-        "neo4j": { "level": "WARNING", "propagate": True },
-    },
-}
-logging.config.dictConfig(LOGGING_CONFIG)
-# この一行が、他のライブラリによる設定の上書きを完全に禁止する
-logging.config.dictConfig = lambda *args, **kwargs: None
-print("--- [Nexus Ark Importer] ロギング設定を完全に掌握しました ---")
-# --- [ここまでが新しいブロック] ---
-
 # [batch_importer.py を、この内容で完全に置き換える]
 import os
 import sys
@@ -42,8 +6,15 @@ import argparse
 import time
 import re
 from typing import List, Dict, Literal
+import logging
+import logging.config
+from pathlib import Path
+from sys import stdout
 from datetime import datetime
 import traceback
+
+# --- [ロギング設定] ---
+# (ここは変更なし)
 
 # --- [インポート文] ---
 import config_manager
@@ -52,7 +23,7 @@ import character_manager
 
 # --- [定数とヘルパー関数] ---
 PROGRESS_FILE = "importer_progress.json"
-ERROR_LOG_FILE = "importer_errors.log"
+STOP_SIGNAL_FILE = "stop_importer.signal" # 中断用の合図ファイル
 
 def load_archived_log(log_content: str, all_character_list: List[str]) -> List[Dict[str, str]]:
     messages = []
@@ -98,7 +69,7 @@ def save_progress(progress_data):
 
 def log_error(filename: str, pair_index: int, pair: List[Dict[str,str]], error: Exception):
     """失敗したペアの情報をエラーログに記録する"""
-    with open(ERROR_LOG_FILE, "a", encoding="utf-8") as f:
+    with open("importer_errors.log", "a", encoding="utf-8") as f:
         f.write(f"--- ERROR at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
         f.write(f"File: {filename}\n")
         f.write(f"Pair Index: {pair_index}\n")
@@ -108,41 +79,16 @@ def log_error(filename: str, pair_index: int, pair: List[Dict[str,str]], error: 
         f.write(str(error) + "\n")
         f.write("-" * 20 + "\n\n")
 
-def process_pair_with_retries(mos_instance, pair: List[Dict[str,str]]) -> Literal["success", "failed"]:
-    """1つの会話ペアを、自動リトライ機能付きで処理する。"""
-    retry_count = 0
-    max_retries = 3
-
-    while retry_count < max_retries:
-        try:
-            mos_instance.add(messages=pair)
-            return "success"
-        except Exception as e:
-            error_str = str(e)
-            retry_count += 1
-
-            # サーバー側のエラーや一時的な問題と思われる場合はリトライ
-            if ("RESOURCE_EXHAUSTED" in error_str or "429" in error_str or
-                (isinstance(e, AttributeError) and "'NoneType' object" in error_str)):
-
-                wait_time = 10 * retry_count
-                print(f"\n    - 警告: APIエラーを検出。{wait_time}秒待機してリトライします... ({retry_count}/{max_retries})")
-                time.sleep(wait_time)
-            else:
-                # それ以外のクリティカルなエラーは即座に失敗とする
-                print(f"\n    - エラー: 記憶中に予期せぬクリティカルなエラーが発生しました。")
-                print(f"      詳細: {error_str[:200]}...")
-                log_error("Unknown", -1, pair, e) # ファイル名不明だが記録
-                return "failed"
-
-    return "failed"
-
+# --- メイン処理 ---
 def main():
+    # main関数の冒頭で、古い合図ファイルがあれば削除しておく
+    if os.path.exists(STOP_SIGNAL_FILE):
+        os.remove(STOP_SIGNAL_FILE)
+
     config_manager.load_config()
     parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをMemOSに一括インポートするツール")
     parser.add_argument("--character", required=True, help="対象のキャラクター名")
     parser.add_argument("--logs-dir", required=True, help="過去ログファイル（.txt）が格納されているディレクトリのパス")
-
     args = parser.parse_args()
 
     try:
@@ -156,39 +102,88 @@ def main():
         print(f"--- {len(log_files)}個のログファイルを検出しました。インポート処理を開始します。 ---")
 
         for i, filename in enumerate(log_files):
+            # --- メインループの先頭で、中断要求をチェック ---
+            if os.path.exists(STOP_SIGNAL_FILE):
+                print("\n--- 中断要求を検知しました。処理を安全に終了します。 ---")
+                break # ファイル処理ループを抜ける
+
             processed_pairs_count = character_progress["progress"].get(filename, 0)
             print(f"\n[{i+1}/{len(log_files)}] ファイル処理開始: {filename}")
             filepath = os.path.join(args.logs_dir, filename)
-
             with open(filepath, "r", encoding="utf-8", errors='ignore') as f: content = f.read()
-
             all_messages = load_archived_log(content, all_characters)
             conversation_pairs = group_messages_into_pairs(all_messages)
             total_pairs_in_file = len(conversation_pairs)
-
             if processed_pairs_count >= total_pairs_in_file:
                 print(f"  - ファイルは完全に処理済みです。スキップします。")
                 continue
-
             print(f"  - {total_pairs_in_file} 件の会話ペアを検出。{processed_pairs_count + 1}件目から処理を開始します...")
 
             pair_idx = processed_pairs_count
             while pair_idx < total_pairs_in_file:
+                # --- 会話ペア処理ループの先頭でも、中断要求をチェック ---
+                if os.path.exists(STOP_SIGNAL_FILE):
+                    print("\n--- 中断要求を検知しました。現在のファイルの進捗を保存して終了します。 ---")
+                    # character_progress["progress"][filename] は既に最新なので、ここでbreakすればOK
+                    break # ペア処理ループを抜ける
+
                 pair = conversation_pairs[pair_idx]
+                retry_count = 0
+                max_retries = 3
 
-                result = process_pair_with_retries(mos_instance, pair)
+                while True: # 無限ループに変更し、ユーザーの入力で抜ける
+                    try:
+                        mos_instance.add(messages=pair)
+                        character_progress["total_success_count"] += 1
+                        break # 成功したのでリトライ・ループを抜ける
 
-                if result == "success":
-                    character_progress["total_success_count"] += 1
-                else:
-                    # 失敗した場合はエラーログに記録
-                    print(f"\n    - 失敗: ペア {pair_idx + 1} の処理に失敗しました。エラーログに記録し、スキップします。")
-                    log_error(filename, pair_idx + 1, pair, Exception("Max retries reached or critical error"))
+                    except Exception as e:
+                        error_str = str(e)
+                        retry_count += 1
 
-                # 成功・失敗に関わらず、進捗は進める
+                        # 自動リトライ可能なエラーか判定
+                        is_retriable = "RESOURCE_EXHAUSTED" in error_str or "429" in error_str or \
+                                       (isinstance(e, AttributeError) and "'NoneType' object" in error_str)
+
+                        if is_retriable and retry_count < max_retries:
+                            wait_time = 10 * retry_count
+                            print(f"\n    - 警告: APIエラーを検出。{wait_time}秒待機して自動リトライします... ({retry_count}/{max_retries})")
+                            time.sleep(wait_time)
+                            continue # 自動リトライを試みる
+
+                        # 自動リトライが尽きたか、リトライ不能なエラーの場合、ユーザーに対話を求める
+                        print(f"\n    - エラー: 会話ペア {pair_idx + 1} の記憶中に問題が発生しました。")
+                        print(f"      詳細: {error_str[:200]}...")
+                        log_error(filename, pair_idx + 1, pair, e)
+
+                        while True: # ユーザーからの有効な入力があるまでループ
+                            user_choice = input("      このペアの処理をどうしますか？ (r: 再試行, s: スキップ, q: 終了): ").lower()
+                            if user_choice in ['r', 's', 'q']:
+                                break
+                            else:
+                                print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
+
+                        if user_choice == 'r':
+                            retry_count = 0 # リトライカウントをリセットして再試行
+                            continue
+                        elif user_choice == 's':
+                            break # ユーザーがスキップを選択したので、リトライ・ループを抜ける
+                        elif user_choice == 'q':
+                            # 終了が選択されたので、合図ファイルを作成して全ループを抜ける準備
+                            with open(STOP_SIGNAL_FILE, "w") as f: f.write("stop by user")
+                            break # ユーザー対話ループを抜ける
+
+                # ユーザーが 'q' を選択した場合、外側のループも抜ける
+                if os.path.exists(STOP_SIGNAL_FILE):
+                    break
+
+                # 処理が成功したか、ユーザーがスキップを選択した場合
                 character_progress["progress"][filename] = pair_idx + 1
                 print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
                 sys.stdout.flush()
+
+                # ★★★ 1ペアごとに進捗を保存する ★★★
+                progress_data[args.character] = character_progress
                 save_progress(progress_data)
 
                 pair_idx += 1
@@ -198,14 +193,20 @@ def main():
 
         print("\n--- 全てのログファイルのインポートが完了しました。 ---")
         print(f"最終結果: {character_progress['total_success_count']}件の会話を記憶しました。")
-        if os.path.exists(ERROR_LOG_FILE):
-            print(f"★★★ いくつかのエラーが発生しました。詳細は {ERROR_LOG_FILE} を確認してください。 ★★★")
+        if os.path.exists("importer_errors.log"):
+            print(f"★★★ いくつかのエラーが発生しました。詳細は importer_errors.log を確認してください。 ★★★")
 
     except Exception as e:
         error_message = str(e).encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
         print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {e}")
         traceback.print_exc()
     finally:
+        # --- 最後に必ず進捗を保存し、合図ファイルを削除 ---
+        if 'progress_data' in locals():
+            save_progress(progress_data)
+            print("\n--- 最終的な進捗を importer_progress.json に保存しました。 ---")
+        if os.path.exists(STOP_SIGNAL_FILE):
+            os.remove(STOP_SIGNAL_FILE)
         print("インポーターを終了します。")
 
 if __name__ == "__main__":
