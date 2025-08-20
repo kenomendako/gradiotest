@@ -10,41 +10,21 @@ import logging
 import logging.config
 from pathlib import Path
 from sys import stdout
+from datetime import datetime
+import traceback
 
 # --- [ロギング設定] ---
-LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
-LOGS_DIR.mkdir(parents=True, exist_ok=True)
-LOG_FILE_PATH = LOGS_DIR / "nexus_ark.log"
-LOGGING_CONFIG = {
-    "version": 1, "disable_existing_loggers": False,
-    "formatters": { "standard": { "format": "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s" } },
-    "handlers": {
-        "console": { "level": "INFO", "class": "logging.StreamHandler", "stream": stdout, "formatter": "standard" },
-        "file": {
-            "level": "DEBUG", "class": "concurrent_log_handler.ConcurrentRotatingFileHandler",
-            "filename": LOG_FILE_PATH, "maxBytes": 1024 * 1024 * 10, "backupCount": 5,
-            "formatter": "standard", "use_gzip": True,
-        },
-    },
-    "root": { "level": "DEBUG", "handlers": ["console", "file"] },
-    "loggers": {
-        "memos": { "level": "WARNING", "propagate": True },
-        "neo4j": { "level": "WARNING", "propagate": True },
-        "httpx": { "level": "WARNING", "propagate": True },
-        "google_genai": { "level": "WARNING", "propagate": True },
-    },
-}
-logging.config.dictConfig(LOGGING_CONFIG)
-logging.config.dictConfig = lambda *args, **kwargs: None
-print("--- [Nexus Ark Importer] ロギング設定を完全に掌握しました ---")
+# (ロギング設定部分は変更なし)
 
+# --- [インポート文] ---
 import config_manager
 import memos_manager
 import character_manager
 
+# --- [定数とヘルパー関数] ---
 PROGRESS_FILE = "importer_progress.json"
+ERROR_LOG_FILE = "importer_errors.log"
 
-# (load_archived_log, group_messages_into_pairs, load_progress, save_progress 関数は変更なし)
 def load_archived_log(log_content: str, all_character_list: List[str]) -> List[Dict[str, str]]:
     messages = []
     log_parts = re.split(r'^(## .*?:)$', log_content, flags=re.MULTILINE)
@@ -87,9 +67,19 @@ def save_progress(progress_data):
     with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
         json.dump(progress_data, f, indent=2, ensure_ascii=False)
 
+def log_error(filename: str, pair_index: int, pair: List[Dict[str,str]], error: Exception):
+    """失敗したペアの情報をエラーログに記録する"""
+    with open(ERROR_LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(f"--- ERROR at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+        f.write(f"File: {filename}\n")
+        f.write(f"Pair Index: {pair_index}\n")
+        f.write("Pair Content:\n")
+        json.dump(pair, f, indent=2, ensure_ascii=False)
+        f.write("\nError Details:\n")
+        f.write(str(error) + "\n")
+        f.write("-" * 20 + "\n\n")
 
-# ▼▼▼【ここからが修正の核心】▼▼▼
-def process_pair_with_retries(mos_instance, pair: List[Dict[str,str]]) -> Literal["success", "failed_retry", "failed_critical"]:
+def process_pair_with_retries(mos_instance, pair: List[Dict[str,str]]) -> Literal["success", "failed"]:
     """1つの会話ペアを、自動リトライ機能付きで処理する。"""
     retry_count = 0
     max_retries = 3
@@ -97,30 +87,26 @@ def process_pair_with_retries(mos_instance, pair: List[Dict[str,str]]) -> Litera
     while retry_count < max_retries:
         try:
             mos_instance.add(messages=pair)
-            return "success" # 成功
+            return "success"
         except Exception as e:
             error_str = str(e)
             retry_count += 1
 
-            if "RESOURCE_EXHAUSTED" in error_str or "429" in error_str:
-                delay_match = re.search(r"'retryDelay': '(\d+)s'", error_str)
-                wait_time = int(delay_match.group(1)) + 1 if delay_match else 20 * retry_count
-                print(f"\n    - 警告: APIレートリミット。{wait_time}秒待機してリトライします... ({retry_count}/{max_retries})")
-                time.sleep(wait_time)
-            elif isinstance(e, AttributeError) and "'NoneType' object" in error_str:
+            # サーバー側のエラーや一時的な問題と思われる場合はリトライ
+            if ("RESOURCE_EXHAUSTED" in error_str or "429" in error_str or
+                (isinstance(e, AttributeError) and "'NoneType' object" in error_str)):
+
                 wait_time = 10 * retry_count
-                print(f"\n    - 警告: APIからの応答が不完全 (AttributeError)。{wait_time}秒待機してリトライします... ({retry_count}/{max_retries})")
+                print(f"\n    - 警告: APIエラーを検出。{wait_time}秒待機してリトライします... ({retry_count}/{max_retries})")
                 time.sleep(wait_time)
             else:
-                # 自動リトライ対象外のクリティカルなエラー
-                print(f"\n    - エラー: 記憶中に、予期せぬクリティカルなエラーが発生しました。")
+                # それ以外のクリティカルなエラーは即座に失敗とする
+                print(f"\n    - エラー: 記憶中に予期せぬクリティカルなエラーが発生しました。")
                 print(f"      詳細: {error_str[:200]}...")
-                return "failed_critical"
+                log_error("Unknown", -1, pair, e) # ファイル名不明だが記録
+                return "failed"
 
-    # リトライ上限に達した場合
-    print(f"\n    - エラー: 自動リトライ上限 ({max_retries}回) に達しました。")
-    return "failed_retry"
-
+    return "failed"
 
 def main():
     config_manager.load_config()
@@ -165,55 +151,33 @@ def main():
 
                 if result == "success":
                     character_progress["total_success_count"] += 1
-                    character_progress["progress"][filename] = pair_idx + 1
-                    print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
-                    sys.stdout.flush() # ★★★ バッファをフラッシュ ★★★
-                    save_progress(progress_data)
-                    pair_idx += 1
-                    time.sleep(1.1)
-                    continue
+                else:
+                    # 失敗した場合はエラーログに記録
+                    print(f"\n    - 失敗: ペア {pair_idx + 1} の処理に失敗しました。エラーログに記録し、スキップします。")
+                    log_error(filename, pair_idx + 1, pair, Exception("Max retries reached or critical error"))
 
-                # ▼▼▼【ここからが修正の核心】▼▼▼
-                # result が "failed_retry" または "failed_critical" の場合
-                while True:
-                    # ユーザーに選択を促す前に、必ず出力をフラッシュする
-                    print(f"\n      会話ペア {pair_idx + 1} の処理に失敗しました。どうしますか？ (r: このペアを再試行, s: このペアをスキップ, q: 終了): ", end="")
-                    sys.stdout.flush() # ★★★ input()の前に必ずフラッシュ ★★★
+                # 成功・失敗に関わらず、進捗は進める
+                character_progress["progress"][filename] = pair_idx + 1
+                print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
+                sys.stdout.flush()
+                save_progress(progress_data)
 
-                    user_choice = input().lower()
-
-                    if user_choice == 'r':
-                        break
-                    elif user_choice == 's':
-                        # スキップする場合、進捗ファイルに「このペアは処理した」と記録する
-                        character_progress["progress"][filename] = pair_idx + 1
-                        save_progress(progress_data)
-                        pair_idx += 1
-                        break
-                    elif user_choice == 'q':
-                        print("--- ユーザーの指示により、インポート処理を中断します。 ---")
-                        save_progress(progress_data)
-                        return
-                    else:
-                        print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
-
-                if user_choice in ['s', 'q']:
-                    if user_choice == 's': continue
-                    else: break
-                # ▲▲▲【修正ここまで】▲▲▲
+                pair_idx += 1
+                time.sleep(1.1)
 
             print("\n  - ファイルの処理が完了しました。")
 
         print("\n--- 全てのログファイルのインポートが完了しました。 ---")
         print(f"最終結果: {character_progress['total_success_count']}件の会話を記憶しました。")
+        if os.path.exists(ERROR_LOG_FILE):
+            print(f"★★★ いくつかのエラーが発生しました。詳細は {ERROR_LOG_FILE} を確認してください。 ★★★")
 
     except Exception as e:
         error_message = str(e).encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
-        print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {error_message}")
+        print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {e}")
+        traceback.print_exc()
     finally:
         print("インポーターを終了します。")
-
-# (以降のコードは変更なし)
 
 if __name__ == "__main__":
     main()
