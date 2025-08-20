@@ -1,3 +1,39 @@
+# --- [ロギング設定の強制上書き] ---
+import logging
+import logging.config
+import os
+from pathlib import Path
+from sys import stdout
+
+LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE_PATH = LOGS_DIR / "nexus_ark.log"
+
+LOGGING_CONFIG = {
+    "version": 1, "disable_existing_loggers": False,
+    "formatters": { "standard": { "format": "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s" } },
+    "handlers": {
+        "console": { "level": "INFO", "class": "logging.StreamHandler", "stream": stdout, "formatter": "standard" },
+        "file": {
+            "level": "DEBUG", "class": "concurrent_log_handler.ConcurrentRotatingFileHandler",
+            "filename": LOG_FILE_PATH, "maxBytes": 1024 * 1024 * 10, "backupCount": 5,
+            "formatter": "standard", "use_gzip": True,
+        },
+    },
+    "root": { "level": "DEBUG", "handlers": ["console", "file"] },
+    "loggers": {
+        "memos": { "level": "WARNING", "propagate": True },
+        "gradio": { "level": "WARNING", "propagate": True },
+        "httpx": { "level": "WARNING", "propagate": True },
+        "neo4j": { "level": "WARNING", "propagate": True },
+    },
+}
+logging.config.dictConfig(LOGGING_CONFIG)
+# この一行が、他のライブラリによる設定の上書きを完全に禁止する
+logging.config.dictConfig = lambda *args, **kwargs: None
+print("--- [Nexus Ark Importer] ロギング設定を完全に掌握しました ---")
+# --- [ここまでが新しいブロック] ---
+
 # [batch_importer.py を、この内容で完全に置き換える]
 import os
 import sys
@@ -6,15 +42,8 @@ import argparse
 import time
 import re
 from typing import List, Dict, Literal
-import logging
-import logging.config
-from pathlib import Path
-from sys import stdout
 from datetime import datetime
 import traceback
-
-# --- [ロギング設定] ---
-# (ロギング設定部分は変更なし)
 
 # --- [インポート文] ---
 import config_manager

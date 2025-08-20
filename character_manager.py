@@ -7,6 +7,7 @@ import datetime
 from typing import Optional
 # ▼▼▼ 修正の核心：config_managerへの依存をなくし、constantsから定数を直接インポートする ▼▼▼
 import constants
+import utils
 
 def ensure_character_files(character_name):
     if not character_name or not isinstance(character_name, str) or not character_name.strip(): return False
@@ -135,13 +136,38 @@ def get_world_settings_path(character_name: str):
     # ▼▼▼ .md から .txt に変更 ▼▼▼
     return os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "world_settings.txt")
 
-def is_character_name(name: str) -> bool:
-    """指定された名前が有効なキャラクター（ディレクトリ）として存在するかどうかを判定する。"""
-    if not name or not isinstance(name, str) or not name.strip():
-        return False
-    # 安全のため、ディレクトリトラバーサルを防ぐ
-    if ".." in name or "/" in name or "\\" in name:
-        return False
+def get_all_characters_in_log(main_character_name: str, api_history_limit_key: str) -> list[str]:
+    """
+    指定されたキャラクターのログを解析し、指定された履歴範囲内に登場するすべての
+    キャラクター名（ユーザー含む）のユニークなリストを返す。
+    """
+    if not main_character_name:
+        return []
 
-    char_dir = os.path.join(constants.CHARACTERS_DIR, name)
-    return os.path.isdir(char_dir)
+    log_file_path, _, _, _, _ = get_character_files_paths(main_character_name)
+    if not log_file_path or not os.path.exists(log_file_path):
+        return [main_character_name]
+
+    # utils.load_chat_log を呼び出す
+    full_log = utils.load_chat_log(log_file_path, main_character_name)
+
+    # 履歴制限を適用
+    limit = constants.API_HISTORY_LIMIT_OPTIONS.get(api_history_limit_key)
+    if limit is not None and limit.isdigit():
+        display_turns = int(limit)
+        limited_log = full_log[-(display_turns * 2):]
+    else: # "全ログ" or other cases
+        limited_log = full_log
+
+    # 登場キャラクターを収集
+    characters = set()
+    for message in limited_log:
+        responder = message.get("responder")
+        if responder:
+            characters.add(responder)
+
+    # 主人公がリストに含まれていることを保証する
+    characters.add(main_character_name)
+
+    # "ユーザー"はキャラクターではないので除外
+    return sorted([char for char in list(characters) if char != "ユーザー"])

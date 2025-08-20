@@ -7,8 +7,6 @@ import traceback
 import html
 from typing import List, Dict, Optional, Tuple, Union
 import gradio as gr
-import character_manager
-import config_manager # config_managerをインポート
 import constants
 import sys
 import psutil
@@ -119,7 +117,7 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
                 match = re.match(r"^## (.*?):$", header)
                 if match:
                     responder_name = match.group(1)
-                    if character_manager.is_character_name(responder_name):
+                    if is_character_name(responder_name):
                         role = 'model' # 他のキャラもAIなので 'model'
                         responder = responder_name
                     else:
@@ -224,15 +222,9 @@ def _format_text_content_for_gradio(content: str, character_name: str, current_a
 
     return "".join(final_parts)
 
-def _perform_log_archiving(log_file_path: str, character_name: str) -> Optional[str]:
+def _perform_log_archiving(log_file_path: str, character_name: str, threshold_bytes: int, keep_bytes: int) -> Optional[str]:
     """ログファイルのサイズをチェックし、必要であればアーカイブを実行する"""
     try:
-        # configから閾値を取得
-        # ▼▼▼ 以下の2行を修正 ▼▼▼
-        threshold_bytes = config_manager.CONFIG_GLOBAL.get("log_archive_threshold_mb", 10) * 1024 * 1024
-        keep_bytes = config_manager.CONFIG_GLOBAL.get("log_keep_size_mb", 5) * 1024 * 1024
-        # ▲▲▲ 修正ここまで ▲▲▲
-
         if os.path.getsize(log_file_path) <= threshold_bytes:
             return None # 閾値以下なので何もしない
 
@@ -299,9 +291,10 @@ def _perform_log_archiving(log_file_path: str, character_name: str) -> Optional[
         return None
 
 
-# ▼▼▼ save_message_to_log 関数を、この新しいバージョンに置き換えてください ▼▼▼
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> Optional[str]:
     """メッセージをログに保存し、その後アーカイブ処理を呼び出す。アーカイブが発生した場合はメッセージを返す。"""
+    import config_manager # 関数スコープでのみインポートする
+
     if not all([log_file_path, header, text_content, text_content.strip()]):
         return None
     try:
@@ -317,7 +310,14 @@ def save_message_to_log(log_file_path: str, header: str, text_content: str) -> O
 
         # 書き込み後にアーカイブ処理を呼び出す
         character_name = os.path.basename(os.path.dirname(log_file_path))
-        return _perform_log_archiving(log_file_path, character_name)
+
+        # configから閾値を取得
+        threshold_mb = config_manager.CONFIG_GLOBAL.get("log_archive_threshold_mb", 10)
+        keep_mb = config_manager.CONFIG_GLOBAL.get("log_keep_size_mb", 5)
+        threshold_bytes = threshold_mb * 1024 * 1024
+        keep_bytes = keep_mb * 1024 * 1024
+
+        return _perform_log_archiving(log_file_path, character_name, threshold_bytes, keep_bytes)
 
     except Exception as e:
         print(f"エラー: ログファイル '{log_file_path}' 書き込みエラー: {e}")
@@ -652,42 +652,6 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
         print(f"エラー: 再生成のためのログ削除中に予期せぬエラー: {e}"); traceback.print_exc()
         return None
 
-def get_all_characters_in_log(main_character_name: str, api_history_limit_key: str) -> List[str]:
-    """
-    指定されたキャラクターのログを解析し、指定された履歴範囲内に登場するすべての
-    キャラクター名（ユーザー含む）のユニークなリストを返す。
-    """
-    if not main_character_name:
-        return []
-
-    log_file_path, _, _, _, _ = character_manager.get_character_files_paths(main_character_name)
-    if not log_file_path or not os.path.exists(log_file_path):
-        return [main_character_name]
-
-    full_log = load_chat_log(log_file_path, main_character_name)
-
-    # 履歴制限を適用
-    limit = constants.API_HISTORY_LIMIT_OPTIONS.get(api_history_limit_key)
-    if limit is not None and limit.isdigit():
-        display_turns = int(limit)
-        limited_log = full_log[-(display_turns * 2):]
-    else: # "全ログ" or other cases
-        limited_log = full_log
-
-    # 登場キャラクターを収集
-    characters = set()
-    for message in limited_log:
-        responder = message.get("responder")
-        if responder:
-            characters.add(responder)
-
-    # 主人公がリストに含まれていることを保証する
-    characters.add(main_character_name)
-
-    # "ユーザー"はキャラクターではないので除外
-    return sorted([char for char in list(characters) if char != "ユーザー"])
-
-
 @contextlib.contextmanager
 def capture_prints():
     """
@@ -858,3 +822,14 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_name:
             lc_messages.append(HumanMessage(content=annotated_content))
 
     return lc_messages
+
+def is_character_name(name: str) -> bool:
+    """指定された名前が有効なキャラクター（ディレクトリ）として存在するかどうかを判定する。"""
+    if not name or not isinstance(name, str) or not name.strip():
+        return False
+    # 安全のため、ディレクトリトラバーサルを防ぐ
+    if ".." in name or "/" in name or "\\" in name:
+        return False
+
+    char_dir = os.path.join(constants.CHARACTERS_DIR, name)
+    return os.path.isdir(char_dir)
