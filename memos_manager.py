@@ -39,11 +39,13 @@ def get_mos_instance(character_name: str) -> MOS:
     
     # --- 3. データベースの存在確認と、自動作成 ---
     driver = None
+    db_exists = False # 変数をここで初期化
     try:
         driver = neo4j.GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
         with driver.session(database="system") as session:
             result = session.run("SHOW DATABASES WHERE name = $db_name", db_name=DB_NAME)
-            db_exists = len([record for record in result]) > 0
+            # db_exists をここで設定
+            db_exists = any(record for record in result)
 
         if not db_exists:
             print(f"--- データベース '{DB_NAME}' が存在しません。新規作成します... ---")
@@ -62,6 +64,7 @@ def get_mos_instance(character_name: str) -> MOS:
                     time.sleep(5)
             else:
                 raise Exception(f"データベース '{DB_NAME}' の起動をタイムアウトしました。")
+
     finally:
         if driver: driver.close()
 
@@ -101,14 +104,29 @@ def get_mos_instance(character_name: str) -> MOS:
     mem_cube.text_mem.dispatcher_llm = google_llm_instance
     mem_cube.text_mem.embedder = google_embedder_instance
 
-    # --- 5. 汚染された古いCubeを浄化し、クリーンな状態で登録する ---
+    # --- 5. 【修正の核心】データベースと同期したMemCubeの永続化ロジック ---
     cube_path = os.path.join("characters", character_name, "memos_cube")
-    if os.path.exists(cube_path):
-        print(f"--- [警告] 古いMemCubeキャッシュ ({cube_path}) を検出。削除して再構築します。")
-        shutil.rmtree(cube_path)
     
-    os.makedirs(cube_path, exist_ok=True)
-    mem_cube.dump(cube_path)
+    if not db_exists:
+        # データベースが存在しなかった場合、それは完全な新規作成を意味する。
+        # 古いキャッシュが存在すれば、それは不整合の原因なので、必ず削除する。
+        if os.path.exists(cube_path):
+            print(f"--- [警告] 新規データベース作成に伴い、古いMemCubeキャッシュ ({cube_path}) を削除して再構築します。")
+            shutil.rmtree(cube_path)
+
+        print(f"--- MemCubeキャッシュを新規作成します: {cube_path}")
+        os.makedirs(cube_path, exist_ok=True)
+        mem_cube.dump(cube_path)
+
+    else:
+        # データベースが既に存在する場合、キャッシュも存在するはず。
+        # 存在しない場合のみ、何らかの理由で消えたと判断し、作成する。
+        if not os.path.exists(cube_path):
+            print(f"--- MemCubeキャッシュが存在しないため、新規作成します: {cube_path}")
+            os.makedirs(cube_path, exist_ok=True)
+            mem_cube.dump(cube_path)
+        else:
+            print(f"--- 既存のデータベースとMemCubeキャッシュを尊重して読み込みます: {cube_path}")
     
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
 
