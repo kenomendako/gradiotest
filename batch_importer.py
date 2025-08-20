@@ -1,22 +1,20 @@
 # [batch_importer.py を、この内容で完全に置き換える]
-
 import os
 import sys
 import json
 import argparse
 import time
 import re
-from typing import List, Dict
+from typing import List, Dict, Literal
 import logging
 import logging.config
 from pathlib import Path
 from sys import stdout
 
-# --- [ロギング設定の強制上書き] ---
+# --- [ロギング設定] ---
 LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE_PATH = LOGS_DIR / "nexus_ark.log"
-
 LOGGING_CONFIG = {
     "version": 1, "disable_existing_loggers": False,
     "formatters": { "standard": { "format": "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s" } },
@@ -32,72 +30,52 @@ LOGGING_CONFIG = {
     "loggers": {
         "memos": { "level": "WARNING", "propagate": True },
         "neo4j": { "level": "WARNING", "propagate": True },
+        "httpx": { "level": "WARNING", "propagate": True },
+        "google_genai": { "level": "WARNING", "propagate": True },
     },
 }
 logging.config.dictConfig(LOGGING_CONFIG)
 logging.config.dictConfig = lambda *args, **kwargs: None
 print("--- [Nexus Ark Importer] ロギング設定を完全に掌握しました ---")
-# --- [ここまでが追加ブロック] ---
 
-# 必要なモジュールをインポート
 import config_manager
 import memos_manager
 import character_manager
 
-# --- 定数 ---
 PROGRESS_FILE = "importer_progress.json"
 
-# --- 新しい、ログ解析関数 (v5: utils.pyベースの、歴史家) ---
+# (load_archived_log, group_messages_into_pairs, load_progress, save_progress 関数は変更なし)
 def load_archived_log(log_content: str, all_character_list: List[str]) -> List[Dict[str, str]]:
-    """
-    Nexus Arkの、全ての、ログ形式（過去と現在）を、解析する、堅牢な、パーサー。
-    utils.load_chat_logを、バッチ処理用に、改造したもの。
-    """
     messages = []
-    # `re.split`を、使い、ヘッダー行で、ログを、確実に、分割する
     log_parts = re.split(r'^(## .*?:)$', log_content, flags=re.MULTILINE)
-
     header = None
     for part in log_parts:
-        part = part.strip()
-        if not part:
-            continue
-
-        # ヘッダー行（## Speaker:）を、見つけた場合
-        if part.startswith("## ") and part.endswith(":"):
-            header = part
-        # 内容部分を、見つけた場合
+        part_strip = part.strip()
+        if not part_strip: continue
+        if part_strip.startswith("## ") and part_strip.endswith(":"): header = part_strip
         elif header:
-            # ヘッダーから、発言者名を、抽出
-            match = re.match(r"^## (.*?):$", header)
-            if match:
-                speaker = match.group(1).strip()
-                content = part.strip()
-
-                # ★★★【核心部分】キャラクター名簿を、参照し、役割を、判定 ★★★
-                role = "assistant" if speaker in all_character_list else "user"
-                messages.append({"role": role, "content": content})
-
-            header = None # 次の、ヘッダーに、備える
-
+            content = part_strip
+            if content:
+                match = re.match(r"^## (.*?):$", header)
+                if match:
+                    speaker = match.group(1).strip()
+                    role = "assistant" if speaker in all_character_list else "user"
+                    messages.append({"role": role, "content": content})
+            header = None
     return messages
 
 def group_messages_into_pairs(messages: List[Dict[str, str]]) -> List[List[Dict[str, str]]]:
-    """
-    解析されたメッセージリストを、[ユーザー発言, AI応答] のペアにグループ化する。
-    """
     pairs = []
     i = 0
     while i < len(messages):
-        if messages[i]["role"] == "user":
-            if i + 1 < len(messages) and messages[i+1]["role"] == "assistant":
+        if messages[i]["role"] == "user" and messages[i].get("content"):
+            if i + 1 < len(messages) and messages[i+1]["role"] == "assistant" and messages[i+1].get("content"):
                 pairs.append([messages[i], messages[i+1]])
                 i += 2
                 continue
         i += 1
     return pairs
 
-# --- 進捗管理 (v2: ペア単位) ---
 def load_progress():
     if os.path.exists(PROGRESS_FILE):
         try:
@@ -109,7 +87,41 @@ def save_progress(progress_data):
     with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
         json.dump(progress_data, f, indent=2, ensure_ascii=False)
 
-# --- メイン処理 ---
+
+# ▼▼▼【ここからが修正の核心】▼▼▼
+def process_pair_with_retries(mos_instance, pair: List[Dict[str,str]]) -> Literal["success", "failed_retry", "failed_critical"]:
+    """1つの会話ペアを、自動リトライ機能付きで処理する。"""
+    retry_count = 0
+    max_retries = 3
+
+    while retry_count < max_retries:
+        try:
+            mos_instance.add(messages=pair)
+            return "success" # 成功
+        except Exception as e:
+            error_str = str(e)
+            retry_count += 1
+
+            if "RESOURCE_EXHAUSTED" in error_str or "429" in error_str:
+                delay_match = re.search(r"'retryDelay': '(\d+)s'", error_str)
+                wait_time = int(delay_match.group(1)) + 1 if delay_match else 20 * retry_count
+                print(f"\n    - 警告: APIレートリミット。{wait_time}秒待機してリトライします... ({retry_count}/{max_retries})")
+                time.sleep(wait_time)
+            elif isinstance(e, AttributeError) and "'NoneType' object" in error_str:
+                wait_time = 10 * retry_count
+                print(f"\n    - 警告: APIからの応答が不完全 (AttributeError)。{wait_time}秒待機してリトライします... ({retry_count}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                # 自動リトライ対象外のクリティカルなエラー
+                print(f"\n    - エラー: 記憶中に、予期せぬクリティカルなエラーが発生しました。")
+                print(f"      詳細: {error_str[:200]}...")
+                return "failed_critical"
+
+    # リトライ上限に達した場合
+    print(f"\n    - エラー: 自動リトライ上限 ({max_retries}回) に達しました。")
+    return "failed_retry"
+
+
 def main():
     config_manager.load_config()
     parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをMemOSに一括インポートするツール")
@@ -121,19 +133,15 @@ def main():
     try:
         all_characters = character_manager.get_character_list()
         print(f"--- 認識しているAIキャラクター名簿: {all_characters} ---")
-
         mos_instance = memos_manager.get_mos_instance(args.character)
-
         progress_data = load_progress()
         character_progress = progress_data.get(args.character, {"progress": {}, "total_success_count": 0})
-
         log_files = sorted([f for f in os.listdir(args.logs_dir) if f.endswith(".txt") and not f.endswith("_summary.txt")])
 
         print(f"--- {len(log_files)}個のログファイルを検出しました。インポート処理を開始します。 ---")
 
         for i, filename in enumerate(log_files):
             processed_pairs_count = character_progress["progress"].get(filename, 0)
-
             print(f"\n[{i+1}/{len(log_files)}] ファイル処理開始: {filename}")
             filepath = os.path.join(args.logs_dir, filename)
 
@@ -141,96 +149,49 @@ def main():
 
             all_messages = load_archived_log(content, all_characters)
             conversation_pairs = group_messages_into_pairs(all_messages)
-
             total_pairs_in_file = len(conversation_pairs)
 
             if processed_pairs_count >= total_pairs_in_file:
-                print(f"  - ファイルは完全に処理済みです ({processed_pairs_count}/{total_pairs_in_file})。スキップします。")
+                print(f"  - ファイルは完全に処理済みです。スキップします。")
                 continue
 
-            if not conversation_pairs:
-                print("  - 会話ペアが見つかりませんでした。スキップします。")
-                character_progress["progress"][filename] = 0
-                save_progress(progress_data)
-                continue
-
-            print(f"  - {total_pairs_in_file} 件の会話ペアを検出。{processed_pairs_count}件目から再開します...")
+            print(f"  - {total_pairs_in_file} 件の会話ペアを検出。{processed_pairs_count + 1}件目から処理を開始します...")
 
             pair_idx = processed_pairs_count
             while pair_idx < total_pairs_in_file:
                 pair = conversation_pairs[pair_idx]
 
-                retry_count = 0
-                max_retries = 3
+                result = process_pair_with_retries(mos_instance, pair)
 
-                # ▼▼▼【ここからが修正の核心】▼▼▼
-                operation_successful = False
-                while retry_count < max_retries:
-                    try:
-                        mos_instance.add(messages=pair)
-
-                        character_progress["total_success_count"] += 1
-                        character_progress["progress"][filename] = pair_idx + 1
-                        print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
-
-                        progress_data[args.character] = character_progress
-                        save_progress(progress_data)
-
-                        operation_successful = True
-                        break
-
-                    except Exception as e:
-                        error_str = str(e)
-                        retry_count += 1
-
-                        if "RESOURCE_EXHAUSTED" in error_str or "429" in error_str:
-                            delay_match = re.search(r"'retryDelay': '(\d+)s'", error_str)
-                            wait_time = int(delay_match.group(1)) + 1 if delay_match else 20 * retry_count
-                            print(f"\n    - 警告: APIレートリミット。{wait_time}秒待機してリトライします... ({retry_count}/{max_retries})")
-                            time.sleep(wait_time)
-                        elif isinstance(e, AttributeError) and "'NoneType' object" in error_str:
-                            wait_time = 10 * retry_count
-                            print(f"\n    - 警告: APIからの応答が不完全 (AttributeError)。{wait_time}秒待機してリトライします... ({retry_count}/{max_retries})")
-                            time.sleep(wait_time)
-                        else:
-                            # 自動リトライ対象外の予期せぬエラー
-                            print(f"\n    - エラー: 会話ペア {pair_idx + 1} の記憶中に、予期せぬエラーが発生しました。")
-                            print(f"      詳細: {error_str[:200]}...")
-                            break # 自動リトライを中断し、ユーザー対話へ
-
-                if operation_successful:
+                if result == "success":
+                    character_progress["total_success_count"] += 1
+                    character_progress["progress"][filename] = pair_idx + 1
+                    print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
+                    save_progress(progress_data)
                     pair_idx += 1
                     time.sleep(1.1)
                     continue
 
-                # --- リトライ上限に達したか、または予期せぬエラーでループを抜けた場合の処理 ---
+                # result が "failed_retry" または "failed_critical" の場合
                 while True:
-                    user_choice = input(f"      会話ペア {pair_idx + 1} の処理に失敗しました。どうしますか？ (r: 再試行, s: このペアをスキップ, q: 終了): ").lower()
+                    user_choice = input(f"\n      会話ペア {pair_idx + 1} の処理に失敗しました。どうしますか？ (r: このペアを再試行, s: このペアをスキップ, q: 終了): ").lower()
                     if user_choice == 'r':
-                        # ループの先頭に戻って、再度リトライ処理を開始する
-                        break
+                        break # 内側のループを抜けて、外側のループで同じペアを再試行
                     elif user_choice == 's':
-                        # このペアをスキップして、次のペアに進む
-                        pair_idx += 1
+                        pair_idx += 1 # 次のペアへ
                         break
                     elif user_choice == 'q':
                         print("--- ユーザーの指示により、インポート処理を中断します。 ---")
-                        progress_data[args.character] = character_progress
                         save_progress(progress_data)
-                        return # main関数を終了
+                        return
                     else:
                         print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
 
-                if user_choice == 'r':
-                    continue # while pair_idx < total_pairs_in_file: のループを継続
-                elif user_choice == 's':
-                    continue # while pair_idx < total_pairs_in_file: のループを継続
+                if user_choice in ['s', 'q']:
+                    if user_choice == 's': continue # 次のペアの処理へ
+                    else: break # ファイル処理ループを抜ける
 
-            # ▲▲▲【修正ここまで】▲▲▲
-
-            print("\n  - ファイルの処理が完了しました。最終進捗を保存します。")
-            progress_data[args.character] = character_progress
-            save_progress(progress_data)
+            print("\n  - ファイルの処理が完了しました。")
 
         print("\n--- 全てのログファイルのインポートが完了しました。 ---")
         print(f"最終結果: {character_progress['total_success_count']}件の会話を記憶しました。")
@@ -240,7 +201,7 @@ def main():
         print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {error_message}")
     finally:
         print("インポーターを終了します。")
-
+# ▲▲▲【修正ここまで】▲▲▲
 
 if __name__ == "__main__":
     main()
