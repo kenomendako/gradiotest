@@ -1,15 +1,22 @@
-# --- [ロギング設定の強制上書き] ---
+# [batch_importer.py を、この内容で完全に置き換える]
+import os
+import sys
+import json
+import argparse
+import time
+import re
+from typing import List, Dict
 import logging
 import logging.config
-import os
 from pathlib import Path
 from sys import stdout
+from datetime import datetime
+import traceback
 
+# --- [ロギング設定] ---
 LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
-# ▼▼▼ ここが修正の核心 ▼▼▼
 LOG_FILE_PATH = LOGS_DIR / "importer.log" # ログファイル名を importer.log に変更
-# ▲▲▲ 修正ここまで ▲▲▲
 
 LOGGING_CONFIG = {
     "version": 1, "disable_existing_loggers": False,
@@ -31,21 +38,8 @@ LOGGING_CONFIG = {
     },
 }
 logging.config.dictConfig(LOGGING_CONFIG)
-# この一行が、他のライブラリによる設定の上書きを完全に禁止する
 logging.config.dictConfig = lambda *args, **kwargs: None
 print("--- [Nexus Ark Importer] ロギング設定を完全に掌握しました (ログファイル: importer.log) ---")
-# --- [ここまでが修正ブロック] ---
-
-# [batch_importer.py を、この内容で完全に置き換える]
-import os
-import sys
-import json
-import argparse
-import time
-import re
-from typing import List, Dict, Literal
-from datetime import datetime
-import traceback
 
 
 # --- [インポート文] ---
@@ -55,7 +49,8 @@ import character_manager
 
 # --- [定数とヘルパー関数] ---
 PROGRESS_FILE = "importer_progress.json"
-STOP_SIGNAL_FILE = "stop_importer.signal" # 中断用の合図ファイル
+ERROR_LOG_FILE = "importer_errors.log"
+STOP_SIGNAL_FILE = "stop_importer.signal"
 
 def load_archived_log(log_content: str, all_character_list: List[str]) -> List[Dict[str, str]]:
     messages = []
@@ -101,7 +96,7 @@ def save_progress(progress_data):
 
 def log_error(filename: str, pair_index: int, pair: List[Dict[str,str]], error: Exception):
     """失敗したペアの情報をエラーログに記録する"""
-    with open("importer_errors.log", "a", encoding="utf-8") as f:
+    with open(ERROR_LOG_FILE, "a", encoding="utf-8") as f:
         f.write(f"--- ERROR at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
         f.write(f"File: {filename}\n")
         f.write(f"Pair Index: {pair_index}\n")
@@ -111,8 +106,24 @@ def log_error(filename: str, pair_index: int, pair: List[Dict[str,str]], error: 
         f.write(str(error) + "\n")
         f.write("-" * 20 + "\n\n")
 
-# --- メイン処理 ---
 def main():
+    # --- 正常終了時も異常終了時も、必ず最後に実行される後処理 ---
+    def final_cleanup(progress_data, character_name, character_progress):
+        if character_progress:
+            print(f"最終結果: {character_progress.get('total_success_count', 0)}件の会話を記憶しました。")
+            progress_data[character_name] = character_progress
+            save_progress(progress_data)
+            print("\n--- 最終的な進捗を importer_progress.json に保存しました。 ---")
+
+        if os.path.exists(ERROR_LOG_FILE):
+            print(f"★★★ いくつかのエラーが発生しました。詳細は {ERROR_LOG_FILE} を確認してください。 ★★★")
+
+        if os.path.exists(STOP_SIGNAL_FILE):
+            os.remove(STOP_SIGNAL_FILE)
+
+        print("インポーターを終了します。")
+
+    # --- main関数の本体 ---
     if os.path.exists(STOP_SIGNAL_FILE):
         os.remove(STOP_SIGNAL_FILE)
 
@@ -122,9 +133,7 @@ def main():
     parser.add_argument("--logs-dir", required=True, help="過去ログファイル（.txt）が格納されているディレクトリのパス")
     args = parser.parse_args()
 
-    # --- 変数をtryブロックの外で初期化 ---
     progress_data = load_progress()
-    # get()の第二引数で、キーが存在しない場合のデフォルト値を設定
     character_progress = progress_data.get(args.character, {"progress": {}, "total_success_count": 0})
 
     try:
@@ -136,12 +145,15 @@ def main():
         print(f"--- {len(log_files)}個のログファイルを検出しました。インポート処理を開始します。 ---")
 
         for i, filename in enumerate(log_files):
+            print(f"\n[{i+1}/{len(log_files)}] ファイル処理開始: {filename}")
+
             if os.path.exists(STOP_SIGNAL_FILE):
-                print("\n--- 中断要求を検知しました。処理を安全に終了します。 ---")
+                print("--- 中断要求を検知しました。処理を安全に終了します。 ---")
                 processing_should_be_stopped = True
                 break
 
             processed_pairs_count = character_progress["progress"].get(filename, 0)
+
             filepath = os.path.join(args.logs_dir, filename)
             with open(filepath, "r", encoding="utf-8", errors='ignore') as f: content = f.read()
             all_messages = load_archived_log(content, all_characters)
@@ -157,7 +169,7 @@ def main():
             pair_idx = processed_pairs_count
             while pair_idx < total_pairs_in_file:
                 if os.path.exists(STOP_SIGNAL_FILE):
-                    print("\n--- 中断要求を検知しました。現在のファイルの進捗を保存して終了します。 ---")
+                    print("--- 中断要求を検知しました。現在のファイルの進捗を保存して終了します。 ---")
                     processing_should_be_stopped = True
                     break
 
@@ -181,7 +193,7 @@ def main():
                             continue
 
                         print(f"\n\n" + "="*60)
-                        print(f"!!! [回復不能なエラー] 会話ペア {pair_idx + 1} の記憶中に問題が発生しました。")
+                        print(f"!!! [回復不能なエラー] ファイル '{filename}' の会話ペア {pair_idx + 1} の記憶中に問題が発生しました。")
                         print(f"    詳細: {error_str}")
                         log_error(filename, pair_idx + 1, pair, e)
                         print("\n    APIキーの変更など、対策を講じてから再開してください。")
@@ -212,20 +224,7 @@ def main():
         print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {e}")
         traceback.print_exc()
     finally:
-        # --- 全ての終了処理をここに集約 ---
-        print(f"最終結果: {character_progress.get('total_success_count', 0)}件の会話を記憶しました。")
-
-        progress_data[args.character] = character_progress
-        save_progress(progress_data)
-        print("\n--- 最終的な進捗を importer_progress.json に保存しました。 ---")
-
-        if os.path.exists(ERROR_LOG_FILE):
-            print(f"★★★ いくつかのエラーが発生しました。詳細は {ERROR_LOG_FILE} を確認してください。 ★★★")
-
-        if os.path.exists(STOP_SIGNAL_FILE):
-            os.remove(STOP_SIGNAL_FILE)
-
-        print("インポーターを終了します。")
+        final_cleanup(progress_data, args.character, character_progress)
 
 if __name__ == "__main__":
     main()
