@@ -153,20 +153,24 @@ def main():
 
             pair_idx = processed_pairs_count
             while pair_idx < total_pairs_in_file:
-                # --- 会話ペア処理ループの先頭でも、中断要求をチェック ---
+                # --- 中断要求のチェック (これは変更なし) ---
                 if os.path.exists(STOP_SIGNAL_FILE):
                     print("\n--- 中断要求を検知しました。現在のファイルの進捗を保存して終了します。 ---")
-                    # character_progress["progress"][filename] は既に最新なので、ここでbreakすればOK
-                    break # ペア処理ループを抜ける
+                    break
 
                 pair = conversation_pairs[pair_idx]
+
+                # ▼▼▼ ここからが新しい「協調的エラー処理ループ」 ▼▼▼
+                success = False
+                should_stop_processing = False
                 retry_count = 0
                 max_retries = 3
 
-                while True: # 無限ループに変更し、ユーザーの入力で抜ける
+                while retry_count < max_retries:
                     try:
                         mos_instance.add(messages=pair)
                         character_progress["total_success_count"] += 1
+                        success = True
                         break # 成功したのでリトライ・ループを抜ける
 
                     except Exception as e:
@@ -174,54 +178,44 @@ def main():
                         retry_count += 1
 
                         # 自動リトライ可能なエラーか判定
-                        is_retriable = "RESOURCE_EXHAUSTED" in error_str or "429" in error_str or \
-                                       (isinstance(e, AttributeError) and "'NoneType' object" in error_str)
+                        is_retriable = "RESOURCE_EXHAUSTED" in error_str or "429" in error_str
 
                         if is_retriable and retry_count < max_retries:
                             wait_time = 10 * retry_count
-                            print(f"\n    - 警告: APIエラーを検出。{wait_time}秒待機して自動リトライします... ({retry_count}/{max_retries})")
+                            print(f"\n    - 警告: APIレートエラーを検出。{wait_time}秒待機して自動リトライします... ({retry_count}/{max_retries})")
                             time.sleep(wait_time)
-                            continue # 自動リトライを試みる
+                            continue # 自動リトライ
 
-                        # 自動リトライが尽きたか、リトライ不能なエラーの場合、ユーザーに対話を求める
-                        print(f"\n    - エラー: 会話ペア {pair_idx + 1} の記憶中に問題が発生しました。")
-                        print(f"      詳細: {error_str[:200]}...")
+                        # リトライ不能なエラー、またはリトライ上限に達した場合
+                        print(f"\n\n" + "="*60)
+                        print(f"!!! [回復不能なエラー] 会話ペア {pair_idx + 1} の記憶中に問題が発生しました。")
+                        print(f"    詳細: {error_str}")
                         log_error(filename, pair_idx + 1, pair, e)
+                        print("\n    APIキーの変更など、対策を講じてから再開してください。")
+                        print("    インポート処理を安全に中断します。進捗は保存されています。")
+                        print("="*60 + "\n")
 
-                        while True: # ユーザーからの有効な入力があるまでループ
-                            user_choice = input("      このペアの処理をどうしますか？ (r: 再試行, s: スキップ, q: 終了): ").lower()
-                            if user_choice in ['r', 's', 'q']:
-                                break
-                            else:
-                                print("      無効な入力です。'r', 's', 'q' のいずれかを入力してください。")
+                        should_stop_processing = True # 外側のループも抜けるためのフラグ
+                        break # リトライ・ループを抜ける
 
-                        if user_choice == 'r':
-                            retry_count = 0 # リトライカウントをリセットして再試行
-                            continue
-                        elif user_choice == 's':
-                            break # ユーザーがスキップを選択したので、リトライ・ループを抜ける
-                        elif user_choice == 'q':
-                            # 終了が選択されたので、合図ファイルを作成して全ループを抜ける準備
-                            with open(STOP_SIGNAL_FILE, "w") as f: f.write("stop by user")
-                            break # ユーザー対話ループを抜ける
+                if should_stop_processing:
+                    break # ペア処理ループを抜ける
+                # ▲▲▲ 新しいループはここまで ▲▲▲
 
-                # ユーザーが 'q' を選択した場合、外側のループも抜ける
-                if os.path.exists(STOP_SIGNAL_FILE):
-                    break
-
-                # 処理が成功したか、ユーザーがスキップを選択した場合
+                # 処理が成功した場合のみ、進捗を進める
                 character_progress["progress"][filename] = pair_idx + 1
                 print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
                 sys.stdout.flush()
 
-                # ★★★ 1ペアごとに進捗を保存する ★★★
                 progress_data[args.character] = character_progress
                 save_progress(progress_data)
 
                 pair_idx += 1
                 time.sleep(1.1)
 
-            print("\n  - ファイルの処理が完了しました。")
+            # ファイルのペア処理ループが終わった後でも、中断要求をチェック
+            if os.path.exists(STOP_SIGNAL_FILE):
+                break
 
         print("\n--- 全てのログファイルのインポートが完了しました。 ---")
         print(f"最終結果: {character_progress['total_success_count']}件の会話を記憶しました。")
