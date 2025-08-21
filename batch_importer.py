@@ -122,15 +122,14 @@ def main():
     parser.add_argument("--logs-dir", required=True, help="過去ログファイル（.txt）が格納されているディレクトリのパス")
     args = parser.parse_args()
 
-    # このフラグがTrueになったら、全ての処理を停止する
-    processing_should_be_stopped = False
+    progress_data = load_progress()
+    character_progress = progress_data.get(args.character, {"progress": {}, "total_success_count": 0})
 
     try:
+        processing_should_be_stopped = False
         all_characters = character_manager.get_character_list()
         print(f"--- 認識しているAIキャラクター名簿: {all_characters} ---")
         mos_instance = memos_manager.get_mos_instance(args.character)
-        progress_data = load_progress()
-        character_progress = progress_data.get(args.character, {"progress": {}, "total_success_count": 0})
         log_files = sorted([f for f in os.listdir(args.logs_dir) if f.endswith(".txt") and not f.endswith("_summary.txt")])
         print(f"--- {len(log_files)}個のログファイルを検出しました。インポート処理を開始します。 ---")
 
@@ -140,7 +139,6 @@ def main():
                 processing_should_be_stopped = True
                 break
 
-            # ... (ファイル処理の準備) ...
             processed_pairs_count = character_progress["progress"].get(filename, 0)
             print(f"\n[{i+1}/{len(log_files)}] ファイル処理開始: {filename}")
             filepath = os.path.join(args.logs_dir, filename)
@@ -162,29 +160,24 @@ def main():
                     break
 
                 pair = conversation_pairs[pair_idx]
-                # ... (リトライ処理のループはここに) ...
                 retry_count = 0
                 max_retries = 3
+
                 while retry_count < max_retries:
                     try:
-                        # ... (mos.add(messages=pair)) ...
                         mos_instance.add(messages=pair)
                         character_progress["total_success_count"] += 1
                         break
                     except Exception as e:
-                        # ... (エラー処理) ...
                         error_str = str(e)
                         retry_count += 1
                         is_retriable = "RESOURCE_EXHAUSTED" in error_str or "429" in error_str
                         if is_retriable and retry_count < max_retries:
-                            # ... (自動リトライ) ...
                             wait_time = 10 * retry_count
                             print(f"\n    - 警告: APIレートエラーを検出。{wait_time}秒待機して自動リトライします... ({retry_count}/{max_retries})")
                             time.sleep(wait_time)
                             continue
 
-                        # リトライ不能エラー
-                        # ... (エラーメッセージの表示) ...
                         print(f"\n\n" + "="*60)
                         print(f"!!! [回復不能なエラー] 会話ペア {pair_idx + 1} の記憶中に問題が発生しました。")
                         print(f"    詳細: {error_str}")
@@ -193,24 +186,21 @@ def main():
                         print("    インポート処理を安全に中断します。進捗は保存されています。")
                         print("="*60 + "\n")
                         processing_should_be_stopped = True
-                        break # リトライ・ループを抜ける
+                        break
 
                 if processing_should_be_stopped:
-                    break # ペア処理ループを抜ける
+                    break
 
-                # ... (進捗保存と次のペアへ) ...
                 character_progress["progress"][filename] = pair_idx + 1
                 print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
                 sys.stdout.flush()
-
                 progress_data[args.character] = character_progress
                 save_progress(progress_data)
-
                 pair_idx += 1
                 time.sleep(1.1)
 
             if processing_should_be_stopped:
-                break # ファイル処理ループも抜ける
+                break
 
         if not processing_should_be_stopped:
             print("\n--- 全てのログファイルのインポートが完了しました。 ---")
@@ -220,15 +210,13 @@ def main():
             print(f"★★★ いくつかのエラーが発生しました。詳細は {ERROR_LOG_FILE} を確認してください。 ★★★")
 
     except Exception as e:
-        # ... (致命的エラー処理) ...
         error_message = str(e).encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
         print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {e}")
         traceback.print_exc()
     finally:
-        if 'progress_data' in locals() and 'character_progress' in locals():
-            progress_data[args.character] = character_progress
-            save_progress(progress_data)
-            print("\n--- 最終的な進捗を importer_progress.json に保存しました。 ---")
+        progress_data[args.character] = character_progress
+        save_progress(progress_data)
+        print("\n--- 最終的な進捗を importer_progress.json に保存しました。 ---")
         if os.path.exists(STOP_SIGNAL_FILE):
             os.remove(STOP_SIGNAL_FILE)
         print("インポーターを終了します。")
