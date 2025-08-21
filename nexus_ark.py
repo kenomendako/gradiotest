@@ -544,8 +544,7 @@ try:
                 importer_process_state,
                 chat_input_textbox,
                 submit_button
-            ],
-            cancels=[import_event] # ★★★ memos_import_button から import_event に変更 ★★★
+            ]
         )
 
         # ▲▲▲ ここまで ▲▲▲
