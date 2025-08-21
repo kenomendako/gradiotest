@@ -124,6 +124,7 @@ def main():
 
     # --- 変数をtryブロックの外で初期化 ---
     progress_data = load_progress()
+    # get()の第二引数で、キーが存在しない場合のデフォルト値を設定
     character_progress = progress_data.get(args.character, {"progress": {}, "total_success_count": 0})
 
     try:
@@ -141,20 +142,18 @@ def main():
                 break
 
             processed_pairs_count = character_progress["progress"].get(filename, 0)
-            # ... (ファイル処理の準備) ...
-            print(f"\n[{i+1}/{len(log_files)}] ファイル処理開始: {filename}")
             filepath = os.path.join(args.logs_dir, filename)
             with open(filepath, "r", encoding="utf-8", errors='ignore') as f: content = f.read()
             all_messages = load_archived_log(content, all_characters)
             conversation_pairs = group_messages_into_pairs(all_messages)
             total_pairs_in_file = len(conversation_pairs)
+
             if processed_pairs_count >= total_pairs_in_file:
                 print(f"  - ファイルは完全に処理済みです。スキップします。")
                 continue
+
             print(f"  - {total_pairs_in_file} 件の会話ペアを検出。{processed_pairs_count + 1}件目から処理を開始します...")
 
-
-            # ... (while pair_idx < total_pairs_in_file: ループの中身は変更なし) ...
             pair_idx = processed_pairs_count
             while pair_idx < total_pairs_in_file:
                 if os.path.exists(STOP_SIGNAL_FILE):
@@ -213,12 +212,12 @@ def main():
         print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {e}")
         traceback.print_exc()
     finally:
-        # --- finallyブロックで、変数の存在をチェックしてからアクセス ---
-        if 'character_progress' in locals():
-            print(f"最終結果: {character_progress.get('total_success_count', 0)}件の会話を記憶しました。")
-            progress_data[args.character] = character_progress
-            save_progress(progress_data)
-            print("\n--- 最終的な進捗を importer_progress.json に保存しました。 ---")
+        # --- 全ての終了処理をここに集約 ---
+        print(f"最終結果: {character_progress.get('total_success_count', 0)}件の会話を記憶しました。")
+
+        progress_data[args.character] = character_progress
+        save_progress(progress_data)
+        print("\n--- 最終的な進捗を importer_progress.json に保存しました。 ---")
 
         if os.path.exists(ERROR_LOG_FILE):
             print(f"★★★ いくつかのエラーが発生しました。詳細は {ERROR_LOG_FILE} を確認してください。 ★★★")
