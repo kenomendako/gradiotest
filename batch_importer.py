@@ -113,7 +113,6 @@ def log_error(filename: str, pair_index: int, pair: List[Dict[str,str]], error: 
 
 # --- メイン処理 ---
 def main():
-    # main関数の冒頭で、古い合図ファイルがあれば削除しておく
     if os.path.exists(STOP_SIGNAL_FILE):
         os.remove(STOP_SIGNAL_FILE)
 
@@ -123,6 +122,9 @@ def main():
     parser.add_argument("--logs-dir", required=True, help="過去ログファイル（.txt）が格納されているディレクトリのパス")
     args = parser.parse_args()
 
+    # このフラグがTrueになったら、全ての処理を停止する
+    processing_should_be_stopped = False
+
     try:
         all_characters = character_manager.get_character_list()
         print(f"--- 認識しているAIキャラクター名簿: {all_characters} ---")
@@ -130,15 +132,15 @@ def main():
         progress_data = load_progress()
         character_progress = progress_data.get(args.character, {"progress": {}, "total_success_count": 0})
         log_files = sorted([f for f in os.listdir(args.logs_dir) if f.endswith(".txt") and not f.endswith("_summary.txt")])
-
         print(f"--- {len(log_files)}個のログファイルを検出しました。インポート処理を開始します。 ---")
 
         for i, filename in enumerate(log_files):
-            # --- メインループの先頭で、中断要求をチェック ---
             if os.path.exists(STOP_SIGNAL_FILE):
                 print("\n--- 中断要求を検知しました。処理を安全に終了します。 ---")
-                break # ファイル処理ループを抜ける
+                processing_should_be_stopped = True
+                break
 
+            # ... (ファイル処理の準備) ...
             processed_pairs_count = character_progress["progress"].get(filename, 0)
             print(f"\n[{i+1}/{len(log_files)}] ファイル処理開始: {filename}")
             filepath = os.path.join(args.logs_dir, filename)
@@ -151,42 +153,38 @@ def main():
                 continue
             print(f"  - {total_pairs_in_file} 件の会話ペアを検出。{processed_pairs_count + 1}件目から処理を開始します...")
 
+
             pair_idx = processed_pairs_count
             while pair_idx < total_pairs_in_file:
-                # --- 中断要求のチェック (これは変更なし) ---
                 if os.path.exists(STOP_SIGNAL_FILE):
                     print("\n--- 中断要求を検知しました。現在のファイルの進捗を保存して終了します。 ---")
+                    processing_should_be_stopped = True
                     break
 
                 pair = conversation_pairs[pair_idx]
-
-                # ▼▼▼ ここからが新しい「協調的エラー処理ループ」 ▼▼▼
-                success = False
-                should_stop_processing = False
+                # ... (リトライ処理のループはここに) ...
                 retry_count = 0
                 max_retries = 3
-
                 while retry_count < max_retries:
                     try:
+                        # ... (mos.add(messages=pair)) ...
                         mos_instance.add(messages=pair)
                         character_progress["total_success_count"] += 1
-                        success = True
-                        break # 成功したのでリトライ・ループを抜ける
-
+                        break
                     except Exception as e:
+                        # ... (エラー処理) ...
                         error_str = str(e)
                         retry_count += 1
-
-                        # 自動リトライ可能なエラーか判定
                         is_retriable = "RESOURCE_EXHAUSTED" in error_str or "429" in error_str
-
                         if is_retriable and retry_count < max_retries:
+                            # ... (自動リトライ) ...
                             wait_time = 10 * retry_count
                             print(f"\n    - 警告: APIレートエラーを検出。{wait_time}秒待機して自動リトライします... ({retry_count}/{max_retries})")
                             time.sleep(wait_time)
-                            continue # 自動リトライ
+                            continue
 
-                        # リトライ不能なエラー、またはリトライ上限に達した場合
+                        # リトライ不能エラー
+                        # ... (エラーメッセージの表示) ...
                         print(f"\n\n" + "="*60)
                         print(f"!!! [回復不能なエラー] 会話ペア {pair_idx + 1} の記憶中に問題が発生しました。")
                         print(f"    詳細: {error_str}")
@@ -194,15 +192,13 @@ def main():
                         print("\n    APIキーの変更など、対策を講じてから再開してください。")
                         print("    インポート処理を安全に中断します。進捗は保存されています。")
                         print("="*60 + "\n")
-
-                        should_stop_processing = True # 外側のループも抜けるためのフラグ
+                        processing_should_be_stopped = True
                         break # リトライ・ループを抜ける
 
-                if should_stop_processing:
+                if processing_should_be_stopped:
                     break # ペア処理ループを抜ける
-                # ▲▲▲ 新しいループはここまで ▲▲▲
 
-                # 処理が成功した場合のみ、進捗を進める
+                # ... (進捗保存と次のペアへ) ...
                 character_progress["progress"][filename] = pair_idx + 1
                 print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
                 sys.stdout.flush()
@@ -213,22 +209,24 @@ def main():
                 pair_idx += 1
                 time.sleep(1.1)
 
-            # ファイルのペア処理ループが終わった後でも、中断要求をチェック
-            if os.path.exists(STOP_SIGNAL_FILE):
-                break
+            if processing_should_be_stopped:
+                break # ファイル処理ループも抜ける
 
-        print("\n--- 全てのログファイルのインポートが完了しました。 ---")
+        if not processing_should_be_stopped:
+            print("\n--- 全てのログファイルのインポートが完了しました。 ---")
+
         print(f"最終結果: {character_progress['total_success_count']}件の会話を記憶しました。")
-        if os.path.exists("importer_errors.log"):
-            print(f"★★★ いくつかのエラーが発生しました。詳細は importer_errors.log を確認してください。 ★★★")
+        if os.path.exists(ERROR_LOG_FILE):
+            print(f"★★★ いくつかのエラーが発生しました。詳細は {ERROR_LOG_FILE} を確認してください。 ★★★")
 
     except Exception as e:
+        # ... (致命的エラー処理) ...
         error_message = str(e).encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
         print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {e}")
         traceback.print_exc()
     finally:
-        # --- 最後に必ず進捗を保存し、合図ファイルを削除 ---
-        if 'progress_data' in locals():
+        if 'progress_data' in locals() and 'character_progress' in locals():
+            progress_data[args.character] = character_progress
             save_progress(progress_data)
             print("\n--- 最終的な進捗を importer_progress.json に保存しました。 ---")
         if os.path.exists(STOP_SIGNAL_FILE):
