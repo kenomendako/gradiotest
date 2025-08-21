@@ -835,6 +835,13 @@ def handle_memos_batch_import(character_name: str, console_content: str):
         yield gr.update(), gr.update(visible=False), None, error_console_text, error_console_text, gr.update(), gr.update()
 
     finally:
+        # --- 【ここからが修正の核心】 ---
+        if process:
+            print("--- インポーターのサブプロセスが完全に終了するのを待っています... ---")
+            process.wait() # この一行が全てを解決する
+            print("--- サブプロセスの終了を確認しました。UIを更新します。 ---")
+        # --- 【修正ここまで】 ---
+
         # --- 最後に必ずUIを「待機」モードに戻す ---
         yield (
             gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True),
