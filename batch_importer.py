@@ -174,42 +174,34 @@ def main():
                     break
 
                 pair = conversation_pairs[pair_idx]
-                retry_count = 0
-                max_retries = 3
 
-                while retry_count < max_retries:
-                    try:
-                        mos_instance.add(messages=pair)
-                        character_progress["total_success_count"] += 1
-                        break
-                    except Exception as e:
-                        error_str = str(e)
-                        retry_count += 1
-                        is_retriable = "RESOURCE_EXHAUSTED" in error_str or "429" in error_str
-                        if is_retriable and retry_count < max_retries:
-                            wait_time = 10 * retry_count
-                            print(f"\n    - 警告: APIレートエラーを検出。{wait_time}秒待機して自動リトライします... ({retry_count}/{max_retries})")
-                            time.sleep(wait_time)
-                            continue
+                # ▼▼▼【ここからが修正の核心】▼▼▼
+                try:
+                    # 1ペアの処理を試みる
+                    mos_instance.add(messages=pair)
+                    # 成功した場合のみ、進捗を更新する
+                    character_progress["total_success_count"] += 1
+                    character_progress["progress"][filename] = pair_idx + 1
+                    print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
+                    sys.stdout.flush()
+                    progress_data[args.character] = character_progress
+                    save_progress(progress_data)
 
-                        print(f"\n\n" + "="*60)
-                        print(f"!!! [回復不能なエラー] ファイル '{filename}' の会話ペア {pair_idx + 1} の記憶中に問題が発生しました。")
-                        print(f"    詳細: {error_str}")
-                        log_error(filename, pair_idx + 1, pair, e)
-                        print("\n    APIキーの変更など、対策を講じてから再開してください。")
-                        print("    インポート処理を安全に中断します。進捗は保存されています。")
-                        print("="*60 + "\n")
-                        processing_should_be_stopped = True
-                        break
+                except Exception as e:
+                    # 例外が発生した場合、進捗は更新せず、エラーを記録してループを抜ける
+                    error_str = str(e)
+                    print(f"\n\n" + "="*60)
+                    print(f"!!! [回復不能なエラー] ファイル '{filename}' の会話ペア {pair_idx + 1} の記憶中に問題が発生しました。")
+                    print(f"    詳細: {error_str}")
+                    log_error(filename, pair_idx + 1, pair, e)
+                    print("\n    処理を安全に中断しました。進捗はエラー発生前の状態で保存されています。")
+                    print("    このペアをスキップするには、importer_progress.json を手動で編集し、")
+                    print(f"    '{filename}' の値を {pair_idx + 1} に変更してから再開してください。")
+                    print("="*60 + "\n")
+                    processing_should_be_stopped = True
+                    break # ペア処理ループを抜ける
+                # ▲▲▲【修正ここまで】▲▲▲
 
-                if processing_should_be_stopped:
-                    break
-
-                character_progress["progress"][filename] = pair_idx + 1
-                print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
-                sys.stdout.flush()
-                progress_data[args.character] = character_progress
-                save_progress(progress_data)
                 pair_idx += 1
                 time.sleep(1.1)
 
