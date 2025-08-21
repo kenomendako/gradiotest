@@ -835,47 +835,41 @@ def handle_memos_batch_import(character_name: str, console_content: str):
         yield gr.update(), gr.update(visible=False), None, error_console_text, error_console_text, gr.update(), gr.update()
 
     finally:
+        # --- 【ここからが修正の核心】 ---
+        if process:
+            print("--- インポーターのサブプロセスが完全に終了するのを待っています... ---")
+            process.wait() # サブプロセスが自己終了するのを待つ
+            print("--- サブプロセスの終了を確認しました。UIを更新します。 ---")
+        # --- 【修正ここまで】 ---
+
         # --- 最後に必ずUIを「待機」モードに戻す ---
         yield (
             gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True),
-            gr.update(visible=False), # 中断ボタンを非表示
-            None, # プロセス情報をクリア
-            gr.update(), gr.update(),
-            gr.update(interactive=True), gr.update(interactive=True)
+            gr.update(visible=False),
+            None,
+            gr.update(),
+            gr.update(),
+            gr.update(interactive=True),
+            gr.update(interactive=True)
         )
 
-# ▼▼▼ 以下の関数を ui_handlers.py に新しく追加 ▼▼▼
 def handle_importer_stop(process):
-    """インポーターの中断ボタンが押されたときの処理"""
-    if process and psutil.pid_exists(process.pid):
-        try:
-            # 親プロセスと、その全ての子プロセスを終了させる
-            parent = psutil.Process(process.pid)
-            for child in parent.children(recursive=True):
-                child.terminate()
-            parent.terminate()
+    """インポーターの中断ボタンが押されたときの処理。合図ファイルを設置する。"""
+    stop_signal_file = "stop_importer.signal"
+    try:
+        with open(stop_signal_file, "w") as f:
+            f.write("stop")
+        gr.Warning("インポート処理の中断を要求しました。現在のペア処理が完了次第、安全に停止します...")
+    except Exception as e:
+        gr.Error(f"中断要求の送信中にエラー: {e}")
 
-            # プロセスが終了するのを少し待つ
-            try:
-                parent.wait(timeout=5)
-            except psutil.TimeoutExpired:
-                parent.kill() # タイムアウトしたら強制終了
-
-            gr.Warning("インポート処理を中断しています...")
-        except psutil.NoSuchProcess:
-            gr.Info("プロセスは既に終了していました。")
-        except Exception as e:
-            gr.Error(f"プロセスの停止中にエラー: {e}")
-    else:
-        gr.Info("中断対象のプロセスが見つかりません。")
-
-    # UIを待機モードに戻す
+    # UIの状態を「中断中」として明確にユーザーに示す
     return (
-        gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True),
-        gr.update(visible=False),
-        None,
-        gr.update(interactive=True),
-        gr.update(interactive=True)
+        gr.update(value="中断中...", interactive=False),
+        gr.update(interactive=False), # 中断ボタンも押せなくする
+        process,
+        gr.update(interactive=False),
+        gr.update(interactive=False)
     )
 
 def _run_core_memory_update(character_name: str, api_key: str):
