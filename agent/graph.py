@@ -29,9 +29,9 @@ from tools.alarm_tools import set_personal_alarm
 # ▼▼▼ 新しいタイマーツールをインポート ▼▼▼
 from tools.timer_tools import set_timer, set_pomodoro_timer
 from tools.memos_tools import search_objective_memory
-from character_manager import get_world_settings_path
+from room_manager import get_world_settings_path
 from memory_manager import load_memory_data_safe
-import utils # ★ utilsを直接インポート
+import utils
 import config_manager
 
 all_tools = [
@@ -47,7 +47,7 @@ all_tools = [
 
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
-    character_name: str
+    room_name: str
     api_key: str
     tavily_api_key: str
     model_name: str
@@ -58,11 +58,11 @@ class AgentState(TypedDict):
     location_name: str
     scenery_text: str
     debug_mode: bool
-    all_participants: List[str] # セッションに参加している全キャラクターのリスト
+    all_participants: List[str] # セッションに参加している全ルームのリスト
 
 def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     """
-    キャラクターごとの設定を含む、LangChain用のLLMインスタンスを生成する。
+    ルームごとの設定を含む、LangChain用のLLMインスタンスを生成する。
     """
     threshold_map = {
         "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
@@ -88,32 +88,29 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
         safety_settings=safety_settings
     )
 
-# 3. ファイルのクラスや関数定義の前に、新しい「情景生成」関数を追加
-def get_location_list(character_name: str) -> List[str]:
+def get_location_list(room_name: str) -> List[str]:
     """
     利用可能なすべての場所のリストを「[エリア名] 場所名」の形式で生成する。
     """
-    if not character_name: return []
-    world_settings_path = get_world_settings_path(character_name)
+    if not room_name: return []
+    world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path): return []
 
-    # 新しいパーサーを使用
     world_data = utils.parse_world_file(world_settings_path)
     if not world_data: return []
 
     locations = []
     for area_name, places in world_data.items():
         for place_name in places.keys():
-            # 特殊なキーは除外
             if place_name == "__area_description__": continue
             locations.append(f"[{area_name}] {place_name}")
 
     return sorted(locations)
 
 
-def generate_scenery_context(character_name: str, api_key: str, force_regenerate: bool = False) -> Tuple[str, str, str]:
+def generate_scenery_context(room_name: str, api_key: str, force_regenerate: bool = False) -> Tuple[str, str, str]:
     """
-    指定されたキャラクターの現在の場所に基づいて、情景を描写し、
+    指定されたルームの現在の場所に基づいて、情景を描写し、
     場所の名前、自由記述テキスト、描写テキストのタプルを返す。
     force_regenerate=True の場合、キャッシュを無視して必ず再生成する。
     """
@@ -122,17 +119,14 @@ def generate_scenery_context(character_name: str, api_key: str, force_regenerate
     location_display_name = "（不明な場所）"
 
     try:
-        # 1. 現在の場所名を取得
-        current_location_name = utils.get_current_location(character_name)
+        current_location_name = utils.get_current_location(room_name)
         if not current_location_name:
-            current_location_name = "リビング" # デフォルト値
+            current_location_name = "リビング"
             location_display_name = "リビング"
 
-        # 2. 世界設定をパース
-        world_settings_path = get_world_settings_path(character_name)
+        world_settings_path = get_world_settings_path(room_name)
         world_data = utils.parse_world_file(world_settings_path)
 
-        # 3. 場所名に対応する定義(自由記述テキスト)を探す
         found_location = False
         for area, places in world_data.items():
             if current_location_name in places:
@@ -144,34 +138,28 @@ def generate_scenery_context(character_name: str, api_key: str, force_regenerate
         if not found_location:
             space_def = f"（場所「{current_location_name}」の定義が見つかりません）"
 
-        # 4. キャッシュロジック
         from utils import get_season, get_time_of_day, load_scenery_cache, save_scenery_cache
         import hashlib
-        # キャッシュキーは場所名と内容のハッシュ、季節、時間帯から生成
         content_hash = hashlib.md5(space_def.encode('utf-8')).hexdigest()[:8]
         now = datetime.now()
         cache_key = f"{current_location_name}_{content_hash}_{get_season(now.month)}_{get_time_of_day(now.hour)}"
 
         if not force_regenerate:
-            scenery_cache = load_scenery_cache(character_name)
+            scenery_cache = load_scenery_cache(room_name)
             if cache_key in scenery_cache:
                 cached_data = scenery_cache[cache_key]
                 print(f"--- [有効な情景キャッシュを発見] ({cache_key})。APIコールをスキップします ---")
-                # キャッシュから返す場合も、最新の表示名を返す
                 return location_display_name, space_def, cached_data["scenery_text"]
 
-        # 5. 情景生成
         if not space_def.startswith("（"):
             log_message = "情景を強制的に再生成します" if force_regenerate else "情景をAPIで生成します"
             print(f"--- {log_message} ({cache_key}) ---")
 
-            effective_settings = config_manager.get_effective_settings(character_name)
+            effective_settings = config_manager.get_effective_settings(room_name)
             llm_flash = get_configured_llm("gemini-2.5-flash", api_key, effective_settings)
             jst_now = datetime.now(pytz.timezone('Asia/Tokyo'))
 
-            # ▼▼▼【ここからが修正の核心】▼▼▼
-            # AIが誤解しないよう、明確な時間情報と役割を与える
-            from utils import get_time_of_day # get_time_of_dayをここでインポート
+            from utils import get_time_of_day
             time_str = jst_now.strftime('%H:%M')
             time_of_day_ja = {
                 "morning": "朝", "daytime": "昼",
@@ -187,9 +175,8 @@ def generate_scenery_context(character_name: str, api_key: str, force_regenerate
                 "- 人物やキャラクターの描写は絶対に含めないでください。\n"
                 "- 五感に訴えかける、精緻で写実的な描写を重視してください。"
             )
-            # ▲▲▲ 修正ここまで ▲▲▲
             scenery_text = llm_flash.invoke(scenery_prompt).content
-            save_scenery_cache(character_name, cache_key, location_display_name, scenery_text)
+            save_scenery_cache(room_name, cache_key, location_display_name, scenery_text)
         else:
             scenery_text = "（場所の定義がないため、情景を描写できません）"
 
@@ -203,12 +190,11 @@ def generate_scenery_context(character_name: str, api_key: str, force_regenerate
 
 
 def context_generator_node(state: AgentState):
-    character_name = state['character_name']
+    room_name = state['room_name']
     all_participants = state.get('all_participants', [])
 
-    # --- 共通のプロンプト部品を生成 ---
-    char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
-    core_memory_path = os.path.join("characters", character_name, "core_memory.txt")
+    char_prompt_path = os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")
+    core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
     character_prompt = ""
     if os.path.exists(char_prompt_path):
         with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
@@ -221,8 +207,8 @@ def context_generator_node(state: AgentState):
     notepad_section = ""
     if state.get("send_notepad", True):
         try:
-            from character_manager import get_character_files_paths
-            _, _, _, _, notepad_path = get_character_files_paths(character_name)
+            from room_manager import get_room_files_paths
+            _, _, _, _, notepad_path = get_room_files_paths(room_name)
             if notepad_path and os.path.exists(notepad_path):
                 with open(notepad_path, 'r', encoding='utf-8') as f:
                     content = f.read().strip()
@@ -234,36 +220,32 @@ def context_generator_node(state: AgentState):
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
 
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
-    # グループ会話中はツールプロンプトを無効化
     if len(all_participants) > 1:
         tools_list_str = "（グループ会話中はツールを使用できません）"
 
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
-    prompt_vars = {'character_name': character_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
+    prompt_vars = {'character_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
     formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
 
-    # --- 空間描写 ---
     if not state.get("send_scenery", True):
         final_system_prompt_text = (f"{formatted_core_prompt}\n\n---\n【現在の場所と情景】\n（空間描写は設定により無効化されています）\n---")
     else:
-        # stateから共有コンテキストを取得して使用する
         location_display_name = state.get("location_name", "（不明な場所）")
         scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
 
-        # 場所の定義（space_def）は、メインAI（魂の器）の現在地から取得する
-        soul_vessel_character = all_participants[0] if all_participants else character_name
+        soul_vessel_room = all_participants[0] if all_participants else room_name
         space_def = "（場所の定義を取得できませんでした）"
-        current_location_name = utils.get_current_location(soul_vessel_character)
+        current_location_name = utils.get_current_location(soul_vessel_room)
         if current_location_name:
-            world_settings_path = get_world_settings_path(soul_vessel_character)
+            world_settings_path = get_world_settings_path(soul_vessel_room)
             world_data = utils.parse_world_file(world_settings_path)
             for area, places in world_data.items():
                 if current_location_name in places:
                     space_def = places[current_location_name]
                     break
 
-        available_locations = get_location_list(character_name) # 移動先は自分自身のもの
+        available_locations = get_location_list(room_name)
         location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
 
         final_system_prompt_text = (

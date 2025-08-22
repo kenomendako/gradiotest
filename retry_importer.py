@@ -11,7 +11,7 @@ from typing import List, Dict
 # Nexus Arkの既存モジュールを正しくインポートする
 import config_manager
 import memos_manager
-import character_manager
+import room_manager
 
 # --- 定数 ---
 ERROR_LOG_FILE = "importer_errors.log"
@@ -51,7 +51,7 @@ def log_success(pair: List[Dict]):
 
 def main():
     parser = argparse.ArgumentParser(description="Nexus Arkのインポートエラーログから、失敗した会話ペアを対話的に再インポートするツール")
-    parser.add_argument("--character", required=True, help="対象のキャラクター名（MemOSの初期化に必要）")
+    parser.add_argument("--character", required=True, help="対象のルーム名（MemOSの初期化に必要）")
     args = parser.parse_args()
 
     print("--- エラーログからのリトライ処理を開始します ---")

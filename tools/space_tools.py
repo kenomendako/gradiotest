@@ -4,40 +4,39 @@ import os
 import re
 from typing import Optional
 from langchain_core.tools import tool
-from character_manager import get_world_settings_path
+from room_manager import get_world_settings_path
 import utils
+import constants
 
 @tool
-def set_current_location(location_id: str, character_name: str = None) -> str:
+def set_current_location(location_id: str, room_name: str = None) -> str:
     """
     AIの現在地を設定する。この世界のどこにいるかを宣言するための、唯一の公式な手段。
     location_id: "書斎"のような場所の正式名称（IDを兼ねる）を指定。
     """
-    if not location_id or not character_name:
-        return "【Error】Location ID and character name are required."
+    if not location_id or not room_name:
+        return "【Error】Location ID and room name are required."
     try:
-        base_path = os.path.join("characters", character_name)
+        base_path = os.path.join(constants.ROOMS_DIR, room_name)
         location_file_path = os.path.join(base_path, "current_location.txt")
         with open(location_file_path, "w", encoding="utf-8") as f:
             f.write(location_id.strip())
-        # ▼▼▼ この行を修正 ▼▼▼
         return f"Success: 現在地は '{location_id}' に設定されました。この移動タスクは完了です。次に、この結果をユーザーに報告してください。"
-        # ▲▲▲ 修正ここまで ▲▲▲
     except Exception as e:
         return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
 
 @tool
-def update_location_content(character_name: str, area_name: str, place_name: str, new_description: str) -> str:
+def update_location_content(room_name: str, area_name: str, place_name: str, new_description: str) -> str:
     """
     【更新専用】既存の場所の説明文（description）を、新しい内容で更新する。
     new_description: 場所の情景や設定を記述した、自然な文章。
     """
-    if not all([character_name, area_name, place_name, new_description is not None]):
-        return "【Error】character_name, area_name, place_name, and new_description are required."
+    if not all([room_name, area_name, place_name, new_description is not None]):
+        return "【Error】room_name, area_name, place_name, and new_description are required."
 
-    world_settings_path = get_world_settings_path(character_name)
+    world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path):
-        return f"【Error】Could not find world settings file for character '{character_name}'."
+        return f"【Error】Could not find world settings file for room '{room_name}'."
 
     try:
         with open(world_settings_path, "r", encoding="utf-8") as f:
@@ -52,8 +51,6 @@ def update_location_content(character_name: str, area_name: str, place_name: str
         if not match:
             return f"【Error】Place '{place_name}' in Area '{area_name}' not found."
 
-        # ▼▼▼ 修正の核心 ▼▼▼
-        # new_description を使って、セクション全体を再構築する
         updated_section = match.group(1) + new_description.strip()
         updated_content = full_content[:match.start()] + updated_section + full_content[match.end():]
 
@@ -65,17 +62,17 @@ def update_location_content(character_name: str, area_name: str, place_name: str
         return f"【Error】Failed to update location content: {e}"
 
 @tool
-def add_new_location(character_name: str, area_name: str, new_place_name: str, description: str) -> str:
+def add_new_location(room_name: str, area_name: str, new_place_name: str, description: str) -> str:
     """
     【新規作成専用】新しい場所を、その説明文と共に世界設定に追加する。
     description: 新しい場所の情景や設定を記述した、自然な文章。
     """
-    if not all([character_name, area_name, new_place_name, description is not None]):
-        return "【Error】character_name, area_name, new_place_name, and description are required."
+    if not all([room_name, area_name, new_place_name, description is not None]):
+        return "【Error】room_name, area_name, new_place_name, and description are required."
 
-    world_settings_path = get_world_settings_path(character_name)
+    world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path):
-        return f"【Error】Could not find world settings file for character '{character_name}'."
+        return f"【Error】Could not find world settings file for room '{room_name}'."
 
     try:
         with open(world_settings_path, "r+", encoding="utf-8") as f:
@@ -89,7 +86,6 @@ def add_new_location(character_name: str, area_name: str, new_place_name: str, d
             area_pattern = re.compile(rf"^##\s*{re.escape(area_name)}\s*$", re.MULTILINE)
             area_match = area_pattern.search(full_content)
 
-            # ▼▼▼ 修正の核心 ▼▼▼
             new_place_text = f"\n### {new_place_name}\n{description.strip()}\n"
 
             if area_match:
@@ -109,17 +105,17 @@ def add_new_location(character_name: str, area_name: str, new_place_name: str, d
         return f"【Error】Failed to add new location: {e}"
 
 @tool
-def read_world_settings(character_name: str) -> str:
+def read_world_settings(room_name: str) -> str:
     """
     現在の世界設定（world_settings.txt）の全てのエリアと場所の定義を、テキスト形式で読み取る。
     場所の編集や追加を行う前に、既存のエリア名や場所の名前、そして全体構造を確認するために使用する。
     """
-    if not character_name:
-        return "【Error】character_name is required."
+    if not room_name:
+        return "【Error】room_name is required."
 
-    world_settings_path = get_world_settings_path(character_name)
+    world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path):
-        return f"【Error】Could not find world settings file for character '{character_name}'."
+        return f"【Error】Could not find world settings file for room '{room_name}'."
 
     try:
         with open(world_settings_path, "r", encoding="utf-8") as f:

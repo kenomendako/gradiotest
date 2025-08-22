@@ -4,7 +4,7 @@
 import os
 
 # --- ディレクトリとファイル名 ---
-CHARACTERS_DIR = "characters"
+ROOMS_DIR = "characters"
 PROFILE_IMAGE_FILENAME = "profile.png"
 MEMORY_FILENAME = "memory.json"
 NOTEPAD_FILENAME = "notepad.md"

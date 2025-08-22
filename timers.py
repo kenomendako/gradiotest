@@ -18,9 +18,9 @@ except ImportError:
 # --- ここまで ---
 
 class UnifiedTimer:
-    def __init__(self, timer_type, character_name, api_key_name, **kwargs):
+    def __init__(self, timer_type, room_name, api_key_name, **kwargs):
         self.timer_type = timer_type
-        self.character_name = character_name
+        self.room_name = room_name
         self.api_key_name = api_key_name
 
         if self.timer_type == "通常タイマー":
@@ -57,27 +57,26 @@ class UnifiedTimer:
 
             print(f"--- [タイマー終了: {timer_id}] AIに応答生成を依頼します ---")
 
-            # ▼▼▼【ここからが修正の核心】▼▼▼
             synthesized_user_message = f"（システムタイマー：時間です。テーマ「{theme}」について、メッセージを伝えてください）"
 
-            log_f, _, _, _, _ = character_manager.get_character_files_paths(self.character_name)
+            log_f, _, _, _, _ = room_manager.get_room_files_paths(self.room_name)
             api_key = config_manager.GEMINI_API_KEYS.get(self.api_key_name)
 
             if not log_f or not api_key:
-                print(f"警告: タイマー ({timer_id}) のキャラクターファイルまたはAPIキーが見つからないため、処理をスキップします。")
+                print(f"警告: タイマー ({timer_id}) のルームファイルまたはAPIキーが見つからないため、処理をスキップします。")
                 return
 
             from agent.graph import generate_scenery_context
-            location_name, _, scenery_text = generate_scenery_context(self.character_name, api_key)
+            location_name, _, scenery_text = generate_scenery_context(self.room_name, api_key)
 
             agent_args_dict = {
-                "character_to_respond": self.character_name,
+                "character_to_respond": self.room_name,
                 "api_key_name": self.api_key_name,
                 "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
                 "debug_mode": False,
                 "history_log_path": log_f,
                 "user_prompt_parts": [{"type": "text", "text": synthesized_user_message}],
-                "soul_vessel_character": self.character_name,
+                "soul_vessel_character": self.room_name,
                 "active_participants": [],
                 "shared_location_name": location_name,
                 "shared_scenery_text": scenery_text,
@@ -91,20 +90,19 @@ class UnifiedTimer:
 
             raw_response = final_response_text
             response_text = utils.remove_thoughts_from_text(raw_response)
-            # ▲▲▲【修正ここまで】▲▲▲
 
             if response_text and not response_text.startswith("[エラー"):
                 message_for_log = f"（システムタイマー：{theme}）"
                 utils.save_message_to_log(log_f, "## システム(タイマー):", message_for_log)
-                utils.save_message_to_log(log_f, f"## {self.character_name}:", raw_response)
+                utils.save_message_to_log(log_f, f"## {self.room_name}:", raw_response)
 
-                alarm_manager.send_notification(self.character_name, response_text, {})
+                alarm_manager.send_notification(self.room_name, response_text, {})
 
                 if PLYER_AVAILABLE:
                     try:
                         display_message = (response_text[:250] + '...') if len(response_text) > 250 else response_text
                         notification.notify(
-                            title=f"{self.character_name} タイマー",
+                            title=f"{self.room_name} タイマー",
                             message=display_message,
                             app_name="Nexus Ark",
                             timeout=20

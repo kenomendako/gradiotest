@@ -10,8 +10,8 @@ import datetime
 import traceback
 import requests
 import config_manager
-import constants  # constantsをインポート
-import character_manager
+import constants
+import room_manager
 import gemini_api
 import utils
 
@@ -75,9 +75,9 @@ def _send_discord_notification(webhook_url, message_text):
     except Exception as e:
         print(f"Discord/Slack形式のWebhook通知送信エラー: {e}")
 
-def _send_pushover_notification(app_token, user_key, message_text, char_name, alarm_config):
+def _send_pushover_notification(app_token, user_key, message_text, room_name, alarm_config):
     if not app_token or not user_key: return
-    payload = {"token": app_token, "user": user_key, "title": f"{char_name} ⏰", "message": message_text}
+    payload = {"token": app_token, "user": user_key, "title": f"{room_name} ⏰", "message": message_text}
     if alarm_config.get("is_emergency", False):
         print("  - 緊急通知として送信します。")
         payload["priority"] = 2; payload["retry"] = 60; payload["expire"] = 3600
@@ -88,60 +88,52 @@ def _send_pushover_notification(app_token, user_key, message_text, char_name, al
     except Exception as e:
         print(f"Pushover通知送信エラー: {e}")
 
-def send_notification(char_name, message_text, alarm_config):
+def send_notification(room_name, message_text, alarm_config):
     """設定に応じて、適切な通知サービスに通知を送信する"""
-    # config_managerから現在選択されているサービスを取得
     service = config_manager.NOTIFICATION_SERVICE_GLOBAL.lower()
 
     if service == "pushover":
         print(f"--- 通知サービス: Pushover を選択 ---")
-        # Pushoverのグローバル設定変数を参照するように修正
         _send_pushover_notification(
             config_manager.PUSHOVER_CONFIG.get("app_token"),
             config_manager.PUSHOVER_CONFIG.get("user_key"),
             message_text,
-            char_name,
+            room_name,
             alarm_config
         )
     else: # デフォルトはDiscord
         print(f"--- 通知サービス: Discord を選択 ---")
-        notification_message = f"⏰  {char_name}\n\n{message_text}\n"
-        # Discordのグローバル設定変数を参照するように修正
+        notification_message = f"⏰  {room_name}\n\n{message_text}\n"
         _send_discord_notification(config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL, notification_message)
 
 def trigger_alarm(alarm_config, current_api_key_name):
-    char_name = alarm_config.get("character")
+    room_name = alarm_config.get("character")
     alarm_id = alarm_config.get("id")
     context_to_use = alarm_config.get("context_memo", "時間になりました")
 
-    print(f"⏰ アラーム発火. ID: {alarm_id}, キャラクター: {char_name}, コンテキスト: '{context_to_use}'")
+    print(f"⏰ アラーム発火. ID: {alarm_id}, ルーム: {room_name}, コンテキスト: '{context_to_use}'")
 
-    log_f, _, _, _, _ = character_manager.get_character_files_paths(char_name)
+    log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
     api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name)
 
     if not log_f or not api_key:
-        print(f"警告: アラーム (ID:{alarm_id}) のキャラクターファイルまたはAPIキーが見つからないため、処理をスキップします。")
+        print(f"警告: アラーム (ID:{alarm_id}) のルームファイルまたはAPIキーが見つからないため、処理をスキップします。")
         return
 
-    # ▼▼▼【ここからが修正の核心】▼▼▼
-    # AIに渡すための、内部的なユーザーメッセージを合成
     synthesized_user_message = f"（システムアラーム：時間です。コンテキスト「{context_to_use}」について、アラームメッセージを伝えてください）"
-
-    # ログに記録するための、シンプルなシステムメッセージ
     message_for_log = f"（システムアラーム：{alarm_config.get('time', '指定時刻')}）"
 
-    # 契約書（辞書）を作成
     from agent.graph import generate_scenery_context
-    location_name, _, scenery_text = generate_scenery_context(char_name, api_key)
+    location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
 
     agent_args_dict = {
-        "character_to_respond": char_name,
+        "character_to_respond": room_name,
         "api_key_name": current_api_key_name,
         "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
         "debug_mode": False,
         "history_log_path": log_f,
         "user_prompt_parts": [{"type": "text", "text": synthesized_user_message}],
-        "soul_vessel_character": char_name,
+        "soul_vessel_character": room_name,
         "active_participants": [],
         "shared_location_name": location_name,
         "shared_scenery_text": scenery_text,
