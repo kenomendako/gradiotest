@@ -93,12 +93,12 @@ try:
             room_manager.ensure_room_files("Default")
             room_list_on_startup = ["Default"]
 
-        effective_initial_room = config_manager.initial_character_global
+        effective_initial_room = config_manager.initial_room_global
         if not effective_initial_room or effective_initial_room not in room_list_on_startup:
             new_room = room_list_on_startup[0] if room_list_on_startup else "Default"
             print(f"警告: 最後に使用したルーム '{effective_initial_room}' が見つからないか無効です。'{new_room}' で起動します。")
             effective_initial_room = new_room
-            config_manager.save_config("last_character", new_room)
+            config_manager.save_config("last_room", new_room)
             if new_room == "Default" and "Default" not in room_list_on_startup:
                 room_manager.ensure_room_files("Default")
                 room_list_on_startup = ["Default"]
@@ -191,34 +191,34 @@ try:
                                             save_tavily_key_button = gr.Button("Tavilyキーを保存", variant="primary")
                                         gr.Warning("APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
                                 with gr.TabItem("個別設定"):
-                                    char_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
-                                    char_model_dropdown = gr.Dropdown(label="使用するAIモデル（個別）", interactive=True)
+                                    room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
+                                    room_model_dropdown = gr.Dropdown(label="使用するAIモデル（個別）", interactive=True)
                                     with gr.Accordion("🎤 音声設定", open=False):
-                                        char_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
-                                        char_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
+                                        room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
+                                        room_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
                                         with gr.Row():
-                                            char_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
-                                            char_preview_voice_button = gr.Button("試聴", scale=1)
+                                            room_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
+                                            room_preview_voice_button = gr.Button("試聴", scale=1)
                                     with gr.Accordion("🔬 AI生成パラメータ調整", open=False):
                                         gr.Markdown("このルームの応答の「創造性」と「安全性」を調整します。")
-                                        char_temperature_slider = gr.Slider(minimum=0.0, maximum=2.0, step=0.05, label="Temperature", info="値が高いほど、AIの応答がより創造的で多様になります。(推奨: 0.7 ~ 0.9)")
-                                        char_top_p_slider = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, label="Top-P", info="値が低いほど、ありふれた単語が選ばれやすくなります。(推奨: 0.95)")
+                                        room_temperature_slider = gr.Slider(minimum=0.0, maximum=2.0, step=0.05, label="Temperature", info="値が高いほど、AIの応答がより創造的で多様になります。(推奨: 0.7 ~ 0.9)")
+                                        room_top_p_slider = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, label="Top-P", info="値が低いほど、ありふれた単語が選ばれやすくなります。(推奨: 0.95)")
                                         safety_choices = ["ブロックしない", "低リスク以上をブロック", "中リスク以上をブロック", "高リスクのみブロック"]
                                         with gr.Row():
-                                            char_safety_harassment_dropdown = gr.Dropdown(choices=safety_choices, label="嫌がらせコンテンツ", interactive=True)
-                                            char_safety_hate_speech_dropdown = gr.Dropdown(choices=safety_choices, label="ヘイトスピーチ", interactive=True)
+                                            room_safety_harassment_dropdown = gr.Dropdown(choices=safety_choices, label="嫌がらせコンテンツ", interactive=True)
+                                            room_safety_hate_speech_dropdown = gr.Dropdown(choices=safety_choices, label="ヘイトスピーチ", interactive=True)
                                         with gr.Row():
-                                            char_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
-                                            char_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
+                                            room_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
+                                            room_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
                                     gr.Markdown("#### APIコンテキスト設定")
-                                    char_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
-                                    char_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
-                                    char_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
-                                    char_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
-                                    char_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
-                                    char_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
+                                    room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
+                                    room_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
+                                    room_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
+                                    room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
+                                    room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
+                                    room_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
                                     gr.Markdown("---")
-                                    save_char_settings_button = gr.Button("このルームの設定を保存", variant="primary")
+                                    save_room_settings_button = gr.Button("このルームの設定を保存", variant="primary")
 
                         with gr.Accordion("🧑‍🤝‍🧑 グループ会話", open=False):
                             session_status_display = gr.Markdown("現在、1対1の会話モードです。")
@@ -350,25 +350,25 @@ try:
                 clear_debug_console_button = gr.Button("コンソールをクリア", variant="secondary")
 
         # --- イベントハンドラ定義 ---
-        context_checkboxes = [char_add_timestamp_checkbox, char_send_thoughts_checkbox, char_send_notepad_checkbox, char_use_common_prompt_checkbox, char_send_core_memory_checkbox, char_send_scenery_checkbox]
+        context_checkboxes = [room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox, room_use_common_prompt_checkbox, room_send_core_memory_checkbox, room_send_scenery_checkbox]
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
         initial_load_chat_outputs = [
             current_room_name, chatbot_display, current_log_map_state, chat_input_textbox, profile_image_display,
             memory_json_editor, notepad_editor, system_prompt_editor,
             alarm_room_dropdown, timer_room_dropdown, location_dropdown,
-            current_location_display, current_scenery_display, char_model_dropdown, char_voice_dropdown,
-            char_voice_style_prompt_textbox,
-            char_temperature_slider, char_top_p_slider,
-            char_safety_harassment_dropdown, char_safety_hate_speech_dropdown,
-            char_safety_sexually_explicit_dropdown, char_safety_dangerous_content_dropdown
-        ] + context_checkboxes + [char_settings_info, scenery_image_display]
+            current_location_display, current_scenery_display, room_model_dropdown, room_voice_dropdown,
+            room_voice_style_prompt_textbox,
+            room_temperature_slider, room_top_p_slider,
+            room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
+            room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
+        ] + context_checkboxes + [room_settings_info, scenery_image_display]
         initial_load_outputs = [alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown] + initial_load_chat_outputs
 
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
-        char_change_world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
+        room_change_world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
 
         start_session_button.click(
             fn=ui_handlers.handle_start_session,
@@ -409,14 +409,14 @@ try:
             # ▲▲▲【修正ここまで】▲▲▲
         )
 
-        all_char_change_outputs = initial_load_chat_outputs + char_change_world_builder_outputs + [
+        all_room_change_outputs = initial_load_chat_outputs + room_change_world_builder_outputs + [
             active_participants_state, session_status_display, participant_checkbox_group
         ]
 
         room_dropdown.change(
             fn=ui_handlers.handle_room_change_for_all_tabs,
             inputs=[room_dropdown, api_key_dropdown],
-            outputs=all_char_change_outputs
+            outputs=all_room_change_outputs
         ).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
@@ -445,6 +445,42 @@ try:
             ]
         )
 
+        manage_room_selector.change(
+            fn=ui_handlers.handle_manage_room_select,
+            inputs=[manage_room_selector],
+            outputs=[
+                manage_room_details,
+                manage_room_name,
+                manage_user_display_name,
+                manage_room_description,
+                manage_folder_name_display
+            ]
+        )
+
+        save_room_config_button.click(
+            fn=ui_handlers.handle_save_room_config,
+            inputs=[
+                manage_folder_name_display,
+                manage_room_name,
+                manage_user_display_name,
+                manage_room_description
+            ],
+            outputs=[room_dropdown, manage_room_selector]
+        )
+
+        delete_room_button.click(
+            fn=ui_handlers.handle_delete_room,
+            inputs=[manage_folder_name_display],
+            outputs=[
+                room_dropdown,
+                manage_room_selector,
+                alarm_room_dropdown,
+                timer_room_dropdown,
+                manage_room_details
+            ],
+            js="() => confirm('本当にこのルームを削除しますか？')"
+        )
+
         chat_submit_outputs = [
             chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button,
             token_count_display, current_location_display, current_scenery_display,
@@ -453,16 +489,16 @@ try:
         ]
 
         gen_settings_inputs = [
-            char_temperature_slider, char_top_p_slider,
-            char_safety_harassment_dropdown, char_safety_hate_speech_dropdown,
-            char_safety_sexually_explicit_dropdown, char_safety_dangerous_content_dropdown
+            room_temperature_slider, room_top_p_slider,
+            room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
+            room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
         ]
-        save_char_settings_button.click(
-            fn=ui_handlers.handle_save_char_settings,
-            inputs=[current_room_name, char_model_dropdown, char_voice_dropdown, char_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes,
+        save_room_settings_button.click(
+            fn=ui_handlers.handle_save_room_settings,
+            inputs=[current_room_name, room_model_dropdown, room_voice_dropdown, room_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes,
             outputs=None
         )
-        char_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[char_voice_dropdown, char_voice_style_prompt_textbox, char_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, char_preview_voice_button])
+        room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
         for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
@@ -475,7 +511,7 @@ try:
 
         refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
         location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
-        play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_room_name, current_api_key_name_state], outputs=[audio_player, play_audio_button, char_preview_voice_button])
+        play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_room_name, current_api_key_name_state], outputs=[audio_player, play_audio_button, room_preview_voice_button])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
 
         save_prompt_button.click(fn=ui_handlers.handle_save_system_prompt, inputs=[current_room_name, system_prompt_editor], outputs=None)
@@ -535,7 +571,7 @@ try:
             ]
         )
         timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
-        timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_char_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
+        timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_room_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
 
         notification_service_radio.change(fn=ui_handlers.handle_notification_service_change, inputs=[notification_service_radio], outputs=[])
         save_gemini_key_button.click(fn=ui_handlers.handle_save_gemini_key, inputs=[gemini_key_name_input, gemini_key_value_input], outputs=[api_key_dropdown])
@@ -549,7 +585,7 @@ try:
         # 1. memos_import_buttonのクリックイベントを 'import_event' という変数に格納する
         import_event = memos_import_button.click(
             fn=ui_handlers.handle_memos_batch_import,
-            inputs=[current_character_name, debug_console_state],
+            inputs=[current_room_name, debug_console_state],
             outputs=[
                 memos_import_button,
                 importer_stop_button,
@@ -575,13 +611,13 @@ try:
         )
 
         # ▲▲▲ ここまで ▲▲▲
-        core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
-        generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_character_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
+        core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_room_name, current_api_key_name_state], outputs=None)
+        generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_room_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
 
         world_builder_tab.select(
             fn=ui_handlers.handle_world_builder_load,
-            inputs=[current_character_name],
+            inputs=[current_room_name],
             outputs=[world_data_state, area_selector, world_settings_raw_editor]
         )
         area_selector.change(
@@ -596,12 +632,12 @@ try:
         )
         save_button.click(
             fn=ui_handlers.handle_wb_save,
-            inputs=[current_character_name, world_data_state, area_selector, place_selector, content_editor],
+            inputs=[current_room_name, world_data_state, area_selector, place_selector, content_editor],
             outputs=[world_data_state, world_settings_raw_editor]
         )
         delete_place_button.click(
             fn=ui_handlers.handle_wb_delete_place,
-            inputs=[current_character_name, world_data_state, area_selector, place_selector],
+            inputs=[current_room_name, world_data_state, area_selector, place_selector],
             outputs=[world_data_state, area_selector, place_selector, content_editor, save_button_row, delete_place_button, world_settings_raw_editor]
         )
         add_area_button.click(
@@ -615,7 +651,7 @@ try:
         )
         confirm_add_button.click(
             fn=ui_handlers.handle_wb_confirm_add,
-            inputs=[current_character_name, world_data_state, area_selector, new_item_type, new_item_name],
+            inputs=[current_room_name, world_data_state, area_selector, new_item_type, new_item_name],
             outputs=[world_data_state, area_selector, place_selector, new_item_form, new_item_name, world_settings_raw_editor]
         )
         cancel_add_button.click(
@@ -624,12 +660,12 @@ try:
         )
         save_raw_button.click(
             fn=ui_handlers.handle_save_world_settings_raw,
-            inputs=[current_character_name, world_settings_raw_editor],
+            inputs=[current_room_name, world_settings_raw_editor],
             outputs=[world_data_state, area_selector, place_selector]
         )
         reload_raw_button.click(
             fn=ui_handlers.handle_reload_world_settings_raw,
-            inputs=[current_character_name],
+            inputs=[current_room_name],
             outputs=[world_settings_raw_editor]
         )
 

@@ -414,10 +414,10 @@ def extract_raw_text_from_html(html_content: Union[str, tuple, None]) -> str:
 
 
 # ▼▼▼ ここからが追加箇所（ファイルの一番下） ▼▼▼
-def load_scenery_cache(character_name: str) -> dict:
-    """指定されたキャラクターの情景キャッシュファイルを安全に読み込む。"""
-    if not character_name: return {}
-    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "cache", "scenery.json")
+def load_scenery_cache(room_name: str) -> dict:
+    """指定されたルームの情景キャッシュファイルを安全に読み込む。"""
+    if not room_name: return {}
+    cache_path = os.path.join(constants.ROOMS_DIR, room_name, "cache", "scenery.json")
     if os.path.exists(cache_path):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
@@ -428,12 +428,12 @@ def load_scenery_cache(character_name: str) -> dict:
         except (json.JSONDecodeError, IOError): return {}
     return {}
 
-def save_scenery_cache(character_name: str, cache_key: str, location_name: str, scenery_text: str):
-    """指定されたキャラクターの情景キャッシュファイルに、新しいキーでデータを保存する。"""
-    if not character_name or not cache_key: return
-    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "cache", "scenery.json")
+def save_scenery_cache(room_name: str, cache_key: str, location_name: str, scenery_text: str):
+    """指定されたルームの情景キャッシュファイルに、新しいキーでデータを保存する。"""
+    if not room_name or not cache_key: return
+    cache_path = os.path.join(constants.ROOMS_DIR, room_name, "cache", "scenery.json")
     try:
-        existing_cache = load_scenery_cache(character_name)
+        existing_cache = load_scenery_cache(room_name)
         data_to_save = {
             "location_name": location_name,
             "scenery_text": scenery_text,
@@ -505,14 +505,14 @@ def get_time_of_day(hour: int) -> str:
     if 17 <= hour < 21: return "evening"
     return "night"
 
-def find_scenery_image(character_name: str, location_id: str) -> Optional[str]:
+def find_scenery_image(room_name: str, location_id: str) -> Optional[str]:
     """
     指定された場所・季節・時間帯に一致する情景画像を検索する。
     """
-    if not character_name or not location_id:
+    if not room_name or not location_id:
         return None
 
-    image_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
+    image_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
     if not os.path.isdir(image_dir):
         return None
 
@@ -824,12 +824,12 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_name:
     return lc_messages
 
 def is_character_name(name: str) -> bool:
-    """指定された名前が有効なキャラクター（ディレクトリ）として存在するかどうかを判定する。"""
+    """指定された名前が有効なルーム（ディレクトリ）として存在するかどうかを判定する。"""
     if not name or not isinstance(name, str) or not name.strip():
         return False
     # 安全のため、ディレクトリトラバーサルを防ぐ
     if ".." in name or "/" in name or "\\" in name:
         return False
 
-    char_dir = os.path.join(constants.CHARACTERS_DIR, name)
-    return os.path.isdir(char_dir)
+    room_dir = os.path.join(constants.ROOMS_DIR, name)
+    return os.path.isdir(room_dir)

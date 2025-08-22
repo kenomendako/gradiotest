@@ -38,7 +38,7 @@ def _parse_flexible_date(date_str: str) -> datetime.date:
 def set_personal_alarm(
     time: str,
     context_memo: str,
-    character_name: str,
+    room_name: str,
     date: str = None,
     days: List[str] = None,
     is_emergency: bool = False
@@ -47,7 +47,7 @@ def set_personal_alarm(
     ユーザーとの対話の中で、未来の特定の日時に送信するためのアラームを設定する。
     time: "HH:MM"形式の時刻。
     context_memo: アラームの目的や背景を要約した短いメモ。
-    character_name: アラームを設定するキャラクター名。
+    room_name: アラームを設定するルーム名。
     date: "YYYY-MM-DD"や"tomorrow"など、アラームを設定する単発の日付。
     days: ["Monday", "Friday"]など、アラームを繰り返す曜日のリスト。
     is_emergency: Trueの場合、緊急通知として送信する。
@@ -59,7 +59,7 @@ def set_personal_alarm(
         new_alarm = {
             "id": str(uuid.uuid4()),
             "time": time_str,
-            "character": character_name,
+            "character": room_name,
             "context_memo": context_memo,
             "enabled": True,
             "is_emergency": is_emergency

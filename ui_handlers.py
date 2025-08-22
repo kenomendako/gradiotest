@@ -156,10 +156,25 @@ def handle_save_room_settings(
         "use_common_prompt": bool(use_common_prompt), "send_core_memory": bool(send_core_memory), "send_scenery": bool(send_scenery),
     }
     try:
-        room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "character_config.json")
+        # 正しくは room_config.json を参照する
+        room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
         config = {}
-        if os.path.exists(room_config_path) and os.path.getsize(room_config_path) > 0:
-            with open(room_config_path, "r", encoding="utf-8") as f: config = json.load(f)
+        # ファイルが存在しない場合も考慮（ensure_room_filesで作成されるはずだが念のため）
+        if os.path.exists(room_config_path):
+             if os.path.getsize(room_config_path) > 0:
+                with open(room_config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+        else:
+            # 万が一ファイルがない場合は、ここで基本的な構造を作成する
+            gr.Warning(f"設定ファイルが見つからなかったため、新しく作成します: {room_config_path}")
+            config = {
+                "version": 1,
+                "room_name": room_name,
+                "user_display_name": "ユーザー",
+                "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "description": "自動生成された設定ファイルです"
+            }
+
         if "override_settings" not in config: config["override_settings"] = {}
         config["override_settings"].update(new_settings)
         config["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -171,7 +186,7 @@ def handle_save_room_settings(
 def handle_context_settings_change(room_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
     if not room_name or not api_key_name: return "入力トークン数: -"
     return gemini_api.count_input_tokens(
-        character_name=room_name, api_key_name=api_key_name, parts=[],
+        room_name=room_name, api_key_name=api_key_name, parts=[],
         api_history_limit=api_history_limit,
         add_timestamp=add_timestamp, send_thoughts=send_thoughts, send_notepad=send_notepad,
         use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
@@ -197,7 +212,7 @@ def update_token_count_on_input(room_name: str, api_key_name: str, api_history_l
                 parts_for_api.append(f"[ファイル処理エラー: {os.path.basename(file_obj.name)}]")
 
     kwargs = {
-        "character_name": room_name, "api_key_name": api_key_name,
+        "room_name": room_name, "api_key_name": api_key_name,
         "api_history_limit": api_history_limit, "parts": parts_for_api,
         "add_timestamp": add_timestamp, "send_thoughts": send_thoughts,
         "send_notepad": send_notepad, "use_common_prompt": use_common_prompt,
@@ -273,13 +288,13 @@ def handle_message_submission(*args: Any):
         user_prompt_parts.extend(processed_file_list)
 
         agent_args_dict = {
-            "character_to_respond": room_to_respond,
+            "room_to_respond": room_to_respond,
             "api_key_name": current_api_key_name_state,
             "api_history_limit": api_history_limit_state,
             "debug_mode": debug_mode_state,
             "history_log_path": main_log_f,
             "user_prompt_parts": user_prompt_parts,
-            "soul_vessel_character": soul_vessel_room,
+            "soul_vessel_room": soul_vessel_room,
             "active_participants": active_participants,
             "shared_location_name": shared_location_name,
             "shared_scenery_text": shared_scenery_text,
@@ -319,7 +334,7 @@ def handle_message_submission(*args: Any):
 
     token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room)
     token_count_text = gemini_api.count_input_tokens(
-        character_name=soul_vessel_room, api_key_name=current_api_key_name_state,
+        room_name=soul_vessel_room, api_key_name=current_api_key_name_state,
         api_history_limit=api_history_limit_state, parts=[], **token_calc_kwargs
     )
 
@@ -398,7 +413,7 @@ def handle_location_change(room_name: str, selected_value: str, api_key_name: st
         gr.Warning("ルームと移動先の場所を選択してください。")
         return current_loc_name, scenery_text, current_image_path
 
-    result = set_current_location.func(location_id=location_id, character_name=room_name)
+    result = set_current_location.func(location_id=location_id, room_name=room_name)
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
         return current_loc_name, scenery_text, current_image_path
@@ -552,11 +567,17 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
         gr.Error(f"設定の保存中にエラーが発生しました: {e}")
         return gr.update(), gr.update()
 
-def handle_delete_room(folder_name_to_delete: str):
+def handle_delete_room(folder_name_to_delete: str, confirmed: bool):
     """管理タブの「このルームを削除」ボタンの処理"""
+    # JSのconfirmで「いいえ」が押された場合
+    if not confirmed:
+        # 何もせず、現在の値を維持する
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=True)
+
+    # 削除対象が選択されていない場合
     if not folder_name_to_delete:
         gr.Warning("削除するルームが選択されていません。")
-        return gr.update(), gr.update(), gr.update(), gr.update(visible=False)
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False)
 
     try:
         room_path_to_delete = os.path.join(constants.ROOMS_DIR, folder_name_to_delete)
@@ -568,11 +589,14 @@ def handle_delete_room(folder_name_to_delete: str):
         gr.Info(f"ルーム「{folder_name_to_delete}」を完全に削除しました。")
 
         new_room_list = room_manager.get_room_list()
+        # メインのドロップダウンは、リストが空でなければ最初のアイテムを選択させる
+        new_main_room = new_room_list[0] if new_room_list else None
 
         return (
-            gr.update(choices=new_room_list, value=None), # メインのドロップダウン
+            gr.update(choices=new_room_list, value=new_main_room), # メインのドロップダウン
             gr.update(choices=new_room_list, value=None), # 管理タブのドロップダウン
-            gr.update(choices=new_room_list, value=None), # アラームのドロップダウン
+            gr.update(choices=new_room_list, value=new_main_room), # アラームのドロップダウン
+            gr.update(choices=new_room_list, value=new_main_room), # タイマーのドロップダウン
             gr.update(visible=False) # 管理フォームを非表示に
         )
 
@@ -793,7 +817,7 @@ def handle_add_or_update_alarm(editing_id, h, m, room, context, days_ja, is_emer
     else:
         gr.Info(f"新しいアラームを追加しました。")
 
-    set_personal_alarm.func(time=f"{h}:{m}", context_memo=context_memo, character_name=room, days=days_en, date=None, is_emergency=is_emergency)
+    set_personal_alarm.func(time=f"{h}:{m}", context_memo=context_memo, room_name=room, days=days_en, date=None, is_emergency=is_emergency)
 
     new_df_with_ids = render_alarms_as_dataframe()
     all_rooms = room_manager.get_room_list()
@@ -815,7 +839,7 @@ def handle_timer_submission(timer_type, duration, work, brk, cycles, room, work_
             result_message = timer_tools.set_timer.func(
                 duration_minutes=int(duration),
                 theme=normal_theme or "時間になりました！",
-                character_name=room
+                room_name=room
             )
             gr.Info(f"通常タイマーを設定しました。")
         elif timer_type == "ポモドーロタイマー":
@@ -825,7 +849,7 @@ def handle_timer_submission(timer_type, duration, work, brk, cycles, room, work_
                 cycles=int(cycles),
                 work_theme=work_theme or "作業終了の時間です。",
                 break_theme=brk_theme or "休憩終了の時間です。",
-                character_name=room
+                room_name=room
             )
             gr.Info(f"ポモドーロタイマーを設定しました。")
         else:
@@ -867,7 +891,7 @@ def handle_memos_batch_import(room_name: str, console_content: str):
             return
 
         python_executable = sys.executable or "python"
-        command = [python_executable, "batch_importer.py", "--character", room_name, "--logs-dir", archive_dir]
+        command = [python_executable, "batch_importer.py", "--room", room_name, "--logs-dir", archive_dir]
 
         process = subprocess.Popen(
             command,
@@ -941,7 +965,7 @@ def _run_core_memory_update(room_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Room: {room_name}) ---")
     try:
         from tools import memory_tools
-        result = memory_tools.summarize_and_save_core_memory.func(character_name=room_name, api_key=api_key)
+        result = memory_tools.summarize_and_save_core_memory.func(room_name=room_name, api_key=api_key)
         print(f"--- [スレッド終了] コアメモリ更新処理完了 --- 結果: {result}")
     except Exception: print(f"--- [スレッドエラー] コアメモリ更新中に予期せぬエラー ---"); traceback.print_exc()
 
@@ -1150,7 +1174,7 @@ Generate ONE final, masterful prompt for an image generation AI based on a stric
         return existing_image_path
 
     gr.Info(f"「{style_choice}」で画像を生成します...")
-    result = generate_image_tool_func.func(prompt=final_prompt, character_name=room_name, api_key=api_key)
+    result = generate_image_tool_func.func(prompt=final_prompt, room_name=room_name, api_key=api_key)
 
     if "Generated Image:" in result:
         generated_path = result.replace("[Generated Image: ", "").replace("]", "").strip()
@@ -1551,13 +1575,13 @@ def handle_rerun_button_click(*args: Any):
            None, gr.update(visible=False))
 
     agent_args_dict = {
-        "character_to_respond": room_name,
+        "room_to_respond": room_name,
         "api_key_name": api_key_name,
         "api_history_limit": api_history_limit,
         "debug_mode": debug_mode,
         "history_log_path": log_f,
         "user_prompt_parts": user_prompt_parts_for_api,
-        "soul_vessel_character": room_name,
+        "soul_vessel_room": room_name,
         "active_participants": active_participants,
         "shared_location_name": shared_location_name,
         "shared_scenery_text": shared_scenery_text,
@@ -1586,7 +1610,7 @@ def handle_rerun_button_click(*args: Any):
 
     token_calc_kwargs = config_manager.get_effective_settings(room_name)
     token_count_text = gemini_api.count_input_tokens(
-        character_name=room_name, api_key_name=api_key_name,
+        room_name=room_name, api_key_name=api_key_name,
         api_history_limit=api_history_limit, parts=[], **token_calc_kwargs
     )
 
@@ -1614,14 +1638,6 @@ def handle_rerun_button_click(*args: Any):
             print(f"--- 自動記憶処理中にエラーが発生しました (再生成): {e} ---")
             traceback.print_exc()
             gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
-
-def _run_core_memory_update(room_name: str, api_key: str):
-    print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Room: {room_name}) ---")
-    try:
-        from tools import memory_tools
-        result = memory_tools.summarize_and_save_core_memory.func(character_name=room_name, api_key=api_key)
-        print(f"--- [スレッド終了] コアメモリ更新処理完了 --- 結果: {result}")
-    except Exception: print(f"--- [スレッドエラー] コアメモリ更新中に予期せぬエラー ---"); traceback.print_exc()
 
 def handle_core_memory_update_click(room_name: str, api_key_name: str):
     if not room_name or not api_key_name: gr.Warning("ルームとAPIキーを選択してください。"); return

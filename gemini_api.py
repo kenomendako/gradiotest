@@ -83,20 +83,20 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
     # --- 引数を辞書から展開 ---
-    character_to_respond = agent_args["character_to_respond"]
+    room_to_respond = agent_args["room_to_respond"]
     api_key_name = agent_args["api_key_name"]
     api_history_limit = agent_args["api_history_limit"]
     debug_mode = agent_args["debug_mode"]
     history_log_path = agent_args["history_log_path"]
     user_prompt_parts = agent_args["user_prompt_parts"]
-    soul_vessel_room = agent_args["soul_vessel_character"] # `soul_vessel_character` is the key
+    soul_vessel_room = agent_args["soul_vessel_room"]
     active_participants = agent_args["active_participants"]
     shared_location_name = agent_args["shared_location_name"]
     shared_scenery_text = agent_args["shared_scenery_text"]
 
     all_participants_list = [soul_vessel_room] + active_participants
     effective_settings = config_manager.get_effective_settings(
-        character_to_respond,
+        room_to_respond,
         use_common_prompt=(len(all_participants_list) <= 1)
     )
     model_name = effective_settings["model_name"]
@@ -108,14 +108,14 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
 
     # --- ハイブリッド履歴構築ロジック ---
     messages = []
-    responding_ai_log_f, _, _, _, _ = room_manager.get_room_files_paths(character_to_respond)
+    responding_ai_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
-        own_history_raw = utils.load_chat_log(responding_ai_log_f, character_to_respond)
-        messages = utils.convert_raw_log_to_lc_messages(own_history_raw, character_to_respond)
+        own_history_raw = utils.load_chat_log(responding_ai_log_f, room_to_respond)
+        messages = utils.convert_raw_log_to_lc_messages(own_history_raw, room_to_respond)
 
     if history_log_path and os.path.exists(history_log_path):
         snapshot_history_raw = utils.load_chat_log(history_log_path, soul_vessel_room)
-        snapshot_messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, character_to_respond)
+        snapshot_messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond)
         if snapshot_messages and messages:
             first_snapshot_user_message_content = snapshot_messages[0].content if isinstance(snapshot_messages[0], HumanMessage) else ''
             if first_snapshot_user_message_content:
@@ -134,7 +134,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         messages = messages[-(limit * 2):]
 
     initial_state = {
-        "messages": messages, "room_name": character_to_respond,
+        "messages": messages, "room_name": room_to_respond,
         "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
         "model_name": model_name, "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True), "send_notepad": effective_settings.get("send_notepad", True),
@@ -202,7 +202,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
             return
 
 def count_input_tokens(**kwargs):
-    room_name = kwargs.get("character_name") # Keep key as "character_name" for compatibility
+    room_name = kwargs.get("room_name")
     api_key_name = kwargs.get("api_key_name")
     api_history_limit = kwargs.get("api_history_limit")
     parts = kwargs.get("parts", [])
@@ -212,7 +212,10 @@ def count_input_tokens(**kwargs):
 
     try:
         kwargs_for_settings = kwargs.copy()
-        kwargs_for_settings.pop("character_name", None)
+        kwargs_for_settings.pop("room_name", None)
+        kwargs_for_settings.pop("api_key_name", None)
+        kwargs_for_settings.pop("api_history_limit", None)
+        kwargs_for_settings.pop("parts", None)
 
         effective_settings = config_manager.get_effective_settings(room_name, **kwargs_for_settings)
 
@@ -222,10 +225,10 @@ def count_input_tokens(**kwargs):
         # --- システムプロンプトの構築 ---
         from agent.prompts import CORE_PROMPT_TEMPLATE
         from agent.graph import all_tools
-        char_prompt_path = os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")
+        room_prompt_path = os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")
         character_prompt = ""
-        if os.path.exists(char_prompt_path):
-            with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
+        if os.path.exists(room_prompt_path):
+            with open(room_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
         core_memory = ""
         if effective_settings.get("send_core_memory", True):
             core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
@@ -244,7 +247,7 @@ def count_input_tokens(**kwargs):
         class SafeDict(dict):
             def __missing__(self, key): return f'{{{key}}}'
         prompt_vars = {
-            'character_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory,
+            'room_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory,
             'notepad_section': notepad_section, 'tools_list': tools_list_str
         }
         system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
