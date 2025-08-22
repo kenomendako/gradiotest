@@ -60,7 +60,7 @@ def handle_initial_load():
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
-    room_dependent_outputs = handle_room_change(config_manager.initial_character_global, config_manager.initial_api_key_name_global)
+    room_dependent_outputs = handle_room_change(config_manager.initial_room_global, config_manager.initial_api_key_name_global)
     return (display_df, df_with_ids, feedback_text) + room_dependent_outputs
 
 def handle_room_change(room_name: str, api_key_name: str):
