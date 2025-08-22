@@ -353,7 +353,9 @@ try:
         context_checkboxes = [room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox, room_use_common_prompt_checkbox, room_send_core_memory_checkbox, room_send_scenery_checkbox]
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
         initial_load_chat_outputs = [
-            current_room_name, chatbot_display, current_log_map_state, chat_input_textbox, profile_image_display,
+            current_room_name, chatbot_display, current_log_map_state, chat_input_textbox,
+            file_upload_button, # ★★★ この行を追加 ★★★
+            profile_image_display,
             memory_json_editor, notepad_editor, system_prompt_editor,
             alarm_room_dropdown, timer_room_dropdown, location_dropdown,
             current_location_display, current_scenery_display, room_model_dropdown, room_voice_dropdown,

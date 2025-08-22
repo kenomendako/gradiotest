@@ -113,7 +113,9 @@ def handle_room_change(room_name: str, api_key_name: str):
     dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
 
     return (
-        room_name, chat_history, mapping_list, "", profile_image,
+        room_name, chat_history, mapping_list, "",
+        gr.update(value=None), # file_upload_buttonに対応
+        profile_image,
         memory_str, notepad_content, load_system_prompt_content(room_name),
         room_name, room_name,
         gr.update(choices=locations_for_ui, value=location_dd_val),
