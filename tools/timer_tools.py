@@ -7,15 +7,15 @@ import config_manager # api_key_nameなどを取得するためにインポー�
 from typing import Optional
 
 @tool
-def set_timer(duration_minutes: int, theme: str, character_name: str) -> str:
+def set_timer(duration_minutes: int, theme: str, room_name: str) -> str:
     """
     指定された分数後に、特定のテーマで通知するシンプルなタイマーを設定します。
     duration_minutes: タイマーの分数。
     theme: タイマー終了時にAIが話す内容のテーマ。
-    character_name: 通知するキャラクターの名前。
+    room_name: 通知するルームの名前。
     """
-    if not character_name:
-        return "エラー: 通知するキャラクターが指定されていません。"
+    if not room_name:
+        return "エラー: 通知するルームが指定されていません。"
     try:
         # 現在のAPIキー名などをconfig_managerから取得
         api_key_name = config_manager.initial_api_key_name_global
@@ -23,18 +23,18 @@ def set_timer(duration_minutes: int, theme: str, character_name: str) -> str:
         timer = UnifiedTimer(
             timer_type="通常タイマー",
             duration=float(duration_minutes),
-            character_name=character_name,
+            character_name=room_name,
             api_key_name=api_key_name,
             normal_timer_theme=theme
         )
         # バックグラウンドでタイマーを開始
         timer.start()
-        return f"Success: A timer has been set for {duration_minutes} minutes with the theme '{theme}'. You will be notified by {character_name}."
+        return f"Success: A timer has been set for {duration_minutes} minutes with the theme '{theme}'. You will be notified by {room_name}."
     except Exception as e:
         return f"Error: Failed to set the timer. Details: {e}"
 
 @tool
-def set_pomodoro_timer(work_minutes: int, break_minutes: int, cycles: int, work_theme: str, break_theme: str, character_name: str) -> str:
+def set_pomodoro_timer(work_minutes: int, break_minutes: int, cycles: int, work_theme: str, break_theme: str, room_name: str) -> str:
     """
     作業時間、休憩時間、サイクル数を指定してポモドーロタイマーを設定します。
     work_minutes: 1サイクルの作業時間（分）。
@@ -42,10 +42,10 @@ def set_pomodoro_timer(work_minutes: int, break_minutes: int, cycles: int, work_
     cycles: 作業と休憩を繰り返す回数。
     work_theme: 作業終了時にAIが話す内容のテーマ。
     break_theme: 休憩終了時にAIが話す内容のテーマ。
-    character_name: 通知するキャラクターの名前。
+    room_name: 通知するルームの名前。
     """
-    if not character_name:
-        return "エラー: 通知するキャラクターが指定されていません。"
+    if not room_name:
+        return "エラー: 通知するルームが指定されていません。"
     try:
         api_key_name = config_manager.initial_api_key_name_global
 
@@ -54,12 +54,12 @@ def set_pomodoro_timer(work_minutes: int, break_minutes: int, cycles: int, work_
             work_duration=float(work_minutes),
             break_duration=float(break_minutes),
             cycles=int(cycles),
-            character_name=character_name,
+            character_name=room_name,
             work_theme=work_theme,
             break_theme=break_theme,
             api_key_name=api_key_name
         )
         timer.start()
-        return f"Success: A Pomodoro timer has been set for {cycles} cycles ({work_minutes} min work, {break_minutes} min break). You will be notified by {character_name}."
+        return f"Success: A Pomodoro timer has been set for {cycles} cycles ({work_minutes} min work, {break_minutes} min break). You will be notified by {room_name}."
     except Exception as e:
         return f"Error: Failed to set the Pomodoro timer. Details: {e}"

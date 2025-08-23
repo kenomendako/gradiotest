@@ -1,28 +1,28 @@
 import gradio as gr
 from typing import Dict, Any
-import character_manager
+import room_manager
 import utils
 
-def get_world_data(character_name: str) -> Dict[str, Any]:
+def get_world_data(room_name: str) -> Dict[str, Any]:
     """
-    キャラクターの world_settings.txt を解析して辞書として取得する。
+    ルームの world_settings.txt を解析して辞書として取得する。
     """
-    if not character_name:
+    if not room_name:
         return {}
-    world_settings_path = character_manager.get_world_settings_path(character_name)
+    world_settings_path = room_manager.get_world_settings_path(room_name)
     return utils.parse_world_file(world_settings_path)
 
-def save_world_data(character_name: str, world_data: Dict[str, Any]):
+def save_world_data(room_name: str, world_data: Dict[str, Any]):
     """
     ワールド・ビルダーUIから受け取った辞書データを、
     ## エリア名\n\n### 場所名\n内容... 形式のテキストに変換して
     world_settings.txt に書き込む。
     """
-    if not character_name:
-        gr.Warning("キャラクターが選択されていません。")
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
         return
 
-    world_settings_path = character_manager.get_world_settings_path(character_name)
+    world_settings_path = room_manager.get_world_settings_path(room_name)
     if not world_settings_path:
         gr.Error("世界設定ファイルへのパスが取得できませんでした。")
         return
@@ -43,6 +43,6 @@ def save_world_data(character_name: str, world_data: Dict[str, Any]):
     try:
         with open(world_settings_path, "w", encoding="utf-8") as f:
             f.write(final_content)
-        gr.Info(f"「{character_name}」の世界設定を保存しました。")
+        gr.Info(f"「{room_name}」の世界設定を保存しました。")
     except Exception as e:
         gr.Error(f"世界設定の保存中にエラーが発生しました: {e}")

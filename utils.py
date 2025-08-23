@@ -131,96 +131,102 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
             header = None
     return messages
 
-def format_history_for_gradio(raw_history: List[Dict[str, str]], main_character_name: str) -> Tuple[List[Tuple[...]], List[int]]:
-    if not raw_history:
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> Tuple[List[Tuple], List[int]]:
+    if not messages:
         return [], []
 
     gradio_history = []
     mapping_list = []
-    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
-    intermediate_list = []
-    for i, msg in enumerate(raw_history):
+    user_file_attach_pattern = re.compile(r"\[ファイル添付: ([^\]]+?)\]")
+    gen_image_pattern = re.compile(r"\[Generated Image: ([^\]]+?)\]")
+
+    for i, msg in enumerate(messages):
+        role = msg.get("role")
         content = msg.get("content", "").strip()
-        if not content: continue
+        speaker_name = msg.get("responder", "不明")
+        if not content:
+            continue
 
-        responder = msg.get("responder", main_character_name)
+        # --- メッセージを、テキスト部分と、ファイル/画像パスのリストに分離する ---
+        text_part = content
+        media_paths = []
 
-        last_end = 0
-        for match in image_tag_pattern.finditer(content):
-            if match.start() > last_end:
-                intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:match.start()].strip(), "original_index": i, "responder": responder})
-            intermediate_list.append({"type": "image", "role": "model", "content": match.group(1).strip(), "original_index": i, "responder": responder})
-            last_end = match.end()
-        if last_end < len(content):
-            intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:].strip(), "original_index": i, "responder": responder})
+        if role == "user":
+            text_part = user_file_attach_pattern.sub("", content).strip()
+            media_paths = [p.strip() for p in user_file_attach_pattern.findall(content)]
+        elif role == "model":
+            text_part = gen_image_pattern.sub("", content).strip()
+            media_paths = [p.strip() for p in gen_image_pattern.findall(content)]
 
-    text_parts_with_anchors = []
-    for item in intermediate_list:
-        if item["type"] == "text" and item["content"]:
-            item["anchor_id"] = f"msg-anchor-{uuid.uuid4().hex[:8]}"
-            text_parts_with_anchors.append(item)
+        # --- Gradioの履歴を、黄金律に従って生成する ---
 
-    text_part_index = 0
-    for item in intermediate_list:
-        if not item["content"]: continue
+        # 1. まず、テキスト部分だけのターンを追加する
+        if text_part:
+            # _format_text_content_for_gradio は思考ログなどを安全に表示するために必要
+            formatted_text = _format_text_content_for_gradio(text_part, speaker_name, f"msg-anchor-{i}", None, None)
+            if role == "user":
+                gradio_history.append((formatted_text, None))
+            else: # model
+                gradio_history.append((None, formatted_text))
+            mapping_list.append(i)
 
-        if item["type"] == "text":
-            prev_anchor = text_parts_with_anchors[text_part_index - 1]["anchor_id"] if text_part_index > 0 else None
-            next_anchor = text_parts_with_anchors[text_part_index + 1]["anchor_id"] if text_part_index < len(text_parts_with_anchors) - 1 else None
-
-            responder_name = item.get("responder", main_character_name)
-            html_content = _format_text_content_for_gradio(item["content"], responder_name, item["anchor_id"], prev_anchor, next_anchor)
-
-            if item["role"] == "user":
-                gradio_history.append((html_content, None))
-            else:
-                gradio_history.append((None, html_content))
-
-            mapping_list.append(item["original_index"])
-            text_part_index += 1
-
-        elif item["type"] == "image":
-            filepath = item["content"]
-            filename = os.path.basename(filepath)
-            gradio_history.append((None, (filepath, filename)))
-            mapping_list.append(item["original_index"])
+        # 2. 次に、ファイル/画像だけのターンを、一つずつ追加する
+        for path in media_paths:
+            try:
+                if os.path.exists(path):
+                    # (filepath, filename) のタプル形式
+                    media_tuple = (path, os.path.basename(path))
+                    if role == "user":
+                        gradio_history.append((media_tuple, None))
+                    else: # model
+                        gradio_history.append((None, media_tuple))
+                    mapping_list.append(i)
+            except Exception:
+                # 不正なパスで os.path.exists がエラーを起こしても、クラッシュさせない
+                pass
 
     return gradio_history, mapping_list
 
-def _format_text_content_for_gradio(content: str, character_name: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
-    up_button = f"<a href='#{current_anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
-    down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
-    delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
-    button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
-    speaker_header = f"<div style='font-weight: bold; margin-bottom: 5px; color: #a1c9f7;'>{html.escape(character_name)}:</div>"
 
-    final_parts = [f"<span id='{current_anchor_id}'></span>", speaker_header]
+def _format_text_content_for_gradio(content: str, speaker_name: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
+    """
+    単一のAI応答テキストを、GradioのChatbotで安全に表示するための
+    MarkdownとHTMLのハイブリッド文字列に変換する。
+    思考ログはMarkdownのコードブロックに変換される。
+    """
+    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
 
-    # 1. 文字列の "先頭" にある思考ログのみを処理する正規表現
-    leading_thoughts_pattern = re.compile(r"^\s*【Thoughts】(.*?)【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
-    thought_match = leading_thoughts_pattern.search(content)
-
-    main_text_content = content # 元のコンテンツを保持
+    # --- ログから思考と本文を分離する ---
+    thought_match = thoughts_pattern.search(content)
+    thoughts_content = ""
+    main_text_content = content.strip()
 
     if thought_match:
-        # 先頭の思考ログが見つかった場合
         thoughts_content = thought_match.group(1).strip()
-        escaped_thoughts = html.escape(thoughts_content).replace('\n', '<br>')
-        final_parts.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
+        main_text_content = thoughts_pattern.sub("", content).strip()
 
-        # main_text_content から、処理した思考ログ部分を削除
-        main_text_content = leading_thoughts_pattern.sub("", content, count=1)
+    # --- Markdown文字列を組み立てる ---
+    final_md_parts = []
 
-    # 2. 残ったテキストをHTMLエスケープして表示する
-    #    これにより、文中にある 【Thoughts】 タグは通常のテキストとして扱われる
-    if main_text_content.strip():
-        escaped_text = html.escape(main_text_content.strip()).replace('\n', '<br>')
-        final_parts.append(f"<div>{escaped_text}</div>")
+    # 1. 話者ヘッダー (Markdownの太字)
+    final_md_parts.append(f"**{html.escape(speaker_name)}:**\n")
 
-    final_parts.append(button_container)
+    # 2. 思考ログ部分 (Markdownのコードブロックとして)
+    if thoughts_content:
+        # Markdownコードブロックは、それ自体が改行を持つため、前後に改行を追加
+        final_md_parts.append(f"\n【Thoughts】\n```\n{thoughts_content}\n```\n")
 
-    return "".join(final_parts)
+    # 3. 本文部分 (通常のMarkdownテキストとして)
+    if main_text_content:
+        final_md_parts.append(main_text_content)
+
+    # 4. フッター部分 (HTML) - GradioのMarkdownはHTMLを許容する
+    #    アンカー機能は将来の復活のために残しておくが、今は簡略化
+    button_container = f"<div style='text-align: right; margin-top: 8px;'></div>"
+    final_md_parts.append(f"\n{button_container}")
+
+    return "".join(final_md_parts)
 
 def _perform_log_archiving(log_file_path: str, character_name: str, threshold_bytes: int, keep_bytes: int) -> Optional[str]:
     """ログファイルのサイズをチェックし、必要であればアーカイブを実行する"""
@@ -414,10 +420,10 @@ def extract_raw_text_from_html(html_content: Union[str, tuple, None]) -> str:
 
 
 # ▼▼▼ ここからが追加箇所（ファイルの一番下） ▼▼▼
-def load_scenery_cache(character_name: str) -> dict:
-    """指定されたキャラクターの情景キャッシュファイルを安全に読み込む。"""
-    if not character_name: return {}
-    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "cache", "scenery.json")
+def load_scenery_cache(room_name: str) -> dict:
+    """指定されたルームの情景キャッシュファイルを安全に読み込む。"""
+    if not room_name: return {}
+    cache_path = os.path.join(constants.ROOMS_DIR, room_name, "cache", "scenery.json")
     if os.path.exists(cache_path):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
@@ -428,12 +434,12 @@ def load_scenery_cache(character_name: str) -> dict:
         except (json.JSONDecodeError, IOError): return {}
     return {}
 
-def save_scenery_cache(character_name: str, cache_key: str, location_name: str, scenery_text: str):
-    """指定されたキャラクターの情景キャッシュファイルに、新しいキーでデータを保存する。"""
-    if not character_name or not cache_key: return
-    cache_path = os.path.join(constants.CHARACTERS_DIR, character_name, "cache", "scenery.json")
+def save_scenery_cache(room_name: str, cache_key: str, location_name: str, scenery_text: str):
+    """指定されたルームの情景キャッシュファイルに、新しいキーでデータを保存する。"""
+    if not room_name or not cache_key: return
+    cache_path = os.path.join(constants.ROOMS_DIR, room_name, "cache", "scenery.json")
     try:
-        existing_cache = load_scenery_cache(character_name)
+        existing_cache = load_scenery_cache(room_name)
         data_to_save = {
             "location_name": location_name,
             "scenery_text": scenery_text,
@@ -505,14 +511,14 @@ def get_time_of_day(hour: int) -> str:
     if 17 <= hour < 21: return "evening"
     return "night"
 
-def find_scenery_image(character_name: str, location_id: str) -> Optional[str]:
+def find_scenery_image(room_name: str, location_id: str) -> Optional[str]:
     """
     指定された場所・季節・時間帯に一致する情景画像を検索する。
     """
-    if not character_name or not location_id:
+    if not room_name or not location_id:
         return None
 
-    image_dir = os.path.join(constants.CHARACTERS_DIR, character_name, "spaces", "images")
+    image_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
     if not os.path.isdir(image_dir):
         return None
 
@@ -824,12 +830,12 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_name:
     return lc_messages
 
 def is_character_name(name: str) -> bool:
-    """指定された名前が有効なキャラクター（ディレクトリ）として存在するかどうかを判定する。"""
+    """指定された名前が有効なルーム（ディレクトリ）として存在するかどうかを判定する。"""
     if not name or not isinstance(name, str) or not name.strip():
         return False
     # 安全のため、ディレクトリトラバーサルを防ぐ
     if ".." in name or "/" in name or "\\" in name:
         return False
 
-    char_dir = os.path.join(constants.CHARACTERS_DIR, name)
-    return os.path.isdir(char_dir)
+    room_dir = os.path.join(constants.ROOMS_DIR, name)
+    return os.path.isdir(room_dir)

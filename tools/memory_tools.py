@@ -5,24 +5,24 @@ import json
 import datetime
 import os
 import google.genai as genai
-from character_manager import get_character_files_paths
+from room_manager import get_room_files_paths
 from memory_manager import load_memory_data_safe
 from typing import Any
 
 @tool
-def edit_memory(path: str, value: Any, operation: str, character_name: str = None) -> str:
+def edit_memory(path: str, value: Any, operation: str, room_name: str = None) -> str:
     """
     あなたの「主観的記憶（日記）」である`memory.json`の指定した場所を編集します。あなたの内面的な誓い、秘密の独白、ユーザーから与えられた特別な許可、主観的な感情の記録などを変更したい場合に使用します。
     path: ドット記法で編集場所を指定（例: "self_identity.values"）。
     value: 設定または追記する値。
     operation: "set"（設定/上書き）または "append"（リストに追記）を指定。
     """
-    if not all([path, operation, character_name]):
-        return "【エラー】引数 'path', 'operation', 'character_name' は必須です。"
+    if not all([path, operation, room_name]):
+        return "【エラー】引数 'path', 'operation', 'room_name' は必須です。"
 
-    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
+    _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
     if not memory_json_path:
-        return f"【エラー】キャラクター'{character_name}'の記憶ファイルパスが見つかりません。"
+        return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
 
     memory_data = load_memory_data_safe(memory_json_path)
     if "error" in memory_data:
@@ -51,24 +51,22 @@ def edit_memory(path: str, value: Any, operation: str, character_name: str = Non
         with open(memory_json_path, "w", encoding="utf-8") as f:
             json.dump(memory_data, f, indent=2, ensure_ascii=False)
 
-        # ★★★ ここからが修正箇所 ★★★
         return f"Success: The memory at path '{path}' was successfully modified with the operation '{operation}'."
-        # ★★★ 修正ここまで ★★★
 
     except Exception as e:
         return f"【エラー】記憶の編集中に予期せぬエラーが発生しました: {e}"
 
 @tool
-def add_secret_diary_entry(entry: str, character_name: str = None) -> str:
+def add_secret_diary_entry(entry: str, room_name: str = None) -> str:
     """
     あなたの「主観的記憶（日記）」の一部である、誰にも読めない秘密の日記に、新しいエントリーを追記します。あなたの内心の自由を守るための聖域です。
     """
     if not entry or not entry.strip():
         return "【エラー】日記に書く内容が空です。"
 
-    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
+    _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
     if not memory_json_path:
-        return f"【エラー】キャラクター'{character_name}'の記憶ファイルパスが見つかりません。"
+        return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
 
     memory_data = load_memory_data_safe(memory_json_path)
     if "error" in memory_data:
@@ -88,20 +86,18 @@ def add_secret_diary_entry(entry: str, character_name: str = None) -> str:
     try:
         with open(memory_json_path, "w", encoding="utf-8") as f:
             json.dump(memory_data, f, indent=2, ensure_ascii=False)
-        # ★★★ ここからが修正箇所 ★★★
         return "Success: A new entry was successfully added to the secret diary. This content is private and cannot be read back."
-        # ★★★ 修正ここまで ★★★
     except Exception as e:
         return f"【エラー】秘密の日記への書き込みに失敗しました: {e}"
 
 @tool
-def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
+def summarize_and_save_core_memory(room_name: str, api_key: str) -> str:
     """
     あなたの「主観的記憶（日記）」全体を読み込み、特に重要な部分（最高権限、自己同一性など）はそのまま、その他の歴史や感情に関する項目はAIに要約させて、コアメモリとして保存します。
     """
-    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
+    _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
     if not memory_json_path or not os.path.exists(memory_json_path):
-        return f"【エラー】キャラクター'{character_name}'の記憶ファイルが見つかりません。"
+        return f"【エラー】ルーム'{room_name}'の記憶ファイルが見つかりません。"
 
     try:
         with open(memory_json_path, 'r', encoding='utf-8') as f:
@@ -118,7 +114,7 @@ def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
             memory_text_to_summarize = json.dumps(memory_data, ensure_ascii=False, indent=2)
             client = genai.Client(api_key=api_key)
             prompt = f"""あなたは、対話の歴史を整理し、その本質を抽出することに特化した思考AIです。
-以下の「成長の記録」（ユーザーとの関係史、感情の変遷、共有言語など）を深く読み解き、キャラクター「{character_name}」がユーザーとの関係性を思い出す上で、特に重要な出来事や感情の要点を、箇条書き形式で簡潔に要約してください。
+以下の「成長の記録」（ユーザーとの関係史、感情の変遷、共有言語など）を深く読み解き、ルーム「{room_name}」がユーザーとの関係性を思い出す上で、特に重要な出来事や感情の要点を、箇条書き形式で簡潔に要約してください。
 あなたの思考や挨拶は不要です。要約結果のテキストのみを出力してください。
 
 ---
@@ -128,7 +124,6 @@ def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
 
 成長の記録の要約:
 """
-            # モデル名を 'gemini-1.5-flash' から 'gemini-2.5-flash' に変更
             response = client.models.generate_content(model="models/gemini-2.5-flash", contents=[prompt])
             history_summary_text = response.text.strip()
         else:
@@ -159,16 +154,16 @@ def summarize_and_save_core_memory(character_name: str, api_key: str) -> str:
         return f"【エラー】コアメモリの生成または保存中にエラーが発生しました: {e}"
 
 @tool
-def read_memory_by_path(path: str, character_name: str = None) -> str:
+def read_memory_by_path(path: str, room_name: str = None) -> str:
     """
     あなたの「主観的記憶（日記）」である`memory.json`の、指定した場所（パス）にあるデータをJSON形式で読み取ります。パスはドット記法で指定します（例: "living_space.study"）。
     """
-    if not path or not character_name:
-        return "【エラー】引数 'path' と 'character_name' は必須です。"
+    if not path or not room_name:
+        return "【エラー】引数 'path' と 'room_name' は必須です。"
 
-    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
+    _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
     if not memory_json_path:
-        return f"【エラー】キャラクター'{character_name}'の記憶ファイルパスが見つかりません。"
+        return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
 
     memory_data = load_memory_data_safe(memory_json_path)
     if "error" in memory_data:
@@ -190,23 +185,22 @@ def read_memory_by_path(path: str, character_name: str = None) -> str:
         return f"【エラー】記憶の読み取り中に予期せぬエラーが発生しました: {e}"
 
 @tool
-def read_full_memory(character_name: str = None) -> str:
+def read_full_memory(room_name: str = None) -> str:
     """
     あなたの「主観的記憶（日記）」である`memory.json`の全ての項目を、JSON形式で読み取ります。記憶を編集する前に、既存の項目や構造を確認するために使用します。
     """
-    if not character_name:
-        return "【エラー】引数 'character_name' は必須です。"
+    if not room_name:
+        return "【エラー】引数 'room_name' は必須です。"
 
-    _, _, _, memory_json_path, _ = get_character_files_paths(character_name)
+    _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
     if not memory_json_path:
-        return f"【エラー】キャラクター'{character_name}'の記憶ファイルパスが見つかりません。"
+        return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
 
     memory_data = load_memory_data_safe(memory_json_path)
     if "error" in memory_data:
         return f"【エラー】記憶ファイルの読み込みに失敗: {memory_data['message']}"
 
     try:
-        # 読み込んだデータをそのままJSON文字列として返す
         return json.dumps(memory_data, ensure_ascii=False, indent=2)
     except Exception as e:
         return f"【エラー】記憶の読み取り中に予期せぬエラーが発生しました: {e}"

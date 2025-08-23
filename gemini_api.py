@@ -5,7 +5,7 @@ import traceback
 from typing import Any, List, Union, Optional, Dict, Iterator
 import os
 import json
-import character_manager
+import room_manager
 import utils
 import io
 import base64
@@ -83,20 +83,20 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
     # --- 引数を辞書から展開 ---
-    character_to_respond = agent_args["character_to_respond"]
+    room_to_respond = agent_args["room_to_respond"]
     api_key_name = agent_args["api_key_name"]
     api_history_limit = agent_args["api_history_limit"]
     debug_mode = agent_args["debug_mode"]
     history_log_path = agent_args["history_log_path"]
     user_prompt_parts = agent_args["user_prompt_parts"]
-    soul_vessel_character = agent_args["soul_vessel_character"]
+    soul_vessel_room = agent_args["soul_vessel_room"]
     active_participants = agent_args["active_participants"]
     shared_location_name = agent_args["shared_location_name"]
     shared_scenery_text = agent_args["shared_scenery_text"]
 
-    all_participants_list = [soul_vessel_character] + active_participants
+    all_participants_list = [soul_vessel_room] + active_participants
     effective_settings = config_manager.get_effective_settings(
-        character_to_respond,
+        room_to_respond,
         use_common_prompt=(len(all_participants_list) <= 1)
     )
     model_name = effective_settings["model_name"]
@@ -108,33 +108,43 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
 
     # --- ハイブリッド履歴構築ロジック ---
     messages = []
-    responding_ai_log_f, _, _, _, _ = character_manager.get_character_files_paths(character_to_respond)
+    responding_ai_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
-        own_history_raw = utils.load_chat_log(responding_ai_log_f, character_to_respond)
-        messages = utils.convert_raw_log_to_lc_messages(own_history_raw, character_to_respond)
+        own_history_raw = utils.load_chat_log(responding_ai_log_f, room_to_respond)
+        messages = utils.convert_raw_log_to_lc_messages(own_history_raw, room_to_respond)
 
     if history_log_path and os.path.exists(history_log_path):
-        snapshot_history_raw = utils.load_chat_log(history_log_path, soul_vessel_character)
-        snapshot_messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, character_to_respond)
+        snapshot_history_raw = utils.load_chat_log(history_log_path, soul_vessel_room)
+        snapshot_messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond)
         if snapshot_messages and messages:
-            first_snapshot_user_message_content = snapshot_messages[0].content if isinstance(snapshot_messages[0], HumanMessage) else ''
+            # スナップショットの最初のユーザー発言を取得
+            first_snapshot_user_message_content = None
+            for msg in snapshot_messages:
+                if isinstance(msg, HumanMessage):
+                    first_snapshot_user_message_content = msg.content
+                    break
+
+            # 自分の履歴(messages)の後方から、スナップショットの開始点と同じ発言を探す
             if first_snapshot_user_message_content:
                 for i in range(len(messages) - 1, -1, -1):
                     if isinstance(messages[i], HumanMessage) and messages[i].content == first_snapshot_user_message_content:
-                        messages = messages[:i]; break
+                        # 発見したら、そこから後ろを一旦削除して、スナップショットで置き換える
+                        messages = messages[:i]
+                        break
+
             messages.extend(snapshot_messages)
         elif snapshot_messages:
             messages = snapshot_messages
 
-    if user_prompt_parts:
-        messages.append(HumanMessage(content=user_prompt_parts))
+    # if user_prompt_parts:
+    #     messages.append(HumanMessage(content=user_prompt_parts))
 
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
         messages = messages[-(limit * 2):]
 
     initial_state = {
-        "messages": messages, "character_name": character_to_respond,
+        "messages": messages, "room_name": room_to_respond,
         "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
         "model_name": model_name, "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True), "send_notepad": effective_settings.get("send_notepad", True),
@@ -202,7 +212,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
             return
 
 def count_input_tokens(**kwargs):
-    character_name = kwargs.get("character_name")
+    room_name = kwargs.get("room_name")
     api_key_name = kwargs.get("api_key_name")
     api_history_limit = kwargs.get("api_history_limit")
     parts = kwargs.get("parts", [])
@@ -211,14 +221,13 @@ def count_input_tokens(**kwargs):
     if not api_key or api_key.startswith("YOUR_API_KEY"): return "トークン数: (APIキーエラー)"
 
     try:
-        # ▼▼▼【修正の核心】▼▼▼
-        # kwargs辞書からcharacter_nameを削除したコピーを作成し、それを渡す
-        # これで'character_name'が重複して渡されるのを防ぐ
         kwargs_for_settings = kwargs.copy()
-        kwargs_for_settings.pop("character_name", None)
+        kwargs_for_settings.pop("room_name", None)
+        kwargs_for_settings.pop("api_key_name", None)
+        kwargs_for_settings.pop("api_history_limit", None)
+        kwargs_for_settings.pop("parts", None)
 
-        effective_settings = config_manager.get_effective_settings(character_name, **kwargs_for_settings)
-        # ▲▲▲ 修正ここまで ▲▲▲
+        effective_settings = config_manager.get_effective_settings(room_name, **kwargs_for_settings)
 
         model_name = effective_settings.get("model_name") or config_manager.DEFAULT_MODEL_GLOBAL
         messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
@@ -226,18 +235,18 @@ def count_input_tokens(**kwargs):
         # --- システムプロンプトの構築 ---
         from agent.prompts import CORE_PROMPT_TEMPLATE
         from agent.graph import all_tools
-        char_prompt_path = os.path.join(constants.CHARACTERS_DIR, character_name, "SystemPrompt.txt")
+        room_prompt_path = os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")
         character_prompt = ""
-        if os.path.exists(char_prompt_path):
-            with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
+        if os.path.exists(room_prompt_path):
+            with open(room_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
         core_memory = ""
         if effective_settings.get("send_core_memory", True):
-            core_memory_path = os.path.join(constants.CHARACTERS_DIR, character_name, "core_memory.txt")
+            core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
             if os.path.exists(core_memory_path):
                 with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
         notepad_section = ""
         if effective_settings.get("send_notepad", True):
-            _, _, _, _, notepad_path = character_manager.get_character_files_paths(character_name)
+            _, _, _, _, notepad_path = room_manager.get_room_files_paths(room_name)
             if notepad_path and os.path.exists(notepad_path):
                 with open(notepad_path, 'r', encoding='utf-8') as f:
                     content = f.read().strip()
@@ -248,7 +257,7 @@ def count_input_tokens(**kwargs):
         class SafeDict(dict):
             def __missing__(self, key): return f'{{{key}}}'
         prompt_vars = {
-            'character_name': character_name, 'character_prompt': character_prompt, 'core_memory': core_memory,
+            'room_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory,
             'notepad_section': notepad_section, 'tools_list': tools_list_str
         }
         system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
@@ -257,8 +266,8 @@ def count_input_tokens(**kwargs):
         messages.append(SystemMessage(content=system_prompt_text))
 
         # --- 履歴の構築 ---
-        log_file, _, _, _, _ = character_manager.get_character_files_paths(character_name)
-        raw_history = utils.load_chat_log(log_file, character_name)
+        log_file, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        raw_history = utils.load_chat_log(log_file, room_name)
         limit = int(api_history_limit) if api_history_limit and api_history_limit.isdigit() else 0
         if limit > 0 and len(raw_history) > limit * 2:
             raw_history = raw_history[-(limit * 2):]

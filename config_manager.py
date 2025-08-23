@@ -30,7 +30,7 @@ SUPPORTED_VOICES = {
 }
 
 initial_api_key_name_global = "default"
-initial_character_global = "Default"
+initial_room_global = "Default"
 initial_model_global = DEFAULT_MODEL_GLOBAL
 initial_send_thoughts_to_api_global = True
 initial_api_history_limit_option_global = constants.DEFAULT_API_HISTORY_LIMIT_OPTION
@@ -101,7 +101,7 @@ def save_memos_config(key, value):
 
 # --- メインの読み込み関数 (最重要修正箇所) ---
 def load_config():
-    global CONFIG_GLOBAL, GEMINI_API_KEYS, initial_api_key_name_global, initial_character_global, initial_model_global
+    global CONFIG_GLOBAL, GEMINI_API_KEYS, initial_api_key_name_global, initial_room_global, initial_model_global
     global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global
     global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, TAVILY_API_KEY
     global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
@@ -109,7 +109,7 @@ def load_config():
     default_config = {
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
         "available_models": ["gemini-2.5-pro"], "default_model": "gemini-2.5-pro",
-        "last_character": "Default", "last_model": "gemini-2.5-pro", "last_api_key_name": None,
+        "last_room": "Default", "last_model": "gemini-2.5-pro", "last_api_key_name": None,
         "default_api_key_name": None, "last_send_thoughts_to_api": True,
         "last_api_history_limit_option": constants.DEFAULT_API_HISTORY_LIMIT_OPTION,
         "alarm_api_history_turns": constants.DEFAULT_ALARM_API_HISTORY_TURNS,
@@ -144,7 +144,7 @@ def load_config():
     GEMINI_API_KEYS = config.get("gemini_api_keys", default_config["gemini_api_keys"])
     AVAILABLE_MODELS_GLOBAL = config.get("available_models", default_config["available_models"])
     DEFAULT_MODEL_GLOBAL = config.get("default_model", default_config["default_model"])
-    initial_character_global = config.get("last_character", default_config["last_character"])
+    initial_room_global = config.get("last_room", default_config["last_room"])
     initial_model_global = config.get("last_model", default_config["last_model"])
     initial_send_thoughts_to_api_global = config.get("last_send_thoughts_to_api", default_config["last_send_thoughts_to_api"])
     initial_api_history_limit_option_global = config.get("last_api_history_limit_option", default_config["last_api_history_limit_option"])
@@ -171,9 +171,9 @@ def load_config():
         _save_config_file(config)
 
 
-def get_effective_settings(character_name: str, **kwargs) -> dict:
+def get_effective_settings(room_name: str, **kwargs) -> dict:
     """
-    キャラクターのファイル設定と、UIからのリアルタイムな設定（kwargs）をマージして、
+    ルームのファイル設定と、UIからのリアルタイムな設定（kwargs）をマージして、
     最終的に適用される設定値を返す。
     """
     # 1. デフォルト設定を定義
@@ -189,18 +189,18 @@ def get_effective_settings(character_name: str, **kwargs) -> dict:
         "safety_block_threshold_dangerous_content": "BLOCK_ONLY_HIGH"
     }
 
-    # 2. キャラクターの保存済み設定ファイルで上書き
-    char_config_path = os.path.join(constants.CHARACTERS_DIR, character_name, "character_config.json")
-    if os.path.exists(char_config_path):
+    # 2. ルームの保存済み設定ファイルで上書き
+    room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+    if os.path.exists(room_config_path):
         try:
-            with open(char_config_path, "r", encoding="utf-8") as f:
-                char_config = json.load(f)
-            override_settings = char_config.get("override_settings", {})
+            with open(room_config_path, "r", encoding="utf-8") as f:
+                room_config = json.load(f)
+            override_settings = room_config.get("override_settings", {})
             for k, v in override_settings.items():
                 if v is not None:
                     effective_settings[k] = v
         except Exception as e:
-            print(f"キャラクター設定ファイル '{char_config_path}' の読み込みエラー: {e}")
+            print(f"ルーム設定ファイル '{room_config_path}' の読み込みエラー: {e}")
 
     # 3. UIから渡されたリアルタイムな設定（kwargs）で、さらに上書き
     for key, value in kwargs.items():

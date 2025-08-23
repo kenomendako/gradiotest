@@ -13,18 +13,18 @@ from google.genai import types
 IMAGE_GEN_MODEL = "gemini-2.0-flash-preview-image-generation"
 
 @tool
-def generate_image(prompt: str, character_name: str, api_key: str) -> str:
+def generate_image(prompt: str, room_name: str, api_key: str) -> str:
     """
     ユーザーの要望や会話の文脈に応じて、情景、キャラクター、アイテムなどのイラストを生成する。
     成功した場合は、UIに表示するための特別な画像タグを返す。
     prompt: 画像生成のための詳細な指示（英語が望ましい）。
     """
     print(f"--- 画像生成ツール実行 (Model: {IMAGE_GEN_MODEL}, Prompt: '{prompt}') ---")
-    if not character_name or not api_key:
-        return "【エラー】画像生成にはキャラクター名とAPIキーが必須です。"
+    if not room_name or not api_key:
+        return "【エラー】画像生成にはルーム名とAPIキーが必須です。"
 
     try:
-        save_dir = os.path.join("characters", character_name, "generated_images")
+        save_dir = os.path.join("characters", room_name, "generated_images")
         os.makedirs(save_dir, exist_ok=True)
 
         client = genai.Client(api_key=api_key)
@@ -55,7 +55,7 @@ def generate_image(prompt: str, character_name: str, api_key: str) -> str:
 
         image = Image.open(image_data)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{character_name.lower()}_{timestamp}.png"
+        filename = f"{room_name.lower()}_{timestamp}.png"
         save_path = os.path.join(save_dir, filename)
 
         image.save(save_path, "PNG")

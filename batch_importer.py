@@ -45,14 +45,14 @@ print("--- [Nexus Ark Importer] ロギング設定を完全に掌握しました
 # --- [インポート文] ---
 import config_manager
 import memos_manager
-import character_manager
+import room_manager
 
 # --- [定数とヘルパー関数] ---
 PROGRESS_FILE = "importer_progress.json"
 ERROR_LOG_FILE = "importer_errors.log"
 STOP_SIGNAL_FILE = "stop_importer.signal"
 
-def load_archived_log(log_content: str, all_character_list: List[str]) -> List[Dict[str, str]]:
+def load_archived_log(log_content: str, all_room_list: List[str]) -> List[Dict[str, str]]:
     messages = []
     log_parts = re.split(r'^(## .*?:)$', log_content, flags=re.MULTILINE)
     header = None
@@ -66,7 +66,8 @@ def load_archived_log(log_content: str, all_character_list: List[str]) -> List[D
                 match = re.match(r"^## (.*?):$", header)
                 if match:
                     speaker = match.group(1).strip()
-                    role = "assistant" if speaker in all_character_list else "user"
+                    # speakerがall_room_listに含まれているか、または"システム"で始まる場合はassistantロール
+                    role = "assistant" if speaker in all_room_list or speaker.startswith("システム") else "user"
                     messages.append({"role": role, "content": content})
             header = None
     return messages
@@ -129,7 +130,7 @@ def main():
 
     config_manager.load_config()
     parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをMemOSに一括インポートするツール")
-    parser.add_argument("--character", required=True, help="対象のキャラクター名")
+    parser.add_argument("--character", required=True, help="対象のルーム名（フォルダ名）")
     parser.add_argument("--logs-dir", required=True, help="過去ログファイル（.txt）が格納されているディレクトリのパス")
     args = parser.parse_args()
 
@@ -138,8 +139,8 @@ def main():
 
     try:
         processing_should_be_stopped = False
-        all_characters = character_manager.get_character_list()
-        print(f"--- 認識しているAIキャラクター名簿: {all_characters} ---")
+        all_rooms = room_manager.get_room_list()
+        print(f"--- 認識している有効なルーム一覧: {all_rooms} ---")
         mos_instance = memos_manager.get_mos_instance(args.character)
         log_files = sorted([f for f in os.listdir(args.logs_dir) if f.endswith(".txt") and not f.endswith("_summary.txt")])
         print(f"--- {len(log_files)}個のログファイルを検出しました。インポート処理を開始します。 ---")
@@ -156,7 +157,7 @@ def main():
 
             filepath = os.path.join(args.logs_dir, filename)
             with open(filepath, "r", encoding="utf-8", errors='ignore') as f: content = f.read()
-            all_messages = load_archived_log(content, all_characters)
+            all_messages = load_archived_log(content, all_rooms)
             conversation_pairs = group_messages_into_pairs(all_messages)
             total_pairs_in_file = len(conversation_pairs)
 
