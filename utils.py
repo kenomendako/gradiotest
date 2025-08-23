@@ -189,38 +189,46 @@ def format_history_for_gradio(raw_history: List[Dict[str, str]], main_character_
     return gradio_history, mapping_list
 
 def _format_text_content_for_gradio(content: str, character_name: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
-    up_button = f"<a href='#{current_anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
-    down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
-    delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
-    button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
-    speaker_header = f"<div style='font-weight: bold; margin-bottom: 5px; color: #a1c9f7;'>{html.escape(character_name)}:</div>"
 
-    final_parts = [f"<span id='{current_anchor_id}'></span>", speaker_header]
+    # --- ログから思考と本文を分離する ---
+    thoughts_pattern = re.compile(r"^\s*【Thoughts】(.*?)【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
+    thought_match = thoughts_pattern.search(content)
 
-    # 1. 文字列の "先頭" にある思考ログのみを処理する正規表現
-    leading_thoughts_pattern = re.compile(r"^\s*【Thoughts】(.*?)【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
-    thought_match = leading_thoughts_pattern.search(content)
-
-    main_text_content = content # 元のコンテンツを保持
+    thoughts_content = ""
+    main_text_content = content.strip()
 
     if thought_match:
-        # 先頭の思考ログが見つかった場合
         thoughts_content = thought_match.group(1).strip()
-        escaped_thoughts = html.escape(thoughts_content).replace('\n', '<br>')
-        final_parts.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
+        main_text_content = thoughts_pattern.sub("", content, count=1).strip()
 
-        # main_text_content から、処理した思考ログ部分を削除
-        main_text_content = leading_thoughts_pattern.sub("", content, count=1)
+    # --- Markdown文字列を組み立てる ---
 
-    # 2. 残ったテキストをHTMLエスケープして表示する
-    #    これにより、文中にある 【Thoughts】 タグは通常のテキストとして扱われる
-    if main_text_content.strip():
-        escaped_text = html.escape(main_text_content.strip()).replace('\n', '<br>')
-        final_parts.append(f"<div>{escaped_text}</div>")
+    # 1. ヘッダー部分
+    # GradioのMarkdownではHTMLが使えるので、アンカーやボタンはそのまま利用
+    up_button = f"<a href='#{current_anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
+    down_button = f"<a href='#{next_anchor_id}' class'message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
+    delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
+    button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
 
-    final_parts.append(button_container)
+    # speaker_header はMarkdownの太字に変更
+    speaker_header = f"**{html.escape(character_name)}:**\n"
 
-    return "".join(final_parts)
+    final_md_parts = [f"<span id='{current_anchor_id}'></span>", speaker_header]
+
+    # 2. 思考ログ部分 (Markdownのコードブロックとして)
+    if thoughts_content:
+        final_md_parts.append("【Thoughts】\n")
+        final_md_parts.append(f"```\n{thoughts_content}\n```\n")
+
+    # 3. 本文部分 (通常のMarkdownテキストとして)
+    if main_text_content:
+        # Markdownの特殊文字をエスケープする必要はない。Gradioがよしなにやってくれる。
+        final_md_parts.append(main_text_content)
+
+    # 4. フッター部分
+    final_md_parts.append(f"\n{button_container}")
+
+    return "".join(final_md_parts)
 
 def _perform_log_archiving(log_file_path: str, character_name: str, threshold_bytes: int, keep_bytes: int) -> Optional[str]:
     """ログファイルのサイズをチェックし、必要であればアーカイブを実行する"""
