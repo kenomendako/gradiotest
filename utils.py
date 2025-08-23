@@ -131,68 +131,71 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
             header = None
     return messages
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[Union[str, Tuple[str, str]]], Optional[Union[str, Tuple[str, str]]]]]:
-    """
-    生のログメッセージのリストを、GradioのChatbotが要求する形式に変換する。
-    この関数は、役割（user/model）に基づいて処理を完全に分離し、
-    テキストとファイル/画像をそれぞれ別のターンとして扱う、堅牢な設計を持つ。
-    """
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> Tuple[List[Tuple], List[int]]:
     if not messages:
-        return []
+        return [], []
 
     gradio_history = []
+    mapping_list = []
 
-    # それぞれの役割専用の正規表現パターン
     user_file_attach_pattern = re.compile(r"\[ファイル添付: ([^\]]+?)\]")
     gen_image_pattern = re.compile(r"\[Generated Image: ([^\]]+?)\]")
+
+    # 将来のアンカーリンク機能のために、まず全てのテキストメッセージを特定する
+    text_messages_indices = []
+    for i, msg in enumerate(messages):
+        # 簡易的な判定：画像やファイルのタグを含まないテキスト部分があるか
+        if msg.get("content", "").strip():
+             text_messages_indices.append(i)
 
     for i, msg in enumerate(messages):
         role = msg.get("role")
         content = msg.get("content", "").strip()
+        speaker_name = msg.get("responder", "不明")
         if not content:
             continue
 
-        # 将来のアンカーリンク機能のために、各メッセージにユニークIDを付与
-        # （現在は未使用だが、構造として残しておく）
-        anchor_id = f"msg-anchor-{i}-{uuid.uuid4().hex[:8]}"
+        # アンカーIDとリンクを計算
+        current_anchor_id = f"msg-anchor-{i}"
+        current_text_index = -1
+        try:
+            current_text_index = text_messages_indices.index(i)
+        except ValueError:
+            pass # テキストではないメッセージ
 
+        prev_anchor_id = f"msg-anchor-{text_messages_indices[current_text_index - 1]}" if current_text_index > 0 else None
+        next_anchor_id = f"msg-anchor-{text_messages_indices[current_text_index + 1]}" if current_text_index != -1 and current_text_index < len(text_messages_indices) - 1 else None
+
+        # --- メッセージをテキスト部分とファイル/画像部分に分離 ---
         if role == "user":
-            # --- ユーザーメッセージの処理 ---
             text_part = user_file_attach_pattern.sub("", content).strip()
-            file_matches = user_file_attach_pattern.findall(content)
+            file_paths = [p.strip() for p in user_file_attach_pattern.findall(content)]
 
-            # 1. まずテキスト部分を処理
             if text_part:
-                # ユーザー側のテキストはMarkdown化しないので、そのまま渡す
-                gradio_history.append((text_part, None))
+                formatted_text = _format_text_content_for_gradio(text_part, speaker_name, current_anchor_id, prev_anchor_id, next_anchor_id)
+                gradio_history.append((formatted_text, None))
+                mapping_list.append(i)
 
-            # 2. 次にファイル部分を処理 (それぞれ別ターン)
-            for filepath in file_matches:
-                filepath = filepath.strip()
-                if os.path.exists(filepath):
-                    gradio_history.append(((filepath, os.path.basename(filepath)), None))
+            for path in file_paths:
+                if os.path.exists(path):
+                    gradio_history.append(((path, os.path.basename(path)), None))
+                    mapping_list.append(i)
 
         elif role == "model":
-            # --- AI応答の処理 ---
-            # 1. テキスト部分を、MarkdownとHTMLのハイブリッド形式に変換する
-            #    _format_text_content_for_gradio が思考ログの安全なMarkdown化を担当する
-            formatted_text = _format_text_content_for_gradio(content, msg.get("responder", "AI"), anchor_id, None, None)
+            text_part = gen_image_pattern.sub("", content).strip()
+            img_paths = [p.strip() for p in gen_image_pattern.findall(content)]
 
-            # 2. テキストから画像タグを分離する
-            text_without_images = gen_image_pattern.sub("", formatted_text).strip()
-            image_matches = gen_image_pattern.findall(content) # 元のcontentからパスを抽出
+            if text_part:
+                formatted_text = _format_text_content_for_gradio(text_part, speaker_name, current_anchor_id, prev_anchor_id, next_anchor_id)
+                gradio_history.append((None, formatted_text))
+                mapping_list.append(i)
 
-            # 3. まずテキスト部分（思考ログ等を含む整形済みHTML/Markdown）を追加
-            if text_without_images:
-                gradio_history.append((None, text_without_images))
+            for path in img_paths:
+                if os.path.exists(path):
+                    gradio_history.append((None, (path, os.path.basename(path))))
+                    mapping_list.append(i)
 
-            # 4. 次に画像部分を追加 (それぞれ別ターン)
-            for img_path in image_matches:
-                img_path = img_path.strip()
-                if os.path.exists(img_path):
-                    gradio_history.append((None, (img_path, os.path.basename(img_path))))
-
-    return gradio_history
+    return gradio_history, mapping_list
 
 
 def _format_text_content_for_gradio(content: str, speaker_name: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
