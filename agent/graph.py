@@ -238,9 +238,18 @@ def agent_node(state: AgentState):
     effective_settings = config_manager.get_effective_settings(state['room_name'])
     llm = get_configured_llm(state['model_name'], state['api_key'], effective_settings)
     llm_with_tools = llm.bind_tools(all_tools)
+
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # 履歴から、過去の全てのSystemMessageを完全に除去する
     history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
+
+    # AIに渡す最終的なメッセージリストは、「最新のシステムプロンプト」＋「SystemMessageを含まない純粋な会話履歴」
     messages_for_agent = [final_system_prompt_message] + history_messages
+    # ▲▲▲【修正ここまで】▲▲▲
+
     response = llm_with_tools.invoke(messages_for_agent)
+
+    # 応答を返す部分は、add_messagesに任せるので、新しい応答だけを返す
     return {"messages": [response]}
 
 def location_report_node(state: AgentState):
