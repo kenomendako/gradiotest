@@ -216,8 +216,6 @@ def context_generator_node(state: AgentState):
 
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
-
-    # --- final_system_prompt_message の生成 ---
     base_system_prompt = state['system_prompt'].content
     all_participants = state.get('all_participants', [])
     current_room = state['room_name']
@@ -231,45 +229,25 @@ def agent_node(state: AgentState):
         )
         final_system_prompt_text = persona_lock_prompt + base_system_prompt
     final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
-
-    # --- messages_for_agent の生成 ---
-    history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
-    messages_for_agent = [final_system_prompt_message] + history_messages
-
-    # --- LLMの準備 ---
+    print(f"  - 使用モデル: {state['model_name']}")
+    print(f"  - 最終システムプロンプト長: {len(final_system_prompt_text)} 文字")
+    if state.get("debug_mode", False):
+        print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
+        print(final_system_prompt_text)
+        print("-----------------------------------------")
     effective_settings = config_manager.get_effective_settings(state['room_name'])
     llm = get_configured_llm(state['model_name'], state['api_key'], effective_settings)
     llm_with_tools = llm.bind_tools(all_tools)
 
+    # 履歴から、過去の全てのSystemMessageを完全に除去する
+    history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
 
-    # ▼▼▼【ここからがデバッグコード】▼▼▼
-    print("\n" + "="*50)
-    print(" [DEBUG] AGENT_NODE: AIに渡される最終的なメッセージリスト")
-    print("="*50)
-    for i, msg in enumerate(messages_for_agent):
-        print(f"--- メッセージ {i+1}/{len(messages_for_agent)} ---")
-        print(f"Type: {type(msg)}")
-        # contentがリストの場合も考慮して、丁寧に出力
-        if isinstance(msg.content, list):
-            for part in msg.content:
-                print(part)
-        else:
-            print(msg.content)
-        print("-" * 20)
-    print("="*50 + "\n")
-    # ▲▲▲【デバッグコードここまで】▲▲▲
+    # AIに渡す最終的なメッセージリストは、「最新のシステムプロンプト」＋「SystemMessageを含まない純粋な会話履歴」
+    messages_for_agent = [final_system_prompt_message] + history_messages
 
     response = llm_with_tools.invoke(messages_for_agent)
 
-    # ▼▼▼【ここからがデバッグコード】▼▼▼
-    print("\n" + "="*50)
-    print(" [DEBUG] AGENT_NODE: AIからの生の応答 (response)")
-    print("="*50)
-    print(f"Type: {type(response)}")
-    print(repr(response)) # repr() を使って、オブジェクトの詳細な表現を出力
-    print("="*50 + "\n")
-    # ▲▲▲【デバッグコードここまで】▲▲▲
-
+    # 応答を返す部分は、add_messagesに任せるので、新しい応答だけを返す
     return {"messages": [response]}
 
 def location_report_node(state: AgentState):

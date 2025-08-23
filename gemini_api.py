@@ -136,8 +136,8 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         elif snapshot_messages:
             messages = snapshot_messages
 
-    if user_prompt_parts:
-        messages.append(HumanMessage(content=user_prompt_parts))
+    # if user_prompt_parts:
+    #     messages.append(HumanMessage(content=user_prompt_parts))
 
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
