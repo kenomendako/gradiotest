@@ -141,13 +141,6 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> Tuple[List[Tupl
     user_file_attach_pattern = re.compile(r"\[ファイル添付: ([^\]]+?)\]")
     gen_image_pattern = re.compile(r"\[Generated Image: ([^\]]+?)\]")
 
-    # 将来のアンカーリンク機能のために、まず全てのテキストメッセージを特定する
-    text_messages_indices = []
-    for i, msg in enumerate(messages):
-        # 簡易的な判定：画像やファイルのタグを含まないテキスト部分があるか
-        if msg.get("content", "").strip():
-             text_messages_indices.append(i)
-
     for i, msg in enumerate(messages):
         role = msg.get("role")
         content = msg.get("content", "").strip()
@@ -155,51 +148,43 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> Tuple[List[Tupl
         if not content:
             continue
 
-        # アンカーIDとリンクを計算
-        current_anchor_id = f"msg-anchor-{i}"
-        current_text_index = -1
-        try:
-            current_text_index = text_messages_indices.index(i)
-        except ValueError:
-            pass # テキストではないメッセージ
+        # --- メッセージを、テキスト部分と、ファイル/画像パスのリストに分離する ---
+        text_part = content
+        media_paths = []
 
-        prev_anchor_id = f"msg-anchor-{text_messages_indices[current_text_index - 1]}" if current_text_index > 0 else None
-        next_anchor_id = f"msg-anchor-{text_messages_indices[current_text_index + 1]}" if current_text_index != -1 and current_text_index < len(text_messages_indices) - 1 else None
-
-        # --- メッセージをテキスト部分とファイル/画像部分に分離 ---
         if role == "user":
             text_part = user_file_attach_pattern.sub("", content).strip()
-            file_paths = [p.strip() for p in user_file_attach_pattern.findall(content)]
-
-            if text_part:
-                formatted_text = _format_text_content_for_gradio(text_part, speaker_name, current_anchor_id, prev_anchor_id, next_anchor_id)
-                gradio_history.append((formatted_text, None))
-                mapping_list.append(i)
-
-            for path in file_paths:
-                try:
-                    if os.path.exists(path):
-                        gradio_history.append(((path, os.path.basename(path)), None))
-                        mapping_list.append(i)
-                except Exception:
-                    pass
-
+            media_paths = [p.strip() for p in user_file_attach_pattern.findall(content)]
         elif role == "model":
             text_part = gen_image_pattern.sub("", content).strip()
-            img_paths = [p.strip() for p in gen_image_pattern.findall(content)]
+            media_paths = [p.strip() for p in gen_image_pattern.findall(content)]
 
-            if text_part:
-                formatted_text = _format_text_content_for_gradio(text_part, speaker_name, current_anchor_id, prev_anchor_id, next_anchor_id)
+        # --- Gradioの履歴を、黄金律に従って生成する ---
+
+        # 1. まず、テキスト部分だけのターンを追加する
+        if text_part:
+            # _format_text_content_for_gradio は思考ログなどを安全に表示するために必要
+            formatted_text = _format_text_content_for_gradio(text_part, speaker_name, f"msg-anchor-{i}", None, None)
+            if role == "user":
+                gradio_history.append((formatted_text, None))
+            else: # model
                 gradio_history.append((None, formatted_text))
-                mapping_list.append(i)
+            mapping_list.append(i)
 
-            for path in img_paths:
-                try:
-                    if os.path.exists(path):
-                        gradio_history.append((None, (path, os.path.basename(path))))
-                        mapping_list.append(i)
-                except Exception:
-                    pass
+        # 2. 次に、ファイル/画像だけのターンを、一つずつ追加する
+        for path in media_paths:
+            try:
+                if os.path.exists(path):
+                    # (filepath, filename) のタプル形式
+                    media_tuple = (path, os.path.basename(path))
+                    if role == "user":
+                        gradio_history.append((media_tuple, None))
+                    else: # model
+                        gradio_history.append((None, media_tuple))
+                    mapping_list.append(i)
+            except Exception:
+                # 不正なパスで os.path.exists がエラーを起こしても、クラッシュさせない
+                pass
 
     return gradio_history, mapping_list
 
