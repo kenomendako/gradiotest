@@ -69,7 +69,7 @@ def handle_room_change(room_name: str, api_key_name: str):
         room_name = room_list[0] if room_list else "Default"
 
     print(f"--- UI更新司令塔(handle_room_change)実行: {room_name} ---")
-    config_manager.save_config("last_character", room_name)
+    config_manager.save_config("last_room", room_name)
 
     chat_history, mapping_list = reload_chat_log(room_name, config_manager.initial_api_history_limit_option_global)
 
