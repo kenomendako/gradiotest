@@ -33,6 +33,7 @@ from room_manager import get_world_settings_path
 from memory_manager import load_memory_data_safe
 import utils
 import config_manager
+import constants # ★★★ この一行を追加 ★★★
 
 all_tools = [
     set_current_location, read_memory_by_path, edit_memory,
