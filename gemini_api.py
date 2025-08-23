@@ -117,11 +117,21 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         snapshot_history_raw = utils.load_chat_log(history_log_path, soul_vessel_room)
         snapshot_messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond)
         if snapshot_messages and messages:
-            first_snapshot_user_message_content = snapshot_messages[0].content if isinstance(snapshot_messages[0], HumanMessage) else ''
+            # スナップショットの最初のユーザー発言を取得
+            first_snapshot_user_message_content = None
+            for msg in snapshot_messages:
+                if isinstance(msg, HumanMessage):
+                    first_snapshot_user_message_content = msg.content
+                    break
+
+            # 自分の履歴(messages)の後方から、スナップショットの開始点と同じ発言を探す
             if first_snapshot_user_message_content:
                 for i in range(len(messages) - 1, -1, -1):
                     if isinstance(messages[i], HumanMessage) and messages[i].content == first_snapshot_user_message_content:
-                        messages = messages[:i]; break
+                        # 発見したら、そこから後ろを一旦削除して、スナップショットで置き換える
+                        messages = messages[:i]
+                        break
+
             messages.extend(snapshot_messages)
         elif snapshot_messages:
             messages = snapshot_messages
