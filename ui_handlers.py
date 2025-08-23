@@ -113,20 +113,33 @@ def handle_room_change(room_name: str, api_key_name: str):
     dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
 
     return (
-        room_name, chat_history, mapping_list, "",
-        gr.update(value=None), # file_upload_buttonに対応
-        profile_image,
-        memory_str, notepad_content, load_system_prompt_content(room_name),
-        room_name, room_name,
-        gr.update(choices=locations_for_ui, value=location_dd_val),
-        current_location_name, scenery_text,
-        gr.update(choices=all_models, value=model_val),
-        voice_display_name, voice_style_prompt_val,
-        temp_val, top_p_val, harassment_val, hate_val, sexual_val, dangerous_val,
-        effective_settings["add_timestamp"], effective_settings["send_thoughts"],
-        effective_settings["send_notepad"], effective_settings["use_common_prompt"],
-        effective_settings["send_core_memory"], effective_settings["send_scenery"],
-        f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", scenery_image_path
+        room_name,                              # current_room_name
+        chat_history,                           # chatbot_display
+        mapping_list,                           # current_log_map_state
+        "",                                     # chat_input_textbox
+        gr.update(value=None),                  # file_upload_button
+        profile_image,                          # profile_image_display
+        memory_str,                             # memory_json_editor
+        notepad_content,                        # notepad_editor
+        load_system_prompt_content(room_name),  # system_prompt_editor
+        gr.update(choices=room_manager.get_room_list(), value=room_name), # alarm_room_dropdown
+        gr.update(choices=room_manager.get_room_list(), value=room_name), # timer_room_dropdown
+        gr.update(choices=locations_for_ui, value=location_dd_val), # location_dropdown
+        current_location_name,                  # current_location_display
+        scenery_text,                           # current_scenery_display
+        gr.update(choices=all_models, value=model_val), # room_model_dropdown
+        voice_display_name,                     # room_voice_dropdown
+        voice_style_prompt_val,                 # room_voice_style_prompt_textbox
+        temp_val, top_p_val,                    # sliders
+        harassment_val, hate_val, sexual_val, dangerous_val, # safety dropdowns
+        effective_settings["add_timestamp"],    # checkboxes...
+        effective_settings["send_thoughts"],
+        effective_settings["send_notepad"],
+        effective_settings["use_common_prompt"],
+        effective_settings["send_core_memory"],
+        effective_settings["send_scenery"],
+        f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", # room_settings_info
+        scenery_image_path                      # scenery_image_display
     )
 
 def handle_save_room_settings(
@@ -1265,21 +1278,21 @@ def handle_world_builder_load(room_name: str):
 def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
     print(f"--- UI司令塔(handle_room_change_for_all_tabs)実行: {room_name} ---")
     chat_tab_updates = handle_room_change(room_name, api_key_name)
+
+    # World Builderタブ用のデータを準備
     wb_state, wb_area_selector, wb_raw_editor = handle_world_builder_load(room_name)
     world_builder_updates = (wb_state, wb_area_selector, wb_raw_editor)
 
+    # セッション管理タブ用のデータを準備
     all_rooms = room_manager.get_room_list()
     other_rooms = sorted([c for c in all_rooms if c != room_name])
-
     active_participants = []
     session_status = "現在、1対1の会話モードです。"
     participant_checkbox_update = gr.update(choices=other_rooms, value=[])
+    session_management_updates = (active_participants, session_status, participant_checkbox_update)
 
-    return chat_tab_updates + world_builder_updates + (
-        active_participants,
-        session_status,
-        participant_checkbox_update
-    )
+    # 全ての戻り値を結合して返す
+    return chat_tab_updates + world_builder_updates + session_management_updates
 
 def handle_start_session(main_room: str, participant_list: list) -> tuple:
     if not participant_list:

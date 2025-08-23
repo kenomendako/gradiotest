@@ -350,11 +350,15 @@ try:
                 clear_debug_console_button = gr.Button("コンソールをクリア", variant="secondary")
 
         # --- イベントハンドラ定義 ---
-        context_checkboxes = [room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox, room_use_common_prompt_checkbox, room_send_core_memory_checkbox, room_send_scenery_checkbox]
+        context_checkboxes = [
+            room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
+            room_use_common_prompt_checkbox, room_send_core_memory_checkbox, room_send_scenery_checkbox
+        ]
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
+
         initial_load_chat_outputs = [
             current_room_name, chatbot_display, current_log_map_state, chat_input_textbox,
-            file_upload_button, # ★★★ この行を追加 ★★★
+            file_upload_button,
             profile_image_display,
             memory_json_editor, notepad_editor, system_prompt_editor,
             alarm_room_dropdown, timer_room_dropdown, location_dropdown,
@@ -364,13 +368,19 @@ try:
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
         ] + context_checkboxes + [room_settings_info, scenery_image_display]
-        initial_load_outputs = [alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown] + initial_load_chat_outputs
+
+        initial_load_outputs = [
+            alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
+        ] + initial_load_chat_outputs
+
+        world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
+        session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
+
+        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs
 
         demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
-
-        room_change_world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
 
         start_session_button.click(
             fn=ui_handlers.handle_start_session,
@@ -410,10 +420,6 @@ try:
             ]
             # ▲▲▲【修正ここまで】▲▲▲
         )
-
-        all_room_change_outputs = initial_load_chat_outputs + room_change_world_builder_outputs + [
-            active_participants_state, session_status_display, participant_checkbox_group
-        ]
 
         room_dropdown.change(
             fn=ui_handlers.handle_room_change_for_all_tabs,
