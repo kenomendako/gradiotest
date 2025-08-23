@@ -216,6 +216,7 @@ def context_generator_node(state: AgentState):
 
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
+
     base_system_prompt = state['system_prompt'].content
     all_participants = state.get('all_participants', [])
     current_room = state['room_name']
@@ -229,23 +230,38 @@ def agent_node(state: AgentState):
         )
         final_system_prompt_text = persona_lock_prompt + base_system_prompt
     final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
+
     print(f"  - 使用モデル: {state['model_name']}")
     print(f"  - 最終システムプロンプト長: {len(final_system_prompt_text)} 文字")
-    if state.get("debug_mode", False):
-        print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
-        print(final_system_prompt_text)
-        print("-----------------------------------------")
+
     effective_settings = config_manager.get_effective_settings(state['room_name'])
     llm = get_configured_llm(state['model_name'], state['api_key'], effective_settings)
     llm_with_tools = llm.bind_tools(all_tools)
 
-    # 履歴から、過去の全てのSystemMessageを完全に除去する
     history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
-
-    # AIに渡す最終的なメッセージリストは、「最新のシステムプロンプト」＋「SystemMessageを含まない純粋な会話履歴」
     messages_for_agent = [final_system_prompt_message] + history_messages
 
+    # ▼▼▼【ここからが最重要デバッグコード】▼▼▼
+    # このデバッグモードは、UIのチェックボックスではなく、常にONにする
+    print("\n\n" + "="*80)
+    print(" [ULTIMATE DEBUG] AGENT_NODE: AIに渡される最終的なメッセージリストの完全な内容")
+    print("="*80)
+    for i, msg in enumerate(messages_for_agent):
+        print(f"--- メッセージ {i+1}/{len(messages_for_agent)} | Type: {type(msg).__name__} ---")
+        print(msg.content)
+        print("-" * 50)
+    print("="*80 + "\n\n")
+    # ▲▲▲【デバッグコードここまで】▲▲▲
+
     response = llm_with_tools.invoke(messages_for_agent)
+
+    # ▼▼▼【ここからが最重要デバッグコード】▼▼▼
+    print("\n\n" + "="*80)
+    print(" [ULTIMATE DEBUG] AGENT_NODE: AIからの生の応答 (response) の完全な内容")
+    print("="*80)
+    print(repr(response))
+    print("="*80 + "\n\n")
+    # ▲▲▲【デバッグコードここまで】▲▲▲
 
     # 応答を返す部分は、add_messagesに任せるので、新しい応答だけを返す
     return {"messages": [response]}
