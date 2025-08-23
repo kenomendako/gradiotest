@@ -131,101 +131,105 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
             header = None
     return messages
 
-def format_history_for_gradio(raw_history: List[Dict[str, str]], main_character_name: str) -> Tuple[List[Tuple[...]], List[int]]:
-    if not raw_history:
-        return [], []
+def format_history_for_gradio(messages: List[Dict[str, str]]) -> List[Tuple[Optional[Union[str, Tuple[str, str]]], Optional[Union[str, Tuple[str, str]]]]]:
+    """
+    生のログメッセージのリストを、GradioのChatbotが要求する形式に変換する。
+    この関数は、役割（user/model）に基づいて処理を完全に分離し、
+    テキストとファイル/画像をそれぞれ別のターンとして扱う、堅牢な設計を持つ。
+    """
+    if not messages:
+        return []
 
     gradio_history = []
-    mapping_list = []
-    image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
-    intermediate_list = []
-    for i, msg in enumerate(raw_history):
+    # それぞれの役割専用の正規表現パターン
+    user_file_attach_pattern = re.compile(r"\[ファイル添付: ([^\]]+?)\]")
+    gen_image_pattern = re.compile(r"\[Generated Image: ([^\]]+?)\]")
+
+    for i, msg in enumerate(messages):
+        role = msg.get("role")
         content = msg.get("content", "").strip()
-        if not content: continue
+        if not content:
+            continue
 
-        responder = msg.get("responder", main_character_name)
+        # 将来のアンカーリンク機能のために、各メッセージにユニークIDを付与
+        # （現在は未使用だが、構造として残しておく）
+        anchor_id = f"msg-anchor-{i}-{uuid.uuid4().hex[:8]}"
 
-        last_end = 0
-        for match in image_tag_pattern.finditer(content):
-            if match.start() > last_end:
-                intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:match.start()].strip(), "original_index": i, "responder": responder})
-            intermediate_list.append({"type": "image", "role": "model", "content": match.group(1).strip(), "original_index": i, "responder": responder})
-            last_end = match.end()
-        if last_end < len(content):
-            intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:].strip(), "original_index": i, "responder": responder})
+        if role == "user":
+            # --- ユーザーメッセージの処理 ---
+            text_part = user_file_attach_pattern.sub("", content).strip()
+            file_matches = user_file_attach_pattern.findall(content)
 
-    text_parts_with_anchors = []
-    for item in intermediate_list:
-        if item["type"] == "text" and item["content"]:
-            item["anchor_id"] = f"msg-anchor-{uuid.uuid4().hex[:8]}"
-            text_parts_with_anchors.append(item)
+            # 1. まずテキスト部分を処理
+            if text_part:
+                # ユーザー側のテキストはMarkdown化しないので、そのまま渡す
+                gradio_history.append((text_part, None))
 
-    text_part_index = 0
-    for item in intermediate_list:
-        if not item["content"]: continue
+            # 2. 次にファイル部分を処理 (それぞれ別ターン)
+            for filepath in file_matches:
+                filepath = filepath.strip()
+                if os.path.exists(filepath):
+                    gradio_history.append(((filepath, os.path.basename(filepath)), None))
 
-        if item["type"] == "text":
-            prev_anchor = text_parts_with_anchors[text_part_index - 1]["anchor_id"] if text_part_index > 0 else None
-            next_anchor = text_parts_with_anchors[text_part_index + 1]["anchor_id"] if text_part_index < len(text_parts_with_anchors) - 1 else None
+        elif role == "model":
+            # --- AI応答の処理 ---
+            # 1. テキスト部分を、MarkdownとHTMLのハイブリッド形式に変換する
+            #    _format_text_content_for_gradio が思考ログの安全なMarkdown化を担当する
+            formatted_text = _format_text_content_for_gradio(content, msg.get("responder", "AI"), anchor_id, None, None)
 
-            responder_name = item.get("responder", main_character_name)
-            html_content = _format_text_content_for_gradio(item["content"], responder_name, item["anchor_id"], prev_anchor, next_anchor)
+            # 2. テキストから画像タグを分離する
+            text_without_images = gen_image_pattern.sub("", formatted_text).strip()
+            image_matches = gen_image_pattern.findall(content) # 元のcontentからパスを抽出
 
-            if item["role"] == "user":
-                gradio_history.append((html_content, None))
-            else:
-                gradio_history.append((None, html_content))
+            # 3. まずテキスト部分（思考ログ等を含む整形済みHTML/Markdown）を追加
+            if text_without_images:
+                gradio_history.append((None, text_without_images))
 
-            mapping_list.append(item["original_index"])
-            text_part_index += 1
+            # 4. 次に画像部分を追加 (それぞれ別ターン)
+            for img_path in image_matches:
+                img_path = img_path.strip()
+                if os.path.exists(img_path):
+                    gradio_history.append((None, (img_path, os.path.basename(img_path))))
 
-        elif item["type"] == "image":
-            filepath = item["content"]
-            filename = os.path.basename(filepath)
-            gradio_history.append((None, (filepath, filename)))
-            mapping_list.append(item["original_index"])
+    return gradio_history
 
-    return gradio_history, mapping_list
 
-def _format_text_content_for_gradio(content: str, character_name: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
+def _format_text_content_for_gradio(content: str, speaker_name: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
+    """
+    単一のAI応答テキストを、GradioのChatbotで安全に表示するための
+    MarkdownとHTMLのハイブリッド文字列に変換する。
+    思考ログはMarkdownのコードブロックに変換される。
+    """
+    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
 
     # --- ログから思考と本文を分離する ---
-    thoughts_pattern = re.compile(r"^\s*【Thoughts】(.*?)【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
     thought_match = thoughts_pattern.search(content)
-
     thoughts_content = ""
     main_text_content = content.strip()
 
     if thought_match:
         thoughts_content = thought_match.group(1).strip()
-        main_text_content = thoughts_pattern.sub("", content, count=1).strip()
+        main_text_content = thoughts_pattern.sub("", content).strip()
 
     # --- Markdown文字列を組み立てる ---
+    final_md_parts = []
 
-    # 1. ヘッダー部分
-    # GradioのMarkdownではHTMLが使えるので、アンカーやボタンはそのまま利用
-    up_button = f"<a href='#{current_anchor_id}' class='message-nav-link' title='この発言の先頭へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
-    down_button = f"<a href='#{next_anchor_id}' class'message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
-    delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
-    button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
-
-    # speaker_header はMarkdownの太字に変更
-    speaker_header = f"**{html.escape(character_name)}:**\n"
-
-    final_md_parts = [f"<span id='{current_anchor_id}'></span>", speaker_header]
+    # 1. 話者ヘッダー (Markdownの太字)
+    final_md_parts.append(f"**{html.escape(speaker_name)}:**\n")
 
     # 2. 思考ログ部分 (Markdownのコードブロックとして)
     if thoughts_content:
-        final_md_parts.append("【Thoughts】\n")
-        final_md_parts.append(f"```\n{thoughts_content}\n```\n")
+        # Markdownコードブロックは、それ自体が改行を持つため、前後に改行を追加
+        final_md_parts.append(f"\n【Thoughts】\n```\n{thoughts_content}\n```\n")
 
     # 3. 本文部分 (通常のMarkdownテキストとして)
     if main_text_content:
-        # Markdownの特殊文字をエスケープする必要はない。Gradioがよしなにやってくれる。
         final_md_parts.append(main_text_content)
 
-    # 4. フッター部分
+    # 4. フッター部分 (HTML) - GradioのMarkdownはHTMLを許容する
+    #    アンカー機能は将来の復活のために残しておくが、今は簡略化
+    button_container = f"<div style='text-align: right; margin-top: 8px;'></div>"
     final_md_parts.append(f"\n{button_container}")
 
     return "".join(final_md_parts)
