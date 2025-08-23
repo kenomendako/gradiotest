@@ -177,9 +177,12 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> Tuple[List[Tupl
                 mapping_list.append(i)
 
             for path in file_paths:
-                if os.path.exists(path):
-                    gradio_history.append(((path, os.path.basename(path)), None))
-                    mapping_list.append(i)
+                try:
+                    if os.path.exists(path):
+                        gradio_history.append(((path, os.path.basename(path)), None))
+                        mapping_list.append(i)
+                except Exception:
+                    pass
 
         elif role == "model":
             text_part = gen_image_pattern.sub("", content).strip()
@@ -191,9 +194,12 @@ def format_history_for_gradio(messages: List[Dict[str, str]]) -> Tuple[List[Tupl
                 mapping_list.append(i)
 
             for path in img_paths:
-                if os.path.exists(path):
-                    gradio_history.append((None, (path, os.path.basename(path))))
-                    mapping_list.append(i)
+                try:
+                    if os.path.exists(path):
+                        gradio_history.append((None, (path, os.path.basename(path))))
+                        mapping_list.append(i)
+                except Exception:
+                    pass
 
     return gradio_history, mapping_list
 
