@@ -70,33 +70,20 @@ try:
     #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
     #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
-    #chat_container {
-        position: relative;
-        border-radius: 8px;
-        overflow: hidden;
-        z-index: 0;
-    }
-    #chat_container::before {
-        content: "";
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background-image: url("/file=test.png");
-        background-size: cover;
-        background-position: center;
-        opacity: 0.25;
-        z-index: -1;
-    }
+
     #chat_output_area {
-        background-color: transparent !important;
+        background-image: url("/file=test.png") !important;
+        background-size: cover !important;
+        background-position: center !important;
     }
     #chat_output_area .message-bubble-row .message-bubble,
     #chat_output_area .message.message-bubble {
-        background-color: rgba(255, 255, 255, 0.8) !important;
-        backdrop-filter: blur(1px);
+        background-color: rgba(255, 255, 255, 0.85) !important;
+        backdrop-filter: blur(2px);
     }
     #chat_output_area .message-bubble-row.user .message-bubble,
     #chat_output_area .user .message.message-bubble {
-        background-color: rgba(230, 240, 255, 0.85) !important;
+        background-color: rgba(230, 240, 255, 0.9) !important;
     }
     """
     js_stop_nav_link_propagation = """
