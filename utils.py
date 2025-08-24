@@ -89,35 +89,45 @@ def release_lock():
 import room_manager # ★ 新しくインポート
 
 def load_chat_log(file_path: str) -> List[Dict[str, str]]:
+    print("\n" + "="*80)
+    print(f" [DEBUG] LOAD_CHAT_LOG: '{file_path}' の解析を開始します。")
+    print("="*80)
+
     messages: List[Dict[str, str]] = []
     if not file_path or not os.path.exists(file_path):
+        print(" [DEBUG] ファイルパスが無効か、ファイルが存在しません。空のリストを返します。")
         return messages
     try:
         with open(file_path, "r", encoding="utf-8") as f: content = f.read()
+        print(f" [DEBUG] ファイルを読み込みました。総文字数: {len(content)}")
     except Exception as e:
-        print(f"エラー: ログファイル '{file_path}' 読込エラー: {e}"); return messages
+        print(f" [DEBUG] ファイルの読み込み中にエラーが発生しました: {e}"); return messages
 
-    # ヘッダー (##...) で全体を分割する
-    # Lookahead assertion `(?=^## )` を使い、ヘッダー自身は分割文字列に含まないようにする
     log_blocks = re.split(r'(?=^## )', content, flags=re.MULTILINE)
+    print(f" [DEBUG] ログを {len(log_blocks)} 個のブロックに分割しました。")
 
-    for block in log_blocks:
+    for i, block in enumerate(log_blocks):
         block = block.strip()
+        print(f"\n--- ブロック {i+1}/{len(log_blocks)} を処理中 ---")
+        print(f" [DEBUG] RAW BLOCK:\n---\n{block[:200]}...\n---") # 内容を200文字だけ表示
+
         if not block:
+            print(" [DEBUG] ブロックが空のため、スキップします。")
             continue
 
-        # ブロックをヘッダー行と内容に分割
         try:
             header_line, message_content = block.split('\n', 1)
             message_content = message_content.strip()
+            print(f" [DEBUG] ヘッダー行: '{header_line}'")
+            print(f" [DEBUG] メッセージ内容（先頭）: '{message_content[:100]}...'")
         except ValueError:
-            # 内容のないヘッダーのみの行などは無視
+            print(" [DEBUG] ヘッダーと内容に分割できませんでした。このブロックをスキップします。")
             continue
 
         if not message_content:
+            print(" [DEBUG] メッセージ内容が空のため、このブロックをスキップします。")
             continue
 
-        # ヘッダーを解析
         header_text = header_line[3:].strip() # "## " を除去
 
         role = "AGENT" # デフォルト
@@ -139,8 +149,13 @@ def load_chat_log(file_path: str) -> List[Dict[str, str]]:
             role = "USER"
             responder = "user" # USERのresponderは'user'に正規化
 
-        messages.append({"role": role, "responder": responder, "content": message_content})
+        new_message = {"role": role, "responder": responder, "content": message_content}
+        messages.append(new_message)
+        print(f" [DEBUG] ★★★ メッセージを追加しました: {{\"role\": \"{role}\", \"responder\": \"{responder}\", \"content\": \"{message_content[:50]}...\"}}")
 
+    print("\n" + "="*80)
+    print(f" [DEBUG] 解析が完了しました。合計 {len(messages)} 件のメッセージを返します。")
+    print("="*80)
     return messages
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str) -> Tuple[List[Tuple], List[int]]:
