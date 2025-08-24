@@ -265,7 +265,7 @@ try:
                                         delete_room_button = gr.Button("このルームを削除", variant="stop")
 
                     with gr.Column(scale=3):
-                        with gr.Box(elem_id="chat_background_container"):
+                        with gr.Column(elem_id="chat_background_container"):
                             background_image_display = gr.Image(interactive=False, show_label=False, show_download_button=False, elem_id="chat_background_image", height=600)
                             chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
                         with gr.Row():
