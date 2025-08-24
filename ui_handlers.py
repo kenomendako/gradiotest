@@ -574,12 +574,14 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
         traceback.print_exc()
         return gr.update(), gr.update()
 
-def handle_delete_room(folder_name_to_delete: str, confirmed: bool):
+def handle_delete_room(folder_name_to_delete: str, confirmed: str):
     """
     「管理」タブの削除ボタンのロジック。
     ルームのフォルダを完全に削除する。
     """
-    if not confirmed:
+    # The 'confirmed' value from JS will be a string "true" or "false", or None
+    if str(confirmed).lower() != "true":
+        # ユーザーがキャンセルを押したか、予期せぬ値が来た場合は何もしない
         return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
     if not folder_name_to_delete:
