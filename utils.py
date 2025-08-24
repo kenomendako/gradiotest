@@ -97,51 +97,36 @@ def load_chat_log(file_path: str) -> List[Dict[str, str]]:
     except Exception as e:
         print(f"エラー: ログファイル '{file_path}' 読込エラー: {e}"); return messages
 
-    # ヘッダー (##...) で全体を分割。空の要素も保持するために () で囲む
-    log_parts = re.split(r'(^## .*?$)', content, flags=re.MULTILINE)
+    # ヘッダー (##...) で全体を分割し、ヘッダーと内容のペアのリストを作成する
+    # re.split()は複雑なので、より確実な finditer() を使用する
 
-    # 最初の要素が空文字列なら削除（ヘッダーで始まる場合の typical な挙動）
-    if log_parts and not log_parts[0].strip():
-        log_parts.pop(0)
+    header_pattern = re.compile(r'^## (.*?)$', re.MULTILINE)
+    matches = list(header_pattern.finditer(content))
 
-    # ヘッダーとコンテントのペアを処理
-    for i in range(0, len(log_parts), 2):
-        # ペアが揃っているか確認
-        if i + 1 >= len(log_parts):
-            continue
+    for i, current_match in enumerate(matches):
+        start_pos = current_match.end()
+        end_pos = matches[i+1].start() if i + 1 < len(matches) else len(content)
 
-        header_line = log_parts[i]
-        message_content = log_parts[i+1].strip()
-
-        # コンテントが空の場合は、このペアを無視
+        message_content = content[start_pos:end_pos].strip()
         if not message_content:
             continue
 
-        # ヘッダーを解析
-        header_text = header_line[3:].strip() # "## " を除去
+        header_text = current_match.group(1).strip()
 
-        role = "AGENT" # デフォルト
-        responder = header_text # 古い形式の場合のフォールバック
+        role = "AGENT"
+        responder = header_text
 
         if ":" in header_text:
-            # 新形式 ## ROLE:NAME
             try:
                 role_part, name_part = header_text.split(":", 1)
-                # 'user' ID の正規化
-                if role_part.strip().upper() == "USER" and name_part.strip().lower() == "user":
-                    role = "USER"
-                    responder = "user"
-                else:
-                    role = role_part.strip().upper()
-                    responder = name_part.strip()
+                role = role_part.strip().upper()
+                responder = name_part.strip()
             except ValueError:
-                # : が含まれるが分割できない場合は、全体をresponderとする
-                responder = header_text
+                pass
         else:
-            # 旧形式 ## NAME
             if header_text.lower() in ["user", "ユーザー"]:
                 role = "USER"
-                responder = "user"
+                responder = "user" # USERのresponderは'user'に正規化
 
         messages.append({"role": role, "responder": responder, "content": message_content})
 

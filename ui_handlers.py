@@ -1284,7 +1284,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
     world_builder_updates = (wb_state, wb_area_selector, wb_raw_editor)
 
     # セッション管理タブ用のデータを準備
-    all_rooms = room_manager.get_room_list()  # This is [(display, folder), ...]
+    all_rooms = room_manager.get_room_list_for_ui()  # This is [(display, folder), ...]
     # CheckboxGroup wants choices as list of (value, label), so we swap the tuple
     other_rooms_for_checkbox = sorted(
         [(folder, display) for display, folder in all_rooms if folder != room_name],
