@@ -675,7 +675,7 @@ def reload_chat_log(room_name: Optional[str], api_history_limit_value: str):
     if not log_f or not os.path.exists(log_f):
         return [], []
 
-    full_raw_history = utils.load_chat_log(log_f, room_name)
+    full_raw_history = utils.load_chat_log(log_f)
     display_turns = _get_display_history_count(api_history_limit_value)
     visible_history = full_raw_history[-(display_turns * 2):]
     history, mapping_list = utils.format_history_for_gradio(visible_history)

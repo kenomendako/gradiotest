@@ -267,7 +267,7 @@ def count_input_tokens(**kwargs):
 
         # --- 履歴の構築 ---
         log_file, _, _, _, _ = room_manager.get_room_files_paths(room_name)
-        raw_history = utils.load_chat_log(log_file, room_name)
+        raw_history = utils.load_chat_log(log_file)
         limit = int(api_history_limit) if api_history_limit and api_history_limit.isdigit() else 0
         if limit > 0 and len(raw_history) > limit * 2:
             raw_history = raw_history[-(limit * 2):]
