@@ -41,23 +41,32 @@ def _get_background_update(room_name: str) -> gr.update:
     Generates a Gradio update for an invisible HTML component.
     The update contains a script that sets the chat background image CSS variable.
     """
-    if not room_name:
-        js_code = "document.documentElement.style.setProperty('--chat-bg-image', 'none');"
-    else:
-        location_id = utils.get_current_location(room_name)
-        image_path = utils.find_scenery_image(room_name, location_id)
+    # --- DEBUGGING: Hardcode to test.png ---
+    image_path = "test.png"
+    abs_image_path = os.path.abspath(image_path)
+    encoded_path = quote(abs_image_path)
+    image_url = f"/file={encoded_path}"
+    cache_buster = f"?v={uuid.uuid4().hex}"
+    js_code = f"console.log('Setting background to: {image_url}'); document.documentElement.style.setProperty('--chat-bg-image', 'url(\"{image_url}{cache_buster}\")');"
 
-        if image_path:
-            abs_image_path = os.path.abspath(image_path)
-            # URL-encode the path to handle special characters (like spaces and non-ASCII chars)
-            encoded_path = quote(abs_image_path)
-            image_url = f"/file={encoded_path}"
-            # Add a cache-busting query parameter to force browser to reload the image when it changes
-            cache_buster = f"?v={uuid.uuid4().hex}"
-            # Ensure the final URL in JS is properly quoted
-            js_code = f"document.documentElement.style.setProperty('--chat-bg-image', 'url(\"{image_url}{cache_buster}\")');"
-        else:
-            js_code = "document.documentElement.style.setProperty('--chat-bg-image', 'none');"
+    # --- Original Code ---
+    # if not room_name:
+    #     js_code = "document.documentElement.style.setProperty('--chat-bg-image', 'none');"
+    # else:
+    #     location_id = utils.get_current_location(room_name)
+    #     image_path = utils.find_scenery_image(room_name, location_id)
+
+    #     if image_path:
+    #         abs_image_path = os.path.abspath(image_path)
+    #         # URL-encode the path to handle special characters (like spaces and non-ASCII chars)
+    #         encoded_path = quote(abs_image_path)
+    #         image_url = f"/file={encoded_path}"
+    #         # Add a cache-busting query parameter to force browser to reload the image when it changes
+    #         cache_buster = f"?v={uuid.uuid4().hex}"
+    #         # Ensure the final URL in JS is properly quoted
+    #         js_code = f"document.documentElement.style.setProperty('--chat-bg-image', 'url(\"{image_url}{cache_buster}\")');"
+    #     else:
+    #         js_code = "document.documentElement.style.setProperty('--chat-bg-image', 'none');"
 
     html_content = f"<script>{js_code}</script>"
     return gr.update(value=html_content)
