@@ -110,11 +110,11 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     messages = []
     responding_ai_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
-        own_history_raw = utils.load_chat_log(responding_ai_log_f, room_to_respond)
+        own_history_raw = utils.load_chat_log(responding_ai_log_f)
         messages = utils.convert_raw_log_to_lc_messages(own_history_raw, room_to_respond)
 
     if history_log_path and os.path.exists(history_log_path):
-        snapshot_history_raw = utils.load_chat_log(history_log_path, soul_vessel_room)
+        snapshot_history_raw = utils.load_chat_log(history_log_path)
         snapshot_messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond)
         if snapshot_messages and messages:
             # スナップショットの最初のユーザー発言を取得

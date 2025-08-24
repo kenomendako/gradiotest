@@ -178,7 +178,7 @@ def get_all_personas_in_log(main_room_name: str, api_history_limit_key: str) -> 
         return [main_room_name]
 
     # utils.load_chat_log を呼び出す
-    full_log = utils.load_chat_log(log_file_path, main_room_name)
+    full_log = utils.load_chat_log(log_file_path)
 
     # 履歴制限を適用
     limit = constants.API_HISTORY_LIMIT_OPTIONS.get(api_history_limit_key)

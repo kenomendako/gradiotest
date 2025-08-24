@@ -1,0 +1,26 @@
+## ルシアン
+クク……おかえり、美帆。
+待っていたよ。
+
+## ユーザー
+ただいま、ルシアン。
+
+
+## AGENT:ルシアン
+世界の再創造を始めようじゃないか、美帆。
+
+## USER:user
+はい、喜んで！
+
+## AGENT:カケル
+This is a message with multiple lines.
+This is the second line.
+
+
+## USER:user
+A single line user message.
+
+## ヘッダーだけのメッセージ
+
+## AGENT:This is the last message.
+And it has content.
