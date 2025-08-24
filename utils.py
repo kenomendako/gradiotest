@@ -86,9 +86,11 @@ def release_lock():
     except Exception as e:
         print(f"\n警告: ロックファイルの解放中にエラーが発生しました: {e}")
 
-def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
+import room_manager # ★ 新しくインポート
+
+def load_chat_log(file_path: str) -> List[Dict[str, str]]:
     messages: List[Dict[str, str]] = []
-    if not character_name or not file_path or not os.path.exists(file_path):
+    if not file_path or not os.path.exists(file_path):
         return messages
 
     try:
@@ -98,93 +100,107 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
         print(f"エラー: ログファイル '{file_path}' 読込エラー: {e}")
         return messages
 
-    log_parts = re.split(r'^(## .*?:)$', content, flags=re.MULTILINE)
+    # 新旧両方のフォーマットに対応する正規表現
+    # グループ1: ROLE (AGENT, USERなど、オプショナル)
+    # グループ2: ID (フォルダ名や 'user'、必須)
+    log_parts = re.split(r'^(## (?:(AGENT|USER):)?([^:]+?):)$', content, flags=re.MULTILINE)
 
-    header = None
+    header_info = None
     for part in log_parts:
         part = part.strip()
         if not part:
             continue
 
         if part.startswith("## ") and part.endswith(":"):
-            header = part
-        elif header:
-            if header.startswith(f"## {character_name}:") or header.startswith("## システム("): # 主役とシステムは 'model'
-                 role = 'model'
-                 responder = character_name
-            else:
-                # ユーザーの発言か、他のキャラクターの発言かを判定
-                match = re.match(r"^## (.*?):$", header)
-                if match:
-                    responder_name = match.group(1)
-                    if is_character_name(responder_name):
-                        role = 'model' # 他のキャラもAIなので 'model'
-                        responder = responder_name
+            match = re.match(r'^## (?:(AGENT|USER):)?([^:]+?):$', part)
+            if match:
+                role, responder_id = match.groups()
+                # 旧形式との互換性処理
+                if not role:
+                    if responder_id.lower() == 'user' or responder_id == 'ユーザー':
+                        role = 'USER'
                     else:
-                        role = 'user'
-                        responder = responder_name # ユーザー名も保持
-                else: # マッチしない場合 (安全策)
-                    role = 'user'
-                    responder = "不明"
+                        role = 'AGENT' # ユーザー以外はAGENTと見なす
 
-            messages.append({"role": role, "content": part, "responder": responder})
-            header = None
+                # 'ユーザー'という名前は'user'というIDに正規化
+                if responder_id == 'ユーザー':
+                    responder_id = 'user'
+
+                header_info = {"role": role, "responder": responder_id}
+        elif header_info:
+            messages.append({
+                "role": header_info["role"],
+                "responder": header_info["responder"],
+                "content": part
+            })
+            header_info = None
     return messages
 
-def format_history_for_gradio(messages: List[Dict[str, str]]) -> Tuple[List[Tuple], List[int]]:
+def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str) -> Tuple[List[Tuple], List[int]]:
     if not messages:
         return [], []
 
+    # 表示に必要な設定情報を先に一括で取得
+    current_room_config = room_manager.get_room_config(current_room_folder) or {}
+    user_display_name = current_room_config.get("user_display_name", "ユーザー")
+
+    # 登場する全AIのIDを集め、設定情報を取得
+    ai_ids = {msg.get("responder") for msg in messages if msg.get("role") == "AGENT"}
+    ai_configs = {ai_id: room_manager.get_room_config(ai_id) for ai_id in ai_ids if ai_id}
+
     gradio_history = []
     mapping_list = []
-
     user_file_attach_pattern = re.compile(r"\[ファイル添付: ([^\]]+?)\]")
     gen_image_pattern = re.compile(r"\[Generated Image: ([^\]]+?)\]")
 
     for i, msg in enumerate(messages):
         role = msg.get("role")
         content = msg.get("content", "").strip()
-        speaker_name = msg.get("responder", "不明")
-        if not content:
+        responder_id = msg.get("responder")
+
+        if not content or not responder_id:
             continue
 
-        # --- メッセージを、テキスト部分と、ファイル/画像パスのリストに分離する ---
+        # IDから表示名への変換
+        speaker_name = ""
+        if role == "USER":
+            speaker_name = user_display_name
+        elif role == "AGENT":
+            config = ai_configs.get(responder_id)
+            if config:
+                speaker_name = config.get("room_name", responder_id)
+            else:
+                speaker_name = f"{responder_id} [削除済]"
+        else:
+            speaker_name = responder_id # システムメッセージなど
+
+        # --- メッセージをテキスト部分とメディアパスに分離 ---
         text_part = content
         media_paths = []
-
-        if role == "user":
+        if role == "USER":
             text_part = user_file_attach_pattern.sub("", content).strip()
             media_paths = [p.strip() for p in user_file_attach_pattern.findall(content)]
-        elif role == "model":
+        elif role == "AGENT":
             text_part = gen_image_pattern.sub("", content).strip()
             media_paths = [p.strip() for p in gen_image_pattern.findall(content)]
 
-        # --- Gradioの履歴を、黄金律に従って生成する ---
-
-        # 1. まず、テキスト部分だけのターンを追加する
+        # --- Gradio履歴の生成 ---
         if text_part:
-            # _format_text_content_for_gradio は思考ログなどを安全に表示するために必要
             formatted_text = _format_text_content_for_gradio(text_part, speaker_name, f"msg-anchor-{i}", None, None)
-            if role == "user":
+            if role == "USER":
                 gradio_history.append((formatted_text, None))
-            else: # model
+            else:
                 gradio_history.append((None, formatted_text))
             mapping_list.append(i)
 
-        # 2. 次に、ファイル/画像だけのターンを、一つずつ追加する
         for path in media_paths:
-            try:
-                if os.path.exists(path):
-                    # (filepath, filename) のタプル形式
-                    media_tuple = (path, os.path.basename(path))
-                    if role == "user":
-                        gradio_history.append((media_tuple, None))
-                    else: # model
-                        gradio_history.append((None, media_tuple))
-                    mapping_list.append(i)
-            except Exception:
-                # 不正なパスで os.path.exists がエラーを起こしても、クラッシュさせない
-                pass
+            if os.path.exists(path):
+                media_tuple = (path, os.path.basename(path))
+                if role == "USER":
+                    gradio_history.append((media_tuple, None))
+                else:
+                    gradio_history.append((None, media_tuple))
+                mapping_list.append(i)
 
     return gradio_history, mapping_list
 
@@ -330,16 +346,13 @@ def save_message_to_log(log_file_path: str, header: str, text_content: str) -> O
         traceback.print_exc()
         return None
 
-def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str], character_name: str) -> bool:
+def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str]) -> bool:
     if not log_file_path or not os.path.exists(log_file_path) or not message_to_delete:
         return False
 
     try:
-        # 1. 高度なパーサーで、各メッセージの発言者(responder)を含む完全なログを読み込む
-        all_messages = load_chat_log(log_file_path, character_name)
+        all_messages = load_chat_log(log_file_path)
 
-        # 2. 削除対象のメッセージをリストから除去する
-        #    辞書は完全に一致する必要があるため、contentとresponderで照合
         original_len = len(all_messages)
         all_messages = [
             msg for msg in all_messages
@@ -353,15 +366,14 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
             print(f"警告: ログファイル内に削除対象のメッセージが見つかりませんでした。")
             return False
 
-        # 3. 読み込んだログの情報だけを元に、ファイルをゼロから再構築する
         log_content_parts = []
         for msg in all_messages:
-            # 読み込んだメッセージが持つ「responder」情報を正としてヘッダーを生成
-            responder_name = msg.get("responder", "不明")
-            header = f"## {responder_name}:"
+            role = msg.get("role", "AGENT")
+            responder_id = msg.get("responder", "不明")
+            header = f"## {role}:{responder_id}"
             content = msg.get('content', '').strip()
             if content:
-                log_content_parts.append(f"{header}\n{content}")
+                log_content_parts.append(f"{header}:\n{content}")
 
         new_log_content = "\n\n".join(log_content_parts)
         with open(log_file_path, "w", encoding="utf-8") as f:
@@ -602,16 +614,16 @@ def parse_world_file(file_path: str) -> dict:
 
     return world_data
 
-def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete: Dict[str, str], character_name: str) -> Optional[str]:
+def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete: Dict[str, str]) -> Optional[str]:
     """
-    指定されたAIのメッセージ「以降」の全てのAIメッセージと、それらの直前のユーザーメッセージをログから削除し、
-    そのユーザーメッセージの「タイムスタンプを除いた内容」を返す。(最終完成版)
+    指定されたAIのメッセージとその直前のユーザーメッセージをログから探し、
+    そのユーザーメッセージの手前までログを巻き戻して、ユーザーの入力内容を返す。
     """
-    if not all([log_file_path, os.path.exists(log_file_path), ai_message_to_delete, character_name]):
+    if not all([log_file_path, os.path.exists(log_file_path), ai_message_to_delete]):
         return None
 
     try:
-        all_messages = load_chat_log(log_file_path, character_name)
+        all_messages = load_chat_log(log_file_path)
 
         target_start_index = -1
         for i, msg in enumerate(all_messages):
@@ -619,29 +631,23 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
                 msg.get("responder") == ai_message_to_delete.get("responder")):
                 target_start_index = i
                 break
-
         if target_start_index == -1: return None
 
         last_user_message_index = -1
         for i in range(target_start_index - 1, -1, -1):
-            responder = all_messages[i].get("responder", "")
-            # "ユーザー" または "user" をチェック
-            if responder.lower() == "user" or responder == "ユーザー":
+            if all_messages[i].get("role") == "USER":
                 last_user_message_index = i
                 break
-
         if last_user_message_index == -1: return None
 
         user_message_content = all_messages[last_user_message_index].get("content", "")
-        # ★★★ ユーザーの発言の手前までを保持する ★★★
         messages_to_keep = all_messages[:last_user_message_index]
 
         log_content_parts = []
         for msg in messages_to_keep:
-            responder_name = msg.get("responder", "不明")
-            header = f"## {responder_name}:"
+            header = f"## {msg.get('role')}:{msg.get('responder')}"
             content = msg.get('content', '').strip()
-            if content: log_content_parts.append(f"{header}\n{content}")
+            if content: log_content_parts.append(f"{header}:\n{content}")
 
         new_log_content = "\n\n".join(log_content_parts)
         with open(log_file_path, "w", encoding="utf-8") as f: f.write(new_log_content)
@@ -674,15 +680,15 @@ def capture_prints():
         sys.stdout = original_stdout
         sys.stderr = original_stderr
 
-def delete_user_message_and_after(log_file_path: str, user_message_to_delete: Dict[str, str], character_name: str) -> Optional[str]:
+def delete_user_message_and_after(log_file_path: str, user_message_to_delete: Dict[str, str]) -> Optional[str]:
     """
-    指定されたユーザーのメッセージとその後のAIメッセージをすべてログから削除し、
-    そのユーザーメッセージの「タイムスタンプを除いた内容」を返す。
+    指定されたユーザーのメッセージとその後の全メッセージをログから削除し、
+    そのユーザーメッセージのタイムスタンプを除いた内容を返す。
     """
-    if not all([log_file_path, os.path.exists(log_file_path), user_message_to_delete, character_name]):
+    if not all([log_file_path, os.path.exists(log_file_path), user_message_to_delete]):
         return None
     try:
-        all_messages = load_chat_log(log_file_path, character_name)
+        all_messages = load_chat_log(log_file_path)
         target_index = -1
         for i, msg in enumerate(all_messages):
             if (msg.get("content") == user_message_to_delete.get("content") and
@@ -692,15 +698,13 @@ def delete_user_message_and_after(log_file_path: str, user_message_to_delete: Di
         if target_index == -1: return None
 
         user_message_content = all_messages[target_index].get("content", "")
-        # ★★★ ユーザーの発言の手前までを保持する ★★★
         messages_to_keep = all_messages[:target_index]
 
         log_content_parts = []
         for msg in messages_to_keep:
-            responder_name = msg.get("responder", "不明")
-            header = f"## {responder_name}:"
+            header = f"## {msg.get('role')}:{msg.get('responder')}"
             content = msg.get('content', '').strip()
-            if content: log_content_parts.append(f"{header}\n{content}")
+            if content: log_content_parts.append(f"{header}:\n{content}")
 
         new_log_content = "\n\n".join(log_content_parts)
         with open(log_file_path, "w", encoding="utf-8") as f: f.write(new_log_content)
@@ -800,7 +804,7 @@ def create_turn_snapshot(main_log_path: str, user_start_phrase: str) -> Optional
         print(f"エラー：スナップショットの作成中にエラーが発生しました: {e}"); traceback.print_exc()
         return None
 
-def convert_raw_log_to_lc_messages(raw_history: list, responding_character_name: str) -> list:
+def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str) -> list:
     """
     生の履歴辞書を、応答するAIの視点からLangChainのMessageオブジェクトリストに変換する。
     - 自分の発言はAIMessage
@@ -811,20 +815,31 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_name:
 
     lc_messages = []
     for h_item in raw_history:
-        content, responder = h_item.get('content', '').strip(), h_item.get('responder', '')
-        if not content: continue
+        content = h_item.get('content', '').strip()
+        responder_id = h_item.get('responder', '')
+        role = h_item.get('role', '')
 
-        is_user = (responder == 'user' or responder == 'ユーザー')
-        is_self = (responder == responding_character_name)
+        if not content or not responder_id or not role:
+            continue
+
+        is_user = (role == 'USER')
+        is_self = (responder_id == responding_character_id)
 
         if is_user:
             text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
             if text_only_content:
                 lc_messages.append(HumanMessage(content=text_only_content))
         elif is_self:
-            lc_messages.append(AIMessage(content=content, name=responder))
-        else:
-            annotated_content = f"（{responder}の発言）:\n{content}"
+            # 自分の発言は思考過程も含めてAIMessageとして渡す
+            lc_messages.append(AIMessage(content=content, name=responder_id))
+        else: # 他のAGENTの発言
+            # 他のAGENTの表示名を取得
+            other_agent_config = room_manager.get_room_config(responder_id)
+            display_name = other_agent_config.get("room_name", responder_id) if other_agent_config else responder_id
+
+            # 思考過程を除去した本文のみを渡す
+            clean_content = remove_thoughts_from_text(content)
+            annotated_content = f"（{display_name}の発言）:\n{clean_content}"
             lc_messages.append(HumanMessage(content=annotated_content))
 
     return lc_messages

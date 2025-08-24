@@ -65,8 +65,8 @@ def handle_initial_load():
 
 def handle_room_change(room_name: str, api_key_name: str):
     if not room_name:
-        room_list = room_manager.get_room_list()
-        room_name = room_list[0] if room_list else "Default"
+        room_list = room_manager.get_room_list_for_ui()
+        room_name = room_list[0][1] if room_list else "Default"
 
     print(f"--- UI更新司令塔(handle_room_change)実行: {room_name} ---")
     config_manager.save_config("last_room", room_name)
@@ -122,9 +122,9 @@ def handle_room_change(room_name: str, api_key_name: str):
         memory_str,                             # memory_json_editor
         notepad_content,                        # notepad_editor
         load_system_prompt_content(room_name),  # system_prompt_editor
-        gr.update(choices=room_manager.get_room_list(), value=room_name), # alarm_room_dropdown
-        gr.update(choices=room_manager.get_room_list(), value=room_name), # timer_room_dropdown
-        gr.update(choices=room_manager.get_room_list(), value=room_name), # manage_room_selector
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # alarm_room_dropdown
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # timer_room_dropdown
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # manage_room_selector
         gr.update(choices=locations_for_ui, value=location_dd_val), # location_dropdown
         current_location_name,                  # current_location_display
         scenery_text,                           # current_scenery_display
@@ -263,9 +263,9 @@ def handle_message_submission(*args: Any):
         return
 
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
-    utils.save_message_to_log(main_log_f, "## ユーザー:", full_user_log_entry)
+    utils.save_message_to_log(main_log_f, "## USER:user", full_user_log_entry)
 
-    turn_recap_events = [f"## ユーザー:\n{full_user_log_entry}"]
+    turn_recap_events = [f"## USER:user\n{full_user_log_entry}"]
     all_rooms_in_scene = [soul_vessel_room] + active_participants
 
     api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
@@ -330,8 +330,8 @@ def handle_message_submission(*args: Any):
         current_console_content += captured_output.getvalue()
 
         if final_response_text.strip():
-            utils.save_message_to_log(main_log_f, f"## {room_to_respond}:", final_response_text)
-            turn_recap_events.append(f"## {room_to_respond}:\n{final_response_text}")
+            utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", final_response_text)
+            turn_recap_events.append(f"## AGENT:{room_to_respond}\n{final_response_text}")
 
     for popup_message in all_turn_popups:
         gr.Info(popup_message)
@@ -488,7 +488,7 @@ def handle_create_room(new_room_name: str, new_user_display_name: str, initial_s
 
         # 5. UI更新
         gr.Info(f"新しいルーム「{new_room_name}」を作成しました。")
-        updated_room_list = room_manager.get_room_list()
+        updated_room_list = room_manager.get_room_list_for_ui()
 
         # フォームのクリア
         clear_form = (gr.update(value=""), gr.update(value=""), gr.update(value=""))
@@ -561,7 +561,7 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
 
         gr.Info(f"ルーム「{room_name}」の設定を保存しました。")
 
-        updated_room_list = room_manager.get_room_list()
+        updated_room_list = room_manager.get_room_list_for_ui()
 
         # メインと管理タブのドロップダウンを更新
         main_dd_update = gr.update(choices=updated_room_list)
@@ -594,7 +594,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
         shutil.rmtree(room_path_to_delete)
         gr.Info(f"ルーム「{folder_name_to_delete}」を完全に削除しました。")
 
-        new_room_list = room_manager.get_room_list()
+        new_room_list = room_manager.get_room_list_for_ui()
         if not new_room_list:
             gr.Warning("全てのルームが削除されました。新しいルームを作成してください。")
             # This is the "empty" state for `initial_load_chat_outputs`
@@ -1573,7 +1573,7 @@ def handle_rerun_button_click(*args: Any):
     add_timestamp = effective_settings.get("add_timestamp", False)
     timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
     full_user_log_entry = restored_input_text + timestamp
-    utils.save_message_to_log(log_f, "## ユーザー:", full_user_log_entry)
+    utils.save_message_to_log(log_f, "## USER:user", full_user_log_entry)
 
     user_prompt_parts_for_api = [{"type": "text", "text": restored_input_text}]
 
@@ -1618,7 +1618,7 @@ def handle_rerun_button_click(*args: Any):
     current_console_content += captured_output.getvalue()
 
     if final_response_text.strip():
-        utils.save_message_to_log(log_f, f"## {room_name}:", final_response_text)
+        utils.save_message_to_log(log_f, f"## AGENT:{room_name}", final_response_text)
 
     for popup_message in all_turn_popups:
         gr.Info(popup_message)
