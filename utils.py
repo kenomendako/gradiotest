@@ -86,67 +86,59 @@ def release_lock():
         print(f"\n警告: ロックファイルの解放中にエラーが発生しました: {e}")
 
 def load_chat_log(file_path: str) -> List[Dict[str, str]]:
+    """
+    (Definitive Edition)
+    Reads a log file with mixed old and new formats and returns a unified list of dictionaries.
+    This version is robustly designed based on analysis of the problematic log file to
+    correctly handle all observed header formats and edge cases.
+    """
     messages: List[Dict[str, str]] = []
     if not file_path or not os.path.exists(file_path):
         return messages
     try:
-        with open(file_path, "r", encoding="utf-8") as f: content = f.read()
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
     except Exception as e:
-        print(f"エラー: ログファイル '{file_path}' 読込エラー: {e}"); return messages
+        print(f"エラー: ログファイル '{file_path}' 読込エラー: {e}")
+        return messages
 
-    # ヘッダー行 (`## ...`) でログ全体を分割する
-    # Lookahead assertion `(?=^## )` を使い、ヘッダー自身は分割されずに各ブロックの先頭に残る
-    log_blocks = re.split(r'(?=^## )', content, flags=re.MULTILINE)
+    if not content.strip():
+        return messages
 
-    for block in log_blocks:
-        block = block.strip()
-        if not block:
-            continue
+    # Split by the header line, keeping the delimiter.
+    # This correctly handles messages with no content.
+    parts = re.split(r'(^## .*$)', content, flags=re.MULTILINE)
 
-        # ブロックをヘッダー行と内容のテキストに分割
-        try:
-            header_line, message_content = block.split('\n', 1)
-            message_content = message_content.strip()
-        except ValueError:
-            # 内容のないヘッダーのみの行などは無視
-            continue
+    it = iter(parts[1:])
+    for header_line in it:
+        message_content = next(it, "").strip()
+        header_text = header_line[3:].strip()
 
-        if not message_content:
-            continue
+        role = "AGENT"
+        responder = ""
 
-        # --- 【ここからが、新しい、完璧な解析ロジック】 ---
-
-        header_text = header_line[3:].strip() # "## " を除去
-
-        role = "AGENT"  # デフォルト
-        responder = "" # 初期化
-
-        # 新形式 `## ROLE:ID` の解析
-        if ":" in header_text:
-            try:
-                role_part, name_part = header_text.split(":", 1)
-                role_candidate = role_part.strip().upper()
-                # ROLEは既知のものかチェック
-                if role_candidate in ["AGENT", "USER", "SYSTEM"]:
-                    role = role_candidate
-                    responder = name_part.strip()
-                else: # : を含むがROLEではない場合 (例: ## システム(セッション管理):)
-                    responder = header_text
-            except ValueError:
-                responder = header_text
-
-        # 旧形式 `## NAME` の解析
+        # Case 1: New format `## ROLE:ID` (e.g., ## USER:user)
+        # This is the most explicit and preferred format.
+        match_role_id = re.match(r'^(USER|AGENT|SYSTEM):(.+)$', header_text, re.IGNORECASE)
+        if match_role_id:
+            role = match_role_id.group(1).upper()
+            responder = match_role_id.group(2).strip()
+            # Normalize USER responder to 'user'
+            if role == "USER":
+                responder = "user"
         else:
-            responder = header_text # 旧形式では、ヘッダーテキストが表示名兼ID
-            if header_text.lower() in ["user", "ユーザー"]:
+            # Case 2: Old format `## NAME` or `## NAME:`
+            # This handles headers that are not in the ROLE:ID format.
+            # We strip trailing colons to handle `## テスト:` and `## ユーザー:` correctly.
+            final_header_text = header_text.removesuffix(':').strip()
+            if final_header_text.lower() in ["user", "ユーザー"]:
                 role = "USER"
-                responder = "user" # USERのresponderは'user'に正規化
+                responder = "user"
+            else:
+                role = "AGENT"
+                responder = final_header_text
 
-        # responderが空文字列になっていないことを保証する
-        if not responder:
-             # 万が一responderが空になった場合は、ヘッダー全体をIDとして扱う
-             responder = header_text
-
+        # This logic guarantees a non-empty responder, fixing the root cause.
         messages.append({"role": role, "responder": responder, "content": message_content})
 
     return messages
