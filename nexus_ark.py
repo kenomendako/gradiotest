@@ -244,6 +244,7 @@ try:
                                 with gr.TabItem("管理") as manage_room_tab:
                                     manage_room_selector = gr.Dropdown(label="管理するルームを選択", choices=room_list_on_startup, interactive=True)
                                     with gr.Column(visible=False) as manage_room_details:
+                                        delete_confirmed_state = gr.Textbox(visible=False)
                                         manage_room_name = gr.Textbox(label="ルーム名")
                                         manage_user_display_name = gr.Textbox(label="あなたの表示名")
                                         manage_room_description = gr.Textbox(label="ルームの説明", lines=3)
@@ -479,15 +480,12 @@ try:
             outputs=[room_dropdown, manage_room_selector]
         )
 
-        delete_confirmed_state = gr.State(False)
-
         delete_room_button.click(
             fn=None,
             inputs=None,
             outputs=delete_confirmed_state,
             js="() => confirm('本当にこのルームを削除しますか？この操作は取り消せません。')"
         )
-
         delete_confirmed_state.change(
             fn=ui_handlers.handle_delete_room,
             inputs=[manage_folder_name_display, delete_confirmed_state, api_key_dropdown],
