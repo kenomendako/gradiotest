@@ -90,18 +90,21 @@ try:
     with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, js=js_stop_nav_link_propagation) as demo:
         room_list_on_startup = room_manager.get_room_list()
         if not room_list_on_startup:
+            print("--- 有効なルームが見つからないため、'Default'ルームを作成します。 ---")
             room_manager.ensure_room_files("Default")
-            room_list_on_startup = ["Default"]
+            room_list_on_startup = room_manager.get_room_list()
 
+        folder_names_on_startup = [folder for _display, folder in room_list_on_startup]
         effective_initial_room = config_manager.initial_room_global
-        if not effective_initial_room or effective_initial_room not in room_list_on_startup:
-            new_room = room_list_on_startup[0] if room_list_on_startup else "Default"
-            print(f"警告: 最後に使用したルーム '{effective_initial_room}' が見つからないか無効です。'{new_room}' で起動します。")
-            effective_initial_room = new_room
-            config_manager.save_config("last_room", new_room)
-            if new_room == "Default" and "Default" not in room_list_on_startup:
+
+        if not effective_initial_room or effective_initial_room not in folder_names_on_startup:
+            new_room_folder = folder_names_on_startup[0] if folder_names_on_startup else "Default"
+            print(f"警告: 最後に使用したルーム '{effective_initial_room}' が見つからないか無効です。'{new_room_folder}' で起動します。")
+            effective_initial_room = new_room_folder
+            config_manager.save_config("last_room", new_room_folder)
+            if new_room_folder == "Default" and "Default" not in folder_names_on_startup:
                 room_manager.ensure_room_files("Default")
-                room_list_on_startup = ["Default"]
+                room_list_on_startup = room_manager.get_room_list()
 
         # --- Stateの定義 ---
         world_data_state = gr.State({})
@@ -361,7 +364,7 @@ try:
             file_upload_button,
             profile_image_display,
             memory_json_editor, notepad_editor, system_prompt_editor,
-            alarm_room_dropdown, timer_room_dropdown, location_dropdown,
+            alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
             current_location_display, current_scenery_display, room_model_dropdown, room_voice_dropdown,
             room_voice_style_prompt_textbox,
             room_temperature_slider, room_top_p_slider,
@@ -486,7 +489,7 @@ try:
                 timer_room_dropdown,
                 manage_room_details
             ],
-            js="() => confirm('本当にこのルームを削除しますか？')"
+            js="() => confirm('本当にこのルームを削除しますか？この操作は取り消せません。')"
         )
 
         chat_submit_outputs = [

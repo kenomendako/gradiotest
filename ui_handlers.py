@@ -124,6 +124,7 @@ def handle_room_change(room_name: str, api_key_name: str):
         load_system_prompt_content(room_name),  # system_prompt_editor
         gr.update(choices=room_manager.get_room_list(), value=room_name), # alarm_room_dropdown
         gr.update(choices=room_manager.get_room_list(), value=room_name), # timer_room_dropdown
+        gr.update(choices=room_manager.get_room_list(), value=room_name), # manage_room_selector
         gr.update(choices=locations_for_ui, value=location_dd_val), # location_dropdown
         current_location_name,                  # current_location_display
         scenery_text,                           # current_scenery_display
@@ -449,89 +450,77 @@ def handle_location_change(room_name: str, selected_value: str, api_key_name: st
 # --- Room Management Handlers ---
 #
 
-def handle_create_room(room_display_name: str, user_display_name: str, initial_system_prompt: str):
-    """新しいルームを作成する"""
-    if not room_display_name or not room_display_name.strip():
+def handle_create_room(new_room_name: str, new_user_display_name: str, initial_system_prompt: str):
+    """
+    「新規作成」タブのロジック。
+    新しいチャットルームを作成し、関連ファイルと設定を初期化する。
+    """
+    # 1. 入力検証
+    if not new_room_name or not new_room_name.strip():
         gr.Warning("ルーム名は必須です。")
+        # nexus_ark.pyのoutputsは7つ
         return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
-    # 1. フォルダ名を安全な形式に変換
-    safe_folder_name = re.sub(r'[\s]', '_', room_display_name.strip())
-    safe_folder_name = re.sub(r'[\\/*?:"<>|]', '', safe_folder_name)
-    if not safe_folder_name:
-        gr.Warning("無効なルーム名です。フォルダ名として利用できる文字を入力してください。")
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
-
-    # 2. 重複チェックと連番付与
-    base_folder_name = safe_folder_name
-    counter = 2
-    while os.path.exists(os.path.join(constants.ROOMS_DIR, safe_folder_name)):
-        safe_folder_name = f"{base_folder_name}_{counter}"
-        counter += 1
-
-    # 3. ファイルとディレクトリの作成
-    if not room_manager.ensure_room_files(safe_folder_name):
-        gr.Error(f"ルーム「{safe_folder_name}」の基本ファイル作成に失敗しました。")
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
-
-    # 4. room_config.json と SystemPrompt.txt に入力内容を書き込む
     try:
-        # room_config.jsonの更新
-        room_config_path = os.path.join(constants.ROOMS_DIR, safe_folder_name, "room_config.json")
-        with open(room_config_path, "r", encoding="utf-8") as f:
-            config_data = json.load(f)
+        # 2. 安全なフォルダ名生成
+        safe_folder_name = room_manager.generate_safe_folder_name(new_room_name)
 
-        config_data["room_name"] = room_display_name.strip()
-        if user_display_name and user_display_name.strip():
-            config_data["user_display_name"] = user_display_name.strip()
+        # 3. ルームファイル群の作成
+        if not room_manager.ensure_room_files(safe_folder_name):
+            gr.Error("ルームの基本ファイル作成に失敗しました。詳細はターミナルを確認してください。")
+            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
-        with open(room_config_path, "w", encoding="utf-8") as f:
-            json.dump(config_data, f, indent=2, ensure_ascii=False)
+        # 4. 設定の書き込み
+        config_path = os.path.join(constants.ROOMS_DIR, safe_folder_name, "room_config.json")
+        with open(config_path, "r+", encoding="utf-8") as f:
+            config = json.load(f)
+            config["room_name"] = new_room_name.strip()
+            if new_user_display_name and new_user_display_name.strip():
+                config["user_display_name"] = new_user_display_name.strip()
+            f.seek(0)
+            json.dump(config, f, indent=2, ensure_ascii=False)
+            f.truncate()
 
-        # SystemPrompt.txtの書き込み
         if initial_system_prompt and initial_system_prompt.strip():
             system_prompt_path = os.path.join(constants.ROOMS_DIR, safe_folder_name, "SystemPrompt.txt")
             with open(system_prompt_path, "w", encoding="utf-8") as f:
                 f.write(initial_system_prompt)
 
+        # 5. UI更新
+        gr.Info(f"新しいルーム「{new_room_name}」を作成しました。")
+        updated_room_list = room_manager.get_room_list()
+
+        # フォームのクリア
+        clear_form = (gr.update(value=""), gr.update(value=""), gr.update(value=""))
+
+        # 全てのドロップダウンを更新し、新しいルームを選択状態にする
+        main_dd = gr.update(choices=updated_room_list, value=safe_folder_name)
+        manage_dd = gr.update(choices=updated_room_list, value=safe_folder_name) # 管理タブも更新
+        alarm_dd = gr.update(choices=updated_room_list, value=safe_folder_name)
+        timer_dd = gr.update(choices=updated_room_list, value=safe_folder_name)
+
+        return main_dd, manage_dd, alarm_dd, timer_dd, *clear_form
+
     except Exception as e:
-        gr.Error(f"ルーム設定の書き込み中にエラーが発生しました: {e}")
-        # ここで作成されたフォルダを削除するクリーンアップ処理を入れることも検討できる
+        gr.Error(f"ルームの作成に失敗しました。詳細はターミナルを確認してください。: {e}")
+        traceback.print_exc()
         return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
-    gr.Info(f"新しいルーム「{room_display_name}」を作成しました。")
-
-    # 5. UI上の各種ドロップダウンを更新
-    new_room_list = room_manager.get_room_list()
-
-    # 新規作成フォームをクリア
-    new_room_name_update = gr.update(value="")
-    new_user_display_name_update = gr.update(value="")
-    initial_system_prompt_update = gr.update(value="")
-
-    return (
-        gr.update(choices=new_room_list, value=safe_folder_name), # メインのルーム選択
-        gr.update(choices=new_room_list), # 管理タブのルーム選択
-        gr.update(choices=new_room_list), # アラームのルーム選択
-        gr.update(choices=new_room_list), # タイマーのルーム選択
-        new_room_name_update,
-        new_user_display_name_update,
-        initial_system_prompt_update
-    )
-
 def handle_manage_room_select(selected_folder_name: str):
-    """管理タブでルームが選択されたときに、そのルームの情報を読み込んでフォームに表示する"""
+    """
+    「管理」タブのルームセレクタ変更時のロジック。
+    選択されたルームの情報をフォームに表示する。
+    """
     if not selected_folder_name:
-        # 選択がクリアされた場合、フォームを非表示にする
         return gr.update(visible=False), "", "", "", ""
 
     try:
-        room_config_path = os.path.join(constants.ROOMS_DIR, selected_folder_name, "room_config.json")
-        if not os.path.exists(room_config_path):
-            gr.Warning(f"設定ファイルが見つかりません: {room_config_path}")
+        config_path = os.path.join(constants.ROOMS_DIR, selected_folder_name, "room_config.json")
+        if not os.path.exists(config_path):
+            gr.Warning(f"設定ファイルが見つかりません: {config_path}")
             return gr.update(visible=False), "", "", "", ""
 
-        with open(room_config_path, "r", encoding="utf-8") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
 
         return (
@@ -539,85 +528,96 @@ def handle_manage_room_select(selected_folder_name: str):
             config.get("room_name", ""),
             config.get("user_display_name", ""),
             config.get("description", ""),
-            selected_folder_name # フォルダ名はそのまま表示
+            selected_folder_name
         )
     except Exception as e:
-        gr.Error(f"ルーム設定の読み込み中にエラー: {e}")
+        gr.Error(f"ルーム設定の読み込み中にエラーが発生しました: {e}")
+        traceback.print_exc()
         return gr.update(visible=False), "", "", "", ""
 
 def handle_save_room_config(folder_name: str, room_name: str, user_display_name: str, description: str):
-    """管理タブの「変更を保存」ボタンの処理"""
+    """
+    「管理」タブの保存ボタンのロジック。
+    ルームの設定情報を更新する。
+    """
     if not folder_name:
         gr.Error("対象のルームフォルダが見つかりません。")
         return gr.update(), gr.update()
 
     if not room_name or not room_name.strip():
         gr.Warning("ルーム名は空にできません。")
-        # UIコンポーネントの数は2つではないが、gr.update()で現在の値を維持する
         return gr.update(), gr.update()
 
     try:
-        room_config_path = os.path.join(constants.ROOMS_DIR, folder_name, "room_config.json")
-        if not os.path.exists(room_config_path):
-            gr.Error(f"設定ファイルが見つかりません: {room_config_path}")
-            return gr.update(), gr.update()
-
-        with open(room_config_path, "r", encoding="utf-8") as f:
+        config_path = os.path.join(constants.ROOMS_DIR, folder_name, "room_config.json")
+        with open(config_path, "r+", encoding="utf-8") as f:
             config = json.load(f)
-
-        config["room_name"] = room_name.strip()
-        config["user_display_name"] = user_display_name.strip()
-        config["description"] = description.strip()
-
-        with open(room_config_path, "w", encoding="utf-8") as f:
+            config["room_name"] = room_name.strip()
+            config["user_display_name"] = user_display_name.strip()
+            config["description"] = description.strip()
+            f.seek(0)
             json.dump(config, f, indent=2, ensure_ascii=False)
+            f.truncate()
 
         gr.Info(f"ルーム「{room_name}」の設定を保存しました。")
 
-        # 名前の変更がドロップダウンに反映されるようにリストを更新
-        new_room_list = room_manager.get_room_list()
-        return gr.update(choices=new_room_list), gr.update(choices=new_room_list)
+        updated_room_list = room_manager.get_room_list()
+
+        # メインと管理タブのドロップダウンを更新
+        main_dd_update = gr.update(choices=updated_room_list)
+        manage_dd_update = gr.update(choices=updated_room_list)
+
+        return main_dd_update, manage_dd_update
 
     except Exception as e:
         gr.Error(f"設定の保存中にエラーが発生しました: {e}")
+        traceback.print_exc()
         return gr.update(), gr.update()
 
 def handle_delete_room(folder_name_to_delete: str, confirmed: bool):
-    """管理タブの「このルームを削除」ボタンの処理"""
-    # JSのconfirmで「いいえ」が押された場合
+    """
+    「管理」タブの削除ボタンのロジック。
+    ルームのフォルダを完全に削除する。
+    """
     if not confirmed:
-        # 何もせず、現在の値を維持する
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=True)
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
-    # 削除対象が選択されていない場合
     if not folder_name_to_delete:
         gr.Warning("削除するルームが選択されていません。")
         return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False)
 
     try:
         room_path_to_delete = os.path.join(constants.ROOMS_DIR, folder_name_to_delete)
-        if not os.path.isdir(room_path_to_delete):
-            gr.Error(f"削除対象のフォルダが見つかりません: {room_path_to_delete}")
-            return gr.update(), gr.update(), gr.update(), gr.update(visible=False)
+        if os.path.isdir(room_path_to_delete):
+            shutil.rmtree(room_path_to_delete)
+            gr.Info(f"ルーム「{folder_name_to_delete}」を完全に削除しました。")
+        else:
+            gr.Warning(f"削除対象のフォルダが見つかりませんでした: {room_path_to_delete}")
 
-        shutil.rmtree(room_path_to_delete)
-        gr.Info(f"ルーム「{folder_name_to_delete}」を完全に削除しました。")
+        updated_room_list = room_manager.get_room_list()
 
-        new_room_list = room_manager.get_room_list()
-        # メインのドロップダウンは、リストが空でなければ最初のアイテムを選択させる
-        new_main_room = new_room_list[0] if new_room_list else None
+        new_main_room_value = None
+        main_dd_interactive = False
+        if updated_room_list:
+            # get_room_listは(display_name, folder_name)のタプルを返す
+            new_main_room_value = updated_room_list[0][1] # フォルダ名を選択
+            main_dd_interactive = True
 
-        return (
-            gr.update(choices=new_room_list, value=new_main_room), # メインのドロップダウン
-            gr.update(choices=new_room_list, value=None), # 管理タブのドロップダウン
-            gr.update(choices=new_room_list, value=new_main_room), # アラームのドロップダウン
-            gr.update(choices=new_room_list, value=new_main_room), # タイマーのドロップダウン
-            gr.update(visible=False) # 管理フォームを非表示に
-        )
+        # 全てのドロップダウンを更新
+        main_dd = gr.update(choices=updated_room_list, value=new_main_room_value, interactive=main_dd_interactive)
+        manage_dd = gr.update(choices=updated_room_list, value=None)
+        alarm_dd = gr.update(choices=updated_room_list, value=new_main_room_value)
+        timer_dd = gr.update(choices=updated_room_list, value=new_main_room_value)
+
+        # 管理フォームを非表示に
+        manage_form = gr.update(visible=False)
+
+        return main_dd, manage_dd, alarm_dd, timer_dd, manage_form
 
     except Exception as e:
         gr.Error(f"ルームの削除中にエラーが発生しました: {e}")
-        return gr.update(), gr.update(), gr.update(), gr.update(visible=True)
+        traceback.print_exc()
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=True)
 
 
 def _get_display_history_count(api_history_limit_value: str) -> int: return int(api_history_limit_value) if api_history_limit_value.isdigit() else constants.UI_HISTORY_MAX_LIMIT
@@ -1284,11 +1284,15 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
     world_builder_updates = (wb_state, wb_area_selector, wb_raw_editor)
 
     # セッション管理タブ用のデータを準備
-    all_rooms = room_manager.get_room_list()
-    other_rooms = sorted([c for c in all_rooms if c != room_name])
+    all_rooms = room_manager.get_room_list()  # This is [(display, folder), ...]
+    # CheckboxGroup wants choices as list of (value, label), so we swap the tuple
+    other_rooms_for_checkbox = sorted(
+        [(folder, display) for display, folder in all_rooms if folder != room_name],
+        key=lambda x: x[1]  # sort by display name
+    )
     active_participants = []
     session_status = "現在、1対1の会話モードです。"
-    participant_checkbox_update = gr.update(choices=other_rooms, value=[])
+    participant_checkbox_update = gr.update(choices=other_rooms_for_checkbox, value=[])
     session_management_updates = (active_participants, session_status, participant_checkbox_update)
 
     # 全ての戻り値を結合して返す
