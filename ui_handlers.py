@@ -5,6 +5,7 @@ import json
 import traceback
 import hashlib
 import os
+import html
 import re
 import sys
 import locale
@@ -678,7 +679,7 @@ def reload_chat_log(room_name: Optional[str], api_history_limit_value: str):
     full_raw_history = utils.load_chat_log(log_f)
     display_turns = _get_display_history_count(api_history_limit_value)
     visible_history = full_raw_history[-(display_turns * 2):]
-    history, mapping_list = utils.format_history_for_gradio(visible_history, room_name)
+    history, mapping_list = format_history_for_gradio(visible_history, room_name)
     return history, mapping_list
 
 def handle_wb_add_place_button_click(area_selector_value: Optional[str]):
@@ -990,6 +991,111 @@ def handle_core_memory_update_click(room_name: str, api_key_name: str):
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{room_name}」のコアメモリ更新をバックグラウンドで開始しました。")
     threading.Thread(target=_run_core_memory_update, args=(room_name, api_key)).start()
+
+def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str) -> Tuple[List[Tuple], List[int]]:
+    if not messages:
+        return [], []
+
+    # --- 話者名解決のための準備 ---
+    current_room_config = room_manager.get_room_config(current_room_folder) or {}
+    user_display_name = current_room_config.get("user_display_name", "ユーザー")
+
+    all_rooms_list = room_manager.get_room_list_for_ui()
+    folder_to_display_map = {folder: display for display, folder in all_rooms_list}
+    display_to_folder_map = {display: folder for display, folder in all_rooms_list}
+    known_configs = {}
+
+    gradio_history = []
+    mapping_list = []
+    user_file_attach_pattern = re.compile(r"\[ファイル添付: ([^\]]+?)\]")
+    gen_image_pattern = re.compile(r"\[Generated Image: ([^\]]+?)\]")
+
+    for i, msg in enumerate(messages):
+        role = msg.get("role")
+        content = msg.get("content", "").strip()
+        responder_id = msg.get("responder")
+
+        if not responder_id:
+            continue
+
+        speaker_name = ""
+        if role == "USER":
+            speaker_name = user_display_name
+        elif role == "AGENT":
+            if responder_id in known_configs:
+                config = known_configs[responder_id]
+            else:
+                config = None
+                if responder_id in folder_to_display_map:
+                    config = room_manager.get_room_config(responder_id)
+                elif responder_id in display_to_folder_map:
+                    folder = display_to_folder_map[responder_id]
+                    config = room_manager.get_room_config(folder)
+
+                if config:
+                    known_configs[responder_id] = config
+
+            if config:
+                speaker_name = config.get("room_name", responder_id)
+            else:
+                speaker_name = f"{responder_id} [削除済]"
+        else:
+            speaker_name = responder_id
+
+        text_part = content
+        media_paths = []
+        if role == "USER":
+            text_part = user_file_attach_pattern.sub("", content).strip()
+            media_paths = [p.strip() for p in user_file_attach_pattern.findall(content)]
+        elif role == "AGENT":
+            text_part = gen_image_pattern.sub("", content).strip()
+            media_paths = [p.strip() for p in gen_image_pattern.findall(content)]
+
+        if text_part:
+            formatted_text = _format_text_content_for_gradio(text_part, speaker_name, f"msg-anchor-{i}", None, None)
+            if role == "USER":
+                gradio_history.append((formatted_text, None))
+            else:
+                gradio_history.append((None, formatted_text))
+            mapping_list.append(i)
+
+        for path in media_paths:
+            if os.path.exists(path):
+                media_tuple = (path, os.path.basename(path))
+                if role == "USER":
+                    gradio_history.append((media_tuple, None))
+                else:
+                    gradio_history.append((None, media_tuple))
+                mapping_list.append(i)
+
+        if not text_part and not media_paths:
+            formatted_text = _format_text_content_for_gradio("", speaker_name, f"msg-anchor-{i}", None, None)
+            if role == "USER":
+                gradio_history.append((formatted_text, None))
+            else:
+                gradio_history.append((None, formatted_text))
+            mapping_list.append(i)
+
+    return gradio_history, mapping_list
+
+
+def _format_text_content_for_gradio(content: str, speaker_name: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
+    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
+    thought_match = thoughts_pattern.search(content)
+    thoughts_content = ""
+    main_text_content = content.strip()
+    if thought_match:
+        thoughts_content = thought_match.group(1).strip()
+        main_text_content = thoughts_pattern.sub("", content).strip()
+    final_md_parts = []
+    final_md_parts.append(f"**{html.escape(speaker_name)}:**\n")
+    if thoughts_content:
+        final_md_parts.append(f"\n【Thoughts】\n```\n{thoughts_content}\n```\n")
+    if main_text_content:
+        final_md_parts.append(main_text_content)
+    button_container = f"<div style='text-align: right; margin-top: 8px;'></div>"
+    final_md_parts.append(f"\n{button_container}")
+    return "".join(final_md_parts)
 
 def update_model_state(model): config_manager.save_config("last_model", model); return model
 

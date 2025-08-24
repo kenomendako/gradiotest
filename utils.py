@@ -85,8 +85,6 @@ def release_lock():
     except Exception as e:
         print(f"\n警告: ロックファイルの解放中にエラーが発生しました: {e}")
 
-import room_manager
-
 def load_chat_log(file_path: str) -> List[Dict[str, str]]:
     messages: List[Dict[str, str]] = []
     if not file_path or not os.path.exists(file_path):
@@ -153,128 +151,6 @@ def load_chat_log(file_path: str) -> List[Dict[str, str]]:
 
     return messages
 
-def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str) -> Tuple[List[Tuple], List[int]]:
-    import gradio as gr
-    if not messages:
-        return [], []
-
-    # --- 話者名解決のための準備 ---
-    # 現在のルームの設定と、ユーザーの表示名を取得
-    current_room_config = room_manager.get_room_config(current_room_folder) or {}
-    user_display_name = current_room_config.get("user_display_name", "ユーザー")
-
-    # 全てのルーム情報を取得し、IDと表示名の対応表を作成する
-    all_rooms_list = room_manager.get_room_list_for_ui()
-    # responder IDが「フォルダ名」の場合と「表示名」の場合、両方に対応できるようにする
-    folder_to_display_map = {folder: display for display, folder in all_rooms_list}
-    display_to_folder_map = {display: folder for display, folder in all_rooms_list}
-    # 全ての既知のID（フォルダ名と表示名）をキャッシュしておく
-    known_configs = {}
-
-    gradio_history = []
-    mapping_list = []
-    user_file_attach_pattern = re.compile(r"\[ファイル添付: ([^\]]+?)\]")
-    gen_image_pattern = re.compile(r"\[Generated Image: ([^\]]+?)\]")
-
-    for i, msg in enumerate(messages):
-        role = msg.get("role")
-        content = msg.get("content", "").strip()
-        responder_id = msg.get("responder")
-
-        # responder_id がないメッセージはスキップ
-        if not responder_id:
-            continue
-
-        # --- IDから表示名への変換ロジック ---
-        speaker_name = ""
-        if role == "USER":
-            speaker_name = user_display_name
-        elif role == "AGENT":
-            # 1. キャッシュを確認
-            if responder_id in known_configs:
-                config = known_configs[responder_id]
-            else:
-                # 2. キャッシュになければ、ID解決を試みる
-                config = None
-                # ケースA: responder_idが「フォルダ名」の場合
-                if responder_id in folder_to_display_map:
-                    config = room_manager.get_room_config(responder_id)
-                # ケースB: responder_idが「表示名」の場合
-                elif responder_id in display_to_folder_map:
-                    folder = display_to_folder_map[responder_id]
-                    config = room_manager.get_room_config(folder)
-
-                # 解決できた場合はキャッシュに保存
-                if config:
-                    known_configs[responder_id] = config
-
-            if config:
-                speaker_name = config.get("room_name", responder_id)
-            else:
-                # どの方法でも解決できなかった場合
-                speaker_name = f"{responder_id} [削除済]"
-        else:
-            # "SYSTEM" などの特殊なロールの場合
-            speaker_name = responder_id
-
-        # --- メッセージをテキスト部分とメディアパスに分離 ---
-        text_part = content
-        media_paths = []
-        if role == "USER":
-            text_part = user_file_attach_pattern.sub("", content).strip()
-            media_paths = [p.strip() for p in user_file_attach_pattern.findall(content)]
-        elif role == "AGENT":
-            text_part = gen_image_pattern.sub("", content).strip()
-            media_paths = [p.strip() for p in gen_image_pattern.findall(content)]
-
-        # --- Gradio履歴の生成 ---
-        if text_part:
-            formatted_text = _format_text_content_for_gradio(text_part, speaker_name, f"msg-anchor-{i}", None, None)
-            if role == "USER":
-                gradio_history.append((formatted_text, None))
-            else:
-                gradio_history.append((None, formatted_text))
-            mapping_list.append(i)
-
-        for path in media_paths:
-            if os.path.exists(path):
-                media_tuple = (path, os.path.basename(path))
-                if role == "USER":
-                    gradio_history.append((media_tuple, None))
-                else:
-                    gradio_history.append((None, media_tuple))
-                mapping_list.append(i)
-
-        # テキストもメディアもない場合、空のバルーンを生成して会話の連続性を保つ
-        if not text_part and not media_paths:
-            formatted_text = _format_text_content_for_gradio("", speaker_name, f"msg-anchor-{i}", None, None)
-            if role == "USER":
-                gradio_history.append((formatted_text, None))
-            else:
-                gradio_history.append((None, formatted_text))
-            mapping_list.append(i)
-
-
-    return gradio_history, mapping_list
-
-
-def _format_text_content_for_gradio(content: str, speaker_name: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
-    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-    thought_match = thoughts_pattern.search(content)
-    thoughts_content = ""
-    main_text_content = content.strip()
-    if thought_match:
-        thoughts_content = thought_match.group(1).strip()
-        main_text_content = thoughts_pattern.sub("", content).strip()
-    final_md_parts = []
-    final_md_parts.append(f"**{html.escape(speaker_name)}:**\n")
-    if thoughts_content:
-        final_md_parts.append(f"\n【Thoughts】\n```\n{thoughts_content}\n```\n")
-    if main_text_content:
-        final_md_parts.append(main_text_content)
-    button_container = f"<div style='text-align: right; margin-top: 8px;'></div>"
-    final_md_parts.append(f"\n{button_container}")
-    return "".join(final_md_parts)
 
 def _perform_log_archiving(log_file_path: str, character_name: str, threshold_bytes: int, keep_bytes: int) -> Optional[str]:
     try:
