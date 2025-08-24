@@ -155,13 +155,18 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     if not messages:
         return [], []
 
-    # 表示に必要な設定情報を先に一括で取得
+    # --- 話者名解決のための準備 ---
+    # 現在のルームの設定と、ユーザーの表示名を取得
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
     user_display_name = current_room_config.get("user_display_name", "ユーザー")
 
-    # 登場する全AIのIDを集め、設定情報を取得
-    ai_ids = {msg.get("responder") for msg in messages if msg.get("role") == "AGENT"}
-    ai_configs = {ai_id: room_manager.get_room_config(ai_id) for ai_id in ai_ids if ai_id}
+    # 全てのルーム情報を取得し、IDと表示名の対応表を作成する
+    all_rooms_list = room_manager.get_room_list_for_ui()
+    # responder IDが「フォルダ名」の場合と「表示名」の場合、両方に対応できるようにする
+    folder_to_display_map = {folder: display for display, folder in all_rooms_list}
+    display_to_folder_map = {display: folder for display, folder in all_rooms_list}
+    # 全ての既知のID（フォルダ名と表示名）をキャッシュしておく
+    known_configs = {}
 
     gradio_history = []
     mapping_list = []
@@ -173,21 +178,41 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         content = msg.get("content", "").strip()
         responder_id = msg.get("responder")
 
-        if not content or not responder_id:
+        # responder_id がないメッセージはスキップ
+        if not responder_id:
             continue
 
-        # IDから表示名への変換
+        # --- IDから表示名への変換ロジック ---
         speaker_name = ""
         if role == "USER":
             speaker_name = user_display_name
         elif role == "AGENT":
-            config = ai_configs.get(responder_id)
+            # 1. キャッシュを確認
+            if responder_id in known_configs:
+                config = known_configs[responder_id]
+            else:
+                # 2. キャッシュになければ、ID解決を試みる
+                config = None
+                # ケースA: responder_idが「フォルダ名」の場合
+                if responder_id in folder_to_display_map:
+                    config = room_manager.get_room_config(responder_id)
+                # ケースB: responder_idが「表示名」の場合
+                elif responder_id in display_to_folder_map:
+                    folder = display_to_folder_map[responder_id]
+                    config = room_manager.get_room_config(folder)
+
+                # 解決できた場合はキャッシュに保存
+                if config:
+                    known_configs[responder_id] = config
+
             if config:
                 speaker_name = config.get("room_name", responder_id)
             else:
+                # どの方法でも解決できなかった場合
                 speaker_name = f"{responder_id} [削除済]"
         else:
-            speaker_name = responder_id # システムメッセージなど
+            # "SYSTEM" などの特殊なロールの場合
+            speaker_name = responder_id
 
         # --- メッセージをテキスト部分とメディアパスに分離 ---
         text_part = content
@@ -216,6 +241,16 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 else:
                     gradio_history.append((None, media_tuple))
                 mapping_list.append(i)
+
+        # テキストもメディアもない場合、空のバルーンを生成して会話の連続性を保つ
+        if not text_part and not media_paths:
+            formatted_text = _format_text_content_for_gradio("", speaker_name, f"msg-anchor-{i}", None, None)
+            if role == "USER":
+                gradio_history.append((formatted_text, None))
+            else:
+                gradio_history.append((None, formatted_text))
+            mapping_list.append(i)
+
 
     return gradio_history, mapping_list
 
