@@ -20,6 +20,7 @@ import filetype
 import base64
 import io
 import uuid
+from urllib.parse import quote
 from tools.image_tools import generate_image as generate_image_tool_func
 import pytz
 
@@ -48,10 +49,12 @@ def _get_background_update(room_name: str) -> gr.update:
 
         if image_path:
             abs_image_path = os.path.abspath(image_path)
-            safe_path = abs_image_path.replace('\\', '/')
-            image_url = f"/file={safe_path}"
+            # URL-encode the path to handle special characters (like spaces and non-ASCII chars)
+            encoded_path = quote(abs_image_path)
+            image_url = f"/file={encoded_path}"
             # Add a cache-busting query parameter to force browser to reload the image when it changes
             cache_buster = f"?v={uuid.uuid4().hex}"
+            # Ensure the final URL in JS is properly quoted
             js_code = f"document.documentElement.style.setProperty('--chat-bg-image', 'url(\"{image_url}{cache_buster}\")');"
         else:
             js_code = "document.documentElement.style.setProperty('--chat-bg-image', 'none');"
