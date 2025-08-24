@@ -88,11 +88,11 @@ try:
     """
 
     with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, js=js_stop_nav_link_propagation) as demo:
-        room_list_on_startup = room_manager.get_room_list()
+        room_list_on_startup = room_manager.get_room_list_for_ui()
         if not room_list_on_startup:
             print("--- 有効なルームが見つからないため、'Default'ルームを作成します。 ---")
             room_manager.ensure_room_files("Default")
-            room_list_on_startup = room_manager.get_room_list()
+            room_list_on_startup = room_manager.get_room_list_for_ui()
 
         folder_names_on_startup = [folder for _display, folder in room_list_on_startup]
         effective_initial_room = config_manager.initial_room_global
@@ -104,7 +104,7 @@ try:
             config_manager.save_config("last_room", new_room_folder)
             if new_room_folder == "Default" and "Default" not in folder_names_on_startup:
                 room_manager.ensure_room_files("Default")
-                room_list_on_startup = room_manager.get_room_list()
+                room_list_on_startup = room_manager.get_room_list_for_ui()
 
         # --- Stateの定義 ---
         world_data_state = gr.State({})

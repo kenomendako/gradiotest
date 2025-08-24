@@ -52,24 +52,43 @@ PROGRESS_FILE = "importer_progress.json"
 ERROR_LOG_FILE = "importer_errors.log"
 STOP_SIGNAL_FILE = "stop_importer.signal"
 
-def load_archived_log(log_content: str, all_room_list: List[str]) -> List[Dict[str, str]]:
+def load_archived_log(log_content: str) -> List[Dict[str, str]]:
+    """
+    アーカイブされたログの内容をパースし、メッセージの辞書のリストに変換する。
+    utils.load_chat_log と同じロジックを使い、新旧両方のフォーマットに対応する。
+    """
     messages = []
-    log_parts = re.split(r'^(## .*?:)$', log_content, flags=re.MULTILINE)
-    header = None
+    # 新旧両方のフォーマットに対応する正規表現
+    log_parts = re.split(r'^(## (?:(AGENT|USER):)?([^:]+?):)$', log_content, flags=re.MULTILINE)
+
+    header_info = None
     for part in log_parts:
-        part_strip = part.strip()
-        if not part_strip: continue
-        if part_strip.startswith("## ") and part_strip.endswith(":"): header = part_strip
-        elif header:
-            content = part_strip
-            if content:
-                match = re.match(r"^## (.*?):$", header)
-                if match:
-                    speaker = match.group(1).strip()
-                    # speakerがall_room_listに含まれているか、または"システム"で始まる場合はassistantロール
-                    role = "assistant" if speaker in all_room_list or speaker.startswith("システム") else "user"
-                    messages.append({"role": role, "content": content})
-            header = None
+        part = part.strip()
+        if not part:
+            continue
+
+        if part.startswith("## ") and part.endswith(":"):
+            match = re.match(r'^## (?:(AGENT|USER):)?([^:]+?):$', part)
+            if match:
+                role, responder_id = match.groups()
+                # 旧形式との互換性処理
+                if not role:
+                    # インポーターの文脈では、'ユーザー'以外はすべてAGENTと見なすのが安全
+                    role = 'USER' if responder_id.lower() == 'user' or responder_id == 'ユーザー' else 'AGENT'
+
+                if responder_id == 'ユーザー':
+                    responder_id = 'user'
+
+                header_info = {"role": role, "responder": responder_id}
+        elif header_info:
+            # MemOSに渡す形式に合わせる
+            role_for_memos = "assistant" if header_info["role"] == "AGENT" else "user"
+            messages.append({
+                "role": role_for_memos,
+                "content": part
+                # インポート時には 'responder' は不要
+            })
+            header_info = None
     return messages
 
 def group_messages_into_pairs(messages: List[Dict[str, str]]) -> List[List[Dict[str, str]]]:
@@ -139,7 +158,7 @@ def main():
 
     try:
         processing_should_be_stopped = False
-        all_rooms = room_manager.get_room_list()
+        all_rooms = room_manager.get_room_list_for_ui()
         print(f"--- 認識している有効なルーム一覧: {all_rooms} ---")
         mos_instance = memos_manager.get_mos_instance(args.character)
         log_files = sorted([f for f in os.listdir(args.logs_dir) if f.endswith(".txt") and not f.endswith("_summary.txt")])
@@ -157,7 +176,7 @@ def main():
 
             filepath = os.path.join(args.logs_dir, filename)
             with open(filepath, "r", encoding="utf-8", errors='ignore') as f: content = f.read()
-            all_messages = load_archived_log(content, all_rooms)
+            all_messages = load_archived_log(content)
             conversation_pairs = group_messages_into_pairs(all_messages)
             total_pairs_in_file = len(conversation_pairs)
 

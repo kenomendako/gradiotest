@@ -102,9 +102,9 @@ def ensure_room_files(room_name: str) -> bool:
         print(f"ルーム '{room_name}' ファイル作成/確認エラー: {e}"); traceback.print_exc()
         return False
 
-def get_room_list() -> List[Tuple[str, str]]:
+def get_room_list_for_ui() -> List[Tuple[str, str]]:
     """
-    有効なルームのリストを `[('表示名', 'フォルダ名'), ...]` の形式で返す。
+    UIのドロップダウン表示用に、有効なルームのリストを `[('表示名', 'フォルダ名'), ...]` の形式で返す。
     room_config.json が存在するフォルダのみを有効なルームとみなす。
     """
     rooms_dir = constants.ROOMS_DIR
@@ -127,6 +127,25 @@ def get_room_list() -> List[Tuple[str, str]]:
 
     # 表示名でソートして返す
     return sorted(valid_rooms, key=lambda x: x[0])
+
+
+def get_room_config(folder_name: str) -> Optional[dict]:
+    """
+    指定されたフォルダ名のルーム設定ファイル(room_config.json)を読み込み、辞書として返す。
+    見つからない場合はNoneを返す。
+    """
+    if not folder_name:
+        return None
+
+    config_file = os.path.join(constants.ROOMS_DIR, folder_name, "room_config.json")
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"警告: ルーム '{folder_name}' の設定ファイルが読めません: {e}")
+            return None
+    return None
 
 
 def get_room_files_paths(room_name: str) -> Optional[Tuple[str, str, Optional[str], str, str]]:
@@ -159,7 +178,7 @@ def get_all_personas_in_log(main_room_name: str, api_history_limit_key: str) -> 
         return [main_room_name]
 
     # utils.load_chat_log を呼び出す
-    full_log = utils.load_chat_log(log_file_path, main_room_name)
+    full_log = utils.load_chat_log(log_file_path)
 
     # 履歴制限を適用
     limit = constants.API_HISTORY_LIMIT_OPTIONS.get(api_history_limit_key)
