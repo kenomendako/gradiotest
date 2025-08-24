@@ -574,8 +574,8 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
         traceback.print_exc()
         return gr.update(), gr.update()
 
-def handle_delete_room(folder_name_to_delete: str, api_key_name: str, confirmed: bool):
-    # This count MUST match the number of outputs in `all_room_change_outputs` in nexus_ark.py
+def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name: str):
+
     NUM_ALL_ROOM_CHANGE_OUTPUTS = 38
 
     if not confirmed:
@@ -597,23 +597,22 @@ def handle_delete_room(folder_name_to_delete: str, api_key_name: str, confirmed:
         new_room_list = room_manager.get_room_list()
         if not new_room_list:
             gr.Warning("全てのルームが削除されました。新しいルームを作成してください。")
+            # This is the "empty" state for `initial_load_chat_outputs`
             empty_chat_outputs = (
                 None, [], [], "", gr.update(value=None), None, "{}", "", "",
-                gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None),
+                gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None),
                 "", "", gr.update(choices=[], value=None), "", "", 0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
                 False, True, True, False, True, True, "ℹ️ *ルームを選択してください*", None
             )
+            # This is the "empty" state for `world_builder_outputs`
             empty_wb_outputs = ({}, gr.update(choices=[]), "",)
+            # This is the "empty" state for `session_management_outputs`
             empty_session_outputs = ([], "ルームがありません", gr.update(choices=[]),)
-            # This must also return 38 elements total
-            # chat(28) + wb(3) + session(3) = 34. Something is wrong in the user's count.
-            # Let's re-read nexus_ark... No, I must trust the user's last instruction. It says 38.
-            # I will assume the user's empty tuple is correct and my count is wrong.
             return empty_chat_outputs + empty_wb_outputs + empty_session_outputs
 
-        new_main_room = new_room_list[0][1] # folder name
+        new_main_room_folder = new_room_list[0][1]
 
-        return handle_room_change_for_all_tabs(new_main_room, api_key_name)
+        return handle_room_change_for_all_tabs(new_main_room_folder, api_key_name)
 
     except Exception as e:
         gr.Error(f"ルームの削除中にエラーが発生しました: {e}")

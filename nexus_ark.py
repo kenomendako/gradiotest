@@ -250,7 +250,6 @@ try:
                                         manage_folder_name_display = gr.Textbox(label="フォルダ名（編集不可）", interactive=False)
                                         save_room_config_button = gr.Button("変更を保存", variant="primary")
                                         delete_room_button = gr.Button("このルームを削除", variant="stop")
-                                        delete_confirm_state = gr.Textbox(visible=False)
 
                     with gr.Column(scale=3):
                         chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
@@ -480,11 +479,19 @@ try:
             outputs=[room_dropdown, manage_room_selector]
         )
 
+        delete_confirmed_state = gr.State(False)
+
         delete_room_button.click(
-            fn=ui_handlers.handle_delete_room,
-            inputs=[manage_folder_name_display, api_key_dropdown],
-            outputs=all_room_change_outputs,
+            fn=None,
+            inputs=None,
+            outputs=delete_confirmed_state,
             js="() => confirm('本当にこのルームを削除しますか？この操作は取り消せません。')"
+        )
+
+        delete_confirmed_state.change(
+            fn=ui_handlers.handle_delete_room,
+            inputs=[manage_folder_name_display, delete_confirmed_state, api_key_dropdown],
+            outputs=all_room_change_outputs
         )
 
         chat_submit_outputs = [
