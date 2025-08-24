@@ -88,64 +88,67 @@ def release_lock():
 import room_manager
 
 def load_chat_log(file_path: str) -> List[Dict[str, str]]:
-    """
-    新旧両方の形式が混在するログファイルを読み込み、統一された辞書形式のリストとして返す。
-    - 旧形式: ## 話者名
-    - 新形式: ## ROLE:話者名
-    この関数は、ログの消失バグを防ぐため、堅牢に設計されている。
-    """
     messages: List[Dict[str, str]] = []
     if not file_path or not os.path.exists(file_path):
         return messages
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        with open(file_path, "r", encoding="utf-8") as f: content = f.read()
     except Exception as e:
-        print(f"エラー: ログファイル '{file_path}' 読込エラー: {e}")
-        return messages
+        print(f"エラー: ログファイル '{file_path}' 読込エラー: {e}"); return messages
 
-    # ファイルが空、または空白文字のみの場合は、空のリストを返す
-    if not content.strip():
-        return messages
+    # ヘッダー行 (`## ...`) でログ全体を分割する
+    # Lookahead assertion `(?=^## )` を使い、ヘッダー自身は分割されずに各ブロックの先頭に残る
+    log_blocks = re.split(r'(?=^## )', content, flags=re.MULTILINE)
 
-    # デリミタ(## から始まる行)でログを分割する。デリミタ自身もリストに含める。
-    # これにより、['', '## header1', 'content1', '## header2', 'content2', ...] というリストが得られる。
-    parts = re.split(r'(^## .*$)', content, flags=re.MULTILINE)
+    for block in log_blocks:
+        block = block.strip()
+        if not block:
+            continue
 
-    # 最初の要素は、最初のヘッダーより前の部分(通常は空か空白)なので無視する。
-    # 残りの部分を、(ヘッダー, コンテンツ) のペアとして処理する。
-    it = iter(parts[1:])
-    for header_line in it:
-        # ヘッダーの次に来る要素がコンテンツ。ヘッダーのみでコンテンツがない場合も想定し、
-        # next() のデフォルト値を空文字列に設定することで、エラーを回避する。
-        message_content = next(it, "").strip()
+        # ブロックをヘッダー行と内容のテキストに分割
+        try:
+            header_line, message_content = block.split('\n', 1)
+            message_content = message_content.strip()
+        except ValueError:
+            # 内容のないヘッダーのみの行などは無視
+            continue
 
-        header_text = header_line[3:].strip()  # "## " を除去
+        if not message_content:
+            continue
 
-        # デフォルト値
-        role = "AGENT"
-        responder = ""
+        # --- 【ここからが、新しい、完璧な解析ロジック】 ---
 
-        # 新形式: ## ROLE:NAME (例: ## USER:user, ## AGENT:ルシアン)
-        # この正規表現で、明示的な新形式を優先的に処理する。
-        match = re.match(r'^(USER|AGENT):(.+)$', header_text, re.IGNORECASE)
-        if match:
-            role = match.group(1).upper()
-            responder = match.group(2).strip()
-            if role == "USER":
-                responder = "user"  # USERロールのresponderは'user'に正規化する
+        header_text = header_line[3:].strip() # "## " を除去
+
+        role = "AGENT"  # デフォルト
+        responder = "" # 初期化
+
+        # 新形式 `## ROLE:ID` の解析
+        if ":" in header_text:
+            try:
+                role_part, name_part = header_text.split(":", 1)
+                role_candidate = role_part.strip().upper()
+                # ROLEは既知のものかチェック
+                if role_candidate in ["AGENT", "USER", "SYSTEM"]:
+                    role = role_candidate
+                    responder = name_part.strip()
+                else: # : を含むがROLEではない場合 (例: ## システム(セッション管理):)
+                    responder = header_text
+            except ValueError:
+                responder = header_text
+
+        # 旧形式 `## NAME` の解析
         else:
-            # 旧形式: ## ユーザー or ## ルシアン
-            # 新形式にマッチしなかった場合のフォールバック処理。
+            responder = header_text # 旧形式では、ヘッダーテキストが表示名兼ID
             if header_text.lower() in ["user", "ユーザー"]:
                 role = "USER"
-                responder = "user"
-            else:
-                role = "AGENT"
-                responder = header_text  # ヘッダー全体がエージェント名となる
+                responder = "user" # USERのresponderは'user'に正規化
 
-        # ヘッダーのみのログ（ファイルの末尾など）も、空のコンテンツを持つ有効なメッセージとして扱う。
-        # これにより、ログの途中や末尾が欠落するバグを防ぐ。
+        # responderが空文字列になっていないことを保証する
+        if not responder:
+             # 万が一responderが空になった場合は、ヘッダー全体をIDとして扱う
+             responder = header_text
+
         messages.append({"role": role, "responder": responder, "content": message_content})
 
     return messages
