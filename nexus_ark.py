@@ -480,14 +480,6 @@ try:
             outputs=[room_dropdown, manage_room_selector]
         )
 
-        # 2-step delete process
-        delete_room_button.click(
-            fn=None,
-            inputs=None,
-            outputs=delete_confirm_state,
-            js="() => confirm('本当にこのルームを削除しますか？この操作は取り消せません。')"
-        )
-
         delete_room_button.click(
             fn=ui_handlers.handle_delete_room,
             inputs=[manage_folder_name_display, api_key_dropdown],
