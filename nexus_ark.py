@@ -58,62 +58,48 @@ try:
     alarm_manager.load_alarms()
     alarm_manager.start_alarm_scheduler_thread()
 
-    # ▼▼▼【custom_css の中身を、これで完全に置き換える】▼▼▼
     custom_css = """
-    /* 基本的な思考ログなどのスタイル */
-    #chat_output_area pre { white-space: pre-wrap !important; word-break: break-word !important; }
-    #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 10px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-word; }
+    /* --- ここからがページ全体の背景画像を設定する核心部分 --- */
 
-    /* --- ここからが背景画像表示のための核心部分 --- */
-
-    /* 1. 背景画像を内包するコンテナ(gr.Column)の準備 */
-    #chat_background_container {
-        position: relative; /* 子要素を絶対配置するための基準点にする */
-        height: 600px;      /* チャットボットの高さと合わせる */
-        padding: 0 !important; /* Gradioの余計なpaddingを消す */
+    /* 1. Gradioアプリのルート要素（body直下）に背景画像を設定 */
+    div.gradio-container {
+        background-image: var(--body-background-fill) !important;
+        background-size: cover !important;
+        background-position: center center !important;
+        background-repeat: no-repeat !important;
     }
 
-    /* 2. 背景画像(gr.Image)をコンテナの最背面に配置 */
-    #chat_background_image {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 0;         /* 一番後ろに配置 */
-        opacity: 0.25;      /* 画像を少し半透明にする */
-    }
-    /* GradioのImageコンポーネントが生成する<img>タグにもスタイルを適用 */
-    #chat_background_image img {
-        object-fit: cover; /* 画像がコンテナに合わせて拡大・縮小されるようにする */
-        width: 100%;
-        height: 100%;
+    /* --- コンポーネントの背景を半透明にして、背景が透けるように調整 --- */
+
+    /* 2. 全ての主要なコンポーネントの背景を、少しだけ透明にする */
+    .gradio-tabs, .gradio-accordion, .gradio-column, .gradio-row {
+        background-color: rgba(247, 247, 247, 0.9) !important; /* 明るいテーマ用の半透明色 */
+        backdrop-filter: blur(2px);
+        border-radius: 8px; /* 角を少し丸める */
     }
 
-    /* 3. チャットボット(gr.Chatbot)を背景画像の上に配置 */
-    #chat_output_area {
-        position: relative; /* z-indexを有効にするため */
-        z-index: 1;         /* 背景画像より手前に配置 */
-        background-color: transparent !important; /* Gradioのデフォルトの背景色を透明にする */
-        height: 100%; /* 親コンテナの高さに合わせる */
+    /* 3. ダークテーマ用の調整 */
+    .dark .gradio-tabs, .dark .gradio-accordion, .dark .gradio-column, .dark .gradio-row {
+        background-color: rgba(20, 20, 20, 0.85) !important; /* 暗いテーマ用の半透明色 */
     }
 
-    /* 4. チャットの個々のメッセージバブルに、半透明の背景色を設定 */
-    /* これにより、背景画像が透けて見えつつ、文字の可読性も保たれる */
+    /* 4. チャットボットのメッセージバブルも、少し透明度を調整 */
     #chat_output_area .message-bubble,
     #chat_output_area .message.message-bubble {
-        background-color: rgba(255, 255, 255, 0.8) !important; /* 白の半透明 */
-        backdrop-filter: blur(2px); /* すりガラス効果 */
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        background-color: rgba(255, 255, 255, 0.85) !important;
     }
-    /* ユーザー側のメッセージバブルの色を少し変える */
-    #chat_output_area .user > .message-bubble,
-    #chat_output_area .user .message.message-bubble {
-        background-color: rgba(230, 240, 255, 0.85) !important; /* 青みがかった白の半透明 */
+    .dark #chat_output_area .message-bubble,
+    .dark #chat_output_area .message.message-bubble {
+        background-color: rgba(50, 50, 50, 0.85) !important;
     }
+    .dark #chat_output_area .user > .message-bubble,
+    .dark #chat_output_area .user .message.message-bubble {
+        background-color: rgba(40, 50, 70, 0.9) !important;
+    }
+
+    /* その他の微調整 */
+    #chat_output_area { background-color: transparent !important; }
     """
-    # ▲▲▲【置き換えはここまで】▲▲▲
     js_stop_nav_link_propagation = """
     function() {
         document.body.addEventListener('click', function(e) {
@@ -162,6 +148,7 @@ try:
         active_participants_state = gr.State([]) # 現在アクティブな複数人対話の参加者リスト
         debug_console_state = gr.State("")
         importer_process_state = gr.State(None) # インポーターのサブプロセスを管理
+        background_image_path_state = gr.State(None)
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -295,9 +282,7 @@ try:
                                         delete_room_button = gr.Button("このルームを削除", variant="stop")
 
                     with gr.Column(scale=3):
-                        with gr.Column(elem_id="chat_background_container"):
-                            background_image_display = gr.Image(interactive=False, show_label=False, show_download_button=False, elem_id="chat_background_image", height=600)
-                            chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
+                        chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
                         with gr.Row():
                             audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
                         with gr.Row(visible=False) as action_button_group:
@@ -415,7 +400,7 @@ try:
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
-        ] + context_checkboxes + [room_settings_info, scenery_image_display, background_image_display]
+        ] + context_checkboxes + [room_settings_info, scenery_image_display, background_image_path_state]
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
@@ -464,7 +449,7 @@ try:
                 token_count_display, current_location_display, current_scenery_display,
                 alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
                 debug_console_state, debug_console_output,
-                selected_message_state, action_button_group, background_image_display
+                selected_message_state, action_button_group, background_image_path_state
             ]
             # ▲▲▲【修正ここまで】▲▲▲
         )
@@ -540,7 +525,7 @@ try:
             chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button,
             token_count_display, current_location_display, current_scenery_display,
             alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
-            debug_console_state, debug_console_output, background_image_display
+            debug_console_state, debug_console_output, background_image_path_state
         ]
 
         gen_settings_inputs = [
@@ -564,8 +549,8 @@ try:
         file_upload_button.upload(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
         file_upload_button.clear(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
 
-        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, background_image_display])
-        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, background_image_display])
+        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, background_image_path_state])
+        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, background_image_path_state])
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_room_name, current_api_key_name_state], outputs=[audio_player, play_audio_button, room_preview_voice_button])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
 
@@ -667,7 +652,7 @@ try:
 
         # ▲▲▲ ここまで ▲▲▲
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_room_name, current_api_key_name_state], outputs=None)
-        generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_room_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display, background_image_display])
+        generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_room_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display, background_image_path_state])
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
 
         world_builder_tab.select(
@@ -727,6 +712,12 @@ try:
         clear_debug_console_button.click(
             fn=lambda: ("", ""),
             outputs=[debug_console_state, debug_console_output]
+        )
+
+        background_image_path_state.change(
+            fn=None,
+            inputs=background_image_path_state,
+            js="(path) => { document.body.style.backgroundImage = path ? `url('/file=${encodeURI(path)}')` : 'none'; }"
         )
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")

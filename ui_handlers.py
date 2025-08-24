@@ -145,7 +145,7 @@ def handle_room_change(room_name: str, api_key_name: str):
         effective_settings["send_scenery"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", # room_settings_info
         scenery_image_path,                     # scenery_image_display
-        background_image_path                   # background_image_display
+        background_image_path                   # background_image_path_state
     )
 
 def handle_save_room_settings(
@@ -1202,14 +1202,14 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return None
+        return None, None
 
     location_id = utils.get_current_location(room_name)
     existing_image_path = utils.find_scenery_image(room_name, location_id)
 
     if not location_id:
         gr.Warning("現在地が特定できません。")
-        return existing_image_path
+        return existing_image_path, existing_image_path
 
     final_prompt = ""
     gr.Info("シーンディレクターAIがプロンプトを構成しています...")
@@ -1229,7 +1229,7 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
         world_settings = utils.parse_world_file(world_settings_path)
         if not world_settings:
             gr.Error("世界設定の読み込みに失敗しました。")
-            return existing_image_path
+            return existing_image_path, existing_image_path
 
         space_text = None
         for area, places in world_settings.items():
@@ -1239,7 +1239,7 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
 
         if not space_text:
             gr.Error("現在の場所の定義が見つかりません。")
-            return existing_image_path
+            return existing_image_path, existing_image_path
 
         from agent.graph import get_configured_llm
         effective_settings = config_manager.get_effective_settings(room_name)
@@ -1293,11 +1293,11 @@ Generate ONE final, masterful prompt for an image generation AI based on a stric
     except Exception as e:
         gr.Error(f"シーンディレクターAIによるプロンプト生成中にエラーが発生しました: {e}")
         traceback.print_exc()
-        return existing_image_path
+        return existing_image_path, existing_image_path
 
     if not final_prompt:
         gr.Error("シーンディレクターAIが有効なプロンプトを生成できませんでした。")
-        return existing_image_path
+        return existing_image_path, existing_image_path
 
     gr.Info(f"「{style_choice}」で画像を生成します...")
     result = generate_image_tool_func.func(prompt=final_prompt, room_name=room_name, api_key=api_key)
