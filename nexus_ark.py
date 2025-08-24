@@ -70,10 +70,6 @@ try:
     #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
     #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
-    #chat_background_container { position: relative; }
-    #chat_background_image { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; opacity: 0.25; }
-    #chat_background_image img { object-fit: cover; width: 100%; height: 100%; }
-    #chat_output_area { position: relative; z-index: 1; background-color: transparent !important; }
     #chat_output_area .message-bubble-row .message-bubble,
     #chat_output_area .message.message-bubble {
         background-color: rgba(255, 255, 255, 0.85) !important;
@@ -265,9 +261,8 @@ try:
                                         delete_room_button = gr.Button("このルームを削除", variant="stop")
 
                     with gr.Column(scale=3):
-                        with gr.Column(elem_id="chat_background_container"):
-                            background_image_display = gr.Image(interactive=False, show_label=False, show_download_button=False, elem_id="chat_background_image", height=600)
-                            chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
+                        background_image_display = gr.Image(interactive=False, show_label=False, show_download_button=False, height=200)
+                        chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
                         with gr.Row():
                             audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
                         with gr.Row(visible=False) as action_button_group:
