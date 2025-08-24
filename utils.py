@@ -92,48 +92,59 @@ def load_chat_log(file_path: str) -> List[Dict[str, str]]:
     messages: List[Dict[str, str]] = []
     if not file_path or not os.path.exists(file_path):
         return messages
-
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        with open(file_path, "r", encoding="utf-8") as f: content = f.read()
     except Exception as e:
-        print(f"エラー: ログファイル '{file_path}' 読込エラー: {e}")
-        return messages
+        print(f"エラー: ログファイル '{file_path}' 読込エラー: {e}"); return messages
 
-    # 新旧両方のフォーマットに対応する正規表現
-    # グループ1: ROLE (AGENT, USERなど、オプショナル)
-    # グループ2: ID (フォルダ名や 'user'、必須)
-    log_parts = re.split(r'^(## (?:(AGENT|USER):)?([^:]+?):)$', content, flags=re.MULTILINE)
+    # ヘッダー (##...) で全体を分割。空の要素も保持するために () で囲む
+    log_parts = re.split(r'(^## .*?$)', content, flags=re.MULTILINE)
 
-    header_info = None
-    for part in log_parts:
-        part = part.strip()
-        if not part:
+    # 最初の要素が空文字列なら削除（ヘッダーで始まる場合の typical な挙動）
+    if log_parts and not log_parts[0].strip():
+        log_parts.pop(0)
+
+    # ヘッダーとコンテントのペアを処理
+    for i in range(0, len(log_parts), 2):
+        # ペアが揃っているか確認
+        if i + 1 >= len(log_parts):
             continue
 
-        if part.startswith("## ") and part.endswith(":"):
-            match = re.match(r'^## (?:(AGENT|USER):)?([^:]+?):$', part)
-            if match:
-                role, responder_id = match.groups()
-                # 旧形式との互換性処理
-                if not role:
-                    if responder_id.lower() == 'user' or responder_id == 'ユーザー':
-                        role = 'USER'
-                    else:
-                        role = 'AGENT' # ユーザー以外はAGENTと見なす
+        header_line = log_parts[i]
+        message_content = log_parts[i+1].strip()
 
-                # 'ユーザー'という名前は'user'というIDに正規化
-                if responder_id == 'ユーザー':
-                    responder_id = 'user'
+        # コンテントが空の場合は、このペアを無視
+        if not message_content:
+            continue
 
-                header_info = {"role": role, "responder": responder_id}
-        elif header_info:
-            messages.append({
-                "role": header_info["role"],
-                "responder": header_info["responder"],
-                "content": part
-            })
-            header_info = None
+        # ヘッダーを解析
+        header_text = header_line[3:].strip() # "## " を除去
+
+        role = "AGENT" # デフォルト
+        responder = header_text # 古い形式の場合のフォールバック
+
+        if ":" in header_text:
+            # 新形式 ## ROLE:NAME
+            try:
+                role_part, name_part = header_text.split(":", 1)
+                # 'user' ID の正規化
+                if role_part.strip().upper() == "USER" and name_part.strip().lower() == "user":
+                    role = "USER"
+                    responder = "user"
+                else:
+                    role = role_part.strip().upper()
+                    responder = name_part.strip()
+            except ValueError:
+                # : が含まれるが分割できない場合は、全体をresponderとする
+                responder = header_text
+        else:
+            # 旧形式 ## NAME
+            if header_text.lower() in ["user", "ユーザー"]:
+                role = "USER"
+                responder = "user"
+
+        messages.append({"role": role, "responder": responder, "content": message_content})
+
     return messages
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str) -> Tuple[List[Tuple], List[int]]:
@@ -368,12 +379,12 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
 
         log_content_parts = []
         for msg in all_messages:
-            role = msg.get("role", "AGENT")
+            role = msg.get("role", "AGENT").upper()
             responder_id = msg.get("responder", "不明")
-            header = f"## {role}:{responder_id}"
+            header = f"## {role}:{responder_id}:"
             content = msg.get('content', '').strip()
             if content:
-                log_content_parts.append(f"{header}:\n{content}")
+                log_content_parts.append(f"{header}\n{content}")
 
         new_log_content = "\n\n".join(log_content_parts)
         with open(log_file_path, "w", encoding="utf-8") as f:
@@ -645,9 +656,9 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
 
         log_content_parts = []
         for msg in messages_to_keep:
-            header = f"## {msg.get('role')}:{msg.get('responder')}"
+            header = f"## {msg.get('role', 'AGENT').upper()}:{msg.get('responder', '不明')}:"
             content = msg.get('content', '').strip()
-            if content: log_content_parts.append(f"{header}:\n{content}")
+            if content: log_content_parts.append(f"{header}\n{content}")
 
         new_log_content = "\n\n".join(log_content_parts)
         with open(log_file_path, "w", encoding="utf-8") as f: f.write(new_log_content)
@@ -702,9 +713,9 @@ def delete_user_message_and_after(log_file_path: str, user_message_to_delete: Di
 
         log_content_parts = []
         for msg in messages_to_keep:
-            header = f"## {msg.get('role')}:{msg.get('responder')}"
+            header = f"## {msg.get('role', 'AGENT').upper()}:{msg.get('responder', '不明')}:"
             content = msg.get('content', '').strip()
-            if content: log_content_parts.append(f"{header}:\n{content}")
+            if content: log_content_parts.append(f"{header}\n{content}")
 
         new_log_content = "\n\n".join(log_content_parts)
         with open(log_file_path, "w", encoding="utf-8") as f: f.write(new_log_content)
