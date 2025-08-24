@@ -480,29 +480,6 @@ def create_turn_snapshot(main_log_path: str, user_start_phrase: str) -> Optional
         print(f"エラー：スナップショットの作成中にエラーが発生しました: {e}"); traceback.print_exc()
         return None
 
-def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str) -> list:
-    from langchain_core.messages import HumanMessage, AIMessage
-    lc_messages = []
-    for h_item in raw_history:
-        content = h_item.get('content', '').strip()
-        responder_id = h_item.get('responder', '')
-        role = h_item.get('role', '')
-        if not content or not responder_id or not role: continue
-        is_user = (role == 'USER')
-        is_self = (responder_id == responding_character_id)
-        if is_user:
-            text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
-            if text_only_content: lc_messages.append(HumanMessage(content=text_only_content))
-        elif is_self:
-            lc_messages.append(AIMessage(content=content, name=responder_id))
-        else:
-            other_agent_config = room_manager.get_room_config(responder_id)
-            display_name = other_agent_config.get("room_name", responder_id) if other_agent_config else responder_id
-            clean_content = remove_thoughts_from_text(content)
-            annotated_content = f"（{display_name}の発言）:\n{clean_content}"
-            lc_messages.append(HumanMessage(content=annotated_content))
-    return lc_messages
-
 def is_character_name(name: str) -> bool:
     if not name or not isinstance(name, str) or not name.strip(): return False
     if ".." in name or "/" in name or "\\" in name: return False

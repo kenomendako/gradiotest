@@ -71,6 +71,32 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
     return result.total_tokens
 
+def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str) -> list:
+    from langchain_core.messages import HumanMessage, AIMessage
+    lc_messages = []
+    for h_item in raw_history:
+        content = h_item.get('content', '').strip()
+        responder_id = h_item.get('responder', '')
+        role = h_item.get('role', '')
+        # This was `if not content...`, but empty content is a valid message (header-only)
+        if not responder_id or not role:
+            continue
+        is_user = (role == 'USER')
+        is_self = (responder_id == responding_character_id)
+        if is_user:
+            text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
+            if text_only_content:
+                lc_messages.append(HumanMessage(content=text_only_content))
+        elif is_self:
+            lc_messages.append(AIMessage(content=content, name=responder_id))
+        else:
+            other_agent_config = room_manager.get_room_config(responder_id)
+            display_name = other_agent_config.get("room_name", responder_id) if other_agent_config else responder_id
+            clean_content = utils.remove_thoughts_from_text(content)
+            annotated_content = f"（{display_name}の発言）:\n{clean_content}"
+            lc_messages.append(HumanMessage(content=annotated_content))
+    return lc_messages
+
 # gemini_api.py の invoke_nexus_agent_stream を完全に置き換え
 
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
@@ -111,11 +137,11 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     responding_ai_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
         own_history_raw = utils.load_chat_log(responding_ai_log_f)
-        messages = utils.convert_raw_log_to_lc_messages(own_history_raw, room_to_respond)
+        messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond)
 
     if history_log_path and os.path.exists(history_log_path):
         snapshot_history_raw = utils.load_chat_log(history_log_path)
-        snapshot_messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond)
+        snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond)
         if snapshot_messages and messages:
             # スナップショットの最初のユーザー発言を取得
             first_snapshot_user_message_content = None
