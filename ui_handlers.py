@@ -574,19 +574,21 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
         traceback.print_exc()
         return gr.update(), gr.update()
 
-def handle_delete_room(folder_name_to_delete: str, confirmed: str):
+def handle_delete_room(folder_name_to_delete: str, api_key_name: str, confirmed: bool):
     """
-    「管理」タブの削除ボタンのロジック。
-    ルームのフォルダを完全に削除する。
+    「管理」タブの削除ボタンのロジック。ルームを削除した後、
+    handle_room_change_for_all_tabsを呼び出してUI全体を再構築する。
     """
-    # The 'confirmed' value from JS will be a string "true" or "false", or None
-    if str(confirmed).lower() != "true":
-        # ユーザーがキャンセルを押したか、予期せぬ値が来た場合は何もしない
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+    # all_room_change_outputs in nexus_ark.py has 32 elements as of v18
+    # This count needs to be kept in sync if the output list changes.
+    NUM_ALL_ROOM_CHANGE_OUTPUTS = 32
+
+    if not confirmed:
+        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
 
     if not folder_name_to_delete:
         gr.Warning("削除するルームが選択されていません。")
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=False)
+        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
 
     try:
         room_path_to_delete = os.path.join(constants.ROOMS_DIR, folder_name_to_delete)
@@ -596,30 +598,23 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: str):
         else:
             gr.Warning(f"削除対象のフォルダが見つかりませんでした: {room_path_to_delete}")
 
-        updated_room_list = room_manager.get_room_list()
+        # --- 世界の再創造 ---
+        new_room_list = room_manager.get_room_list()
 
-        new_main_room_value = None
-        main_dd_interactive = False
-        if updated_room_list:
-            # get_room_listは(display_name, folder_name)のタプルを返す
-            new_main_room_value = updated_room_list[0][1] # フォルダ名を選択
-            main_dd_interactive = True
+        new_main_room_folder = "Default"
+        if not new_room_list:
+            room_manager.ensure_room_files("Default")
+            print("すべてのルームが削除されたため、新しい'Default'ルームを作成しました。")
+        else:
+            new_main_room_folder = new_room_list[0][1] # Get folder name from ('display', 'folder')
 
-        # 全てのドロップダウンを更新
-        main_dd = gr.update(choices=updated_room_list, value=new_main_room_value, interactive=main_dd_interactive)
-        manage_dd = gr.update(choices=updated_room_list, value=None)
-        alarm_dd = gr.update(choices=updated_room_list, value=new_main_room_value)
-        timer_dd = gr.update(choices=updated_room_list, value=new_main_room_value)
-
-        # 管理フォームを非表示に
-        manage_form = gr.update(visible=False)
-
-        return main_dd, manage_dd, alarm_dd, timer_dd, manage_form
+        # 信頼できる唯一の司令塔を呼び出し、UIの完全な状態を取得して返す
+        return handle_room_change_for_all_tabs(new_main_room_folder, api_key_name)
 
     except Exception as e:
         gr.Error(f"ルームの削除中にエラーが発生しました: {e}")
         traceback.print_exc()
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(visible=True)
+        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
 
 
 def _get_display_history_count(api_history_limit_value: str) -> int: return int(api_history_limit_value) if api_history_limit_value.isdigit() else constants.UI_HISTORY_MAX_LIMIT

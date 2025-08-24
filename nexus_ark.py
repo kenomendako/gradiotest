@@ -488,16 +488,11 @@ try:
             js="() => confirm('本当にこのルームを削除しますか？この操作は取り消せません。')"
         )
 
-        delete_confirm_state.change(
+        delete_room_button.click(
             fn=ui_handlers.handle_delete_room,
-            inputs=[manage_folder_name_display, delete_confirm_state],
-            outputs=[
-                room_dropdown,
-                manage_room_selector,
-                alarm_room_dropdown,
-                timer_room_dropdown,
-                manage_room_details
-            ]
+            inputs=[manage_folder_name_display, api_key_dropdown],
+            outputs=all_room_change_outputs,
+            js="() => confirm('本当にこのルームを削除しますか？この操作は取り消せません。')"
         )
 
         chat_submit_outputs = [
