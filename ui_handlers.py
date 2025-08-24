@@ -634,7 +634,7 @@ def handle_chatbot_selection(room_name: str, api_history_limit_state: str, mappi
             return None, gr.update(visible=False), gr.update(interactive=True)
 
         log_f, _, _, _, _ = get_room_files_paths(room_name)
-        raw_history = utils.load_chat_log(log_f, room_name)
+        raw_history = utils.load_chat_log(log_f)
         display_turns = _get_display_history_count(api_history_limit_state)
         visible_raw_history = raw_history[-(display_turns * 2):]
 
@@ -660,7 +660,7 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
         return gr.update(), gr.update(), None, gr.update(visible=False)
 
     log_f, _, _, _, _ = get_room_files_paths(room_name)
-    if utils.delete_message_from_log(log_f, message_to_delete, room_name):
+    if utils.delete_message_from_log(log_f, message_to_delete):
         gr.Info("ログからメッセージを削除しました。")
     else:
         gr.Error("メッセージの削除に失敗しました。詳細はターミナルを確認してください。")
@@ -1662,9 +1662,9 @@ def handle_rerun_button_click(*args: Any):
 
     restored_input_text = None
     if is_ai_message:
-        restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message, room_name)
+        restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message)
     else:
-        restored_input_text = utils.delete_user_message_and_after(log_f, selected_message, room_name)
+        restored_input_text = utils.delete_user_message_and_after(log_f, selected_message)
 
     if restored_input_text is None:
         gr.Error("ログの巻き戻しに失敗しました。再生成できません。")
