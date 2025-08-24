@@ -97,36 +97,47 @@ def load_chat_log(file_path: str) -> List[Dict[str, str]]:
     except Exception as e:
         print(f"エラー: ログファイル '{file_path}' 読込エラー: {e}"); return messages
 
-    # ヘッダー (##...) で全体を分割し、ヘッダーと内容のペアのリストを作成する
-    # re.split()は複雑なので、より確実な finditer() を使用する
+    # ヘッダー (##...) で全体を分割する
+    # Lookahead assertion `(?=^## )` を使い、ヘッダー自身は分割文字列に含まないようにする
+    log_blocks = re.split(r'(?=^## )', content, flags=re.MULTILINE)
 
-    header_pattern = re.compile(r'^## (.*?)$', re.MULTILINE)
-    matches = list(header_pattern.finditer(content))
+    for block in log_blocks:
+        block = block.strip()
+        if not block:
+            continue
 
-    for i, current_match in enumerate(matches):
-        start_pos = current_match.end()
-        end_pos = matches[i+1].start() if i + 1 < len(matches) else len(content)
+        # ブロックをヘッダー行と内容に分割
+        try:
+            header_line, message_content = block.split('\n', 1)
+            message_content = message_content.strip()
+        except ValueError:
+            # 内容のないヘッダーのみの行などは無視
+            continue
 
-        message_content = content[start_pos:end_pos].strip()
         if not message_content:
             continue
 
-        header_text = current_match.group(1).strip()
+        # ヘッダーを解析
+        header_text = header_line[3:].strip() # "## " を除去
 
-        role = "AGENT"
+        role = "AGENT" # デフォルト
         responder = header_text
 
+        # 新形式 ## ROLE:NAME の解析を優先
         if ":" in header_text:
             try:
                 role_part, name_part = header_text.split(":", 1)
-                role = role_part.strip().upper()
-                responder = name_part.strip()
+                # ROLEは英字のみと仮定
+                if role_part.strip().isalpha():
+                    role = role_part.strip().upper()
+                    responder = name_part.strip()
             except ValueError:
-                pass
-        else:
-            if header_text.lower() in ["user", "ユーザー"]:
-                role = "USER"
-                responder = "user" # USERのresponderは'user'に正規化
+                pass # 解析失敗時は、全体をresponderとする
+
+        # 旧形式のUSERを判定
+        elif header_text.lower() in ["user", "ユーザー"]:
+            role = "USER"
+            responder = "user" # USERのresponderは'user'に正規化
 
         messages.append({"role": role, "responder": responder, "content": message_content})
 
