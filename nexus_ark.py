@@ -58,32 +58,62 @@ try:
     alarm_manager.load_alarms()
     alarm_manager.start_alarm_scheduler_thread()
 
+    # ▼▼▼【custom_css の中身を、これで完全に置き換える】▼▼▼
     custom_css = """
-    #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
-    #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word !important; }
-    #memory_json_editor_code .cm-editor { max-height: 400px !important; overflow-y: auto !important; overflow-x: hidden !important; white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: break-word !important; }
-    #notepad_editor_code textarea, #system_prompt_editor textarea { max-height: 400px !important; overflow-y: auto !important; white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: break-word !important; box-sizing: border-box; }
-    #memory_json_editor_code, #notepad_editor_code, #system_prompt_editor { max-height: 410px; border: 1px solid #ccc; border-radius: 5px; padding: 0; }
-    #alarm_dataframe_display { border-radius: 8px !important; } #alarm_dataframe_display table { width: 100% !important; }
-    #alarm_dataframe_display th, #alarm_dataframe_display td { text-align: left !important; padding: 4px 8px !important; white-space: normal !important; font-size: 0.95em; }
-    #alarm_dataframe_display th:nth-child(1), #alarm_dataframe_display td:nth-child(1) { width: 50px !important; text-align: center !important; }
-    #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
-    #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
-    #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
-    #chat_background_container { position: relative; height: 600px; }
-    #chat_background_image { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; opacity: 0.25; }
-    #chat_background_image img { object-fit: cover; width: 100%; height: 100%; }
-    #chat_output_area { position: relative; z-index: 1; background-color: transparent !important; }
-    #chat_output_area .message-bubble-row .message-bubble,
-    #chat_output_area .message.message-bubble {
-        background-color: rgba(255, 255, 255, 0.85) !important;
-        backdrop-filter: blur(2px);
+    /* 基本的な思考ログなどのスタイル */
+    #chat_output_area pre { white-space: pre-wrap !important; word-break: break-word !important; }
+    #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 10px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-word; }
+
+    /* --- ここからが背景画像表示のための核心部分 --- */
+
+    /* 1. 背景画像を内包するコンテナ(gr.Column)の準備 */
+    #chat_background_container {
+        position: relative; /* 子要素を絶対配置するための基準点にする */
+        height: 600px;      /* チャットボットの高さと合わせる */
+        padding: 0 !important; /* Gradioの余計なpaddingを消す */
     }
-    #chat_output_area .message-bubble-row.user .message-bubble,
+
+    /* 2. 背景画像(gr.Image)をコンテナの最背面に配置 */
+    #chat_background_image {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 0;         /* 一番後ろに配置 */
+        opacity: 0.25;      /* 画像を少し半透明にする */
+    }
+    /* GradioのImageコンポーネントが生成する<img>タグにもスタイルを適用 */
+    #chat_background_image img {
+        object-fit: cover; /* 画像がコンテナに合わせて拡大・縮小されるようにする */
+        width: 100%;
+        height: 100%;
+    }
+
+    /* 3. チャットボット(gr.Chatbot)を背景画像の上に配置 */
+    #chat_output_area {
+        position: relative; /* z-indexを有効にするため */
+        z-index: 1;         /* 背景画像より手前に配置 */
+        background-color: transparent !important; /* Gradioのデフォルトの背景色を透明にする */
+        height: 100%; /* 親コンテナの高さに合わせる */
+    }
+
+    /* 4. チャットの個々のメッセージバブルに、半透明の背景色を設定 */
+    /* これにより、背景画像が透けて見えつつ、文字の可読性も保たれる */
+    #chat_output_area .message-bubble,
+    #chat_output_area .message.message-bubble {
+        background-color: rgba(255, 255, 255, 0.8) !important; /* 白の半透明 */
+        backdrop-filter: blur(2px); /* すりガラス効果 */
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    /* ユーザー側のメッセージバブルの色を少し変える */
+    #chat_output_area .user > .message-bubble,
     #chat_output_area .user .message.message-bubble {
-        background-color: rgba(230, 240, 255, 0.9) !important;
+        background-color: rgba(230, 240, 255, 0.85) !important; /* 青みがかった白の半透明 */
     }
     """
+    # ▲▲▲【置き換えはここまで】▲▲▲
     js_stop_nav_link_propagation = """
     function() {
         document.body.addEventListener('click', function(e) {
