@@ -36,33 +36,6 @@ DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 
-def _get_background_update(room_name: str) -> gr.update:
-    """
-    Generates a Gradio update for an invisible HTML component.
-    The update contains a script that sets the chat background image CSS variable.
-    """
-    if not room_name:
-        js_code = "document.documentElement.style.setProperty('--chat-bg-image', 'none');"
-    else:
-        location_id = utils.get_current_location(room_name)
-        image_path = utils.find_scenery_image(room_name, location_id)
-
-        if image_path:
-            abs_image_path = os.path.abspath(image_path)
-            # URL-encode the path to handle special characters (like spaces and non-ASCII chars)
-            encoded_path = quote(abs_image_path)
-            image_url = f"/file={encoded_path}"
-            # Add a cache-busting query parameter to force browser to reload the image when it changes
-            cache_buster = f"?v={uuid.uuid4().hex}"
-            # Ensure the final URL in JS is properly quoted
-            js_code = f"document.documentElement.style.setProperty('--chat-bg-image', 'url(\"{image_url}{cache_buster}\")');"
-        else:
-            js_code = "document.documentElement.style.setProperty('--chat-bg-image', 'none');"
-
-    html_content = f"<script>{js_code}</script>"
-    return gr.update(value=html_content)
-
-
 def _get_location_choices_for_ui(room_name: str) -> list:
     """
     UIの移動先Dropdown用の、エリアごとにグループ化された選択肢リストを生成する。
@@ -141,7 +114,7 @@ def handle_room_change(room_name: str, api_key_name: str):
     sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
     dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
 
-    background_update = _get_background_update(room_name)
+    background_image_path = utils.find_scenery_image(room_name, location_dd_val)
 
     return (
         room_name,                              # current_room_name
@@ -172,7 +145,7 @@ def handle_room_change(room_name: str, api_key_name: str):
         effective_settings["send_scenery"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", # room_settings_info
         scenery_image_path,                     # scenery_image_display
-        background_update                       # background_update_trigger
+        background_image_path                   # background_image_display
     )
 
 def handle_save_room_settings(
@@ -388,12 +361,12 @@ def handle_message_submission(*args: Any):
 
     final_df_with_ids = render_alarms_as_dataframe()
     final_df = get_display_df(final_df_with_ids)
-    background_update = _get_background_update(soul_vessel_room)
+    background_image = utils.find_scenery_image(soul_vessel_room, new_location_name)
 
     yield (final_chatbot_history, final_mapping_list, gr.update(), gr.update(value=None), token_count_text,
            new_location_name, new_scenery_text,
            final_df_with_ids, final_df, scenery_image,
-           current_console_content, current_console_content, background_update)
+           current_console_content, current_console_content, background_image)
 
     if auto_memory_enabled:
         try:
@@ -420,9 +393,9 @@ def handle_message_submission(*args: Any):
             traceback.print_exc()
             gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
 
-def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str], gr.update]:
+def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str], Optional[str]]:
     if not room_name or not api_key_name:
-        return "（ルームまたはAPIキーが未選択です）", "（ルームまたはAPIキーが未選択です）", None, _get_background_update(room_name)
+        return "（ルームまたはAPIキーが未選択です）", "（ルームまたはAPIキーが未選択です）", None, None
 
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key:
@@ -440,13 +413,13 @@ def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str,
         gr.Error("情景の再生成に失敗しました。")
         scenery_image_path = None
 
-    return location_name, scenery_text, scenery_image_path, _get_background_update(room_name)
+    return location_name, scenery_text, scenery_image_path, scenery_image_path
 
-def handle_location_change(room_name: str, selected_value: str, api_key_name: str) -> Tuple[str, str, Optional[str], gr.update]:
+def handle_location_change(room_name: str, selected_value: str, api_key_name: str) -> Tuple[str, str, Optional[str], Optional[str]]:
     if not selected_value or selected_value.startswith("__AREA_HEADER_"):
         location_name, _, scenery_text = generate_scenery_context(room_name, config_manager.GEMINI_API_KEYS.get(api_key_name))
         scenery_image_path = utils.find_scenery_image(room_name, utils.get_current_location(room_name))
-        return location_name, scenery_text, scenery_image_path, _get_background_update(room_name)
+        return location_name, scenery_text, scenery_image_path, scenery_image_path
 
     location_id = selected_value
 
@@ -477,7 +450,7 @@ def handle_location_change(room_name: str, selected_value: str, api_key_name: st
     new_location_name, _, new_scenery_text = generate_scenery_context(room_name, api_key)
     new_image_path = utils.find_scenery_image(room_name, location_id)
 
-    return new_location_name, new_scenery_text, new_image_path, _get_background_update(room_name)
+    return new_location_name, new_scenery_text, new_image_path, new_image_path
 
 #
 # --- Room Management Handlers ---
@@ -1221,10 +1194,10 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
             gr.update(value="試聴", interactive=True)
         )
 
-def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: str, style_choice: str) -> Tuple[Optional[str], gr.update]:
+def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: str, style_choice: str) -> Tuple[Optional[str], Optional[str]]:
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーを選択してください。")
-        return None, _get_background_update(room_name)
+        return None, None
 
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key:
@@ -1346,13 +1319,13 @@ Generate ONE final, masterful prompt for an image generation AI based on a stric
             print(f"--- 情景画像を生成し、保存しました: {specific_path} ---")
 
             gr.Info("画像を生成/更新しました。")
-            return specific_path, _get_background_update(room_name)
+            return specific_path, specific_path
         else:
             gr.Error("画像の生成には成功しましたが、一時ファイルの特定に失敗しました。")
-            return existing_image_path, _get_background_update(room_name)
+            return existing_image_path, existing_image_path
     else:
         gr.Error(f"画像の生成/更新に失敗しました。AIの応答: {result}")
-        return existing_image_path, _get_background_update(room_name)
+        return existing_image_path, existing_image_path
 
 def handle_api_connection_test(api_key_name: str):
     if not api_key_name:
@@ -1772,13 +1745,12 @@ def handle_rerun_button_click(*args: Any):
 
     final_df_with_ids = render_alarms_as_dataframe()
     final_df = get_display_df(final_df_with_ids)
-    background_update = _get_background_update(room_name)
 
     yield (final_chatbot_history, final_mapping_list, gr.update(), gr.update(value=None), token_count_text,
            new_location_name, new_scenery_text,
            final_df_with_ids, final_df, scenery_image,
            current_console_content, current_console_content,
-           None, gr.update(visible=False), background_update)
+           None, gr.update(visible=False), scenery_image)
 
     if auto_memory_enabled:
         try:

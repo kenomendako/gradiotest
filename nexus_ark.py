@@ -70,12 +70,10 @@ try:
     #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
     #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
-
-    #chat_output_area {
-        background-image: url("/file=test.png") !important;
-        background-size: cover !important;
-        background-position: center !important;
-    }
+    #chat_background_container { position: relative; }
+    #chat_background_image { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; opacity: 0.25; }
+    #chat_background_image img { object-fit: cover; width: 100%; height: 100%; }
+    #chat_output_area { position: relative; z-index: 1; background-color: transparent !important; }
     #chat_output_area .message-bubble-row .message-bubble,
     #chat_output_area .message.message-bubble {
         background-color: rgba(255, 255, 255, 0.85) !important;
@@ -267,15 +265,16 @@ try:
                                         delete_room_button = gr.Button("このルームを削除", variant="stop")
 
                     with gr.Column(scale=3):
-                        with gr.Column(elem_id="chat_container"):
+                        with gr.Box(elem_id="chat_background_container"):
+                            background_image_display = gr.Image(interactive=False, show_label=False, show_download_button=False, elem_id="chat_background_image", height=600)
                             chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
-                            with gr.Row():
-                                audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
-                            with gr.Row(visible=False) as action_button_group:
-                                rerun_button = gr.Button("🔄 再生成")
-                                play_audio_button = gr.Button("🔊 選択した発言を再生")
-                                delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
-                                cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
+                        with gr.Row():
+                            audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
+                        with gr.Row(visible=False) as action_button_group:
+                            rerun_button = gr.Button("🔄 再生成")
+                            play_audio_button = gr.Button("🔊 選択した発言を再生")
+                            delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
+                            cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
                         token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
                         tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
                         chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
@@ -368,8 +367,6 @@ try:
                 )
                 clear_debug_console_button = gr.Button("コンソールをクリア", variant="secondary")
 
-        background_update_trigger = gr.HTML(visible=False)
-
         # --- イベントハンドラ定義 ---
         context_checkboxes = [
             room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
@@ -388,7 +385,7 @@ try:
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
-        ] + context_checkboxes + [room_settings_info, scenery_image_display, background_update_trigger]
+        ] + context_checkboxes + [room_settings_info, scenery_image_display, background_image_display]
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
@@ -437,7 +434,7 @@ try:
                 token_count_display, current_location_display, current_scenery_display,
                 alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
                 debug_console_state, debug_console_output,
-                selected_message_state, action_button_group, background_update_trigger
+                selected_message_state, action_button_group, background_image_display
             ]
             # ▲▲▲【修正ここまで】▲▲▲
         )
@@ -513,7 +510,7 @@ try:
             chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button,
             token_count_display, current_location_display, current_scenery_display,
             alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
-            debug_console_state, debug_console_output, background_update_trigger
+            debug_console_state, debug_console_output, background_image_display
         ]
 
         gen_settings_inputs = [
@@ -537,8 +534,8 @@ try:
         file_upload_button.upload(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
         file_upload_button.clear(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
 
-        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, background_update_trigger])
-        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, background_update_trigger])
+        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, background_image_display])
+        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, background_image_display])
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_room_name, current_api_key_name_state], outputs=[audio_player, play_audio_button, room_preview_voice_button])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
 
@@ -640,7 +637,7 @@ try:
 
         # ▲▲▲ ここまで ▲▲▲
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_room_name, current_api_key_name_state], outputs=None)
-        generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_room_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display, background_update_trigger])
+        generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_room_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display, background_image_display])
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
 
         world_builder_tab.select(
