@@ -641,7 +641,7 @@ def handle_chatbot_selection(room_name: str, api_history_limit_state: str, mappi
         original_log_index = mapping_list[clicked_ui_index]
         if 0 <= original_log_index < len(visible_raw_history):
             selected_msg = visible_raw_history[original_log_index]
-            is_ai_message = selected_msg.get("responder") != "ユーザー"
+            is_ai_message = selected_msg.get("responder") != "user"
             return (
                 selected_msg,
                 gr.update(visible=True),
@@ -1658,7 +1658,7 @@ def handle_rerun_button_click(*args: Any):
         return
 
     log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
-    is_ai_message = selected_message.get("responder") != "ユーザー"
+    is_ai_message = selected_message.get("role") == "AGENT"
 
     restored_input_text = None
     if is_ai_message:
