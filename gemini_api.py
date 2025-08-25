@@ -121,8 +121,10 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     shared_scenery_text = agent_args["shared_scenery_text"]
 
     all_participants_list = [soul_vessel_room] + active_participants
+    model_name_from_ui = agent_args.get("model_name")
     effective_settings = config_manager.get_effective_settings(
         room_to_respond,
+        model_name=model_name_from_ui,
         use_common_prompt=(len(all_participants_list) <= 1)
     )
     model_name = effective_settings["model_name"]
@@ -172,10 +174,15 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     initial_state = {
         "messages": messages, "room_name": room_to_respond,
         "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
-        "model_name": model_name, "send_core_memory": effective_settings.get("send_core_memory", True),
-        "send_scenery": effective_settings.get("send_scenery", True), "send_notepad": effective_settings.get("send_notepad", True),
-        "debug_mode": debug_mode, "location_name": shared_location_name,
-        "scenery_text": shared_scenery_text, "all_participants": all_participants_list
+        "model_name": model_name,
+        "generation_config": effective_settings,
+        "send_core_memory": effective_settings.get("send_core_memory", True),
+        "send_scenery": effective_settings.get("send_scenery", True),
+        "send_notepad": effective_settings.get("send_notepad", True),
+        "debug_mode": debug_mode,
+        "location_name": shared_location_name,
+        "scenery_text": shared_scenery_text,
+        "all_participants": all_participants_list
     }
 
     # --- エージェント実行ループ ---
