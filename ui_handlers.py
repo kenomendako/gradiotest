@@ -1650,7 +1650,8 @@ def handle_reload_system_prompt(room_name: str) -> str:
 def handle_rerun_button_click(*args: Any):
     (selected_message, room_name, api_key_name,
      _file_list, api_history_limit, debug_mode,
-     auto_memory_enabled, current_console_content, active_participants) = args
+     auto_memory_enabled, current_console_content, active_participants,
+     room_model, global_model) = args
     active_participants = active_participants or []
 
     if not selected_message or not room_name:
@@ -1701,9 +1702,11 @@ def handle_rerun_button_click(*args: Any):
            current_console_content, current_console_content,
            None, gr.update(visible=False))
 
+    effective_model_name = room_model if room_model and room_model != "デフォルト" else global_model
     agent_args_dict = {
         "room_to_respond": room_name,
         "api_key_name": api_key_name,
+        "model_name": effective_model_name,
         "api_history_limit": api_history_limit,
         "debug_mode": debug_mode,
         "history_log_path": log_f,
