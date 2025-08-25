@@ -400,9 +400,11 @@ try:
         chat_inputs = [
             chat_input_textbox, current_room_name, current_api_key_name_state,
             file_upload_button, api_history_limit_state, debug_mode_checkbox,
-            auto_memory_checkbox, # ★★★ 自動記憶チェックボックスを追加
+            auto_memory_checkbox,
             debug_console_state,
-            active_participants_state
+            active_participants_state,
+            room_model_dropdown,
+            model_dropdown
         ]
 
         rerun_button.click(

@@ -52,6 +52,7 @@ class AgentState(TypedDict):
     tavily_api_key: str
     model_name: str
     system_prompt: SystemMessage
+    generation_config: dict
     send_core_memory: bool
     send_scenery: bool
     send_notepad: bool
@@ -235,8 +236,7 @@ def agent_node(state: AgentState):
         print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
         print(final_system_prompt_text)
         print("-----------------------------------------")
-    effective_settings = config_manager.get_effective_settings(state['room_name'])
-    llm = get_configured_llm(state['model_name'], state['api_key'], effective_settings)
+    llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
     llm_with_tools = llm.bind_tools(all_tools)
 
     # 履歴から、過去の全てのSystemMessageを完全に除去する

@@ -241,7 +241,8 @@ def update_token_count_on_input(room_name: str, api_key_name: str, api_history_l
 def handle_message_submission(*args: Any):
     (textbox_content, soul_vessel_room, current_api_key_name_state,
      file_input_list, api_history_limit_state, debug_mode_state,
-     auto_memory_enabled, current_console_content, active_participants) = args
+     auto_memory_enabled, current_console_content, active_participants,
+     room_model, global_model) = args
     active_participants = active_participants or []
 
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
@@ -304,9 +305,11 @@ def handle_message_submission(*args: Any):
              user_prompt_parts.append({"type": "text", "text": user_prompt_from_textbox})
         user_prompt_parts.extend(processed_file_list)
 
+        effective_model_name = room_model if room_model and room_model != "デフォルト" else global_model
         agent_args_dict = {
             "room_to_respond": room_to_respond,
             "api_key_name": current_api_key_name_state,
+            "model_name": effective_model_name,
             "api_history_limit": api_history_limit_state,
             "debug_mode": debug_mode_state,
             "history_log_path": main_log_f,
