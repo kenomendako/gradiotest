@@ -1152,8 +1152,8 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                         known_configs[responder_id] = config
 
                 if config:
-                # agent_display_nameがあればそれを優先し、なければroom_nameにフォールバック
-                speaker_name = config.get("agent_display_name") or config.get("room_name", responder_id)
+                    # agent_display_nameがあればそれを優先し、なければroom_nameにフォールバック
+                    speaker_name = config.get("agent_display_name") or config.get("room_name", responder_id)
                 else:
                     speaker_name = f"{responder_id} [削除済]"
         else:
