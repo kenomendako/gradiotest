@@ -1134,22 +1134,25 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         if role == "USER":
             speaker_name = user_display_name
         elif role == "AGENT":
-            if responder_id in known_configs:
-                config = known_configs[responder_id]
+            # [修正] まず、今いるルーム自身の発言かチェックする
+            if responder_id == current_room_folder:
+                speaker_name = current_room_config.get("room_name", responder_id)
             else:
-                config = None
-                # responder_id は常にフォルダ名であるべき。folder_to_display_map で存在確認を行う。
-                if responder_id in folder_to_display_map:
-                    config = room_manager.get_room_config(responder_id)
+                # 他のルームの発言の場合、キャッシュまたは全リストから探す
+                if responder_id in known_configs:
+                    config = known_configs[responder_id]
+                else:
+                    config = None
+                    if responder_id in folder_to_display_map:
+                        config = room_manager.get_room_config(responder_id)
 
-                # configが取得できた場合のみ、キャッシュに保存
+                    if config:
+                        known_configs[responder_id] = config
+
                 if config:
-                    known_configs[responder_id] = config
-
-            if config:
-                speaker_name = config.get("room_name", responder_id)
-            else:
-                speaker_name = f"{responder_id} [削除済]"
+                    speaker_name = config.get("room_name", responder_id)
+                else:
+                    speaker_name = f"{responder_id} [削除済]"
         else:
             speaker_name = responder_id
 
