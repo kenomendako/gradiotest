@@ -245,7 +245,55 @@ def agent_node(state: AgentState):
     # AIに渡す最終的なメッセージリストは、「最新のシステムプロンプト」＋「SystemMessageを含まない純粋な会話履歴」
     messages_for_agent = [final_system_prompt_message] + history_messages
 
+    # --- Jules's Debug Log Start ---
+    # pretty printを使うためにインポート
+    import pprint
+
+    print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
+    for i, msg in enumerate(messages_for_agent):
+        msg_type = type(msg).__name__
+
+        # コンテンツの長さを取得（型によって分岐）
+        content_for_length_check = ""
+        if hasattr(msg, 'content'):
+            if isinstance(msg.content, str):
+                content_for_length_check = msg.content
+            elif isinstance(msg.content, list):
+                # リストの場合は、テキスト部分を結合して長さを計算
+                content_for_length_check = "".join(
+                    part.get('text', '') if isinstance(part, dict) else str(part)
+                    for part in msg.content
+                )
+
+        print(f"[{i}] {msg_type} (Content Length: {len(content_for_length_check)})")
+
+        # 詳細の出力
+        if isinstance(msg, SystemMessage):
+            # システムプロンプトは長すぎる場合があるので、最初と最後の部分だけ表示
+            print(f"  - Content (Head): {msg.content[:300]}...")
+            print(f"  - Content (Tail): ...{msg.content[-300:]}")
+        elif hasattr(msg, 'content'):
+            # AIMessage, HumanMessage, ToolMessageなどのcontentを丁寧に出力
+            print("  - Content:")
+            # pprintを使って、リストや辞書を整形して出力
+            pprint.pprint(msg.content, indent=4)
+
+        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            print("  - Tool Calls:")
+            pprint.pprint(msg.tool_calls, indent=4)
+
+        print("-" * 20)
+    print("--------------------------------------------------\n")
+    # --- Jules's Debug Log End ---
+
     response = llm_with_tools.invoke(messages_for_agent)
+
+    # --- Jules's Debug Log Start ---
+    print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
+    # pretty printを使って、オブジェクトを整形して出力
+    pprint.pprint(response)
+    print("---------------------------------------\n")
+    # --- Jules's Debug Log End ---
 
     # 応答を返す部分は、add_messagesに任せるので、新しい応答だけを返す
     return {"messages": [response]}
