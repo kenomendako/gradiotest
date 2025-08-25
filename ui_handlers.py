@@ -22,9 +22,10 @@ import io
 import uuid
 from tools.image_tools import generate_image as generate_image_tool_func
 import pytz
+import ijson
 
 
-import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, memos_manager
+import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, memos_manager, chatgpt_importer
 from tools import timer_tools
 from agent.graph import generate_scenery_context
 from room_manager import get_room_files_paths, get_world_settings_path
@@ -622,6 +623,107 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
         gr.Error(f"ルームの削除中にエラーが発生しました: {e}")
         traceback.print_exc()
         return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
+
+
+#
+# --- ChatGPT Importer Handlers ---
+#
+
+def handle_chatgpt_file_upload(file_obj: Optional[Any]) -> Tuple[gr.update, gr.update]:
+    """
+    ChatGPTのjsonファイルがアップロードされたときの処理。
+    ファイルをストリーミングで解析し、会話のリストを生成する。
+    """
+    # file_obj is a single FileData object when file_count="single"
+    if file_obj is None:
+        return gr.update(choices=[], value=None), gr.update(visible=False)
+
+    try:
+        choices = []
+        with open(file_obj.name, 'rb') as f:
+            # ijsonを使ってルートレベルの配列をストリーミング
+            for conversation in ijson.items(f, 'item'):
+                if conversation and 'mapping' in conversation and 'title' in conversation:
+                    # 仕様通り、IDはmappingの最初のキー
+                    convo_id = next(iter(conversation['mapping']), None)
+                    title = conversation.get('title', 'No Title')
+                    if convo_id and title:
+                        choices.append((title, convo_id))
+
+        if not choices:
+            gr.Warning("これは有効なChatGPTエクスポートファイルではないようです。ファイルを確認してください。")
+            return gr.update(choices=[], value=None), gr.update(visible=False)
+
+        # ドロップダウンを更新し、フォームを表示する
+        return gr.update(choices=sorted(choices), value=None), gr.update(visible=True)
+
+    except (ijson.JSONError, IOError, StopIteration, Exception) as e:
+        gr.Warning("これは有効なChatGPTエクスポートファイルではないようです。ファイルを確認してください。")
+        print(f"Error processing ChatGPT export file: {e}")
+        traceback.print_exc()
+        return gr.update(choices=[], value=None), gr.update(visible=False)
+
+
+def handle_chatgpt_thread_selection(evt: gr.SelectData) -> gr.update:
+    """
+    会話スレッドが選択されたとき、そのタイトルをルーム名テキストボックスにコピーする。
+    """
+    if not evt:
+        return gr.update()
+    # gr.SelectDataは .label で選択された表示名を取得できる
+    return gr.update(value=evt.label)
+
+
+def handle_chatgpt_import_button_click(
+    file_obj: Optional[Any],
+    conversation_id: str,
+    room_name: str,
+    user_display_name: str
+) -> Tuple[gr.update, gr.update, gr.update, gr.update, gr.update, gr.update]:
+    """
+    「インポート」ボタンがクリックされたときの処理。
+    コアロジックを呼び出し、結果に応じてUIを更新する。
+    """
+    # 1. 入力検証
+    if not all([file_obj, conversation_id, room_name]):
+        gr.Warning("ファイル、会話スレッド、新しいルーム名はすべて必須です。")
+        # 6つのコンポーネントを更新するので6つのupdateを返す
+        return tuple(gr.update() for _ in range(6))
+
+    try:
+        # 2. コアロジックの呼び出し
+        safe_folder_name = chatgpt_importer.import_from_chatgpt_export(
+            file_path=file_obj.name,
+            conversation_id=conversation_id,
+            room_name=room_name,
+            user_display_name=user_display_name
+        )
+
+        # 3. 結果に応じたUI更新
+        if safe_folder_name:
+            gr.Info(f"会話「{room_name}」のインポートに成功しました。")
+
+            # UIのドロップダウンを更新するために最新のルームリストを取得
+            updated_room_list = room_manager.get_room_list_for_ui()
+
+            # フォームをリセットし、非表示にする
+            reset_file = gr.update(value=None)
+            hide_form = gr.update(visible=False, value=None) # Dropdownのchoicesもリセット
+
+            # 各ドロップダウンを更新し、新しく作ったルームを選択状態にする
+            dd_update = gr.update(choices=updated_room_list, value=safe_folder_name)
+
+            # file, form, room_dd, manage_dd, alarm_dd, timer_dd
+            return reset_file, hide_form, dd_update, dd_update, dd_update, dd_update
+        else:
+            gr.Error("インポート処理中に予期せぬエラーが発生しました。詳細はターミナルを確認してください。")
+            return tuple(gr.update() for _ in range(6))
+
+    except Exception as e:
+        gr.Error(f"インポート処理中に予期せぬエラーが発生しました。詳細はターミナルを確認してください。")
+        print(f"Error during import button click: {e}")
+        traceback.print_exc()
+        return tuple(gr.update() for _ in range(6))
 
 
 def _get_display_history_count(api_history_limit_value: str) -> int: return int(api_history_limit_value) if api_history_limit_value.isdigit() else constants.UI_HISTORY_MAX_LIMIT
