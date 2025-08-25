@@ -517,13 +517,13 @@ def handle_manage_room_select(selected_folder_name: str):
     選択されたルームの情報をフォームに表示する。
     """
     if not selected_folder_name:
-        return gr.update(visible=False), "", "", "", ""
+        return gr.update(visible=False), "", "", "", "", ""
 
     try:
         config_path = os.path.join(constants.ROOMS_DIR, selected_folder_name, "room_config.json")
         if not os.path.exists(config_path):
             gr.Warning(f"設定ファイルが見つかりません: {config_path}")
-            return gr.update(visible=False), "", "", "", ""
+            return gr.update(visible=False), "", "", "", "", ""
 
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
@@ -532,15 +532,16 @@ def handle_manage_room_select(selected_folder_name: str):
             gr.update(visible=True),
             config.get("room_name", ""),
             config.get("user_display_name", ""),
+            config.get("agent_display_name", ""), # agent_display_nameを読み込む
             config.get("description", ""),
             selected_folder_name
         )
     except Exception as e:
         gr.Error(f"ルーム設定の読み込み中にエラーが発生しました: {e}")
         traceback.print_exc()
-        return gr.update(visible=False), "", "", "", ""
+        return gr.update(visible=False), "", "", "", "", ""
 
-def handle_save_room_config(folder_name: str, room_name: str, user_display_name: str, description: str):
+def handle_save_room_config(folder_name: str, room_name: str, user_display_name: str, agent_display_name: str, description: str):
     """
     「管理」タブの保存ボタンのロジック。
     ルームの設定情報を更新する。
@@ -559,6 +560,7 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
             config = json.load(f)
             config["room_name"] = room_name.strip()
             config["user_display_name"] = user_display_name.strip()
+            config["agent_display_name"] = agent_display_name.strip() # agent_display_nameを保存
             config["description"] = description.strip()
             f.seek(0)
             json.dump(config, f, indent=2, ensure_ascii=False)
@@ -1150,7 +1152,8 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                         known_configs[responder_id] = config
 
                 if config:
-                    speaker_name = config.get("room_name", responder_id)
+                # agent_display_nameがあればそれを優先し、なければroom_nameにフォールバック
+                speaker_name = config.get("agent_display_name") or config.get("room_name", responder_id)
                 else:
                     speaker_name = f"{responder_id} [削除済]"
         else:

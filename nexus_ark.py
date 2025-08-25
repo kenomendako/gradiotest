@@ -248,6 +248,7 @@ try:
                                         delete_confirmed_state = gr.Textbox(visible=False)
                                         manage_room_name = gr.Textbox(label="ルーム名")
                                         manage_user_display_name = gr.Textbox(label="あなたの表示名")
+                                        manage_agent_display_name = gr.Textbox(label="Agentの表示名")
                                         manage_room_description = gr.Textbox(label="ルームの説明", lines=3)
                                         manage_folder_name_display = gr.Textbox(label="フォルダ名（編集不可）", interactive=False)
                                         save_room_config_button = gr.Button("変更を保存", variant="primary")
@@ -479,6 +480,7 @@ try:
                 manage_room_details,
                 manage_room_name,
                 manage_user_display_name,
+                manage_agent_display_name,
                 manage_room_description,
                 manage_folder_name_display
             ]
@@ -490,6 +492,7 @@ try:
                 manage_folder_name_display,
                 manage_room_name,
                 manage_user_display_name,
+                manage_agent_display_name,
                 manage_room_description
             ],
             outputs=[room_dropdown, manage_room_selector]
