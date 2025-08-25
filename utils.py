@@ -214,7 +214,7 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
         log_content_parts = []
         for msg in all_messages:
             role = msg.get("role", "AGENT").upper(); responder_id = msg.get("responder", "不明")
-            header = f"## {role}:{responder_id}:"
+            header = f"## {role}:{responder_id}"
             content = msg.get('content', '').strip()
             if content: log_content_parts.append(f"{header}\n{content}")
         new_log_content = "\n\n".join(log_content_parts)
@@ -388,7 +388,7 @@ def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete:
         messages_to_keep = all_messages[:last_user_message_index]
         log_content_parts = []
         for msg in messages_to_keep:
-            header = f"## {msg.get('role', 'AGENT').upper()}:{msg.get('responder', '不明')}:"
+            header = f"## {msg.get('role', 'AGENT').upper()}:{msg.get('responder', '不明')}"
             content = msg.get('content', '').strip()
             if content: log_content_parts.append(f"{header}\n{content}")
         new_log_content = "\n\n".join(log_content_parts)
@@ -424,7 +424,7 @@ def delete_user_message_and_after(log_file_path: str, user_message_to_delete: Di
         messages_to_keep = all_messages[:target_index]
         log_content_parts = []
         for msg in messages_to_keep:
-            header = f"## {msg.get('role', 'AGENT').upper()}:{msg.get('responder', '不明')}:"
+            header = f"## {msg.get('role', 'AGENT').upper()}:{msg.get('responder', '不明')}"
             content = msg.get('content', '').strip()
             if content: log_content_parts.append(f"{header}\n{content}")
         new_log_content = "\n\n".join(log_content_parts)
