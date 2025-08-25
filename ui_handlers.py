@@ -1138,12 +1138,11 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 config = known_configs[responder_id]
             else:
                 config = None
+                # responder_id は常にフォルダ名であるべき。folder_to_display_map で存在確認を行う。
                 if responder_id in folder_to_display_map:
                     config = room_manager.get_room_config(responder_id)
-                elif responder_id in display_to_folder_map:
-                    folder = display_to_folder_map[responder_id]
-                    config = room_manager.get_room_config(folder)
 
+                # configが取得できた場合のみ、キャッシュに保存
                 if config:
                     known_configs[responder_id] = config
 
