@@ -629,14 +629,14 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
 # --- ChatGPT Importer Handlers ---
 #
 
-def handle_chatgpt_file_upload(file_obj: Optional[Any]) -> Tuple[gr.update, gr.update]:
+def handle_chatgpt_file_upload(file_obj: Optional[Any]) -> Tuple[gr.update, gr.update, list]:
     """
     ChatGPTのjsonファイルがアップロードされたときの処理。
     ファイルをストリーミングで解析し、会話のリストを生成する。
     """
     # file_obj is a single FileData object when file_count="single"
     if file_obj is None:
-        return gr.update(choices=[], value=None), gr.update(visible=False)
+        return gr.update(choices=[], value=None), gr.update(visible=False), []
 
     try:
         choices = []
@@ -652,26 +652,33 @@ def handle_chatgpt_file_upload(file_obj: Optional[Any]) -> Tuple[gr.update, gr.u
 
         if not choices:
             gr.Warning("これは有効なChatGPTエクスポートファイルではないようです。ファイルを確認してください。")
-            return gr.update(choices=[], value=None), gr.update(visible=False)
+            return gr.update(choices=[], value=None), gr.update(visible=False), []
 
-        # ドロップダウンを更新し、フォームを表示する
-        return gr.update(choices=sorted(choices), value=None), gr.update(visible=True)
+        sorted_choices = sorted(choices)
+        # ドロップダウンを更新し、フォームを表示し、選択肢リストをStateに渡す
+        return gr.update(choices=sorted_choices, value=None), gr.update(visible=True), sorted_choices
 
     except (ijson.JSONError, IOError, StopIteration, Exception) as e:
         gr.Warning("これは有効なChatGPTエクスポートファイルではないようです。ファイルを確認してください。")
         print(f"Error processing ChatGPT export file: {e}")
         traceback.print_exc()
-        return gr.update(choices=[], value=None), gr.update(visible=False)
+        return gr.update(choices=[], value=None), gr.update(visible=False), []
 
 
-def handle_chatgpt_thread_selection(evt: gr.SelectData) -> gr.update:
+def handle_chatgpt_thread_selection(choices_list: list, evt: gr.SelectData) -> gr.update:
     """
     会話スレッドが選択されたとき、そのタイトルをルーム名テキストボックスにコピーする。
     """
-    if not evt:
+    if not evt or not choices_list:
         return gr.update()
-    # gr.SelectDataは .label で選択された表示名を取得できる
-    return gr.update(value=evt.label)
+
+    selected_id = evt.value
+    # choices_listの中から、IDが一致するもののタイトルを探す
+    for title, convo_id in choices_list:
+        if convo_id == selected_id:
+            return gr.update(value=title)
+
+    return gr.update() # 見つからなかった場合は何もしない
 
 
 def handle_chatgpt_import_button_click(

@@ -120,6 +120,7 @@ try:
         active_participants_state = gr.State([]) # 現在アクティブな複数人対話の参加者リスト
         debug_console_state = gr.State("")
         importer_process_state = gr.State(None) # インポーターのサブプロセスを管理
+        chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -703,11 +704,12 @@ try:
         chatgpt_import_file.upload(
             fn=ui_handlers.handle_chatgpt_file_upload,
             inputs=[chatgpt_import_file],
-            outputs=[chatgpt_thread_dropdown, chatgpt_import_form]
+            outputs=[chatgpt_thread_dropdown, chatgpt_import_form, chatgpt_thread_choices_state]
         )
 
         chatgpt_thread_dropdown.select(
             fn=ui_handlers.handle_chatgpt_thread_selection,
+            inputs=[chatgpt_thread_choices_state],
             outputs=[chatgpt_room_name_textbox]
         )
 
