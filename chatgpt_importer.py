@@ -108,6 +108,9 @@ def import_from_chatgpt_export(file_path: str, conversation_id: str, room_name: 
         # 5a. log.txt
         log_file_path = os.path.join(constants.ROOMS_DIR, safe_folder_name, "log.txt")
         full_log_content = "\n\n".join(log_entries)
+        # コンテンツがある場合のみ、末尾に改行を追加して次の追記に備える
+        if full_log_content:
+            full_log_content += "\n\n"
         with open(log_file_path, "w", encoding="utf-8") as f:
             f.write(full_log_content)
         print(f"--- [ChatGPT Importer] Wrote {len(log_entries)} entries to log.txt ---")
