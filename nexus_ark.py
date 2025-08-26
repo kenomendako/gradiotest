@@ -394,7 +394,7 @@ try:
 
         all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs
 
-        demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
+        demo.load(fn=ui_handlers.handle_initial_load, inputs=[gr.State(effective_initial_room)], outputs=initial_load_outputs).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
@@ -473,9 +473,8 @@ try:
             ]
         )
 
-        manage_room_selector.change(
+        manage_room_selector.select(
             fn=ui_handlers.handle_manage_room_select,
-            inputs=[manage_room_selector],
             outputs=[
                 manage_room_details,
                 manage_room_name,
