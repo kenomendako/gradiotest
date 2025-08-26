@@ -58,12 +58,12 @@ def _get_location_choices_for_ui(room_name: str) -> list:
 
     return choices
 
-def handle_initial_load(initial_room_to_load: str):
+def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
-    # 起動時にUIとバックエンドで確実に同じルームを読み込むため、引数で渡されたルーム名を使用
-    room_dependent_outputs = handle_room_change(initial_room_to_load, config_manager.initial_api_key_name_global)
+    # 起動時にUIとバックエンドで確実に同じルームを読み込むため、引数で渡されたルーム名とAPIキー名を使用
+    room_dependent_outputs = handle_room_change(initial_room_to_load, initial_api_key_name)
     return (display_df, df_with_ids, feedback_text) + room_dependent_outputs
 
 def handle_room_change(room_name: str, api_key_name: str):
@@ -73,6 +73,7 @@ def handle_room_change(room_name: str, api_key_name: str):
 
     print(f"--- UI更新司令塔(handle_room_change)実行: {room_name} ---")
     config_manager.save_config("last_room", room_name)
+    config_manager.initial_room_global = room_name # メモリ上のグローバル変数も更新
 
     chat_history, mapping_list = reload_chat_log(room_name, config_manager.initial_api_history_limit_option_global)
 
@@ -512,15 +513,13 @@ def handle_create_room(new_room_name: str, new_user_display_name: str, initial_s
         traceback.print_exc()
         return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
-def handle_manage_room_select(evt: gr.SelectData):
+def handle_manage_room_select(selected_folder_name: str):
     """
     「管理」タブのルームセレクタ変更時のロジック。
     選択されたルームの情報をフォームに表示する。
     """
-    if not evt:
+    if not selected_folder_name:
         return gr.update(visible=False), "", "", "", "", ""
-
-    selected_folder_name = evt.value
 
     try:
         config_path = os.path.join(constants.ROOMS_DIR, selected_folder_name, "room_config.json")
