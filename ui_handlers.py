@@ -1138,7 +1138,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         elif role == "AGENT":
             # [修正] まず、今いるルーム自身の発言かチェックする
             if responder_id == current_room_folder:
-                speaker_name = current_room_config.get("room_name", responder_id)
+                speaker_name = current_room_config.get("agent_display_name") or current_room_config.get("room_name", responder_id)
             else:
                 # 他のルームの発言の場合、キャッシュまたは全リストから探す
                 if responder_id in known_configs:
