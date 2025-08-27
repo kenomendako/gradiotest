@@ -52,3 +52,6 @@ PyYAML
 
 # For thread-safe logging to prevent file contention
 concurrent-log-handler
+
+# For streaming large JSON files (ChatGPT Importer)
+ijson

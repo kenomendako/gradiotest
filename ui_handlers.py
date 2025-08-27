@@ -22,9 +22,10 @@ import io
 import uuid
 from tools.image_tools import generate_image as generate_image_tool_func
 import pytz
+import ijson
 
 
-import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, memos_manager
+import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, memos_manager, chatgpt_importer
 from tools import timer_tools
 from agent.graph import generate_scenery_context
 from room_manager import get_room_files_paths, get_world_settings_path
@@ -57,11 +58,12 @@ def _get_location_choices_for_ui(room_name: str) -> list:
 
     return choices
 
-def handle_initial_load():
+def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
-    room_dependent_outputs = handle_room_change(config_manager.initial_room_global, config_manager.initial_api_key_name_global)
+    # 起動時にUIとバックエンドで確実に同じルームを読み込むため、引数で渡されたルーム名とAPIキー名を使用
+    room_dependent_outputs = handle_room_change(initial_room_to_load, initial_api_key_name)
     return (display_df, df_with_ids, feedback_text) + room_dependent_outputs
 
 def handle_room_change(room_name: str, api_key_name: str):
@@ -71,6 +73,7 @@ def handle_room_change(room_name: str, api_key_name: str):
 
     print(f"--- UI更新司令塔(handle_room_change)実行: {room_name} ---")
     config_manager.save_config("last_room", room_name)
+    config_manager.initial_room_global = room_name # メモリ上のグローバル変数も更新
 
     chat_history, mapping_list = reload_chat_log(room_name, config_manager.initial_api_history_limit_option_global)
 
@@ -516,13 +519,13 @@ def handle_manage_room_select(selected_folder_name: str):
     選択されたルームの情報をフォームに表示する。
     """
     if not selected_folder_name:
-        return gr.update(visible=False), "", "", "", ""
+        return gr.update(visible=False), "", "", "", "", ""
 
     try:
         config_path = os.path.join(constants.ROOMS_DIR, selected_folder_name, "room_config.json")
         if not os.path.exists(config_path):
             gr.Warning(f"設定ファイルが見つかりません: {config_path}")
-            return gr.update(visible=False), "", "", "", ""
+            return gr.update(visible=False), "", "", "", "", ""
 
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
@@ -531,15 +534,16 @@ def handle_manage_room_select(selected_folder_name: str):
             gr.update(visible=True),
             config.get("room_name", ""),
             config.get("user_display_name", ""),
+            config.get("agent_display_name", ""), # agent_display_nameを読み込む
             config.get("description", ""),
             selected_folder_name
         )
     except Exception as e:
         gr.Error(f"ルーム設定の読み込み中にエラーが発生しました: {e}")
         traceback.print_exc()
-        return gr.update(visible=False), "", "", "", ""
+        return gr.update(visible=False), "", "", "", "", ""
 
-def handle_save_room_config(folder_name: str, room_name: str, user_display_name: str, description: str):
+def handle_save_room_config(folder_name: str, room_name: str, user_display_name: str, agent_display_name: str, description: str):
     """
     「管理」タブの保存ボタンのロジック。
     ルームの設定情報を更新する。
@@ -558,6 +562,7 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
             config = json.load(f)
             config["room_name"] = room_name.strip()
             config["user_display_name"] = user_display_name.strip()
+            config["agent_display_name"] = agent_display_name.strip() # agent_display_nameを保存
             config["description"] = description.strip()
             f.seek(0)
             json.dump(config, f, indent=2, ensure_ascii=False)
@@ -622,6 +627,114 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
         gr.Error(f"ルームの削除中にエラーが発生しました: {e}")
         traceback.print_exc()
         return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
+
+
+#
+# --- ChatGPT Importer Handlers ---
+#
+
+def handle_chatgpt_file_upload(file_obj: Optional[Any]) -> Tuple[gr.update, gr.update, list]:
+    """
+    ChatGPTのjsonファイルがアップロードされたときの処理。
+    ファイルをストリーミングで解析し、会話のリストを生成する。
+    """
+    # file_obj is a single FileData object when file_count="single"
+    if file_obj is None:
+        return gr.update(choices=[], value=None), gr.update(visible=False), []
+
+    try:
+        choices = []
+        with open(file_obj.name, 'rb') as f:
+            # ijsonを使ってルートレベルの配列をストリーミング
+            for conversation in ijson.items(f, 'item'):
+                if conversation and 'mapping' in conversation and 'title' in conversation:
+                    # 仕様通り、IDはmappingの最初のキー
+                    convo_id = next(iter(conversation['mapping']), None)
+                    title = conversation.get('title', 'No Title')
+                    if convo_id and title:
+                        choices.append((title, convo_id))
+
+        if not choices:
+            gr.Warning("これは有効なChatGPTエクスポートファイルではないようです。ファイルを確認してください。")
+            return gr.update(choices=[], value=None), gr.update(visible=False), []
+
+        sorted_choices = sorted(choices)
+        # ドロップダウンを更新し、フォームを表示し、選択肢リストをStateに渡す
+        return gr.update(choices=sorted_choices, value=None), gr.update(visible=True), sorted_choices
+
+    except (ijson.JSONError, IOError, StopIteration, Exception) as e:
+        gr.Warning("これは有効なChatGPTエクスポートファイルではないようです。ファイルを確認してください。")
+        print(f"Error processing ChatGPT export file: {e}")
+        traceback.print_exc()
+        return gr.update(choices=[], value=None), gr.update(visible=False), []
+
+
+def handle_chatgpt_thread_selection(choices_list: list, evt: gr.SelectData) -> gr.update:
+    """
+    会話スレッドが選択されたとき、そのタイトルをルーム名テキストボックスにコピーする。
+    """
+    if not evt or not choices_list:
+        return gr.update()
+
+    selected_id = evt.value
+    # choices_listの中から、IDが一致するもののタイトルを探す
+    for title, convo_id in choices_list:
+        if convo_id == selected_id:
+            return gr.update(value=title)
+
+    return gr.update() # 見つからなかった場合は何もしない
+
+
+def handle_chatgpt_import_button_click(
+    file_obj: Optional[Any],
+    conversation_id: str,
+    room_name: str,
+    user_display_name: str
+) -> Tuple[gr.update, gr.update, gr.update, gr.update, gr.update, gr.update]:
+    """
+    「インポート」ボタンがクリックされたときの処理。
+    コアロジックを呼び出し、結果に応じてUIを更新する。
+    """
+    # 1. 入力検証
+    if not all([file_obj, conversation_id, room_name]):
+        gr.Warning("ファイル、会話スレッド、新しいルーム名はすべて必須です。")
+        # 6つのコンポーネントを更新するので6つのupdateを返す
+        return tuple(gr.update() for _ in range(6))
+
+    try:
+        # 2. コアロジックの呼び出し
+        safe_folder_name = chatgpt_importer.import_from_chatgpt_export(
+            file_path=file_obj.name,
+            conversation_id=conversation_id,
+            room_name=room_name,
+            user_display_name=user_display_name
+        )
+
+        # 3. 結果に応じたUI更新
+        if safe_folder_name:
+            gr.Info(f"会話「{room_name}」のインポートに成功しました。")
+
+            # UIのドロップダウンを更新するために最新のルームリストを取得
+            updated_room_list = room_manager.get_room_list_for_ui()
+
+            # フォームをリセットし、非表示にする
+            reset_file = gr.update(value=None)
+            hide_form = gr.update(visible=False, value=None) # Dropdownのchoicesもリセット
+
+            # 各ドロップダウンを更新し、新しく作ったルームを選択状態にする
+            dd_update = gr.update(choices=updated_room_list, value=safe_folder_name)
+
+            # file, form, room_dd, manage_dd, alarm_dd, timer_dd
+            return reset_file, hide_form, dd_update, dd_update, dd_update, dd_update
+        else:
+            gr.Error("インポート処理中に予期せぬエラーが発生しました。詳細はターミナルを確認してください。")
+            return tuple(gr.update() for _ in range(6))
+
+    except Exception as e:
+        gr.Error(f"インポート処理中に予期せぬエラーが発生しました。詳細はターミナルを確認してください。")
+        print(f"Error during import button click: {e}")
+        traceback.print_exc()
+        return tuple(gr.update() for _ in range(6))
 
 
 def _get_display_history_count(api_history_limit_value: str) -> int: return int(api_history_limit_value) if api_history_limit_value.isdigit() else constants.UI_HISTORY_MAX_LIMIT
@@ -1025,23 +1138,26 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         if role == "USER":
             speaker_name = user_display_name
         elif role == "AGENT":
-            if responder_id in known_configs:
-                config = known_configs[responder_id]
+            # [修正] まず、今いるルーム自身の発言かチェックする
+            if responder_id == current_room_folder:
+                speaker_name = current_room_config.get("agent_display_name") or current_room_config.get("room_name", responder_id)
             else:
-                config = None
-                if responder_id in folder_to_display_map:
-                    config = room_manager.get_room_config(responder_id)
-                elif responder_id in display_to_folder_map:
-                    folder = display_to_folder_map[responder_id]
-                    config = room_manager.get_room_config(folder)
+                # 他のルームの発言の場合、キャッシュまたは全リストから探す
+                if responder_id in known_configs:
+                    config = known_configs[responder_id]
+                else:
+                    config = None
+                    if responder_id in folder_to_display_map:
+                        config = room_manager.get_room_config(responder_id)
+
+                    if config:
+                        known_configs[responder_id] = config
 
                 if config:
-                    known_configs[responder_id] = config
-
-            if config:
-                speaker_name = config.get("room_name", responder_id)
-            else:
-                speaker_name = f"{responder_id} [削除済]"
+                    # agent_display_nameがあればそれを優先し、なければroom_nameにフォールバック
+                    speaker_name = config.get("agent_display_name") or config.get("room_name", responder_id)
+                else:
+                    speaker_name = f"{responder_id} [削除済]"
         else:
             speaker_name = responder_id
 

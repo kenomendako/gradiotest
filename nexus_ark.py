@@ -120,6 +120,7 @@ try:
         active_participants_state = gr.State([]) # 現在アクティブな複数人対話の参加者リスト
         debug_console_state = gr.State("")
         importer_process_state = gr.State(None) # インポーターのサブプロセスを管理
+        chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -247,10 +248,21 @@ try:
                                         delete_confirmed_state = gr.Textbox(visible=False)
                                         manage_room_name = gr.Textbox(label="ルーム名")
                                         manage_user_display_name = gr.Textbox(label="あなたの表示名")
+                                        manage_agent_display_name = gr.Textbox(label="Agentの表示名")
                                         manage_room_description = gr.Textbox(label="ルームの説明", lines=3)
                                         manage_folder_name_display = gr.Textbox(label="フォルダ名（編集不可）", interactive=False)
                                         save_room_config_button = gr.Button("変更を保存", variant="primary")
                                         delete_room_button = gr.Button("このルームを削除", variant="stop")
+
+                                with gr.TabItem("ChatGPTからインポート") as import_chatgpt_tab:
+                                    gr.Markdown("### ChatGPTデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
+                                    chatgpt_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
+
+                                    with gr.Column(visible=False) as chatgpt_import_form:
+                                        chatgpt_thread_dropdown = gr.Dropdown(label="インポートする会話スレッドを選択", interactive=True)
+                                        chatgpt_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
+                                        chatgpt_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
+                                        chatgpt_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
 
                     with gr.Column(scale=3):
                         chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
@@ -382,7 +394,11 @@ try:
 
         all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs
 
-        demo.load(fn=ui_handlers.handle_initial_load, inputs=None, outputs=initial_load_outputs).then(
+        demo.load(
+            fn=ui_handlers.handle_initial_load,
+            inputs=[gr.State(effective_initial_room), current_api_key_name_state],
+            outputs=initial_load_outputs
+        ).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
@@ -461,13 +477,14 @@ try:
             ]
         )
 
-        manage_room_selector.change(
+        manage_room_selector.select(
             fn=ui_handlers.handle_manage_room_select,
             inputs=[manage_room_selector],
             outputs=[
                 manage_room_details,
                 manage_room_name,
                 manage_user_display_name,
+                manage_agent_display_name,
                 manage_room_description,
                 manage_folder_name_display
             ]
@@ -479,6 +496,7 @@ try:
                 manage_folder_name_display,
                 manage_room_name,
                 manage_user_display_name,
+                manage_agent_display_name,
                 manage_room_description
             ],
             outputs=[room_dropdown, manage_room_selector]
@@ -687,6 +705,37 @@ try:
         clear_debug_console_button.click(
             fn=lambda: ("", ""),
             outputs=[debug_console_state, debug_console_output]
+        )
+
+        # --- ChatGPT Importer Event Handlers ---
+        chatgpt_import_file.upload(
+            fn=ui_handlers.handle_chatgpt_file_upload,
+            inputs=[chatgpt_import_file],
+            outputs=[chatgpt_thread_dropdown, chatgpt_import_form, chatgpt_thread_choices_state]
+        )
+
+        chatgpt_thread_dropdown.select(
+            fn=ui_handlers.handle_chatgpt_thread_selection,
+            inputs=[chatgpt_thread_choices_state],
+            outputs=[chatgpt_room_name_textbox]
+        )
+
+        chatgpt_import_button.click(
+            fn=ui_handlers.handle_chatgpt_import_button_click,
+            inputs=[
+                chatgpt_import_file,
+                chatgpt_thread_dropdown,
+                chatgpt_room_name_textbox,
+                chatgpt_user_name_textbox
+            ],
+            outputs=[
+                chatgpt_import_file,
+                chatgpt_import_form,
+                room_dropdown,
+                manage_room_selector,
+                alarm_room_dropdown,
+                timer_room_dropdown
+            ]
         )
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
