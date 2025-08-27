@@ -33,24 +33,18 @@ The original code in the `main` branch, which uses `import google.genai as genai
 
 ### Cornerstone 2: The Model Usage Configuration (第二の礎：モデルの使用構成)
 
-The combination of models used in this application is not arbitrary. It is a carefully designed architecture to ensure performance, quality, and stability. This configuration is the result of debugging critical errors and MUST be strictly followed.
-このアプリケーションで、使用される、モデルの、組み合わせは、決して、恣意的なものでは、ありません。それは、性能、品質、そして、安定性を、確保するために、注意深く、設計された、アーキテクチャです。この構成は、重大な、エラーを、デバッグした、結果であり、厳格に、遵守されなければなりません。
+このアプリケーションで推奨されるモデルの組み合わせは、性能、品質、安定性のバランスを考慮して設計されたものです。ユーザーはUIを通じて最終応答（`agent_node`）に使用するモデルを自由に選択できますが、以下の構成が、アプリケーションの安定した動作の基礎となります。
 
-| Purpose / Node (目的／ノード) | Mandatory Model (必須モデル) | Reason / Notes (理由／注記) |
+| Purpose / Node (目的／ノード) | Recommended Default Model (推奨デフォルトモデル) | Reason / Notes (理由／注記) |
 | :--- | :--- | :--- |
-| **Context Generation** (`context_generator_node`) | `gemini-2.5-flash` | For high-speed, efficient generation of environmental context. (高速で効率的な、情景コンテキスト生成のため) |
-| **Main Agent / Final Response** (`agent_node`) | **`gemini-2.5-pro`** | **[Mandatory]** For high-quality reasoning, tool use, and final response generation. (高品質な推論、ツール使用、最終応答生成のため) |
-| **Image Generation** (`generate_image` tool) | `gemini-2.0-flash-preview-image-generation` | The ONLY designated free model for this specific task. (このタスクのために指定された、唯一の、無料モデル) |
+| **Context Generation** (`context_generator_node` etc.) | `gemini-2.5-flash` | 高速で効率的な、情景コンテキストや内部処理のためのモデル。 |
+| **Main Agent / Final Response** (`agent_node`) | **User-Selected (Default: `gemini-2.5-pro`)** | 高品質な推論とツール使用のため。ユーザーはUIの「共通設定」および「個別設定」から、このモデルを自由に変更できます。アプリケーションの全体的なデフォルトは`gemini-2.5-pro`に設定されています。 |
+| **Image Generation** (`generate_image` tool) | `gemini-2.0-flash-preview-image-generation` | このタスクのために指定された、唯一の無料モデル。 |
 
-#### **The Forbidden Model: `gemini-1.5-pro` (禁止モデル)**
-The `gemini-1.5-pro` model is **strictly prohibited** for use in the `agent_node`. Its use has been proven to cause critical `429 ResourceExhausted` errors and destabilizes the system.
-`gemini-1.5-pro` モデルを `agent_node` で使用することは**固く禁止**されています。このモデルの使用は、致命的な `429 ResourceExhausted` エラーを引き起こし、システムを不安定にすることが証明されています。
+#### **Critical Warning: The `gemini-1.5-pro` Model (最重要警告)**
+過去の検証において、`gemini-1.5-pro` モデルを `agent_node` で使用すると、致命的な `429 ResourceExhausted` エラーが頻発し、システムが不安定になることが証明されています。
 
-- **Mandatory model for `agent_node`**: **`gemini-2.5-pro`**
-- **Prohibited model for `agent_node`**: **`gemini-1.5-pro`**
-
-Any suggestion to use `gemini-1.5-pro` is a regression and must be rejected.
-いかなる、`gemini-1.5-pro` の使用提案も、過去への退行であり、却下されなければなりません。
+ユーザーは現在、理論上どのモデルでも選択できますが、安定した動作のため、**`agent_node`で`gemini-1.5-pro`を使用することは、引き続き強く非推奨とします。** この警告を無視したことに起因する問題は、自己責任となります。
 
 ---
 
