@@ -301,11 +301,11 @@ def handle_message_submission(*args: Any):
              user_prompt_parts.append({"type": "text", "text": user_prompt_from_textbox})
         user_prompt_parts.extend(processed_file_list)
 
-        effective_model_name = room_model if room_model and room_model != "デフォルト" else global_model
         agent_args_dict = {
             "room_to_respond": room_to_respond,
             "api_key_name": current_api_key_name_state,
-            "model_name": effective_model_name,
+            "global_model_from_ui": global_model,
+            "room_model_from_ui": room_model,
             "api_history_limit": api_history_limit_state,
             "debug_mode": debug_mode_state,
             "history_log_path": main_log_f,
@@ -1798,11 +1798,11 @@ def handle_rerun_button_click(*args: Any):
            current_console_content, current_console_content,
            None, gr.update(visible=False))
 
-    effective_model_name = room_model if room_model and room_model != "デフォルト" else global_model
     agent_args_dict = {
         "room_to_respond": room_name,
         "api_key_name": api_key_name,
-        "model_name": effective_model_name,
+        "global_model_from_ui": global_model,
+        "room_model_from_ui": room_model,
         "api_history_limit": api_history_limit,
         "debug_mode": debug_mode,
         "history_log_path": log_f,
