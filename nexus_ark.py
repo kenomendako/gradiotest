@@ -477,17 +477,28 @@ try:
             ]
         )
 
+        # 既存のイベントハンドラのoutputsを再利用しやすいように変数に格納
+        manage_room_select_outputs = [
+            manage_room_details,
+            manage_room_name,
+            manage_user_display_name,
+            manage_agent_display_name,
+            manage_room_description,
+            manage_folder_name_display
+        ]
+
+        # 既存のイベント
         manage_room_selector.select(
             fn=ui_handlers.handle_manage_room_select,
             inputs=[manage_room_selector],
-            outputs=[
-                manage_room_details,
-                manage_room_name,
-                manage_user_display_name,
-                manage_agent_display_name,
-                manage_room_description,
-                manage_folder_name_display
-            ]
+            outputs=manage_room_select_outputs
+        )
+
+        # アコーディオンが開かれた時にも同じ関数を呼び出す
+        manage_room_accordion.expand(
+            fn=ui_handlers.handle_manage_room_select,
+            inputs=[manage_room_selector],
+            outputs=manage_room_select_outputs
         )
 
         save_room_config_button.click(
