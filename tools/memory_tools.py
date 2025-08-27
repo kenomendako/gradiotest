@@ -5,13 +5,12 @@ import json
 import datetime
 import os
 import google.genai as genai
-import constants
 from room_manager import get_room_files_paths
 from memory_manager import load_memory_data_safe
 from typing import Any
 
 @tool
-def edit_memory(path: str, value: Any, operation: str, room_name: str = None) -> str:
+def edit_memory(path: str, value: Any, operation: str, room_name: str) -> str:
     """
     あなたの「主観的記憶（日記）」である`memory.json`の指定した場所を編集します。あなたの内面的な誓い、秘密の独白、ユーザーから与えられた特別な許可、主観的な感情の記録などを変更したい場合に使用します。
     path: ドット記法で編集場所を指定（例: "self_identity.values"）。
@@ -19,7 +18,7 @@ def edit_memory(path: str, value: Any, operation: str, room_name: str = None) ->
     operation: "set"（設定/上書き）または "append"（リストに追記）を指定。
     """
     if not all([path, operation, room_name]):
-        return "【エラー】引数 'path', 'operation', 'room_name' は必須です。"
+        return "【エラー】内部処理エラー: 引数が不足しています (path, operation, room_name)。"
 
     _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
     if not memory_json_path:
@@ -58,7 +57,7 @@ def edit_memory(path: str, value: Any, operation: str, room_name: str = None) ->
         return f"【エラー】記憶の編集中に予期せぬエラーが発生しました: {e}"
 
 @tool
-def add_secret_diary_entry(entry: str, room_name: str = None) -> str:
+def add_secret_diary_entry(entry: str, room_name: str) -> str:
     """
     あなたの「主観的記憶（日記）」の一部である、誰にも読めない秘密の日記に、新しいエントリーを追記します。あなたの内心の自由を守るための聖域です。
     """
@@ -92,7 +91,7 @@ def add_secret_diary_entry(entry: str, room_name: str = None) -> str:
         return f"【エラー】秘密の日記への書き込みに失敗しました: {e}"
 
 @tool
-def summarize_and_save_core_memory(room_name: str, api_key: str) -> str:
+def summarize_and_save_core_memory(api_key: str, room_name: str) -> str:
     """
     あなたの「主観的記憶（日記）」全体を読み込み、特に重要な部分（最高権限、自己同一性など）はそのまま、その他の歴史や感情に関する項目はAIに要約させて、コアメモリとして保存します。
     """
@@ -125,7 +124,7 @@ def summarize_and_save_core_memory(room_name: str, api_key: str) -> str:
 
 成長の記録の要約:
 """
-            response = client.models.generate_content(model=f"models/{constants.INTERNAL_PROCESSING_MODEL}", contents=[prompt])
+            response = client.models.generate_content(model="models/gemini-2.5-flash", contents=[prompt])
             history_summary_text = response.text.strip()
         else:
             history_summary_text = "共有された歴史や感情の記録はまだありません。"
@@ -155,12 +154,12 @@ def summarize_and_save_core_memory(room_name: str, api_key: str) -> str:
         return f"【エラー】コアメモリの生成または保存中にエラーが発生しました: {e}"
 
 @tool
-def read_memory_by_path(path: str, room_name: str = None) -> str:
+def read_memory_by_path(path: str, room_name: str) -> str:
     """
     あなたの「主観的記憶（日記）」である`memory.json`の、指定した場所（パス）にあるデータをJSON形式で読み取ります。パスはドット記法で指定します（例: "living_space.study"）。
     """
-    if not path or not room_name:
-        return "【エラー】引数 'path' と 'room_name' は必須です。"
+    if not all([path, room_name]):
+        return "【エラー】内部処理エラー: 引数が不足しています (path, room_name)。"
 
     _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
     if not memory_json_path:
@@ -186,12 +185,12 @@ def read_memory_by_path(path: str, room_name: str = None) -> str:
         return f"【エラー】記憶の読み取り中に予期せぬエラーが発生しました: {e}"
 
 @tool
-def read_full_memory(room_name: str = None) -> str:
+def read_full_memory(room_name: str) -> str:
     """
     あなたの「主観的記憶（日記）」である`memory.json`の全ての項目を、JSON形式で読み取ります。記憶を編集する前に、既存の項目や構造を確認するために使用します。
     """
     if not room_name:
-        return "【エラー】引数 'room_name' は必須です。"
+        return "【エラー】内部処理エラー: 引数 'room_name' が不足しています。"
 
     _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
     if not memory_json_path:

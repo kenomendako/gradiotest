@@ -339,21 +339,43 @@ def safe_tool_executor(state: AgentState):
     tool_invocations = last_message.tool_calls
     api_key = state.get('api_key')
     tavily_api_key = state.get('tavily_api_key')
+
+    # ▼▼▼【ここから修正】▼▼▼
+    # AgentStateから、現在操作対象となっているルームの「フォルダ名」を取得
+    current_room_name = state.get('room_name')
+    if not current_room_name:
+        # これは発生すべきではないが、安全のためのフォールバック
+        tool_outputs = [
+            ToolMessage(content=f"Error: Could not determine the current room name from the agent state.", tool_call_id=call["id"], name=call["name"])
+            for call in tool_invocations
+        ]
+        return {"messages": tool_outputs}
+    # ▲▲▲【修正ここまで】▲▲▲
+
     tool_outputs = []
     for tool_call in tool_invocations:
         tool_name = tool_call["name"]
         print(f"  - 準備中のツール: {tool_name} | 引数: {tool_call['args']}")
+
+        # ▼▼▼【ここから修正】▼▼▼
+        # AIが渡してきた引数に、システムが管理する正しいroom_nameを強制的に上書き/追加する
+        tool_call['args']['room_name'] = current_room_name
+        print(f"    - 'room_name: {current_room_name}' を引数に注入/上書きしました。")
+        # ▲▲▲【修正ここまで】▲▲▲
+
         if tool_name == 'generate_image' or tool_name == 'summarize_and_save_core_memory':
             tool_call['args']['api_key'] = api_key
             print(f"    - 'api_key' を引数に追加しました。")
         elif tool_name == 'web_search_tool':
             tool_call['args']['api_key'] = tavily_api_key
             print(f"    - 'tavily_api_key' を引数に追加しました。")
+
         selected_tool = next((t for t in all_tools if t.name == tool_name), None)
         if not selected_tool:
             output = f"Error: Tool '{tool_name}' not found."
         else:
             try:
+                # 修正された引数（args）でツールを呼び出す
                 output = selected_tool.invoke(tool_call['args'])
             except Exception as e:
                 output = f"Error executing tool '{tool_name}': {e}"
