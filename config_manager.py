@@ -3,6 +3,7 @@
 import json
 import os
 import constants
+from typing import Any
 
 # --- グローバル変数 ---
 # ▼▼▼ 以下の1行を新しく追加 ▼▼▼
@@ -54,6 +55,15 @@ def _save_config_file(config_data: dict):
     except Exception as e:
         print(f"'{constants.CONFIG_FILE}' 保存エラー: {e}")
 
+def _save_single_config_key(key: str, value: Any):
+    """
+    単一のキーと値をconfig.jsonに保存する専用の内部関数。
+    load_config()を呼び出さず、副作用を完全に排除する。
+    """
+    config = _load_config_file()
+    config[key] = value
+    _save_config_file(config)
+
 # --- 公開APIキー管理関数 ---
 def add_or_update_gemini_key(key_name: str, key_value: str):
     config = _load_config_file()
@@ -61,7 +71,6 @@ def add_or_update_gemini_key(key_name: str, key_value: str):
         config["gemini_api_keys"] = {}
     config["gemini_api_keys"][key_name] = key_value
     _save_config_file(config)
-    load_config()
 
 def delete_gemini_key(key_name: str):
     config = _load_config_file()
@@ -70,26 +79,20 @@ def delete_gemini_key(key_name: str):
         if config.get("last_api_key_name") == key_name:
             config["last_api_key_name"] = None
         _save_config_file(config)
-        load_config()
 
 def update_pushover_config(user_key: str, app_token: str):
     config = _load_config_file()
     config["pushover_user_key"] = user_key
     config["pushover_app_token"] = app_token
     _save_config_file(config)
-    load_config()
 
 def update_tavily_key(api_key: str):
     config = _load_config_file()
     config["tavily_api_key"] = api_key
     _save_config_file(config)
-    load_config()
 
 def save_config(key, value):
-    config = _load_config_file()
-    config[key] = value
-    _save_config_file(config)
-    load_config()
+    _save_single_config_key(key, value)
 
 def save_memos_config(key, value):
     config = _load_config_file()
@@ -97,7 +100,6 @@ def save_memos_config(key, value):
         config["memos_config"] = {}
     config["memos_config"][key] = value
     _save_config_file(config)
-    load_config()
 
 # --- メインの読み込み関数 (最重要修正箇所) ---
 def load_config():
@@ -191,11 +193,15 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
 
     # 2. ルームの保存済み設定ファイルで上書き
     room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+    saved_room_model = None # ファイルから読み込んだモデル名を保持する変数
     if os.path.exists(room_config_path):
         try:
             with open(room_config_path, "r", encoding="utf-8") as f:
                 room_config = json.load(f)
             override_settings = room_config.get("override_settings", {})
+            # ファイルからモデル名を取得し、変数に保存
+            saved_room_model = override_settings.pop("model_name", None)
+            # モデル以外の設定を適用
             for k, v in override_settings.items():
                 if v is not None:
                     effective_settings[k] = v
@@ -203,11 +209,28 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
             print(f"ルーム設定ファイル '{room_config_path}' の読み込みエラー: {e}")
 
     # 3. UIから渡されたリアルタイムな設定（kwargs）で、さらに上書き
+    #    モデル名以外の設定を先に適用
     for key, value in kwargs.items():
-        if value is not None:
+        if key not in ["global_model_from_ui", "room_model_from_ui"] and value is not None:
             effective_settings[key] = value
 
-    # 4. モデル名が空の場合のフォールバック
+    # 4. モデル名の最終決定（優先順位： UI個別 > UI共通 > 保存済み個別 > 全体デフォルト）
+    global_model_from_ui = kwargs.get("global_model_from_ui")
+    room_model_from_ui = kwargs.get("room_model_from_ui")
+
+    final_model_name = None
+    if room_model_from_ui and room_model_from_ui != "デフォルト":
+        final_model_name = room_model_from_ui
+    elif global_model_from_ui:
+        final_model_name = global_model_from_ui
+    elif saved_room_model:
+        final_model_name = saved_room_model
+    else:
+        final_model_name = DEFAULT_MODEL_GLOBAL
+
+    effective_settings["model_name"] = final_model_name
+
+    # 5. モデル名が空の場合の最終フォールバック
     if not effective_settings.get("model_name"):
         effective_settings["model_name"] = DEFAULT_MODEL_GLOBAL
 

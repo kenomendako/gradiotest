@@ -301,11 +301,11 @@ def handle_message_submission(*args: Any):
              user_prompt_parts.append({"type": "text", "text": user_prompt_from_textbox})
         user_prompt_parts.extend(processed_file_list)
 
-        effective_model_name = room_model if room_model and room_model != "デフォルト" else global_model
         agent_args_dict = {
             "room_to_respond": room_to_respond,
             "api_key_name": current_api_key_name_state,
-            "model_name": effective_model_name,
+            "global_model_from_ui": global_model,
+            "room_model_from_ui": room_model,
             "api_history_limit": api_history_limit_state,
             "debug_mode": debug_mode_state,
             "history_log_path": main_log_f,
@@ -1350,7 +1350,7 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
 
         from agent.graph import get_configured_llm
         effective_settings = config_manager.get_effective_settings(room_name)
-        scene_director_llm = get_configured_llm("gemini-2.5-flash", api_key, effective_settings)
+        scene_director_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
 
         director_prompt = f"""
 You are a master scene director AI for a high-end image generation model.
@@ -1798,11 +1798,11 @@ def handle_rerun_button_click(*args: Any):
            current_console_content, current_console_content,
            None, gr.update(visible=False))
 
-    effective_model_name = room_model if room_model and room_model != "デフォルト" else global_model
     agent_args_dict = {
         "room_to_respond": room_name,
         "api_key_name": api_key_name,
-        "model_name": effective_model_name,
+        "global_model_from_ui": global_model,
+        "room_model_from_ui": room_model,
         "api_history_limit": api_history_limit,
         "debug_mode": debug_mode,
         "history_log_path": log_f,

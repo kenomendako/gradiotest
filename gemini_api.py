@@ -121,10 +121,13 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     shared_scenery_text = agent_args["shared_scenery_text"]
 
     all_participants_list = [soul_vessel_room] + active_participants
-    model_name_from_ui = agent_args.get("model_name")
+    global_model_from_ui = agent_args.get("global_model_from_ui")
+    room_model_from_ui = agent_args.get("room_model_from_ui")
+
     effective_settings = config_manager.get_effective_settings(
         room_to_respond,
-        model_name=model_name_from_ui,
+        global_model_from_ui=global_model_from_ui,
+        room_model_from_ui=room_model_from_ui,
         use_common_prompt=(len(all_participants_list) <= 1)
     )
     model_name = effective_settings["model_name"]

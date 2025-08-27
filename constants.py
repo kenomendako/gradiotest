@@ -20,3 +20,8 @@ API_HISTORY_LIMIT_OPTIONS = {"10": "10往復", "20": "20往復", "30": "30往復
 DEFAULT_API_HISTORY_LIMIT_OPTION = "all"
 # アラーム機能が内部でAPIを呼び出す際の履歴数
 DEFAULT_ALARM_API_HISTORY_TURNS = 10
+
+# --- 内部処理用AIモデル ---
+# 情景生成や記憶の要約など、アプリケーション内部の高速処理タスクで使用するモデル。
+# これを一元管理することで、将来のモデル変更が容易になり、意図しない変更を防ぐ。
+INTERNAL_PROCESSING_MODEL = "gemini-2.5-flash-lite"
