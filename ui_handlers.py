@@ -63,89 +63,10 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
     # 起動時にUIとバックエンドで確実に同じルームを読み込むため、引数で渡されたルーム名とAPIキー名を使用
-    room_dependent_outputs = handle_room_change(initial_room_to_load, initial_api_key_name)
+    # handle_room_change_for_all_tabs は複数のタブの更新を返す。初期ロードではチャットタブのみ必要。
+    # 返り値のタプルのうち、最初の32個がチャットタブ関連の更新。
+    room_dependent_outputs = handle_room_change_for_all_tabs(initial_room_to_load, initial_api_key_name)[:32]
     return (display_df, df_with_ids, feedback_text) + room_dependent_outputs
-
-def handle_room_change(room_name: str, api_key_name: str):
-    if not room_name:
-        room_list = room_manager.get_room_list_for_ui()
-        room_name = room_list[0][1] if room_list else "Default"
-
-    print(f"--- UI更新司令塔(handle_room_change)実行: {room_name} ---")
-    config_manager.save_config("last_room", room_name)
-    config_manager.initial_room_global = room_name # メモリ上のグローバル変数も更新
-
-    chat_history, mapping_list = reload_chat_log(room_name, config_manager.initial_api_history_limit_option_global)
-
-    _, _, img_p, mem_p, notepad_p = get_room_files_paths(room_name)
-
-    memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
-    profile_image = img_p if img_p and os.path.exists(img_p) else None
-    notepad_content = load_notepad_content(room_name)
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-
-    locations_for_ui = _get_location_choices_for_ui(room_name)
-    valid_location_ids = [value for _name, value in locations_for_ui]
-
-    current_location_from_file = utils.get_current_location(room_name)
-    location_dd_val = current_location_from_file
-
-    if current_location_from_file and current_location_from_file not in valid_location_ids:
-        gr.Warning(f"最後にいた場所「{current_location_from_file}」が見つかりません。移動先を選択し直してください。")
-        location_dd_val = None
-
-    current_location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
-    scenery_image_path = utils.find_scenery_image(room_name, location_dd_val)
-
-    effective_settings = config_manager.get_effective_settings(room_name)
-    all_models = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL
-    model_val = effective_settings["model_name"] if effective_settings["model_name"] != config_manager.initial_model_global else "デフォルト"
-    voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "vindemiatrix"), list(config_manager.SUPPORTED_VOICES.values())[0])
-    voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
-
-    safety_display_map = {
-        "BLOCK_NONE": "ブロックしない",
-        "BLOCK_LOW_AND_ABOVE": "低リスク以上をブロック",
-        "BLOCK_MEDIUM_AND_ABOVE": "中リスク以上をブロック",
-        "BLOCK_ONLY_HIGH": "高リスクのみブロック"
-    }
-    temp_val = effective_settings.get("temperature", 0.8)
-    top_p_val = effective_settings.get("top_p", 0.95)
-    harassment_val = safety_display_map.get(effective_settings.get("safety_block_threshold_harassment"))
-    hate_val = safety_display_map.get(effective_settings.get("safety_block_threshold_hate_speech"))
-    sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
-    dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
-
-    return (
-        room_name,                              # current_room_name
-        chat_history,                           # chatbot_display
-        mapping_list,                           # current_log_map_state
-        "",                                     # chat_input_textbox
-        gr.update(value=None),                  # file_upload_button
-        profile_image,                          # profile_image_display
-        memory_str,                             # memory_json_editor
-        notepad_content,                        # notepad_editor
-        load_system_prompt_content(room_name),  # system_prompt_editor
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # alarm_room_dropdown
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # timer_room_dropdown
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # manage_room_selector
-        gr.update(choices=locations_for_ui, value=location_dd_val), # location_dropdown
-        current_location_name,                  # current_location_display
-        scenery_text,                           # current_scenery_display
-        gr.update(choices=all_models, value=model_val), # room_model_dropdown
-        voice_display_name,                     # room_voice_dropdown
-        voice_style_prompt_val,                 # room_voice_style_prompt_textbox
-        temp_val, top_p_val,                    # sliders
-        harassment_val, hate_val, sexual_val, dangerous_val, # safety dropdowns
-        effective_settings["add_timestamp"],    # checkboxes...
-        effective_settings["send_thoughts"],
-        effective_settings["send_notepad"],
-        effective_settings["use_common_prompt"],
-        effective_settings["send_core_memory"],
-        effective_settings["send_scenery"],
-        f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", # room_settings_info
-        scenery_image_path                      # scenery_image_display
-    )
 
 def handle_save_room_settings(
     room_name: str, model_name: str, voice_name: str, voice_style_prompt: str,
@@ -1501,8 +1422,85 @@ def handle_world_builder_load(room_name: str):
     return world_data, gr.update(choices=area_choices, value=None), raw_content
 
 def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
+    if not room_name:
+        room_list = room_manager.get_room_list_for_ui()
+        room_name = room_list[0][1] if room_list else "Default"
+
     print(f"--- UI司令塔(handle_room_change_for_all_tabs)実行: {room_name} ---")
-    chat_tab_updates = handle_room_change(room_name, api_key_name)
+    config_manager.save_config("last_room", room_name)
+    config_manager.initial_room_global = room_name # メモリ上のグローバル変数も更新
+
+    chat_history, mapping_list = reload_chat_log(room_name, config_manager.initial_api_history_limit_option_global)
+
+    _, _, img_p, mem_p, notepad_p = get_room_files_paths(room_name)
+
+    memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
+    profile_image = img_p if img_p and os.path.exists(img_p) else None
+    notepad_content = load_notepad_content(room_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+
+    locations_for_ui = _get_location_choices_for_ui(room_name)
+    valid_location_ids = [value for _name, value in locations_for_ui]
+
+    current_location_from_file = utils.get_current_location(room_name)
+    location_dd_val = current_location_from_file
+
+    if current_location_from_file and current_location_from_file not in valid_location_ids:
+        gr.Warning(f"最後にいた場所「{current_location_from_file}」が見つかりません。移動先を選択し直してください。")
+        location_dd_val = None
+
+    current_location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
+    scenery_image_path = utils.find_scenery_image(room_name, location_dd_val)
+
+    effective_settings = config_manager.get_effective_settings(room_name)
+    all_models = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL
+    model_val = effective_settings["model_name"] if effective_settings["model_name"] != config_manager.initial_model_global else "デフォルト"
+    voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "vindemiatrix"), list(config_manager.SUPPORTED_VOICES.values())[0])
+    voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
+
+    safety_display_map = {
+        "BLOCK_NONE": "ブロックしない",
+        "BLOCK_LOW_AND_ABOVE": "低リスク以上をブロック",
+        "BLOCK_MEDIUM_AND_ABOVE": "中リスク以上をブロック",
+        "BLOCK_ONLY_HIGH": "高リスクのみブロック"
+    }
+    temp_val = effective_settings.get("temperature", 0.8)
+    top_p_val = effective_settings.get("top_p", 0.95)
+    harassment_val = safety_display_map.get(effective_settings.get("safety_block_threshold_harassment"))
+    hate_val = safety_display_map.get(effective_settings.get("safety_block_threshold_hate_speech"))
+    sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
+    dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
+
+    chat_tab_updates = (
+        room_name,                              # current_room_name
+        chat_history,                           # chatbot_display
+        mapping_list,                           # current_log_map_state
+        "",                                     # chat_input_textbox
+        gr.update(value=None),                  # file_upload_button
+        profile_image,                          # profile_image_display
+        memory_str,                             # memory_json_editor
+        notepad_content,                        # notepad_editor
+        load_system_prompt_content(room_name),  # system_prompt_editor
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # alarm_room_dropdown
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # timer_room_dropdown
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # manage_room_selector
+        gr.update(choices=locations_for_ui, value=location_dd_val), # location_dropdown
+        current_location_name,                  # current_location_display
+        scenery_text,                           # current_scenery_display
+        gr.update(choices=all_models, value=model_val), # room_model_dropdown
+        voice_display_name,                     # room_voice_dropdown
+        voice_style_prompt_val,                 # room_voice_style_prompt_textbox
+        temp_val, top_p_val,                    # sliders
+        harassment_val, hate_val, sexual_val, dangerous_val, # safety dropdowns
+        effective_settings["add_timestamp"],    # checkboxes...
+        effective_settings["send_thoughts"],
+        effective_settings["send_notepad"],
+        effective_settings["use_common_prompt"],
+        effective_settings["send_core_memory"],
+        effective_settings["send_scenery"],
+        f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", # room_settings_info
+        scenery_image_path                      # scenery_image_display
+    )
 
     # World Builderタブ用のデータを準備
     wb_state, wb_area_selector, wb_raw_editor = handle_world_builder_load(room_name)
