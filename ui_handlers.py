@@ -1350,7 +1350,7 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
 
         from agent.graph import get_configured_llm
         effective_settings = config_manager.get_effective_settings(room_name)
-        scene_director_llm = get_configured_llm("gemini-2.5-flash", api_key, effective_settings)
+        scene_director_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
 
         director_prompt = f"""
 You are a master scene director AI for a high-end image generation model.

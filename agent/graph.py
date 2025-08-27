@@ -132,7 +132,7 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
             log_message = "情景を強制的に再生成します" if force_regenerate else "情景をAPIで生成します"
             print(f"--- {log_message} ({cache_key}) ---")
             effective_settings = config_manager.get_effective_settings(room_name)
-            llm_flash = get_configured_llm("gemini-2.5-flash", api_key, effective_settings)
+            llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
             jst_now = datetime.now(pytz.timezone('Asia/Tokyo'))
             from utils import get_time_of_day
             time_str = jst_now.strftime('%H:%M')

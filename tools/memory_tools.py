@@ -5,6 +5,7 @@ import json
 import datetime
 import os
 import google.genai as genai
+import constants
 from room_manager import get_room_files_paths
 from memory_manager import load_memory_data_safe
 from typing import Any
@@ -124,7 +125,7 @@ def summarize_and_save_core_memory(room_name: str, api_key: str) -> str:
 
 成長の記録の要約:
 """
-            response = client.models.generate_content(model="models/gemini-2.5-flash", contents=[prompt])
+            response = client.models.generate_content(model=f"models/{constants.INTERNAL_PROCESSING_MODEL}", contents=[prompt])
             history_summary_text = response.text.strip()
         else:
             history_summary_text = "共有された歴史や感情の記録はまだありません。"
