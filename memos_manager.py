@@ -3,6 +3,7 @@ from memos import MOS, MOSConfig, GeneralMemCube, GeneralMemCubeConfig
 from memos.mem_reader.factory import MemReaderFactory
 from memos.configs.mem_reader import SimpleStructMemReaderConfig
 import config_manager
+import constants
 import os
 import uuid
 import neo4j
@@ -93,7 +94,7 @@ def get_mos_instance(character_name: str) -> MOS:
     mos = MOS(mos_config)
     mem_cube = GeneralMemCube(mem_cube_config)
 
-    google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path="gemini-2.5-flash-lite", google_api_key=api_key))
+    google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path=constants.INTERNAL_PROCESSING_MODEL, google_api_key=api_key))
     google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
     # --- 移植手術 ---
