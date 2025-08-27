@@ -3,6 +3,7 @@
 import json
 import os
 import constants
+from typing import Any
 
 # --- グローバル変数 ---
 # ▼▼▼ 以下の1行を新しく追加 ▼▼▼
@@ -54,6 +55,15 @@ def _save_config_file(config_data: dict):
     except Exception as e:
         print(f"'{constants.CONFIG_FILE}' 保存エラー: {e}")
 
+def _save_single_config_key(key: str, value: Any):
+    """
+    単一のキーと値をconfig.jsonに保存する専用の内部関数。
+    load_config()を呼び出さず、副作用を完全に排除する。
+    """
+    config = _load_config_file()
+    config[key] = value
+    _save_config_file(config)
+
 # --- 公開APIキー管理関数 ---
 def add_or_update_gemini_key(key_name: str, key_value: str):
     config = _load_config_file()
@@ -61,7 +71,6 @@ def add_or_update_gemini_key(key_name: str, key_value: str):
         config["gemini_api_keys"] = {}
     config["gemini_api_keys"][key_name] = key_value
     _save_config_file(config)
-    load_config()
 
 def delete_gemini_key(key_name: str):
     config = _load_config_file()
@@ -70,26 +79,20 @@ def delete_gemini_key(key_name: str):
         if config.get("last_api_key_name") == key_name:
             config["last_api_key_name"] = None
         _save_config_file(config)
-        load_config()
 
 def update_pushover_config(user_key: str, app_token: str):
     config = _load_config_file()
     config["pushover_user_key"] = user_key
     config["pushover_app_token"] = app_token
     _save_config_file(config)
-    load_config()
 
 def update_tavily_key(api_key: str):
     config = _load_config_file()
     config["tavily_api_key"] = api_key
     _save_config_file(config)
-    load_config()
 
 def save_config(key, value):
-    config = _load_config_file()
-    config[key] = value
-    _save_config_file(config)
-    load_config()
+    _save_single_config_key(key, value)
 
 def save_memos_config(key, value):
     config = _load_config_file()
@@ -97,7 +100,6 @@ def save_memos_config(key, value):
         config["memos_config"] = {}
     config["memos_config"][key] = value
     _save_config_file(config)
-    load_config()
 
 # --- メインの読み込み関数 (最重要修正箇所) ---
 def load_config():
