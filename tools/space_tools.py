@@ -9,13 +9,14 @@ import utils
 import constants
 
 @tool
-def set_current_location(location_id: str, room_name: str = None) -> str:
+def set_current_location(location_id: str, room_name: str) -> str:
     """
     AIの現在地を設定する。この世界のどこにいるかを宣言するための、唯一の公式な手段。
     location_id: "書斎"のような場所の正式名称（IDを兼ねる）を指定。
     """
     if not location_id or not room_name:
-        return "【Error】Location ID and room name are required."
+        # このエラーはAIではなく、システム側の問題（引数注入の失敗）を示す
+        return "【Error】Internal tool error: Location ID and room name are required for execution."
     try:
         base_path = os.path.join(constants.ROOMS_DIR, room_name)
         location_file_path = os.path.join(base_path, "current_location.txt")
@@ -26,13 +27,15 @@ def set_current_location(location_id: str, room_name: str = None) -> str:
         return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
 
 @tool
-def update_location_content(room_name: str, area_name: str, place_name: str, new_description: str) -> str:
+def update_location_content(area_name: str, place_name: str, new_description: str, room_name: str) -> str:
     """
     【更新専用】既存の場所の説明文（description）を、新しい内容で更新する。
+    area_name: 更新したい場所が属するエリア名。
+    place_name: 更新したい場所の名前。
     new_description: 場所の情景や設定を記述した、自然な文章。
     """
     if not all([room_name, area_name, place_name, new_description is not None]):
-        return "【Error】room_name, area_name, place_name, and new_description are required."
+        return "【Error】Internal tool error: area_name, place_name, new_description, and room_name are required."
 
     world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path):
@@ -62,13 +65,15 @@ def update_location_content(room_name: str, area_name: str, place_name: str, new
         return f"【Error】Failed to update location content: {e}"
 
 @tool
-def add_new_location(room_name: str, area_name: str, new_place_name: str, description: str) -> str:
+def add_new_location(area_name: str, new_place_name: str, description: str, room_name: str) -> str:
     """
     【新規作成専用】新しい場所を、その説明文と共に世界設定に追加する。
+    area_name: 新しい場所を追加したいエリア名。
+    new_place_name: 新しく作成する場所の名前。
     description: 新しい場所の情景や設定を記述した、自然な文章。
     """
     if not all([room_name, area_name, new_place_name, description is not None]):
-        return "【Error】room_name, area_name, new_place_name, and description are required."
+        return "【Error】Internal tool error: area_name, new_place_name, description, and room_name are required."
 
     world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path):
@@ -111,7 +116,7 @@ def read_world_settings(room_name: str) -> str:
     場所の編集や追加を行う前に、既存のエリア名や場所の名前、そして全体構造を確認するために使用する。
     """
     if not room_name:
-        return "【Error】room_name is required."
+        return "【Error】Internal tool error: room_name is required for execution."
 
     world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path):

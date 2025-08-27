@@ -12,10 +12,9 @@ def set_timer(duration_minutes: int, theme: str, room_name: str) -> str:
     指定された分数後に、特定のテーマで通知するシンプルなタイマーを設定します。
     duration_minutes: タイマーの分数。
     theme: タイマー終了時にAIが話す内容のテーマ。
-    room_name: 通知するルームの名前。
     """
     if not room_name:
-        return "エラー: 通知するルームが指定されていません。"
+        return "【Error】Internal tool error: room_name is required for execution."
     try:
         # 現在のAPIキー名などをconfig_managerから取得
         api_key_name = config_manager.initial_api_key_name_global
@@ -42,10 +41,9 @@ def set_pomodoro_timer(work_minutes: int, break_minutes: int, cycles: int, work_
     cycles: 作業と休憩を繰り返す回数。
     work_theme: 作業終了時にAIが話す内容のテーマ。
     break_theme: 休憩終了時にAIが話す内容のテーマ。
-    room_name: 通知するルームの名前。
     """
     if not room_name:
-        return "エラー: 通知するルームが指定されていません。"
+        return "【Error】Internal tool error: room_name is required for execution."
     try:
         api_key_name = config_manager.initial_api_key_name_global
 
