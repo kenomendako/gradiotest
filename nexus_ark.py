@@ -495,7 +495,7 @@ try:
         )
 
         # アコーディオンが開かれた時にも同じ関数を呼び出す
-        manage_room_accordion.select(
+        manage_room_accordion.expand(
             fn=ui_handlers.handle_manage_room_select,
             inputs=[manage_room_selector],
             outputs=manage_room_select_outputs
