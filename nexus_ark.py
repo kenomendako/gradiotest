@@ -421,13 +421,6 @@ try:
         )
 
         # --- Screenshot Mode Handlers ---
-        redaction_rules_df.select(
-            fn=lambda evt: evt.index,
-            inputs=None,
-            outputs=[selected_redaction_rule_state],
-            show_progress=False
-        )
-
         add_rule_button.click(
             fn=ui_handlers.handle_save_redaction_rules,
             inputs=[redaction_rules_df],
