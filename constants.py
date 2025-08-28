@@ -12,6 +12,7 @@ CONFIG_FILE = "config.json"
 ALARMS_FILE = "alarms.json"
 
 # --- UIとAPIの挙動に関する定数 ---
+REDACTION_RULES_FILE = "redaction_rules.json"
 # GradioのUIに一度に表示する最大の履歴数
 UI_HISTORY_MAX_LIMIT = 200
 # APIに渡す履歴の長さの選択肢

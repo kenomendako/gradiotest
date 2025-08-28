@@ -1,6 +1,7 @@
 import shutil
 import psutil
 import pandas as pd
+from pandas import DataFrame
 import json
 import traceback
 import hashlib
@@ -777,7 +778,7 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
     history, mapping_list = reload_chat_log(room_name, api_history_limit)
     return history, mapping_list, None, gr.update(visible=False)
 
-def reload_chat_log(room_name: Optional[str], api_history_limit_value: str):
+def reload_chat_log(room_name: Optional[str], api_history_limit_value: str, screenshot_mode: bool = False, redaction_rules: List[Dict] = None):
     if not room_name:
         return [], []
 
@@ -788,7 +789,7 @@ def reload_chat_log(room_name: Optional[str], api_history_limit_value: str):
     full_raw_history = utils.load_chat_log(log_f)
     display_turns = _get_display_history_count(api_history_limit_value)
     visible_history = full_raw_history[-(display_turns * 2):]
-    history, mapping_list = format_history_for_gradio(visible_history, room_name)
+    history, mapping_list = format_history_for_gradio(visible_history, room_name, screenshot_mode, redaction_rules)
     return history, mapping_list
 
 def handle_wb_add_place_button_click(area_selector_value: Optional[str]):
@@ -1101,17 +1102,37 @@ def handle_core_memory_update_click(room_name: str, api_key_name: str):
     gr.Info(f"「{room_name}」のコアメモリ更新をバックグラウンドで開始しました。")
     threading.Thread(target=_run_core_memory_update, args=(room_name, api_key)).start()
 
-def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str) -> Tuple[List[Tuple], List[int]]:
+def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
+    """
+    （Docstringは変更なし）
+    """
     if not messages:
         return [], []
+
+    # --- 置換ルールの準備 ---
+    active_rules = []
+    if screenshot_mode and redaction_rules:
+        # findが長いものから先に置換しないと、部分文字列が先に置換されてしまう問題を解決
+        active_rules = sorted(redaction_rules, key=lambda x: len(x["find"]), reverse=True)
+
+    def apply_redactions(text: str) -> str:
+        if not screenshot_mode or not active_rules or not text:
+            return html.escape(text) if text else ""
+
+        # HTMLエスケープを先に行う
+        escaped_text = html.escape(text)
+
+        for rule in active_rules:
+            find_str = html.escape(rule["find"])
+            replace_str = f'<span style="background-color: #FFFFB3; padding: 1px 3px; border-radius: 3px; color: #333;">{html.escape(rule["replace"])}</span>'
+            escaped_text = escaped_text.replace(find_str, replace_str)
+        return escaped_text
 
     # --- 話者名解決のための準備 ---
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
     user_display_name = current_room_config.get("user_display_name", "ユーザー")
-
     all_rooms_list = room_manager.get_room_list_for_ui()
     folder_to_display_map = {folder: display for display, folder in all_rooms_list}
-    display_to_folder_map = {display: folder for display, folder in all_rooms_list}
     known_configs = {}
 
     gradio_history = []
@@ -1131,26 +1152,13 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         if role == "USER":
             speaker_name = user_display_name
         elif role == "AGENT":
-            # [修正] まず、今いるルーム自身の発言かチェックする
             if responder_id == current_room_folder:
                 speaker_name = current_room_config.get("agent_display_name") or current_room_config.get("room_name", responder_id)
             else:
-                # 他のルームの発言の場合、キャッシュまたは全リストから探す
-                if responder_id in known_configs:
-                    config = known_configs[responder_id]
-                else:
-                    config = None
-                    if responder_id in folder_to_display_map:
-                        config = room_manager.get_room_config(responder_id)
-
-                    if config:
-                        known_configs[responder_id] = config
-
-                if config:
-                    # agent_display_nameがあればそれを優先し、なければroom_nameにフォールバック
-                    speaker_name = config.get("agent_display_name") or config.get("room_name", responder_id)
-                else:
-                    speaker_name = f"{responder_id} [削除済]"
+                if responder_id not in known_configs:
+                    known_configs[responder_id] = room_manager.get_room_config(responder_id) if responder_id in folder_to_display_map else {}
+                config = known_configs[responder_id]
+                speaker_name = config.get("agent_display_name") or config.get("room_name", responder_id) if config else f"{responder_id} [削除済]"
         else:
             speaker_name = responder_id
 
@@ -1164,7 +1172,24 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             media_paths = [p.strip() for p in gen_image_pattern.findall(content)]
 
         if text_part:
-            formatted_text = _format_text_content_for_gradio(text_part, speaker_name, f"msg-anchor-{i}", None, None)
+            thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
+            thought_match = thoughts_pattern.search(text_part)
+            thoughts_content = ""
+            main_text_content = text_part
+            if thought_match:
+                thoughts_content = thought_match.group(1).strip()
+                main_text_content = thoughts_pattern.sub("", text_part).strip()
+
+            escaped_and_redacted_main_text = apply_redactions(main_text_content)
+            escaped_and_redacted_thoughts = apply_redactions(thoughts_content)
+
+            formatted_text = _format_text_content_for_gradio(
+                escaped_and_redacted_main_text,
+                escaped_and_redacted_thoughts,
+                speaker_name,
+                f"msg-anchor-{i}"
+            )
+
             if role == "USER":
                 gradio_history.append((formatted_text, None))
             else:
@@ -1181,7 +1206,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 mapping_list.append(i)
 
         if not text_part and not media_paths:
-            formatted_text = _format_text_content_for_gradio("", speaker_name, f"msg-anchor-{i}", None, None)
+            formatted_text = _format_text_content_for_gradio("", "", speaker_name, f"msg-anchor-{i}")
             if role == "USER":
                 gradio_history.append((formatted_text, None))
             else:
@@ -1191,23 +1216,29 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     return gradio_history, mapping_list
 
 
-def _format_text_content_for_gradio(content: str, speaker_name: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
-    thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-    thought_match = thoughts_pattern.search(content)
-    thoughts_content = ""
-    main_text_content = content.strip()
-    if thought_match:
-        thoughts_content = thought_match.group(1).strip()
-        main_text_content = thoughts_pattern.sub("", content).strip()
-    final_md_parts = []
-    final_md_parts.append(f"**{html.escape(speaker_name)}:**\n")
-    if thoughts_content:
-        final_md_parts.append(f"\n【Thoughts】\n```\n{thoughts_content}\n```\n")
-    if main_text_content:
-        final_md_parts.append(main_text_content)
+def _format_text_content_for_gradio(main_text_html: str, thoughts_html: str, speaker_name: str, current_anchor_id: str) -> str:
+    """
+    （Docstringは変更なし）
+    """
+    final_html_parts = []
+    # speaker_nameはエスケープが必要
+    final_html_parts.append(f"<span id='{current_anchor_id}'></span><strong>{html.escape(speaker_name)}:</strong><br>")
+
+    # thoughts_htmlは既にエスケープ＆置換済みなのでそのまま使う
+    if thoughts_html:
+        # 改行を<br>に置換して、pre-wrapのスタイルを適用したdivで囲む
+        formatted_thoughts = thoughts_html.replace('\n', '<br>')
+        final_html_parts.append(f"<div class='thoughts'>【Thoughts】<br>{formatted_thoughts}</div>")
+
+    # main_text_htmlも既にエスケープ＆置換済みなのでそのまま使う
+    if main_text_html:
+        # 改行を<br>に置換
+        final_html_parts.append(main_text_html.replace('\n', '<br>'))
+
+    # （...以降のボタンコンテナなどは変更なし...）
     button_container = f"<div style='text-align: right; margin-top: 8px;'></div>"
-    final_md_parts.append(f"\n{button_container}")
-    return "".join(final_md_parts)
+    final_html_parts.append(button_container)
+    return "".join(final_html_parts)
 
 def update_model_state(model): config_manager.save_config("last_model", model); return model
 
@@ -1216,10 +1247,10 @@ def update_api_key_state(api_key_name):
     gr.Info(f"APIキーを '{api_key_name}' に設定しました。")
     return api_key_name
 
-def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, room_name: Optional[str]):
+def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, room_name: Optional[str], screenshot_mode: bool = False, redaction_rules: List[Dict] = None):
     key = next((k for k, v in constants.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
     config_manager.save_config("last_api_history_limit_option", key)
-    history, mapping_list = reload_chat_log(room_name, key)
+    history, mapping_list = reload_chat_log(room_name, key, screenshot_mode, redaction_rules)
     return key, history, mapping_list
 
 def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], room_name: str, api_key_name: str):
@@ -1742,6 +1773,45 @@ def handle_reload_system_prompt(room_name: str) -> str:
     content = load_system_prompt_content(room_name)
     gr.Info(f"「{room_name}」の人格プロンプトを再読み込みしました。")
     return content
+
+def handle_save_redaction_rules(rules_df: DataFrame) -> List[Dict[str, str]]:
+    """DataFrameの内容を検証し、jsonファイルに保存する。"""
+    # DataFrameがNoneの場合や空の場合の処理
+    if rules_df is None or rules_df.empty:
+        rules = []
+    else:
+        # '元の文字列 (Find)' と '置換後の文字列 (Replace)' の列名が正しいことを確認
+        if '元の文字列 (Find)' not in rules_df.columns or '置換後の文字列 (Replace)' not in rules_df.columns:
+            gr.Warning("DataFrameの列名が不正です。ルールを保存できませんでした。")
+            return config_manager.load_redaction_rules()
+
+        rules = [
+            {"find": str(row["元の文字列 (Find)"]), "replace": str(row["置換後の文字列 (Replace)"])}
+            for index, row in rules_df.iterrows()
+            if str(row["元の文字列 (Find)"]).strip()  # findが空のルールは無視
+        ]
+    config_manager.save_redaction_rules(rules)
+    gr.Info(f"{len(rules)}件の置換ルールを保存しました。")
+    return rules
+
+def handle_delete_redaction_rule(rules_df: DataFrame, selected_indices: Optional[Tuple[int, int]]) -> Tuple[DataFrame, List, None]:
+    """DataFrameで選択されたルールを削除する。"""
+    if selected_indices is None:
+        gr.Warning("削除するルールを選択してください。")
+        return rules_df, config_manager.load_redaction_rules(), None
+
+    selected_row_index = selected_indices[0]
+    updated_df = rules_df.drop(index=selected_row_index).reset_index(drop=True)
+
+    # DataFrameからルールリストを再構築して保存
+    rules = [
+        {"find": str(row["元の文字列 (Find)"]), "replace": str(row["置換後の文字列 (Replace)"])}
+        for index, row in updated_df.iterrows()
+        if str(row["元の文字列 (Find)"]).strip()
+    ]
+    config_manager.save_redaction_rules(rules)
+    gr.Info("選択したルールを削除しました。")
+    return updated_df, rules, None # 選択状態をクリア
 
 def handle_rerun_button_click(*args: Any):
     (selected_message, room_name, api_key_name,

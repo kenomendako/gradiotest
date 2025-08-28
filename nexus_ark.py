@@ -121,6 +121,8 @@ try:
         debug_console_state = gr.State("")
         importer_process_state = gr.State(None) # インポーターのサブプロセスを管理
         chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
+        redaction_rules_state = gr.State(config_manager.load_redaction_rules) # 起動時にルールを読み込む
+        selected_redaction_rule_state = gr.State(None)
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -194,6 +196,23 @@ try:
                                             tavily_key_input = gr.Textbox(label="Tavily API Key", type="password", value=lambda: config_manager.TAVILY_API_KEY)
                                             save_tavily_key_button = gr.Button("Tavilyキーを保存", variant="primary")
                                         gr.Warning("APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
+                                    gr.Markdown("---")
+                                    with gr.Accordion("📸 スクリーンショット支援", open=False):
+                                        gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
+                                        screenshot_mode_checkbox = gr.Checkbox(
+                                            label="スクリーンショットモードを有効にする",
+                                            info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。"
+                                        )
+                                        redaction_rules_df = gr.Dataframe(
+                                            headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
+                                            datatype=["str", "str"],
+                                            row_count=(5, "dynamic"),
+                                            col_count=(2, "interactive"),
+                                            interactive=True
+                                        )
+                                        with gr.Row():
+                                            add_rule_button = gr.Button("ルールを保存/更新", variant="primary")
+                                            delete_rule_button = gr.Button("選択したルールを削除")
                                 with gr.TabItem("個別設定"):
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
                                     room_model_dropdown = gr.Dropdown(label="使用するAIモデル（個別）", interactive=True)
@@ -387,12 +406,12 @@ try:
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
-        ] + initial_load_chat_outputs
+        ] + initial_load_chat_outputs + [redaction_rules_df] # ← ここに追加
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
 
-        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs
+        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df] # ← ここに追加
 
         demo.load(
             fn=ui_handlers.handle_initial_load,
@@ -400,6 +419,40 @@ try:
             outputs=initial_load_outputs
         ).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
+        )
+
+        # --- Screenshot Mode Handlers ---
+        redaction_rules_df.select(
+            fn=lambda evt: evt.index,
+            inputs=None,
+            outputs=[selected_redaction_rule_state],
+            show_progress=False
+        )
+
+        add_rule_button.click(
+            fn=ui_handlers.handle_save_redaction_rules,
+            inputs=[redaction_rules_df],
+            outputs=[redaction_rules_state]
+        ).then(
+            fn=ui_handlers.reload_chat_log,
+            inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state],
+            outputs=[chatbot_display, current_log_map_state]
+        )
+
+        delete_rule_button.click(
+            fn=ui_handlers.handle_delete_redaction_rule,
+            inputs=[redaction_rules_df, selected_redaction_rule_state],
+            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state]
+        ).then(
+            fn=ui_handlers.reload_chat_log,
+            inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state],
+            outputs=[chatbot_display, current_log_map_state]
+        )
+
+        screenshot_mode_checkbox.change(
+            fn=ui_handlers.reload_chat_log,
+            inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state],
+            outputs=[chatbot_display, current_log_map_state]
         )
 
         start_session_button.click(
@@ -453,7 +506,7 @@ try:
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
-        chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_room_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state])
+        chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state], outputs=[chatbot_display, current_log_map_state])
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
             inputs=[current_room_name, api_history_limit_state, current_log_map_state],
@@ -461,7 +514,7 @@ try:
             show_progress=False
         )
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_room_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
-        api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_room_name], outputs=[api_history_limit_state, chatbot_display, current_log_map_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
+        api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_room_name, screenshot_mode_checkbox, redaction_rules_state], outputs=[api_history_limit_state, chatbot_display, current_log_map_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
 
         create_room_button.click(
             fn=ui_handlers.handle_create_room,
