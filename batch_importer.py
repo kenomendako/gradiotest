@@ -43,6 +43,7 @@ print("--- [Nexus Ark Importer] ロギング設定を完全に掌握しました
 
 
 # --- [インポート文] ---
+import utils
 import config_manager
 import memos_manager
 import room_manager
@@ -51,45 +52,6 @@ import room_manager
 PROGRESS_FILE = "importer_progress.json"
 ERROR_LOG_FILE = "importer_errors.log"
 STOP_SIGNAL_FILE = "stop_importer.signal"
-
-def load_archived_log(log_content: str) -> List[Dict[str, str]]:
-    """
-    アーカイブされたログの内容をパースし、メッセージの辞書のリストに変換する。
-    utils.load_chat_log と同じロジックを使い、新旧両方のフォーマットに対応する。
-    """
-    messages = []
-    # 新旧両方のフォーマットに対応する正規表現
-    log_parts = re.split(r'^(## (?:(AGENT|USER):)?([^:]+?):)$', log_content, flags=re.MULTILINE)
-
-    header_info = None
-    for part in log_parts:
-        part = part.strip()
-        if not part:
-            continue
-
-        if part.startswith("## ") and part.endswith(":"):
-            match = re.match(r'^## (?:(AGENT|USER):)?([^:]+?):$', part)
-            if match:
-                role, responder_id = match.groups()
-                # 旧形式との互換性処理
-                if not role:
-                    # インポーターの文脈では、'ユーザー'以外はすべてAGENTと見なすのが安全
-                    role = 'USER' if responder_id.lower() == 'user' or responder_id == 'ユーザー' else 'AGENT'
-
-                if responder_id == 'ユーザー':
-                    responder_id = 'user'
-
-                header_info = {"role": role, "responder": responder_id}
-        elif header_info:
-            # MemOSに渡す形式に合わせる
-            role_for_memos = "assistant" if header_info["role"] == "AGENT" else "user"
-            messages.append({
-                "role": role_for_memos,
-                "content": part
-                # インポート時には 'responder' は不要
-            })
-            header_info = None
-    return messages
 
 def group_messages_into_pairs(messages: List[Dict[str, str]]) -> List[List[Dict[str, str]]]:
     pairs = []
@@ -176,8 +138,28 @@ def main():
 
             filepath = os.path.join(args.logs_dir, filename)
             with open(filepath, "r", encoding="utf-8", errors='ignore') as f: content = f.read()
-            all_messages = load_archived_log(content)
-            conversation_pairs = group_messages_into_pairs(all_messages)
+
+            # ▼▼▼【ここからが修正の核心】▼▼▼
+
+            # all_messages = load_archived_log(content) # ← この行を削除
+
+            # 1. utils.pyの最新のパーサーを呼び出す
+            raw_messages = utils.load_chat_log(filepath)
+
+            # 2. MemOSが要求する形式 ('user'/'assistant') に変換する
+            messages_for_memos = []
+            for msg in raw_messages:
+                role = "assistant" if msg.get("role") == "AGENT" else "user"
+                messages_for_memos.append({
+                    "role": role,
+                    "content": msg.get("content", "")
+                })
+
+            # 3. 変換後のメッセージリストを使ってペアを組む
+            conversation_pairs = group_messages_into_pairs(messages_for_memos)
+
+            # ▲▲▲【修正ここまで】▲▲▲
+
             total_pairs_in_file = len(conversation_pairs)
 
             if processed_pairs_count >= total_pairs_in_file:
