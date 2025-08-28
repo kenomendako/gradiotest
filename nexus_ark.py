@@ -196,23 +196,6 @@ try:
                                             tavily_key_input = gr.Textbox(label="Tavily API Key", type="password", value=lambda: config_manager.TAVILY_API_KEY)
                                             save_tavily_key_button = gr.Button("Tavilyキーを保存", variant="primary")
                                         gr.Warning("APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
-                                    gr.Markdown("---")
-                                    with gr.Accordion("📸 スクリーンショット支援", open=False):
-                                        gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
-                                        screenshot_mode_checkbox = gr.Checkbox(
-                                            label="スクリーンショットモードを有効にする",
-                                            info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。"
-                                        )
-                                        redaction_rules_df = gr.Dataframe(
-                                            headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
-                                            datatype=["str", "str"],
-                                            row_count=(5, "dynamic"),
-                                            col_count=(2, "interactive"),
-                                            interactive=True
-                                        )
-                                        with gr.Row():
-                                            add_rule_button = gr.Button("ルールを保存/更新", variant="primary")
-                                            delete_rule_button = gr.Button("選択したルールを削除")
                                 with gr.TabItem("個別設定"):
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
                                     room_model_dropdown = gr.Dropdown(label="使用するAIモデル（個別）", interactive=True)
@@ -295,6 +278,22 @@ try:
                         token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
                         tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
                         chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
+                        with gr.Accordion("📸 スクリーンショット支援", open=False):
+                            gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
+                            screenshot_mode_checkbox = gr.Checkbox(
+                                label="スクリーンショットモードを有効にする",
+                                info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。"
+                            )
+                            redaction_rules_df = gr.Dataframe(
+                                headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
+                                datatype=["str", "str"],
+                                row_count=(5, "dynamic"),
+                                col_count=(2, "interactive"),
+                                interactive=True
+                            )
+                            with gr.Row():
+                                add_rule_button = gr.Button("ルールを保存/更新", variant="primary")
+                                delete_rule_button = gr.Button("選択したルールを削除")
                         with gr.Row():
                             submit_button = gr.Button("送信", variant="primary")
                             chat_reload_button = gr.Button("🔄 履歴を更新")
