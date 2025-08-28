@@ -1806,14 +1806,25 @@ def handle_save_redaction_rules(rules_df: DataFrame) -> List[Dict[str, str]]:
     gr.Info(f"{len(rules)}件の置換ルールを保存しました。")
     return rules
 
-def handle_delete_redaction_rule(rules_df: DataFrame, selected_indices: Optional[Tuple[int, int]]) -> Tuple[DataFrame, List, None]:
+def handle_delete_redaction_rule(rules_df: pd.DataFrame, evt: gr.SelectData) -> Tuple[pd.DataFrame, list]:
     """DataFrameで選択されたルールを削除する。"""
-    if selected_indices is None:
+    # evtオブジェクトやそのindex属性が存在しない場合、警告を出して早期に終了する
+    if not isinstance(evt, gr.SelectData) or evt.index is None:
         gr.Warning("削除するルールを選択してください。")
-        return rules_df, config_manager.load_redaction_rules(), None
+        # 現在のルールをそのまま返す
+        rules = config_manager.load_redaction_rules()
+        df = pd.DataFrame(rules, columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
+        return df, rules
 
-    selected_row_index = selected_indices[0]
-    updated_df = rules_df.drop(index=selected_row_index).reset_index(drop=True)
+    selected_index = evt.index[0]
+    # DataFrameがNoneの場合やインデックスが範囲外の場合の安全策
+    if rules_df is None or not (0 <= selected_index < len(rules_df)):
+        gr.Warning("選択された行を特定できませんでした。")
+        rules = config_manager.load_redaction_rules()
+        df = pd.DataFrame(rules, columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
+        return df, rules
+
+    updated_df = rules_df.drop(index=selected_index).reset_index(drop=True)
 
     # DataFrameからルールリストを再構築して保存
     rules = [
@@ -1823,7 +1834,7 @@ def handle_delete_redaction_rule(rules_df: DataFrame, selected_indices: Optional
     ]
     config_manager.save_redaction_rules(rules)
     gr.Info("選択したルールを削除しました。")
-    return updated_df, rules, None # 選択状態をクリア
+    return updated_df, rules
 
 def handle_rerun_button_click(*args: Any):
     (selected_message, room_name, api_key_name,
