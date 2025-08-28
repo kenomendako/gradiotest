@@ -1786,25 +1786,29 @@ def handle_reload_system_prompt(room_name: str) -> str:
     gr.Info(f"「{room_name}」の人格プロンプトを再読み込みしました。")
     return content
 
-def handle_save_redaction_rules(rules_df: DataFrame) -> List[Dict[str, str]]:
-    """DataFrameの内容を検証し、jsonファイルに保存する。"""
-    # DataFrameがNoneの場合や空の場合の処理
-    if rules_df is None or rules_df.empty:
-        rules = []
-    else:
-        # '元の文字列 (Find)' と '置換後の文字列 (Replace)' の列名が正しいことを確認
-        if '元の文字列 (Find)' not in rules_df.columns or '置換後の文字列 (Replace)' not in rules_df.columns:
-            gr.Warning("DataFrameの列名が不正です。ルールを保存できませんでした。")
-            return config_manager.load_redaction_rules()
+def handle_save_redaction_rules(rules_df: pd.DataFrame) -> Tuple[List[Dict[str, str]], pd.DataFrame]:
+    """DataFrameの内容を検証し、jsonファイルに保存し、更新されたルールとDataFrameを返す。"""
+    if rules_df is None:
+        rules_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
 
-        rules = [
-            {"find": str(row["元の文字列 (Find)"]), "replace": str(row["置換後の文字列 (Replace)"])}
-            for index, row in rules_df.iterrows()
-            if str(row["元の文字列 (Find)"]).strip()  # findが空のルールは無視
-        ]
+    # 列名が存在しない場合（空のDataFrameなど）に対応
+    if '元の文字列 (Find)' not in rules_df.columns or '置換後の文字列 (Replace)' not in rules_df.columns:
+        rules_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
+
+    rules = [
+        {"find": str(row["元の文字列 (Find)"]), "replace": str(row["置換後の文字列 (Replace)"])}
+        for index, row in rules_df.iterrows()
+        if pd.notna(row["元の文字列 (Find)"]) and str(row["元の文字列 (Find)"]).strip()
+    ]
     config_manager.save_redaction_rules(rules)
-    gr.Info(f"{len(rules)}件の置換ルールを保存しました。")
-    return rules
+    gr.Info(f"{len(rules)}件の置換ルールを保存しました。チャット履歴を更新してください。")
+
+    # 更新された（空行が除去された）DataFrameをUIに返す
+    # まずPython辞書のリストから新しいDataFrameを作成
+    updated_df_data = [{"元の文字列 (Find)": r["find"], "置換後の文字列 (Replace)": r["replace"]} for r in rules]
+    updated_df = pd.DataFrame(updated_df_data)
+
+    return rules, updated_df
 
 def handle_delete_redaction_rule(rules_df: pd.DataFrame, evt: gr.SelectData) -> Tuple[pd.DataFrame, list]:
     """DataFrameで選択されたルールを削除する。"""

@@ -424,11 +424,7 @@ try:
         add_rule_button.click(
             fn=ui_handlers.handle_save_redaction_rules,
             inputs=[redaction_rules_df],
-            outputs=[redaction_rules_state]
-        ).then(
-            fn=ui_handlers.reload_chat_log,
-            inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state],
-            outputs=[chatbot_display, current_log_map_state]
+            outputs=[redaction_rules_state, redaction_rules_df]
         )
 
         delete_rule_button.click(
