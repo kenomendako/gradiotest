@@ -121,8 +121,8 @@ try:
         debug_console_state = gr.State("")
         importer_process_state = gr.State(None) # インポーターのサブプロセスを管理
         chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
-        redaction_rules_state = gr.State(config_manager.load_redaction_rules) # 起動時にルールを読み込む
-        selected_redaction_rule_state = gr.State(None)
+        redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules()) # ← lambdaで囲むとより安全
+        selected_redaction_rule_state = gr.State(None) # ←【重要】この新しいStateを追加
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -422,22 +422,23 @@ try:
 
         # --- Screenshot Mode Handlers ---
         redaction_rules_df.select(
-            fn=lambda evt: evt.index[0] if evt else None,
-            inputs=None, # `evt`はGradioが自動で渡す
-            outputs=[selected_redaction_rule_state]
+            fn=lambda evt: evt.index[0] if evt and evt.index else None,
+            inputs=None,
+            outputs=[selected_redaction_rule_state],
+            show_progress=False # UIの反応を良くするため
         )
 
         add_rule_button.click(
             fn=ui_handlers.handle_save_redaction_rules,
             inputs=[redaction_rules_df],
             outputs=[redaction_rules_state, redaction_rules_df]
-        )
+        ) # .then() は付けない
 
         delete_rule_button.click(
             fn=ui_handlers.handle_delete_redaction_rule,
             inputs=[redaction_rules_df, selected_redaction_rule_state],
             outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state]
-        )
+        ) # .then() は付けない
 
         screenshot_mode_checkbox.change(
             fn=ui_handlers.reload_chat_log,
@@ -504,10 +505,9 @@ try:
             show_progress=False
         )
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_room_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
-        # 履歴の長さ変更時にも、スクリーンショット設定を渡すように修正
         api_history_limit_dropdown.change(
             fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
-            inputs=[api_history_limit_dropdown, current_room_name, screenshot_mode_checkbox, redaction_rules_state], # 2つ追加
+            inputs=[api_history_limit_dropdown, current_room_name, screenshot_mode_checkbox, redaction_rules_state],
             outputs=[api_history_limit_state, chatbot_display, current_log_map_state]
         ).then(
             fn=ui_handlers.handle_context_settings_change,
