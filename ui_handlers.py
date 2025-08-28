@@ -125,7 +125,14 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     participant_checkbox_update = gr.update(choices=other_rooms_for_checkbox, value=[])
     session_management_updates = ([], "現在、1対1の会話モードです。", participant_checkbox_update)
 
-    return chat_tab_updates + world_builder_updates + session_management_updates
+    # ▼▼▼【ここから修正】▼▼▼
+    # 置換ルールを読み込み、DataFrame形式で返す
+    rules = config_manager.load_redaction_rules()
+    rules_df_for_ui = pd.DataFrame(rules, columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
+
+    # 戻り値の最後に、DataFrameの更新データを追加する
+    return chat_tab_updates + world_builder_updates + session_management_updates + (rules_df_for_ui,)
+    # ▲▲▲【修正ここまで】▲▲▲
 
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
@@ -133,13 +140,18 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
 
-    # 新しいヘルパーを呼び出し、設定を保存しないようにする
     all_updates = _update_all_tabs_for_room_change(initial_room_to_load, initial_api_key_name)
-
-    # nexus_ark.pyの`initial_load_chat_outputs`の要素数（32個）に合わせてスライス
     room_dependent_outputs = all_updates[:32]
 
-    return (display_df, df_with_ids, feedback_text) + room_dependent_outputs
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # 1. 置換ルールをファイルから読み込む
+    rules = config_manager.load_redaction_rules()
+    # 2. GradioのDataFrameが期待する形式に変換する
+    rules_df_for_ui = pd.DataFrame(rules, columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
+
+    # 3. 36番目の戻り値として、DataFrameの初期値を追加する
+    return (display_df, df_with_ids, feedback_text) + room_dependent_outputs + (rules_df_for_ui,)
+    # ▲▲▲【修正ここまで】▲▲▲
 
 def handle_save_room_settings(
     room_name: str, model_name: str, voice_name: str, voice_style_prompt: str,
