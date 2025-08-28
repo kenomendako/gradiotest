@@ -1016,7 +1016,7 @@ def handle_memos_batch_import(room_name: str, console_content: str):
             return
 
         python_executable = sys.executable or "python"
-        command = [python_executable, "batch_importer.py", "--room", room_name, "--logs-dir", archive_dir]
+        command = [python_executable, "batch_importer.py", "--character", room_name, "--logs-dir", archive_dir]
 
         process = subprocess.Popen(
             command,
