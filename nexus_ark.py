@@ -424,31 +424,6 @@ try:
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
-        # --- Screenshot Mode Handlers ---
-        redaction_rules_df.select(
-            fn=ui_handlers.handle_redaction_rule_select,
-            inputs=[redaction_rules_df],
-            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
-            show_progress=False
-        )
-
-        add_rule_button.click(
-            fn=ui_handlers.handle_add_or_update_redaction_rule,
-            inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
-            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
-        )
-
-        delete_rule_button.click(
-            fn=ui_handlers.handle_delete_redaction_rule,
-            inputs=[redaction_rules_state, selected_redaction_rule_state],
-            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
-        )
-
-        screenshot_mode_checkbox.change(
-            fn=ui_handlers.reload_chat_log,
-            inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state],
-            outputs=[chatbot_display, current_log_map_state]
-        )
 
         start_session_button.click(
             fn=ui_handlers.handle_start_session,
@@ -803,6 +778,32 @@ try:
                 alarm_room_dropdown,
                 timer_room_dropdown
             ]
+        )
+
+        # --- Screenshot Mode Handlers ---
+        redaction_rules_df.select(
+            fn=ui_handlers.handle_redaction_rule_select,
+            inputs=[redaction_rules_df],
+            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
+            show_progress=False
+        )
+
+        add_rule_button.click(
+            fn=ui_handlers.handle_add_or_update_redaction_rule,
+            inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
+            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+        )
+
+        delete_rule_button.click(
+            fn=ui_handlers.handle_delete_redaction_rule,
+            inputs=[redaction_rules_state, selected_redaction_rule_state],
+            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+        )
+
+        screenshot_mode_checkbox.change(
+            fn=ui_handlers.reload_chat_log,
+            inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state],
+            outputs=[chatbot_display, current_log_map_state]
         )
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
