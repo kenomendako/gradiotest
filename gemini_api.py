@@ -109,7 +109,7 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
     if user_input_text: user_message_parts.append({"type": "text", "text": user_input_text})
     if file_input_list:
         for file_obj in file_input_list:
-            filepath = file_obj.name
+            filepath = file_obj['name']
             try:
                 kind = filetype.guess(filepath); mime_type = kind.mime if kind else None
                 if mime_type and (mime_type.startswith("image/") or mime_type.startswith("audio/") or mime_type.startswith("video/")):

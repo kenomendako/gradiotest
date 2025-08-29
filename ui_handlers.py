@@ -1,25 +1,132 @@
-from typing import List, Optional, Dict, Any, Tuple
+# ui_handlers.py の内容を、このコードで完全に置き換えてください
+
 import pandas as pd
+from typing import List, Optional, Dict, Any, Tuple
+import gradio as gr
+import datetime
 import json
 import traceback
 import os
 import re
-import gradio as gr
-import datetime
-from PIL import Image
 import threading
-import filetype
-import base64
-import io
 
 import gemini_api, config_manager, alarm_manager, character_manager, utils
-from tools import memory_tools
+from memory_manager import load_memory_data_safe, save_memory_data
 from timers import UnifiedTimer
 from character_manager import get_character_files_paths
-from memory_manager import load_memory_data_safe, save_memory_data
+from tools import memory_tools
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
+
+# --- ここからが、失われた全ての関数群です ---
+
+def _generate_initial_scenery(character_name: str, api_key_name: str) -> Tuple[str, str]:
+    """【復活】UIからの要求に応じて、高速モデルで情景のみを生成する"""
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from tools.memory_tools import read_memory_by_path
+    import pytz
+
+    print(f"--- UIからの独立した情景生成開始: {character_name} ---")
+    api_key = config_manager.API_KEYS.get(api_key_name)
+    if not character_name or not api_key:
+        return "（エラー）", "（キャラクターまたはAPIキー未設定）"
+
+    location_id = utils.get_current_location(character_name) or "living_space"
+    space_details_raw = read_memory_by_path.invoke({"path": f"living_space.{location_id}", "character_name": character_name})
+
+    location_display_name = location_id
+    scenery_text = "（場所の定義がないため、情景を描写できません）"
+
+    if not space_details_raw.startswith("【エラー】"):
+        try:
+            space_data = json.loads(space_details_raw)
+            location_display_name = space_data.get("name", location_id) if isinstance(space_data, dict) else location_id
+
+            llm_flash = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
+            jst_now = datetime.datetime.now(pytz.timezone('Asia/Tokyo'))
+
+            scenery_prompt = (
+                f"空間定義:{json.dumps(space_data, ensure_ascii=False, indent=2)}\n"
+                f"時刻:{jst_now.strftime('%H:%M')} / 季節:{jst_now.month}月\n\n"
+                "あなたは情景描写の専門家です。以下のルールに従い、この空間の「今この瞬間」を1〜2文で描写してください。\n"
+                "【ルール】\n- 人物描写は含めない。\n- 五感に訴えかける写実的な描写を重視する。"
+            )
+            scenery_text = llm_flash.invoke(scenery_prompt).content
+        except Exception as e:
+            print(f"--- 情景生成中にエラー: {e} ---")
+            scenery_text = "（情景の生成に失敗しました）"
+
+    return location_display_name, scenery_text
+
+def handle_location_change(character_name: str, location_id: str):
+    """【復活】場所IDをファイルに書き込むだけの、静かな処理"""
+    from tools.space_tools import set_current_location
+
+    if not character_name or not location_id:
+        gr.Warning("キャラクターと移動先を選択してください。")
+        return gr.update(), gr.update()
+
+    result = set_current_location.func(location=location_id, character_name=character_name)
+    if "Success" not in result:
+        gr.Error(f"場所の変更に失敗: {result}")
+        return gr.update(), gr.update()
+
+    memory_data = load_memory_data_safe(character_manager.get_character_files_paths(character_name)[3])
+    new_location_name = memory_data.get("living_space", {}).get(location_id, {}).get("name", location_id)
+    gr.Info(f"場所を「{new_location_name}」に変更しました。")
+
+    return new_location_name, "（次の対話時に、新しい場所の情景が描写されます）"
+
+def handle_scenery_refresh(character_name: str, api_key_name: str):
+    """【復活】UI上の「情景を更新」ボタンの処理"""
+    if not character_name or not api_key_name:
+        gr.Warning("キャラクターとAPIキーを選択してください。")
+        return gr.update(), gr.update()
+
+    gr.Info(f"「{character_name}」の情景を更新しています...")
+    location_name, scenery_text = _generate_initial_scenery(character_name, api_key_name)
+    gr.Info("情景を更新しました。")
+    return location_name, scenery_text
+
+def update_model_state(model):
+    config_manager.save_config("last_model", model)
+    return model
+
+def update_api_key_state(api_key_name):
+    config_manager.save_config("last_api_key_name", api_key_name)
+    gr.Info(f"共通APIキーを '{api_key_name}' に設定しました。")
+    return api_key_name
+
+def update_timestamp_state(checked):
+    config_manager.save_config("add_timestamp", bool(checked))
+
+def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
+    key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
+    config_manager.save_config("last_api_history_limit_option", key)
+    reloaded_history = reload_chat_log(character_name, key)
+    return key, reloaded_history, gr.State()
+
+def handle_add_new_character(character_name: str):
+    if not character_name or not character_name.strip():
+        gr.Warning("キャラクター名が入力されていません。")
+        char_list = character_manager.get_character_list()
+        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), ""
+
+    safe_name = re.sub(r'[\\/*?:"<>|]', "", character_name).strip()
+    if not safe_name:
+        gr.Warning("無効なキャラクター名です。")
+        char_list = character_manager.get_character_list()
+        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), character_name
+
+    if character_manager.ensure_character_files(safe_name):
+        gr.Info(f"新しいキャラクター「{safe_name}」さんを迎えました！")
+        new_char_list = character_manager.get_character_list()
+        return gr.update(choices=new_char_list, value=safe_name), gr.update(choices=new_char_list, value=safe_name), gr.update(choices=new_char_list, value=safe_name), ""
+    else:
+        gr.Error(f"キャラクター「{safe_name}」の準備に失敗しました。")
+        char_list = character_manager.get_character_list()
+        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), character_name
 
 def handle_initial_load():
     """アプリ起動時に一度だけ呼ばれるハンドラ"""
@@ -82,7 +189,7 @@ def handle_save_char_settings(
     send_thoughts: bool, send_notepad: bool, use_common_prompt: bool,
     send_core_memory: bool, send_scenery: bool
 ):
-    """キャラクター個別設定を一度に保存する司令塔ハンドラ"""
+    """【改修版】キャラクター個別設定を安全に保存する司令塔ハンドラ"""
     if not character_name:
         gr.Warning("設定を保存するキャラクターが選択されていません。")
         return
@@ -139,7 +246,7 @@ def update_token_count_on_input(character_name: str, api_key_name: str, textbox_
         parts_for_api.append(textbox_content)
     if file_list:
         for file_obj in file_list:
-            filepath = file_obj.name
+            filepath = file_obj['name']
             try:
                 kind = filetype.guess(filepath)
                 if kind and kind.mime.startswith("image/"):
@@ -176,7 +283,7 @@ def handle_message_submission(*args: Any):
 
     if file_input_list:
         for file_obj in file_input_list:
-            filepath = file_obj.name
+            filepath = file_obj['name']
             filename = os.path.basename(filepath)
             chatbot_history.append(((filepath, filename), None))
             log_message_parts.append(f"[ファイル添付: {filepath}]")
@@ -312,48 +419,6 @@ def reload_chat_log(character_name: Optional[str], api_history_limit_value: str)
     formatted_history, _ = utils.format_history_for_gradio(visible_history, character_name)
 
     return formatted_history
-
-def update_model_state(model):
-    config_manager.save_config("last_model", model)
-    return model
-
-def update_api_key_state(api_key_name):
-    config_manager.save_config("last_api_key_name", api_key_name)
-    gr.Info(f"共通APIキーを '{api_key_name}' に設定しました。")
-    return api_key_name
-
-def update_timestamp_state(checked):
-    config_manager.save_config("add_timestamp", bool(checked))
-
-def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, character_name: Optional[str]):
-    key = next((k for k, v in config_manager.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
-    config_manager.save_config("last_api_history_limit_option", key)
-
-    reloaded_history = reload_chat_log(character_name, key)
-
-    return key, reloaded_history, gr.State()
-
-def handle_add_new_character(character_name: str):
-    if not character_name or not character_name.strip():
-        gr.Warning("キャラクター名が入力されていません。")
-        char_list = character_manager.get_character_list()
-        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), ""
-
-    safe_name = re.sub(r'[\\/*?:"<>|]', "", character_name).strip()
-    if not safe_name:
-        gr.Warning("無効なキャラクター名です。")
-        char_list = character_manager.get_character_list()
-        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), character_name
-
-    if character_manager.ensure_character_files(safe_name):
-        gr.Info(f"新しいキャラクター「{safe_name}」さんを迎えました！")
-        new_char_list = character_manager.get_character_list()
-        return gr.update(choices=new_char_list, value=safe_name), gr.update(choices=new_char_list, value=safe_name), gr.update(choices=new_char_list, value=safe_name), ""
-    else:
-        gr.Error(f"キャラクター「{safe_name}」の準備に失敗しました。")
-        char_list = character_manager.get_character_list()
-        return gr.update(choices=char_list), gr.update(choices=char_list), gr.update(choices=char_list), character_name
-
 def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], character_name: str, api_history_limit: str):
     if not message_to_delete:
         gr.Warning("No message selected for deletion.")
