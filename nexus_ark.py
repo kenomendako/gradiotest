@@ -121,7 +121,11 @@ try:
         debug_console_state = gr.State("")
         importer_process_state = gr.State(None) # インポーターのサブプロセスを管理
         chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
-        redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules()) # ← lambdaで囲むとより安全
+        redaction_rules_state = gr.State(
+            lambda: pd.DataFrame(config_manager.load_redaction_rules()).rename(
+                columns={"find": "元の文字列 (Find)", "replace": "置換後の文字列 (Replace)"}
+            )
+        ) # 修正後
         selected_redaction_rule_state = gr.State(None) # ←【重要】この新しいStateを追加
 
         with gr.Tabs():
@@ -292,9 +296,6 @@ try:
                                 interactive=True
                             )
                             with gr.Row():
-                                redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)", placeholder="置換したい文字列を入力...")
-                                redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)", placeholder="新しい文字列を入力...")
-                            with gr.Row():
                                 add_rule_button = gr.Button("ルールを保存/更新", variant="primary")
                                 delete_rule_button = gr.Button("選択したルールを削除")
                         with gr.Row():
@@ -425,10 +426,10 @@ try:
 
         # --- Screenshot Mode Handlers ---
         redaction_rules_df.select(
-            fn=lambda evt: evt.index[0] if evt and evt.index else None,
-            inputs=None,
-            outputs=[selected_redaction_rule_state],
-            show_progress=False # UIの反応を良くするため
+            fn=ui_handlers.handle_redaction_rule_select,
+            inputs=[redaction_rules_df],
+            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
+            show_progress=False
         )
 
         add_rule_button.click(
