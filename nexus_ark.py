@@ -704,7 +704,6 @@ try:
         auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
         # ▼▼▼ ここからが修正の核心 ▼▼▼
 
-        # 1. memos_import_buttonのクリックイベントを 'import_event' という変数に格納する
         import_event = memos_import_button.click(
             fn=ui_handlers.handle_memos_batch_import,
             inputs=[current_room_name, debug_console_state],
@@ -714,12 +713,10 @@ try:
                 importer_process_state,
                 debug_console_state,
                 debug_console_output,
-                chat_input_multimodal,
-                submit_button
+                chat_input_multimodal
             ]
         )
 
-        # 2. importer_stop_buttonの 'cancels' 引数に、UI部品ではなく、上で作成したイベント変数を渡す
         importer_stop_button.click(
             fn=ui_handlers.handle_importer_stop,
             inputs=[importer_process_state],
@@ -727,8 +724,7 @@ try:
                 memos_import_button,
                 importer_stop_button,
                 importer_process_state,
-                chat_input_multimodal,
-                submit_button
+                chat_input_multimodal
             ]
         )
 

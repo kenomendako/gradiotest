@@ -1046,17 +1046,19 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
 def handle_memos_batch_import(room_name: str, console_content: str):
     if not room_name:
         gr.Warning("ルームが選択されていません。")
-        yield gr.update(), gr.update(visible=False), None, console_content, console_content, gr.update(), gr.update()
+        # 戻り値の数を6個に修正
+        yield gr.update(), gr.update(visible=False), None, console_content, console_content, gr.update()
         return
 
     gr.Info(f"「{room_name}」の過去ログ取り込みをバックグラウンドで開始します。")
     initial_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 「{room_name}」の過去ログ取り込み処理を開始 ---\n"
+    # 戻り値の数を6個に修正
     yield (
         gr.update(value="処理中...", interactive=False),
         gr.update(visible=True),
         None,
         initial_console_text, initial_console_text,
-        gr.update(interactive=False), # chat_input_multimodal
+        gr.update(interactive=False)
     )
 
     process = None
@@ -1065,7 +1067,8 @@ def handle_memos_batch_import(room_name: str, console_content: str):
         if not os.path.isdir(archive_dir):
             error_msg = f"[エラー] アーカイブディレクトリが見つかりません: {archive_dir}"
             gr.Error(error_msg)
-            yield gr.update(), gr.update(visible=False), None, console_content + error_msg, console_content + error_msg, gr.update(), gr.update()
+            # 戻り値の数を6個に修正
+            yield gr.update(), gr.update(visible=False), None, console_content + error_msg, console_content + error_msg, gr.update()
             return
 
         python_executable = sys.executable or "python"
@@ -1077,7 +1080,8 @@ def handle_memos_batch_import(room_name: str, console_content: str):
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
 
-        yield gr.update(), gr.update(), process, gr.update(), gr.update(), gr.update(), gr.update()
+        # 戻り値の数を6個に修正
+        yield gr.update(), gr.update(), process, gr.update(), gr.update(), gr.update()
 
         updated_console_text = initial_console_text
         if process.stdout:
@@ -1087,7 +1091,8 @@ def handle_memos_batch_import(room_name: str, console_content: str):
                 line_str = byte_line.decode(locale.getpreferredencoding(False), errors='replace')
                 print(line_str, end='')
                 updated_console_text += line_str
-                yield gr.update(), gr.update(), process, updated_console_text, updated_console_text, gr.update(), gr.update()
+                # 戻り値の数を6個に修正
+                yield gr.update(), gr.update(), process, updated_console_text, updated_console_text, gr.update()
 
         process.wait()
         if process.returncode == 0:
@@ -1101,13 +1106,15 @@ def handle_memos_batch_import(room_name: str, console_content: str):
             final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] エラー終了 (コード: {process.returncode}) ---\n"
 
         updated_console_text += final_message
-        yield gr.update(), gr.update(), None, updated_console_text, updated_console_text, gr.update(), gr.update()
+        # 戻り値の数を6個に修正
+        yield gr.update(), gr.update(), None, updated_console_text, updated_console_text, gr.update()
 
     except Exception as e:
         error_message = f"インポート処理の起動に失敗しました: {e}"
         gr.Error(error_message); traceback.print_exc()
         error_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] {error_message} ---\n"
-        yield gr.update(), gr.update(visible=False), None, error_console_text, error_console_text, gr.update(), gr.update()
+        # 戻り値の数を6個に修正
+        yield gr.update(), gr.update(visible=False), None, error_console_text, error_console_text, gr.update()
 
     finally:
         if process:
@@ -1115,13 +1122,14 @@ def handle_memos_batch_import(room_name: str, console_content: str):
             process.wait()
             print("--- サブプロセスの終了を確認しました。UIを更新します。 ---")
 
+        # 戻り値の数を6個に修正
         yield (
             gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True),
             gr.update(visible=False),
             None,
             gr.update(),
             gr.update(),
-            gr.update(interactive=True), # chat_input_multimodal
+            gr.update(interactive=True)
         )
 
 def handle_importer_stop(process):
@@ -1130,11 +1138,12 @@ def handle_importer_stop(process):
         with open(stop_signal_file, "w") as f: f.write("stop")
         gr.Warning("インポート処理の中断を要求しました。現在のペア処理が完了次第、安全に停止します...")
     except Exception as e: gr.Error(f"中断要求の送信中にエラー: {e}")
+    # 戻り値の数を4個に修正
     return (
         gr.update(value="中断中...", interactive=False),
         gr.update(interactive=False),
         process,
-        gr.update(interactive=False), # chat_input_multimodal
+        gr.update(interactive=False)
     )
 
 def _run_core_memory_update(room_name: str, api_key: str):
