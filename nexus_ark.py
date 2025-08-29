@@ -284,16 +284,24 @@ try:
                                 label="スクリーンショットモードを有効にする",
                                 info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。"
                             )
-                            redaction_rules_df = gr.Dataframe(
-                                headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
-                                datatype=["str", "str"],
-                                row_count=(5, "dynamic"),
-                                col_count=(2, "interactive"),
-                                interactive=True
-                            )
                             with gr.Row():
-                                add_rule_button = gr.Button("ルールを保存/更新", variant="primary")
-                                delete_rule_button = gr.Button("選択したルールを削除")
+                                with gr.Column(scale=2):
+                                    gr.Markdown("**ルールの編集**")
+                                    redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)")
+                                    redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)")
+                                    with gr.Row():
+                                        add_rule_button = gr.Button("ルールを追加/更新", variant="primary")
+                                        clear_rule_form_button = gr.Button("フォームをクリア")
+                                with gr.Column(scale=3):
+                                    gr.Markdown("**現在のルールリスト**")
+                                    redaction_rules_df = gr.Dataframe(
+                                        headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
+                                        datatype=["str", "str"],
+                                        row_count=(5, "dynamic"),
+                                        col_count=(2, "interactive"),
+                                        interactive=False # 表示専用にする
+                                    )
+                                    delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
                         with gr.Row():
                             submit_button = gr.Button("送信", variant="primary")
                             chat_reload_button = gr.Button("🔄 履歴を更新")
@@ -422,23 +430,27 @@ try:
 
         # --- Screenshot Mode Handlers ---
         redaction_rules_df.select(
-            fn=lambda evt: evt.index[0] if evt and evt.index else None,
-            inputs=None,
-            outputs=[selected_redaction_rule_state],
-            show_progress=False # UIの反応を良くするため
+            fn=ui_handlers.handle_redaction_rule_select,
+            inputs=[redaction_rules_df],
+            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
         )
 
         add_rule_button.click(
-            fn=ui_handlers.handle_save_redaction_rules,
-            inputs=[redaction_rules_df],
-            outputs=[redaction_rules_state, redaction_rules_df]
-        ) # .then() は付けない
+            fn=ui_handlers.handle_add_or_update_redaction_rule,
+            inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
+            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+        )
+
+        clear_rule_form_button.click(
+            fn=lambda: (None, "", ""),
+            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+        )
 
         delete_rule_button.click(
             fn=ui_handlers.handle_delete_redaction_rule,
-            inputs=[redaction_rules_df, selected_redaction_rule_state],
-            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state]
-        ) # .then() は付けない
+            inputs=[redaction_rules_state, selected_redaction_rule_state],
+            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+        )
 
         screenshot_mode_checkbox.change(
             fn=ui_handlers.reload_chat_log,
