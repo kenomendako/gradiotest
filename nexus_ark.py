@@ -121,8 +121,8 @@ try:
         debug_console_state = gr.State("")
         importer_process_state = gr.State(None) # インポーターのサブプロセスを管理
         chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
-        redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules()) # ← lambdaで囲むとより安全
-        selected_redaction_rule_state = gr.State(None) # ←【重要】この新しいStateを追加
+        redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
+        selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -298,7 +298,7 @@ try:
                                         headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
                                         datatype=["str", "str"],
                                         row_count=(5, "dynamic"),
-                                        col_count=(2, "interactive"),
+                                        col_count=(2, "fixed"), # "interactive" から "fixed" に変更
                                         interactive=False
                                     )
                                     delete_rule_button = gr.Button("選択したルールを削除", variant="stop")

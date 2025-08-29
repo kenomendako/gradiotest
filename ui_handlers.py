@@ -59,9 +59,20 @@ def _get_location_choices_for_ui(room_name: str) -> list:
 
     return choices
 
-def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
+def _create_redaction_df_from_rules(rules: List[Dict]) -> pd.DataFrame:
     """
-    UI更新のロジックのみを担う内部ヘルパー関数。設定ファイルには触らない。
+    ルールの辞書リストから、UI表示用のDataFrameを作成するヘルパー関数。
+    この関数で、キーと列名のマッピングを完結させる。
+    """
+    if not rules:
+        return pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
+    df_data = [{"元の文字列 (Find)": r.get("find", ""), "置換後の文字列 (Replace)": r.get("replace", "")} for r in rules]
+    return pd.DataFrame(df_data)
+
+def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
+    """
+    【新設】チャットタブと、それに付随する設定UIの更新のみを担当するヘルパー関数。
+    戻り値の数は `initial_load_chat_outputs` の32個と一致する。
     """
     if not room_name:
         room_list = room_manager.get_room_list_for_ui()
@@ -85,7 +96,7 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     effective_settings = config_manager.get_effective_settings(room_name)
     all_models = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL
     model_val = effective_settings["model_name"] if effective_settings["model_name"] != config_manager.initial_model_global else "デフォルト"
-    voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "vindemiatrix"), list(config_manager.SUPPORTED_VOICES.values())[0])
+    voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "iapetus"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
     safety_display_map = {
         "BLOCK_NONE": "ブロックしない", "BLOCK_LOW_AND_ABOVE": "低リスク以上をブロック",
@@ -98,6 +109,7 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
     dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
 
+    # このタプルの要素数は32個
     chat_tab_updates = (
         room_name, chat_history, mapping_list, "", gr.update(value=None), profile_image,
         memory_str, notepad_content, load_system_prompt_content(room_name),
@@ -114,6 +126,14 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path
     )
+    return chat_tab_updates
+
+def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
+    """
+    【修正】ルーム切り替え時に、全ての関連タブのUIを更新する。
+    戻り値の数は `all_room_change_outputs` の39個と一致する。
+    """
+    chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
 
     wb_state, wb_area_selector, wb_raw_editor = handle_world_builder_load(room_name)
     world_builder_updates = (wb_state, wb_area_selector, wb_raw_editor)
@@ -125,33 +145,29 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     participant_checkbox_update = gr.update(choices=other_rooms_for_checkbox, value=[])
     session_management_updates = ([], "現在、1対1の会話モードです。", participant_checkbox_update)
 
-    # ▼▼▼【ここから修正】▼▼▼
-    # 置換ルールを読み込み、DataFrame形式で返す
     rules = config_manager.load_redaction_rules()
-    rules_df_for_ui = pd.DataFrame(rules, columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
+    rules_df_for_ui = _create_redaction_df_from_rules(rules)
 
-    # 戻り値の最後に、DataFrameの更新データを追加する
     return chat_tab_updates + world_builder_updates + session_management_updates + (rules_df_for_ui,)
-    # ▲▲▲【修正ここまで】▲▲▲
 
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
+    """
+    【修正】UIの初期化処理。戻り値の数は `initial_load_outputs` の36個と一致する。
+    """
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
 
-    all_updates = _update_all_tabs_for_room_change(initial_room_to_load, initial_api_key_name)
-    room_dependent_outputs = all_updates[:32]
+    # チャットタブ関連の32個の更新値を取得
+    chat_tab_updates = _update_chat_tab_for_room_change(initial_room_to_load, initial_api_key_name)
 
-    # ▼▼▼【ここからが修正の核心】▼▼▼
-    # 1. 置換ルールをファイルから読み込む
+    # 置換ルール関連の1個の更新値を取得
     rules = config_manager.load_redaction_rules()
-    # 2. GradioのDataFrameが期待する形式に変換する
-    rules_df_for_ui = pd.DataFrame(rules, columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
+    rules_df_for_ui = _create_redaction_df_from_rules(rules)
 
-    # 3. 36番目の戻り値として、DataFrameの初期値を追加する
-    return (display_df, df_with_ids, feedback_text) + room_dependent_outputs + (rules_df_for_ui,)
-    # ▲▲▲【修正ここまで】▲▲▲
+    # アラーム(3) + チャットタブ(32) + 置換ルール(1) = 36個の値を返す
+    return (display_df, df_with_ids, feedback_text) + chat_tab_updates + (rules_df_for_ui,)
 
 def handle_save_room_settings(
     room_name: str, model_name: str, voice_name: str, voice_style_prompt: str,
@@ -1113,6 +1129,101 @@ def handle_core_memory_update_click(room_name: str, api_key_name: str):
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{room_name}」のコアメモリ更新をバックグラウンドで開始しました。")
     threading.Thread(target=_run_core_memory_update, args=(room_name, api_key)).start()
+
+# --- Screenshot Redaction Rules Handlers ---
+
+def handle_redaction_rule_select(rules_df: pd.DataFrame, evt: gr.SelectData) -> Tuple[Optional[int], str, str]:
+    """DataFrameの行が選択されたときに、その内容を編集フォームに表示する。"""
+    if not evt.index:
+        # 選択が解除された場合
+        return None, "", ""
+    try:
+        selected_index = evt.index[0]
+        if rules_df is None or not (0 <= selected_index < len(rules_df)):
+             return None, "", ""
+
+        selected_row = rules_df.iloc[selected_index]
+        find_text = selected_row.get("元の文字列 (Find)", "")
+        replace_text = selected_row.get("置換後の文字列 (Replace)", "")
+        # 選択された行のインデックスを返す
+        return selected_index, str(find_text), str(replace_text)
+    except (IndexError, KeyError) as e:
+        print(f"ルール選択エラー: {e}")
+        return None, "", ""
+
+def handle_add_or_update_redaction_rule(
+    current_rules: List[Dict],
+    selected_index: Optional[int],
+    find_text: str,
+    replace_text: str
+) -> Tuple[pd.DataFrame, List[Dict], None, str, str]:
+    """ルールを追加または更新し、ファイルに保存してUIを更新する。"""
+    find_text = find_text.strip()
+    replace_text = replace_text.strip()
+
+    if not find_text:
+        gr.Warning("「元の文字列」は必須です。")
+        df = _create_redaction_df_from_rules(current_rules)
+        return df, current_rules, selected_index, find_text, replace_text
+
+    if current_rules is None:
+        current_rules = []
+
+    # 更新モード
+    if selected_index is not None and 0 <= selected_index < len(current_rules):
+        # findの値が、自分以外のルールで既に使われていないかチェック
+        for i, rule in enumerate(current_rules):
+            if i != selected_index and rule["find"] == find_text:
+                gr.Warning(f"ルール「{find_text}」は既に存在します。")
+                df = _create_redaction_df_from_rules(current_rules)
+                return df, current_rules, selected_index, find_text, replace_text
+        current_rules[selected_index] = {"find": find_text, "replace": replace_text}
+        gr.Info(f"ルール「{find_text}」を更新しました。")
+    # 新規追加モード
+    else:
+        if any(rule["find"] == find_text for rule in current_rules):
+            gr.Warning(f"ルール「{find_text}」は既に存在します。更新する場合はリストから選択してください。")
+            df = _create_redaction_df_from_rules(current_rules)
+            return df, current_rules, selected_index, find_text, replace_text
+        current_rules.append({"find": find_text, "replace": replace_text})
+        gr.Info(f"新しいルール「{find_text}」を追加しました。")
+
+    config_manager.save_redaction_rules(current_rules)
+
+    # ▼▼▼【ここが修正の核心】▼▼▼
+    # 古い、間違ったDataFrame生成ロジックを、
+    # 正しいヘルパー関数の呼び出しに置き換える。
+    df_for_ui = _create_redaction_df_from_rules(current_rules)
+    # ▲▲▲【修正ここまで】▲▲▲
+
+    return df_for_ui, current_rules, None, "", ""
+
+def handle_delete_redaction_rule(
+    current_rules: List[Dict],
+    selected_index: Optional[int]
+) -> Tuple[pd.DataFrame, List[Dict], None, str, str]:
+    """選択されたルールを削除する。"""
+    if current_rules is None:
+        current_rules = []
+
+    if selected_index is None or not (0 <= selected_index < len(current_rules)):
+        gr.Warning("削除するルールをリストから選択してください。")
+        df = _create_redaction_df_from_rules(current_rules)
+        return df, current_rules, selected_index, "", ""
+
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # Pandasの.dropではなく、Pythonのdel文でリストの要素を直接削除する
+    deleted_rule_name = current_rules[selected_index]["find"]
+    del current_rules[selected_index]
+    # ▲▲▲【修正ここまで】▲▲▲
+
+    config_manager.save_redaction_rules(current_rules)
+    gr.Info(f"ルール「{deleted_rule_name}」を削除しました。")
+
+    df_for_ui = _create_redaction_df_from_rules(current_rules)
+
+    # フォームと選択状態をリセット
+    return df_for_ui, current_rules, None, "", ""
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """

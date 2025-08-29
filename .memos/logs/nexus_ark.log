@@ -991,3 +991,140 @@
 2025-08-24 00:30:00,023 - schedule - DEBUG - __init__.py:690 - run - Running job Job(interval=1, unit=minutes, do=check_alarms, args=(), kwargs={})
 2025-08-24 00:58:00,702 - schedule - DEBUG - __init__.py:690 - run - Running job Job(interval=1, unit=minutes, do=check_alarms, args=(), kwargs={})
 2025-08-24 01:15:00,234 - schedule - DEBUG - __init__.py:690 - run - Running job Job(interval=1, unit=minutes, do=check_alarms, args=(), kwargs={})
+2025-08-29 08:42:13,285 - PIL.Image - DEBUG - Image.py:399 - init - Importing AvifImagePlugin
+2025-08-29 08:42:13,297 - PIL.Image - DEBUG - Image.py:399 - init - Importing BlpImagePlugin
+2025-08-29 08:42:13,299 - PIL.Image - DEBUG - Image.py:399 - init - Importing BmpImagePlugin
+2025-08-29 08:42:13,300 - PIL.Image - DEBUG - Image.py:399 - init - Importing BufrStubImagePlugin
+2025-08-29 08:42:13,301 - PIL.Image - DEBUG - Image.py:399 - init - Importing CurImagePlugin
+2025-08-29 08:42:13,302 - PIL.Image - DEBUG - Image.py:399 - init - Importing DcxImagePlugin
+2025-08-29 08:42:13,304 - PIL.Image - DEBUG - Image.py:399 - init - Importing DdsImagePlugin
+2025-08-29 08:42:13,310 - PIL.Image - DEBUG - Image.py:399 - init - Importing EpsImagePlugin
+2025-08-29 08:42:13,312 - PIL.Image - DEBUG - Image.py:399 - init - Importing FitsImagePlugin
+2025-08-29 08:42:13,313 - PIL.Image - DEBUG - Image.py:399 - init - Importing FliImagePlugin
+2025-08-29 08:42:13,314 - PIL.Image - DEBUG - Image.py:399 - init - Importing FpxImagePlugin
+2025-08-29 08:42:13,315 - PIL.Image - DEBUG - Image.py:402 - init - Image: failed to import FpxImagePlugin: No module named 'olefile'
+2025-08-29 08:42:13,315 - PIL.Image - DEBUG - Image.py:399 - init - Importing FtexImagePlugin
+2025-08-29 08:42:13,316 - PIL.Image - DEBUG - Image.py:399 - init - Importing GbrImagePlugin
+2025-08-29 08:42:13,317 - PIL.Image - DEBUG - Image.py:399 - init - Importing GifImagePlugin
+2025-08-29 08:42:13,323 - PIL.Image - DEBUG - Image.py:399 - init - Importing GribStubImagePlugin
+2025-08-29 08:42:13,325 - PIL.Image - DEBUG - Image.py:399 - init - Importing Hdf5StubImagePlugin
+2025-08-29 08:42:13,326 - PIL.Image - DEBUG - Image.py:399 - init - Importing IcnsImagePlugin
+2025-08-29 08:42:13,330 - PIL.Image - DEBUG - Image.py:399 - init - Importing IcoImagePlugin
+2025-08-29 08:42:13,332 - PIL.Image - DEBUG - Image.py:399 - init - Importing ImImagePlugin
+2025-08-29 08:42:13,337 - PIL.Image - DEBUG - Image.py:399 - init - Importing ImtImagePlugin
+2025-08-29 08:42:13,339 - PIL.Image - DEBUG - Image.py:399 - init - Importing IptcImagePlugin
+2025-08-29 08:42:13,340 - PIL.Image - DEBUG - Image.py:399 - init - Importing JpegImagePlugin
+2025-08-29 08:42:13,342 - PIL.Image - DEBUG - Image.py:399 - init - Importing Jpeg2KImagePlugin
+2025-08-29 08:42:13,343 - PIL.Image - DEBUG - Image.py:399 - init - Importing McIdasImagePlugin
+2025-08-29 08:42:13,343 - PIL.Image - DEBUG - Image.py:399 - init - Importing MicImagePlugin
+2025-08-29 08:42:13,345 - PIL.Image - DEBUG - Image.py:402 - init - Image: failed to import MicImagePlugin: No module named 'olefile'
+2025-08-29 08:42:13,345 - PIL.Image - DEBUG - Image.py:399 - init - Importing MpegImagePlugin
+2025-08-29 08:42:13,346 - PIL.Image - DEBUG - Image.py:399 - init - Importing MpoImagePlugin
+2025-08-29 08:42:13,350 - PIL.Image - DEBUG - Image.py:399 - init - Importing MspImagePlugin
+2025-08-29 08:42:13,351 - PIL.Image - DEBUG - Image.py:399 - init - Importing PalmImagePlugin
+2025-08-29 08:42:13,354 - PIL.Image - DEBUG - Image.py:399 - init - Importing PcdImagePlugin
+2025-08-29 08:42:13,355 - PIL.Image - DEBUG - Image.py:399 - init - Importing PcxImagePlugin
+2025-08-29 08:42:13,355 - PIL.Image - DEBUG - Image.py:399 - init - Importing PdfImagePlugin
+2025-08-29 08:42:13,368 - PIL.Image - DEBUG - Image.py:399 - init - Importing PixarImagePlugin
+2025-08-29 08:42:13,370 - PIL.Image - DEBUG - Image.py:399 - init - Importing PngImagePlugin
+2025-08-29 08:42:13,370 - PIL.Image - DEBUG - Image.py:399 - init - Importing PpmImagePlugin
+2025-08-29 08:42:13,372 - PIL.Image - DEBUG - Image.py:399 - init - Importing PsdImagePlugin
+2025-08-29 08:42:13,374 - PIL.Image - DEBUG - Image.py:399 - init - Importing QoiImagePlugin
+2025-08-29 08:42:13,375 - PIL.Image - DEBUG - Image.py:399 - init - Importing SgiImagePlugin
+2025-08-29 08:42:13,378 - PIL.Image - DEBUG - Image.py:399 - init - Importing SpiderImagePlugin
+2025-08-29 08:42:13,379 - PIL.Image - DEBUG - Image.py:399 - init - Importing SunImagePlugin
+2025-08-29 08:42:13,381 - PIL.Image - DEBUG - Image.py:399 - init - Importing TgaImagePlugin
+2025-08-29 08:42:13,384 - PIL.Image - DEBUG - Image.py:399 - init - Importing TiffImagePlugin
+2025-08-29 08:42:13,385 - PIL.Image - DEBUG - Image.py:399 - init - Importing WebPImagePlugin
+2025-08-29 08:42:13,395 - PIL.Image - DEBUG - Image.py:399 - init - Importing WmfImagePlugin
+2025-08-29 08:42:13,397 - PIL.Image - DEBUG - Image.py:399 - init - Importing XbmImagePlugin
+2025-08-29 08:42:13,402 - PIL.Image - DEBUG - Image.py:399 - init - Importing XpmImagePlugin
+2025-08-29 08:42:13,407 - PIL.Image - DEBUG - Image.py:399 - init - Importing XVThumbImagePlugin
+2025-08-29 08:42:33,460 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 08:42:33,469 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 08:42:33,474 - urllib3.connectionpool - DEBUG - connectionpool.py:1049 - _new_conn - Starting new HTTPS connection (1): huggingface.co:443
+2025-08-29 08:42:33,481 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 08:42:33,482 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 08:42:33,538 - httpcore.connection - DEBUG - _trace.py:47 - trace - connect_tcp.started host='api.gradio.app' port=443 local_address=None timeout=3 socket_options=None
+2025-08-29 08:42:33,604 - httpcore.connection - DEBUG - _trace.py:47 - trace - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x7fcc8c3d12b0>
+2025-08-29 08:42:33,604 - httpcore.connection - DEBUG - _trace.py:47 - trace - start_tls.started ssl_context=<ssl.SSLContext object at 0x7fcc8c38b050> server_hostname='api.gradio.app' timeout=3
+2025-08-29 08:42:33,724 - httpcore.connection - DEBUG - _trace.py:47 - trace - start_tls.complete return_value=<httpcore._backends.sync.SyncStream object at 0x7fcc8c3d11c0>
+2025-08-29 08:42:33,737 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_headers.started request=<Request [b'GET']>
+2025-08-29 08:42:33,740 - urllib3.connectionpool - DEBUG - connectionpool.py:544 - _make_request - https://huggingface.co:443 "HEAD /api/telemetry/gradio/initiated HTTP/1.1" 200 0
+2025-08-29 08:42:33,752 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_headers.complete
+2025-08-29 08:42:33,772 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_body.started request=<Request [b'GET']>
+2025-08-29 08:42:33,773 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_body.complete
+2025-08-29 08:42:33,773 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_headers.started request=<Request [b'GET']>
+2025-08-29 08:42:33,797 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Date', b'Fri, 29 Aug 2025 08:42:33 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'21'), (b'Connection', b'keep-alive'), (b'Server', b'nginx/1.18.0'), (b'Access-Control-Allow-Origin', b'*')])
+2025-08-29 08:42:33,806 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_body.started request=<Request [b'GET']>
+2025-08-29 08:42:33,813 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_body.complete
+2025-08-29 08:42:33,814 - httpcore.http11 - DEBUG - _trace.py:47 - trace - response_closed.started
+2025-08-29 08:42:33,814 - httpcore.http11 - DEBUG - _trace.py:47 - trace - response_closed.complete
+2025-08-29 08:42:33,815 - httpcore.connection - DEBUG - _trace.py:47 - trace - close.started
+2025-08-29 08:42:33,822 - httpcore.connection - DEBUG - _trace.py:47 - trace - close.complete
+2025-08-29 08:42:34,879 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 08:42:34,879 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 08:42:34,983 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 08:42:34,984 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 08:42:35,246 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 08:42:35,246 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 08:42:35,413 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 08:42:35,414 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 08:42:35,670 - httpcore.connection - DEBUG - _trace.py:47 - trace - connect_tcp.started host='localhost' port=7860 local_address=None timeout=None socket_options=None
+2025-08-29 08:42:35,671 - httpcore.connection - DEBUG - _trace.py:47 - trace - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x7fcc8b9b2600>
+2025-08-29 08:42:35,671 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_headers.started request=<Request [b'GET']>
+2025-08-29 08:42:35,672 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_headers.complete
+2025-08-29 08:42:35,672 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_body.started request=<Request [b'GET']>
+2025-08-29 08:42:35,672 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_body.complete
+2025-08-29 08:42:35,672 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_headers.started request=<Request [b'GET']>
+2025-08-29 08:42:35,674 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'date', b'Fri, 29 Aug 2025 08:42:35 GMT'), (b'server', b'uvicorn'), (b'content-length', b'4'), (b'content-type', b'application/json')])
+2025-08-29 08:42:35,675 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_body.started request=<Request [b'GET']>
+2025-08-29 08:42:35,675 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_body.complete
+2025-08-29 08:42:35,675 - httpcore.http11 - DEBUG - _trace.py:47 - trace - response_closed.started
+2025-08-29 08:42:35,675 - httpcore.http11 - DEBUG - _trace.py:47 - trace - response_closed.complete
+2025-08-29 08:42:35,676 - httpcore.connection - DEBUG - _trace.py:47 - trace - close.started
+2025-08-29 08:42:35,676 - httpcore.connection - DEBUG - _trace.py:47 - trace - close.complete
+2025-08-29 08:42:35,677 - httpcore.connection - DEBUG - _trace.py:47 - trace - connect_tcp.started host='localhost' port=7860 local_address=None timeout=3 socket_options=None
+2025-08-29 08:42:35,678 - httpcore.connection - DEBUG - _trace.py:47 - trace - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x7fcc8a3f4380>
+2025-08-29 08:42:35,678 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_headers.started request=<Request [b'HEAD']>
+2025-08-29 08:42:35,678 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_headers.complete
+2025-08-29 08:42:35,680 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_body.started request=<Request [b'HEAD']>
+2025-08-29 08:42:35,680 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_body.complete
+2025-08-29 08:42:35,681 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_headers.started request=<Request [b'HEAD']>
+2025-08-29 08:42:35,768 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'date', b'Fri, 29 Aug 2025 08:42:35 GMT'), (b'server', b'uvicorn'), (b'content-length', b'435805'), (b'content-type', b'text/html; charset=utf-8')])
+2025-08-29 08:42:35,769 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_body.started request=<Request [b'HEAD']>
+2025-08-29 08:42:35,769 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_body.complete
+2025-08-29 08:42:35,769 - httpcore.http11 - DEBUG - _trace.py:47 - trace - response_closed.started
+2025-08-29 08:42:35,769 - httpcore.http11 - DEBUG - _trace.py:47 - trace - response_closed.complete
+2025-08-29 08:42:35,769 - httpcore.connection - DEBUG - _trace.py:47 - trace - close.started
+2025-08-29 08:42:35,770 - httpcore.connection - DEBUG - _trace.py:47 - trace - close.complete
+2025-08-29 08:42:35,774 - urllib3.connectionpool - DEBUG - connectionpool.py:1049 - _new_conn - Starting new HTTPS connection (1): huggingface.co:443
+2025-08-29 08:42:35,921 - urllib3.connectionpool - DEBUG - connectionpool.py:544 - _make_request - https://huggingface.co:443 "HEAD /api/telemetry/gradio/launched HTTP/1.1" 200 0
+2025-08-29 08:43:00,457 - schedule - DEBUG - __init__.py:690 - run - Running job Job(interval=1, unit=minutes, do=check_alarms, args=(), kwargs={})
+2025-08-29 08:44:00,480 - schedule - DEBUG - __init__.py:690 - run - Running job Job(interval=1, unit=minutes, do=check_alarms, args=(), kwargs={})
+2025-08-29 08:45:00,500 - schedule - DEBUG - __init__.py:690 - run - Running job Job(interval=1, unit=minutes, do=check_alarms, args=(), kwargs={})
+2025-08-29 08:46:00,519 - schedule - DEBUG - __init__.py:690 - run - Running job Job(interval=1, unit=minutes, do=check_alarms, args=(), kwargs={})
+2025-08-29 08:47:00,539 - schedule - DEBUG - __init__.py:690 - run - Running job Job(interval=1, unit=minutes, do=check_alarms, args=(), kwargs={})
+2025-08-29 08:48:00,572 - schedule - DEBUG - __init__.py:690 - run - Running job Job(interval=1, unit=minutes, do=check_alarms, args=(), kwargs={})
+2025-08-29 09:59:49,089 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 09:59:49,094 - urllib3.connectionpool - DEBUG - connectionpool.py:1049 - _new_conn - Starting new HTTPS connection (1): huggingface.co:443
+2025-08-29 09:59:49,095 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 09:59:49,097 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 09:59:49,097 - asyncio - DEBUG - selector_events.py:64 - __init__ - Using selector: EpollSelector
+2025-08-29 09:59:49,137 - httpcore.connection - DEBUG - _trace.py:47 - trace - connect_tcp.started host='api.gradio.app' port=443 local_address=None timeout=3 socket_options=None
+2025-08-29 09:59:49,218 - httpcore.connection - DEBUG - _trace.py:47 - trace - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x7fc0714d0680>
+2025-08-29 09:59:49,238 - httpcore.connection - DEBUG - _trace.py:47 - trace - start_tls.started ssl_context=<ssl.SSLContext object at 0x7fc0718f3750> server_hostname='api.gradio.app' timeout=3
+2025-08-29 09:59:49,306 - urllib3.connectionpool - DEBUG - connectionpool.py:544 - _make_request - https://huggingface.co:443 "HEAD /api/telemetry/gradio/initiated HTTP/1.1" 200 0
+2025-08-29 09:59:49,354 - httpcore.connection - DEBUG - _trace.py:47 - trace - start_tls.complete return_value=<httpcore._backends.sync.SyncStream object at 0x7fc0714d0590>
+2025-08-29 09:59:49,360 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_headers.started request=<Request [b'GET']>
+2025-08-29 09:59:49,366 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_headers.complete
+2025-08-29 09:59:49,370 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_body.started request=<Request [b'GET']>
+2025-08-29 09:59:49,381 - httpcore.http11 - DEBUG - _trace.py:47 - trace - send_request_body.complete
+2025-08-29 09:59:49,388 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_headers.started request=<Request [b'GET']>
+2025-08-29 09:59:49,414 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Date', b'Fri, 29 Aug 2025 09:59:49 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'21'), (b'Connection', b'keep-alive'), (b'Server', b'nginx/1.18.0'), (b'Access-Control-Allow-Origin', b'*')])
+2025-08-29 09:59:49,416 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_body.started request=<Request [b'GET']>
+2025-08-29 09:59:49,417 - httpcore.http11 - DEBUG - _trace.py:47 - trace - receive_response_body.complete
+2025-08-29 09:59:49,420 - httpcore.http11 - DEBUG - _trace.py:47 - trace - response_closed.started
+2025-08-29 09:59:49,424 - httpcore.http11 - DEBUG - _trace.py:47 - trace - response_closed.complete
+2025-08-29 09:59:49,426 - httpcore.connection - DEBUG - _trace.py:47 - trace - close.started
+2025-08-29 09:59:49,433 - httpcore.connection - DEBUG - _trace.py:47 - trace - close.complete
