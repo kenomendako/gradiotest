@@ -277,7 +277,7 @@ try:
                             cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
                         token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
                         tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
-                        chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
+
                         with gr.Accordion("📸 スクリーンショット支援", open=False):
                             gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
                             screenshot_mode_checkbox = gr.Checkbox(
@@ -298,46 +298,47 @@ try:
                                         headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
                                         datatype=["str", "str"],
                                         row_count=(5, "dynamic"),
-                                        col_count=(2, "fixed"), # "interactive" から "fixed" に変更
+                                        col_count=(2, "fixed"),
                                         interactive=False
                                     )
                                     delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
 
-                            # ▼▼▼【ここにイベントハンドラを移動・集約する】▼▼▼
+                            # イベントハンドラ
                             redaction_rules_df.select(
                                 fn=ui_handlers.handle_redaction_rule_select,
                                 inputs=[redaction_rules_df],
                                 outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
                             )
-
                             add_rule_button.click(
                                 fn=ui_handlers.handle_add_or_update_redaction_rule,
                                 inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
                                 outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
                             )
-
                             clear_rule_form_button.click(
                                 fn=lambda: (None, "", ""),
                                 outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
                             )
-
                             delete_rule_button.click(
                                 fn=ui_handlers.handle_delete_redaction_rule,
                                 inputs=[redaction_rules_state, selected_redaction_rule_state],
                                 outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
                             )
-
                             screenshot_mode_checkbox.change(
                                 fn=ui_handlers.reload_chat_log,
                                 inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state],
                                 outputs=[chatbot_display, current_log_map_state]
                             )
-                        with gr.Row():
-                            submit_button = gr.Button("送信", variant="primary")
-                            chat_reload_button = gr.Button("🔄 履歴を更新")
-                        allowed_file_types = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif', '.mp3', '.wav', '.flac', '.aac', '.mp4', '.mov', '.avi', '.webm', '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json']
-                        file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
-                        gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
+
+                        chat_input_multimodal = gr.MultimodalTextbox(
+                            file_types=["image", "audio", "video", "text", ".pdf", ".json"], # メディア種別と拡張子を正しく指定
+                            placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...",
+                            show_label=False,
+                            lines=3,
+                            interactive=True
+                        )
+
+                        # 「送信」ボタンを削除し、「履歴を更新」ボタンだけを単独で配置する
+                        chat_reload_button = gr.Button("🔄 履歴を更新")
 
             with gr.TabItem(" 記憶・メモ・指示"):
                 gr.Markdown("##  記憶・メモ・指示\nルームの根幹をなす設定ファイルを、ここで直接編集できます。")
@@ -429,8 +430,8 @@ try:
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
 
         initial_load_chat_outputs = [
-            current_room_name, chatbot_display, current_log_map_state, chat_input_textbox,
-            file_upload_button,
+            current_room_name, chatbot_display, current_log_map_state,
+            chat_input_multimodal, # chat_input_textbox と file_upload_button をこれ一つに置き換え
             profile_image_display,
             memory_json_editor, notepad_editor, system_prompt_editor,
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
@@ -443,7 +444,7 @@ try:
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
-        ] + initial_load_chat_outputs + [redaction_rules_df] # ← ここに追加
+        ] + initial_load_chat_outputs + [redaction_rules_df]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
@@ -471,8 +472,12 @@ try:
         )
 
         chat_inputs = [
-            chat_input_textbox, current_room_name, current_api_key_name_state,
-            file_upload_button, api_history_limit_state, debug_mode_checkbox,
+            chat_input_multimodal, # 変更
+            current_room_name,
+            current_api_key_name_state,
+            # file_upload_button は削除
+            api_history_limit_state,
+            debug_mode_checkbox,
             auto_memory_checkbox,
             debug_console_state,
             active_participants_state,
@@ -482,24 +487,22 @@ try:
 
         rerun_button.click(
             fn=ui_handlers.handle_rerun_button_click,
-            inputs=[
+            inputs=[ # inputs から file_upload_button を削除
                 selected_message_state, current_room_name, current_api_key_name_state,
-                file_upload_button, api_history_limit_state, debug_mode_checkbox,
+                api_history_limit_state, debug_mode_checkbox,
                 auto_memory_checkbox,
                 debug_console_state,
                 active_participants_state,
                 room_model_dropdown,
                 model_dropdown
             ],
-            # outputsの最後に selected_message_state と action_button_group を追加
-            outputs=[
-                chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button,
+            outputs=[ # outputs の chat_input_textbox, file_upload_button を chat_input_multimodal に統合
+                chatbot_display, current_log_map_state, chat_input_multimodal,
                 token_count_display, current_location_display, current_scenery_display,
                 alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
                 debug_console_state, debug_console_output,
-                selected_message_state, action_button_group  # ★ この2つを追加
+                selected_message_state, action_button_group
             ]
-            # ▲▲▲【修正ここまで】▲▲▲
         )
 
         room_dropdown.change(
@@ -591,7 +594,8 @@ try:
         )
 
         chat_submit_outputs = [
-            chatbot_display, current_log_map_state, chat_input_textbox, file_upload_button,
+            chatbot_display, current_log_map_state, chat_input_multimodal, # 変更
+            # file_upload_button は削除
             token_count_display, current_location_display, current_scenery_display,
             alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
             debug_console_state, debug_console_output
@@ -612,11 +616,20 @@ try:
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
-        chat_input_textbox.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
-        submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
-        token_calc_on_input_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state, chat_input_textbox, file_upload_button] + context_checkboxes
-        file_upload_button.upload(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
-        file_upload_button.clear(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
+        # 送信イベント
+        chat_input_multimodal.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
+
+        # トークン計算イベント（入力内容が変更されるたびに実行）
+        token_calc_on_input_inputs = [
+            current_room_name, current_api_key_name_state, api_history_limit_state,
+            chat_input_multimodal # 変更
+        ] + context_checkboxes
+        chat_input_multimodal.change(
+            fn=ui_handlers.update_token_count_on_input,
+            inputs=token_calc_on_input_inputs,
+            outputs=token_count_display,
+            show_progress=False
+        )
 
         refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
         location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
@@ -691,7 +704,6 @@ try:
         auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
         # ▼▼▼ ここからが修正の核心 ▼▼▼
 
-        # 1. memos_import_buttonのクリックイベントを 'import_event' という変数に格納する
         import_event = memos_import_button.click(
             fn=ui_handlers.handle_memos_batch_import,
             inputs=[current_room_name, debug_console_state],
@@ -701,12 +713,10 @@ try:
                 importer_process_state,
                 debug_console_state,
                 debug_console_output,
-                chat_input_textbox,
-                submit_button
+                chat_input_multimodal
             ]
         )
 
-        # 2. importer_stop_buttonの 'cancels' 引数に、UI部品ではなく、上で作成したイベント変数を渡す
         importer_stop_button.click(
             fn=ui_handlers.handle_importer_stop,
             inputs=[importer_process_state],
@@ -714,8 +724,7 @@ try:
                 memos_import_button,
                 importer_stop_button,
                 importer_process_state,
-                chat_input_textbox,
-                submit_button
+                chat_input_multimodal
             ]
         )
 
