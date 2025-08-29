@@ -117,66 +117,48 @@ def load_chat_log(file_path: str, character_name: str) -> List[Dict[str, str]]:
             header = None
     return messages
 
-def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name: str) -> Tuple[List[Tuple[Union[str, Tuple, None], Union[str, Tuple, None]]], List[int]]:
+def format_history_for_gradio(raw_history: List[Dict[str, str]], character_name: str) -> Tuple[List[Dict[str, any]], List[Tuple[Union[str, None], Union[str, None]]], List[int]]:
     if not raw_history:
-        return [], []
+        return [], [], []
 
-    gradio_history = []
+    messages_history = []
+    buttons_history = []
     mapping_list = []
     image_tag_pattern = re.compile(r"\[Generated Image: (.*?)\]")
 
-    intermediate_list = []
     for i, msg in enumerate(raw_history):
+        role = "assistant" if msg["role"] == "model" else "user"
         content = msg.get("content", "").strip()
         if not content: continue
 
-        last_end = 0
-        for match in image_tag_pattern.finditer(content):
-            if match.start() > last_end:
-                intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:match.start()].strip(), "original_index": i})
-            intermediate_list.append({"type": "image", "role": "model", "content": match.group(1).strip(), "original_index": i})
-            last_end = match.end()
-        if last_end < len(content):
-            intermediate_list.append({"type": "text", "role": msg["role"], "content": content[last_end:].strip(), "original_index": i})
+        # --- 2つのリストを同時に構築 ---
 
-    text_parts_with_anchors = []
-    for item in intermediate_list:
-        if item["type"] == "text" and item["content"]:
-            item["anchor_id"] = f"msg-anchor-{uuid.uuid4().hex[:8]}"
-            text_parts_with_anchors.append(item)
+        # 1. messages_history (画像 + テキスト)
+        messages_history.append({"role": role, "content": content})
 
-    text_part_index = 0
-    for item in intermediate_list:
-        if not item["content"]: continue
+        # 2. buttons_history (HTMLボタン + 空の画像代替)
+        button_content_text = image_tag_pattern.sub("", content).strip()
 
-        if item["type"] == "text":
-            prev_anchor = text_parts_with_anchors[text_part_index - 1]["anchor_id"] if text_part_index > 0 else None
-            next_anchor = text_parts_with_anchors[text_part_index + 1]["anchor_id"] if text_part_index < len(text_parts_with_anchors) - 1 else None
+        html_with_buttons = _format_text_content_for_gradio(button_content_text, f"msg-anchor-{i}", None, None)
 
-            html_content = _format_text_content_for_gradio(item["content"], item["anchor_id"], prev_anchor, next_anchor)
+        if role == "user":
+            buttons_history.append((html_with_buttons, None))
+        else:
+            buttons_history.append((None, html_with_buttons))
 
-            if item["role"] == "user":
-                gradio_history.append((html_content, None))
-            else:
-                gradio_history.append((None, html_content))
+        mapping_list.append(i)
 
-            mapping_list.append(item["original_index"])
-            text_part_index += 1
-
-        elif item["type"] == "image":
-            filepath = item["content"]
-            filename = os.path.basename(filepath)
-            gradio_history.append((None, (filepath, filename)))
-            mapping_list.append(item["original_index"])
-
-    return gradio_history, mapping_list
+    return messages_history, buttons_history, mapping_list
 
 def _format_text_content_for_gradio(content: str, current_anchor_id: str, prev_anchor_id: Optional[str], next_anchor_id: Optional[str]) -> str:
     up_button = f"<a href='#{prev_anchor_id or current_anchor_id}' class='message-nav-link' title='前の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▲</a>"
     down_button = f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='padding: 1px 6px; font-size: 1.2em; text-decoration: none; color: #AAA;'>▼</a>" if next_anchor_id else ""
     delete_icon = "<span title='この発言を削除するには、メッセージ本文をクリックして選択してください' style='padding: 1px 6px; font-size: 1.0em; color: #555; cursor: pointer;'>🗑️</span>"
 
-    button_container = f"<div style='text-align: right; margin-top: 8px;'>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
+    escaped_content = html.escape(content, quote=True)
+    play_button = f"<span class='play-audio-button' data-text='{escaped_content}' title='この発言を音声で再生する' style='padding: 1px 6px; font-size: 1.0em; color: #AAA; cursor: pointer;'>🔊</span>"
+
+    button_container = f"<div style='text-align: right; margin-top: 8px;'>{play_button}<span style='margin: 0 4px;'></span>{up_button} {down_button} <span style='margin: 0 4px;'></span> {delete_icon}</div>"
 
     thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
     thought_match = thoughts_pattern.search(content)

@@ -1,5 +1,3 @@
-# character_manager.py の【真の最終・確定版】
-
 import os
 import json
 import traceback
@@ -21,6 +19,7 @@ def ensure_character_files(character_name):
         memory_json_file = os.path.join(base_path, MEMORY_FILENAME)
         notepad_file = os.path.join(base_path, NOTEPAD_FILENAME)
         image_gen_dir = os.path.join(base_path, "generated_images")
+        config_file = os.path.join(base_path, "character_config.json")
 
         if not os.path.exists(base_path): os.makedirs(base_path)
         if not os.path.exists(image_gen_dir): os.makedirs(image_gen_dir)
@@ -51,8 +50,6 @@ def ensure_character_files(character_name):
         if not os.path.exists(notepad_file):
             open(notepad_file, "w", encoding="utf-8").close()
 
-        # ★★★ ここから追加 ★★★
-        config_file = os.path.join(base_path, "character_config.json")
         if not os.path.exists(config_file):
             default_char_config = {
                 "version": 1,
@@ -60,9 +57,7 @@ def ensure_character_files(character_name):
                 "override_settings": {
                     "model_name": None,
                     "voice_id": "vindemiatrix",
-                    # ★★★ ここからが追加箇所 ★★★
                     "voice_tone_prompt": "（デフォルトのトーン）",
-                    # ★★★ 追加箇所ここまで ★★★
                     "send_thoughts": None,
                     "send_notepad": None,
                     "use_common_prompt": None,
@@ -76,7 +71,6 @@ def ensure_character_files(character_name):
             except Exception as e:
                 print(f"エラー: キャラクター設定ファイル '{config_file}' の作成に失敗: {e}")
                 return False
-        # ★★★ ここまで追加 ★★★
 
         location_file = os.path.join(base_path, "current_location.txt")
         if not os.path.exists(location_file):

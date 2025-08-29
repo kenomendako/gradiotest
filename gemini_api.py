@@ -141,7 +141,6 @@ def invoke_nexus_agent(*args: Any) -> Dict[str, str]:
         traceback.print_exc(); return {**default_error_response, "response": f"[エージェント実行エラー: {e}]"}
 
 def count_input_tokens(character_name: str, api_key_name: str, parts: list):
-    """【最終確定版】キーワード引数を受け取れるように修正"""
     import config_manager
     from character_manager import get_character_files_paths
     import os
@@ -167,7 +166,6 @@ def count_input_tokens(character_name: str, api_key_name: str, parts: list):
 
         messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
-        # --- プロンプト構築 ---
         char_prompt_path = os.path.join("characters", character_name, "SystemPrompt.txt")
         character_prompt = ""
         if os.path.exists(char_prompt_path):
@@ -202,10 +200,6 @@ def count_input_tokens(character_name: str, api_key_name: str, parts: list):
         system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
         system_prompt_text += "\n\n---\n【現在の場所と情景】\n（トークン計算では省略）\n---"
         messages.append(SystemMessage(content=system_prompt_text))
-
-        # --- 履歴と入力の追加 ---
-        # (この部分は元のロジックをベースにしていますが、簡潔にするためpartsの処理は省略)
-        # 起動時の計算ではpartsは空なので、このままで正常に動作します。
 
         total_tokens = count_tokens_from_lc_messages(messages, model_name, api_key)
 

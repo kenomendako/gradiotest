@@ -1,12 +1,10 @@
-# audio_manager.py の内容を、このコードで完全に置き換えてください
-
 import os
 import uuid
 from typing import Optional
 import google.genai as genai
 from google.genai import types
 import traceback
-import wave # ★★★ 全ての答えであった、waveライブラリをインポート ★★★
+import wave
 
 AUDIO_CACHE_DIR = os.path.join("temp", "audio_cache")
 os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
@@ -17,8 +15,6 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str, tone_prompt
     指定されたテキスト、声ID、トーン指示を使って音声を生成し、
     再生可能なWAVファイルとして保存して、そのファイルパスを返す。
     """
-    # ★★★ 文字数制限を大幅に緩和 ★★★
-    # 念のため、極端に長いテキストを防ぐ上限は設ける
     MAX_CHARS = 8000
     text_to_speak = (text[:MAX_CHARS] + '...') if len(text) > MAX_CHARS else text
 
@@ -26,7 +22,6 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str, tone_prompt
         print(f"--- 音声生成開始 (Voice: {voice_id}) ---")
         if tone_prompt and tone_prompt != "（デフォルトのトーン）":
             print(f"  - トーン指示: {tone_prompt}")
-            # ★★★ トーン指示をテキストの前に付与 ★★★
             contents = [
                 types.Part(text=tone_prompt),
                 types.Part(text=text_to_speak)
@@ -50,7 +45,7 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str, tone_prompt
 
         response = client.models.generate_content(
             model=model_name,
-            contents=contents, # ★★★ 変更点 ★★★
+            contents=contents,
             config=generation_config_object
         )
 

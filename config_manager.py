@@ -44,41 +44,6 @@ SUPPORTED_VOICES = {
 # ★★★ ここまで追加 ★★★
 
 # --- 設定関連定数 ---
-SUPPORTED_VOICES = {
-    # 女性的な声
-    "achird": "Achird (女性、クリアで落ち着いた声)",
-    "alcyone": "Alcyone (女性、温かくフレンドリーな声)",
-    "callirrhoe": "Callirrhoe (女性、深く落ち着いた声)",
-    "despina": "Despina (女性、明るくエネルギッシュな声)",
-    "erinome": "Erinome (女性、クリアで表現力豊かな声)",
-    "kore": "Kore (女性、明るくクリアな声)",
-    "laomedeia": "Laomedeia (女性、温かく落ち着いた声)",
-    "leda": "Leda (女性、クリアで明るい声)",
-    "pulcherrima": "Pulcherrima (女性、温かく優しい声)",
-    "sadachbia": "Sadachbia (女性、深くクリアな声)",
-    "schedar": "Schedar (女性、温かくフレンドリーな声)",
-    "sulafat": "Sulafat (女性、深く落ち着いた声)",
-    "umbriel": "Umbriel (女性、クリアでプロフェッショナルな声)",
-    "vindemiatrix": "Vindemiatrix (女性、温かく落ち着いた声)",
-    "zephyr": "Zephyr (女性、明るくフレンドリーな声)",
-    # 男性的な声
-    "achernar": "Achernar (男性、深く落ち着いた声)",
-    "algenib": "Algenib (男性、クリアでエネルギッシュな声)",
-    "algieba": "Algieba (男性、深くクリアな声)",
-    "alnilam": "Alnilam (男性、温かくフレンドリーな声)",
-    "aoede": "Aoede (男性、深く温かい声)",
-    "autonoe": "Autonoe (男性、クリアで落ち着いた声)",
-    "charon": "Charon (男性、深く信頼感のある声)",
-    "enceladus": "Enceladus (男性、温かく落ち着いた声)",
-    "fenrir": "Fenrir (男性、クリアで力強い声)",
-    "gacrux": "Gacrux (男性、深く落ち着いた声)",
-    "iapetus": "Iapetus (男性、クリアでフレンドリーな声)",
-    "orus": "Orus (男性、深く温かい声)",
-    "puck": "Puck (男性、明るくエネルギッシュな声)",
-    "rasalgethi": "Rasalgethi (男性、温かく落ち着いた声)",
-    "sadaltager": "Sadaltager (男性、クリアでプロフェッショナルな声)",
-    "zubenelgenubi": "Zubenelgenubi (男性、深くクリアな声)",
-}
 CONFIG_FILE = "config.json"
 ALARMS_FILE = "alarms.json"
 CHARACTERS_DIR = "characters"
@@ -196,37 +161,29 @@ def save_config(key, value):
         with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(config, f, indent=2, ensure_ascii=False)
     except Exception as e: print(f"設定の保存エラー ({key}): {e}")
 
-# ★★★ ここから追加 ★★★
 def get_effective_settings(character_name: str) -> dict:
     """共通設定とキャラクター個別設定をマージして、有効な設定セットを返す。"""
-
-    # 1. ベースとなる共通設定を準備
     effective_settings = {
         "model_name": initial_model_global,
         "api_key_name": initial_api_key_name_global,
         "send_thoughts": initial_send_thoughts_to_api_global,
-        "send_notepad": True, # UIのデフォルト値に合わせる
-        "use_common_prompt": True, # UIのデフォルト値に合わせる
-        "send_core_memory": True, # UIのデフォルト値に合わせる
-        "send_scenery": True, # UIのデフォルト値に合わせる
-        "voice_id": "ja-JP-Wavenet-D" # デフォルトの音声ID
+        "send_notepad": True,
+        "use_common_prompt": True,
+        "send_core_memory": True,
+        "send_scenery": True,
+        "voice_id": "vindemiatrix",
+        "voice_tone_prompt": "（デフォルトのトーン）"
     }
-
-    # 2. キャラクター個別設定ファイルが存在すれば、それで上書きする
     if character_name:
         char_config_path = os.path.join(CHARACTERS_DIR, character_name, "character_config.json")
-        if os.path.exists(char_config_path):
+        if os.path.exists(char_config_path) and os.path.getsize(char_config_path) > 0:
             try:
                 with open(char_config_path, "r", encoding="utf-8") as f:
                     char_config = json.load(f)
-
                 override = char_config.get("override_settings", {})
                 for key, value in override.items():
-                    # 値がNoneでない項目だけを上書き
                     if value is not None:
                         effective_settings[key] = value
             except (json.JSONDecodeError, IOError) as e:
                 print(f"警告: '{char_config_path}' の読み込みに失敗しました: {e}")
-
     return effective_settings
-# ★★★ ここまで追加 ★★★

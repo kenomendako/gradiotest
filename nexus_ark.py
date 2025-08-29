@@ -1,10 +1,7 @@
-# nexus_ark.py の内容を、このコードで完全に置き換えてください
-
 import os
 import sys
 import utils
 
-# (ロック処理は変更なし)
 if not utils.acquire_lock():
     print("ロックが取得できなかったため、アプリケーションを終了します。")
     if os.name == "nt": os.system("pause")
@@ -21,7 +18,6 @@ try:
     config_manager.load_config()
     alarm_manager.load_alarms()
 
-    # (CSSとJSは変更なし)
     custom_css = """
     #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
     #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word !important; }
@@ -59,7 +55,6 @@ try:
     """
 
     with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, js=js_stop_nav_link_propagation) as demo:
-        # (起動時の初期値設定は変更なし)
         character_list_on_startup = character_manager.get_character_list()
         if not character_list_on_startup:
             character_manager.ensure_character_files("Default")
@@ -74,7 +69,6 @@ try:
                 character_manager.ensure_character_files("Default")
                 character_list_on_startup = ["Default"]
 
-        # (Stateオブジェクトの定義は変更なし)
         current_character_name = gr.State(effective_initial_character)
         current_model_name = gr.State(config_manager.initial_model_global)
         current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
@@ -85,7 +79,6 @@ try:
         selected_message_state = gr.State(None)
         audio_player = gr.Audio(visible=False, autoplay=True)
 
-        # ★★★ ここからがUIレイアウトの再定義 ★★★
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
                 profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
@@ -186,8 +179,6 @@ try:
                 file_upload_button = gr.Files(label="ファイル添付", type="filepath", file_count="multiple", file_types=allowed_file_types)
                 gr.Markdown(f"ℹ️ *複数のファイルを添付できます。対応形式: {', '.join(allowed_file_types)}*")
 
-        # --- イベントハンドラ定義 ---
-
         char_change_outputs = [
             current_character_name, chatbot_display, chat_input_textbox,
             profile_image_display, memory_json_editor, alarm_char_dropdown,
@@ -266,16 +257,8 @@ try:
         file_upload_button.clear(fn=ui_handlers.update_token_count_on_input, inputs=token_calc_on_input_inputs, outputs=token_count_display, show_progress=False)
 
         add_character_button.click(fn=ui_handlers.handle_add_new_character, inputs=[new_character_name_textbox], outputs=[character_dropdown, alarm_char_dropdown, timer_char_dropdown, new_character_name_textbox])
-        change_location_button.click(
-            fn=ui_handlers.handle_location_change,
-            inputs=[current_character_name, location_dropdown],
-            outputs=[current_location_display, current_scenery_display]
-        )
-        refresh_scenery_button.click(
-            fn=ui_handlers.handle_scenery_refresh,
-            inputs=[current_character_name, api_key_dropdown],
-            outputs=[current_location_display, current_scenery_display]
-        )
+        change_location_button.click(fn=ui_handlers.handle_location_change, inputs=[current_character_name, location_dropdown], outputs=[current_location_display, current_scenery_display])
+        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_character_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display])
 
         chatbot_display.select(fn=ui_handlers.handle_chatbot_selection, inputs=[current_character_name, api_history_limit_state], outputs=[selected_message_state, action_button_group], show_progress=False)
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_character_name, current_api_key_name_state], outputs=[audio_player])
@@ -297,7 +280,6 @@ try:
         rag_update_button.click(fn=ui_handlers.handle_rag_update_button_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_character_name, current_api_key_name_state], outputs=None)
 
-    # (アプリケーション起動部分は変更なし)
     if __name__ == "__main__":
         print("\n" + "="*60)
         print("アプリケーションを起動します...")
@@ -314,13 +296,11 @@ try:
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
 
 except Exception as e:
-    # (エラーハンドリングは変更なし)
     print("\n" + "X"*60)
     print("!!! [致命的エラー] アプリケーションの起動中に、予期せぬ例外が発生しました。")
     print("X"*60)
     traceback.print_exc()
 finally:
-    # (ロック解放は変更なし)
     utils.release_lock()
     if os.name == "nt":
         os.system("pause")
