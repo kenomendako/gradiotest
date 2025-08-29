@@ -71,8 +71,8 @@ def _create_redaction_df_from_rules(rules: List[Dict]) -> pd.DataFrame:
 
 def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     """
-    【新設】チャットタブと、それに付随する設定UIの更新のみを担当するヘルパー関数。
-    戻り値の数は `initial_load_chat_outputs` の32個と一致する。
+    【修正】チャットタブと、それに付随する設定UIの更新のみを担当するヘルパー関数。
+    戻り値の数は `initial_load_chat_outputs` の31個と一致する。
     """
     if not room_name:
         room_list = room_manager.get_room_list_for_ui()
@@ -109,9 +109,11 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
     dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
 
-    # このタプルの要素数は32個
+    # このタプルの要素数は31個
     chat_tab_updates = (
-        room_name, chat_history, mapping_list, "", gr.update(value=None), profile_image,
+        room_name, chat_history, mapping_list,
+        gr.update(value={'text': '', 'files': []}), # 2つの戻り値を、MultimodalTextbox用の1つの辞書に統合
+        profile_image,
         memory_str, notepad_content, load_system_prompt_content(room_name),
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),

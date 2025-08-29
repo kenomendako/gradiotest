@@ -440,8 +440,8 @@ try:
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
 
         initial_load_chat_outputs = [
-            current_room_name, chatbot_display, current_log_map_state, chat_input_textbox,
-            file_upload_button,
+            current_room_name, chatbot_display, current_log_map_state,
+            chat_input_multimodal, # chat_input_textbox と file_upload_button をこれ一つに置き換え
             profile_image_display,
             memory_json_editor, notepad_editor, system_prompt_editor,
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
@@ -454,7 +454,7 @@ try:
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
-        ] + initial_load_chat_outputs + [redaction_rules_df] # ← ここに追加
+        ] + initial_load_chat_outputs + [redaction_rules_df]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
