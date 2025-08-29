@@ -337,9 +337,8 @@ try:
                             interactive=True
                         )
 
-                        with gr.Row():
-                            submit_button = gr.Button("送信", variant="primary")
-                            chat_reload_button = gr.Button("🔄 履歴を更新")
+                        # 「送信」ボタンを削除し、「履歴を更新」ボタンだけを単独で配置する
+                        chat_reload_button = gr.Button("🔄 履歴を更新")
 
             with gr.TabItem(" 記憶・メモ・指示"):
                 gr.Markdown("##  記憶・メモ・指示\nルームの根幹をなす設定ファイルを、ここで直接編集できます。")
@@ -619,7 +618,6 @@ try:
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
         # 送信イベント
         chat_input_multimodal.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
-        submit_button.click(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
 
         # トークン計算イベント（入力内容が変更されるたびに実行）
         token_calc_on_input_inputs = [

@@ -1056,7 +1056,7 @@ def handle_memos_batch_import(room_name: str, console_content: str):
         gr.update(visible=True),
         None,
         initial_console_text, initial_console_text,
-        gr.update(interactive=False), gr.update(interactive=False)
+        gr.update(interactive=False), # chat_input_multimodal
     )
 
     process = None
@@ -1121,8 +1121,7 @@ def handle_memos_batch_import(room_name: str, console_content: str):
             None,
             gr.update(),
             gr.update(),
-            gr.update(interactive=True),
-            gr.update(interactive=True)
+            gr.update(interactive=True), # chat_input_multimodal
         )
 
 def handle_importer_stop(process):
@@ -1135,8 +1134,7 @@ def handle_importer_stop(process):
         gr.update(value="中断中...", interactive=False),
         gr.update(interactive=False),
         process,
-        gr.update(interactive=False),
-        gr.update(interactive=False)
+        gr.update(interactive=False), # chat_input_multimodal
     )
 
 def _run_core_memory_update(room_name: str, api_key: str):
