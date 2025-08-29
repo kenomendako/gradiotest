@@ -306,6 +306,7 @@ def handle_message_submission(*args: Any):
 
     if not full_user_log_entry:
         history, mapping = reload_chat_log(soul_vessel_room, api_history_limit_state)
+        # 戻り値の数を11個に合わせる
         yield (history, mapping, gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), current_console_content)
         return
@@ -410,8 +411,32 @@ def handle_message_submission(*args: Any):
            final_df_with_ids, final_df, scenery_image,
            current_console_content, current_console_content)
 
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # 省略されていた if auto_memory_enabled: ブロックを完全な形で記述する
     if auto_memory_enabled:
-        # ... (この部分のロジックは変更なし)
+        try:
+            print(f"--- 自動記憶処理を開始: {soul_vessel_room} ---")
+            messages_to_save = []
+            user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
+            if user_content_match:
+                messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
+
+            for recap_event in turn_recap_events[1:]:
+                 ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
+                 if ai_content_match:
+                     messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
+
+            if len(messages_to_save) >= 2:
+                mos = memos_manager.get_mos_instance(soul_vessel_room)
+                mos.add(messages=messages_to_save)
+                print(f"--- 自動記憶処理完了: {soul_vessel_room} ---")
+            else:
+                print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
+
+        except Exception as e:
+            print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---")
+            traceback.print_exc()
+            gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     if not room_name or not api_key_name:
@@ -2051,7 +2076,20 @@ def handle_rerun_button_click(*args: Any):
            None, gr.update(visible=False))
 
     if auto_memory_enabled:
-        # ... (この部分のロジックは変更なし)
+        try:
+            print(f"--- 自動記憶処理を開始 (再生成): {room_name} ---")
+            messages_to_save = [
+                {"role": "user", "content": restored_input_text},
+                {"role": "assistant", "content": final_response_text}
+            ]
+            if len(messages_to_save) >= 2:
+                mos = memos_manager.get_mos_instance(room_name)
+                mos.add(messages=messages_to_save)
+                print(f"--- 自動記憶処理完了 (再生成): {room_name} ---")
+        except Exception as e:
+            print(f"--- 自動記憶処理中にエラーが発生しました (再生成): {e} ---")
+            traceback.print_exc()
+            gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
 
 def handle_core_memory_update_click(room_name: str, api_key_name: str):
     if not room_name or not api_key_name: gr.Warning("ルームとAPIキーを選択してください。"); return
