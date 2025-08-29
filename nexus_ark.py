@@ -121,6 +121,8 @@ try:
         debug_console_state = gr.State("")
         importer_process_state = gr.State(None) # インポーターのサブプロセスを管理
         chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
+        redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
+        selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -276,6 +278,60 @@ try:
                         token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
                         tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
                         chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
+                        with gr.Accordion("📸 スクリーンショット支援", open=False):
+                            gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
+                            screenshot_mode_checkbox = gr.Checkbox(
+                                label="スクリーンショットモードを有効にする",
+                                info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。"
+                            )
+                            with gr.Row():
+                                with gr.Column(scale=2):
+                                    gr.Markdown("**ルールの編集**")
+                                    redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)")
+                                    redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)")
+                                    with gr.Row():
+                                        add_rule_button = gr.Button("ルールを追加/更新", variant="primary")
+                                        clear_rule_form_button = gr.Button("フォームをクリア")
+                                with gr.Column(scale=3):
+                                    gr.Markdown("**現在のルールリスト**")
+                                    redaction_rules_df = gr.Dataframe(
+                                        headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
+                                        datatype=["str", "str"],
+                                        row_count=(5, "dynamic"),
+                                        col_count=(2, "fixed"), # "interactive" から "fixed" に変更
+                                        interactive=False
+                                    )
+                                    delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
+
+                            # ▼▼▼【ここにイベントハンドラを移動・集約する】▼▼▼
+                            redaction_rules_df.select(
+                                fn=ui_handlers.handle_redaction_rule_select,
+                                inputs=[redaction_rules_df],
+                                outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+                            )
+
+                            add_rule_button.click(
+                                fn=ui_handlers.handle_add_or_update_redaction_rule,
+                                inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
+                                outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+                            )
+
+                            clear_rule_form_button.click(
+                                fn=lambda: (None, "", ""),
+                                outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+                            )
+
+                            delete_rule_button.click(
+                                fn=ui_handlers.handle_delete_redaction_rule,
+                                inputs=[redaction_rules_state, selected_redaction_rule_state],
+                                outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+                            )
+
+                            screenshot_mode_checkbox.change(
+                                fn=ui_handlers.reload_chat_log,
+                                inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state],
+                                outputs=[chatbot_display, current_log_map_state]
+                            )
                         with gr.Row():
                             submit_button = gr.Button("送信", variant="primary")
                             chat_reload_button = gr.Button("🔄 履歴を更新")
@@ -387,12 +443,12 @@ try:
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
-        ] + initial_load_chat_outputs
+        ] + initial_load_chat_outputs + [redaction_rules_df] # ← ここに追加
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
 
-        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs
+        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df] # ← ここに追加
 
         demo.load(
             fn=ui_handlers.handle_initial_load,
@@ -401,6 +457,7 @@ try:
         ).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
+
 
         start_session_button.click(
             fn=ui_handlers.handle_start_session,
@@ -453,7 +510,7 @@ try:
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
-        chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_room_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state])
+        chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state], outputs=[chatbot_display, current_log_map_state])
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
             inputs=[current_room_name, api_history_limit_state, current_log_map_state],
@@ -461,7 +518,15 @@ try:
             show_progress=False
         )
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_room_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
-        api_history_limit_dropdown.change(fn=ui_handlers.update_api_history_limit_state_and_reload_chat, inputs=[api_history_limit_dropdown, current_room_name], outputs=[api_history_limit_state, chatbot_display, current_log_map_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
+        api_history_limit_dropdown.change(
+            fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
+            inputs=[api_history_limit_dropdown, current_room_name, screenshot_mode_checkbox, redaction_rules_state],
+            outputs=[api_history_limit_state, chatbot_display, current_log_map_state]
+        ).then(
+            fn=ui_handlers.handle_context_settings_change,
+            inputs=context_token_calc_inputs,
+            outputs=token_count_display
+        )
 
         create_room_button.click(
             fn=ui_handlers.handle_create_room,

@@ -37,6 +37,8 @@ initial_send_thoughts_to_api_global = True
 initial_api_history_limit_option_global = constants.DEFAULT_API_HISTORY_LIMIT_OPTION
 initial_alarm_api_history_turns_global = constants.DEFAULT_ALARM_API_HISTORY_TURNS
 
+from typing import List, Dict
+
 # --- 内部ヘルパー関数 ---
 def _load_config_file() -> dict:
     if os.path.exists(constants.CONFIG_FILE):
@@ -235,3 +237,26 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         effective_settings["model_name"] = DEFAULT_MODEL_GLOBAL
 
     return effective_settings
+
+def load_redaction_rules() -> List[Dict[str, str]]:
+    """redaction_rules.jsonから置換ルールを読み込む。"""
+    if os.path.exists(constants.REDACTION_RULES_FILE):
+        try:
+            with open(constants.REDACTION_RULES_FILE, "r", encoding="utf-8") as f:
+                content = f.read()
+                if not content.strip(): return []
+                rules = json.loads(content)
+                # 念のため、形式が正しいかチェック
+                if isinstance(rules, list) and all(isinstance(r, dict) and "find" in r and "replace" in r for r in rules):
+                    return rules
+        except (json.JSONDecodeError, IOError):
+            print(f"警告: {constants.REDACTION_RULES_FILE} の読み込みに失敗しました。")
+    return []
+
+def save_redaction_rules(rules: List[Dict[str, str]]):
+    """置換ルールをredaction_rules.jsonに保存する。"""
+    try:
+        with open(constants.REDACTION_RULES_FILE, "w", encoding="utf-8") as f:
+            json.dump(rules, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"エラー: {constants.REDACTION_RULES_FILE} の保存に失敗しました: {e}")
