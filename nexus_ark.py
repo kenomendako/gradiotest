@@ -292,6 +292,9 @@ try:
                                 interactive=True
                             )
                             with gr.Row():
+                                redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)", placeholder="置換したい文字列を入力...")
+                                redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)", placeholder="新しい文字列を入力...")
+                            with gr.Row():
                                 add_rule_button = gr.Button("ルールを保存/更新", variant="primary")
                                 delete_rule_button = gr.Button("選択したルールを削除")
                         with gr.Row():
@@ -429,16 +432,16 @@ try:
         )
 
         add_rule_button.click(
-            fn=ui_handlers.handle_save_redaction_rules,
-            inputs=[redaction_rules_df],
-            outputs=[redaction_rules_state, redaction_rules_df]
-        ) # .then() は付けない
+            fn=ui_handlers.handle_add_or_update_redaction_rule,
+            inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
+            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+        )
 
         delete_rule_button.click(
             fn=ui_handlers.handle_delete_redaction_rule,
-            inputs=[redaction_rules_df, selected_redaction_rule_state],
-            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state]
-        ) # .then() は付けない
+            inputs=[redaction_rules_state, selected_redaction_rule_state],
+            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+        )
 
         screenshot_mode_checkbox.change(
             fn=ui_handlers.reload_chat_log,
