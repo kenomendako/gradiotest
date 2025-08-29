@@ -1786,57 +1786,69 @@ def handle_reload_system_prompt(room_name: str) -> str:
     gr.Info(f"「{room_name}」の人格プロンプトを再読み込みしました。")
     return content
 
-def handle_save_redaction_rules(rules_df: pd.DataFrame) -> Tuple[List[Dict[str, str]], pd.DataFrame]:
-    """DataFrameの内容を検証し、jsonファイルに保存し、更新されたルールとDataFrameを返す。"""
-    if rules_df is None:
-        rules_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
+def handle_redaction_rule_select(rules_df: pd.DataFrame, evt: gr.SelectData) -> Tuple[Optional[int], str, str]:
+    """DataFrameの行が選択されたとき、その内容を入力フォームにコピーする。"""
+    if evt.index is None:
+        return None, "", ""
+    selected_index = evt.index[0]
+    # rules_dfがNoneの場合でも安全に動作するように修正
+    if rules_df is not None and 0 <= selected_index < len(rules_df):
+        row = rules_df.iloc[selected_index]
+        find_text = row["元の文字列 (Find)"]
+        replace_text = row["置換後の文字列 (Replace)"]
+        return selected_index, find_text, replace_text
+    return None, "", ""
 
-    # 列名が存在しない場合（空のDataFrameなど）に対応
-    if '元の文字列 (Find)' not in rules_df.columns or '置換後の文字列 (Replace)' not in rules_df.columns:
-        rules_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
+def handle_add_or_update_redaction_rule(
+    current_rules: list, selected_index: Optional[int], find_text: str, replace_text: str
+) -> Tuple[pd.DataFrame, list, None, str, str]:
+    """ルールを追加または更新する。"""
+    find_text = find_text.strip()
+    if not find_text:
+        gr.Warning("「元の文字列」は空にできません。")
+        df = pd.DataFrame(current_rules, columns=["find", "replace"]).rename(columns={"find": "元の文字列 (Find)", "replace": "置換後の文字列 (Replace)"})
+        return df, current_rules, selected_index, find_text, replace_text
 
-    rules = [
-        {"find": str(row["元の文字列 (Find)"]), "replace": str(row["置換後の文字列 (Replace)"])}
-        for index, row in rules_df.iterrows()
-        if pd.notna(row["元の文字列 (Find)"]) and str(row["元の文字列 (Find)"]).strip()
-    ]
-    config_manager.save_redaction_rules(rules)
-    gr.Info(f"{len(rules)}件の置換ルールを保存しました。チャット履歴を更新してください。")
+    new_rule = {"find": find_text, "replace": replace_text.strip()}
 
-    # 更新された（空行が除去された）DataFrameをUIに返す
-    # まずPython辞書のリストから新しいDataFrameを作成
-    updated_df_data = [{"元の文字列 (Find)": r["find"], "置換後の文字列 (Replace)": r["replace"]} for r in rules]
-    updated_df = pd.DataFrame(updated_df_data)
+    if selected_index is not None and 0 <= selected_index < len(current_rules):
+        current_rules[selected_index] = new_rule
+        gr.Info(f"ルールを更新しました: 「{find_text}」")
+    else:
+        # 重複チェック
+        if any(r['find'] == find_text for r in current_rules):
+            gr.Warning(f"ルール「{find_text}」は既に存在します。更新する場合はリストから選択してください。")
+            df = pd.DataFrame(current_rules, columns=["find", "replace"]).rename(columns={"find": "元の文字列 (Find)", "replace": "置換後の文字列 (Replace)"})
+            return df, current_rules, selected_index, find_text, replace_text
+        current_rules.append(new_rule)
+        gr.Info(f"新しいルールを追加しました: 「{find_text}」")
 
-    return rules, updated_df
+    config_manager.save_redaction_rules(current_rules)
 
-def handle_delete_redaction_rule(rules_df: pd.DataFrame, selected_index: Optional[int]) -> Tuple[pd.DataFrame, list, None]:
-    """DataFrameで選択されたルールを削除する。"""
-    if selected_index is None:
-        gr.Warning("削除するルールを選択してください。")
-        # DataFrameがNoneの場合でもエラーにならないように初期化
-        if rules_df is None:
-            rules_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
-        return rules_df, config_manager.load_redaction_rules(), None
+    # GradioのDataFrameを更新するための正しい戻り値
+    updated_df = pd.DataFrame(current_rules, columns=["find", "replace"]).rename(columns={"find": "元の文字列 (Find)", "replace": "置換後の文字列 (Replace)"})
 
-    # DataFrameがNoneの場合やインデックスが範囲外の場合の安全策
-    if rules_df is None or not (0 <= selected_index < len(rules_df)):
-        gr.Warning("選択された行を特定できませんでした。")
-        if rules_df is None:
-            rules_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
-        return rules_df, config_manager.load_redaction_rules(), None
+    # フォームをクリアして選択を解除
+    return updated_df, current_rules, None, "", ""
 
-    updated_df = rules_df.drop(index=selected_index).reset_index(drop=True)
+def handle_delete_redaction_rule(
+    current_rules: list, selected_index: Optional[int]
+) -> Tuple[pd.DataFrame, list, None, str, str]:
+    """選択されたルールを削除する。"""
+    if selected_index is None or not (0 <= selected_index < len(current_rules)):
+        gr.Warning("削除するルールが選択されていません。")
+        df = pd.DataFrame(current_rules, columns=["find", "replace"]).rename(columns={"find": "元の文字列 (Find)", "replace": "置換後の文字列 (Replace)"})
+        return df, current_rules, selected_index, "", ""
 
-    rules = [
-        {"find": str(row["元の文字列 (Find)"]), "replace": str(row["置換後の文字列 (Replace)"])}
-        for index, row in updated_df.iterrows()
-        if pd.notna(row["元の文字列 (Find)"]) and str(row["元の文字列 (Find)"]).strip()
-    ]
-    config_manager.save_redaction_rules(rules)
-    gr.Info("選択したルールを削除しました。チャット履歴を更新してください。")
-    # 選択状態をリセットするためにNoneを返す
-    return updated_df, rules, None
+    removed_rule = current_rules.pop(selected_index)
+    gr.Info(f"ルールを削除しました: 「{removed_rule['find']}」")
+
+    config_manager.save_redaction_rules(current_rules)
+
+    updated_df = pd.DataFrame(current_rules, columns=["find", "replace"]).rename(columns={"find": "元の文字列 (Find)", "replace": "置換後の文字列 (Replace)"})
+
+    # フォームをクリアして選択を解除
+    return updated_df, current_rules, None, "", ""
 
 def handle_rerun_button_click(*args: Any):
     (selected_message, room_name, api_key_name,
