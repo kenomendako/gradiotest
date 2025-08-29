@@ -277,7 +277,7 @@ try:
                             cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
                         token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
                         tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
-                        chat_input_textbox = gr.Textbox(show_label=False, placeholder="メッセージを入力...", lines=3)
+
                         with gr.Accordion("📸 スクリーンショット支援", open=False):
                             gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
                             screenshot_mode_checkbox = gr.Checkbox(
@@ -298,48 +298,39 @@ try:
                                         headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
                                         datatype=["str", "str"],
                                         row_count=(5, "dynamic"),
-                                        col_count=(2, "fixed"), # "interactive" から "fixed" に変更
+                                        col_count=(2, "fixed"),
                                         interactive=False
                                     )
                                     delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
 
-                            # ▼▼▼【ここにイベントハンドラを移動・集約する】▼▼▼
+                            # イベントハンドラ
                             redaction_rules_df.select(
                                 fn=ui_handlers.handle_redaction_rule_select,
                                 inputs=[redaction_rules_df],
                                 outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
                             )
-
                             add_rule_button.click(
                                 fn=ui_handlers.handle_add_or_update_redaction_rule,
                                 inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
                                 outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
                             )
-
                             clear_rule_form_button.click(
                                 fn=lambda: (None, "", ""),
                                 outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
                             )
-
                             delete_rule_button.click(
                                 fn=ui_handlers.handle_delete_redaction_rule,
                                 inputs=[redaction_rules_state, selected_redaction_rule_state],
                                 outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
                             )
-
                             screenshot_mode_checkbox.change(
                                 fn=ui_handlers.reload_chat_log,
                                 inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state],
                                 outputs=[chatbot_display, current_log_map_state]
                             )
-                        allowed_file_types = [
-                            '.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif',
-                            '.mp3', '.wav', '.flac', '.aac',
-                            '.mp4', '.mov', '.avi', '.webm',
-                            '.txt', '.md', '.py', '.js', '.html', '.css', '.pdf', '.xml', '.json'
-                        ]
+
                         chat_input_multimodal = gr.MultimodalTextbox(
-                            file_types=[ft.lstrip('.') for ft in allowed_file_types],
+                            file_types=["image", "audio", "video", "text", ".pdf", ".json"], # メディア種別と拡張子を正しく指定
                             placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...",
                             show_label=False,
                             lines=3,
@@ -725,7 +716,7 @@ try:
                 importer_process_state,
                 debug_console_state,
                 debug_console_output,
-                chat_input_textbox,
+                chat_input_multimodal,
                 submit_button
             ]
         )
@@ -738,7 +729,7 @@ try:
                 memos_import_button,
                 importer_stop_button,
                 importer_process_state,
-                chat_input_textbox,
+                chat_input_multimodal,
                 submit_button
             ]
         )
