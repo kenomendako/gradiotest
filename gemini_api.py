@@ -160,8 +160,12 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         elif snapshot_messages:
             messages = snapshot_messages
 
-    if user_prompt_parts:
-        messages.append(HumanMessage(content=user_prompt_parts))
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # このブロックを削除する。
+    # 理由: ログ保存が先行するため、この処理が重複の原因となっていた。
+    # if user_prompt_parts:
+    #     messages.append(HumanMessage(content=user_prompt_parts))
+    # ▲▲▲【修正ここまで】▲▲▲
 
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:

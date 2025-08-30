@@ -268,6 +268,30 @@ try:
 
                     with gr.Column(scale=3):
                         chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
+
+                        # ▼▼▼【ここからが修正の核心】▼▼▼
+
+                        # 1. 入力欄
+                        chat_input_multimodal = gr.MultimodalTextbox(
+                            file_types=["image", "audio", "video", "text", ".pdf", ".json"],
+                            placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...",
+                            show_label=False,
+                            lines=3,
+                            interactive=True
+                        )
+
+                        # 2. トークンカウンター
+                        token_count_display = gr.Markdown(
+                            "入力トークン数: 0 / 0（Gemini2.5無料枠TPM:250,000）",
+                            elem_id="token_count_display"
+                        )
+
+                        # 3. ボタン類
+                        with gr.Row():
+                            stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
+                            chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
+
+                        # 4. 音声プレーヤーとアクションボタン
                         with gr.Row():
                             audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
                         with gr.Row(visible=False) as action_button_group:
@@ -275,9 +299,8 @@ try:
                             play_audio_button = gr.Button("🔊 選択した発言を再生")
                             delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
                             cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
-                        token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
-                        tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
 
+                        # 5. スクリーンショット支援機能
                         with gr.Accordion("📸 スクリーンショット支援", open=False):
                             gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
                             screenshot_mode_checkbox = gr.Checkbox(
@@ -329,18 +352,6 @@ try:
                                 outputs=[chatbot_display, current_log_map_state]
                             )
 
-                        chat_input_multimodal = gr.MultimodalTextbox(
-                            file_types=["image", "audio", "video", "text", ".pdf", ".json"], # メディア種別と拡張子を正しく指定
-                            placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...",
-                            show_label=False,
-                            lines=3,
-                            interactive=True
-                        )
-
-                        # ▼▼▼【「履歴を更新」ボタンの行を修正】▼▼▼
-                        with gr.Row():
-                            stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
-                            chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
                         # ▲▲▲【修正ここまで】▲▲▲
 
             with gr.TabItem(" 記憶・メモ・指示"):
