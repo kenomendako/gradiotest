@@ -337,8 +337,11 @@ try:
                             interactive=True
                         )
 
-                        # 「送信」ボタンを削除し、「履歴を更新」ボタンだけを単独で配置する
-                        chat_reload_button = gr.Button("🔄 履歴を更新")
+                        # ▼▼▼【「履歴を更新」ボタンの行を修正】▼▼▼
+                        with gr.Row():
+                            stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
+                            chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
+                        # ▲▲▲【修正ここまで】▲▲▲
 
             with gr.TabItem(" 記憶・メモ・指示"):
                 gr.Markdown("##  記憶・メモ・指示\nルームの根幹をなす設定ファイルを、ここで直接編集できます。")
@@ -616,8 +619,22 @@ try:
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
-        # 送信イベント
-        chat_input_multimodal.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
+        # ▼▼▼【送信イベントの定義を修正】▼▼▼
+        # 1. 送信イベントを変数に格納
+        submit_event = chat_input_multimodal.submit(
+            fn=ui_handlers.handle_message_submission,
+            inputs=chat_inputs,
+            outputs=chat_submit_outputs + [stop_button, chat_reload_button] # 出力先を追加
+        )
+
+        # 2. ストップボタンのクリックイベントを定義
+        stop_button.click(
+            fn=None,
+            inputs=None,
+            outputs=None,
+            cancels=[submit_event] # 送信イベントをキャンセルする
+        )
+        # ▲▲▲【修正ここまで】▲▲▲
 
         # トークン計算イベント（入力内容が変更されるたびに実行）
         token_calc_on_input_inputs = [

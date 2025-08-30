@@ -283,7 +283,7 @@ def update_token_count_on_input(
     return gemini_api.count_input_tokens(**kwargs)
 
 def handle_message_submission(*args: Any):
-    # 1. ユーザー入力の受付とログ保存 (変更なし)
+    # 1. 引数リストの最後にボタンの現在の状態を追加
     (multimodal_input, soul_vessel_room, current_api_key_name_state,
      api_history_limit_state, debug_mode_state,
      auto_memory_enabled, current_console_content, active_participants,
@@ -305,142 +305,157 @@ def handle_message_submission(*args: Any):
 
     if not full_user_log_entry:
         history, mapping = reload_chat_log(soul_vessel_room, api_history_limit_state)
-        yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), current_console_content)
+        # 戻り値の最後にボタンの状態を追加
+        yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(),
+               gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
+               gr.update(visible=False), gr.update(interactive=True))
         return
 
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
     utils.save_message_to_log(main_log_f, "## USER:user", full_user_log_entry)
 
-    # 2. ストリーミングのための準備
-    chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
-    yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
-           gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-           current_console_content, current_console_content)
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    try:
+        # 2. ストリーミングのための準備とボタンの状態変更
+        chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
+        # ストップボタンを表示し、更新ボタンを無効化
+        yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
+               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+               current_console_content, current_console_content,
+               gr.update(visible=True), gr.update(interactive=False))
 
-    turn_recap_events = [f"## USER:user\n{full_user_log_entry}"]
-    all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
-    api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
-    shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
-    all_turn_popups = []
+        turn_recap_events = [f"## USER:user\n{full_user_log_entry}"]
+        all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
+        api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
+        shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
+        all_turn_popups = []
 
-    # 3. AIごとの応答生成ループ
-    for room_to_respond in all_rooms_in_scene:
-        # プレースホルダーを追加
-        chatbot_history.append((None, "▌"))
-        yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
-               gr.update(), gr.update(), gr.update(), gr.update(), current_console_content)
+        # 3. AIごとの応答生成ループ
+        for room_to_respond in all_rooms_in_scene:
+            chatbot_history.append((None, "▌"))
+            yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
+                   gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
+                   gr.update(), gr.update()) # ボタンの状態は維持
 
-        # ファイル処理
-        processed_file_list = []
-        if room_to_respond == soul_vessel_room and file_input_list:
-            for file_path in file_input_list:
-                try:
-                    kind = filetype.guess(file_path)
-                    if kind and kind.mime.startswith('image/'):
-                        with open(file_path, "rb") as f:
-                            encoded_string = base64.b64encode(f.read()).decode("utf-8")
-                        processed_file_list.append({"type": "image_url", "image_url": {"url": f"data:{kind.mime};base64,{encoded_string}"}})
-                    else:
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f: content = f.read()
-                        processed_file_list.append({"type": "text", "text": f"添付ファイル「{os.path.basename(file_path)}」の内容:\n---\n{content}\n---"})
-                except Exception: processed_file_list.append({"type": "text", "text": f"（ファイル「{os.path.basename(file_path)}」の処理中にエラー）"})
+            # ... (ファイル処理と agent_args_dict の準備は変更なし) ...
+            processed_file_list = []
+            if room_to_respond == soul_vessel_room and file_input_list:
+                for file_path in file_input_list:
+                    try:
+                        kind = filetype.guess(file_path)
+                        if kind and kind.mime.startswith('image/'):
+                            with open(file_path, "rb") as f:
+                                encoded_string = base64.b64encode(f.read()).decode("utf-8")
+                            processed_file_list.append({"type": "image_url", "image_url": {"url": f"data:{kind.mime};base64,{encoded_string}"}})
+                        else:
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f: content = f.read()
+                            processed_file_list.append({"type": "text", "text": f"添付ファイル「{os.path.basename(file_path)}」の内容:\n---\n{content}\n---"})
+                    except Exception: processed_file_list.append({"type": "text", "text": f"（ファイル「{os.path.basename(file_path)}」の処理中にエラー）"})
 
-        user_prompt_parts = []
-        if user_prompt_from_textbox and room_to_respond == soul_vessel_room:
-             user_prompt_parts.append({"type": "text", "text": user_prompt_from_textbox})
-        user_prompt_parts.extend(processed_file_list)
+            user_prompt_parts = []
+            if user_prompt_from_textbox and room_to_respond == soul_vessel_room:
+                 user_prompt_parts.append({"type": "text", "text": user_prompt_from_textbox})
+            user_prompt_parts.extend(processed_file_list)
 
-        agent_args_dict = {
-            "room_to_respond": room_to_respond, "api_key_name": current_api_key_name_state,
-            "global_model_from_ui": global_model, "room_model_from_ui": room_model,
-            "api_history_limit": api_history_limit_state, "debug_mode": debug_mode_state,
-            "history_log_path": main_log_f, "user_prompt_parts": user_prompt_parts,
-            "soul_vessel_room": soul_vessel_room, "active_participants": active_participants,
-            "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
-        }
+            agent_args_dict = {
+                "room_to_respond": room_to_respond, "api_key_name": current_api_key_name_state,
+                "global_model_from_ui": global_model, "room_model_from_ui": room_model,
+                "api_history_limit": api_history_limit_state, "debug_mode": debug_mode_state,
+                "history_log_path": main_log_f, "user_prompt_parts": user_prompt_parts,
+                "soul_vessel_room": soul_vessel_room, "active_participants": active_participants,
+                "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
+            }
 
-        # 4. ストリーミング処理のメインループ
-        streamed_text = ""
-        final_state = None
-        initial_message_count = 0
-        with utils.capture_prints() as captured_output:
-            for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                if mode == "initial_count":
-                    initial_message_count = chunk
-                elif mode == "messages":
-                    message_chunk, _ = chunk
-                    if isinstance(message_chunk, AIMessageChunk):
-                        streamed_text += message_chunk.content
-                        chatbot_history[-1] = (None, streamed_text + "▌")
-                        yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
-                               gr.update(), gr.update(), gr.update(), gr.update(), current_console_content)
-                elif mode == "values":
-                    final_state = chunk
+            # 4. ストリーミング処理のメインループ
+            streamed_text = ""
+            final_state = None
+            initial_message_count = 0
+            with utils.capture_prints() as captured_output:
+                for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                    if mode == "initial_count":
+                        initial_message_count = chunk
+                    elif mode == "messages":
+                        message_chunk, _ = chunk
+                        if isinstance(message_chunk, AIMessageChunk):
+                            streamed_text += message_chunk.content
+                            chatbot_history[-1] = (None, streamed_text + "▌")
+                            yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
+                                   gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
+                                   gr.update(), gr.update())
+                    elif mode == "values":
+                        final_state = chunk
 
-        current_console_content += captured_output.getvalue()
+            # ... (ストリーミング完了後の後処理は変更なし) ...
+            current_console_content += captured_output.getvalue()
 
-        # 5. ストリーミング完了後の後処理
-        final_response_text = ""
-        if final_state:
-            new_messages = final_state["messages"][initial_message_count:]
-            for msg in new_messages:
-                if isinstance(msg, ToolMessage):
-                    popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                    if popup_text: all_turn_popups.append(popup_text)
+            final_response_text = ""
+            if final_state:
+                new_messages = final_state["messages"][initial_message_count:]
+                for msg in new_messages:
+                    if isinstance(msg, ToolMessage):
+                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                        if popup_text: all_turn_popups.append(popup_text)
 
-            last_ai_message = final_state["messages"][-1]
-            if isinstance(last_ai_message, AIMessage):
-                final_response_text = last_ai_message.content
+                last_ai_message = final_state["messages"][-1]
+                if isinstance(last_ai_message, AIMessage):
+                    final_response_text = last_ai_message.content
 
-        final_response_text = final_response_text or streamed_text
-        chatbot_history[-1] = (None, final_response_text)
+            final_response_text = final_response_text or streamed_text
+            chatbot_history[-1] = (None, final_response_text)
 
-        if final_response_text.strip():
-            utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", final_response_text)
-            turn_recap_events.append(f"## AGENT:{room_to_respond}\n{final_response_text}")
+            if final_response_text.strip():
+                utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", final_response_text)
+                turn_recap_events.append(f"## AGENT:{room_to_respond}\n{final_response_text}")
 
-    # 6. 全員の応答が終わった後の最終処理
-    for popup_message in all_turn_popups: gr.Info(popup_message)
-    if active_participants:
-        recap_text = "\n\n".join(turn_recap_events)
-        full_recap_entry = f"【共有された対話ターン】\n{recap_text}\n【/共有された対話ターン】"
-        for participant_name in active_participants:
-            participant_log_f, _, _, _, _ = get_room_files_paths(participant_name)
-            if participant_log_f: utils.save_message_to_log(participant_log_f, "## システム(対話記録):", full_recap_entry)
+        # 5. 全員の応答が終わった後の最終処理 (自動記憶など)
+        # ... (この部分のロジックは変更なし) ...
+        for popup_message in all_turn_popups: gr.Info(popup_message)
+        if active_participants:
+            recap_text = "\n\n".join(turn_recap_events)
+            full_recap_entry = f"【共有された対話ターン】\n{recap_text}\n【/共有された対話ターン】"
+            for participant_name in active_participants:
+                participant_log_f, _, _, _, _ = get_room_files_paths(participant_name)
+                if participant_log_f: utils.save_message_to_log(participant_log_f, "## システム(対話記録):", full_recap_entry)
 
-    # 最後に、完全な履歴を再フォーマットしてUIに反映
-    final_chatbot_history, final_mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
-    new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
-    scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
-    token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room)
-    token_count_text = gemini_api.count_input_tokens(
-        room_name=soul_vessel_room, api_key_name=current_api_key_name_state,
-        api_history_limit=api_history_limit_state, parts=[], **token_calc_kwargs
-    )
-    final_df_with_ids = render_alarms_as_dataframe()
-    final_df = get_display_df(final_df_with_ids)
-    yield (final_chatbot_history, final_mapping_list, gr.update(value={'text': '', 'files': []}), token_count_text,
-           new_location_name, new_scenery_text,
-           final_df_with_ids, final_df, scenery_image,
-           current_console_content, current_console_content)
+        if auto_memory_enabled:
+            try:
+                print(f"--- 自動記憶処理を開始: {soul_vessel_room} ---")
+                messages_to_save = []
+                user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
+                if user_content_match: messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
+                for recap_event in turn_recap_events[1:]:
+                     ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
+                     if ai_content_match: messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
+                if len(messages_to_save) >= 2:
+                    mos = memos_manager.get_mos_instance(soul_vessel_room)
+                    mos.add(messages=messages_to_save)
+                    print(f"--- 自動記憶処理完了: {soul_vessel_room} ---")
+                else: print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
+            except Exception as e:
+                print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---"); traceback.print_exc()
+                gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
 
-    if auto_memory_enabled:
-        try:
-            print(f"--- 自動記憶処理を開始: {soul_vessel_room} ---")
-            messages_to_save = []
-            user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
-            if user_content_match: messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
-            for recap_event in turn_recap_events[1:]:
-                 ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
-                 if ai_content_match: messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
-            if len(messages_to_save) >= 2:
-                mos = memos_manager.get_mos_instance(soul_vessel_room)
-                mos.add(messages=messages_to_save)
-                print(f"--- 自動記憶処理完了: {soul_vessel_room} ---")
-            else: print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
-        except Exception as e:
-            print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---"); traceback.print_exc()
-            gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
+    finally:
+        # 6. 処理が完了または中断されたら、必ずボタンの状態を元に戻す
+        final_chatbot_history, final_mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
+        # ... (残りの最終UI更新ロジックは変更なし) ...
+        api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
+        new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
+        scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
+        token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room)
+        token_count_text = gemini_api.count_input_tokens(
+            room_name=soul_vessel_room, api_key_name=current_api_key_name_state,
+            api_history_limit=api_history_limit_state, parts=[], **token_calc_kwargs
+        )
+        final_df_with_ids = render_alarms_as_dataframe()
+        final_df = get_display_df(final_df_with_ids)
+        yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
+               new_location_name, new_scenery_text,
+               final_df_with_ids, final_df, scenery_image,
+               current_console_content, current_console_content,
+               gr.update(visible=False), gr.update(interactive=True)) # ストップボタンを非表示、更新ボタンを有効化
+
+    # ▲▲▲【修正ここまで】▲▲▲
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     if not room_name or not api_key_name:
