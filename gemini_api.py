@@ -97,8 +97,6 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
             lc_messages.append(HumanMessage(content=annotated_content))
     return lc_messages
 
-# gemini_api.py の invoke_nexus_agent_stream を完全に置き換え
-
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     """
     LangGraphの思考プロセスをストリーミングで返す。(v25: 安定性向上版)
@@ -300,12 +298,8 @@ def count_input_tokens(**kwargs):
         total_tokens = count_tokens_from_lc_messages(messages, model_name, api_key)
 
         limit_info = get_model_token_limits(model_name, api_key)
-
-        tpm_note = "（Gemini2.5無料枠TPM:250,000）"
-        if limit_info and 'input' in limit_info:
-            return f"入力トークン数: {total_tokens} / {limit_info['input']} {tpm_note}"
-        else:
-            return f"入力トークン数: {total_tokens} {tpm_note}"
+        if limit_info and 'input' in limit_info: return f"入力トークン数: {total_tokens} / {limit_info['input']}"
+        else: return f"入力トークン数: {total_tokens}"
 
     except httpx.ReadError as e:
         print(f"トークン計算中にネットワーク読み取りエラー: {e}")
