@@ -268,6 +268,30 @@ try:
 
                     with gr.Column(scale=3):
                         chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
+
+                        # ▼▼▼【ここからが修正の核心】▼▼▼
+
+                        # 1. 入力欄
+                        chat_input_multimodal = gr.MultimodalTextbox(
+                            file_types=["image", "audio", "video", "text", ".pdf", ".json"],
+                            placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...",
+                            show_label=False,
+                            lines=3,
+                            interactive=True
+                        )
+
+                        # 2. トークンカウンター
+                        token_count_display = gr.Markdown(
+                            "入力トークン数: 0 / 0（Gemini2.5無料枠TPM:250,000）",
+                            elem_id="token_count_display"
+                        )
+
+                        # 3. ボタン類
+                        with gr.Row():
+                            stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
+                            chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
+
+                        # 4. 音声プレーヤーとアクションボタン
                         with gr.Row():
                             audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
                         with gr.Row(visible=False) as action_button_group:
@@ -275,9 +299,8 @@ try:
                             play_audio_button = gr.Button("🔊 選択した発言を再生")
                             delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
                             cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
-                        token_count_display = gr.Markdown("入力トークン数", elem_id="token_count_display")
-                        tpm_note_display = gr.Markdown("(参考: Gemini 2.5 シリーズ無料枠TPM: 250,000)", elem_id="tpm_note_display")
 
+                        # 5. スクリーンショット支援機能
                         with gr.Accordion("📸 スクリーンショット支援", open=False):
                             gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
                             screenshot_mode_checkbox = gr.Checkbox(
@@ -329,16 +352,7 @@ try:
                                 outputs=[chatbot_display, current_log_map_state]
                             )
 
-                        chat_input_multimodal = gr.MultimodalTextbox(
-                            file_types=["image", "audio", "video", "text", ".pdf", ".json"], # メディア種別と拡張子を正しく指定
-                            placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...",
-                            show_label=False,
-                            lines=3,
-                            interactive=True
-                        )
-
-                        # 「送信」ボタンを削除し、「履歴を更新」ボタンだけを単独で配置する
-                        chat_reload_button = gr.Button("🔄 履歴を更新")
+                        # ▲▲▲【修正ここまで】▲▲▲
 
             with gr.TabItem(" 記憶・メモ・指示"):
                 gr.Markdown("##  記憶・メモ・指示\nルームの根幹をなす設定ファイルを、ここで直接編集できます。")
@@ -616,8 +630,22 @@ try:
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
-        # 送信イベント
-        chat_input_multimodal.submit(fn=ui_handlers.handle_message_submission, inputs=chat_inputs, outputs=chat_submit_outputs)
+        # ▼▼▼【送信イベントの定義を修正】▼▼▼
+        # 1. 送信イベントを変数に格納
+        submit_event = chat_input_multimodal.submit(
+            fn=ui_handlers.handle_message_submission,
+            inputs=chat_inputs,
+            outputs=chat_submit_outputs + [stop_button, chat_reload_button] # 出力先を追加
+        )
+
+        # 2. ストップボタンのクリックイベントを定義
+        stop_button.click(
+            fn=None,
+            inputs=None,
+            outputs=None,
+            cancels=[submit_event] # 送信イベントをキャンセルする
+        )
+        # ▲▲▲【修正ここまで】▲▲▲
 
         # トークン計算イベント（入力内容が変更されるたびに実行）
         token_calc_on_input_inputs = [
