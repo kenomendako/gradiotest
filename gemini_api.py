@@ -16,7 +16,7 @@ import httpx
 from google.api_core.exceptions import ResourceExhausted
 import re
 
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, AIMessageChunk
 import config_manager
 import constants
 
@@ -101,14 +101,13 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
 
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v23: 辞書引数FIX)
+    LangGraphの思考プロセスをストリーミングで返す。(v25: 安定性向上版)
     """
     from agent.graph import app
     import time
     from google.api_core.exceptions import ResourceExhausted, InternalServerError
-    from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
-    # --- 引数を辞書から展開 ---
+    # --- 引数を辞書から展開 (変更なし) ---
     room_to_respond = agent_args["room_to_respond"]
     api_key_name = agent_args["api_key_name"]
     api_history_limit = agent_args["api_history_limit"]
@@ -134,7 +133,8 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        yield {"final_output": {"response": f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"}}
+        error_message = f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"
+        yield ("values", {"messages": [AIMessage(content=error_message)]})
         return
 
     # --- ハイブリッド履歴構築ロジック ---
@@ -148,32 +148,28 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         snapshot_history_raw = utils.load_chat_log(history_log_path)
         snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond)
         if snapshot_messages and messages:
-            # スナップショットの最初のユーザー発言を取得
             first_snapshot_user_message_content = None
             for msg in snapshot_messages:
                 if isinstance(msg, HumanMessage):
                     first_snapshot_user_message_content = msg.content
                     break
-
-            # 自分の履歴(messages)の後方から、スナップショットの開始点と同じ発言を探す
             if first_snapshot_user_message_content:
                 for i in range(len(messages) - 1, -1, -1):
                     if isinstance(messages[i], HumanMessage) and messages[i].content == first_snapshot_user_message_content:
-                        # 発見したら、そこから後ろを一旦削除して、スナップショットで置き換える
                         messages = messages[:i]
                         break
-
             messages.extend(snapshot_messages)
         elif snapshot_messages:
             messages = snapshot_messages
 
-    # if user_prompt_parts:
-    #     messages.append(HumanMessage(content=user_prompt_parts))
+    if user_prompt_parts:
+        messages.append(HumanMessage(content=user_prompt_parts))
 
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
         messages = messages[-(limit * 2):]
 
+    # --- エージェント実行 ---
     initial_state = {
         "messages": messages, "room_name": room_to_respond,
         "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
@@ -188,63 +184,33 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "all_participants": all_participants_list
     }
 
-    # --- エージェント実行ループ ---
-    max_retries = 3
-    retry_delay = 5  # seconds
+    # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
+    yield ("initial_count", len(messages))
 
+    max_retries = 3
+    retry_delay = 5
     for attempt in range(max_retries):
         try:
-            # 思考プロセスをストリーミングで実行
-            for update in app.stream(initial_state, stream_mode="values"):
-                # UIにストリームの更新を通知 (現在は未使用だが将来のために残す)
-                yield {"stream_update": update}
-
-            # ストリームの最後の値が最終状態
-            final_state = update
-
-            # 最終的なAIの応答メッセージを取得
-            final_message = final_state["messages"][-1]
-            response_text = ""
-            tool_popups = []
-
-            if isinstance(final_message, AIMessage):
-                response_text = final_message.content
-
-            # ▼▼▼【ここからが修正の核心】▼▼▼
-            # ツール実行結果のポップアップを生成
-            # 今回の処理で新しく追加された全てのメッセージを対象とする
-            initial_message_count = len(initial_state["messages"])
-            new_messages = final_state["messages"][initial_message_count:]
-
-            for msg in new_messages:
-                if isinstance(msg, ToolMessage):
-                    popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                    if popup_text:
-                        tool_popups.append(popup_text)
-            # ▲▲▲【修正ここまで】▲▲▲
-
-            yield {"final_output": {"response": response_text, "tool_popups": tool_popups}}
-            return # 正常に終了したのでループを抜ける
+            for update in app.stream(initial_state, stream_mode=["messages", "values"]):
+                yield update
+            return
 
         except (ResourceExhausted, InternalServerError) as e:
-            # サーバー側のエラー (リソース枯渇や内部エラー)
             print(f"--- APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
             if attempt < max_retries - 1:
                 print(f"    - {retry_delay}秒待機してリトライします...")
                 time.sleep(retry_delay)
-                # 次のリトライのために遅延を増やす
                 retry_delay *= 2
             else:
                 error_message = f"[エラー: APIサーバーが応答しませんでした。時間をおいて再試行してください。詳細: {e}]"
-                yield {"final_output": {"response": error_message, "tool_popups": []}}
+                yield ("values", {"messages": [AIMessage(content=error_message)]})
                 return
 
         except Exception as e:
-            # その他の予期せぬエラー
             print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
             traceback.print_exc()
             error_message = f"[エラー: 内部処理で問題が発生しました。詳細はターミナルを確認してください。エラー: {e}]"
-            yield {"final_output": {"response": error_message, "tool_popups": []}}
+            yield ("values", {"messages": [AIMessage(content=error_message)]})
             return
 
 def count_input_tokens(**kwargs):
