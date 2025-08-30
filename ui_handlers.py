@@ -177,7 +177,7 @@ def handle_save_room_settings(
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
-    auto_memory_enabled: bool # <<< 引数を追加
+    auto_memory_enabled: bool
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -286,7 +286,7 @@ def update_token_count_on_input(
     return gemini_api.count_input_tokens(**kwargs)
 
 def handle_message_submission(*args: Any):
-    # 1. 引数リストの最後にボタンの現在の状態を追加
+    # 1. 引数リストから auto_memory_enabled を削除
     (multimodal_input, soul_vessel_room, current_api_key_name_state,
      api_history_limit_state, debug_mode_state,
      current_console_content, active_participants,
@@ -318,6 +318,7 @@ def handle_message_submission(*args: Any):
     utils.save_message_to_log(main_log_f, "## USER:user", full_user_log_entry)
 
     # ▼▼▼【ここからが修正の核心】▼▼▼
+    # 失われた try...finally ブロックを正しく復元する
     try:
         # 2. ストリーミングのための準備とボタンの状態変更
         chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
@@ -411,7 +412,6 @@ def handle_message_submission(*args: Any):
                 turn_recap_events.append(f"## AGENT:{room_to_respond}\n{final_response_text}")
 
         # 5. 全員の応答が終わった後の最終処理 (自動記憶など)
-        # ... (この部分のロジックは変更なし) ...
         for popup_message in all_turn_popups: gr.Info(popup_message)
         if active_participants:
             recap_text = "\n\n".join(turn_recap_events)
@@ -420,29 +420,34 @@ def handle_message_submission(*args: Any):
                 participant_log_f, _, _, _, _ = get_room_files_paths(participant_name)
                 if participant_log_f: utils.save_message_to_log(participant_log_f, "## システム(対話記録):", full_recap_entry)
 
-    effective_settings = config_manager.get_effective_settings(soul_vessel_room)
-    if effective_settings.get("auto_memory_enabled", False):
-        try:
-            print(f"--- 自動記憶処理を開始: {soul_vessel_room} ---")
-            messages_to_save = []
-            user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
-            if user_content_match: messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
-            for recap_event in turn_recap_events[1:]:
-                    ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
-                    if ai_content_match: messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
-            if len(messages_to_save) >= 2:
-                mos = memos_manager.get_mos_instance(soul_vessel_room)
-                mos.add(messages=messages_to_save)
-                print(f"--- 自動記憶処理完了: {soul_vessel_room} ---")
-            else: print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
-        except Exception as e:
-            print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---"); traceback.print_exc()
-            gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
+        # room_config.json から最新の自動記憶設定を読み込む
+        effective_settings = config_manager.get_effective_settings(soul_vessel_room)
+        if effective_settings.get("auto_memory_enabled", False):
+            try:
+                print(f"--- 自動記憶処理を開始: {soul_vessel_room} ---")
+                messages_to_save = []
+                # ユーザー発言の抽出（正規表現を修正）
+                user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
+                if user_content_match: messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
+
+                # AI発言の抽出（正規表現を修正）
+                for recap_event in turn_recap_events[1:]:
+                     ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
+                     if ai_content_match: messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
+
+                if len(messages_to_save) >= 2:
+                    mos = memos_manager.get_mos_instance(soul_vessel_room)
+                    mos.add(messages=messages_to_save)
+                    print(f"--- 自動記憶処理完了: {soul_vessel_room} ---")
+                else: print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
+            except Exception as e:
+                print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---"); traceback.print_exc()
+                gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
 
     finally:
         # 6. 処理が完了または中断されたら、必ずボタンの状態を元に戻す
         final_chatbot_history, final_mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
-        # ... (残りの最終UI更新ロジックは変更なし) ...
+
         api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
         new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
         scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
@@ -453,13 +458,12 @@ def handle_message_submission(*args: Any):
         )
         final_df_with_ids = render_alarms_as_dataframe()
         final_df = get_display_df(final_df_with_ids)
+        # 最後のyieldでボタンの状態を必ず更新する
         yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
                new_location_name, new_scenery_text,
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
-               gr.update(visible=False), gr.update(interactive=True)) # ストップボタンを非表示、更新ボタンを有効化
-
-    # ▲▲▲【修正ここまで】▲▲▲
+               gr.update(visible=False), gr.update(interactive=True))
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     if not room_name or not api_key_name:
