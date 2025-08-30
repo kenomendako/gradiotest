@@ -1266,16 +1266,12 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     # --- 置換ルールの準備 ---
     active_rules = []
     if screenshot_mode and redaction_rules:
-        # findが長いものから先に置換しないと、部分文字列が先に置換されてしまう問題を解決
         active_rules = sorted(redaction_rules, key=lambda x: len(x["find"]), reverse=True)
 
     def apply_redactions(text: str) -> str:
         if not screenshot_mode or not active_rules or not text:
             return html.escape(text) if text else ""
-
-        # HTMLエスケープを先に行う
         escaped_text = html.escape(text)
-
         for rule in active_rules:
             find_str = html.escape(rule["find"])
             replace_str = f'<span style="background-color: #FFFFB3; padding: 1px 3px; border-radius: 3px; color: #333;">{html.escape(rule["replace"])}</span>'
@@ -1289,10 +1285,32 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     folder_to_display_map = {folder: display for display, folder in all_rooms_list}
     known_configs = {}
 
-    gradio_history = []
-    mapping_list = []
+    # --- UI要素の総数を事前に計算 ---
     user_file_attach_pattern = re.compile(r"\[ファイル添付: ([^\]]+?)\]")
     gen_image_pattern = re.compile(r"\[Generated Image: ([^\]]+?)\]")
+    total_ui_rows = 0
+    for msg in messages:
+        content = msg.get("content", "").strip()
+        role = msg.get("role")
+        text_part = content
+        media_paths = []
+        if role == "USER":
+            text_part = user_file_attach_pattern.sub("", content).strip()
+            media_paths = [p.strip() for p in user_file_attach_pattern.findall(content)]
+        elif role == "AGENT":
+            text_part = gen_image_pattern.sub("", content).strip()
+            media_paths = [p.strip() for p in gen_image_pattern.findall(content)]
+
+        if text_part:
+            total_ui_rows += 1
+        total_ui_rows += len([p for p in media_paths if os.path.exists(p)])
+        if not text_part and not media_paths:
+            total_ui_rows += 1
+
+    # --- 本処理 ---
+    gradio_history = []
+    mapping_list = []
+    ui_row_counter = 0
 
     for i, msg in enumerate(messages):
         role = msg.get("role")
@@ -1341,8 +1359,10 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 escaped_and_redacted_main_text,
                 escaped_and_redacted_thoughts,
                 speaker_name,
-                f"msg-anchor-{i}"
+                ui_row_counter,
+                total_ui_rows
             )
+            ui_row_counter += 1
 
             if role == "USER":
                 gradio_history.append((formatted_text, None))
@@ -1358,9 +1378,11 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 else:
                     gradio_history.append((None, media_tuple))
                 mapping_list.append(i)
+                ui_row_counter += 1
 
         if not text_part and not media_paths:
-            formatted_text = _format_text_content_for_gradio("", "", speaker_name, f"msg-anchor-{i}")
+            formatted_text = _format_text_content_for_gradio("", "", speaker_name, ui_row_counter, total_ui_rows)
+            ui_row_counter += 1
             if role == "USER":
                 gradio_history.append((formatted_text, None))
             else:
@@ -1370,28 +1392,62 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     return gradio_history, mapping_list
 
 
-def _format_text_content_for_gradio(main_text_html: str, thoughts_html: str, speaker_name: str, current_anchor_id: str) -> str:
+def _format_text_content_for_gradio(
+    main_text_html: str,
+    thoughts_html: str,
+    speaker_name: str,
+    current_ui_index: int,
+    total_ui_rows: int
+) -> str:
     """
-    （Docstringは変更なし）
+    発言のテキスト部分を、GradioのChatbotで表示するための最終的なHTML文字列に変換する。
+    思考ログ、ナビゲーションボタン（▲▼）、メニューアイコン（…）の表示ロジックも内包する。
     """
+    current_anchor_id = f"msg-anchor-{current_ui_index}"
     final_html_parts = []
-    # speaker_nameはエスケープが必要
-    final_html_parts.append(f"<span id='{current_anchor_id}'></span><strong>{html.escape(speaker_name)}:</strong><br>")
 
-    # thoughts_htmlは既にエスケープ＆置換済みなのでそのまま使う
+    # スクロール用のアンカーを設置
+    final_html_parts.append(f"<span id='{current_anchor_id}'></span>")
+
+    # 話者名
+    final_html_parts.append(f"<strong>{html.escape(speaker_name)}:</strong><br>")
+
+    # 思考ログ
     if thoughts_html:
-        # 改行を<br>に置換して、pre-wrapのスタイルを適用したdivで囲む
         formatted_thoughts = thoughts_html.replace('\n', '<br>')
         final_html_parts.append(f"<div class='thoughts'>【Thoughts】<br>{formatted_thoughts}</div>")
 
-    # main_text_htmlも既にエスケープ＆置換済みなのでそのまま使う
+    # メインの本文
     if main_text_html:
-        # 改行を<br>に置換
         final_html_parts.append(main_text_html.replace('\n', '<br>'))
 
-    # （...以降のボタンコンテナなどは変更なし...）
-    button_container = f"<div style='text-align: right; margin-top: 8px;'></div>"
-    final_html_parts.append(button_container)
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+
+    # ナビゲーションとメニューのボタンを生成
+    buttons = []
+
+    # 1. メニューアイコン（縦三点リーダー）を追加
+    # styleで少し大きく、クリック可能であることを示すカーソルにする
+    buttons.append("<span title='メニュー表示' style='font-weight: bold; cursor: pointer;'>&#8942;</span>") # &#8942; は ︙
+
+    # 2. 前の発言へのナビゲーションボタン
+    if current_ui_index > 0:
+        prev_anchor_id = f"msg-anchor-{current_ui_index - 1}"
+        buttons.append(f"<a href='#{prev_anchor_id}' class='message-nav-link' title='前の発言へ' style='text-decoration: none; color: inherit;'>▲</a>")
+
+    # 3. 次の発言へのナビゲーションボタン
+    if current_ui_index < total_ui_rows - 1:
+        next_anchor_id = f"msg-anchor-{current_ui_index + 1}"
+        buttons.append(f"<a href='#{next_anchor_id}' class='message-nav-link' title='次の発言へ' style='text-decoration: none; color: inherit;'>▼</a>")
+
+    # ボタンが1つでもあればコンテナごと追加
+    if buttons:
+        buttons_str = "&nbsp;&nbsp;".join(buttons)
+        button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{buttons_str}</div>"
+        final_html_parts.append(button_container)
+
+    # ▲▲▲【修正ここまで】▲▲▲
+
     return "".join(final_html_parts)
 
 def update_model_state(model): config_manager.save_config("last_model", model); return model
