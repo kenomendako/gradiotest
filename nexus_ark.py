@@ -624,7 +624,7 @@ try:
         ]
         save_room_settings_button.click(
             fn=ui_handlers.handle_save_room_settings,
-            inputs=[current_room_name, room_model_dropdown, room_voice_dropdown, room_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes,
+            inputs=[current_room_name, room_model_dropdown, room_voice_dropdown, room_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes + [auto_memory_checkbox],
             outputs=None
         )
         room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
