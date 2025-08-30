@@ -99,11 +99,14 @@ def get_mos_instance(character_name: str) -> MOS:
 
     # --- 移植手術 ---
     mos.chat_llm = google_llm_instance
-    mos.mem_reader.llm = google_llm_instance
-    mos.mem_reader.embedder = google_embedder_instance
-    mem_cube.text_mem.extractor_llm = google_llm_instance
-    mem_cube.text_mem.dispatcher_llm = google_llm_instance
-    mem_cube.text_mem.embedder = google_embedder_instance
+    if hasattr(mos, 'mem_reader') and mos.mem_reader:
+        mos.mem_reader.llm = google_llm_instance
+        mos.mem_reader.embedder = google_embedder_instance
+
+    if hasattr(mem_cube, 'text_mem') and mem_cube.text_mem:
+        mem_cube.text_mem.extractor_llm = google_llm_instance
+        mem_cube.text_mem.dispatcher_llm = google_llm_instance
+        mem_cube.text_mem.embedder = google_embedder_instance
 
     # --- 5. 【修正の核心】データベースと同期したMemCubeの永続化ロジック ---
     cube_path = os.path.join("characters", character_name, "memos_cube")
