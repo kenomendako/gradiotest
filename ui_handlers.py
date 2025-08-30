@@ -1277,7 +1277,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     """
     生ログの辞書リストを、GradioのChatbotコンポーネントが要求する形式に変換する。
     UI上の行と元のログの行を紐付けるマッピングリストも同時に生成する。
-    v3: ナビゲーションとメニューアイコンの最終実装。
+    v4: 話者名にも置換ルールを適用。
     """
     if not messages:
         return [], []
@@ -1287,14 +1287,47 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     if screenshot_mode and redaction_rules:
         active_rules = sorted(redaction_rules, key=lambda x: len(x["find"]), reverse=True)
 
-    def apply_redactions(text: str) -> str:
+    def apply_redactions_to_speaker(speaker_name: str) -> str:
+        """話者名専用の置換関数。HTMLタグを含めず、テキストのみを返す。"""
+        if not screenshot_mode or not active_rules or not speaker_name:
+            return speaker_name
+
+        # 話者名は単純なテキスト置換を行う
+        temp_speaker_name = speaker_name
+        for rule in active_rules:
+            # 大文字小文字を区別せずに置換する
+            if rule["find"].lower() in temp_speaker_name.lower():
+                 # 置換する際、元の単語の大文字小文字の状態をできるだけ維持しようと試みる
+                 # （この実装は単純なもので、より複雑なケースには対応しきれない可能性がある）
+                 # 例： 'Miho' -> 'Keno', 'miho' -> 'keno'
+                try:
+                    # 正規表現で大文字小文字を無視して置換
+                    temp_speaker_name = re.sub(rule["find"], rule["replace"], temp_speaker_name, flags=re.IGNORECASE)
+                except re.error:
+                    # 正規表現エラーを避けるためのフォールバック
+                    temp_speaker_name = temp_speaker_name.replace(rule["find"], rule["replace"])
+
+        return temp_speaker_name
+
+    def apply_redactions_to_content(text: str) -> str:
+        """本文専用の置換関数。HTMLタグでハイライトする。"""
         if not screenshot_mode or not active_rules or not text:
             return html.escape(text) if text else ""
+
         escaped_text = html.escape(text)
         for rule in active_rules:
             find_str = html.escape(rule["find"])
+            # 正規表現のエスケープを行い、安全に置換する
+            safe_find_str = re.escape(find_str)
+            # 置換後の文字列はHTMLなのでエスケープしない
             replace_str = f'<span style="background-color: #FFFFB3; padding: 1px 3px; border-radius: 3px; color: #333;">{html.escape(rule["replace"])}</span>'
-            escaped_text = escaped_text.replace(find_str, replace_str)
+            try:
+                # 大文字小文字を無視して置換
+                escaped_text = re.sub(safe_find_str, replace_str, escaped_text, flags=re.IGNORECASE)
+            except re.error:
+                 # 正規表現エラーを避けるためのフォールバック
+                escaped_text = escaped_text.replace(find_str, replace_str)
+
         return escaped_text
 
     # --- 話者名解決の準備 ---
@@ -1315,15 +1348,23 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         responder_id = msg.get("responder")
         if not responder_id: continue
 
-        speaker_name = ""
-        if role == "USER": speaker_name = user_display_name
+        initial_speaker_name = ""
+        if role == "USER":
+            initial_speaker_name = user_display_name
         elif role == "AGENT":
-            if responder_id == current_room_folder: speaker_name = current_room_config.get("agent_display_name") or current_room_config.get("room_name", responder_id)
+            if responder_id == current_room_folder:
+                initial_speaker_name = current_room_config.get("agent_display_name") or current_room_config.get("room_name", responder_id)
             else:
-                if responder_id not in known_configs: known_configs[responder_id] = room_manager.get_room_config(responder_id) if responder_id in folder_to_display_map else {}
+                if responder_id not in known_configs:
+                    known_configs[responder_id] = room_manager.get_room_config(responder_id) if responder_id in folder_to_display_map else {}
                 config = known_configs[responder_id]
-                speaker_name = config.get("agent_display_name") or config.get("room_name", responder_id) if config else f"{responder_id} [削除済]"
-        else: speaker_name = responder_id
+                initial_speaker_name = config.get("agent_display_name") or config.get("room_name", responder_id) if config else f"{responder_id} [削除済]"
+        else:
+            initial_speaker_name = responder_id
+
+        # ▼▼▼【ここからが修正の核心】▼▼▼
+        final_speaker_name = apply_redactions_to_speaker(initial_speaker_name)
+        # ▲▲▲【修正ここまで】▲▲▲
 
         text_part, media_paths = content, []
         if role == "USER":
@@ -1338,13 +1379,14 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             thought_match = thoughts_pattern.search(text_part)
             thoughts_content = thought_match.group(1).strip() if thought_match else ""
             main_text_content = thoughts_pattern.sub("", text_part).strip()
-            proto_history.append({"type": "text", "role": role, "speaker": speaker_name, "main_text": main_text_content, "thoughts": thoughts_content, "log_index": i})
+            proto_history.append({"type": "text", "role": role, "speaker": final_speaker_name, "main_text": main_text_content, "thoughts": thoughts_content, "log_index": i})
 
         for path in media_paths:
-            if os.path.exists(path): proto_history.append({"type": "media", "role": role, "path": path, "log_index": i})
+            if os.path.exists(path):
+                proto_history.append({"type": "media", "role": role, "speaker": final_speaker_name, "path": path, "log_index": i})
 
         if not text_part and not media_paths:
-            proto_history.append({"type": "text", "role": role, "speaker": speaker_name, "main_text": "", "thoughts": "", "log_index": i})
+            proto_history.append({"type": "text", "role": role, "speaker": final_speaker_name, "main_text": "", "thoughts": "", "log_index": i})
 
     # --- Stage 2: UI表示要素リストから最終的なGradio形式を生成 ---
     gradio_history, mapping_list = [], []
@@ -1354,10 +1396,16 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         mapping_list.append(item["log_index"])
 
         if item["type"] == "text":
+            # ▼▼▼【ここを修正】▼▼▼
+            # コンテンツの置換は新しい専用関数を呼び出す
             formatted_text = _format_text_content_for_gradio(
-                apply_redactions(item["main_text"]), apply_redactions(item["thoughts"]),
-                item["speaker"], ui_index, total_ui_rows
+                apply_redactions_to_content(item["main_text"]),
+                apply_redactions_to_content(item["thoughts"]),
+                item["speaker"], # こちらは既に置換済みの話者名
+                ui_index,
+                total_ui_rows
             )
+            # ▲▲▲【修正ここまで】▲▲▲
             gradio_history.append((formatted_text, None) if item["role"] == "USER" else (None, formatted_text))
 
         elif item["type"] == "media":
