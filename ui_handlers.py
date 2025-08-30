@@ -125,6 +125,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings["add_timestamp"], effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
         effective_settings["send_core_memory"], effective_settings["send_scenery"],
+        effective_settings["auto_memory_enabled"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path
     )
@@ -175,7 +176,8 @@ def handle_save_room_settings(
     room_name: str, model_name: str, voice_name: str, voice_style_prompt: str,
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
-    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool
+    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
+    auto_memory_enabled: bool # <<< 引数を追加
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -198,6 +200,7 @@ def handle_save_room_settings(
         "safety_block_threshold_dangerous_content": safety_value_map.get(dangerous),
         "add_timestamp": bool(add_timestamp), "send_thoughts": bool(send_thoughts), "send_notepad": bool(send_notepad),
         "use_common_prompt": bool(use_common_prompt), "send_core_memory": bool(send_core_memory), "send_scenery": bool(send_scenery),
+        "auto_memory_enabled": bool(auto_memory_enabled)
     }
     try:
         # 正しくは room_config.json を参照する
@@ -286,7 +289,7 @@ def handle_message_submission(*args: Any):
     # 1. 引数リストの最後にボタンの現在の状態を追加
     (multimodal_input, soul_vessel_room, current_api_key_name_state,
      api_history_limit_state, debug_mode_state,
-     auto_memory_enabled, current_console_content, active_participants,
+     current_console_content, active_participants,
      room_model, global_model) = args
 
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
@@ -417,23 +420,24 @@ def handle_message_submission(*args: Any):
                 participant_log_f, _, _, _, _ = get_room_files_paths(participant_name)
                 if participant_log_f: utils.save_message_to_log(participant_log_f, "## システム(対話記録):", full_recap_entry)
 
-        if auto_memory_enabled:
-            try:
-                print(f"--- 自動記憶処理を開始: {soul_vessel_room} ---")
-                messages_to_save = []
-                user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
-                if user_content_match: messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
-                for recap_event in turn_recap_events[1:]:
-                     ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
-                     if ai_content_match: messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
-                if len(messages_to_save) >= 2:
-                    mos = memos_manager.get_mos_instance(soul_vessel_room)
-                    mos.add(messages=messages_to_save)
-                    print(f"--- 自動記憶処理完了: {soul_vessel_room} ---")
-                else: print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
-            except Exception as e:
-                print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---"); traceback.print_exc()
-                gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
+    effective_settings = config_manager.get_effective_settings(soul_vessel_room)
+    if effective_settings.get("auto_memory_enabled", False):
+        try:
+            print(f"--- 自動記憶処理を開始: {soul_vessel_room} ---")
+            messages_to_save = []
+            user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
+            if user_content_match: messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
+            for recap_event in turn_recap_events[1:]:
+                    ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
+                    if ai_content_match: messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
+            if len(messages_to_save) >= 2:
+                mos = memos_manager.get_mos_instance(soul_vessel_room)
+                mos.add(messages=messages_to_save)
+                print(f"--- 自動記憶処理完了: {soul_vessel_room} ---")
+            else: print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
+        except Exception as e:
+            print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---"); traceback.print_exc()
+            gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
 
     finally:
         # 6. 処理が完了または中断されたら、必ずボタンの状態を元に戻す
@@ -1054,11 +1058,6 @@ def handle_timer_submission(timer_type, duration, work, brk, cycles, room, work_
     except Exception as e:
         traceback.print_exc()
         return f"タイマー開始エラー: {e}"
-
-def handle_auto_memory_change(auto_memory_enabled: bool):
-    config_manager.save_memos_config("auto_memory_enabled", auto_memory_enabled)
-    status = "有効" if auto_memory_enabled else "無効"
-    gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
 
 def handle_memos_batch_import(room_name: str, console_content: str):
     if not room_name:

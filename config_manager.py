@@ -186,6 +186,7 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         "add_timestamp": False, "send_thoughts": initial_send_thoughts_to_api_global,
         "send_notepad": True, "use_common_prompt": False,
         "send_core_memory": True, "send_scenery": True,
+        "auto_memory_enabled": False,
         "temperature": 0.8, "top_p": 0.95,
         "safety_block_threshold_harassment": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_hate_speech": "BLOCK_ONLY_HIGH",
