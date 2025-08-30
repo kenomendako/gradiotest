@@ -172,6 +172,7 @@ try:
                                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
+                                    auto_memory_checkbox = gr.Checkbox(label="対話の自動記憶を有効にする", value=lambda: config_manager.CONFIG_GLOBAL.get("memos_config", {}).get("auto_memory_enabled", False), interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
                                     gr.Markdown("---")
                                     gr.Markdown("#### 📢 通知サービス設定")
@@ -222,8 +223,6 @@ try:
                                     room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
                                     room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
                                     room_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
-                                    gr.Markdown("#### 🧠 記憶設定")
-                                    room_auto_memory_checkbox = gr.Checkbox(label="このルームの対話を自動で客観記憶(MemOS)に保存する", interactive=True)
                                     gr.Markdown("---")
                                     save_room_settings_button = gr.Button("このルームの設定を保存", variant="primary")
 
@@ -455,7 +454,7 @@ try:
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
-        ] + context_checkboxes + [room_auto_memory_checkbox, room_settings_info, scenery_image_display]
+        ] + context_checkboxes + [room_settings_info, scenery_image_display]
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
@@ -493,18 +492,20 @@ try:
             # file_upload_button は削除
             api_history_limit_state,
             debug_mode_checkbox,
+            auto_memory_checkbox,
             debug_console_state,
             active_participants_state,
             room_model_dropdown,
             model_dropdown
         ]
 
-        rerun_button.click(
+        rerun_event = rerun_button.click( # イベントを一旦変数に格納
             fn=ui_handlers.handle_rerun_button_click,
             inputs=[
                 selected_message_state, current_room_name, current_api_key_name_state,
                 api_history_limit_state, debug_mode_checkbox,
-                current_console_content,
+                # auto_memory_checkbox を削除
+                debug_console_state,
                 active_participants_state,
                 room_model_dropdown,
                 model_dropdown
@@ -515,7 +516,8 @@ try:
                 alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
                 debug_console_state, debug_console_output,
                 selected_message_state, action_button_group,
-                stop_button, chat_reload_button # <<< outputs にボタンを追加
+                stop_button, # 出力に追加
+                chat_reload_button # 出力に追加
             ]
         )
 
@@ -622,7 +624,7 @@ try:
         ]
         save_room_settings_button.click(
             fn=ui_handlers.handle_save_room_settings,
-            inputs=[current_room_name, room_model_dropdown, room_voice_dropdown, room_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes + [room_auto_memory_checkbox],
+            inputs=[current_room_name, room_model_dropdown, room_voice_dropdown, room_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes,
             outputs=None
         )
         room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
@@ -630,20 +632,18 @@ try:
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
-        # ▼▼▼【送信イベントの定義を修正】▼▼▼
-        # 1. 送信イベントを変数に格納
+        # ▼▼▼【送信と停止のイベント定義を全面的に更新】▼▼▼
         submit_event = chat_input_multimodal.submit(
             fn=ui_handlers.handle_message_submission,
             inputs=chat_inputs,
-            outputs=chat_submit_outputs + [stop_button, chat_reload_button] # 出力先を追加
+            outputs=chat_submit_outputs + [stop_button, chat_reload_button]
         )
 
-        # 2. ストップボタンのクリックイベントを定義
         stop_button.click(
-            fn=ui_handlers.handle_stop_button_click, # fnに新しいハンドラを指定
+            fn=ui_handlers.handle_stop_button_click,
             inputs=None,
-            outputs=[stop_button, chat_reload_button], # outputsにボタンを指定
-            cancels=[submit_event]
+            outputs=[stop_button, chat_reload_button],
+            cancels=[submit_event, rerun_event] # <--- rerun_event もキャンセル対象に追加
         )
         # ▲▲▲【修正ここまで】▲▲▲
 
@@ -729,6 +729,7 @@ try:
         save_pushover_config_button.click(fn=ui_handlers.handle_save_pushover_config, inputs=[pushover_user_key_input, pushover_app_token_input], outputs=[])
         save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
         save_tavily_key_button.click(fn=ui_handlers.handle_save_tavily_key, inputs=[tavily_key_input], outputs=[])
+        auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
         # ▼▼▼ ここからが修正の核心 ▼▼▼
 
         import_event = memos_import_button.click(

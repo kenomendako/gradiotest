@@ -286,10 +286,10 @@ def update_token_count_on_input(
     return gemini_api.count_input_tokens(**kwargs)
 
 def handle_message_submission(*args: Any):
-    # 1. 引数リストから auto_memory_enabled を削除
+    # 1. 引数リストの最後にボタンの現在の状態を追加
     (multimodal_input, soul_vessel_room, current_api_key_name_state,
      api_history_limit_state, debug_mode_state,
-     current_console_content, active_participants,
+     auto_memory_enabled, current_console_content, active_participants,
      room_model, global_model) = args
 
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
@@ -318,7 +318,6 @@ def handle_message_submission(*args: Any):
     utils.save_message_to_log(main_log_f, "## USER:user", full_user_log_entry)
 
     # ▼▼▼【ここからが修正の核心】▼▼▼
-    # 失われた try...finally ブロックを正しく復元する
     try:
         # 2. ストリーミングのための準備とボタンの状態変更
         chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
@@ -412,6 +411,7 @@ def handle_message_submission(*args: Any):
                 turn_recap_events.append(f"## AGENT:{room_to_respond}\n{final_response_text}")
 
         # 5. 全員の応答が終わった後の最終処理 (自動記憶など)
+        # ... (この部分のロジックは変更なし) ...
         for popup_message in all_turn_popups: gr.Info(popup_message)
         if active_participants:
             recap_text = "\n\n".join(turn_recap_events)
@@ -420,21 +420,15 @@ def handle_message_submission(*args: Any):
                 participant_log_f, _, _, _, _ = get_room_files_paths(participant_name)
                 if participant_log_f: utils.save_message_to_log(participant_log_f, "## システム(対話記録):", full_recap_entry)
 
-        # room_config.json から最新の自動記憶設定を読み込む
-        effective_settings = config_manager.get_effective_settings(soul_vessel_room)
-        if effective_settings.get("auto_memory_enabled", False):
+        if auto_memory_enabled:
             try:
                 print(f"--- 自動記憶処理を開始: {soul_vessel_room} ---")
                 messages_to_save = []
-                # ユーザー発言の抽出（正規表現を修正）
                 user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
                 if user_content_match: messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
-
-                # AI発言の抽出（正規表現を修正）
                 for recap_event in turn_recap_events[1:]:
                      ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
                      if ai_content_match: messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
-
                 if len(messages_to_save) >= 2:
                     mos = memos_manager.get_mos_instance(soul_vessel_room)
                     mos.add(messages=messages_to_save)
@@ -447,7 +441,7 @@ def handle_message_submission(*args: Any):
     finally:
         # 6. 処理が完了または中断されたら、必ずボタンの状態を元に戻す
         final_chatbot_history, final_mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
-
+        # ... (残りの最終UI更新ロジックは変更なし) ...
         api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
         new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
         scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
@@ -458,12 +452,13 @@ def handle_message_submission(*args: Any):
         )
         final_df_with_ids = render_alarms_as_dataframe()
         final_df = get_display_df(final_df_with_ids)
-        # 最後のyieldでボタンの状態を必ず更新する
         yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
                new_location_name, new_scenery_text,
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
-               gr.update(visible=False), gr.update(interactive=True))
+               gr.update(visible=False), gr.update(interactive=True)) # ストップボタンを非表示、更新ボタンを有効化
+
+    # ▲▲▲【修正ここまで】▲▲▲
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     if not room_name or not api_key_name:
@@ -1063,6 +1058,11 @@ def handle_timer_submission(timer_type, duration, work, brk, cycles, room, work_
         traceback.print_exc()
         return f"タイマー開始エラー: {e}"
 
+def handle_auto_memory_change(auto_memory_enabled: bool):
+    config_manager.save_memos_config("auto_memory_enabled", auto_memory_enabled)
+    status = "有効" if auto_memory_enabled else "無効"
+    gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
+
 def handle_memos_batch_import(room_name: str, console_content: str):
     if not room_name:
         gr.Warning("ルームが選択されていません。")
@@ -1180,11 +1180,6 @@ def handle_core_memory_update_click(room_name: str, api_key_name: str):
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{room_name}」のコアメモリ更新をバックグラウンドで開始しました。")
     threading.Thread(target=_run_core_memory_update, args=(room_name, api_key)).start()
-
-def handle_stop_button_click():
-    """ストップボタンが押されたときにUIの状態をリセットする。"""
-    print("--- [UI] ユーザーによりストップボタンが押されました ---")
-    return gr.update(visible=False), gr.update(interactive=True)
 
 # --- Screenshot Redaction Rules Handlers ---
 
@@ -2057,105 +2052,135 @@ def handle_rerun_button_click(*args: Any):
      api_history_limit, debug_mode,
      current_console_content, active_participants,
      room_model, global_model) = args
-    active_participants = active_participants or []
 
-    if not selected_message or not room_name:
-        gr.Warning("再生成の起点となるメッセージが選択されていません。")
-        yield (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+    try:
+        active_participants = active_participants or []
+
+        if not selected_message or not room_name:
+            gr.Warning("再生成の起点となるメッセージが選択されていません。")
+            # 戻り値の数を15個に合わせる
+            yield (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                   gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                   None, gr.update(visible=True), gr.update(), gr.update())
+            return
+
+        # ... (ログの巻き戻し処理は変更なし) ...
+        log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        is_ai_message = selected_message.get("role") == "AGENT"
+
+        restored_input_text = None
+        if is_ai_message:
+            restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message)
+        else:
+            restored_input_text = utils.delete_user_message_and_after(log_f, selected_message)
+
+        if restored_input_text is None:
+            gr.Error("ログの巻き戻しに失敗しました。再生成できません。")
+            history, mapping = reload_chat_log(room_name, api_history_limit)
+            yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(),
+                   gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                   None, gr.update(visible=True))
+            return
+
+        effective_settings = config_manager.get_effective_settings(room_name)
+        add_timestamp = effective_settings.get("add_timestamp", False)
+        timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
+        full_user_log_entry = restored_input_text + timestamp
+        utils.save_message_to_log(log_f, "## USER:user", full_user_log_entry)
+
+        user_prompt_parts_for_api = [{"type": "text", "text": restored_input_text}]
+
+        gr.Info("応答を再生成します...")
+
+        # ▼▼▼【ここからがストリーミングとボタン制御のロジック】▼▼▼
+        # ストップボタンを表示し、更新ボタンを無効化
+        chatbot_history, mapping_list = reload_chat_log(room_name, api_history_limit)
+        chatbot_history.append((None, f"思考中 ({room_name})... ▌"))
+        yield (chatbot_history, mapping_list, gr.update(value={"text": "", "files": []}),
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-               None, gr.update(visible=True))
-        return
+               current_console_content, current_console_content,
+               None, gr.update(visible=False), # selected_message, action_button_group
+               gr.update(visible=True), gr.update(interactive=False)) # stop_button, chat_reload_button
 
-    log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
-    is_ai_message = selected_message.get("role") == "AGENT"
+        # ... (agent_args_dict の準備からストリーミングループまでは変更なし) ...
+        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+        shared_location_name, _, shared_scenery_text = generate_scenery_context(room_name, api_key)
 
-    restored_input_text = None
-    if is_ai_message:
-        restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message)
-    else:
-        restored_input_text = utils.delete_user_message_and_after(log_f, selected_message)
+        all_turn_popups = []
+        agent_args_dict = {
+            "room_to_respond": room_name,
+            "api_key_name": api_key_name,
+            "global_model_from_ui": global_model,
+            "room_model_from_ui": room_model,
+            "api_history_limit": api_history_limit,
+            "debug_mode": debug_mode,
+            "history_log_path": log_f,
+            "user_prompt_parts": user_prompt_parts_for_api,
+            "soul_vessel_room": room_name,
+            "active_participants": active_participants,
+            "shared_location_name": shared_location_name,
+            "shared_scenery_text": shared_scenery_text,
+        }
 
-    if restored_input_text is None:
-        gr.Error("ログの巻き戻しに失敗しました。再生成できません。")
-        history, mapping = reload_chat_log(room_name, api_history_limit)
-        yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(),
-               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-               None, gr.update(visible=True))
-        return
+        final_response_text = ""
+        with utils.capture_prints() as captured_output:
+            for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                if "final_output" in update:
+                    final_output_data = update["final_output"]
+                    final_response_text = final_output_data.get("response", "")
+                    all_turn_popups.extend(final_output_data.get("tool_popups", []))
+                    break
 
-    effective_settings = config_manager.get_effective_settings(room_name)
-    add_timestamp = effective_settings.get("add_timestamp", False)
-    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
-    full_user_log_entry = restored_input_text + timestamp
-    utils.save_message_to_log(log_f, "## USER:user", full_user_log_entry)
+        current_console_content += captured_output.getvalue()
 
-    user_prompt_parts_for_api = [{"type": "text", "text": restored_input_text}]
+        if final_response_text.strip():
+            utils.save_message_to_log(log_f, f"## AGENT:{room_name}", final_response_text)
 
-    gr.Info("応答を再生成します...")
+        for popup_message in all_turn_popups:
+            gr.Info(popup_message)
+        # ...
 
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-    shared_location_name, _, shared_scenery_text = generate_scenery_context(room_name, api_key)
+        # ▼▼▼【自動記憶のロジックを修正】▼▼▼
+        effective_settings = config_manager.get_effective_settings(room_name)
+        if effective_settings.get("auto_memory_enabled", False):
+            try:
+                print(f"--- 自動記憶処理を開始 (再生成): {room_name} ---")
+                messages_to_save = [
+                    {"role": "user", "content": restored_input_text},
+                    {"role": "assistant", "content": final_response_text}
+                ]
+                if len(messages_to_save) >= 2 and messages_to_save[0]["content"] and messages_to_save[1]["content"]:
+                    mos = memos_manager.get_mos_instance(room_name)
+                    mos.add(messages=messages_to_save)
+                    print(f"--- 自動記憶処理完了 (再生成): {room_name} ---")
+            except Exception as e:
+                print(f"--- 自動記憶処理中にエラーが発生しました (再生成): {e} ---")
+                traceback.print_exc()
+                gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
 
-    all_turn_popups = []
+    finally:
+        # 6. 処理が完了または中断されたら、必ずボタンの状態を元に戻す
+        final_chatbot_history, final_mapping_list = reload_chat_log(room_name, api_history_limit)
+        # ... (残りの最終UI更新ロジックは変更なし) ...
+        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+        new_location_name, _, new_scenery_text = generate_scenery_context(room_name, api_key)
+        scenery_image = utils.find_scenery_image(room_name, utils.get_current_location(room_name))
 
-    chatbot_history, mapping_list = reload_chat_log(room_name, api_history_limit)
-    chatbot_history.append((None, f"思考中 ({room_name})... ▌"))
-    yield (chatbot_history, mapping_list, gr.update(value={"text": "", "files": []}),
-           gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-           current_console_content, current_console_content,
-           None, gr.update(visible=False))
+        token_calc_kwargs = config_manager.get_effective_settings(room_name)
+        token_count_text = gemini_api.count_input_tokens(
+            room_name=room_name, api_key_name=api_key_name,
+            api_history_limit=api_history_limit, parts=[], **token_calc_kwargs
+        )
 
-    agent_args_dict = {
-        "room_to_respond": room_name,
-        "api_key_name": api_key_name,
-        "global_model_from_ui": global_model,
-        "room_model_from_ui": room_model,
-        "api_history_limit": api_history_limit,
-        "debug_mode": debug_mode,
-        "history_log_path": log_f,
-        "user_prompt_parts": user_prompt_parts_for_api,
-        "soul_vessel_room": room_name,
-        "active_participants": active_participants,
-        "shared_location_name": shared_location_name,
-        "shared_scenery_text": shared_scenery_text,
-    }
+        final_df_with_ids = render_alarms_as_dataframe()
+        final_df = get_display_df(final_df_with_ids)
 
-    final_response_text = ""
-    with utils.capture_prints() as captured_output:
-        for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-            if "final_output" in update:
-                final_output_data = update["final_output"]
-                final_response_text = final_output_data.get("response", "")
-                all_turn_popups.extend(final_output_data.get("tool_popups", []))
-                break
-
-    current_console_content += captured_output.getvalue()
-
-    if final_response_text.strip():
-        utils.save_message_to_log(log_f, f"## AGENT:{room_name}", final_response_text)
-
-    for popup_message in all_turn_popups:
-        gr.Info(popup_message)
-
-    final_chatbot_history, final_mapping_list = reload_chat_log(room_name, api_history_limit)
-    new_location_name, _, new_scenery_text = generate_scenery_context(room_name, api_key)
-    scenery_image = utils.find_scenery_image(room_name, utils.get_current_location(room_name))
-
-    token_calc_kwargs = config_manager.get_effective_settings(room_name)
-    token_count_text = gemini_api.count_input_tokens(
-        room_name=room_name, api_key_name=api_key_name,
-        api_history_limit=api_history_limit, parts=[], **token_calc_kwargs
-    )
-
-    final_df_with_ids = render_alarms_as_dataframe()
-    final_df = get_display_df(final_df_with_ids)
-
-    yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
-           new_location_name, new_scenery_text,
-           final_df_with_ids, final_df, scenery_image,
-           current_console_content, current_console_content,
-           None, gr.update(visible=False), # selected_message, action_button_group
-           gr.update(visible=False), gr.update(interactive=True)) # stop_button, chat_reload_button
+        yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
+               new_location_name, new_scenery_text,
+               final_df_with_ids, final_df, scenery_image,
+               current_console_content, current_console_content,
+               None, gr.update(visible=False), # selected_message, action_button_group
+               gr.update(visible=False), gr.update(interactive=True)) # stop_button, chat_reload_button
 
 def handle_core_memory_update_click(room_name: str, api_key_name: str):
     if not room_name or not api_key_name: gr.Warning("ルームとAPIキーを選択してください。"); return
@@ -2163,3 +2188,8 @@ def handle_core_memory_update_click(room_name: str, api_key_name: str):
     if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
     gr.Info(f"「{room_name}」のコアメモリ更新をバックグラウンドで開始しました。")
     threading.Thread(target=_run_core_memory_update, args=(room_name, api_key)).start()
+
+def handle_stop_button_click():
+    """ストップボタンが押されたときにUIの状態をリセットする。"""
+    print("--- [UI] ユーザーによりストップボタンが押されました ---")
+    return gr.update(visible=False), gr.update(interactive=True)

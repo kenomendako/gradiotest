@@ -25,7 +25,8 @@ def get_mos_instance(character_name: str) -> MOS:
     api_key_name = config_manager.initial_api_key_name_global
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name, "")
 
-    # ... (データベースの存在確認と自動作成のロジックは変更なし) ...
+    # --- 2. 接続情報をconfig.jsonから直接取得 ---
+    # この時点でconfig_manager.load_config()は実行済みなので、CONFIG_GLOBALは最新
     memos_config_data = config_manager.CONFIG_GLOBAL.get("memos_config", {})
     neo4j_config_for_memos = memos_config_data.get("neo4j_config", {})
     
@@ -72,25 +73,17 @@ def get_mos_instance(character_name: str) -> MOS:
     dummy_llm_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
     dummy_embedder_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
 
-    # mem_readerの設定を明示的に定義
-    mem_reader_config = {
-        "backend": "simple_struct",
-        "config": {
-            "llm": dummy_llm_config_factory,
-            "embedder": dummy_embedder_config_factory,
-            "chunker": {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}},
-        }
-    }
-
     mos_config = MOSConfig(
         user_id=character_name,
         chat_model=dummy_llm_config_factory,
-        mem_reader=mem_reader_config
+        mem_reader={"backend": "simple_struct", "config": {
+            "llm": dummy_llm_config_factory, "embedder": dummy_embedder_config_factory,
+            "chunker": {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}},
+        }}
     )
     mem_cube_config = GeneralMemCubeConfig(
         user_id=character_name,
         cube_id=f"{character_name}_main_cube",
-        mem_reader=mem_reader_config, # MemCubeにも同じMemReader設定を渡す
         text_mem={ "backend": "tree_text", "config": {
             "extractor_llm": dummy_llm_config_factory, "dispatcher_llm": dummy_llm_config_factory,
             "graph_db": { "backend": "neo4j", "config": neo4j_config_for_memos },
@@ -104,26 +97,15 @@ def get_mos_instance(character_name: str) -> MOS:
     google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path=constants.INTERNAL_PROCESSING_MODEL, google_api_key=api_key))
     google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
-    # --- 完全な移植手術 ---
+    # --- 移植手術 ---
     mos.chat_llm = google_llm_instance
+    mos.mem_reader.llm = google_llm_instance
+    mos.mem_reader.embedder = google_embedder_instance
+    mem_cube.text_mem.extractor_llm = google_llm_instance
+    mem_cube.text_mem.dispatcher_llm = google_llm_instance
+    mem_cube.text_mem.embedder = google_embedder_instance
 
-    # MOSインスタンス直下のMemReaderを置き換え
-    if hasattr(mos, 'mem_reader') and mos.mem_reader:
-        mos.mem_reader.llm = google_llm_instance
-        mos.mem_reader.embedder = google_embedder_instance
-
-    # MemCubeインスタンスの主要なLLMとEmbedderを置き換え
-    if hasattr(mem_cube, 'text_mem') and mem_cube.text_mem:
-        mem_cube.text_mem.extractor_llm = google_llm_instance
-        mem_cube.text_mem.dispatcher_llm = google_llm_instance
-        mem_cube.text_mem.embedder = google_embedder_instance
-
-        # MemCube内部のMemReader（第三の心臓）を置き換え
-        if hasattr(mem_cube.text_mem, 'mem_reader') and mem_cube.text_mem.mem_reader:
-            mem_cube.text_mem.mem_reader.llm = google_llm_instance
-            mem_cube.text_mem.mem_reader.embedder = google_embedder_instance
-
-    # --- 5. データベースと同期したMemCubeの永続化ロジック ---
+    # --- 5. 【修正の核心】データベースと同期したMemCubeの永続化ロジック ---
     cube_path = os.path.join("characters", character_name, "memos_cube")
     
     if not db_exists:
