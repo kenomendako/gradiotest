@@ -300,8 +300,12 @@ def count_input_tokens(**kwargs):
         total_tokens = count_tokens_from_lc_messages(messages, model_name, api_key)
 
         limit_info = get_model_token_limits(model_name, api_key)
-        if limit_info and 'input' in limit_info: return f"入力トークン数: {total_tokens} / {limit_info['input']}"
-        else: return f"入力トークン数: {total_tokens}"
+
+        tpm_note = "（Gemini2.5無料枠TPM:250,000）"
+        if limit_info and 'input' in limit_info:
+            return f"入力トークン数: {total_tokens} / {limit_info['input']} {tpm_note}"
+        else:
+            return f"入力トークン数: {total_tokens} {tpm_note}"
 
     except httpx.ReadError as e:
         print(f"トークン計算中にネットワーク読み取りエラー: {e}")
