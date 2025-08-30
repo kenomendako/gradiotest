@@ -1181,6 +1181,11 @@ def handle_core_memory_update_click(room_name: str, api_key_name: str):
     gr.Info(f"「{room_name}」のコアメモリ更新をバックグラウンドで開始しました。")
     threading.Thread(target=_run_core_memory_update, args=(room_name, api_key)).start()
 
+def handle_stop_button_click():
+    """ストップボタンが押されたときにUIの状態をリセットする。"""
+    print("--- [UI] ユーザーによりストップボタンが押されました ---")
+    return gr.update(visible=False), gr.update(interactive=True)
+
 # --- Screenshot Redaction Rules Handlers ---
 
 def handle_redaction_rule_select(rules_df: pd.DataFrame, evt: gr.SelectData) -> Tuple[Optional[int], str, str]:
@@ -2050,7 +2055,7 @@ def handle_delete_redaction_rule(rules_df: pd.DataFrame, selected_index: Optiona
 def handle_rerun_button_click(*args: Any):
     (selected_message, room_name, api_key_name,
      api_history_limit, debug_mode,
-     auto_memory_enabled, current_console_content, active_participants,
+     current_console_content, active_participants,
      room_model, global_model) = args
     active_participants = active_participants or []
 
@@ -2145,27 +2150,12 @@ def handle_rerun_button_click(*args: Any):
     final_df_with_ids = render_alarms_as_dataframe()
     final_df = get_display_df(final_df_with_ids)
 
-    yield (final_chatbot_history, final_mapping_list, gr.update(value={"text": "", "files": []}), token_count_text,
+    yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
            new_location_name, new_scenery_text,
            final_df_with_ids, final_df, scenery_image,
            current_console_content, current_console_content,
-           None, gr.update(visible=False))
-
-    if auto_memory_enabled:
-        try:
-            print(f"--- 自動記憶処理を開始 (再生成): {room_name} ---")
-            messages_to_save = [
-                {"role": "user", "content": restored_input_text},
-                {"role": "assistant", "content": final_response_text}
-            ]
-            if len(messages_to_save) >= 2:
-                mos = memos_manager.get_mos_instance(room_name)
-                mos.add(messages=messages_to_save)
-                print(f"--- 自動記憶処理完了 (再生成): {room_name} ---")
-        except Exception as e:
-            print(f"--- 自動記憶処理中にエラーが発生しました (再生成): {e} ---")
-            traceback.print_exc()
-            gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
+           None, gr.update(visible=False), # selected_message, action_button_group
+           gr.update(visible=False), gr.update(interactive=True)) # stop_button, chat_reload_button
 
 def handle_core_memory_update_click(room_name: str, api_key_name: str):
     if not room_name or not api_key_name: gr.Warning("ルームとAPIキーを選択してください。"); return

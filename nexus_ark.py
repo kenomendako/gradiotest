@@ -501,20 +501,21 @@ try:
 
         rerun_button.click(
             fn=ui_handlers.handle_rerun_button_click,
-            inputs=[ # inputs から file_upload_button を削除
+            inputs=[
                 selected_message_state, current_room_name, current_api_key_name_state,
                 api_history_limit_state, debug_mode_checkbox,
-                debug_console_state,
+                current_console_content,
                 active_participants_state,
                 room_model_dropdown,
                 model_dropdown
             ],
-            outputs=[ # outputs の chat_input_textbox, file_upload_button を chat_input_multimodal に統合
+            outputs=[
                 chatbot_display, current_log_map_state, chat_input_multimodal,
                 token_count_display, current_location_display, current_scenery_display,
                 alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
                 debug_console_state, debug_console_output,
-                selected_message_state, action_button_group
+                selected_message_state, action_button_group,
+                stop_button, chat_reload_button # <<< outputs にボタンを追加
             ]
         )
 
@@ -639,10 +640,10 @@ try:
 
         # 2. ストップボタンのクリックイベントを定義
         stop_button.click(
-            fn=None,
+            fn=ui_handlers.handle_stop_button_click, # fnに新しいハンドラを指定
             inputs=None,
-            outputs=None,
-            cancels=[submit_event] # 送信イベントをキャンセルする
+            outputs=[stop_button, chat_reload_button], # outputsにボタンを指定
+            cancels=[submit_event]
         )
         # ▲▲▲【修正ここまで】▲▲▲
 
