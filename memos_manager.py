@@ -3,8 +3,8 @@
 # このファイル全体を、以下のコードで完全に置き換えてください
 
 from memos import MOS, MOSConfig, GeneralMemCube, GeneralMemCubeConfig
-from memos.mem_reader.factory import MemReaderFactory
-from memos.configs.mem_reader import SimpleStructMemReaderConfig
+from memos.mem_reader.simple_struct_mem_reader import SimpleStructMemReader
+from memos.chunker.sentence_chunker import SentenceChunker
 import config_manager
 import constants
 import os
@@ -23,7 +23,7 @@ def get_mos_instance(character_name: str) -> MOS:
     if character_name in _mos_instances:
         return _mos_instances[character_name]
 
-    print(f"--- MemOSインスタンスを初期化中: {character_name} ---")
+    print(f"--- MemOSインスタンスを初期化中 (最終創世記版 v2): {character_name} ---")
 
     # --- 1. 設定情報の取得 ---
     api_key_name = config_manager.initial_api_key_name_global
@@ -38,7 +38,7 @@ def get_mos_instance(character_name: str) -> MOS:
     if not all([DB_NAME, NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
         raise ValueError("config.json内のneo4j_config設定が不完全です。")
     
-    # --- 2. データベースの存在確認と自動作成 (変更なし) ---
+    # DB存在確認ロジック
     driver = None
     db_exists = False
     try:
@@ -67,71 +67,70 @@ def get_mos_instance(character_name: str) -> MOS:
     finally:
         if driver: driver.close()
 
-    # --- 3. 【最終儀式】最初から全てがGoogle製のコンポーネントを定義 ---
-
-    # Google製LLMインスタンスの生成
+    # --- 3. 【最終儀式】コンポーネントの自作 ---
     google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(
         model_name_or_path=constants.INTERNAL_PROCESSING_MODEL,
         google_api_key=api_key
     ))
-
-    # Google製Embedderインスタンスの生成
     google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(
         model_name_or_path="embedding-001",
         google_api_key=api_key
     ))
 
-    # --- 4. 設計図 (Config) の作成 ---
-
-    # MOS (司令塔) の設計図
-    mos_config = MOSConfig(
-        user_id=character_name,
-        # chat_model と mem_reader に、ダミーではなく完成品を渡す
-        chat_model=google_llm_instance,
-        mem_reader=MemReaderFactory.create_mem_reader(
-            "simple_struct",
-            SimpleStructMemReaderConfig(
-                llm=google_llm_instance,
-                embedder=google_embedder_instance,
-                chunker={"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}},
-            )
-        )
+    # 完全にGoogle製AIで構成された、我々自身のMemReader（人工心臓）を創造する
+    google_mem_reader_instance = SimpleStructMemReader(
+        llm=google_llm_instance,
+        embedder=google_embedder_instance,
+        chunker=SentenceChunker(tokenizer_or_token_counter="gpt2")
     )
 
-    # MemCube (書庫) の設計図
+    # --- 4. 設計図とインスタンス生成 ---
+    # MemOSはOllamaをデフォルトとして内部でコンポーネントを作ろうとするため、
+    # ここではダミーの設定を渡して、後から完全に上書きする
+    dummy_llm_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
+    dummy_mem_reader_config = {"backend": "simple_struct", "config": {"llm": dummy_llm_config_factory}}
+
+    mos_config = MOSConfig(
+        user_id=character_name,
+        chat_model=dummy_llm_config_factory,
+        mem_reader=dummy_mem_reader_config
+    )
     mem_cube_config = GeneralMemCubeConfig(
         user_id=character_name,
         cube_id=f"{character_name}_main_cube",
-        text_mem={
-            "backend": "tree_text",
-            "config": {
-                "extractor_llm": google_llm_instance,
-                "dispatcher_llm": google_llm_instance,
-                "embedder": google_embedder_instance,
-                "graph_db": {"backend": "neo4j", "config": neo4j_config_for_memos},
-                "reorganize": False
-            }
-        }
+        text_mem={ "backend": "tree_text", "config": {
+            "extractor_llm": dummy_llm_config_factory, "dispatcher_llm": dummy_llm_config_factory,
+            "embedder": {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}},
+            "graph_db": { "backend": "neo4j", "config": neo4j_config_for_memos },
+            "reorganize": False
+        }}
     )
 
-    # --- 5. インスタンスの生成と登録 ---
     mos = MOS(mos_config)
     mem_cube = GeneralMemCube(mem_cube_config)
 
-    # MemCubeをMOSに登録
+    # --- 5. 【二つの心臓移植】---
+    mos.chat_llm = google_llm_instance
+    mos.mem_reader = google_mem_reader_instance
+
+    if hasattr(mem_cube, 'text_mem'):
+        mem_cube.text_mem.extractor_llm = google_llm_instance
+        mem_cube.text_mem.dispatcher_llm = google_llm_instance
+        mem_cube.text_mem.embedder = google_embedder_instance
+        # MemCube内部のMemReaderも、我々の自作した心臓で置き換える
+        if hasattr(mem_cube.text_mem, 'mem_reader'):
+            mem_cube.text_mem.mem_reader = google_mem_reader_instance
+
+    # --- 6. 登録と最終処理 ---
     cube_path = os.path.join(constants.ROOMS_DIR, character_name, "memos_cube")
     if not os.path.exists(cube_path):
         os.makedirs(cube_path, exist_ok=True)
         mem_cube.dump(cube_path)
-    
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
 
-    # --- 6. 自動整理機能の完全停止 ---
-    print("--- 記憶の自動整理機能を、完全に、停止します... ---")
     mos.mem_reorganizer_wait()
     mos.mem_reorganizer_off()
-    print("--- 自動整理機能の、完全停止を、確認しました。 ---")
 
     _mos_instances[character_name] = mos
-    print(f"--- MemOSインスタンスの準備完了 (完全Google製): {character_name} ---")
+    print(f"--- MemOSインスタンスの準備完了 (最終創世記版 v2): {character_name} ---")
     return mos
