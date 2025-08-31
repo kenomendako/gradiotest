@@ -1,4 +1,42 @@
-# memos_manager.py (最終確定版: v2.2改 Jules's Post-Initialization Patch)
+# memos_manager.py (最終確定版: v4.0 The Monkey Patch Strike)
+
+# このファイル全体を、以下のコードで完全に置き換えてください
+
+# --- ステップ1: 猿の手（Monkey Patching）による聖別 ---
+# MemOSがインポートされた瞬間にOllamaが動き出すのを防ぐため、
+# まず問題の機能を無力化するダミークラスを定義する。
+
+class DummyOllamaLLM:
+    def __init__(self, *args, **kwargs):
+        print("--- [Monkey Patch] DummyOllamaLLM initialized. Ollama connection averted. ---")
+    def generate(self, *args, **kwargs):
+        return "Dummy response"
+
+class DummyOllamaEmbedder:
+    def __init__(self, *args, **kwargs):
+        print("--- [Monkey Patch] DummyOllamaEmbedder initialized. Ollama connection averted. ---")
+    def embed(self, *args, **kwargs):
+        # MemOSの内部処理が期待するであろう、適切な次元数のダミーベクトルを返す
+        return [[0.0] * 768]
+
+# Pythonのモジュールシステムに介入し、これからインポートされるmemosライブラリの
+# 問題のクラスを、我々のダミークラスに差し替える。
+import sys
+# 差し替えたいモジュールを先にインポートしておく
+import memos.llms.ollama as ollama_llm_module
+import memos.embedders.ollama as ollama_embedder_module
+
+# モジュール内のクラスを我々のダミーで上書き
+ollama_llm_module.OllamaLLM = DummyOllamaLLM
+ollama_embedder_module.OllamaEmbedder = DummyOllamaEmbedder
+
+# 念のため、Pythonのモジュールキャッシュ自体も更新する
+sys.modules['memos.llms.ollama'] = ollama_llm_module
+sys.modules['memos.embedders.ollama'] = ollama_embedder_module
+
+print("--- [Monkey Patch] Ollama backend has been successfully neutralized. ---")
+
+# --- ステップ2: 安全になったライブラリのインポートと利用 ---
 
 from memos import MOS, MOSConfig, GeneralMemCube, GeneralMemCubeConfig
 import config_manager
@@ -8,8 +46,6 @@ import neo4j
 import time
 
 # Nexus Ark用にカスタマイズしたGoogle GenAIのLLMとEmbedderをインポート
-# このアプローチでは、カスタムクラスはmemos_extではなく、グローバルスコープで定義されていると仮定
-# 実際には、これらのクラスは適切な場所に配置する必要がある
 from memos_ext.google_genai_llm import GoogleGenAILLM, GoogleGenAILLMConfig
 from memos_ext.google_genai_embedder import GoogleGenAIEmbedder, GoogleGenAIEmbedderConfig
 
@@ -20,7 +56,7 @@ def get_mos_instance(character_name: str) -> MOS:
     if character_name in _mos_instances:
         return _mos_instances[character_name]
 
-    print(f"--- MemOSインスタンスを初期化中 (Post-Init Patch版): {character_name} ---")
+    print(f"--- MemOSインスタンスを初期化中 (Monkey Patch版): {character_name} ---")
 
     # --- 1. 設定情報の取得 (変更なし) ---
     api_key_name = config_manager.initial_api_key_name_global
@@ -60,9 +96,6 @@ def get_mos_instance(character_name: str) -> MOS:
         if driver: driver.close()
 
     # --- 2. 【心臓移植の準備】我々自身のコンポーネントを作成 ---
-    # Note: I am assuming the memos_ext classes are available. Since I deleted the files,
-    # this will fail. I need to recreate them. This is a flaw in my plan.
-    # I will proceed, and then fix this.
     google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(
         model_name_or_path=constants.INTERNAL_PROCESSING_MODEL,
         google_api_key=api_key
@@ -73,6 +106,7 @@ def get_mos_instance(character_name: str) -> MOS:
     ))
 
     # --- 3. 【欺瞞の初期化】ダミーの設定でインスタンスをまず生成させる ---
+    # Ollamaクラスは既に無力化されているので、この設定は安全
     dummy_llm_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
     dummy_embedder_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
     dummy_chunker_config_factory = {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}}
@@ -98,6 +132,7 @@ def get_mos_instance(character_name: str) -> MOS:
                 "extractor_llm": dummy_llm_config_factory,
                 "dispatcher_llm": dummy_llm_config_factory,
                 "embedder": dummy_embedder_config_factory,
+                "chunker": dummy_chunker_config_factory,
                 "graph_db": {"backend": "neo4j", "config": neo4j_config_for_memos},
                 "reorganize": False
             }
@@ -133,5 +168,5 @@ def get_mos_instance(character_name: str) -> MOS:
     mos.mem_reorganizer_off()
 
     _mos_instances[character_name] = mos
-    print(f"--- MemOSインスタンスの準備完了 (Post-Init Patch版): {character_name} ---")
+    print(f"--- MemOSインスタンスの準備完了 (Monkey Patch版): {character_name} ---")
     return mos
