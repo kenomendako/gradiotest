@@ -14,20 +14,13 @@ def search_objective_memory(query: str, room_name: str) -> str:
         return "【エラー】引数 'room_name' は必須です。"
 
     try:
-        # 1. MOSインスタンスを取得
+        # 1. 正しい相手である MOS インスタンスを取得
         mos = memos_manager.get_mos_instance(room_name)
 
-        # 2. 検索対象のMemCubeのIDを特定
-        cube_id = f"{room_name}_main_cube"
-
-        # 3. MOSインスタンスから、IDを使って特定のMemCubeインスタンスを取得
-        if cube_id not in mos.mem_cubes:
-            return f"【エラー】ルーム '{room_name}' に対応する記憶の書庫(MemCube)が見つかりません。"
-
-        target_cube = mos.mem_cubes[cube_id]
-
-        # 4. MemCubeインスタンスに対して直接searchを実行
-        search_results = target_cube.search(query=query)
+        # 2. MOS インスタンスに対して、正しい引数で search を実行
+        #    - cube.search() ではなく、mos.search() を呼び出す。
+        #    - mem_cube_id 引数は不要なので渡さない。
+        search_results = mos.search(query=query)
 
         if not search_results:
             return "[]"
