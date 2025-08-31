@@ -499,23 +499,25 @@ try:
             model_dropdown
         ]
 
-        rerun_button.click(
+        rerun_event = rerun_button.click( # イベントを一旦変数に格納
             fn=ui_handlers.handle_rerun_button_click,
-            inputs=[ # inputs から file_upload_button を削除
+            inputs=[
                 selected_message_state, current_room_name, current_api_key_name_state,
                 api_history_limit_state, debug_mode_checkbox,
-                auto_memory_checkbox,
+                # auto_memory_checkbox を削除
                 debug_console_state,
                 active_participants_state,
                 room_model_dropdown,
                 model_dropdown
             ],
-            outputs=[ # outputs の chat_input_textbox, file_upload_button を chat_input_multimodal に統合
+            outputs=[
                 chatbot_display, current_log_map_state, chat_input_multimodal,
                 token_count_display, current_location_display, current_scenery_display,
                 alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
                 debug_console_state, debug_console_output,
-                selected_message_state, action_button_group
+                selected_message_state, action_button_group,
+                stop_button, # 出力に追加
+                chat_reload_button # 出力に追加
             ]
         )
 
@@ -622,7 +624,7 @@ try:
         ]
         save_room_settings_button.click(
             fn=ui_handlers.handle_save_room_settings,
-            inputs=[current_room_name, room_model_dropdown, room_voice_dropdown, room_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes,
+            inputs=[current_room_name, room_model_dropdown, room_voice_dropdown, room_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes + [auto_memory_checkbox],
             outputs=None
         )
         room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
@@ -630,20 +632,18 @@ try:
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
-        # ▼▼▼【送信イベントの定義を修正】▼▼▼
-        # 1. 送信イベントを変数に格納
+        # ▼▼▼【送信と停止のイベント定義を全面的に更新】▼▼▼
         submit_event = chat_input_multimodal.submit(
             fn=ui_handlers.handle_message_submission,
             inputs=chat_inputs,
-            outputs=chat_submit_outputs + [stop_button, chat_reload_button] # 出力先を追加
+            outputs=chat_submit_outputs + [stop_button, chat_reload_button]
         )
 
-        # 2. ストップボタンのクリックイベントを定義
         stop_button.click(
-            fn=None,
+            fn=ui_handlers.handle_stop_button_click,
             inputs=None,
-            outputs=None,
-            cancels=[submit_event] # 送信イベントをキャンセルする
+            outputs=[stop_button, chat_reload_button],
+            cancels=[submit_event, rerun_event] # <--- rerun_event もキャンセル対象に追加
         )
         # ▲▲▲【修正ここまで】▲▲▲
 
