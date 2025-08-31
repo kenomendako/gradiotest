@@ -198,7 +198,6 @@ try:
                                         gr.Warning("APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
                                 with gr.TabItem("個別設定"):
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
-                                    room_model_dropdown = gr.Dropdown(label="使用するAIモデル（個別）", interactive=True)
                                     with gr.Accordion("🎤 音声設定", open=False):
                                         room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
                                         room_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
@@ -449,7 +448,7 @@ try:
             profile_image_display,
             memory_json_editor, notepad_editor, system_prompt_editor,
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
-            current_location_display, current_scenery_display, room_model_dropdown, room_voice_dropdown,
+            current_location_display, current_scenery_display, room_voice_dropdown,
             room_voice_style_prompt_textbox,
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
@@ -495,7 +494,6 @@ try:
             auto_memory_checkbox,
             debug_console_state,
             active_participants_state,
-            room_model_dropdown,
             model_dropdown
         ]
 
@@ -507,7 +505,6 @@ try:
                 # auto_memory_checkbox を削除
                 debug_console_state,
                 active_participants_state,
-                room_model_dropdown,
                 model_dropdown
             ],
             outputs=[
@@ -624,7 +621,7 @@ try:
         ]
         save_room_settings_button.click(
             fn=ui_handlers.handle_save_room_settings,
-            inputs=[current_room_name, room_model_dropdown, room_voice_dropdown, room_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes + [auto_memory_checkbox],
+            inputs=[current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes + [auto_memory_checkbox],
             outputs=None
         )
         room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
