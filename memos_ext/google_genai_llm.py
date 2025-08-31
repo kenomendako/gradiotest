@@ -1,4 +1,4 @@
-# memos_ext/google_genai_llm.py (新規作成)
+# memos_ext/google_genai_llm.py
 import google.genai as genai
 from memos.configs.llm import BaseLLMConfig
 from memos.llms.base import BaseLLM
@@ -17,11 +17,12 @@ class GoogleGenAILLM(BaseLLM):
             {"role": msg["role"] if msg["role"] != "assistant" else "model", "parts": [{"text": msg["content"]}]}
             for msg in messages
         ]
+        # APIの仕様に合わせて、生成設定を 'config' 引数で渡す
         generation_config_object = {"max_output_tokens": 8192}
         response = self.client.models.generate_content(
             model=f"models/{self.config.model_name_or_path}",
             contents=contents,
-            config=generation_config_object  # ★★★ ここが 'config' になっていることを確認 ★★★
+            config=generation_config_object
         )
         return response.text
 
