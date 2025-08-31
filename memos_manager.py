@@ -70,13 +70,18 @@ def get_mos_instance(character_name: str) -> MOS:
     # --- 3. 【欺瞞の初期化】ダミーの設定でインスタンスをまず生成させる ---
     dummy_llm_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
     dummy_embedder_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
+    dummy_chunker_config_factory = {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}}
 
     mos_config = MOSConfig(
         user_id=character_name,
         chat_model=dummy_llm_config_factory,
         mem_reader={
             "backend": "simple_struct",
-            "config": {"llm": dummy_llm_config_factory, "embedder": dummy_embedder_config_factory}
+            "config": {
+                "llm": dummy_llm_config_factory,
+                "embedder": dummy_embedder_config_factory,
+                "chunker": dummy_chunker_config_factory
+            }
         }
     )
     mem_cube_config = GeneralMemCubeConfig(
