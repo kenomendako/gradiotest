@@ -1,4 +1,4 @@
-# memos_manager.py (最終確定版: v6.0 The Two Scriptures)
+# memos_manager.py (最終確定版: v7.0 The Silent Scripture)
 
 # このファイル全体を、以下のコードで完全に置き換えてください
 
@@ -33,7 +33,7 @@ def get_mos_instance(character_name: str) -> MOS:
     if character_name in _mos_instances:
         return _mos_instances[character_name]
 
-    print(f"--- MemOSインスタンスを初期化中 (Two Scriptures版): {character_name} ---")
+    print(f"--- MemOSインスタンスを初期化中 (Silent Scripture版): {character_name} ---")
 
     # --- 1. 設定情報の取得 (変更なし) ---
     api_key_name = config_manager.initial_api_key_name_global
@@ -76,17 +76,12 @@ def get_mos_instance(character_name: str) -> MOS:
     google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path=constants.INTERNAL_PROCESSING_MODEL, google_api_key=api_key))
     google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
-    # --- 3. 【最終設計図】二人の監督官に、それぞれの作法で設計図を渡す ---
+    # --- 3. 【最終設計図】二人の監督官の要求を完全に満たす ---
     dummy_llm_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
     dummy_embedder_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
 
-    # ▼▼▼【ここからが最後の修正】▼▼▼
     # 設計図1: MOSConfig（受付）の監督官向け。backendとconfigの両方が必要。
     chunker_config_for_mos = {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}}
-
-    # 設計図2: GeneralMemCubeConfig（書庫）の監督官向け。configの中身だけが必要。
-    chunker_config_for_cube = {"tokenizer_or_token_counter": "gpt2"}
-    # ▲▲▲【修正ここまで】▲▲▲
 
     mos_config = MOSConfig(
         user_id=character_name,
@@ -96,7 +91,7 @@ def get_mos_instance(character_name: str) -> MOS:
             "config": {
                 "llm": dummy_llm_config_factory,
                 "embedder": dummy_embedder_config_factory,
-                "chunker": chunker_config_for_mos  # <--- 設計図1を適用
+                "chunker": chunker_config_for_mos
             }
         }
     )
@@ -109,7 +104,11 @@ def get_mos_instance(character_name: str) -> MOS:
                 "extractor_llm": dummy_llm_config_factory,
                 "dispatcher_llm": dummy_llm_config_factory,
                 "embedder": dummy_embedder_config_factory,
-                "chunker": chunker_config_for_cube,  # <--- 設計図2を適用
+                # ▼▼▼【ここが最後の修正】▼▼▼
+                # 書庫の監督官はchunkerの項目が書かれていること自体を許さないため、
+                # このキーごと完全に削除する。
+                # "chunker": chunker_config_for_cube, # ← この行を削除
+                # ▲▲▲【修正ここまで】▲▲▲
                 "graph_db": {"backend": "neo4j", "config": neo4j_config_for_memos},
                 "reorganize": False
             }
@@ -139,5 +138,5 @@ def get_mos_instance(character_name: str) -> MOS:
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
     mos.mem_reorganizer_wait(); mos.mem_reorganizer_off()
     _mos_instances[character_name] = mos
-    print(f"--- MemOSインスタンスの準備完了 (Two Scriptures版): {character_name} ---")
+    print(f"--- MemOSインスタンスの準備完了 (Silent Scripture版): {character_name} ---")
     return mos
