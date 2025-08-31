@@ -72,7 +72,7 @@ def _create_redaction_df_from_rules(rules: List[Dict]) -> pd.DataFrame:
 def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     """
     【修正】チャットタブと、それに付随する設定UIの更新のみを担当するヘルパー関数。
-    戻り値の数は `initial_load_chat_outputs` の31個と一致する。
+    戻り値の数は `initial_load_chat_outputs` の30個と一致する。
     """
     if not room_name:
         room_list = room_manager.get_room_list_for_ui()
@@ -94,8 +94,6 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     current_location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
     scenery_image_path = utils.find_scenery_image(room_name, location_dd_val)
     effective_settings = config_manager.get_effective_settings(room_name)
-    all_models = ["デフォルト"] + config_manager.AVAILABLE_MODELS_GLOBAL
-    model_val = effective_settings["model_name"] if effective_settings["model_name"] != config_manager.initial_model_global else "デフォルト"
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "iapetus"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
     safety_display_map = {
@@ -109,7 +107,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
     dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
 
-    # このタプルの要素数は31個
+    # このタプルの要素数は30個
     chat_tab_updates = (
         room_name, chat_history, mapping_list,
         gr.update(value={'text': '', 'files': []}), # 2つの戻り値を、MultimodalTextbox用の1つの辞書に統合
@@ -120,7 +118,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=locations_for_ui, value=location_dd_val),
         current_location_name, scenery_text,
-        gr.update(choices=all_models, value=model_val), voice_display_name, voice_style_prompt_val,
+        voice_display_name, voice_style_prompt_val,
         temp_val, top_p_val, harassment_val, hate_val, sexual_val, dangerous_val,
         effective_settings["add_timestamp"], effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
@@ -172,7 +170,7 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     return (display_df, df_with_ids, feedback_text) + chat_tab_updates + (rules_df_for_ui,)
 
 def handle_save_room_settings(
-    room_name: str, model_name: str, voice_name: str, voice_style_prompt: str,
+    room_name: str, voice_name: str, voice_style_prompt: str,
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
@@ -188,7 +186,6 @@ def handle_save_room_settings(
     }
 
     new_settings = {
-        "model_name": model_name if model_name != "デフォルト" else None,
         "voice_id": next((k for k, v in config_manager.SUPPORTED_VOICES.items() if v == voice_name), None),
         "voice_style_prompt": voice_style_prompt.strip(),
         "temperature": temp,
@@ -289,7 +286,7 @@ def handle_message_submission(*args: Any):
     (multimodal_input, soul_vessel_room, current_api_key_name_state,
      api_history_limit_state, debug_mode_state,
      auto_memory_enabled, current_console_content, active_participants,
-     room_model, global_model) = args
+     global_model) = args
 
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
     file_input_list = multimodal_input.get("files", []) if multimodal_input else []
@@ -361,7 +358,7 @@ def handle_message_submission(*args: Any):
 
             agent_args_dict = {
                 "room_to_respond": room_to_respond, "api_key_name": current_api_key_name_state,
-                "global_model_from_ui": global_model, "room_model_from_ui": room_model,
+                "global_model_from_ui": global_model,
                 "api_history_limit": api_history_limit_state, "debug_mode": debug_mode_state,
                 "history_log_path": main_log_f, "user_prompt_parts": user_prompt_parts,
                 "soul_vessel_room": soul_vessel_room, "active_participants": active_participants,
@@ -2050,7 +2047,7 @@ def handle_rerun_button_click(*args: Any):
     (selected_message, room_name, api_key_name,
      api_history_limit, debug_mode,
      current_console_content, active_participants,
-     room_model, global_model) = args
+     global_model) = args
 
     try:
         active_participants = active_participants or []
@@ -2110,7 +2107,6 @@ def handle_rerun_button_click(*args: Any):
             "room_to_respond": room_name,
             "api_key_name": api_key_name,
             "global_model_from_ui": global_model,
-            "room_model_from_ui": room_model,
             "api_history_limit": api_history_limit,
             "debug_mode": debug_mode,
             "history_log_path": log_f,

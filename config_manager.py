@@ -196,17 +196,15 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
 
     # 2. ルームの保存済み設定ファイルで上書き
     room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
-    saved_room_model = None # ファイルから読み込んだモデル名を保持する変数
     if os.path.exists(room_config_path):
         try:
             with open(room_config_path, "r", encoding="utf-8") as f:
                 room_config = json.load(f)
             override_settings = room_config.get("override_settings", {})
-            # ファイルからモデル名を取得し、変数に保存
-            saved_room_model = override_settings.pop("model_name", None)
+            # ファイルからモデル名を取得しないように変更
             # モデル以外の設定を適用
             for k, v in override_settings.items():
-                if v is not None:
+                if v is not None and k != "model_name": # model_nameを意図的に無視
                     effective_settings[k] = v
         except Exception as e:
             print(f"ルーム設定ファイル '{room_config_path}' の読み込みエラー: {e}")
@@ -214,20 +212,15 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
     # 3. UIから渡されたリアルタイムな設定（kwargs）で、さらに上書き
     #    モデル名以外の設定を先に適用
     for key, value in kwargs.items():
-        if key not in ["global_model_from_ui", "room_model_from_ui"] and value is not None:
+        if key not in ["global_model_from_ui"] and value is not None:
             effective_settings[key] = value
 
-    # 4. モデル名の最終決定（優先順位： UI個別 > UI共通 > 保存済み個別 > 全体デフォルト）
+    # 4. モデル名の最終決定（優先順位： UI共通 > 全体デフォルト）
     global_model_from_ui = kwargs.get("global_model_from_ui")
-    room_model_from_ui = kwargs.get("room_model_from_ui")
 
     final_model_name = None
-    if room_model_from_ui and room_model_from_ui != "デフォルト":
-        final_model_name = room_model_from_ui
-    elif global_model_from_ui:
+    if global_model_from_ui:
         final_model_name = global_model_from_ui
-    elif saved_room_model:
-        final_model_name = saved_room_model
     else:
         final_model_name = DEFAULT_MODEL_GLOBAL
 
