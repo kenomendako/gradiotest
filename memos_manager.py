@@ -1,27 +1,9 @@
-# memos_manager.py (最終確定版: v7.0 The Silent Scripture)
+# memos_manager.py (最終確定版: v8.0 The Great Reset)
 
 # このファイル全体を、以下のコードで完全に置き換えてください
 
-# --- ステップ1: 猿の手（Monkey Patching）による聖別 (変更なし) ---
-class DummyOllamaLLM:
-    def __init__(self, *args, **kwargs): pass
-    def generate(self, *args, **kwargs): return "Dummy response"
-
-class DummyOllamaEmbedder:
-    def __init__(self, *args, **kwargs): pass
-    def embed(self, *args, **kwargs): return [[0.0] * 768]
-
-import sys
-import memos.llms.ollama as ollama_llm_module
-import memos.embedders.ollama as ollama_embedder_module
-
-ollama_llm_module.OllamaLLM = DummyOllamaLLM
-ollama_embedder_module.OllamaEmbedder = DummyOllamaEmbedder
-sys.modules['memos.llms.ollama'] = ollama_llm_module
-sys.modules['memos.embedders.ollama'] = ollama_embedder_module
-print("--- [Monkey Patch] Ollama backend has been successfully neutralized. ---")
-
-# --- ステップ2: 安全になったライブラリのインポートと利用 ---
+# 最初にライブラリ全体をインポートする
+import memos
 from memos import MOS, MOSConfig, GeneralMemCube, GeneralMemCubeConfig
 import config_manager, constants, os, neo4j, time
 from memos_ext.google_genai_llm import GoogleGenAILLM, GoogleGenAILLMConfig
@@ -33,7 +15,7 @@ def get_mos_instance(character_name: str) -> MOS:
     if character_name in _mos_instances:
         return _mos_instances[character_name]
 
-    print(f"--- MemOSインスタンスを初期化中 (Silent Scripture版): {character_name} ---")
+    print(f"--- MemOSインスタンスを初期化中 (Great Reset版): {character_name} ---")
 
     # --- 1. 設定情報の取得 (変更なし) ---
     api_key_name = config_manager.initial_api_key_name_global
@@ -76,12 +58,10 @@ def get_mos_instance(character_name: str) -> MOS:
     google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path=constants.INTERNAL_PROCESSING_MODEL, google_api_key=api_key))
     google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
-    # --- 3. 【最終設計図】二人の監督官の要求を完全に満たす ---
+    # --- 3. 【欺瞞の初期化】ダミーの設定でインスタンスをまず生成させる ---
     dummy_llm_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
     dummy_embedder_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
-
-    # 設計図1: MOSConfig（受付）の監督官向け。backendとconfigの両方が必要。
-    chunker_config_for_mos = {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}}
+    dummy_chunker_config_factory = {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}}
 
     mos_config = MOSConfig(
         user_id=character_name,
@@ -91,7 +71,7 @@ def get_mos_instance(character_name: str) -> MOS:
             "config": {
                 "llm": dummy_llm_config_factory,
                 "embedder": dummy_embedder_config_factory,
-                "chunker": chunker_config_for_mos
+                "chunker": dummy_chunker_config_factory
             }
         }
     )
@@ -104,11 +84,6 @@ def get_mos_instance(character_name: str) -> MOS:
                 "extractor_llm": dummy_llm_config_factory,
                 "dispatcher_llm": dummy_llm_config_factory,
                 "embedder": dummy_embedder_config_factory,
-                # ▼▼▼【ここが最後の修正】▼▼▼
-                # 書庫の監督官はchunkerの項目が書かれていること自体を許さないため、
-                # このキーごと完全に削除する。
-                # "chunker": chunker_config_for_cube, # ← この行を削除
-                # ▲▲▲【修正ここまで】▲▲▲
                 "graph_db": {"backend": "neo4j", "config": neo4j_config_for_memos},
                 "reorganize": False
             }
@@ -118,7 +93,7 @@ def get_mos_instance(character_name: str) -> MOS:
     mos = MOS(mos_config)
     mem_cube = GeneralMemCube(mem_cube_config)
 
-    # --- 4. 【心臓移植手術】(変更なし) ---
+    # --- 4. 【心臓移植手術】(Jules's Proven Method) ---
     print("--- MemOSインスタンスの心臓移植手術を開始... ---")
     mos.chat_llm = google_llm_instance
     mos.mem_reader.llm = google_llm_instance
@@ -138,5 +113,5 @@ def get_mos_instance(character_name: str) -> MOS:
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
     mos.mem_reorganizer_wait(); mos.mem_reorganizer_off()
     _mos_instances[character_name] = mos
-    print(f"--- MemOSインスタンスの準備完了 (Silent Scripture版): {character_name} ---")
+    print(f"--- MemOSインスタンスの準備完了 (Great Reset版): {character_name} ---")
     return mos
