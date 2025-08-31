@@ -1,19 +1,15 @@
-# memos_manager.py (最終確定版: v5.0 The Final Scripture)
+# memos_manager.py (最終確定版: v6.0 The Two Scriptures)
 
 # このファイル全体を、以下のコードで完全に置き換えてください
 
 # --- ステップ1: 猿の手（Monkey Patching）による聖別 (変更なし) ---
 class DummyOllamaLLM:
-    def __init__(self, *args, **kwargs):
-        print("--- [Monkey Patch] DummyOllamaLLM initialized. Ollama connection averted. ---")
-    def generate(self, *args, **kwargs):
-        return "Dummy response"
+    def __init__(self, *args, **kwargs): pass
+    def generate(self, *args, **kwargs): return "Dummy response"
 
 class DummyOllamaEmbedder:
-    def __init__(self, *args, **kwargs):
-        print("--- [Monkey Patch] DummyOllamaEmbedder initialized. Ollama connection averted. ---")
-    def embed(self, *args, **kwargs):
-        return [[0.0] * 768]
+    def __init__(self, *args, **kwargs): pass
+    def embed(self, *args, **kwargs): return [[0.0] * 768]
 
 import sys
 import memos.llms.ollama as ollama_llm_module
@@ -21,21 +17,13 @@ import memos.embedders.ollama as ollama_embedder_module
 
 ollama_llm_module.OllamaLLM = DummyOllamaLLM
 ollama_embedder_module.OllamaEmbedder = DummyOllamaEmbedder
-
 sys.modules['memos.llms.ollama'] = ollama_llm_module
 sys.modules['memos.embedders.ollama'] = ollama_embedder_module
-
 print("--- [Monkey Patch] Ollama backend has been successfully neutralized. ---")
 
 # --- ステップ2: 安全になったライブラリのインポートと利用 ---
-
 from memos import MOS, MOSConfig, GeneralMemCube, GeneralMemCubeConfig
-import config_manager
-import constants
-import os
-import neo4j
-import time
-
+import config_manager, constants, os, neo4j, time
 from memos_ext.google_genai_llm import GoogleGenAILLM, GoogleGenAILLMConfig
 from memos_ext.google_genai_embedder import GoogleGenAIEmbedder, GoogleGenAIEmbedderConfig
 
@@ -45,7 +33,7 @@ def get_mos_instance(character_name: str) -> MOS:
     if character_name in _mos_instances:
         return _mos_instances[character_name]
 
-    print(f"--- MemOSインスタンスを初期化中 (Final Scripture版): {character_name} ---")
+    print(f"--- MemOSインスタンスを初期化中 (Two Scriptures版): {character_name} ---")
 
     # --- 1. 設定情報の取得 (変更なし) ---
     api_key_name = config_manager.initial_api_key_name_global
@@ -85,23 +73,19 @@ def get_mos_instance(character_name: str) -> MOS:
         if driver: driver.close()
 
     # --- 2. 【心臓移植の準備】我々自身のコンポーネントを作成 (変更なし) ---
-    google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(
-        model_name_or_path=constants.INTERNAL_PROCESSING_MODEL,
-        google_api_key=api_key
-    ))
-    google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(
-        model_name_or_path="embedding-001",
-        google_api_key=api_key
-    ))
+    google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path=constants.INTERNAL_PROCESSING_MODEL, google_api_key=api_key))
+    google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
-    # --- 3. 【最終設計図】 ---
+    # --- 3. 【最終設計図】二人の監督官に、それぞれの作法で設計図を渡す ---
     dummy_llm_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
     dummy_embedder_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
 
     # ▼▼▼【ここからが最後の修正】▼▼▼
-    # Pydanticのエラー(extra_forbidden)は、ChunkerのConfigが'backend'キーを期待していないことを示している。
-    # そのため、'config'の中身だけを直接渡す。
-    final_chunker_config = {"tokenizer_or_token_counter": "gpt2"}
+    # 設計図1: MOSConfig（受付）の監督官向け。backendとconfigの両方が必要。
+    chunker_config_for_mos = {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}}
+
+    # 設計図2: GeneralMemCubeConfig（書庫）の監督官向け。configの中身だけが必要。
+    chunker_config_for_cube = {"tokenizer_or_token_counter": "gpt2"}
     # ▲▲▲【修正ここまで】▲▲▲
 
     mos_config = MOSConfig(
@@ -112,7 +96,7 @@ def get_mos_instance(character_name: str) -> MOS:
             "config": {
                 "llm": dummy_llm_config_factory,
                 "embedder": dummy_embedder_config_factory,
-                "chunker": final_chunker_config  # <--- 修正適用
+                "chunker": chunker_config_for_mos  # <--- 設計図1を適用
             }
         }
     )
@@ -125,7 +109,7 @@ def get_mos_instance(character_name: str) -> MOS:
                 "extractor_llm": dummy_llm_config_factory,
                 "dispatcher_llm": dummy_llm_config_factory,
                 "embedder": dummy_embedder_config_factory,
-                "chunker": final_chunker_config,  # <--- 修正適用
+                "chunker": chunker_config_for_cube,  # <--- 設計図2を適用
                 "graph_db": {"backend": "neo4j", "config": neo4j_config_for_memos},
                 "reorganize": False
             }
@@ -140,7 +124,6 @@ def get_mos_instance(character_name: str) -> MOS:
     mos.chat_llm = google_llm_instance
     mos.mem_reader.llm = google_llm_instance
     mos.mem_reader.embedder = google_embedder_instance
-
     if hasattr(mem_cube, 'text_mem'):
         mem_cube.text_mem.extractor_llm = google_llm_instance
         mem_cube.text_mem.dispatcher_llm = google_llm_instance
@@ -152,14 +135,9 @@ def get_mos_instance(character_name: str) -> MOS:
 
     # --- 5. 登録と最終処理 (変更なし) ---
     cube_path = os.path.join(constants.ROOMS_DIR, character_name, "memos_cube")
-    if not os.path.exists(cube_path):
-        os.makedirs(cube_path, exist_ok=True)
-        mem_cube.dump(cube_path)
+    if not os.path.exists(cube_path): os.makedirs(cube_path, exist_ok=True); mem_cube.dump(cube_path)
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
-
-    mos.mem_reorganizer_wait()
-    mos.mem_reorganizer_off()
-
+    mos.mem_reorganizer_wait(); mos.mem_reorganizer_off()
     _mos_instances[character_name] = mos
-    print(f"--- MemOSインスタンスの準備完了 (Final Scripture版): {character_name} ---")
+    print(f"--- MemOSインスタンスの準備完了 (Two Scriptures版): {character_name} ---")
     return mos
