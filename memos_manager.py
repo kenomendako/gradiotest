@@ -69,7 +69,7 @@ def get_mos_instance(character_name: str) -> MOS:
     finally:
         if driver: driver.close()
 
-    # --- 4. MemOSの初期化 ---
+    # 4. MemOSの初期化
     dummy_llm_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
     dummy_embedder_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
 
@@ -80,13 +80,19 @@ def get_mos_instance(character_name: str) -> MOS:
         }}
 
     mos_config = MOSConfig(user_id=character_name, chat_model=dummy_llm_config_factory, mem_reader=mem_reader_config)
+
+    # ▼▼▼【ここが修正の核心】▼▼▼
+    # GeneralMemCubeConfig の定義から、設計図にない mem_reader を削除する
     mem_cube_config = GeneralMemCubeConfig(
-        user_id=character_name, cube_id=f"{character_name}_main_cube", mem_reader=mem_reader_config,
+        user_id=character_name,
+        cube_id=f"{character_name}_main_cube",
+        # mem_reader=mem_reader_config, # <<< この行を削除
         text_mem={ "backend": "tree_text", "config": {
             "extractor_llm": dummy_llm_config_factory, "dispatcher_llm": dummy_llm_config_factory,
             "graph_db": { "backend": "neo4j", "config": neo4j_config_for_memos },
             "embedder": dummy_embedder_config_factory, "reorganize": False
         }})
+    # ▲▲▲【修正ここまで】▲▲▲
     
     mos = MOS(mos_config)
     mem_cube = GeneralMemCube(mem_cube_config)
