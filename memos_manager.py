@@ -73,23 +73,20 @@ def get_mos_instance(character_name: str) -> MOS:
     dummy_llm_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
     dummy_embedder_config_factory = {"backend": "ollama", "config": {"model_name_or_path": "placeholder"}}
 
-    mos_config = MOSConfig(
-        user_id=character_name,
-        chat_model=dummy_llm_config_factory,
-        mem_reader={"backend": "simple_struct", "config": {
+    mem_reader_config = {
+        "backend": "simple_struct", "config": {
             "llm": dummy_llm_config_factory, "embedder": dummy_embedder_config_factory,
             "chunker": {"backend": "sentence", "config": {"tokenizer_or_token_counter": "gpt2"}},
         }}
-    )
+
+    mos_config = MOSConfig(user_id=character_name, chat_model=dummy_llm_config_factory, mem_reader=mem_reader_config)
     mem_cube_config = GeneralMemCubeConfig(
-        user_id=character_name,
-        cube_id=f"{character_name}_main_cube",
+        user_id=character_name, cube_id=f"{character_name}_main_cube", mem_reader=mem_reader_config,
         text_mem={ "backend": "tree_text", "config": {
             "extractor_llm": dummy_llm_config_factory, "dispatcher_llm": dummy_llm_config_factory,
             "graph_db": { "backend": "neo4j", "config": neo4j_config_for_memos },
             "embedder": dummy_embedder_config_factory, "reorganize": False
-        }}
-    )
+        }})
     
     mos = MOS(mos_config)
     mem_cube = GeneralMemCube(mem_cube_config)
@@ -97,13 +94,24 @@ def get_mos_instance(character_name: str) -> MOS:
     google_llm_instance = GoogleGenAILLM(GoogleGenAILLMConfig(model_name_or_path=constants.INTERNAL_PROCESSING_MODEL, google_api_key=api_key))
     google_embedder_instance = GoogleGenAIEmbedder(GoogleGenAIEmbedderConfig(model_name_or_path="embedding-001", google_api_key=api_key))
 
-    # --- 移植手術 ---
+    # --- 完全な移植手術 ---
     mos.chat_llm = google_llm_instance
-    mos.mem_reader.llm = google_llm_instance
-    mos.mem_reader.embedder = google_embedder_instance
-    mem_cube.text_mem.extractor_llm = google_llm_instance
-    mem_cube.text_mem.dispatcher_llm = google_llm_instance
-    mem_cube.text_mem.embedder = google_embedder_instance
+    if hasattr(mos, 'mem_reader') and mos.mem_reader:
+        mos.mem_reader.llm = google_llm_instance
+        mos.mem_reader.embedder = google_embedder_instance
+
+    if hasattr(mem_cube, 'text_mem') and mem_cube.text_mem:
+        mem_cube.text_mem.extractor_llm = google_llm_instance
+        mem_cube.text_mem.dispatcher_llm = google_llm_instance
+        mem_cube.text_mem.embedder = google_embedder_instance
+
+        if hasattr(mem_cube.text_mem, 'mem_reader') and mem_cube.text_mem.mem_reader:
+            mem_cube.text_mem.mem_reader.llm = google_llm_instance
+            mem_cube.text_mem.mem_reader.embedder = google_embedder_instance
+
+    if hasattr(mem_cube, 'mem_reader') and mem_cube.mem_reader:
+        mem_cube.mem_reader.llm = google_llm_instance
+        mem_cube.mem_reader.embedder = google_embedder_instance
 
     # --- 5. 【修正の核心】データベースと同期したMemCubeの永続化ロジック ---
     cube_path = os.path.join("characters", character_name, "memos_cube")
