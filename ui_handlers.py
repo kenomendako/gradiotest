@@ -283,15 +283,16 @@ def update_token_count_on_input(
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理し、AIの応答をストリーミングで表示する。(v4: ストリーム処理最終版)
+    ユーザーからのメッセージ送信を処理し、AIの応答をストリーミングで表示する。(v5: 安定最終版)
     """
+    # ... (関数の冒頭部分は変更なし) ...
     (multimodal_input, soul_vessel_room, current_api_key_name_state,
      api_history_limit_state, debug_mode_state,
      auto_memory_enabled, current_console_content, active_participants,
      global_model) = args
 
-    # ... (ログメッセージ作成部分は変更なし) ...
     try:
+        # ... (ユーザー入力のログ保存までのロジックは変更なし) ...
         textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
         file_input_list = multimodal_input.get("files", []) if multimodal_input else []
         active_participants = active_participants or []
@@ -329,33 +330,28 @@ def handle_message_submission(*args: Any):
         all_turn_popups = []
 
         for room_to_respond in all_rooms_in_scene:
-            # ... (ファイル処理部分は変更なし) ...
+            # ... (ファイル処理とagent_args_dict作成部分は変更なし) ...
             processed_file_list = []
             if room_to_respond == soul_vessel_room and file_input_list:
                 # (ファイル処理ロジック)
                 for file_obj in file_input_list:
                     try:
-                        temp_file_path = file_obj.name
-                        kind = filetype.guess(temp_file_path)
+                        temp_file_path = file_obj.name; kind = filetype.guess(temp_file_path)
                         if kind and (kind.mime.startswith('image/') or kind.mime.startswith('audio/') or kind.mime.startswith('video/')):
-                            with open(temp_file_path, "rb") as f:
-                                encoded_string = base64.b64encode(f.read()).decode("utf-8")
+                            with open(temp_file_path, "rb") as f: encoded_string = base64.b64encode(f.read()).decode("utf-8")
                             processed_file_list.append({ "type": "media", "mime_type": kind.mime, "data": encoded_string})
-                    except Exception as e:
-                        gr.Warning(f"ファイル '{os.path.basename(file_obj.name)}' の処理中にエラー: {e}")
-
+                    except Exception as e: gr.Warning(f"ファイル処理エラー: {e}")
             user_prompt_parts = []
             if user_prompt_from_textbox and room_to_respond == soul_vessel_room:
                  user_prompt_parts.append({"type": "text", "text": user_prompt_from_textbox})
             user_prompt_parts.extend(processed_file_list)
-
             agent_args_dict = {
                 "room_to_respond": room_to_respond, "api_key_name": current_api_key_name_state,
-                "global_model_from_ui": global_model,
-                "api_history_limit": api_history_limit_state, "debug_mode": debug_mode_state,
-                "history_log_path": main_log_f, "user_prompt_parts": user_prompt_parts,
-                "soul_vessel_room": soul_vessel_room, "active_participants": active_participants,
-                "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
+                "global_model_from_ui": global_model, "api_history_limit": api_history_limit_state,
+                "debug_mode": debug_mode_state, "history_log_path": main_log_f,
+                "user_prompt_parts": user_prompt_parts, "soul_vessel_room": soul_vessel_room,
+                "active_participants": active_participants, "shared_location_name": shared_location_name,
+                "shared_scenery_text": shared_scenery_text,
             }
 
             streamed_text, final_response_text = "", ""
@@ -367,11 +363,8 @@ def handle_message_submission(*args: Any):
             for data_chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                 if "custom_event" in data_chunk:
                     event = data_chunk["custom_event"]
-                    if event.get("type") == "initial_count":
-                        initial_message_count = event.get("value", 0)
+                    if event.get("type") == "initial_count": initial_message_count = event.get("value", 0)
                     continue
-
-                # LangGraphの最終出力 or エラー時の出力
                 if "final_output" in data_chunk or "__end__" in data_chunk:
                     node_output = data_chunk.get("final_output") or data_chunk.get("__end__")
                     final_messages = node_output.get("messages", [])
@@ -381,9 +374,10 @@ def handle_message_submission(*args: Any):
                             final_response_text = last_message.content
                     break # ストリームの終わり
 
-                # LangGraphからの通常ストリーム処理
-                node_name = next(iter(data_chunk))
+                node_name = next(iter(data_chunk), None)
+                if not node_name: continue
                 node_output = data_chunk[node_name]
+                if not isinstance(node_output, dict): continue # 安全策
                 new_messages = node_output.get("messages", [])
                 if new_messages:
                     last_message = new_messages[-1]
@@ -407,7 +401,6 @@ def handle_message_submission(*args: Any):
                             yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
                                    gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
                                    gr.update(), gr.update())
-
             # ▲▲▲【修正ここまで】▲▲▲
 
             final_response_text = final_response_text or streamed_text
@@ -415,6 +408,14 @@ def handle_message_submission(*args: Any):
             if final_response_text.strip():
                 utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", final_response_text)
         # ... (ループ後の処理は変更なし) ...
+        for popup_message in all_turn_popups: gr.Info(popup_message)
+        if len(all_rooms_in_scene) > 1:
+            for room_name in all_rooms_in_scene:
+                if room_name != soul_vessel_room:
+                    other_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+                    utils.save_message_to_log(other_log_f, f"## USER:{room_name}", full_user_log_entry)
+                    final_response_for_other_log = chatbot_history[-1][1] if chatbot_history else ""
+                    utils.save_message_to_log(other_log_f, f"## AGENT:{room_name}", final_response_for_other_log)
 
     # ... (except, finally ブロックは変更なし) ...
     except Exception as e:
@@ -1946,37 +1947,25 @@ def handle_rerun_button_click(
     global_model: str
 ):
     """
-    選択されたメッセージを基点として、AIの応答を再生成する。(v3: 安定版)
+    選択されたメッセージを基点として、AIの応答を再生成する。(v4: 安定最終版)
     """
     NUM_RERUN_OUTPUTS = 15
     EMPTY_YIELD = (gr.update(),) * NUM_RERUN_OUTPUTS
-
     if not selected_message:
-        gr.Warning("再生成するメッセージが選択されていません。")
-        yield EMPTY_YIELD
-        return
-
+        gr.Warning("再生成するメッセージが選択されていません。"); yield EMPTY_YIELD; return
     log_f, _, _, _, _ = get_room_files_paths(room_name)
     if not log_f:
-        gr.Error(f"ルーム '{room_name}' のログファイルが見つかりません。")
-        yield EMPTY_YIELD
-        return
-
+        gr.Error(f"ルーム '{room_name}' のログファイルが見つかりません。"); yield EMPTY_YIELD; return
     yield (
         gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
         gr.update(), gr.update(), gr.update(), console_content, gr.update(),
         gr.update(value=None), gr.update(visible=False),
         gr.update(visible=True), gr.update(interactive=False)
     )
-
-    restored_user_input = None
     role = selected_message.get("role")
-
-    if role == "AGENT":
-        restored_user_input = utils.delete_and_get_previous_user_input(log_f, selected_message)
-    elif role == "USER":
-        restored_user_input = utils.delete_user_message_and_after(log_f, selected_message)
-
+    restored_user_input = None
+    if role == "AGENT": restored_user_input = utils.delete_and_get_previous_user_input(log_f, selected_message)
+    elif role == "USER": restored_user_input = utils.delete_user_message_and_after(log_f, selected_message)
     if restored_user_input is None:
         gr.Error("再生成の起点となるユーザー入力を復元できませんでした。")
         history, mapping = reload_chat_log(room_name, api_history_limit)
@@ -1987,28 +1976,15 @@ def handle_rerun_button_click(
             gr.update(visible=False), gr.update(visible=False), gr.update(interactive=True)
         )
         return
-
     rerun_multimodal_input = { "text": restored_user_input, "files": [] }
     submission_args = (
-        rerun_multimodal_input, room_name, api_key_name,
-        api_history_limit, debug_mode, False,
-        console_content, active_participants, global_model
+        rerun_multimodal_input, room_name, api_key_name, api_history_limit,
+        debug_mode, False, console_content, active_participants, global_model
     )
-
     final_submission_outputs = None
     for submission_outputs in handle_message_submission(*submission_args):
-        (chatbot_update, map_update, multi_update, token_update, loc_update,
-         scenery_update, alarm_orig_update, alarm_df_update, scenery_img_update,
-         console_state_update, console_out_update, stop_update, reload_update) = submission_outputs
         final_submission_outputs = submission_outputs
-        yield (
-            chatbot_update, map_update, multi_update, token_update, loc_update,
-            scenery_update, alarm_orig_update, alarm_df_update, scenery_img_update,
-            console_state_update, console_out_update,
-            gr.update(value=None), gr.update(visible=False),
-            stop_update, reload_update
-        )
-
+        yield submission_outputs[0:11] + (gr.update(value=None), gr.update(visible=False), submission_outputs[11], submission_outputs[12])
     if final_submission_outputs:
         yield final_submission_outputs[0:11] + (gr.update(value=None), gr.update(visible=False), gr.update(visible=False), gr.update(interactive=True))
 
