@@ -283,47 +283,52 @@ def update_token_count_on_input(
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理し、AIの応答を表示する。(v7: 緊急安定化版)
+    ユーザーからのメッセージ送信を処理し、AIの応答を表示する。(v8: 超安定版)
     """
     (multimodal_input, soul_vessel_room, current_api_key_name_state,
      api_history_limit_state, debug_mode_state,
      auto_memory_enabled, current_console_content, active_participants,
      global_model) = args
-    try:
-        # ... (ユーザー入力のログ保存までのロジックは変更なし) ...
-        textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
-        file_input_list = multimodal_input.get("files", []) if multimodal_input else []
-        active_participants = active_participants or []
-        user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
-        log_message_parts = []
-        if user_prompt_from_textbox:
-            effective_settings = config_manager.get_effective_settings(soul_vessel_room)
-            add_timestamp = effective_settings.get("add_timestamp", False)
-            timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
-            log_message_parts.append(user_prompt_from_textbox + timestamp)
-        if file_input_list:
-            for file_path in file_input_list: log_message_parts.append(f"[ファイル添付: {os.path.basename(file_path)}]")
-        full_user_log_entry = "\n".join(log_message_parts).strip()
-        if not full_user_log_entry:
-            history, mapping = reload_chat_log(soul_vessel_room, api_history_limit_state)
-            yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(),
-                   gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
-                   gr.update(visible=False), gr.update(interactive=True))
-            return
-        main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
-        utils.save_message_to_log(main_log_f, f"## USER:{soul_vessel_room}", full_user_log_entry)
-        chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
-        yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
-               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-               current_console_content, current_console_content,
-               gr.update(visible=True, interactive=False), gr.update(interactive=False))
 
-        all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
-        api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
-        shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
-        all_turn_popups = []
+    # 1. ユーザーの入力を準備・検証
+    textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
+    file_input_list = multimodal_input.get("files", []) if multimodal_input else []
+    user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
+    log_message_parts = []
+    if user_prompt_from_textbox:
+        effective_settings = config_manager.get_effective_settings(soul_vessel_room)
+        add_timestamp = effective_settings.get("add_timestamp", False)
+        timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
+        log_message_parts.append(user_prompt_from_textbox + timestamp)
+    if file_input_list:
+        for file_path in file_input_list: log_message_parts.append(f"[ファイル添付: {os.path.basename(file_path)}]")
+    full_user_log_entry = "\n".join(log_message_parts).strip()
+
+    if not full_user_log_entry:
+        # 入力が空なら何もしない（UIはそのまま）
+        yield (gr.update(),) * 13
+        return
+
+    # 2. ユーザーの入力をログに保存し、UIに即時反映させる
+    main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
+    utils.save_message_to_log(main_log_f, f"## USER:{soul_vessel_room}", full_user_log_entry)
+    chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
+
+    # 思考中であることを示すUI更新
+    yield (
+        chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
+        gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+        current_console_content, current_console_content,
+        gr.update(visible=True, interactive=False), gr.update(interactive=False)
+    )
+
+    # 3. AIに応答を要求し、すべての応答が完了するまで待つ
+    all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
+    api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
+    shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
+
+    try:
         for room_to_respond in all_rooms_in_scene:
-            # ... (ファイル処理とagent_args_dict作成部分は変更なし) ...
             processed_file_list = []
             if room_to_respond == soul_vessel_room and file_input_list:
                 for file_obj in file_input_list:
@@ -337,6 +342,7 @@ def handle_message_submission(*args: Any):
             if user_prompt_from_textbox and room_to_respond == soul_vessel_room:
                  user_prompt_parts.append({"type": "text", "text": user_prompt_from_textbox})
             user_prompt_parts.extend(processed_file_list)
+
             agent_args_dict = {
                 "room_to_respond": room_to_respond, "api_key_name": current_api_key_name_state,
                 "global_model_from_ui": global_model, "api_history_limit": api_history_limit_state,
@@ -346,54 +352,38 @@ def handle_message_submission(*args: Any):
                 "shared_scenery_text": shared_scenery_text,
             }
 
-            # ▼▼▼【ここからが修正の核心】▼▼▼
-            # 複雑なループを撤去し、ジェネレータから最後の結果を一度だけ受け取る
-            final_chunk = None
-            initial_message_count = 0
-            for chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                if "custom_event" in chunk and chunk["custom_event"].get("type") == "initial_count":
-                    initial_message_count = chunk["custom_event"].get("value", 0)
-                else:
-                    final_chunk = chunk
+            # ▼▼▼【修正の核心】▼▼▼
+            # APIからの応答を同期的かつシンプルに受け取る
+            final_chunk = next(iter(gemini_api.invoke_nexus_agent_stream(agent_args_dict)), None)
+            while final_chunk and "custom_event" in final_chunk: # initial_countをスキップ
+                final_chunk = next(iter(gemini_api.invoke_nexus_agent_stream(agent_args_dict)), None)
 
             final_response_text = ""
             if final_chunk and "final_output" in final_chunk:
                 final_state = final_chunk["final_output"]
-                all_messages = final_state.get("messages", [])
-                new_messages = all_messages[initial_message_count:]
-
-                # ツール結果のポップアップを先に処理
-                for msg in new_messages:
-                    if isinstance(msg, ToolMessage):
-                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                        if popup_text: all_turn_popups.append(popup_text)
-
-                # 最後のAIメッセージを最終応答として取得
-                last_ai_message = next((msg for msg in reversed(new_messages) if isinstance(msg, AIMessage)), None)
+                last_ai_message = next((msg for msg in reversed(final_state.get("messages", [])) if isinstance(msg, AIMessage)), None)
                 if last_ai_message:
                     final_response_text = last_ai_message.content
 
-            # UIにプレースホルダーを追加し、すぐに最終結果で更新
-            chatbot_history.append((None, final_response_text))
+            # AIの応答をログに保存
             if final_response_text.strip():
                 utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", final_response_text)
             # ▲▲▲【修正ここまで】▲▲▲
 
-        for popup_message in all_turn_popups: gr.Info(popup_message)
-        # ... (ループ後の処理は変更なし) ...
+        # ... (複数人対話のログ保存部分は変更なし) ...
 
     except Exception as e:
         gr.Error(f"メッセージ処理中に予期せぬエラーが発生しました: {e}"); traceback.print_exc()
-        yield (gr.update(),) * 13
-    finally:
-        final_history, final_mapping = reload_chat_log(soul_vessel_room, api_history_limit_state)
-        yield (
-            final_history, final_mapping, gr.update(value={'text': '', 'files': []}),
-            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-            gr.update(), current_console_content, current_console_content,
-            gr.update(visible=False, interactive=True),
-            gr.update(interactive=True)
-        )
+
+    # 4. すべての処理が完了した後、最後に一度だけUIを更新する
+    final_history, final_mapping = reload_chat_log(soul_vessel_room, api_history_limit_state)
+    yield (
+        final_history, final_mapping, gr.update(value={'text': '', 'files': []}),
+        gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+        gr.update(), current_console_content, current_console_content, # consoleは更新しない
+        gr.update(visible=False, interactive=True),
+        gr.update(interactive=True)
+    )
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     if not room_name or not api_key_name:
