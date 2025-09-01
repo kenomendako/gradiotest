@@ -371,7 +371,22 @@ def handle_message_submission(*args: Any):
             initial_message_count = 0
             with utils.capture_prints() as captured_output:
                 for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                    if mode == "initial_count":
+                    # ▼▼▼【ここからが修正の核心】▼▼▼
+                    if mode == "pre_tool_response":
+                        pre_tool_content = chunk
+                        # 思考表明のメッセージを確定させる
+                        chatbot_history[-1] = (None, pre_tool_content)
+                        # ログに保存
+                        utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", pre_tool_content)
+                        # 次の最終応答のために、新しい空のバブルを用意する
+                        chatbot_history.append((None, "▌"))
+                        # UIを更新
+                        yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
+                               gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
+                               gr.update(), gr.update())
+
+                    elif mode == "initial_count":
+                    # ▲▲▲【修正ここまで】▲▲▲
                         initial_message_count = chunk
                     elif mode == "messages":
                         message_chunk, _ = chunk
@@ -2038,7 +2053,19 @@ def handle_rerun_button_click(*args: Any):
         initial_message_count = 0
         with utils.capture_prints() as captured_output:
             for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                if mode == "initial_count":
+                # ▼▼▼【ここからが修正の核心】▼▼▼
+                if mode == "pre_tool_response":
+                    pre_tool_content = chunk
+                    chatbot_history[-1] = (None, pre_tool_content)
+                    utils.save_message_to_log(log_f, f"## AGENT:{room_name}", pre_tool_content)
+                    chatbot_history.append((None, "▌"))
+                    yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(),
+                           gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                           current_console_content, None, gr.update(visible=False),
+                           gr.update(), gr.update())
+
+                elif mode == "initial_count":
+                # ▲▲▲【修正ここまで】▲▲▲
                     initial_message_count = chunk
                 elif mode == "messages":
                     message_chunk, _ = chunk

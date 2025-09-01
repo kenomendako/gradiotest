@@ -191,8 +191,20 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     retry_delay = 5
     for attempt in range(max_retries):
         try:
+            # ▼▼▼【ここから修正】▼▼▼
             for update in app.stream(initial_state, stream_mode=["messages", "values"]):
+                # 'messages'キーが存在し、中身がリスト形式であることを確認
+                if "messages" in update and isinstance(update["messages"], list) and update["messages"]:
+                    # リストの最後のメッセージを取得
+                    last_message = update["messages"][-1]
+                    # それがAIMessageで、かつ内容とツール呼び出しの両方を持つかチェック
+                    if isinstance(last_message, AIMessage) and last_message.content and last_message.tool_calls:
+                        # これが「思考の分水嶺」。特別な合図を送る
+                        yield ("pre_tool_response", last_message.content)
+
+                # 元々のストリーム情報もそのまま送る
                 yield update
+            # ▲▲▲【修正ここまで】▲▲▲
             return
 
         except (ResourceExhausted, InternalServerError) as e:
