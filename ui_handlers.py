@@ -369,31 +369,51 @@ def handle_message_submission(*args: Any):
             streamed_text = ""
             final_state = None
             initial_message_count = 0
-            with utils.capture_prints() as captured_output:
-                for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                    if mode == "pre_tool_response":
-                        pre_tool_content = chunk
-                        # 思考表明のメッセージを確定させる
-                        chatbot_history[-1] = (None, pre_tool_content)
-                        # ログに保存
-                        utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", pre_tool_content)
-                        # 次の最終応答のために、新しい空のバブルを用意する
-                        chatbot_history.append((None, "▌"))
-                        # UIを更新
+        with utils.capture_prints() as captured_output:
+            # ▼▼▼【ここから下のループ全体を置き換える】▼▼▼
+            streamed_text = ""
+            final_state = None
+            initial_message_count = 0
+            # 応答が始まる前に、まず空のバブルとそれに対応するマッピングを追加しておく
+            chatbot_history.append((None, "▌"))
+            # mapping_list の最後の要素（＝最新のログのインデックス）をコピーして追加
+            if mapping_list:
+                mapping_list.append(mapping_list[-1] + 1)
+            else: # ログが全くない場合
+                mapping_list.append(len(utils.load_chat_log(main_log_f)))
+
+            for key, value in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                if key == "pre_tool_response":
+                    # --- 第一段階の思考を確定させる ---
+                    pre_tool_content = value
+                    # 1. ログに保存する（これが新しい「真実」となる）
+                    utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", pre_tool_content)
+                    # 2. ログからUI全体を再生成する
+                    chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
+                    # 3. 次のストリーミングのために、新しい空のバブルを用意する
+                    chatbot_history.append((None, "▌"))
+                    # 4. 新しいバブルのためのマッピング情報を追加
+                    if mapping_list: mapping_list.append(mapping_list[-1] + 1)
+                    else: mapping_list.append(len(utils.load_chat_log(main_log_f)))
+                    # 5. UIを更新
+                    yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
+                           gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
+                           gr.update(), gr.update())
+
+                elif key == "initial_count":
+                    initial_message_count = value
+
+                elif key == "messages":
+                    message_chunk = value[-1] if isinstance(value, list) and value else None
+                    if isinstance(message_chunk, AIMessageChunk):
+                        streamed_text += message_chunk.content
+                        chatbot_history[-1] = (None, streamed_text + "▌")
                         yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
                                gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
                                gr.update(), gr.update())
-
-                    elif mode == "initial_count":
-                        message_chunk, _ = chunk
-                        if isinstance(message_chunk, AIMessageChunk):
-                            streamed_text += message_chunk.content
-                            chatbot_history[-1] = (None, streamed_text + "▌")
-                            yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
-                                   gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
-                                   gr.update(), gr.update())
-                    elif mode == "values":
-                        final_state = chunk
+                elif key == "values":
+                    final_state = value
+            # ▲▲▲【置き換えここまで】▲▲▲
 
             # ... (ストリーミング完了後の後処理は変更なし) ...
             current_console_content += captured_output.getvalue()
@@ -2048,24 +2068,42 @@ def handle_rerun_button_click(*args: Any):
 
         final_response_text = ""
         with utils.capture_prints() as captured_output:
+            # ▼▼▼【ここから下のループ全体を置き換える】▼▼▼
             streamed_text = ""
             final_state = None
             initial_message_count = 0
-            for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                if mode == "pre_tool_response":
-                    pre_tool_content = chunk
-                    chatbot_history[-1] = (None, pre_tool_content)
+            # 応答が始まる前に、まず空のバブルとそれに対応するマッピングを追加しておく
+            chatbot_history.append((None, "▌"))
+            # mapping_list の最後の要素（＝最新のログのインデックス）をコピーして追加
+            if mapping_list:
+                mapping_list.append(mapping_list[-1] + 1)
+            else: # ログが全くない場合
+                mapping_list.append(len(utils.load_chat_log(log_f)))
+
+            for key, value in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                if key == "pre_tool_response":
+                    # --- 第一段階の思考を確定させる ---
+                    pre_tool_content = value
+                    # 1. ログに保存する（これが新しい「真実」となる）
                     utils.save_message_to_log(log_f, f"## AGENT:{room_name}", pre_tool_content)
+                    # 2. ログからUI全体を再生成する
+                    chatbot_history, mapping_list = reload_chat_log(room_name, api_history_limit)
+                    # 3. 次のストリーミングのために、新しい空のバブルを用意する
                     chatbot_history.append((None, "▌"))
+                    # 4. 新しいバブルのためのマッピング情報を追加
+                    if mapping_list: mapping_list.append(mapping_list[-1] + 1)
+                    else: mapping_list.append(len(utils.load_chat_log(log_f)))
+                    # 5. UIを更新
                     yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(),
                            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                            current_console_content, None, gr.update(visible=False),
                            gr.update(), gr.update())
 
-                elif mode == "initial_count":
-                    initial_message_count = chunk
-                elif mode == "messages":
-                    message_chunk, _ = chunk
+                elif key == "initial_count":
+                    initial_message_count = value
+
+                elif key == "messages":
+                    message_chunk = value[-1] if isinstance(value, list) and value else None
                     if isinstance(message_chunk, AIMessageChunk):
                         streamed_text += message_chunk.content
                         chatbot_history[-1] = (None, streamed_text + "▌")
@@ -2073,21 +2111,9 @@ def handle_rerun_button_click(*args: Any):
                                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                                current_console_content, None, gr.update(visible=False),
                                gr.update(), gr.update())
-                elif mode == "values":
-                    final_state = chunk
-
-        current_console_content += captured_output.getvalue()
-
-        final_response_text = ""
-        if final_state:
-            new_messages = final_state["messages"][initial_message_count:]
-            for msg in new_messages:
-                if isinstance(msg, ToolMessage):
-                    popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                    if popup_text: all_turn_popups.append(popup_text)
-            last_ai_message = final_state["messages"][-1]
-            if isinstance(last_ai_message, AIMessage):
-                final_response_text = last_ai_message.content
+                elif key == "values":
+                    final_state = value
+            # ▲▲▲【置き換えここまで】▲▲▲
 
         current_console_content += captured_output.getvalue()
 
