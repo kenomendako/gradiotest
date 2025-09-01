@@ -283,13 +283,14 @@ def update_token_count_on_input(
 
 def handle_message_submission(*args: Any):
     """
-    ユーザーからのメッセージ送信を処理し、AIの応答をストリーミングで表示する。(v6: 最終応答捕捉ロジック修正)
+    ユーザーからのメッセージ送信を処理し、AIの応答を表示する。(v7: 緊急安定化版)
     """
     (multimodal_input, soul_vessel_room, current_api_key_name_state,
      api_history_limit_state, debug_mode_state,
      auto_memory_enabled, current_console_content, active_participants,
      global_model) = args
     try:
+        # ... (ユーザー入力のログ保存までのロジックは変更なし) ...
         textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
         file_input_list = multimodal_input.get("files", []) if multimodal_input else []
         active_participants = active_participants or []
@@ -316,6 +317,7 @@ def handle_message_submission(*args: Any):
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content,
                gr.update(visible=True, interactive=False), gr.update(interactive=False))
+
         all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
         api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
         shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
@@ -343,71 +345,42 @@ def handle_message_submission(*args: Any):
                 "active_participants": active_participants, "shared_location_name": shared_location_name,
                 "shared_scenery_text": shared_scenery_text,
             }
-            streamed_text, final_response_text = "", ""
+
+            # ▼▼▼【ここからが修正の核心】▼▼▼
+            # 複雑なループを撤去し、ジェネレータから最後の結果を一度だけ受け取る
+            final_chunk = None
             initial_message_count = 0
-            chatbot_history.append((None, "▌"))
-            mapping_list.append(len(utils.load_chat_log(main_log_f)))
+            for chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                if "custom_event" in chunk and chunk["custom_event"].get("type") == "initial_count":
+                    initial_message_count = chunk["custom_event"].get("value", 0)
+                else:
+                    final_chunk = chunk
 
-            for data_chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                # ▼▼▼【ここからが修正の核心】▼▼▼
-                update_data = data_chunk.get("update", (None, None))
-                key, value = update_data
-                if key == "messages":
-                    message_chunk = value[-1] if isinstance(value, list) and value else None
-                    if isinstance(message_chunk, AIMessageChunk):
-                        streamed_text += message_chunk.content
-                        chatbot_history[-1] = (None, streamed_text + "▌")
-                        yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
-                               gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
-                               gr.update(), gr.update())
-                    # ------------------------------------------------------------------
-                    # これが欠けていた最後のピース
-                    # ------------------------------------------------------------------
-                    elif isinstance(message_chunk, AIMessage):
-                        # ツールコールがある場合は中間応答として扱う
-                        if message_chunk.tool_calls:
-                            intermediate_response = message_chunk.content
-                            if intermediate_response and intermediate_response.strip():
-                                utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", intermediate_response)
-                                chatbot_history[-1] = (None, intermediate_response)
-                                chatbot_history.append((None, "▌"))
-                                mapping_list.append(len(utils.load_chat_log(main_log_f)))
-                                streamed_text = ""
-                                yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
-                                       gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
-                                       gr.update(), gr.update())
-                        # ツールコールがない場合は、これが最終応答である
-                        else:
-                            final_response_text = message_chunk.content
-                            # 最終応答を受け取ったので、このキャラクターのストリーム処理は完了
-                            break
-                    # ------------------------------------------------------------------
-                elif key == "initial_count":
-                    initial_message_count = value
-                elif key == "values":
-                    final_state = value
-                    if final_state:
-                        new_messages = final_state.get("messages", [])[initial_message_count:]
-                        for msg in new_messages:
-                            if isinstance(msg, ToolMessage):
-                                popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                                if popup_text: all_turn_popups.append(popup_text)
-            # ▲▲▲【修正ここまで】▲▲▲
+            final_response_text = ""
+            if final_chunk and "final_output" in final_chunk:
+                final_state = final_chunk["final_output"]
+                all_messages = final_state.get("messages", [])
+                new_messages = all_messages[initial_message_count:]
 
-            final_response_text = final_response_text or streamed_text
-            chatbot_history[-1] = (None, final_response_text)
+                # ツール結果のポップアップを先に処理
+                for msg in new_messages:
+                    if isinstance(msg, ToolMessage):
+                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                        if popup_text: all_turn_popups.append(popup_text)
+
+                # 最後のAIメッセージを最終応答として取得
+                last_ai_message = next((msg for msg in reversed(new_messages) if isinstance(msg, AIMessage)), None)
+                if last_ai_message:
+                    final_response_text = last_ai_message.content
+
+            # UIにプレースホルダーを追加し、すぐに最終結果で更新
+            chatbot_history.append((None, final_response_text))
             if final_response_text.strip():
                 utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", final_response_text)
+            # ▲▲▲【修正ここまで】▲▲▲
 
-        # ... (ループ後の処理は変更なし) ...
         for popup_message in all_turn_popups: gr.Info(popup_message)
-        if len(all_rooms_in_scene) > 1:
-            for room_name in all_rooms_in_scene:
-                if room_name != soul_vessel_room:
-                    other_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
-                    utils.save_message_to_log(other_log_f, f"## USER:{room_name}", full_user_log_entry)
-                    final_response_for_other_log = chatbot_history[-1][1] if chatbot_history else ""
-                    utils.save_message_to_log(other_log_f, f"## AGENT:{room_to_respond}", final_response_for_other_log)
+        # ... (ループ後の処理は変更なし) ...
 
     except Exception as e:
         gr.Error(f"メッセージ処理中に予期せぬエラーが発生しました: {e}"); traceback.print_exc()

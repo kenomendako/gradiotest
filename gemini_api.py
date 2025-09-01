@@ -99,15 +99,16 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
 
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v25: 安定性向上版)
+    LangGraphの思考プロセスを実行し、最終結果のみを返す。(v29: 緊急安定化版)
     """
     from agent.graph import app
     import time
     from google.api_core.exceptions import ResourceExhausted, InternalServerError
 
-    # --- 引数を辞書から展開 (変更なし) ---
+    # --- 引数展開 (変更なし) ---
     room_to_respond = agent_args["room_to_respond"]
     api_key_name = agent_args["api_key_name"]
+    # ... (以下、引数展開のコードは元のまま) ...
     api_history_limit = agent_args["api_history_limit"]
     debug_mode = agent_args["debug_mode"]
     history_log_path = agent_args["history_log_path"]
@@ -116,10 +117,8 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     active_participants = agent_args["active_participants"]
     shared_location_name = agent_args["shared_location_name"]
     shared_scenery_text = agent_args["shared_scenery_text"]
-
     all_participants_list = [soul_vessel_room] + active_participants
     global_model_from_ui = agent_args.get("global_model_from_ui")
-
     effective_settings = config_manager.get_effective_settings(
         room_to_respond,
         global_model_from_ui=global_model_from_ui,
@@ -130,88 +129,60 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         error_message = f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"
-        yield ("values", {"messages": [AIMessage(content=error_message)]})
+        yield {"final_output": {"messages": [AIMessage(content=error_message)]}}
         return
 
-    # --- ハイブリッド履歴構築ロジック ---
+    # --- 履歴構築 (変更なし) ---
     messages = []
     responding_ai_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
         own_history_raw = utils.load_chat_log(responding_ai_log_f)
         messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond)
-
     if history_log_path and os.path.exists(history_log_path):
         snapshot_history_raw = utils.load_chat_log(history_log_path)
         snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond)
         if snapshot_messages and messages:
-            first_snapshot_user_message_content = None
-            for msg in snapshot_messages:
-                if isinstance(msg, HumanMessage):
-                    first_snapshot_user_message_content = msg.content
-                    break
+            first_snapshot_user_message_content = next((msg.content for msg in snapshot_messages if isinstance(msg, HumanMessage)), None)
             if first_snapshot_user_message_content:
                 for i in range(len(messages) - 1, -1, -1):
                     if isinstance(messages[i], HumanMessage) and messages[i].content == first_snapshot_user_message_content:
                         messages = messages[:i]
                         break
             messages.extend(snapshot_messages)
-        elif snapshot_messages:
-            messages = snapshot_messages
-
-    # ▼▼▼【ここからが修正の核心】▼▼▼
-    # このブロックを削除する。
-    # 理由: ログ保存が先行するため、この処理が重複の原因となっていた。
-    # if user_prompt_parts:
-    #     messages.append(HumanMessage(content=user_prompt_parts))
-    # ▲▲▲【修正ここまで】▲▲▲
-
+        elif snapshot_messages: messages = snapshot_messages
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
-    if limit > 0 and len(messages) > limit * 2:
-        messages = messages[-(limit * 2):]
+    if limit > 0 and len(messages) > limit * 2: messages = messages[-(limit * 2):]
 
     # --- エージェント実行 ---
     initial_state = {
-        "messages": messages, "room_name": room_to_respond,
-        "api_key": api_key,
-        "model_name": model_name,
-        "generation_config": effective_settings,
+        "messages": messages, "room_name": room_to_respond, "api_key": api_key,
+        "model_name": model_name, "generation_config": effective_settings,
         "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True),
         "send_notepad": effective_settings.get("send_notepad", True),
-        "debug_mode": debug_mode,
-        "location_name": shared_location_name,
-        "scenery_text": shared_scenery_text,
-        "all_participants": all_participants_list
+        "debug_mode": debug_mode, "location_name": shared_location_name,
+        "scenery_text": shared_scenery_text, "all_participants": all_participants_list
     }
 
-    # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
-    yield ("initial_count", len(messages))
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # ストリーミングせず、同期的に実行して最終結果のみを取得する
+    final_state = None
+    try:
+        # 最初にinitial_countをyieldするのはUIのために維持
+        yield {"custom_event": {"type": "initial_count", "value": len(messages)}}
+        # invokeを使い、最終結果を待つ
+        final_state = app.invoke(initial_state)
+    except (ResourceExhausted, InternalServerError) as e:
+        error_message = f"[エラー: APIサーバーが応答しませんでした。詳細: {e}]"
+        final_state = {"messages": messages + [AIMessage(content=error_message)]}
+    except Exception as e:
+        traceback.print_exc()
+        error_message = f"[エラー: 内部処理で問題が発生しました。詳細: {e}]"
+        final_state = {"messages": messages + [AIMessage(content=error_message)]}
 
-    max_retries = 3
-    retry_delay = 5
-    for attempt in range(max_retries):
-        try:
-            for update in app.stream(initial_state, stream_mode=["messages", "values"]):
-                yield update
-            return
-
-        except (ResourceExhausted, InternalServerError) as e:
-            print(f"--- APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
-            if attempt < max_retries - 1:
-                print(f"    - {retry_delay}秒待機してリトライします...")
-                time.sleep(retry_delay)
-                retry_delay *= 2
-            else:
-                error_message = f"[エラー: APIサーバーが応答しませんでした。時間をおいて再試行してください。詳細: {e}]"
-                yield ("values", {"messages": [AIMessage(content=error_message)]})
-                return
-
-        except Exception as e:
-            print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
-            traceback.print_exc()
-            error_message = f"[エラー: 内部処理で問題が発生しました。詳細はターミナルを確認してください。エラー: {e}]"
-            yield ("values", {"messages": [AIMessage(content=error_message)]})
-            return
+    # 最終結果を一度だけyieldして終了
+    yield {"final_output": final_state}
+    # ▲▲▲【修正ここまで】▲▲▲
 
 def count_input_tokens(**kwargs):
     room_name = kwargs.get("room_name")
