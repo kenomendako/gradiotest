@@ -1,9 +1,21 @@
-# memos_manager.py (最終確定版: v8.0 The Great Reset)
+# memos_manager.py (最終確定版: v9.0 The Deicide)
 
 # このファイル全体を、以下のコードで完全に置き換えてください
 
-# 最初にライブラリ全体をインポートする
-import memos
+# --- ステップ1: 神殺し（Deicide）---
+# MemOSがインポートされた瞬間にOllamaの生存確認が走るのを防ぐため、
+# 問題の関数そのものを、何もしない無の関数に置き換える。
+
+import memos.llms.ollama as ollama_llm_module
+import memos.embedders.ollama as ollama_embedder_module
+
+# Ollamaの神の存在を確認しようとする関数を、無に帰す
+ollama_llm_module._ensure_model_exists = lambda *args, **kwargs: None
+ollama_embedder_module._ensure_model_exists = lambda *args, **kwargs: None
+
+print("--- [Deicide] Ollama's presence check has been neutralized. The old god is dead. ---")
+
+# --- ステップ2: 安全になったライブラリのインポートと利用 ---
 from memos import MOS, MOSConfig, GeneralMemCube, GeneralMemCubeConfig
 import config_manager, constants, os, neo4j, time
 from memos_ext.google_genai_llm import GoogleGenAILLM, GoogleGenAILLMConfig
@@ -15,7 +27,7 @@ def get_mos_instance(character_name: str) -> MOS:
     if character_name in _mos_instances:
         return _mos_instances[character_name]
 
-    print(f"--- MemOSインスタンスを初期化中 (Great Reset版): {character_name} ---")
+    print(f"--- MemOSインスタンスを初期化中 (Deicide版): {character_name} ---")
 
     # --- 1. 設定情報の取得 (変更なし) ---
     api_key_name = config_manager.initial_api_key_name_global
@@ -113,5 +125,5 @@ def get_mos_instance(character_name: str) -> MOS:
     mos.register_mem_cube(cube_path, mem_cube_id=mem_cube.config.cube_id)
     mos.mem_reorganizer_wait(); mos.mem_reorganizer_off()
     _mos_instances[character_name] = mos
-    print(f"--- MemOSインスタンスの準備完了 (Great Reset版): {character_name} ---")
+    print(f"--- MemOSインスタンスの準備完了 (Deicide版): {character_name} ---")
     return mos
