@@ -1868,10 +1868,6 @@ def handle_save_pushover_config(user_key, app_token):
     config_manager.update_pushover_config(user_key, app_token)
     gr.Info("Pushover設定を保存しました。")
 
-def handle_save_tavily_key(api_key):
-    config_manager.update_tavily_key(api_key)
-    gr.Info("Tavily APIキーを保存しました。")
-
 def handle_notification_service_change(service_choice: str):
     if service_choice in ["Discord", "Pushover"]:
         config_manager.save_config("notification_service", service_choice.lower())
