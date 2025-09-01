@@ -11,11 +11,6 @@ requests
 pandas
 numpy # Required by pandas
 
-# For MemOS implementation
-MemoryOS[tree-mem]
-chonkie
-torch # Required by transformers, a dependency of MemOS
-
 # --- LangGraph and LangChain libraries ---
 # Core LangGraph library - THIS WILL MANAGE ITS OWN DEPENDENCIES
 langgraph
@@ -28,9 +23,6 @@ python-dotenv
 
 # Correct, modern SDK for Gemini API. DO NOT CHANGE.
 google-genai
-
-# For Web Search with Tavily AI
-tavily-python
 
 # For PID existence check in lock mechanism
 psutil

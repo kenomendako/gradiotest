@@ -49,7 +49,6 @@ class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     room_name: str
     api_key: str
-    tavily_api_key: str
     model_name: str
     system_prompt: SystemMessage
     generation_config: dict
@@ -338,7 +337,6 @@ def safe_tool_executor(state: AgentState):
     last_message = messages[-1]
     tool_invocations = last_message.tool_calls
     api_key = state.get('api_key')
-    tavily_api_key = state.get('tavily_api_key')
 
     # ▼▼▼【ここから修正】▼▼▼
     # AgentStateから、現在操作対象となっているルームの「フォルダ名」を取得
@@ -366,9 +364,6 @@ def safe_tool_executor(state: AgentState):
         if tool_name == 'generate_image' or tool_name == 'summarize_and_save_core_memory':
             tool_call['args']['api_key'] = api_key
             print(f"    - 'api_key' を引数に追加しました。")
-        elif tool_name == 'web_search_tool':
-            tool_call['args']['api_key'] = tavily_api_key
-            print(f"    - 'tavily_api_key' を引数に追加しました。")
 
         selected_tool = next((t for t in all_tools if t.name == tool_name), None)
         if not selected_tool:
