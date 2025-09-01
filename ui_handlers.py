@@ -402,6 +402,13 @@ def handle_message_submission(*args: Any):
             final_response_text = final_response_text or streamed_text
             chatbot_history[-1] = (None, final_response_text)
 
+            # ▼▼▼【ここに追加】▼▼▼
+            # 最終的な応答内容で、まずUIを確定させる
+            yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
+                   gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
+                   gr.update(), gr.update())
+            # ▲▲▲【追加ここまで】▲▲▲
+
             if final_response_text.strip():
                 utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", final_response_text)
                 turn_recap_events.append(f"## AGENT:{room_to_respond}\n{final_response_text}")
@@ -2045,6 +2052,15 @@ def handle_rerun_button_click(*args: Any):
                     break
 
         current_console_content += captured_output.getvalue()
+
+        # ▼▼▼【ここに追加】▼▼▼
+        # 最終的な応答内容で、まずUIを確定させる
+        chatbot_history[-1] = (None, final_response_text)
+        yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
+               gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
+               None, gr.update(visible=False), # selected_message と action_button_group をクリア
+               gr.update(), gr.update())
+        # ▲▲▲【追加ここまで】▲▲▲
 
         if final_response_text.strip():
             utils.save_message_to_log(log_f, f"## AGENT:{room_name}", final_response_text)
