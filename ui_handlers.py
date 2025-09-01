@@ -26,7 +26,7 @@ import pytz
 import ijson
 
 
-import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, memos_manager, chatgpt_importer
+import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer, cognee_manager
 from tools import timer_tools
 from agent.graph import generate_scenery_context
 from room_manager import get_room_files_paths, get_world_settings_path
@@ -416,23 +416,23 @@ def handle_message_submission(*args: Any):
                 participant_log_f, _, _, _, _ = get_room_files_paths(participant_name)
                 if participant_log_f: utils.save_message_to_log(participant_log_f, "## システム(対話記録):", full_recap_entry)
 
-        if auto_memory_enabled:
-            try:
-                print(f"--- 自動記憶処理を開始: {soul_vessel_room} ---")
-                messages_to_save = []
-                user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
-                if user_content_match: messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
-                for recap_event in turn_recap_events[1:]:
-                     ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
-                     if ai_content_match: messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
-                if len(messages_to_save) >= 2:
-                    mos = memos_manager.get_mos_instance(soul_vessel_room)
-                    mos.add(messages=messages_to_save)
-                    print(f"--- 自動記憶処理完了: {soul_vessel_room} ---")
-                else: print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
-            except Exception as e:
-                print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---"); traceback.print_exc()
-                gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
+        # if auto_memory_enabled:
+        #     try:
+        #         print(f"--- 自動記憶処理を開始: {soul_vessel_room} ---")
+        #         messages_to_save = []
+        #         user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
+        #         if user_content_match: messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
+        #         for recap_event in turn_recap_events[1:]:
+        #              ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
+        #              if ai_content_match: messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
+        #         if len(messages_to_save) >= 2:
+        #             mos = memos_manager.get_mos_instance(soul_vessel_room)
+        #             mos.add(messages=messages_to_save)
+        #             print(f"--- 自動記憶処理完了: {soul_vessel_room} ---")
+        #         else: print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
+        #     except Exception as e:
+        #         print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---"); traceback.print_exc()
+        #         gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
 
     finally:
         # 6. 処理が完了または中断されたら、必ずボタンの状態を元に戻す
@@ -1055,98 +1055,20 @@ def handle_timer_submission(timer_type, duration, work, brk, cycles, room, work_
         return f"タイマー開始エラー: {e}"
 
 def handle_auto_memory_change(auto_memory_enabled: bool):
-    config_manager.save_memos_config("auto_memory_enabled", auto_memory_enabled)
-    status = "有効" if auto_memory_enabled else "無効"
-    gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
+    # config_manager.save_memos_config("auto_memory_enabled", auto_memory_enabled)
+    # status = "有効" if auto_memory_enabled else "無効"
+    gr.Warning(f"この機能は現在使用できません。記憶システムがMemOSからCogneeに移行中です。")
 
 def handle_memos_batch_import(room_name: str, console_content: str):
-    if not room_name:
-        gr.Warning("ルームが選択されていません。")
-        # 戻り値の数を6個に修正
-        yield gr.update(), gr.update(visible=False), None, console_content, console_content, gr.update()
-        return
-
-    gr.Info(f"「{room_name}」の過去ログ取り込みをバックグラウンドで開始します。")
-    initial_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 「{room_name}」の過去ログ取り込み処理を開始 ---\n"
-    # 戻り値の数を6個に修正
+    gr.Warning("この機能は現在使用できません。記憶システムがMemOSからCogneeに移行中です。")
     yield (
-        gr.update(value="処理中...", interactive=False),
-        gr.update(visible=True),
+        gr.update(interactive=True),
+        gr.update(visible=False),
         None,
-        initial_console_text, initial_console_text,
-        gr.update(interactive=False)
+        console_content,
+        console_content,
+        gr.update(interactive=True)
     )
-
-    process = None
-    try:
-        archive_dir = os.path.join(constants.ROOMS_DIR, room_name, "archive", "log")
-        if not os.path.isdir(archive_dir):
-            error_msg = f"[エラー] アーカイブディレクトリが見つかりません: {archive_dir}"
-            gr.Error(error_msg)
-            # 戻り値の数を6個に修正
-            yield gr.update(), gr.update(visible=False), None, console_content + error_msg, console_content + error_msg, gr.update()
-            return
-
-        python_executable = sys.executable or "python"
-        command = [python_executable, "batch_importer.py", "--character", room_name, "--logs-dir", archive_dir]
-
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=False,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-        )
-
-        # 戻り値の数を6個に修正
-        yield gr.update(), gr.update(), process, gr.update(), gr.update(), gr.update()
-
-        updated_console_text = initial_console_text
-        if process.stdout:
-            import locale
-            for byte_line in iter(process.stdout.readline, b''):
-                if not byte_line: break
-                line_str = byte_line.decode(locale.getpreferredencoding(False), errors='replace')
-                print(line_str, end='')
-                updated_console_text += line_str
-                # 戻り値の数を6個に修正
-                yield gr.update(), gr.update(), process, updated_console_text, updated_console_text, gr.update()
-
-        process.wait()
-        if process.returncode == 0:
-            gr.Info(f"「{room_name}」の過去ログ取り込みが正常に完了しました。")
-            final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 処理正常終了 ---\n"
-        elif process.returncode == -15:
-             gr.Warning("ユーザーの指示により、インポート処理を中断しました。")
-             final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] 処理中断 ---\n"
-        else:
-            gr.Error(f"過去ログの取り込み中にエラーが発生しました。")
-            final_message = f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] エラー終了 (コード: {process.returncode}) ---\n"
-
-        updated_console_text += final_message
-        # 戻り値の数を6個に修正
-        yield gr.update(), gr.update(), None, updated_console_text, updated_console_text, gr.update()
-
-    except Exception as e:
-        error_message = f"インポート処理の起動に失敗しました: {e}"
-        gr.Error(error_message); traceback.print_exc()
-        error_console_text = console_content + f"\n--- [{datetime.datetime.now().strftime('%H:%M:%S')}] {error_message} ---\n"
-        # 戻り値の数を6個に修正
-        yield gr.update(), gr.update(visible=False), None, error_console_text, error_console_text, gr.update()
-
-    finally:
-        if process:
-            print("--- インポーターのサブプロセスが完全に終了するのを待っています... ---")
-            process.wait()
-            print("--- サブプロセスの終了を確認しました。UIを更新します。 ---")
-
-        # 戻り値の数を6個に修正
-        yield (
-            gr.update(value="過去ログを客観記憶(MemOS)に取り込む", interactive=True),
-            gr.update(visible=False),
-            None,
-            gr.update(),
-            gr.update(),
-            gr.update(interactive=True)
-        )
 
 def handle_importer_stop(process):
     stop_signal_file = "stop_importer.signal"
@@ -2137,21 +2059,21 @@ def handle_rerun_button_click(*args: Any):
 
         # ▼▼▼【自動記憶のロジックを修正】▼▼▼
         effective_settings = config_manager.get_effective_settings(room_name)
-        if effective_settings.get("auto_memory_enabled", False):
-            try:
-                print(f"--- 自動記憶処理を開始 (再生成): {room_name} ---")
-                messages_to_save = [
-                    {"role": "user", "content": restored_input_text},
-                    {"role": "assistant", "content": final_response_text}
-                ]
-                if len(messages_to_save) >= 2 and messages_to_save[0]["content"] and messages_to_save[1]["content"]:
-                    mos = memos_manager.get_mos_instance(room_name)
-                    mos.add(messages=messages_to_save)
-                    print(f"--- 自動記憶処理完了 (再生成): {room_name} ---")
-            except Exception as e:
-                print(f"--- 自動記憶処理中にエラーが発生しました (再生成): {e} ---")
-                traceback.print_exc()
-                gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
+        # if effective_settings.get("auto_memory_enabled", False):
+        #     try:
+        #         print(f"--- 自動記憶処理を開始 (再生成): {room_name} ---")
+        #         messages_to_save = [
+        #             {"role": "user", "content": restored_input_text},
+        #             {"role": "assistant", "content": final_response_text}
+        #         ]
+        #         if len(messages_to_save) >= 2 and messages_to_save[0]["content"] and messages_to_save[1]["content"]:
+        #             mos = memos_manager.get_mos_instance(room_name)
+        #             mos.add(messages=messages_to_save)
+        #             print(f"--- 自動記憶処理完了 (再生成): {room_name} ---")
+        #     except Exception as e:
+        #         print(f"--- 自動記憶処理中にエラーが発生しました (再生成): {e} ---")
+        #         traceback.print_exc()
+        #         gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
 
     finally:
         # 6. 処理が完了または中断されたら、必ずボタンの状態を元に戻す

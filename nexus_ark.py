@@ -44,7 +44,7 @@ import json
 import gradio as gr
 import traceback
 import pandas as pd
-import config_manager, room_manager, alarm_manager, ui_handlers, constants
+import config_manager, room_manager, alarm_manager, ui_handlers, constants, cognee_manager
 
 if not utils.acquire_lock():
     print("ロックが取得できなかったため、アプリケーションを終了します。")
@@ -55,6 +55,8 @@ os.environ["MEM0_TELEMETRY_ENABLED"] = "false"
 
 try:
     config_manager.load_config()
+    # Cogneeの初期化を追加
+    cognee_manager.get_cognee_instance()
     alarm_manager.load_alarms()
     alarm_manager.start_alarm_scheduler_thread()
 
