@@ -99,7 +99,7 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
 
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v25: 安定性向上版)
+    LangGraphの思考プロセスをストリーミングで返す。(v26: 戻り値の型を辞書に統一)
     """
     from agent.graph import app
     import time
@@ -128,42 +128,41 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     model_name = effective_settings["model_name"]
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
+    # ▼▼▼【ここから修正】▼▼▼
+    # エラー時の戻り値をタプルから辞書に変更
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         error_message = f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"
-        yield ("values", {"messages": [AIMessage(content=error_message)]})
+        # "values"キーではなく、LangGraphの最終出力形式に似せた"__end__"キーを使用
+        yield {"__end__": {"messages": [AIMessage(content=error_message)]}}
         return
+    # ▲▲▲【修正ここまで】▲▲▲
 
-    # --- ハイブリッド履歴構築ロジック ---
+    # --- ハイブリッド履歴構築ロジック (変更なし) ---
     messages = []
     responding_ai_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
         own_history_raw = utils.load_chat_log(responding_ai_log_f)
-        messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond)
+        messages = utils.convert_raw_log_to_lc_messages(own_history_raw, room_to_respond)
 
-    if history_log_path and os.path.exists(history_log_path):
+    if history_log_path and os.path.exists(history_log_path) and history_log_path != responding_ai_log_f:
         snapshot_history_raw = utils.load_chat_log(history_log_path)
-        snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond)
-        if snapshot_messages and messages:
-            first_snapshot_user_message_content = None
-            for msg in snapshot_messages:
-                if isinstance(msg, HumanMessage):
-                    first_snapshot_user_message_content = msg.content
-                    break
-            if first_snapshot_user_message_content:
+        snapshot_messages = utils.convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond)
+        if snapshot_messages:
+            # 最新のユーザー発言を見つける
+            last_user_message_content = None
+            if user_prompt_parts:
+                text_part = next((p['text'] for p in user_prompt_parts if p['type'] == 'text'), None)
+                if text_part:
+                    last_user_message_content = text_part
+
+            if last_user_message_content:
+                # 自身の履歴から、スナップショットの起点となるユーザー発言以前を切り出す
                 for i in range(len(messages) - 1, -1, -1):
-                    if isinstance(messages[i], HumanMessage) and messages[i].content == first_snapshot_user_message_content:
+                    if isinstance(messages[i], HumanMessage) and messages[i].content == last_user_message_content:
                         messages = messages[:i]
                         break
+            # スナップショットを結合
             messages.extend(snapshot_messages)
-        elif snapshot_messages:
-            messages = snapshot_messages
-
-    # ▼▼▼【ここからが修正の核心】▼▼▼
-    # このブロックを削除する。
-    # 理由: ログ保存が先行するため、この処理が重複の原因となっていた。
-    # if user_prompt_parts:
-    #     messages.append(HumanMessage(content=user_prompt_parts))
-    # ▲▲▲【修正ここまで】▲▲▲
 
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
@@ -184,17 +183,19 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "all_participants": all_participants_list
     }
 
-    # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
-    yield ("initial_count", len(messages))
+    # ▼▼▼【ここから修正】▼▼▼
+    # カスタムイベントをタプルから辞書に変更
+    yield {"custom_event": {"type": "initial_count", "value": len(messages)}}
+    # ▲▲▲【修正ここまで】▲▲▲
 
     max_retries = 3
     retry_delay = 5
     for attempt in range(max_retries):
         try:
-            for update in app.stream(initial_state, stream_mode=["messages", "values"]):
+            # LangGraphのstreamは元々辞書を返すので、ここは変更不要
+            for update in app.stream(initial_state, stream_mode="values"):
                 yield update
             return
-
         except (ResourceExhausted, InternalServerError) as e:
             print(f"--- APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
             if attempt < max_retries - 1:
@@ -203,14 +204,17 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
                 retry_delay *= 2
             else:
                 error_message = f"[エラー: APIサーバーが応答しませんでした。時間をおいて再試行してください。詳細: {e}]"
-                yield ("values", {"messages": [AIMessage(content=error_message)]})
+                # ▼▼▼【ここから修正】▼▼▼
+                yield {"__end__": {"messages": [AIMessage(content=error_message)]}}
+                # ▲▲▲【修正ここまで】▲▲▲
                 return
-
         except Exception as e:
             print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
             traceback.print_exc()
             error_message = f"[エラー: 内部処理で問題が発生しました。詳細はターミナルを確認してください。エラー: {e}]"
-            yield ("values", {"messages": [AIMessage(content=error_message)]})
+            # ▼▼▼【ここから修正】▼▼▼
+            yield {"__end__": {"messages": [AIMessage(content=error_message)]}}
+            # ▲▲▲【修正ここまで】▲▲▲
             return
 
 def count_input_tokens(**kwargs):
