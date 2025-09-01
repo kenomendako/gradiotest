@@ -26,7 +26,7 @@ import pytz
 import ijson
 
 
-import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer, cognee_manager
+import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer
 from tools import timer_tools
 from agent.graph import generate_scenery_context
 from room_manager import get_room_files_paths, get_world_settings_path

@@ -1,38 +1,48 @@
-# tools/web_tools.py (v2.0 - Google Native Search Edition)
+# tools/web_tools.py (v3.0 - Gemini Native Grounding Edition)
 
 from langchain_core.tools import tool
-# LangChainが提供する、Gemini APIネイティブ検索のための専用ツールをインポート
-from langchain_google_genai import GoogleSearchRun
+import google.genai as genai
+from google.genai.types import Tool
 import traceback
-import config_manager # APIキーを取得するためにインポート
+import config_manager
 
 @tool
 def web_search_tool(query: str) -> str:
     """
     ユーザーからのクエリに基づいて、最新の情報を得るためにGoogle検索を実行します。
-    このツールは、Geminiモデルに内蔵されたネイティブな検索機能を利用します。
+    このツールは、Geminiモデル自身の思考プロセスに、Google検索の結果を直接統合（グラウンディング）させます。
     """
-    print(f"--- Googleネイティブ検索ツール実行 (Query: '{query}') ---")
+    print(f"--- Geminiネイティブ検索ツール実行 (Query: '{query}') ---")
     try:
-        # LangChainツールがAPIキーを自動で参照できるよう、環境変数を設定する
-        # これは、このツールの実行中のみ有効な、安全な方法です
-        import os
+        # 1. APIキーを取得
         api_key_name = config_manager.initial_api_key_name_global
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         if not api_key or api_key.startswith("YOUR_API_KEY"):
             return "[エラー: 有効なGoogle APIキーが設定されていません]"
 
-        os.environ["GOOGLE_API_KEY"] = api_key
+        # 2. Geminiクライアントを初期化
+        genai.configure(api_key=api_key)
 
-        search = GoogleSearchRun()
-        results = search.run(query)
+        # 3. グラウンディングのための「検索ツール」を定義
+        #    これはLangChainのツールとは別物で、Gemini APIに直接渡すためのものです。
+        search_tool = Tool(google_search=genai.types.GoogleSearch())
 
-        # 使用後に環境変数をクリーンアップするのが良い作法です
-        del os.environ['GOOGLE_API_KEY']
+        # 4. 検索を実行するために、専用の高速モデル(gemini-2.5-flash)を使用
+        model = genai.GenerativeModel(
+            model_name='gemini-2.5-flash',
+            tools=[search_tool],
+        )
 
-        return results if results else "[情報：Web検索で結果が見つかりませんでした]"
+        # 5. 検索を実行し、結果をテキストとして取得
+        response = model.generate_content(query)
+
+        # 応答に検索結果が含まれているか確認
+        # 最新のSDKでは、`citation_metadata`や`grounding_attributions`で確認できるが、
+        # ここではシンプルにテキスト応答をそのまま返す
+        return response.text if response.text else "[情報：Web検索で結果が見つかりませんでした]"
+
     except Exception as e:
-        print(f"  - Googleネイティブ検索ツールでエラー: {e}")
+        print(f"  - Geminiネイティブ検索ツールでエラー: {e}")
         traceback.print_exc()
         return f"[エラー：Web検索中に問題が発生しました。詳細: {e}]"
 
@@ -41,8 +51,8 @@ def read_url_tool(urls: list[str]) -> str:
     """
     指定されたURLリストの内容を読み取り、結合して単一の文字列として返すツール。
     """
-    # (この関数の内容は、あなたのmainブランチのコードパックに含まれていたものであり、変更はありません)
+    # (この関数の内容は変更ありません)
     if not urls:
         return "URLが指定されていません。"
-    # ... (以降のコードは変更なし) ...
+    # ...
     return "URLの内容取得中に予期せぬシステムエラーが発生しました。URLが無効か、ページがアクセスできない可能性があります。"
