@@ -218,7 +218,31 @@ def agent_node(state: AgentState):
     base_system_prompt = state['system_prompt'].content
     all_participants = state.get('all_participants', [])
     current_room = state['room_name']
-    final_system_prompt_text = base_system_prompt
+
+    # ▼▼▼【ここからが修正箇所】▼▼▼
+
+    # 履歴の最後のメッセージがToolMessageかどうかをチェック
+    last_message = state["messages"][-1] if state["messages"] else None
+    if isinstance(last_message, ToolMessage):
+        print("  - ツール実行後の思考を検出。AIに追加の指示を与えます。")
+        tool_results_summary = f"ツール「{last_message.name}」を実行し、結果が得られました。"
+
+        # AIへの追加指示プロンプト
+        post_tool_instruction = (
+            f"\n\n---\n【現在の状況とあなたのタスク】\n"
+            f"{tool_results_summary}\n"
+            "あなたはこの結果を元に、ユーザーとの会話を自然に続けてください。\n"
+            "結果をただオウム返しするのではなく、内容を理解し、あなた自身の言葉で要約したり、意見を述べたり、次のアクションを提案したりすることが重要です。\n"
+            "ユーザーにとって最も価値のある応答を生成してください。\n---"
+        )
+        # 基本プロンプトに追加指示を結合する
+        final_system_prompt_text = base_system_prompt + post_tool_instruction
+    else:
+        # ツール実行後でなければ、基本プロンプトをそのまま使う
+        final_system_prompt_text = base_system_prompt
+
+    # ▲▲▲【修正ここまで】▲▲▲
+
     if len(all_participants) > 1:
         other_participants = [p for p in all_participants if p != current_room]
         persona_lock_prompt = (
