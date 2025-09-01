@@ -1927,27 +1927,41 @@ def handle_rerun_button_click(
     global_model: str
 ):
     """
-    選択されたメッセージを基点として、AIの応答を再生成する。
+    選択されたメッセージを基点として、AIの応答を再生成する。(v2: 戻り値の数を15個に修正)
     - AIの発言を選択した場合: その発言と直前のユーザー発言を削除し、再度応答を生成。
     - ユーザーの発言を選択した場合: その発言以降をすべて削除し、再度応答を生成。
     """
+    # nexus_ark.pyのoutputsリストの数
+    NUM_OUTPUTS = 15
+
     if not selected_message:
         gr.Warning("再生成するメッセージが選択されていません。")
-        # handle_message_submissionの戻り値の数(13個)に合わせる
-        return (gr.update(),) * 13
+        yield (gr.update(),) * NUM_OUTPUTS
+        return
 
     log_f, _, _, _, _ = get_room_files_paths(room_name)
     if not log_f:
         gr.Error(f"ルーム '{room_name}' のログファイルが見つかりません。")
-        return (gr.update(),) * 13
+        yield (gr.update(),) * NUM_OUTPUTS
+        return
 
-    # UIを応答待機状態にする
+    # UIを応答待機状態にする（15個の値を返す）
     yield (
-        gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-        gr.update(), gr.update(), gr.update(), console_content, gr.update(),
-        gr.update(visible=False), # action_button_group
-        gr.update(visible=True), # stop_button
-        gr.update(interactive=False) # chat_reload_button
+        gr.update(),                      # chatbot_display
+        gr.update(),                      # current_log_map_state
+        gr.update(),                      # chat_input_multimodal
+        gr.update(),                      # token_count_display
+        gr.update(),                      # current_location_display
+        gr.update(),                      # current_scenery_display
+        gr.update(),                      # alarm_dataframe_original_data
+        gr.update(),                      # alarm_dataframe
+        gr.update(),                      # scenery_image_display
+        console_content,                  # debug_console_state (維持)
+        gr.update(),                      # debug_console_output
+        gr.update(value=None),            # selected_message_state (リセット)
+        gr.update(visible=False),         # action_button_group
+        gr.update(visible=True),          # stop_button
+        gr.update(interactive=False)      # chat_reload_button
     )
 
     restored_user_input = None
@@ -1963,35 +1977,73 @@ def handle_rerun_button_click(
     if restored_user_input is None:
         gr.Error("再生成の起点となるユーザー入力を復元できませんでした。")
         history, mapping = reload_chat_log(room_name, api_history_limit)
+        # エラー時も15個の値を返す
         yield (
-            history, mapping, gr.update(value={'text': '', 'files': []}), gr.update(), gr.update(), gr.update(),
-            gr.update(), gr.update(), gr.update(), console_content, gr.update(),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(interactive=True)
+            history,                          # chatbot_display
+            mapping,                          # current_log_map_state
+            gr.update(value={'text': '', 'files': []}), # chat_input_multimodal
+            gr.update(),                      # token_count_display
+            gr.update(),                      # current_location_display
+            gr.update(),                      # current_scenery_display
+            gr.update(),                      # alarm_dataframe_original_data
+            gr.update(),                      # alarm_dataframe
+            gr.update(),                      # scenery_image_display
+            console_content,                  # debug_console_state
+            gr.update(),                      # debug_console_output
+            gr.update(value=None),            # selected_message_state
+            gr.update(visible=False),         # action_button_group
+            gr.update(visible=False),         # stop_button
+            gr.update(interactive=True)       # chat_reload_button
         )
         return
 
     # 復元した入力で、handle_message_submissionと同様の処理を実行
-    # MultimodalTextboxの形式に合わせる
-    rerun_multimodal_input = {
-        "text": restored_user_input,
-        "files": [] # 再生成時はファイル添付を再現しない
-    }
+    rerun_multimodal_input = { "text": restored_user_input, "files": [] }
 
-    # handle_message_submission の引数を再構築
-    # auto_memory_checkbox は引数リストから削除されているので渡さない
     submission_args = (
         rerun_multimodal_input, room_name, api_key_name,
-        api_history_limit, debug_mode,
-        False, # auto_memory_enabledは再生成時はFalse固定
-        console_content, active_participants,
-        global_model
+        api_history_limit, debug_mode, False, # auto_memory_enabledはFalse固定
+        console_content, active_participants, global_model
     )
 
-    # handle_message_submission のジェネレータをそのままyield fromで返す
-    # これにより、UIの更新ロジックを完全に再利用できる
-    yield from handle_message_submission(*submission_args)
+    # handle_message_submissionから更新値を受け取り、rerun用の15個の出力に変換してyieldする
+    final_submission_outputs = None
+    for submission_outputs in handle_message_submission(*submission_args):
+        # handle_message_submissionの出力 (13個) を受け取る
+        (chatbot_display_update, log_map_update, multimodal_update, token_update,
+         loc_update, scenery_update, alarm_df_orig_update, alarm_df_update,
+         scenery_img_update, console_state_update, console_out_update,
+         stop_btn_update, reload_btn_update) = submission_outputs
+
+        final_submission_outputs = submission_outputs # 最後の出力を保存
+
+        # rerun用の15個の出力に変換してUIにストリーミング
+        yield (
+            chatbot_display_update, log_map_update, multimodal_update, token_update,
+            loc_update, scenery_update, alarm_df_orig_update, alarm_df_update,
+            scenery_img_update, console_state_update, console_out_update,
+            gr.update(value=None),            # selected_message_state
+            gr.update(visible=False),         # action_button_group
+            stop_btn_update,
+            reload_btn_update
+        )
+
+    # ストリーミング完了後、最終的な状態でUIを確定させる
+    if final_submission_outputs:
+        (chatbot_display_update, log_map_update, multimodal_update, token_update,
+         loc_update, scenery_update, alarm_df_orig_update, alarm_df_update,
+         scenery_img_update, console_state_update, console_out_update,
+         stop_btn_update, reload_btn_update) = final_submission_outputs
+
+        yield (
+            chatbot_display_update, log_map_update, multimodal_update, token_update,
+            loc_update, scenery_update, alarm_df_orig_update, alarm_df_update,
+            scenery_img_update, console_state_update, console_out_update,
+            gr.update(value=None),
+            gr.update(visible=False),
+            gr.update(visible=False), # stop_button
+            gr.update(interactive=True) # chat_reload_button
+        )
 
 def handle_core_memory_update_click(room_name: str, api_key_name: str):
     if not room_name or not api_key_name: gr.Warning("ルームとAPIキーを選択してください。"); return
