@@ -497,9 +497,11 @@ try:
         rerun_event = rerun_button.click( # イベントを一旦変数に格納
             fn=ui_handlers.handle_rerun_button_click,
             inputs=[
-                selected_message_state, current_room_name, current_api_key_name_state,
-                api_history_limit_state, debug_mode_checkbox,
-                # auto_memory_checkbox を削除
+                selected_message_state,
+                current_room_name,
+                current_api_key_name_state,
+                api_history_limit_state,
+                debug_mode_checkbox,
                 debug_console_state,
                 active_participants_state,
                 model_dropdown

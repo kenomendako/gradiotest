@@ -383,19 +383,23 @@ def handle_message_submission(*args: Any):
                 elif key == "values":
                     final_state = value
 
-            final_response_text = ""
+            # streamed_textを正とし、それが空の場合のみfinal_stateから取得するフォールバック処理に変更
+            final_response_text = streamed_text
+            if not final_response_text.strip() and final_state:
+                last_ai_message = final_state.get("messages", [])[-1]
+                if isinstance(last_ai_message, AIMessage):
+                    final_response_text = last_ai_message.content
+
+            chatbot_history[-1] = (None, final_response_text) # 最終的なテキストでUIを確定させる
+
+            # ツール実行結果のポップアップ表示ロジックはここに移設
             if final_state:
                 new_messages = final_state.get("messages", [])[initial_message_count:]
                 for msg in new_messages:
                     if isinstance(msg, ToolMessage):
                         popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                        if popup_text: all_turn_popups.append(popup_text)
-                last_ai_message = final_state.get("messages", [])[-1]
-                if isinstance(last_ai_message, AIMessage):
-                    final_response_text = last_ai_message.content
-
-            final_response_text = final_response_text or streamed_text
-            chatbot_history[-1] = (None, final_response_text)
+                        if popup_text:
+                            all_turn_popups.append(popup_text)
 
             if final_response_text.strip():
                 utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", final_response_text)
@@ -1912,131 +1916,82 @@ def handle_delete_redaction_rule(rules_df: pd.DataFrame, selected_index: Optiona
     # 選択状態をリセットするためにNoneを返す
     return updated_df, rules, None
 
-def handle_rerun_button_click(*args: Any):
-    (selected_message, room_name, api_key_name,
-     api_history_limit, debug_mode,
-     current_console_content, active_participants,
-     global_model) = args
+def handle_rerun_button_click(
+    selected_message: Optional[Dict[str, str]],
+    room_name: str,
+    api_key_name: str,
+    api_history_limit: str,
+    debug_mode: bool,
+    console_content: str,
+    active_participants: list,
+    global_model: str
+):
+    """
+    選択されたメッセージを基点として、AIの応答を再生成する。
+    - AIの発言を選択した場合: その発言と直前のユーザー発言を削除し、再度応答を生成。
+    - ユーザーの発言を選択した場合: その発言以降をすべて削除し、再度応答を生成。
+    """
+    if not selected_message:
+        gr.Warning("再生成するメッセージが選択されていません。")
+        # handle_message_submissionの戻り値の数(13個)に合わせる
+        return (gr.update(),) * 13
 
-    try:
-        textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
-        file_input_list = multimodal_input.get("files", []) if multimodal_input else []
-        active_participants = active_participants or []
-        user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
-        log_message_parts = []
-        if user_prompt_from_textbox:
-            effective_settings = config_manager.get_effective_settings(soul_vessel_room)
-            add_timestamp = effective_settings.get("add_timestamp", False)
-            timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
-            log_message_parts.append(user_prompt_from_textbox + timestamp)
-        if file_input_list:
-            for file_path in file_input_list: log_message_parts.append(f"[ファイル添付: {os.path.basename(file_path)}]")
-        full_user_log_entry = "\n".join(log_message_parts).strip()
+    log_f, _, _, _, _ = get_room_files_paths(room_name)
+    if not log_f:
+        gr.Error(f"ルーム '{room_name}' のログファイルが見つかりません。")
+        return (gr.update(),) * 13
 
-        if not full_user_log_entry:
-            history, mapping = reload_chat_log(soul_vessel_room, api_history_limit_state)
-            yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(),
-                   gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
-                   gr.update(visible=False), gr.update(interactive=True))
-            return
+    # UIを応答待機状態にする
+    yield (
+        gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+        gr.update(), gr.update(), gr.update(), console_content, gr.update(),
+        gr.update(visible=False), # action_button_group
+        gr.update(visible=True), # stop_button
+        gr.update(interactive=False) # chat_reload_button
+    )
 
-        main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
-        utils.save_message_to_log(main_log_f, "## USER:user", full_user_log_entry)
+    restored_user_input = None
+    role = selected_message.get("role")
 
-        chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
-        yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
-               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-               current_console_content, current_console_content,
-               gr.update(visible=True), gr.update(interactive=False))
+    if role == "AGENT":
+        restored_user_input = utils.delete_and_get_previous_user_input(log_f, selected_message)
+    elif role == "USER":
+        restored_user_input = utils.delete_user_message_and_after(log_f, selected_message)
+    else:
+        gr.Warning(f"不明な役割のメッセージです: {role}")
 
-        all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
-        api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name_state)
-        shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
-        all_turn_popups = []
+    if restored_user_input is None:
+        gr.Error("再生成の起点となるユーザー入力を復元できませんでした。")
+        history, mapping = reload_chat_log(room_name, api_history_limit)
+        yield (
+            history, mapping, gr.update(value={'text': '', 'files': []}), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), console_content, gr.update(),
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(interactive=True)
+        )
+        return
 
-        for room_to_respond in all_rooms_in_scene:
-            processed_file_list = []
-            if room_to_respond == soul_vessel_room and file_input_list:
-                # (ファイル処理ロジックは変更なし)
-                ...
+    # 復元した入力で、handle_message_submissionと同様の処理を実行
+    # MultimodalTextboxの形式に合わせる
+    rerun_multimodal_input = {
+        "text": restored_user_input,
+        "files": [] # 再生成時はファイル添付を再現しない
+    }
 
-            user_prompt_parts = []
-            if user_prompt_from_textbox and room_to_respond == soul_vessel_room:
-                 user_prompt_parts.append({"type": "text", "text": user_prompt_from_textbox})
-            user_prompt_parts.extend(processed_file_list)
+    # handle_message_submission の引数を再構築
+    # auto_memory_checkbox は引数リストから削除されているので渡さない
+    submission_args = (
+        rerun_multimodal_input, room_name, api_key_name,
+        api_history_limit, debug_mode,
+        False, # auto_memory_enabledは再生成時はFalse固定
+        console_content, active_participants,
+        global_model
+    )
 
-            agent_args_dict = {
-                "room_to_respond": room_to_respond, "api_key_name": current_api_key_name_state,
-                "global_model_from_ui": global_model,
-                "api_history_limit": api_history_limit_state, "debug_mode": debug_mode_state,
-                "history_log_path": main_log_f, "user_prompt_parts": user_prompt_parts,
-                "soul_vessel_room": soul_vessel_room, "active_participants": active_participants,
-                "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
-            }
-
-            streamed_text = ""
-            final_state = None
-            initial_message_count = 0
-            chatbot_history.append((None, "▌"))
-            if mapping_list: mapping_list.append(mapping_list[-1] + 1)
-            else: mapping_list.append(len(utils.load_chat_log(main_log_f)))
-
-            for data_chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                update_data = data_chunk.get("update", (None, None))
-                console_text = data_chunk.get("console", "")
-                current_console_content += console_text
-                key, value = update_data
-
-                if key == "pre_tool_response":
-                    pre_tool_content = value
-                    chatbot_history[-1] = (None, pre_tool_content)
-                    utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", pre_tool_content)
-
-                    chatbot_history.append((None, "▌"))
-                    if mapping_list: mapping_list.append(mapping_list[-1])
-                    else: mapping_list.append(len(utils.load_chat_log(main_log_f)) -1)
-
-                    streamed_text = ""
-
-                    yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
-                           gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
-                           gr.update(), gr.update())
-                elif key == "initial_count":
-                    initial_message_count = value
-                elif key == "messages":
-                    message_chunk = value[-1] if isinstance(value, list) and value else None
-                    if isinstance(message_chunk, AIMessageChunk):
-                        streamed_text += message_chunk.content
-                        chatbot_history[-1] = (None, streamed_text + "▌")
-                        yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
-                               gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
-                               gr.update(), gr.update())
-                elif key == "values":
-                    final_state = value
-
-            final_response_text = ""
-            if final_state:
-                new_messages = final_state.get("messages", [])[initial_message_count:]
-                for msg in new_messages:
-                    if isinstance(msg, ToolMessage):
-                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                        if popup_text: all_turn_popups.append(popup_text)
-                last_ai_message = final_state.get("messages", [])[-1]
-                if isinstance(last_ai_message, AIMessage):
-                    final_response_text = last_ai_message.content
-
-            final_response_text = final_response_text or streamed_text
-            chatbot_history[-1] = (None, final_response_text)
-
-            if final_response_text.strip():
-                utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", final_response_text)
-
-        for popup_message in all_turn_popups: gr.Info(popup_message)
-        # (複数人対話のログ保存ロジックは変更なし)
-
-    finally:
-        # (最終的なUI更新処理は変更なし)
-        ...
+    # handle_message_submission のジェネレータをそのままyield fromで返す
+    # これにより、UIの更新ロジックを完全に再利用できる
+    yield from handle_message_submission(*submission_args)
 
 def handle_core_memory_update_click(room_name: str, api_key_name: str):
     if not room_name or not api_key_name: gr.Warning("ルームとAPIキーを選択してください。"); return
