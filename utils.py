@@ -371,66 +371,36 @@ def parse_world_file(file_path: str) -> dict:
     return world_data
 
 def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete: Dict[str, str]) -> Optional[str]:
-    """
-    指定されたAIメッセージとその直前のユーザーメッセージをログから削除し、
-    そのユーザーメッセージの内容を返す。再生成用。
-    """
-    if not all([log_file_path, os.path.exists(log_file_path), ai_message_to_delete]):
-        return None
+    if not all([log_file_path, os.path.exists(log_file_path), ai_message_to_delete]): return None
     try:
         all_messages = load_chat_log(log_file_path)
-        # 削除対象のAIメッセージのインデックスを探す
         target_start_index = -1
         for i, msg in enumerate(all_messages):
-            if (msg.get("content") == ai_message_to_delete.get("content") and
-                msg.get("responder") == ai_message_to_delete.get("responder")):
-                target_start_index = i
-                break
-
-        if target_start_index == -1:
-            print("警告: 再生成の起点となるAIメッセージがログに見つかりませんでした。")
-            return None
-
-        # 削除対象のAIメッセージより前の、最後のユーザーメッセージを探す
+            if (msg.get("content") == ai_message_to_delete.get("content") and msg.get("responder") == ai_message_to_delete.get("responder")):
+                target_start_index = i; break
+        if target_start_index == -1: return None
         last_user_message_index = -1
         for i in range(target_start_index - 1, -1, -1):
             if all_messages[i].get("role") == "USER":
-                last_user_message_index = i
-                break
-
-        if last_user_message_index == -1:
-            print("警告: 再生成のトリガーとなるユーザーメッセージが見つかりませんでした。")
-            return None
-
-        # ログを再構成
+                last_user_message_index = i; break
+        if last_user_message_index == -1: return None
         user_message_content = all_messages[last_user_message_index].get("content", "")
-        messages_to_keep = all_messages[:last_user_message_index] # ユーザー発言の手前までを保持
-
-        # 新しいログコンテンツを書き込む（共通化可能なロジック）
+        messages_to_keep = all_messages[:last_user_message_index]
         log_content_parts = []
         for msg in messages_to_keep:
             header = f"## {msg.get('role', 'AGENT').upper()}:{msg.get('responder', '不明')}"
             content = msg.get('content', '').strip()
-            if content:
-                log_content_parts.append(f"{header}\n{content}")
-
+            if content: log_content_parts.append(f"{header}\n{content}")
         new_log_content = "\n\n".join(log_content_parts)
-        with open(log_file_path, "w", encoding="utf-8") as f:
-            f.write(new_log_content)
-        # ログが空でなければ末尾に改行を追加
+        with open(log_file_path, "w", encoding="utf-8") as f: f.write(new_log_content)
         if new_log_content:
-             with open(log_file_path, "a", encoding="utf-8") as f:
-                f.write("\n\n")
-
-        # タイムスタンプを除去して元の入力を復元
+            with open(log_file_path, "a", encoding="utf-8") as f: f.write("\n\n")
         content_without_timestamp = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_message_content, flags=re.MULTILINE)
         restored_input = content_without_timestamp.strip()
-
         print("--- Successfully reset conversation to the last user input for rerun ---")
         return restored_input
     except Exception as e:
-        print(f"エラー: 再生成のためのログ削除中に予期せぬエラー: {e}")
-        traceback.print_exc()
+        print(f"エラー: 再生成のためのログ削除中に予期せぬエラー: {e}"); traceback.print_exc()
         return None
 
 @contextlib.contextmanager
@@ -442,53 +412,31 @@ def capture_prints():
     finally: sys.stdout = original_stdout; sys.stderr = original_stderr
 
 def delete_user_message_and_after(log_file_path: str, user_message_to_delete: Dict[str, str]) -> Optional[str]:
-    """
-    指定されたユーザーメッセージ以降のすべてのログを削除し、
-    そのユーザーメッセージの内容を返す。再生成用。
-    """
-    if not all([log_file_path, os.path.exists(log_file_path), user_message_to_delete]):
-        return None
+    if not all([log_file_path, os.path.exists(log_file_path), user_message_to_delete]): return None
     try:
         all_messages = load_chat_log(log_file_path)
-        # 削除対象のユーザーメッセージのインデックスを探す
         target_index = -1
         for i, msg in enumerate(all_messages):
-            if (msg.get("content") == user_message_to_delete.get("content") and
-                msg.get("responder") == user_message_to_delete.get("responder")):
-                target_index = i
-                break
-
-        if target_index == -1:
-            print("警告: 再生成の起点となるユーザーメッセージがログに見つかりませんでした。")
-            return None
-
-        # ログを再構成
+            if (msg.get("content") == user_message_to_delete.get("content") and msg.get("responder") == user_message_to_delete.get("responder")):
+                target_index = i; break
+        if target_index == -1: return None
         user_message_content = all_messages[target_index].get("content", "")
-        messages_to_keep = all_messages[:target_index] # 指定されたユーザーメッセージの手前までを保持
-
-        # 新しいログコンテンツを書き込む
+        messages_to_keep = all_messages[:target_index]
         log_content_parts = []
         for msg in messages_to_keep:
             header = f"## {msg.get('role', 'AGENT').upper()}:{msg.get('responder', '不明')}"
             content = msg.get('content', '').strip()
-            if content:
-                log_content_parts.append(f"{header}\n{content}")
+            if content: log_content_parts.append(f"{header}\n{content}")
         new_log_content = "\n\n".join(log_content_parts)
-        with open(log_file_path, "w", encoding="utf-8") as f:
-            f.write(new_log_content)
+        with open(log_file_path, "w", encoding="utf-8") as f: f.write(new_log_content)
         if new_log_content:
-             with open(log_file_path, "a", encoding="utf-8") as f:
-                f.write("\n\n")
-
-        # タイムスタンプを除去して元の入力を復元
+            with open(log_file_path, "a", encoding="utf-8") as f: f.write("\n\n")
         content_without_timestamp = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_message_content, flags=re.MULTILINE)
         restored_input = content_without_timestamp.strip()
         print("--- Successfully reset conversation to before the selected user input for rerun ---")
         return restored_input
-
     except Exception as e:
-        print(f"エラー: ユーザー発言以降のログ削除中に予期せぬエラー: {e}")
-        traceback.print_exc()
+        print(f"エラー: ユーザー発言以降のログ削除中に予期せぬエラー: {e}"); traceback.print_exc()
         return None
 
 def create_dynamic_sanctuary(main_log_path: str, user_start_phrase: str) -> Optional[str]:
@@ -537,3 +485,94 @@ def is_character_name(name: str) -> bool:
     if ".." in name or "/" in name or "\\" in name: return False
     room_dir = os.path.join(constants.ROOMS_DIR, name)
     return os.path.isdir(room_dir)
+
+def delete_and_get_previous_user_input(log_file_path: str, ai_message_to_delete: Dict[str, str]) -> Optional[str]:
+    """
+    指定されたAIメッセージとその直前のユーザーメッセージをログから削除し、
+    そのユーザーメッセージの内容を返す。再生成用。
+    """
+    if not all([log_file_path, os.path.exists(log_file_path), ai_message_to_delete]):
+        return None
+    try:
+        all_messages = load_chat_log(log_file_path)
+        target_start_index = -1
+        for i, msg in enumerate(all_messages):
+            if (msg.get("content") == ai_message_to_delete.get("content") and
+                msg.get("responder") == ai_message_to_delete.get("responder")):
+                target_start_index = i
+                break
+        if target_start_index == -1: return None
+
+        last_user_message_index = -1
+        for i in range(target_start_index - 1, -1, -1):
+            if all_messages[i].get("role") == "USER":
+                last_user_message_index = i
+                break
+        if last_user_message_index == -1: return None
+
+        user_message_content = all_messages[last_user_message_index].get("content", "")
+        messages_to_keep = all_messages[:last_user_message_index]
+
+        log_content_parts = []
+        for msg in messages_to_keep:
+            header = f"## {msg.get('role', 'AGENT').upper()}:{msg.get('responder', '不明')}"
+            content = msg.get('content', '').strip()
+            if content:
+                log_content_parts.append(f"{header}\n{content}")
+
+        new_log_content = "\n\n".join(log_content_parts)
+        with open(log_file_path, "w", encoding="utf-8") as f:
+            f.write(new_log_content)
+        if new_log_content:
+             with open(log_file_path, "a", encoding="utf-8") as f:
+                f.write("\n\n")
+
+        content_without_timestamp = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_message_content, flags=re.MULTILINE)
+        restored_input = content_without_timestamp.strip()
+
+        print("--- Successfully reset conversation to the last user input for rerun ---")
+        return restored_input
+    except Exception as e:
+        print(f"エラー: 再生成のためのログ削除中に予期せぬエラー: {e}"); traceback.print_exc()
+        return None
+
+def delete_user_message_and_after(log_file_path: str, user_message_to_delete: Dict[str, str]) -> Optional[str]:
+    """
+    指定されたユーザーメッセージ以降のすべてのログを削除し、
+    そのユーザーメッセージの内容を返す。再生成用。
+    """
+    if not all([log_file_path, os.path.exists(log_file_path), user_message_to_delete]):
+        return None
+    try:
+        all_messages = load_chat_log(log_file_path)
+        target_index = -1
+        for i, msg in enumerate(all_messages):
+            if (msg.get("content") == user_message_to_delete.get("content") and
+                msg.get("responder") == user_message_to_delete.get("responder")):
+                target_index = i
+                break
+        if target_index == -1: return None
+
+        user_message_content = all_messages[target_index].get("content", "")
+        messages_to_keep = all_messages[:target_index]
+
+        log_content_parts = []
+        for msg in messages_to_keep:
+            header = f"## {msg.get('role', 'AGENT').upper()}:{msg.get('responder', '不明')}"
+            content = msg.get('content', '').strip()
+            if content:
+                log_content_parts.append(f"{header}\n{content}")
+        new_log_content = "\n\n".join(log_content_parts)
+        with open(log_file_path, "w", encoding="utf-8") as f:
+            f.write(new_log_content)
+        if new_log_content:
+             with open(log_file_path, "a", encoding="utf-8") as f:
+                f.write("\n\n")
+
+        content_without_timestamp = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', user_message_content, flags=re.MULTILINE)
+        restored_input = content_without_timestamp.strip()
+        print("--- Successfully reset conversation to before the selected user input for rerun ---")
+        return restored_input
+    except Exception as e:
+        print(f"エラー: ユーザー発言以降のログ削除中に予期せぬエラー: {e}"); traceback.print_exc()
+        return None
