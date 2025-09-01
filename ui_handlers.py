@@ -331,10 +331,6 @@ def handle_message_submission(*args: Any):
 
         # 3. AIごとの応答生成ループ
         for room_to_respond in all_rooms_in_scene:
-            chatbot_history.append((None, "▌"))
-            yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
-                   gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
-                   gr.update(), gr.update()) # ボタンの状態は維持
 
             # ... (ファイル処理と agent_args_dict の準備は変更なし) ...
             processed_file_list = []
@@ -369,33 +365,26 @@ def handle_message_submission(*args: Any):
             streamed_text = ""
             final_state = None
             initial_message_count = 0
-        with utils.capture_prints() as captured_output:
-            # ▼▼▼【ここから下のループ全体を置き換える】▼▼▼
-            streamed_text = ""
-            final_state = None
-            initial_message_count = 0
-            # 応答が始まる前に、まず空のバブルとそれに対応するマッピングを追加しておく
             chatbot_history.append((None, "▌"))
-            # mapping_list の最後の要素（＝最新のログのインデックス）をコピーして追加
             if mapping_list:
                 mapping_list.append(mapping_list[-1] + 1)
-            else: # ログが全くない場合
+            else:
                 mapping_list.append(len(utils.load_chat_log(main_log_f)))
 
-            for key, value in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+            for data_chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                update_data = data_chunk.get("update", (None, None))
+                console_text = data_chunk.get("console", "")
+                current_console_content += console_text
+
+                key, value = update_data
+
                 if key == "pre_tool_response":
-                    # --- 第一段階の思考を確定させる ---
                     pre_tool_content = value
-                    # 1. ログに保存する（これが新しい「真実」となる）
                     utils.save_message_to_log(main_log_f, f"## AGENT:{room_to_respond}", pre_tool_content)
-                    # 2. ログからUI全体を再生成する
                     chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
-                    # 3. 次のストリーミングのために、新しい空のバブルを用意する
                     chatbot_history.append((None, "▌"))
-                    # 4. 新しいバブルのためのマッピング情報を追加
                     if mapping_list: mapping_list.append(mapping_list[-1] + 1)
                     else: mapping_list.append(len(utils.load_chat_log(main_log_f)))
-                    # 5. UIを更新
                     yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
                            gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
                            gr.update(), gr.update())
@@ -413,14 +402,10 @@ def handle_message_submission(*args: Any):
                                gr.update(), gr.update())
                 elif key == "values":
                     final_state = value
-            # ▲▲▲【置き換えここまで】▲▲▲
-
-            # ... (ストリーミング完了後の後処理は変更なし) ...
-            current_console_content += captured_output.getvalue()
 
             final_response_text = ""
             if final_state:
-                new_messages = final_state["messages"][initial_message_count:]
+                new_messages = final_state.get("messages", [])[initial_message_count:]
                 for msg in new_messages:
                     if isinstance(msg, ToolMessage):
                         popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
@@ -447,24 +432,6 @@ def handle_message_submission(*args: Any):
                 participant_log_f, _, _, _, _ = get_room_files_paths(participant_name)
                 if participant_log_f: utils.save_message_to_log(participant_log_f, "## システム(対話記録):", full_recap_entry)
 
-        # if auto_memory_enabled:
-        #     try:
-        #         print(f"--- 自動記憶処理を開始: {soul_vessel_room} ---")
-        #         messages_to_save = []
-        #         user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
-        #         if user_content_match: messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
-        #         for recap_event in turn_recap_events[1:]:
-        #              ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
-        #              if ai_content_match: messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
-        #         if len(messages_to_save) >= 2:
-        #             mos = memos_manager.get_mos_instance(soul_vessel_room)
-        #             mos.add(messages=messages_to_save)
-        #             print(f"--- 自動記憶処理完了: {soul_vessel_room} ---")
-        #         else: print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
-        #     except Exception as e:
-        #         print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---"); traceback.print_exc()
-        #         gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
-
     finally:
         # 6. 処理が完了または中断されたら、必ずボタンの状態を元に戻す
         final_chatbot_history, final_mapping_list = reload_chat_log(soul_vessel_room, api_history_limit_state)
@@ -484,8 +451,6 @@ def handle_message_submission(*args: Any):
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
                gr.update(visible=False), gr.update(interactive=True)) # ストップボタンを非表示、更新ボタンを有効化
-
-    # ▲▲▲【修正ここまで】▲▲▲
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     if not room_name or not api_key_name:
@@ -2096,7 +2061,7 @@ def handle_rerun_button_click(*args: Any):
 
         final_response_text = ""
         if final_state:
-            new_messages = final_state["messages"][initial_message_count:]
+            new_messages = final_state.get("messages", [])[initial_message_count:]
             for msg in new_messages:
                 if isinstance(msg, ToolMessage):
                     popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))

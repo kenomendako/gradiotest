@@ -98,14 +98,11 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
     return lc_messages
 
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
-    """
-    LangGraphの思考プロセスをストリーミングで返す。(v25: 安定性向上版)
-    """
     from agent.graph import app
     import time
     from google.api_core.exceptions import ResourceExhausted, InternalServerError
 
-    # --- 引数を辞書から展開 (変更なし) ---
+    # ... (引数の展開部分は変更なし) ...
     room_to_respond = agent_args["room_to_respond"]
     api_key_name = agent_args["api_key_name"]
     api_history_limit = agent_args["api_history_limit"]
@@ -130,7 +127,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         error_message = f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"
-        yield ("values", {"messages": [AIMessage(content=error_message)]})
+        yield {"update": ("values", {"messages": [AIMessage(content=error_message)]}), "console": ""}
         return
 
     # --- ハイブリッド履歴構築ロジック ---
@@ -158,13 +155,6 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         elif snapshot_messages:
             messages = snapshot_messages
 
-    # ▼▼▼【ここからが修正の核心】▼▼▼
-    # このブロックを削除する。
-    # 理由: ログ保存が先行するため、この処理が重複の原因となっていた。
-    # if user_prompt_parts:
-    #     messages.append(HumanMessage(content=user_prompt_parts))
-    # ▲▲▲【修正ここまで】▲▲▲
-
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
         messages = messages[-(limit * 2):]
@@ -184,35 +174,32 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "all_participants": all_participants_list
     }
 
-    # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
-    yield ("initial_count", len(messages))
-
     max_retries = 3
     retry_delay = 5
     for attempt in range(max_retries):
         try:
-            # ▼▼▼【ここから下のループ全体を置き換える】▼▼▼
-            for update in app.stream(initial_state, stream_mode=["messages", "values"]):
-                key, value = None, None
-                # LangGraphからのデータ形式を判定し、keyとvalueに分解する
-                if isinstance(update, dict):
-                    if "messages" in update:
-                        key, value = "messages", update["messages"]
-                    elif "values" in update:
-                        key, value = "values", update["values"]
-                elif isinstance(update, (list, tuple)) and len(update) == 2:
-                    key, value = update
+            # ▼▼▼【ここからが修正の核心】▼▼▼
+            with utils.capture_prints() as captured_output:
+                # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
+                yield {"update": ("initial_count", len(messages)), "console": captured_output.getvalue()}
 
-                if key == "messages" and isinstance(value, list) and value:
-                    last_message = value[-1]
-                    if isinstance(last_message, AIMessage) and last_message.content and last_message.tool_calls:
-                        # これが「思考の分水嶺」。特別な合図を送る
-                        yield ("pre_tool_response", last_message.content)
+                for update in app.stream(initial_state, stream_mode=["messages", "values"]):
+                    key, value = None, None
+                    if isinstance(update, dict):
+                        if "messages" in update: key, value = "messages", update["messages"]
+                        elif "values" in update: key, value = "values", update["values"]
+                    elif isinstance(update, (list, tuple)) and len(update) == 2:
+                        key, value = update
 
-                # 元々のストリーム情報も、常に(key, value)のタプル形式で統一して送る
-                yield (key, value)
-            # ▲▲▲【置き換えここまで】▲▲▲
-            return
+                    if key == "messages" and isinstance(value, list) and value:
+                        last_message = value[-1]
+                        if isinstance(last_message, AIMessage) and last_message.content and last_message.tool_calls:
+                            yield {"update": ("pre_tool_response", last_message.content), "console": captured_output.getvalue()}
+
+                    yield {"update": (key, value), "console": captured_output.getvalue()}
+
+            return # 正常に完了したらループを抜ける
+            # ▲▲▲【修正ここまで】▲▲▲
 
         except (ResourceExhausted, InternalServerError) as e:
             print(f"--- APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
@@ -222,14 +209,14 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
                 retry_delay *= 2
             else:
                 error_message = f"[エラー: APIサーバーが応答しませんでした。時間をおいて再試行してください。詳細: {e}]"
-                yield ("values", {"messages": [AIMessage(content=error_message)]})
+                yield {"update": ("values", {"messages": [AIMessage(content=error_message)]}), "console": captured_output.getvalue()}
                 return
 
         except Exception as e:
             print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
             traceback.print_exc()
             error_message = f"[エラー: 内部処理で問題が発生しました。詳細はターミナルを確認してください。エラー: {e}]"
-            yield ("values", {"messages": [AIMessage(content=error_message)]})
+            yield {"update": ("values", {"messages": [AIMessage(content=error_message)]}), "console": captured_output.getvalue()}
             return
 
 def count_input_tokens(**kwargs):
