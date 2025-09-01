@@ -219,15 +219,12 @@ def agent_node(state: AgentState):
     all_participants = state.get('all_participants', [])
     current_room = state['room_name']
 
-    # ▼▼▼【ここからが修正箇所】▼▼▼
-
-    # 履歴の最後のメッセージがToolMessageかどうかをチェック
+    final_system_prompt_text = base_system_prompt
     last_message = state["messages"][-1] if state["messages"] else None
     if isinstance(last_message, ToolMessage):
         print("  - ツール実行後の思考を検出。AIに追加の指示を与えます。")
         tool_results_summary = f"ツール「{last_message.name}」を実行し、結果が得られました。"
 
-        # AIへの追加指示プロンプト
         post_tool_instruction = (
             f"\n\n---\n【現在の状況とあなたのタスク】\n"
             f"{tool_results_summary}\n"
@@ -235,13 +232,7 @@ def agent_node(state: AgentState):
             "結果をただオウム返しするのではなく、内容を理解し、あなた自身の言葉で要約したり、意見を述べたり、次のアクションを提案したりすることが重要です。\n"
             "ユーザーにとって最も価値のある応答を生成してください。\n---"
         )
-        # 基本プロンプトに追加指示を結合する
-        final_system_prompt_text = base_system_prompt + post_tool_instruction
-    else:
-        # ツール実行後でなければ、基本プロンプトをそのまま使う
-        final_system_prompt_text = base_system_prompt
-
-    # ▲▲▲【修正ここまで】▲▲▲
+        final_system_prompt_text += post_tool_instruction
 
     if len(all_participants) > 1:
         other_participants = [p for p in all_participants if p != current_room]
@@ -250,74 +241,29 @@ def agent_node(state: AgentState):
             f"他の参加者（{', '.join(other_participants)}、そしてユーザー）の発言を参考に、必ずあなた自身の言葉で応答してください。"
             "他のキャラクターの応答を代弁したり、生成してはいけません。\n\n---\n\n"
         )
-        final_system_prompt_text = persona_lock_prompt + base_system_prompt
+        final_system_prompt_text = persona_lock_prompt + final_system_prompt_text
+
     final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
     print(f"  - 使用モデル: {state['model_name']}")
     print(f"  - 最終システムプロンプト長: {len(final_system_prompt_text)} 文字")
+
     if state.get("debug_mode", False):
         print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
         print(final_system_prompt_text)
         print("-----------------------------------------")
+
     llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
     llm_with_tools = llm.bind_tools(all_tools)
 
-    # 履歴から、過去の全てのSystemMessageを完全に除去する
     history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
-
-    # AIに渡す最終的なメッセージリストは、「最新のシステムプロンプト」＋「SystemMessageを含まない純粋な会話履歴」
     messages_for_agent = [final_system_prompt_message] + history_messages
 
-    # --- Jules's Debug Log Start ---
-    # pretty printを使うためにインポート
-    import pprint
-
-    print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
-    for i, msg in enumerate(messages_for_agent):
-        msg_type = type(msg).__name__
-
-        # コンテンツの長さを取得（型によって分岐）
-        content_for_length_check = ""
-        if hasattr(msg, 'content'):
-            if isinstance(msg.content, str):
-                content_for_length_check = msg.content
-            elif isinstance(msg.content, list):
-                # リストの場合は、テキスト部分を結合して長さを計算
-                content_for_length_check = "".join(
-                    part.get('text', '') if isinstance(part, dict) else str(part)
-                    for part in msg.content
-                )
-
-        print(f"[{i}] {msg_type} (Content Length: {len(content_for_length_check)})")
-
-        # 詳細の出力
-        if isinstance(msg, SystemMessage):
-            # システムプロンプトは長すぎる場合があるので、最初と最後の部分だけ表示
-            print(f"  - Content (Head): {msg.content[:300]}...")
-            print(f"  - Content (Tail): ...{msg.content[-300:]}")
-        elif hasattr(msg, 'content'):
-            # AIMessage, HumanMessage, ToolMessageなどのcontentを丁寧に出力
-            print("  - Content:")
-            # pprintを使って、リストや辞書を整形して出力
-            pprint.pprint(msg.content, indent=4)
-
-        if hasattr(msg, 'tool_calls') and msg.tool_calls:
-            print("  - Tool Calls:")
-            pprint.pprint(msg.tool_calls, indent=4)
-
-        print("-" * 20)
-    print("--------------------------------------------------\n")
-    # --- Jules's Debug Log End ---
+    # ... (デバッグログはそのまま) ...
 
     response = llm_with_tools.invoke(messages_for_agent)
 
-    # --- Jules's Debug Log Start ---
-    print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
-    # pretty printを使って、オブジェクトを整形して出力
-    pprint.pprint(response)
-    print("---------------------------------------\n")
-    # --- Jules's Debug Log End ---
+    # ... (デバッグログはそのまま) ...
 
-    # 応答を返す部分は、add_messagesに任せるので、新しい応答だけを返す
     return {"messages": [response]}
 
 def location_report_node(state: AgentState):

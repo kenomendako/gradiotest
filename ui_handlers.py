@@ -385,6 +385,11 @@ def handle_message_submission(*args: Any):
                     chatbot_history.append((None, "▌"))
                     if mapping_list: mapping_list.append(mapping_list[-1] + 1)
                     else: mapping_list.append(len(utils.load_chat_log(main_log_f)))
+
+                    # ▼▼▼【ここに追加】▼▼▼
+                    streamed_text = "" # ストリーミングバッファをリセットする
+                    # ▲▲▲【追加ここまで】▲▲▲
+
                     yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(), gr.update(),
                            gr.update(), gr.update(), gr.update(), gr.update(), current_console_content,
                            gr.update(), gr.update())
@@ -2036,6 +2041,9 @@ def handle_rerun_button_click(*args: Any):
                     chatbot_history.append((None, "▌"))
                     if mapping_list: mapping_list.append(mapping_list[-1] + 1)
                     else: mapping_list.append(len(utils.load_chat_log(log_f)))
+
+                    streamed_text = ""
+
                     yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(),
                            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                            current_console_content, None, gr.update(visible=False),
