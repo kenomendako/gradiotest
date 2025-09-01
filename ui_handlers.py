@@ -1913,9 +1913,9 @@ def handle_delete_redaction_rule(rules_df: pd.DataFrame, selected_index: Optiona
     return updated_df, rules, None
 
 def handle_rerun_button_click(*args: Any):
-    (multimodal_input, soul_vessel_room, current_api_key_name_state,
-     api_history_limit_state, debug_mode_state,
-     auto_memory_enabled, current_console_content, active_participants,
+    (selected_message, room_name, api_key_name,
+     api_history_limit, debug_mode,
+     current_console_content, active_participants,
      global_model) = args
 
     try:
