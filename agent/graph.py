@@ -21,13 +21,12 @@ from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import (
     set_current_location, update_location_content, add_new_location, read_world_settings
 )
-from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory
+from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory, search_objective_memory
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from tools.timer_tools import set_timer, set_pomodoro_timer
-from tools.memos_tools import search_objective_memory
 from room_manager import get_world_settings_path
 from memory_manager import load_memory_data_safe
 import utils
