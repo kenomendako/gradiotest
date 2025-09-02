@@ -37,7 +37,7 @@ def web_search_tool(query: str, room_name: str) -> str:
         #    (プロジェクト全体の INTERNAL_PROCESSING_MODEL が -lite であっても、
         #     このツールだけは確実に機能するモデルを呼び出す)
         response = client.models.generate_content(
-            model='models/gemini-1.5-flash',
+            model='models/gemini-2.5-flash',
             contents=[query],
             config=generation_config_with_tool
         )
