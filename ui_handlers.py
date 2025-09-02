@@ -1358,7 +1358,10 @@ def _format_text_content_for_gradio(
     final_html_parts.append(f"<strong>{html.escape(speaker_name)}:</strong><br>")
 
     if thoughts_html:
-        final_html_parts.append(f"<div class='thoughts'>【Thoughts】<br>{thoughts_html.replace('\n', '<br>')}</div>")
+        # 先に改行文字の置換処理を行い、結果を変数に格納します。
+        formatted_thoughts_html = thoughts_html.replace('\n', '<br>')
+        # その後、バックスラッシュを含まない変数をf-stringに渡します。
+        final_html_parts.append(f"<div class='thoughts'>【Thoughts】<br>{formatted_thoughts_html}</div>")
 
     if main_text_html:
         final_html_parts.append(main_text_html.replace('\n', '<br>'))
