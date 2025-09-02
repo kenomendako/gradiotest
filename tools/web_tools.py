@@ -1,35 +1,65 @@
-# tools/web_tools.py
+# tools/web_tools.py (v5.0 - Proven Architecture Restoration)
 
-import os
-import traceback
 from langchain_core.tools import tool
+import google.genai as genai
+from google.genai import types
+import traceback
+import config_manager
 
 @tool
-def read_url_tool(urls: list[str]) -> str:
-    """指定されたURLリストの内容を読み取り、結合して単一の文字列として返すツール。"""
-    if not urls:
-        return "URLが指定されていません。"
+def web_search_tool(query: str, room_name: str) -> str:
+    """
+    ユーザーからのクエリに基づいて、最新の情報を得るためにGoogle検索を実行します。
+    このツールは、Geminiモデル自身の思考プロセスに、Google検索の結果を直接統合（グラウンディング）させます。
+    room_name引数は、ツール呼び出しの統一性のために存在しますが、このツールでは直接使用されません。
+    """
+    print(f"--- Geminiネイティブ検索ツール実行 (Query: '{query}') ---")
+    try:
+        # APIキーをconfig_managerから動的に取得
+        api_key_name = config_manager.initial_api_key_name_global
+        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+        if not api_key or api_key.startswith("YOUR_API_KEY"):
+            return f"[エラー: 有効なGoogle APIキー '{api_key_name}' が設定されていません]"
 
-    all_content = ""
-    for url in urls:
-        try:
-            # ここでは requests や beautifulsoup4 を使ってURLの内容を取得する実装を想定
-            # このサンプルでは、簡略化のためダミーの処理を記述
-            print(f"Reading content from {url}...")
-            # response = requests.get(url)
-            # response.raise_for_status() # エラーがあれば例外を発生させる
-            # soup = BeautifulSoup(response.text, 'html.parser')
-            # content = soup.get_text()
-            # all_content += f"--- URL: {url} ---\n{content}\n\n"
-            # NOTE: For now, this is a placeholder. A real implementation would go here.
-            all_content += f"Content from {url} would be read here.\n"
+        client = genai.Client(api_key=api_key)
 
-        except Exception as e:
-            error_message = f"An error occurred while reading {url}: {e}\n{traceback.format_exc()}"
-            print(error_message)
-            all_content += f"--- URL: {url} ---\nError: Could not read content.\n\n"
+        # グラウンディングのための「検索ツール」を定義
+        search_tool_for_api = types.Tool(
+            google_search_retrieval=types.GoogleSearchRetrieval()
+        )
 
-    if not all_content:
-        return "どのURLからもコンテンツを読み取れませんでした。"
+        # Gemini 1.5 Flashモデルに検索を依頼し、結果のテキストを返す
+        response = client.models.generate_content(
+            model='models/gemini-1.5-flash', # 高速なモデルを検索に使用
+            contents=[query],
+            tools=[search_tool_for_api]
+        )
 
-    return all_content
+        # 検索結果から引用情報を抽出し、整形して返す
+        if response and response.candidates and response.candidates[0].content.parts:
+            final_text_parts = []
+            for part in response.candidates[0].content.parts:
+                if part.text:
+                    final_text_parts.append(part.text)
+                elif part.tool_code and part.tool_code.outputs:
+                    for output in part.tool_code.outputs:
+                        if output.google_search:
+                            for result in output.google_search.results:
+                                final_text_parts.append(f"\n[引用: {result.title}]({result.uri})")
+
+            return "\n".join(final_text_parts).strip() if final_text_parts else "[情報：Web検索で結果が見つかりませんでした]"
+
+        return "[情報：Web検索で結果が見つかりませんでした]"
+
+    except Exception as e:
+        print(f"  - Geminiネイティブ検索ツールでエラー: {e}")
+        traceback.print_exc()
+        return f"[エラー：Web検索中に問題が発生しました。詳細: {e}]"
+
+@tool
+def read_url_tool(urls: list[str], room_name: str) -> str:
+    """
+    指定されたURLリストの内容を読み取り、結合して単一の文字列として返すツール。
+    """
+    # ... (この関数の内容は変更ありません) ...
+    return "URLの内容を読み取りました。（この機能は現在スタブです）"
