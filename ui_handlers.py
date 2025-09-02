@@ -419,17 +419,17 @@ def handle_message_submission(*args: Any):
         if auto_memory_enabled:
             try:
                 print(f"--- 自動記憶処理を開始: {soul_vessel_room} ---")
-                messages_to_save = []
-                user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
-                if user_content_match: messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
-                for recap_event in turn_recap_events[1:]:
-                     ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
-                     if ai_content_match: messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
-                # if len(messages_to_save) >= 2:
-                #     mos = memos_manager.get_mos_instance(soul_vessel_room)
-                #     mos.add(messages=messages_to_save)
-                #     print(f"--- 自動記憶処理完了: {soul_vessel_room} ---")
-                # else: print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
+                # messages_to_save = []
+                # user_content_match = re.search(r"## USER:user\n(.*)", turn_recap_events[0], re.DOTALL)
+                # if user_content_match: messages_to_save.append({"role": "user", "content": user_content_match.group(1).strip()})
+                # for recap_event in turn_recap_events[1:]:
+                #      ai_content_match = re.search(r"## AGENT:.*?\n(.*)", recap_event, re.DOTALL)
+                #      if ai_content_match: messages_to_save.append({"role": "assistant", "content": ai_content_match.group(1).strip()})
+                # # if len(messages_to_save) >= 2:
+                # #     mos = memos_manager.get_mos_instance(soul_vessel_room)
+                # #     mos.add(messages=messages_to_save)
+                # #     print(f"--- 自動記憶処理完了: {soul_vessel_room} ---")
+                # # else: print(f"--- 自動記憶スキップ: 有効な会話ペアが見つかりませんでした ---")
             except Exception as e:
                 print(f"--- 自動記憶処理中にエラーが発生しました: {e} ---"); traceback.print_exc()
                 gr.Warning("自動記憶処理中にエラーが発生しました。詳細はターミナルを確認してください。")
@@ -2072,8 +2072,8 @@ def handle_rerun_button_click(*args: Any):
                 #     {"role": "assistant", "content": final_response_text}
                 # ]
                 # if len(messages_to_save) >= 2 and messages_to_save[0]["content"] and messages_to_save[1]["content"]:
-                #     mos = memos_manager.get_mos_instance(room_name)
-                #     mos.add(messages=messages_to_save)
+                #     # mos = memos_manager.get_mos_instance(room_name)
+                #     # mos.add(messages=messages_to_save)
                 #     print(f"--- 自動記憶処理完了 (再生成): {room_name} ---")
             except Exception as e:
                 print(f"--- 自動記憶処理中にエラーが発生しました (再生成): {e} ---")

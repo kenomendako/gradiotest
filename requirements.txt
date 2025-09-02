@@ -11,8 +11,11 @@ requests
 pandas
 numpy # Required by pandas
 
-# For new memory system (Cognee)
-cognee[duckdb, lancedb]
+# For new memory system (Cognee) and its database dependencies
+cognee
+duckdb
+lancedb
+pyarrow # lancedb and duckdb often require this for optimal performance
 
 # --- LangGraph and LangChain libraries ---
 # Core LangGraph library - THIS WILL MANAGE ITS OWN DEPENDENCIES
