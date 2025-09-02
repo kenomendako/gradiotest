@@ -44,8 +44,6 @@ print("--- [Nexus Ark Importer] ロギング設定を完全に掌握しました
 
 # --- [インポート文] ---
 import utils
-import config_manager
-import memos_manager
 import room_manager
 
 # --- [定数とヘルパー関数] ---
@@ -109,116 +107,14 @@ def main():
     if os.path.exists(STOP_SIGNAL_FILE):
         os.remove(STOP_SIGNAL_FILE)
 
-    config_manager.load_config()
-    parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをMemOSに一括インポートするツール")
-    parser.add_argument("--character", required=True, help="対象のルーム名（フォルダ名）")
-    parser.add_argument("--logs-dir", required=True, help="過去ログファイル（.txt）が格納されているディレクトリのパス")
-    args = parser.parse_args()
-
-    progress_data = load_progress()
-    character_progress = progress_data.get(args.character, {"progress": {}, "total_success_count": 0})
-
-    try:
-        processing_should_be_stopped = False
-        all_rooms = room_manager.get_room_list_for_ui()
-        print(f"--- 認識している有効なルーム一覧: {all_rooms} ---")
-        mos_instance = memos_manager.get_mos_instance(args.character)
-        log_files = sorted([f for f in os.listdir(args.logs_dir) if f.endswith(".txt") and not f.endswith("_summary.txt")])
-        print(f"--- {len(log_files)}個のログファイルを検出しました。インポート処理を開始します。 ---")
-
-        for i, filename in enumerate(log_files):
-            print(f"\n[{i+1}/{len(log_files)}] ファイル処理開始: {filename}")
-
-            if os.path.exists(STOP_SIGNAL_FILE):
-                print("--- 中断要求を検知しました。処理を安全に終了します。 ---")
-                processing_should_be_stopped = True
-                break
-
-            processed_pairs_count = character_progress["progress"].get(filename, 0)
-
-            filepath = os.path.join(args.logs_dir, filename)
-            with open(filepath, "r", encoding="utf-8", errors='ignore') as f: content = f.read()
-
-            # ▼▼▼【ここからが修正の核心】▼▼▼
-
-            # all_messages = load_archived_log(content) # ← この行を削除
-
-            # 1. utils.pyの最新のパーサーを呼び出す
-            raw_messages = utils.load_chat_log(filepath)
-
-            # 2. MemOSが要求する形式 ('user'/'assistant') に変換する
-            messages_for_memos = []
-            for msg in raw_messages:
-                role = "assistant" if msg.get("role") == "AGENT" else "user"
-                messages_for_memos.append({
-                    "role": role,
-                    "content": msg.get("content", "")
-                })
-
-            # 3. 変換後のメッセージリストを使ってペアを組む
-            conversation_pairs = group_messages_into_pairs(messages_for_memos)
-
-            # ▲▲▲【修正ここまで】▲▲▲
-
-            total_pairs_in_file = len(conversation_pairs)
-
-            if processed_pairs_count >= total_pairs_in_file:
-                print(f"  - ファイルは完全に処理済みです。スキップします。")
-                continue
-
-            print(f"  - {total_pairs_in_file} 件の会話ペアを検出。{processed_pairs_count + 1}件目から処理を開始します...")
-
-            pair_idx = processed_pairs_count
-            while pair_idx < total_pairs_in_file:
-                if os.path.exists(STOP_SIGNAL_FILE):
-                    print("--- 中断要求を検知しました。現在のファイルの進捗を保存して終了します。 ---")
-                    processing_should_be_stopped = True
-                    break
-
-                pair = conversation_pairs[pair_idx]
-
-                # ▼▼▼【ここからが修正の核心】▼▼▼
-                try:
-                    # 1ペアの処理を試みる
-                    mos_instance.add(messages=pair)
-                    # 成功した場合のみ、進捗を更新する
-                    character_progress["total_success_count"] += 1
-                    character_progress["progress"][filename] = pair_idx + 1
-                    print(f"\r    - 進捗: {pair_idx + 1}/{total_pairs_in_file}", end="")
-                    sys.stdout.flush()
-                    progress_data[args.character] = character_progress
-                    save_progress(progress_data)
-
-                except Exception as e:
-                    # 例外が発生した場合、進捗は更新せず、エラーを記録してループを抜ける
-                    error_str = str(e)
-                    print(f"\n\n" + "="*60)
-                    print(f"!!! [回復不能なエラー] ファイル '{filename}' の会話ペア {pair_idx + 1} の記憶中に問題が発生しました。")
-                    print(f"    詳細: {error_str}")
-                    log_error(filename, pair_idx + 1, pair, e)
-                    print("\n    処理を安全に中断しました。進捗はエラー発生前の状態で保存されています。")
-                    print("    このペアをスキップするには、importer_progress.json を手動で編集し、")
-                    print(f"    '{filename}' の値を {pair_idx + 1} に変更してから再開してください。")
-                    print("="*60 + "\n")
-                    processing_should_be_stopped = True
-                    break # ペア処理ループを抜ける
-                # ▲▲▲【修正ここまで】▲▲▲
-
-                pair_idx += 1
-                time.sleep(1.1)
-
-            if processing_should_be_stopped:
-                break
-
-        if not processing_should_be_stopped:
-            print("\n--- 全てのログファイルのインポートが完了しました。 ---")
-
-    except Exception as e:
-        error_message = str(e).encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
-        print(f"\n[致命的エラー] 予期せぬエラーが発生しました: {e}")
-        traceback.print_exc()
-    finally:
-        final_cleanup(progress_data, args.character, character_progress)
+    # ▼▼▼【ここから下のブロックをまるごと置き換え】▼▼▼
+    print("\n" + "="*60)
+    print("!!! [重要なお知らせ] !!!")
+    print("Nexus Arkの記憶システムは、現在新しい『Cognee』システムへの移行作業中です。")
+    print("そのため、このバッチインポータースクリプトは一時的に無効化されています。")
+    print("開発ロードマップのフェーズ2で、Cogneeに対応した新しいバージョンが提供される予定です。")
+    print("="*60 + "\n")
+    # ▲▲▲【置き換えここまで】▲▲▲
 
 if __name__ == "__main__":
     main()
