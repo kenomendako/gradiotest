@@ -1,5 +1,7 @@
 # agent/graph.py
 
+# agent/graph.py
+
 # 1. ファイルの先頭に必要なモジュールを追加
 import os
 import re
@@ -8,6 +10,11 @@ import json
 import pytz
 from datetime import datetime
 from typing import TypedDict, Annotated, List, Literal, Optional, Tuple
+
+# ▼▼▼【新しいインポートを1行追加】▼▼▼
+# これは、Gemini APIのネイティブなツール定義を行うための型です。
+from google.ai.generativelanguage_v1beta import types as gapic_types
+# ▲▲▲【追加ここまで】▲▲▲
 
 # 2. 既存のインポートの下に、新しいインポートを追加
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
@@ -22,9 +29,11 @@ from tools.space_tools import (
     set_current_location, update_location_content, add_new_location, read_world_settings
 )
 from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory
+# ▼▼▼【web_search_toolを削除】▼▼▼
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
-from tools.web_tools import web_search_tool, read_url_tool
+from tools.web_tools import read_url_tool
 from tools.image_tools import generate_image
+# ▲▲▲【修正ここまで】▲▲▲
 from tools.alarm_tools import set_personal_alarm
 from tools.timer_tools import set_timer, set_pomodoro_timer
 from room_manager import get_world_settings_path
@@ -36,8 +45,10 @@ import constants
 all_tools = [
     set_current_location, read_memory_by_path, edit_memory,
     add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
-    update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
-    read_url_tool, generate_image, read_full_memory, set_personal_alarm,
+# ▼▼▼【web_search_toolをリストから削除】▼▼▼
+    update_notepad, delete_from_notepad, read_full_notepad, read_url_tool,
+    generate_image, read_full_memory, set_personal_alarm,
+# ▲▲▲【修正ここまで】▲▲▲
     update_location_content, add_new_location,
     set_timer, set_pomodoro_timer,
     read_world_settings
@@ -47,7 +58,6 @@ class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     room_name: str
     api_key: str
-    tavily_api_key: str
     model_name: str
     system_prompt: SystemMessage
     generation_config: dict
@@ -59,7 +69,13 @@ class AgentState(TypedDict):
     debug_mode: bool
     all_participants: List[str]
 
+# ▼▼▼【get_configured_llm関数を、新しい内容で完全に置き換え】▼▼...
 def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
+    """
+    設定に基づいてChatGoogleGenerativeAIインスタンスを構成する。
+    【v2: Google検索グラウンディング機能の統合】
+    """
+    # 1. 安全性設定の構成 (変更なし)
     threshold_map = {
         "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
         "BLOCK_LOW_AND_ABOVE": HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
@@ -72,15 +88,26 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
         HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: threshold_map.get(generation_config.get("safety_block_threshold_sexually_explicit")),
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(generation_config.get("safety_block_threshold_dangerous_content")),
     }
+
+    # 2. Google検索ツール（グラウンディング）の定義
+    # これが、追加のAPIキーなしでネイティブな検索機能を有効にするための「魔法の呪文」です。
+    google_search_tool = gapic_types.Tool(
+        google_search_retrieval=gapic_types.GoogleSearchRetrieval()
+    )
+
+    # 3. モデルの初期化
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
+        # toolsパラメータにGoogle検索ツールを渡すことで、グラウンディングが有効になります。
+        tools=[google_search_tool],
         convert_system_message_to_human=False,
         max_retries=6,
         temperature=generation_config.get("temperature", 0.8),
         top_p=generation_config.get("top_p", 0.95),
         safety_settings=safety_settings
     )
+# ▲▲▲【置き換えここまで】▲▲▲
 
 def get_location_list(room_name: str) -> List[str]:
     if not room_name: return []
@@ -330,13 +357,16 @@ def route_after_context(state: AgentState) -> Literal["location_report_node", "a
     print("  - 通常のコンテキスト生成。エージェントの思考へ。")
     return "agent"
 
+# ▼▼▼【safe_tool_executor関数を修正】▼▼▼
 def safe_tool_executor(state: AgentState):
     print("--- カスタムツール実行ノード (safe_tool_executor) 実行 ---")
     messages = state['messages']
     last_message = messages[-1]
     tool_invocations = last_message.tool_calls
     api_key = state.get('api_key')
-    tavily_api_key = state.get('tavily_api_key')
+    # ▼▼▼【この行を削除】▼▼▼
+    # tavily_api_key = state.get('tavily_api_key')
+    # ▲▲▲【削除ここまで】▲▲▲
 
     # ▼▼▼【ここから修正】▼▼▼
     # AgentStateから、現在操作対象となっているルームの「フォルダ名」を取得
@@ -364,9 +394,11 @@ def safe_tool_executor(state: AgentState):
         if tool_name == 'generate_image' or tool_name == 'summarize_and_save_core_memory':
             tool_call['args']['api_key'] = api_key
             print(f"    - 'api_key' を引数に追加しました。")
-        elif tool_name == 'web_search_tool':
-            tool_call['args']['api_key'] = tavily_api_key
-            print(f"    - 'tavily_api_key' を引数に追加しました。")
+        # ▼▼▼【elif web_search_tool のブロックを削除】▼▼▼
+        # elif tool_name == 'web_search_tool':
+        #     tool_call['args']['api_key'] = tavily_api_key
+        #     print(f"    - 'tavily_api_key' を引数に追加しました。")
+        # ▲▲▲【削除ここまで】▲▲▲
 
         selected_tool = next((t for t in all_tools if t.name == tool_name), None)
         if not selected_tool:
@@ -382,6 +414,7 @@ def safe_tool_executor(state: AgentState):
             ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)
         )
     return {"messages": tool_outputs}
+# ▲▲▲【関数修正ここまで】▲▲▲
 
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
