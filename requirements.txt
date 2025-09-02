@@ -11,10 +11,8 @@ requests
 pandas
 numpy # Required by pandas
 
-# For MemOS implementation
-MemoryOS[tree-mem]
-chonkie
-torch # Required by transformers, a dependency of MemOS
+# For new memory system (Cognee)
+cognee[duckdb, lancedb]
 
 # --- LangGraph and LangChain libraries ---
 # Core LangGraph library - THIS WILL MANAGE ITS OWN DEPENDENCIES

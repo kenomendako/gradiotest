@@ -10,7 +10,6 @@ from typing import List, Dict
 
 # Nexus Arkの既存モジュールを正しくインポートする
 import config_manager
-import memos_manager
 import room_manager
 
 # --- 定数 ---
@@ -50,91 +49,18 @@ def log_success(pair: List[Dict]):
         f.write("\n\n")
 
 def main():
+    # ... (argparseの定義は変更なし) ...
     parser = argparse.ArgumentParser(description="Nexus Arkのインポートエラーログから、失敗した会話ペアを対話的に再インポートするツール")
     parser.add_argument("--character", required=True, help="対象のルーム名（MemOSの初期化に必要）")
     args = parser.parse_args()
 
-    print("--- エラーログからのリトライ処理を開始します ---")
-
-    # 必要なモジュールを初期化
-    config_manager.load_config()
-    try:
-        mos_instance = memos_manager.get_mos_instance(args.character)
-    except Exception as e:
-        print(f"\n[致命的エラー] MemOSの初期化に失敗しました: {e}")
-        print("APIキーやデータベースの接続設定を確認してください。")
-        return
-
-    failed_pairs = parse_error_log()
-    total_pairs = len(failed_pairs)
-    if not total_pairs:
-        print("--- 処理対象のペアはありません。終了します。 ---")
-        return
-
-    print(f"--- {total_pairs} 件の失敗した会話ペアが見つかりました ---")
-
-    success_count = 0
-    skipped_count = 0
-
-    for i, pair in enumerate(failed_pairs):
-        print("\n" + "="*50)
-        print(f"ペア {i+1}/{total_pairs} の処理を開始します...")
-
-        try:
-            user_message = pair[0]['content'][:150] # 長すぎる場合は省略
-            ai_message = pair[1]['content'][:150]
-            print(f"  [ユーザーの発言]: {user_message}...")
-            print(f"  [AIの応答]: {ai_message}...")
-        except (KeyError, IndexError):
-            print("  [エラー]: ペアの形式が不正です。")
-            continue
-
-        while True:
-            choice = input("  このペアをインポートしますか？ (y: はい / n: スキップ / q: 終了): ").lower()
-            if choice in ['y', 'n', 'q']:
-                break
-            else:
-                print("    無効な入力です。'y', 'n', 'q' のいずれかを入力してください。")
-
-        if choice == 'q':
-            print("--- ユーザーの指示により、処理を中断します ---")
-            break
-        elif choice == 'n':
-            print("--- このペアをスキップします ---")
-            skipped_count += 1
-            continue
-        elif choice == 'y':
-            try:
-                print("  インポート中...")
-                mos_instance.add(messages=pair)
-                print("  ✅ インポートに成功しました！")
-                log_success(pair)
-                success_count += 1
-            except Exception as e:
-                print(f"  ❌ インポートに失敗しました。")
-                print(f"     エラー詳細: {e}")
-
-                while True:
-                    retry_choice = input("     再試行しますか？ (y: はい / n: スキップ): ").lower()
-                    if retry_choice in ['y', 'n']:
-                        break
-
-                if retry_choice == 'y':
-                    # ループの先頭に戻って、再度インポートを試みる
-                    # そのため、インデックスを1つ戻す必要がある
-                    # （実際には for ループなので、continue で次のループに行く前に再試行のロジックが必要）
-                    # → よりシンプルにするため、ここでは単純にスキップさせる
-                    print("  このペアの処理を中断し、次に進みます。")
-                    skipped_count += 1
-                else:
-                    print("--- このペアをスキップします ---")
-                    skipped_count += 1
-
-    print("\n" + "="*50)
-    print("--- 全てのリトライ処理が完了しました ---")
-    print(f"  成功: {success_count} 件")
-    print(f"  スキップ: {skipped_count} 件")
-    print(f"  正常にインポートされたペアは {SUCCESS_LOG_FILE} に記録されています。")
+    # ▼▼▼【ここから下のブロックをまるごと置き換え】▼▼▼
+    print("\n" + "="*60)
+    print("!!! [重要なお知らせ] !!!")
+    print("Nexus Arkの記憶システムは、現在新しい『Cognee』システムへの移行作業中です。")
+    print("そのため、このリトライインポータースクリプトは一時的に無効化されています。")
+    print("="*60 + "\n")
+    # ▲▲▲【置き換えここまで】▲▲▲
 
 if __name__ == "__main__":
     main()

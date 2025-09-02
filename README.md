@@ -166,7 +166,6 @@ python nexus_ark.py
 ├── character_manager.py # キャラクターファイルの管理
 ├── config_manager.py   # config.json の読み書きと設定管理
 ├── gemini_api.py       # Google Gemini APIとの通信ロジック
-├── mem0_manager.py     # Mem0（脳・客観的体験記憶）インスタンスの管理 ★★★ 追加 ★★★
 ├── nexus_ark.py        # Gradio UIの定義とアプリケーションのエントリーポイント
 ├── memory_manager.py   # memory.json（手帳・主観的意志記憶）の管理
 ├── rag_manager.py      # 手帳(FAISS)および会話記憶(Mem0)への検索ツール定義 ★★★ 更新 ★★★
