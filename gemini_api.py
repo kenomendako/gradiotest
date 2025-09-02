@@ -172,7 +172,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     # --- エージェント実行 ---
     initial_state = {
         "messages": messages, "room_name": room_to_respond,
-        "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
+        "api_key": api_key,
         "model_name": model_name,
         "generation_config": effective_settings,
         "send_core_memory": effective_settings.get("send_core_memory", True),
