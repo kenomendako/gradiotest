@@ -14,7 +14,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langgraph.prebuilt import ToolNode
 
-# --- 必要なモジュールやツールのインポート ---
 from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import (
     set_current_location, update_location_content, add_new_location, read_world_settings
@@ -34,8 +33,7 @@ import constants
 all_tools = [
     set_current_location, read_memory_by_path, edit_memory,
     add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
-    update_notepad, delete_from_notepad, read_full_notepad,
-    web_search_tool,
+    update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
     read_url_tool,
     generate_image, read_full_memory, set_personal_alarm,
     update_location_content, add_new_location,
@@ -233,6 +231,7 @@ def agent_node(state: AgentState):
         print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
         print(final_system_prompt_text)
         print("-----------------------------------------")
+
     llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
     llm_with_tools = llm.bind_tools(all_tools)
 

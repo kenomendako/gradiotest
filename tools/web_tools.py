@@ -1,4 +1,4 @@
-# tools/web_tools.py (v5.3 - Pydantic Validation Compliant Final Version)
+# tools/web_tools.py (v6.0 - The Restoration of Proven Glory)
 
 from langchain_core.tools import tool
 import google.genai as genai
@@ -23,24 +23,26 @@ def web_search_tool(query: str, room_name: str) -> str:
 
         client = genai.Client(api_key=api_key)
 
-        # ▼▼▼【ここが修正の核心】▼▼▼
-        # GoogleSearchRetrieval() を、引数なしで呼び出します。
-        # これが、このオブジェクトの唯一の正しい使い方です。
+        # 1. グラウンディングのための「検索ツール」を定義
         search_tool_for_api = types.Tool(
             google_search_retrieval=types.GoogleSearchRetrieval()
         )
-        # ▲▲▲【修正ここまで】▲▲▲
 
+        # 2. ツール設定を、プロジェクト規約に則り GenerateContentConfig オブジェクトに格納
         generation_config_with_tool = types.GenerateContentConfig(
             tools=[search_tool_for_api]
         )
 
+        # 3. 検索機能を持つことが保証されている 'gemini-1.5-flash' を明示的に使用
+        #    (プロジェクト全体の INTERNAL_PROCESSING_MODEL が -lite であっても、
+        #     このツールだけは確実に機能するモデルを呼び出す)
         response = client.models.generate_content(
-            model=f"models/{constants.INTERNAL_PROCESSING_MODEL}",
+            model='models/gemini-1.5-flash',
             contents=[query],
             config=generation_config_with_tool
         )
 
+        # 4. 応答からテキストと引用情報を抽出し、整形して返します
         grounding_attributions = []
         text_parts = []
 
