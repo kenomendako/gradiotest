@@ -23,9 +23,11 @@ def web_search_tool(query: str, room_name: str) -> str:
 
         client = genai.Client(api_key=api_key)
 
-        # 1. グラウンディングのための「検索ツール」を定義
+        # ▼▼▼【ここからが修正箇所】▼▼▼
+
+        # 1. グラウンディングのための「検索ツール」を新しい形式で定義
         search_tool_for_api = types.Tool(
-            google_search_retrieval=types.GoogleSearchRetrieval()
+            google_search=types.GoogleSearch()
         )
 
         # 2. ツール設定を、プロジェクト規約に則り GenerateContentConfig オブジェクトに格納
@@ -33,14 +35,14 @@ def web_search_tool(query: str, room_name: str) -> str:
             tools=[search_tool_for_api]
         )
 
-        # 3. 検索機能を持つことが保証されている 'gemini-1.5-flash' を明示的に使用
-        #    (プロジェクト全体の INTERNAL_PROCESSING_MODEL が -lite であっても、
-        #     このツールだけは確実に機能するモデルを呼び出す)
+        # 3. 検索機能を持つ 'gemini-2.5-flash' を使用
         response = client.models.generate_content(
             model='models/gemini-2.5-flash',
             contents=[query],
             config=generation_config_with_tool
         )
+
+        # ▲▲▲【修正はここまで】▲▲▲
 
         # 4. 応答からテキストと引用情報を抽出し、整形して返します
         grounding_attributions = []
