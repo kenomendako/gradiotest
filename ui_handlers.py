@@ -290,10 +290,11 @@ def handle_message_submission(*args: Any):
 
     if user_prompt_from_textbox: log_message_parts.append(user_prompt_from_textbox + timestamp)
     if file_input_list:
-        for file_path in file_input_list: log_message_parts.append(f"[ファイル添付: {os.path.basename(file_path)}]")
+        for file_obj in file_input_list:
+            log_message_parts.append(f"[ファイル添付: {os.path.basename(file_obj.name)}]") # .name を使用
     full_user_log_entry = "\n".join(log_message_parts).strip()
 
-    if not full_user_log_entry: # 空入力の場合は何もしない
+    if not full_user_log_entry:
         history, mapping = reload_chat_log(soul_vessel_room, api_history_limit)
         yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), console_content, console_content,
@@ -307,18 +308,30 @@ def handle_message_submission(*args: Any):
     user_prompt_parts_for_api = []
     if user_prompt_from_textbox: user_prompt_parts_for_api.append({"type": "text", "text": user_prompt_from_textbox})
     if file_input_list:
-        # ファイル処理ロジック (handle_message_submissionから移動)
-        for file_path in file_input_list:
+        for file_obj in file_input_list:
             try:
+                # ▼▼▼【ここからが修正の核心】▼▼▼
+                file_path = file_obj.name
+                file_basename = os.path.basename(file_path)
+
                 kind = filetype.guess(file_path)
                 if kind and kind.mime.startswith('image/'):
                     with open(file_path, "rb") as f:
                         encoded_string = base64.b64encode(f.read()).decode("utf-8")
                     user_prompt_parts_for_api.append({"type": "image_url", "image_url": {"url": f"data:{kind.mime};base64,{encoded_string}"}})
-                else:
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f: content = f.read()
-                    user_prompt_parts_for_api.append({"type": "text", "text": f"添付ファイル「{os.path.basename(file_path)}」の内容:\n---\n{content}\n---"})
-            except Exception: user_prompt_parts_for_api.append({"type": "text", "text": f"（ファイル「{os.path.basename(file_path)}」の処理中にエラー）"})
+                else: # テキストファイルやその他の不明なファイル
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                    # ユーザープロンプトが空で、ファイルの内容がある場合、それをメインプロンプトとして扱う
+                    if not user_prompt_from_textbox and content:
+                         user_prompt_parts_for_api.append({"type": "text", "text": content})
+                    else:
+                        user_prompt_parts_for_api.append({"type": "text", "text": f"添付ファイル「{file_basename}」の内容:\n---\n{content}\n---"})
+                # ▲▲▲【修正ここまで】▲▲▲
+            except Exception as e:
+                print(f"--- ファイル処理中にエラー: {e} ---")
+                traceback.print_exc()
+                user_prompt_parts_for_api.append({"type": "text", "text": f"（ファイル「{os.path.basename(file_obj.name)}」の処理中にエラー）"})
 
 
     # 3. 中核となるストリーミング関数を呼び出す
@@ -476,15 +489,20 @@ def update_token_count_on_input(
     if file_list:
         for file_obj in file_list:
             try:
-                kind = filetype.guess(file_obj)
+                # ▼▼▼【ここからが修正の核心】▼▼▼
+                file_path = file_obj.name
+                file_basename = os.path.basename(file_path)
+
+                kind = filetype.guess(file_path)
                 if kind and kind.mime.startswith('image/'):
-                    parts_for_api.append(Image.open(file_obj))
+                    parts_for_api.append(Image.open(file_path))
                 else:
-                    file_size = os.path.getsize(file_obj)
-                    parts_for_api.append(f"[ファイル添付: {os.path.basename(file_obj)}, サイズ: {file_size} bytes]")
+                    file_size = os.path.getsize(file_path)
+                    parts_for_api.append(f"[ファイル添付: {file_basename}, サイズ: {file_size} bytes]")
+                # ▲▲▲【修正ここまで】▲▲▲
             except Exception as e:
                 print(f"トークン計算中のファイル処理エラー: {e}")
-                parts_for_api.append(f"[ファイル処理エラー: {os.path.basename(file_obj)}]")
+                parts_for_api.append(f"[ファイル処理エラー: {os.path.basename(file_obj.name)}]")
     effective_settings = config_manager.get_effective_settings(
         room_name,
         add_timestamp=add_timestamp, send_thoughts=send_thoughts,
