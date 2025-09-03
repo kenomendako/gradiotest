@@ -279,6 +279,7 @@ try:
                         # 2. 入力欄
                         chat_input_multimodal = gr.MultimodalTextbox(
                             file_types=["image", "audio", "video", "text", ".pdf", ".json"],
+                            max_plain_text_length=100000, # ← この行を追加
                             placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...",
                             show_label=False,
                             lines=3,
