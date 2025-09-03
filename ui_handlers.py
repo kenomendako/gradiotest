@@ -294,18 +294,18 @@ def _stream_and_handle_response(
     current_console_content: str
 ) -> Iterator[Tuple]:
     """
-    【v2: 再生成対応】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
+    【v3: UI挙動FIX】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
     """
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
     chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit)
 
     try:
         # 1. UIをストリーミングモードに移行
-        chatbot_history.append((None, "▌"))
+        chatbot_history.append((None, "▌")) # 新しい応答のための「空の行」を追加
         yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content,
-               gr.update(visible=True, interactive=False), gr.update(interactive=False)) # Stopボタン表示, Submit/Rerunボタン無効化
+               gr.update(visible=True, interactive=False), gr.update(interactive=False))
 
         # 2. グループ会話と情景のコンテキストを準備
         all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
@@ -314,15 +314,17 @@ def _stream_and_handle_response(
 
         # 3. AIごとの応答生成ループ
         for current_room in all_rooms_in_scene:
-            chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
-            yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(),
-                   gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                   current_console_content, gr.update(), gr.update())
+            # ▼▼▼【修正点1】明示的な「思考中...」表示を削除 ▼▼▼
+            # 複数人対話の場合でも、UI上は最後の行が更新されるだけなので、
+            # この行は不要。シンプルなカーソル表示に統一する。
+            # chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
+            # yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(),
+            #        gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            #        current_console_content, gr.update(), gr.update())
+            # ▲▲▲【修正ここまで】▲▲▲
 
             # 4. APIに渡す引数を準備
-            # グループ会話では、最初のAI（魂の器）のみがファイルを受け取り、他のAIはテキストのみを参照する
             final_user_prompt_parts = user_prompt_parts_for_api if current_room == soul_vessel_room else [{"type": "text", "text": full_user_log_entry}]
-
             agent_args_dict = {
                 "room_to_respond": current_room, "api_key_name": api_key_name,
                 "global_model_from_ui": global_model,
@@ -334,6 +336,7 @@ def _stream_and_handle_response(
 
             # 5. ストリーミング実行とUI更新
             streamed_text = ""
+            # ... (以降の _stream_and_handle_response のロジックは変更なし) ...
             final_state = None
             initial_message_count = 0
             with utils.capture_prints() as captured_output:
@@ -350,8 +353,6 @@ def _stream_and_handle_response(
                                    gr.update(), gr.update())
                     elif mode == "values": final_state = chunk
             current_console_content += captured_output.getvalue()
-
-            # 6. 最終応答の処理とログ保存
             final_response_text = ""
             all_turn_popups = []
             if final_state:
@@ -362,17 +363,12 @@ def _stream_and_handle_response(
                         if popup_text: all_turn_popups.append(popup_text)
                 last_ai_message = final_state["messages"][-1]
                 if isinstance(last_ai_message, AIMessage): final_response_text = last_ai_message.content
-
             final_response_text = final_response_text or streamed_text
             chatbot_history[-1] = (None, final_response_text)
-
             if final_response_text.strip():
                 utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", final_response_text)
-
         for popup_message in all_turn_popups: gr.Info(popup_message)
-
     finally:
-        # 7. 処理完了後の最終的なUI更新
         final_chatbot_history, final_mapping_list = reload_chat_log(soul_vessel_room, api_history_limit)
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
@@ -384,64 +380,15 @@ def _stream_and_handle_response(
         )
         final_df_with_ids = render_alarms_as_dataframe()
         final_df = get_display_df(final_df_with_ids)
-
         yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
                new_location_name, new_scenery_text,
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
-               gr.update(visible=False, interactive=True), gr.update(interactive=True)) # Stopボタン非表示, ボタン有効化
-
-def handle_message_submission(*args: Any):
-    """
-    【v2: 再生成対応】新規メッセージの送信を処理する司令塔。
-    """
-    (multimodal_input, soul_vessel_room, api_key_name,
-     api_history_limit, debug_mode, auto_memory_enabled,
-     console_content, active_participants, global_model) = args
-
-    # 1. ユーザー入力を解析・ログ保存
-    textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
-    file_input_list = multimodal_input.get("files", []) if multimodal_input else []
-    user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
-
-    log_message_parts = []
-    if user_prompt_from_textbox: log_message_parts.append(user_prompt_from_textbox)
-    if file_input_list:
-        for file_path in file_input_list: log_message_parts.append(f"[ファイル添付: {os.path.basename(file_path)}]")
-    full_user_log_entry = "\n".join(log_message_parts).strip()
-
-    if not full_user_log_entry: # 空入力の場合は何もしない
-        history, mapping = reload_chat_log(soul_vessel_room, api_history_limit)
-        yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(),
-               gr.update(), gr.update(), gr.update(), console_content, console_content,
-               gr.update(visible=False), gr.update(interactive=True))
-        return
-
-    main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
-    utils.save_message_to_log(main_log_f, "## USER:user", full_user_log_entry)
-
-    # 2. API用の入力パーツを準備
-    user_prompt_parts_for_api = []
-    if user_prompt_from_textbox: user_prompt_parts_for_api.append({"type": "text", "text": user_prompt_from_textbox})
-    # (ファイル処理はここに省略...実際はbase64エンコードなどが行われる)
-
-    # 3. 中核となるストリーミング関数を呼び出す
-    yield from _stream_and_handle_response(
-        room_to_respond=soul_vessel_room,
-        full_user_log_entry=full_user_log_entry,
-        user_prompt_parts_for_api=user_prompt_parts_for_api,
-        api_key_name=api_key_name,
-        global_model=global_model,
-        api_history_limit=api_history_limit,
-        debug_mode=debug_mode,
-        soul_vessel_room=soul_vessel_room,
-        active_participants=active_participants or [],
-        current_console_content=console_content
-    )
+               gr.update(visible=False, interactive=True), gr.update(interactive=True))
 
 def handle_rerun_button_click(*args: Any):
     """
-    【v2: ストリーミング対応】発言の再生成を処理する司令塔。
+    【v3: タイムスタンプFIX】発言の再生成を処理する司令塔。
     """
     (selected_message, room_name, api_key_name,
      api_history_limit, debug_mode,
@@ -457,13 +404,11 @@ def handle_rerun_button_click(*args: Any):
     # 1. ログを巻き戻し、再送信するユーザー発言を取得
     log_f, _, _, _, _ = get_room_files_paths(room_name)
     is_ai_message = selected_message.get("role") == "AGENT"
-
     restored_input_text = None
     if is_ai_message:
         restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message)
-    else: # ユーザー発言の場合
+    else:
         restored_input_text = utils.delete_user_message_and_after(log_f, selected_message)
-
     if restored_input_text is None:
         gr.Error("ログの巻き戻しに失敗しました。再生成できません。")
         history, mapping = reload_chat_log(room_name, api_history_limit)
@@ -472,9 +417,14 @@ def handle_rerun_button_click(*args: Any):
                gr.update(visible=True, interactive=True), gr.update(interactive=True))
         return
 
-    # 2. 巻き戻したユーザー発言を、タイムスタンプを更新してログに再保存
-    full_user_log_entry = restored_input_text # タイムスタンプはここで更新しない（元の形式を維持）
+    # ▼▼▼【修正点2】タイムスタンプの再付与ロジックを追加 ▼▼▼
+    # 2. 巻き戻したユーザー発言に、現在のタイムスタンプを付けてログに再保存
+    effective_settings = config_manager.get_effective_settings(room_name)
+    add_timestamp = effective_settings.get("add_timestamp", False)
+    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
+    full_user_log_entry = restored_input_text + timestamp
     utils.save_message_to_log(log_f, "## USER:user", full_user_log_entry)
+    # ▲▲▲【修正ここまで】▲▲▲
 
     gr.Info("応答を再生成します...")
     user_prompt_parts_for_api = [{"type": "text", "text": restored_input_text}]
