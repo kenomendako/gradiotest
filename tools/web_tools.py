@@ -35,9 +35,9 @@ def web_search_tool(query: str, room_name: str) -> str:
             tools=[search_tool_for_api]
         )
 
-        # 3. 検索機能を持つ 'gemini-2.5-flash' を使用
+        # 3. 検索機能が保証された専用モデルを定数から呼び出す
         response = client.models.generate_content(
-            model='models/gemini-2.5-flash',
+            model=f'models/{constants.SEARCH_MODEL}', # ← この行を変更
             contents=[query],
             config=generation_config_with_tool
         )
