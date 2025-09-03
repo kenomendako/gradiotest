@@ -301,7 +301,11 @@ def _stream_and_handle_response(
         yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content,
-               gr.update(visible=True, interactive=False), gr.update(interactive=False)) # Stopボタン表示, Submit/Rerunボタン無効化
+               # ▼▼▼【ここが修正点】ストップボタンは押せるようにする ▼▼▼
+               gr.update(visible=True, interactive=True),
+               # ▲▲▲【修正はここまで】▲▲▲
+               gr.update(interactive=False)
+        )
 
         # 2. グループ会話と情景のコンテキストを準備
         all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
