@@ -494,25 +494,25 @@ try:
             model_dropdown
         ]
 
-        rerun_event = rerun_button.click( # イベントを一旦変数に格納
+        rerun_inputs = [
+            selected_message_state, current_room_name, current_api_key_name_state,
+            api_history_limit_state, debug_mode_checkbox,
+            debug_console_state, active_participants_state, model_dropdown
+        ]
+
+        # 新規送信と再生成で、UI更新の対象（outputs）を完全に一致させる
+        unified_streaming_outputs = [
+            chatbot_display, current_log_map_state, chat_input_multimodal,
+            token_count_display, current_location_display, current_scenery_display,
+            alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
+            debug_console_state, debug_console_output,
+            stop_button, chat_reload_button
+        ]
+
+        rerun_event = rerun_button.click(
             fn=ui_handlers.handle_rerun_button_click,
-            inputs=[
-                selected_message_state, current_room_name, current_api_key_name_state,
-                api_history_limit_state, debug_mode_checkbox,
-                # auto_memory_checkbox を削除
-                debug_console_state,
-                active_participants_state,
-                model_dropdown
-            ],
-            outputs=[
-                chatbot_display, current_log_map_state, chat_input_multimodal,
-                token_count_display, current_location_display, current_scenery_display,
-                alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
-                debug_console_state, debug_console_output,
-                selected_message_state, action_button_group,
-                stop_button, # 出力に追加
-                chat_reload_button # 出力に追加
-            ]
+            inputs=rerun_inputs,
+            outputs=unified_streaming_outputs
         )
 
         room_dropdown.change(
@@ -603,14 +603,6 @@ try:
             outputs=all_room_change_outputs
         )
 
-        chat_submit_outputs = [
-            chatbot_display, current_log_map_state, chat_input_multimodal, # 変更
-            # file_upload_button は削除
-            token_count_display, current_location_display, current_scenery_display,
-            alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
-            debug_console_state, debug_console_output
-        ]
-
         gen_settings_inputs = [
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
@@ -627,17 +619,18 @@ try:
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
         # ▼▼▼【送信と停止のイベント定義を全面的に更新】▼▼▼
+        # chat_submit_outputs の定義を削除し、代わりに unified_streaming_outputs を使用
         submit_event = chat_input_multimodal.submit(
             fn=ui_handlers.handle_message_submission,
             inputs=chat_inputs,
-            outputs=chat_submit_outputs + [stop_button, chat_reload_button]
+            outputs=unified_streaming_outputs # ここを変更
         )
 
         stop_button.click(
             fn=ui_handlers.handle_stop_button_click,
             inputs=None,
             outputs=[stop_button, chat_reload_button],
-            cancels=[submit_event, rerun_event] # <--- rerun_event もキャンセル対象に追加
+            cancels=[submit_event, rerun_event]
         )
         # ▲▲▲【修正ここまで】▲▲▲
 
