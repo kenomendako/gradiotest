@@ -53,12 +53,15 @@ def web_search_tool(query: str, room_name: str) -> str:
                 if part.text:
                     text_parts.append(part.text)
 
-        if response and response.candidates and response.candidates[0].grounding_attributions:
+        # ▼▼▼【ここからが修正箇所】▼▼▼
+        # 'grounding_attributions' 属性が存在するかどうかを、hasattr() を使って安全に確認する
+        if response and response.candidates and hasattr(response.candidates[0], 'grounding_attributions'):
              for attribution in response.candidates[0].grounding_attributions:
                 if attribution.web:
                     title = attribution.web.title or "無題のページ"
                     uri = attribution.web.uri
                     grounding_attributions.append(f"- [{title}]({uri})")
+        # ▲▲▲【修正はここまで】▲▲▲
 
         if not text_parts and not grounding_attributions:
             return "[情報：Web検索で結果が見つかりませんでした]"
