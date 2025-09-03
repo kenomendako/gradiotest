@@ -13,8 +13,11 @@ from PIL import Image
 import google.genai as genai
 import filetype
 import httpx
-from google.api_core.exceptions import ResourceExhausted
+# ▼▼▼【ここから3行を追加】▼▼▼
+import time
+from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InternalServerError
 import re
+# ▲▲▲【追加はここまで】▲▲▲
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, AIMessageChunk
 import config_manager
@@ -172,7 +175,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     # --- エージェント実行 ---
     initial_state = {
         "messages": messages, "room_name": room_to_respond,
-        "api_key": api_key, "tavily_api_key": config_manager.TAVILY_API_KEY,
+        "api_key": api_key,
         "model_name": model_name,
         "generation_config": effective_settings,
         "send_core_memory": effective_settings.get("send_core_memory", True),
@@ -187,31 +190,37 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
     yield ("initial_count", len(messages))
 
+    # ▼▼▼【ここからが修正箇所】▼▼▼
     max_retries = 3
-    retry_delay = 5
+    retry_delay = 5  # seconds
     for attempt in range(max_retries):
         try:
+            # LangGraphのストリーム処理を試行
             for update in app.stream(initial_state, stream_mode=["messages", "values"]):
                 yield update
-            return
+            return # 成功したら関数を抜ける
 
-        except (ResourceExhausted, InternalServerError) as e:
+        except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
+            # 再試行可能なAPIエラーを捕捉
             print(f"--- APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
             if attempt < max_retries - 1:
                 print(f"    - {retry_delay}秒待機してリトライします...")
                 time.sleep(retry_delay)
-                retry_delay *= 2
+                retry_delay *= 2  # 次の待機時間を倍にする（Exponential Backoff）
             else:
+                # 全てのリトライが失敗した場合
                 error_message = f"[エラー: APIサーバーが応答しませんでした。時間をおいて再試行してください。詳細: {e}]"
                 yield ("values", {"messages": [AIMessage(content=error_message)]})
                 return
 
         except Exception as e:
+            # その他の予期せぬエラー（コードのバグなど）
             print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
             traceback.print_exc()
             error_message = f"[エラー: 内部処理で問題が発生しました。詳細はターミナルを確認してください。エラー: {e}]"
             yield ("values", {"messages": [AIMessage(content=error_message)]})
             return
+    # ▲▲▲【修正はここまで】▲▲▲
 
 def count_input_tokens(**kwargs):
     room_name = kwargs.get("room_name")

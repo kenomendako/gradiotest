@@ -1,6 +1,5 @@
 # agent/graph.py
 
-# 1. ファイルの先頭に必要なモジュールを追加
 import os
 import re
 import traceback
@@ -9,14 +8,12 @@ import pytz
 from datetime import datetime
 from typing import TypedDict, Annotated, List, Literal, Optional, Tuple
 
-# 2. 既存のインポートの下に、新しいインポートを追加
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
 from langchain_google_genai import HarmCategory, HarmBlockThreshold
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 from langgraph.prebuilt import ToolNode
 
-# --- 必要なモジュールやツールのインポート ---
 from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import (
     set_current_location, update_location_content, add_new_location, read_world_settings
@@ -37,7 +34,8 @@ all_tools = [
     set_current_location, read_memory_by_path, edit_memory,
     add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
     update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
-    read_url_tool, generate_image, read_full_memory, set_personal_alarm,
+    read_url_tool,
+    generate_image, read_full_memory, set_personal_alarm,
     update_location_content, add_new_location,
     set_timer, set_pomodoro_timer,
     read_world_settings
@@ -47,7 +45,6 @@ class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     room_name: str
     api_key: str
-    tavily_api_key: str
     model_name: str
     system_prompt: SystemMessage
     generation_config: dict
@@ -234,66 +231,46 @@ def agent_node(state: AgentState):
         print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
         print(final_system_prompt_text)
         print("-----------------------------------------")
+
     llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
     llm_with_tools = llm.bind_tools(all_tools)
 
-    # 履歴から、過去の全てのSystemMessageを完全に除去する
     history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
-
-    # AIに渡す最終的なメッセージリストは、「最新のシステムプロンプト」＋「SystemMessageを含まない純粋な会話履歴」
     messages_for_agent = [final_system_prompt_message] + history_messages
 
-    # --- Jules's Debug Log Start ---
-    # pretty printを使うためにインポート
     import pprint
 
     print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
     for i, msg in enumerate(messages_for_agent):
         msg_type = type(msg).__name__
-
-        # コンテンツの長さを取得（型によって分岐）
         content_for_length_check = ""
         if hasattr(msg, 'content'):
             if isinstance(msg.content, str):
                 content_for_length_check = msg.content
             elif isinstance(msg.content, list):
-                # リストの場合は、テキスト部分を結合して長さを計算
                 content_for_length_check = "".join(
                     part.get('text', '') if isinstance(part, dict) else str(part)
                     for part in msg.content
                 )
-
         print(f"[{i}] {msg_type} (Content Length: {len(content_for_length_check)})")
-
-        # 詳細の出力
         if isinstance(msg, SystemMessage):
-            # システムプロンプトは長すぎる場合があるので、最初と最後の部分だけ表示
             print(f"  - Content (Head): {msg.content[:300]}...")
             print(f"  - Content (Tail): ...{msg.content[-300:]}")
         elif hasattr(msg, 'content'):
-            # AIMessage, HumanMessage, ToolMessageなどのcontentを丁寧に出力
             print("  - Content:")
-            # pprintを使って、リストや辞書を整形して出力
             pprint.pprint(msg.content, indent=4)
-
         if hasattr(msg, 'tool_calls') and msg.tool_calls:
             print("  - Tool Calls:")
             pprint.pprint(msg.tool_calls, indent=4)
-
         print("-" * 20)
     print("--------------------------------------------------\n")
-    # --- Jules's Debug Log End ---
 
     response = llm_with_tools.invoke(messages_for_agent)
 
-    # --- Jules's Debug Log Start ---
     print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
-    # pretty printを使って、オブジェクトを整形して出力
     pprint.pprint(response)
     print("---------------------------------------\n")
-    # --- Jules's Debug Log End ---
 
-    # 応答を返す部分は、add_messagesに任せるので、新しい応答だけを返す
     return {"messages": [response]}
 
 def location_report_node(state: AgentState):
@@ -336,44 +313,32 @@ def safe_tool_executor(state: AgentState):
     last_message = messages[-1]
     tool_invocations = last_message.tool_calls
     api_key = state.get('api_key')
-    tavily_api_key = state.get('tavily_api_key')
 
-    # ▼▼▼【ここから修正】▼▼▼
-    # AgentStateから、現在操作対象となっているルームの「フォルダ名」を取得
     current_room_name = state.get('room_name')
     if not current_room_name:
-        # これは発生すべきではないが、安全のためのフォールバック
         tool_outputs = [
             ToolMessage(content=f"Error: Could not determine the current room name from the agent state.", tool_call_id=call["id"], name=call["name"])
             for call in tool_invocations
         ]
         return {"messages": tool_outputs}
-    # ▲▲▲【修正ここまで】▲▲▲
 
     tool_outputs = []
     for tool_call in tool_invocations:
         tool_name = tool_call["name"]
         print(f"  - 準備中のツール: {tool_name} | 引数: {tool_call['args']}")
 
-        # ▼▼▼【ここから修正】▼▼▼
-        # AIが渡してきた引数に、システムが管理する正しいroom_nameを強制的に上書き/追加する
         tool_call['args']['room_name'] = current_room_name
         print(f"    - 'room_name: {current_room_name}' を引数に注入/上書きしました。")
-        # ▲▲▲【修正ここまで】▲▲▲
 
         if tool_name == 'generate_image' or tool_name == 'summarize_and_save_core_memory':
             tool_call['args']['api_key'] = api_key
             print(f"    - 'api_key' を引数に追加しました。")
-        elif tool_name == 'web_search_tool':
-            tool_call['args']['api_key'] = tavily_api_key
-            print(f"    - 'tavily_api_key' を引数に追加しました。")
 
         selected_tool = next((t for t in all_tools if t.name == tool_name), None)
         if not selected_tool:
             output = f"Error: Tool '{tool_name}' not found."
         else:
             try:
-                # 修正された引数（args）でツールを呼び出す
                 output = selected_tool.invoke(tool_call['args'])
             except Exception as e:
                 output = f"Error executing tool '{tool_name}': {e}"

@@ -14,7 +14,6 @@ DEFAULT_MODEL_GLOBAL = "gemini-2.5-pro"
 NOTIFICATION_SERVICE_GLOBAL = "discord"
 NOTIFICATION_WEBHOOK_URL_GLOBAL = None
 PUSHOVER_CONFIG = {}
-TAVILY_API_KEY = None
 
 SUPPORTED_VOICES = {
     "zephyr": "Zephyr (明るい)", "puck": "Puck (アップビート)", "charon": "Charon (情報が豊富)",
@@ -88,11 +87,6 @@ def update_pushover_config(user_key: str, app_token: str):
     config["pushover_app_token"] = app_token
     _save_config_file(config)
 
-def update_tavily_key(api_key: str):
-    config = _load_config_file()
-    config["tavily_api_key"] = api_key
-    _save_config_file(config)
-
 def save_config(key, value):
     _save_single_config_key(key, value)
 
@@ -107,7 +101,7 @@ def save_memos_config(key, value):
 def load_config():
     global CONFIG_GLOBAL, GEMINI_API_KEYS, initial_api_key_name_global, initial_room_global, initial_model_global
     global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global
-    global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, TAVILY_API_KEY
+    global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL
     global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
 
     default_config = {
@@ -117,7 +111,7 @@ def load_config():
         "default_api_key_name": None, "last_send_thoughts_to_api": True,
         "last_api_history_limit_option": constants.DEFAULT_API_HISTORY_LIMIT_OPTION,
         "alarm_api_history_turns": constants.DEFAULT_ALARM_API_HISTORY_TURNS,
-        "tavily_api_key": "", "notification_service": "discord",
+        "notification_service": "discord",
         "notification_webhook_url": None, "pushover_app_token": "", "pushover_user_key": "",
         "log_archive_threshold_mb": 10,
         "log_keep_size_mb": 5,
@@ -153,7 +147,6 @@ def load_config():
     initial_send_thoughts_to_api_global = config.get("last_send_thoughts_to_api", default_config["last_send_thoughts_to_api"])
     initial_api_history_limit_option_global = config.get("last_api_history_limit_option", default_config["last_api_history_limit_option"])
     initial_alarm_api_history_turns_global = config.get("alarm_api_history_turns", default_config["alarm_api_history_turns"])
-    TAVILY_API_KEY = config.get("tavily_api_key", default_config["tavily_api_key"])
     NOTIFICATION_SERVICE_GLOBAL = config.get("notification_service", default_config["notification_service"])
     NOTIFICATION_WEBHOOK_URL_GLOBAL = config.get("notification_webhook_url", default_config["notification_webhook_url"])
     PUSHOVER_CONFIG = {
