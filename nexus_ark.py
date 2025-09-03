@@ -265,9 +265,18 @@ try:
                     with gr.Column(scale=3):
                         chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
 
-                        # ▼▼▼【ここからが修正の核心】▼▼▼
+                        # ▼▼▼【ここからが修正箇所】▼▼▼
 
-                        # 1. 入力欄
+                        # 1. 音声プレーヤーとアクションボタン (チャット欄の直下に移動)
+                        with gr.Row():
+                            audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
+                        with gr.Row(visible=False) as action_button_group:
+                            rerun_button = gr.Button("🔄 再生成")
+                            play_audio_button = gr.Button("🔊 選択した発言を再生")
+                            delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
+                            cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
+
+                        # 2. 入力欄
                         chat_input_multimodal = gr.MultimodalTextbox(
                             file_types=["image", "audio", "video", "text", ".pdf", ".json"],
                             placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...",
@@ -276,25 +285,16 @@ try:
                             interactive=True
                         )
 
-                        # 2. トークンカウンター
+                        # 3. トークンカウンター
                         token_count_display = gr.Markdown(
                             "入力トークン数: 0 / 0（Gemini2.5無料枠TPM:250,000）",
                             elem_id="token_count_display"
                         )
 
-                        # 3. ボタン類
+                        # 4. ボタン類
                         with gr.Row():
                             stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
                             chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
-
-                        # 4. 音声プレーヤーとアクションボタン
-                        with gr.Row():
-                            audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
-                        with gr.Row(visible=False) as action_button_group:
-                            rerun_button = gr.Button("🔄 再生成")
-                            play_audio_button = gr.Button("🔊 選択した発言を再生")
-                            delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
-                            cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
 
                         # 5. スクリーンショット支援機能
                         with gr.Accordion("📸 スクリーンショット支援", open=False):
