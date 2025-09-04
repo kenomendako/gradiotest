@@ -13,18 +13,15 @@ numpy # Required by pandas
 
 # For new memory system (Cognee) and its database dependencies
 cognee
+langchain-cognee # ★★★ これが核心となる公式アダプター ★★★
+langchain-core # langgraphが依存するが、明示的に追加
 duckdb
 lancedb
 pyarrow # lancedb and duckdb often require this for optimal performance
 
 # --- LangGraph and LangChain libraries ---
-# Core LangGraph library - THIS WILL MANAGE ITS OWN DEPENDENCIES
 langgraph
-
-# Google Gemini integration for LangChain - THIS WILL MANAGE ITS OWN DEPENDENCIES
 langchain-google-genai>=2.1.8
-
-# Potentially needed for some LangChain/LangGraph features
 python-dotenv
 
 # Correct, modern SDK for Gemini API. DO NOT CHANGE.

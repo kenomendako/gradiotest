@@ -1,4 +1,4 @@
-# cognee_manager.py (新規作成)
+# cognee_manager.py
 import os
 
 # このファイルがインポートされた時点で、Cogneeが使用する環境変数が設定されます。
@@ -20,5 +20,4 @@ print("--- Cognee 環境変数を設定しました ---")
 print(f"  - Vector DB Path: {LANCEDB_PATH}")
 print(f"  - DuckDB Path: {DUCKDB_PATH}")
 
-# Cogneeの機能（データ追加や検索）は、今後このマネージャー内の関数として実装していきます。
-# フェーズ1では、このファイルの作成までとします。
+# Cogneeの機能は今後のフェーズで実装

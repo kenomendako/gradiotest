@@ -34,6 +34,8 @@ logging.config.dictConfig = lambda *args, **kwargs: None
 print("--- [Nexus Ark] ロギング設定を完全に掌握しました ---")
 # --- [ここまでが新しいブロック] ---
 
+import cognee_manager # ★★★ この行を追加 ★★★
+
 
 # nexus_ark.py (v18: 複数人対話セッションFIX・最終版)
 
