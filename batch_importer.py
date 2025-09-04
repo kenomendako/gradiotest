@@ -16,7 +16,7 @@ import traceback
 # --- [インポート文] ---
 from google.api_core import exceptions as google_exceptions
 import cognee_manager # Cogneeの環境変数を設定するために必要
-from langchain_cognee import CogneeVectorStore # ★ 正しいクラスをインポート
+from langchain_cognee import CogneeVectorStore # ★ 公式ドキュメント通りの、正しいクラスをインポート
 from langchain_core.documents import Document # ★ LangChainのDocument形式を使用
 import utils
 import constants
@@ -46,7 +46,6 @@ def group_messages_into_pairs(messages: List[Dict[str, str]]) -> List[List[Dict[
     pairs = []
     i = 0
     while i < len(messages):
-        # 修正: ログ形式の変更に対応
         if messages[i]["role"] == "USER" and messages[i].get("content"):
             if i + 1 < len(messages) and messages[i+1]["role"] == "AGENT" and messages[i+1].get("content"):
                 pairs.append([messages[i], messages[i+1]])
