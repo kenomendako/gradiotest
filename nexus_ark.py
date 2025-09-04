@@ -48,6 +48,19 @@ import traceback
 import pandas as pd
 import config_manager, room_manager, alarm_manager, ui_handlers, constants
 
+def ensure_import_source_directory():
+    """
+    全てのキャラクターフォルダに、手動インポート用の
+    `log_import_source` ディレクトリが存在することを保証する。
+    """
+    if not os.path.exists(constants.ROOMS_DIR):
+        return
+    for room_folder in os.listdir(constants.ROOMS_DIR):
+        room_path = os.path.join(constants.ROOMS_DIR, room_folder)
+        if os.path.isdir(room_path):
+            import_dir = os.path.join(room_path, "log_import_source")
+            os.makedirs(import_dir, exist_ok=True)
+
 if not utils.acquire_lock():
     print("ロックが取得できなかったため、アプリケーションを終了します。")
     if os.name == "nt": os.system("pause")
@@ -56,6 +69,9 @@ if not utils.acquire_lock():
 os.environ["MEM0_TELEMETRY_ENABLED"] = "false"
 
 try:
+    # ▼▼▼【この一行を追加】▼▼▼
+    ensure_import_source_directory()
+    # ▲▲▲【追加はここまで】▲▲▲
     config_manager.load_config()
     alarm_manager.load_alarms()
     alarm_manager.start_alarm_scheduler_thread()

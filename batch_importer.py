@@ -12,11 +12,12 @@ from pathlib import Path
 from sys import stdout
 from datetime import datetime
 import traceback
+import asyncio
 
 # --- [ロギング設定] ---
 LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
-LOG_FILE_PATH = LOGS_DIR / "importer.log" # ログファイル名を importer.log に変更
+LOG_FILE_PATH = LOGS_DIR / "importer.log"
 
 LOGGING_CONFIG = {
     "version": 1, "disable_existing_loggers": False,
@@ -43,8 +44,11 @@ print("--- [Nexus Ark Importer] ロギング設定を完全に掌握しました
 
 
 # --- [インポート文] ---
+import cognee_manager # cogneeの環境変数を設定
+import cognee
 import utils
 import room_manager
+import constants
 
 # --- [定数とヘルパー関数] ---
 PROGRESS_FILE = "importer_progress.json"
@@ -55,8 +59,8 @@ def group_messages_into_pairs(messages: List[Dict[str, str]]) -> List[List[Dict[
     pairs = []
     i = 0
     while i < len(messages):
-        if messages[i]["role"] == "user" and messages[i].get("content"):
-            if i + 1 < len(messages) and messages[i+1]["role"] == "assistant" and messages[i+1].get("content"):
+        if messages[i]["role"] == "USER" and messages[i].get("content"):
+            if i + 1 < len(messages) and messages[i+1]["role"] == "AGENT" and messages[i+1].get("content"):
                 pairs.append([messages[i], messages[i+1]])
                 i += 2
                 continue
@@ -75,7 +79,6 @@ def save_progress(progress_data):
         json.dump(progress_data, f, indent=2, ensure_ascii=False)
 
 def log_error(filename: str, pair_index: int, pair: List[Dict[str,str]], error: Exception):
-    """失敗したペアの情報をエラーログに記録する"""
     with open(ERROR_LOG_FILE, "a", encoding="utf-8") as f:
         f.write(f"--- ERROR at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
         f.write(f"File: {filename}\n")
@@ -86,35 +89,108 @@ def log_error(filename: str, pair_index: int, pair: List[Dict[str,str]], error: 
         f.write(str(error) + "\n")
         f.write("-" * 20 + "\n\n")
 
-def main():
-    # --- 正常終了時も異常終了時も、必ず最後に実行される後処理 ---
+async def main():
     def final_cleanup(progress_data, character_name, character_progress):
         if character_progress:
             print(f"最終結果: {character_progress.get('total_success_count', 0)}件の会話を記憶しました。")
             progress_data[character_name] = character_progress
             save_progress(progress_data)
             print("\n--- 最終的な進捗を importer_progress.json に保存しました。 ---")
-
         if os.path.exists(ERROR_LOG_FILE):
             print(f"★★★ いくつかのエラーが発生しました。詳細は {ERROR_LOG_FILE} を確認してください。 ★★★")
-
         if os.path.exists(STOP_SIGNAL_FILE):
             os.remove(STOP_SIGNAL_FILE)
-
         print("インポーターを終了します。")
 
-    # --- main関数の本体 ---
     if os.path.exists(STOP_SIGNAL_FILE):
         os.remove(STOP_SIGNAL_FILE)
 
-    # ▼▼▼【ここから下のブロックをまるごと置き換え】▼▼▼
-    print("\n" + "="*60)
-    print("!!! [重要なお知らせ] !!!")
-    print("Nexus Arkの記憶システムは、現在新しい『Cognee』システムへの移行作業中です。")
-    print("そのため、このバッチインポータースクリプトは一時的に無効化されています。")
-    print("開発ロードマップのフェーズ2で、Cogneeに対応した新しいバージョンが提供される予定です。")
-    print("="*60 + "\n")
-    # ▲▲▲【置き換えここまで】▲▲▲
+    parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをCognee記憶システムに一括インポートするツール")
+    parser.add_argument("--character", required=True, help="対象のルーム名（フォルダ名）")
+    args = parser.parse_args()
+    character_name = args.character
+
+    character_path = Path(constants.ROOMS_DIR) / character_name
+    import_source_path = character_path / "log_import_source"
+
+    if not import_source_path.exists():
+        print(f"エラー: インポート元のディレクトリが見つかりません: {import_source_path}")
+        sys.exit(1)
+
+    log_files = sorted([f for f in import_source_path.iterdir() if f.is_file() and f.suffix == '.txt'])
+    if not log_files:
+        print(f"情報: {import_source_path} に処理対象のログファイル (.txt) がありません。")
+        sys.exit(0)
+
+    print(f"--- Cognee記憶インポーターを開始します (対象ルーム: {character_name}) ---")
+
+    progress_data = load_progress()
+    character_progress = progress_data.get(character_name, {
+        "last_processed_file": None,
+        "last_processed_pair_index": -1,
+        "total_success_count": 0,
+    })
+
+    try:
+        print("--- Cogneeエンジンを初期化しました ---")
+
+        for file_path in log_files:
+            filename = file_path.name
+            if character_progress["last_processed_file"] and filename < character_progress["last_processed_file"]:
+                print(f"スキップ: {filename} (既に処理済み)")
+                continue
+
+            print(f"\n--- ファイル処理開始: {filename} ---")
+            raw_messages = utils.load_chat_log(str(file_path))
+            conversation_pairs = group_messages_into_pairs(raw_messages)
+
+            start_index = 0
+            if filename == character_progress["last_processed_file"]:
+                start_index = character_progress["last_processed_pair_index"] + 1
+
+            for i in range(start_index, len(conversation_pairs)):
+                if os.path.exists(STOP_SIGNAL_FILE):
+                    print("\n*** 中断シグナルを検知しました。現在のファイル処理を完了後、安全に停止します。 ***")
+                    final_cleanup(progress_data, character_name, character_progress)
+                    return
+
+                pair = conversation_pairs[i]
+                try:
+                    # Cogneeに会話を追加
+                    # 形式は [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+                    await cognee.add(
+                        dialogue = pair,
+                        dialogue_metadata = {
+                            "source_file": filename,
+                            "pair_index": i,
+                            "character": character_name,
+                        }
+                    )
+                    character_progress["total_success_count"] += 1
+                    print(f"  - ペア {i+1}/{len(conversation_pairs)} を記憶に追加しました。", end="\r")
+
+                except Exception as e:
+                    print(f"\nエラー: ペア {i+1} の処理中にエラーが発生しました。詳細は {ERROR_LOG_FILE} を確認してください。")
+                    log_error(filename, i, pair, e)
+
+                character_progress["last_processed_pair_index"] = i
+                save_progress({**progress_data, character_name: character_progress})
+
+            character_progress["last_processed_file"] = filename
+            character_progress["last_processed_pair_index"] = -1 # ファイルが完了したらリセット
+            print(f"\n--- ファイル処理完了: {filename} ---")
+
+        print("\n--- 全てのファイルのインポートが完了しました。 ---")
+        # 最終的な認知処理を実行
+        print("--- 記憶の最終的な構造化を開始します (cognify)... ---")
+        await cognee.cognify()
+        print("--- 記憶の構造化が完了しました。 ---")
+
+    except Exception as e:
+        print(f"\n!!! [致命的エラー] インポート処理中に予期せぬエラーが発生しました !!!")
+        traceback.print_exc()
+    finally:
+        final_cleanup(progress_data, character_name, character_progress)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
