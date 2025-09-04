@@ -1,3 +1,13 @@
+import sys
+import os
+
+# プロジェクトのルートディレクトリをPythonの検索パスに追加
+# これにより、'lib'フォルダ内のライブラリを直接インポートできるようになる
+project_root = os.path.abspath(os.path.dirname(__file__))
+lib_path = os.path.join(project_root, 'lib')
+if lib_path not in sys.path:
+    sys.path.insert(0, lib_path)
+
 # retry_importer.py
 import os
 import sys
