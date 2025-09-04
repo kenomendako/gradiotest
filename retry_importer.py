@@ -17,6 +17,7 @@ import time
 import re
 from typing import List, Dict
 
+import config_manager # ★ config_managerをインポート
 import cognee_manager # cogneeの環境変数を設定
 from langchain_cognee import CogneeVectorStore
 from langchain_core.documents import Document
@@ -70,8 +71,23 @@ def log_success(task: Dict):
 def main():
     parser = argparse.ArgumentParser(description="Nexus Arkのインポートエラーログから、失敗した会話ペアを対話的に再インポートするツール")
     parser.add_argument("--character", required=True, help="対象のルーム名（メタデータとして使用）")
+    # ↓↓ この1行を新しく追加 ↓↓
+    parser.add_argument("--api-key-name", required=True, help="使用するGemini APIキーの名前 (config.jsonで設定したもの)")
     args = parser.parse_args()
     character_name = args.character
+    # ↓↓ この1行を新しく追加 ↓↓
+    api_key_name = args.api_key_name
+
+    # --- [APIキーの環境変数への注入] ---
+    config_manager.load_config()
+    api_key_value = config_manager.GEMINI_API_KEYS.get(api_key_name)
+
+    if not api_key_value or api_key_value == "YOUR_API_KEY_HERE":
+        print(f"!!! エラー: 指定されたAPIキー '{api_key_name}' がconfig.jsonで見つからないか、有効な値ではありません。")
+        sys.exit(1)
+
+    os.environ["GOOGLE_API_KEY"] = api_key_value
+    print(f"--- APIキー '{api_key_name}' をCogneeの環境変数に設定しました ---")
 
     error_tasks = parse_error_log()
     if not error_tasks:

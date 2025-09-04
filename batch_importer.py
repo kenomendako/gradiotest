@@ -23,6 +23,7 @@ from sys import stdout
 from datetime import datetime
 import traceback
 
+import config_manager # ★ config_managerをインポート
 # --- [インポート文] ---
 from google.api_core import exceptions as google_exceptions
 import cognee_manager # Cogneeの環境変数を設定するために必要
@@ -104,10 +105,27 @@ def main():
 
     parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをCognee記憶システムに一括インポートするツール")
     parser.add_argument("--character", required=True, help="対象のルーム名（フォルダ名）")
+    # ↓↓ この2行を新しく追加 ↓↓
+    parser.add_argument("--api-key-name", required=True, help="使用するGemini APIキーの名前 (config.jsonで設定したもの)")
     parser.add_argument("--is_running_from_ui", action="store_true", help="UIから実行されたことを示す内部フラグ")
     args = parser.parse_args()
     character_name = args.character
+    # ↓↓ この1行を新しく追加 ↓↓
+    api_key_name = args.api_key_name
     is_from_ui = args.is_running_from_ui
+
+    # --- [APIキーの環境変数への注入] ---
+    # Cogneeが初期化される前に、APIキーを設定する
+    config_manager.load_config()
+    api_key_value = config_manager.GEMINI_API_KEYS.get(api_key_name)
+
+    if not api_key_value or api_key_value == "YOUR_API_KEY_HERE":
+        print(f"!!! エラー: 指定されたAPIキー '{api_key_name}' がconfig.jsonで見つからないか、有効な値ではありません。")
+        sys.exit(1)
+
+    # Cogneeが参照する環境変数にAPIキーを設定
+    os.environ["GOOGLE_API_KEY"] = api_key_value
+    print(f"--- APIキー '{api_key_name}' をCogneeの環境変数に設定しました ---")
 
     character_path = Path(constants.ROOMS_DIR) / character_name
     import_source_path = character_path / "log_import_source"
