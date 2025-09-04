@@ -172,6 +172,7 @@ async def main():
                     except google_exceptions.ResourceExhausted as e:
                         attempt += 1
                         print(f"\nAPIレート制限エラー: ペア {i+1} (試行 {attempt}/{max_retries})。")
+                        print(f"  - 詳細: {e}")
                         log_error(filename, i, pair, e, attempt)
 
                         retry_after = 60
@@ -188,6 +189,7 @@ async def main():
                     except Exception as e:
                         attempt += 1
                         print(f"\n一般エラー: ペア {i+1} の処理中 (試行 {attempt}/{max_retries})。")
+                        print(f"  - 詳細: {e}")
                         log_error(filename, i, pair, e, attempt)
                         if attempt < max_retries:
                             print("  - 5秒待機して再試行します...")
