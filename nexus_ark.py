@@ -383,12 +383,11 @@ try:
                             save_memory_button = gr.Button("主観的記憶を保存", variant="secondary")
                             reload_memory_button = gr.Button("再読込", variant="secondary")
                             core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
-                    with gr.TabItem("客観的記憶 (MemOS)"):
-                        gr.Markdown("## 客観的記憶 (MemOS) の管理")
-                        gr.Markdown("過去の対話ログなどをMemOSに取り込み、AIの永続的な記憶を構築します。")
-                        # ▼▼▼ 以下の <gr.Row> を追加 ▼▼▼
+                    with gr.TabItem("客観的記憶 (Cognee)"):
+                        gr.Markdown("## 客観的記憶 (Cognee) の管理")
+                        gr.Markdown("過去の対話ログなどをCogneeに取り込み、AIの永続的な記憶を構築します。")
                         with gr.Row():
-                            memos_import_button = gr.Button("過去ログを客観記憶(MemOS)に取り込む", variant="primary", scale=3)
+                            memos_import_button = gr.Button("過去ログを客観記憶(Cognee)に取り込む", variant="primary", scale=3)
                             importer_stop_button = gr.Button("処理を中断", variant="stop", visible=False, scale=1)
                         # ▲▲▲ ここまで ▲▲▲
                         gr.Markdown("---")
@@ -734,7 +733,8 @@ try:
         delete_gemini_key_button.click(fn=ui_handlers.handle_delete_gemini_key, inputs=[gemini_key_name_input], outputs=[api_key_dropdown])
         save_pushover_config_button.click(fn=ui_handlers.handle_save_pushover_config, inputs=[pushover_user_key_input, pushover_app_token_input], outputs=[])
         save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
-        auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
+        # auto_memory_checkboxは現在機能しないため、イベントを一時的に無効化
+        # auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
         # ▼▼▼【ここからが修正の核心】▼▼▼
         import_event = memos_import_button.click(
             fn=ui_handlers.handle_memos_batch_import,

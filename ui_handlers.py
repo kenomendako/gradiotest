@@ -1147,31 +1147,33 @@ def handle_memos_batch_import(room_name: str, console_content: str):
 
     gr.Info(f"ルーム「{room_name}」の過去ログの記憶処理を開始します...")
 
-    # UIを処理中モードに移行
     yield (
         gr.update(value="記憶処理を実行中...", interactive=False),
-        gr.update(visible=True, interactive=True), # 停止ボタンを表示
-        None, # process_stateはまだNone
-        console_content,
-        console_content,
-        gr.update(interactive=False) # チャット入力欄を無効化
+        gr.update(visible=True, interactive=True),
+        None, console_content, console_content,
+        gr.update(interactive=False)
     )
 
     process = None
     try:
-        # Pythonの実行可能ファイルのパスを取得し、サブプロセスを開始
         command = [sys.executable, "batch_importer.py", "--character", room_name]
+
+        # ▼▼▼【ここからが修正の核心】▼▼▼
+        # OSのデフォルトエンコーディングを取得し、エラーハンドリングを追加
+        encoding = locale.getpreferredencoding(False)
+        print(f"--- サブプロセスのエンコーディングとして '{encoding}' を使用します ---")
+
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            encoding='utf-8',
+            encoding=encoding, # エンコーディングを明示的に指定
+            errors='replace',     # デコードできない文字は置換してエラーを防ぐ
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
+        # ▲▲▲【修正はここまで】▲▲▲
 
-        # UIにリアルタイムでログを出力
-        # stdoutがNoneでないことを確認
         if process.stdout:
             for line in iter(process.stdout.readline, ''):
                 console_content += line
@@ -1180,7 +1182,7 @@ def handle_memos_batch_import(room_name: str, console_content: str):
                     console_content, console_content, gr.update()
                 )
 
-        process.wait() # プロセスの終了を待つ
+        process.wait()
 
     except Exception as e:
         error_msg = f"\n!!! インポーターの起動に失敗しました: {e}\n"
@@ -1190,18 +1192,15 @@ def handle_memos_batch_import(room_name: str, console_content: str):
         gr.Error("インポーターの起動に失敗しました。詳細はデバッグコンソールを確認してください。")
 
     finally:
-        if process:
-            process.stdout.close() if process.stdout else None
+        if process and process.stdout:
+            process.stdout.close()
 
         gr.Info(f"ルーム「{room_name}」の記憶処理が完了しました。")
-        # UIを通常モードに戻す
         yield (
             gr.update(value="過去ログを客観記憶(Cognee)に取り込む", interactive=True),
             gr.update(visible=False),
-            None, # プロセス終了
-            console_content,
-            console_content,
-            gr.update(interactive=True) # チャット入力欄を有効化
+            None, console_content, console_content,
+            gr.update(interactive=True)
         )
 
 
