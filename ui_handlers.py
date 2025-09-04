@@ -1137,32 +1137,98 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
 
 def handle_memos_batch_import(room_name: str, console_content: str):
     """
-    【暫定対応】この機能は新しい記憶システムへの移行のため、一時的に無効化されています。
+    UIからCogneeのバッチインポーターをサブプロセスとして起動する。
+    UIをフリーズさせず、実行中はボタンを無効化/有効化する。
     """
-    gr.Warning("この機能は現在、新しい記憶システムへの移行のため一時的に無効化されています。フェーズ2で再実装される予定です。")
-    # UIコンポーネントの状態を変化させずに、元の状態を維持するための戻り値を生成します。
-    # outputsの数（6個）に合わせる必要があります。
+    if not room_name:
+        gr.Warning("記憶を取り込む対象のルームを選択してください。")
+        yield (gr.update(), gr.update(visible=False), None, console_content, console_content, gr.update())
+        return
+
+    gr.Info(f"ルーム「{room_name}」の過去ログの記憶処理を開始します...")
+
+    # UIを処理中モードに移行
     yield (
-        gr.update(), # memos_import_button
-        gr.update(visible=False), # importer_stop_button
-        None, # importer_process_state
-        console_content, # debug_console_state
-        console_content, # debug_console_output
-        gr.update() # chat_input_multimodal
+        gr.update(value="記憶処理を実行中...", interactive=False),
+        gr.update(visible=True, interactive=True), # 停止ボタンを表示
+        None, # process_stateはまだNone
+        console_content,
+        console_content,
+        gr.update(interactive=False) # チャット入力欄を無効化
     )
 
-def handle_importer_stop(process):
-    stop_signal_file = "stop_importer.signal"
+    process = None
     try:
-        with open(stop_signal_file, "w") as f: f.write("stop")
-        gr.Warning("インポート処理の中断を要求しました。現在のペア処理が完了次第、安全に停止します...")
-    except Exception as e: gr.Error(f"中断要求の送信中にエラー: {e}")
-    # 戻り値の数を4個に修正
+        # Pythonの実行可能ファイルのパスを取得し、サブプロセスを開始
+        command = [sys.executable, "batch_importer.py", "--character", room_name]
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding='utf-8',
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+        )
+
+        # UIにリアルタイムでログを出力
+        # stdoutがNoneでないことを確認
+        if process.stdout:
+            for line in iter(process.stdout.readline, ''):
+                console_content += line
+                yield (
+                    gr.update(), gr.update(), process,
+                    console_content, console_content, gr.update()
+                )
+
+        process.wait() # プロセスの終了を待つ
+
+    except Exception as e:
+        error_msg = f"\n!!! インポーターの起動に失敗しました: {e}\n"
+        print(error_msg)
+        traceback.print_exc()
+        console_content += error_msg
+        gr.Error("インポーターの起動に失敗しました。詳細はデバッグコンソールを確認してください。")
+
+    finally:
+        if process:
+            process.stdout.close() if process.stdout else None
+
+        gr.Info(f"ルーム「{room_name}」の記憶処理が完了しました。")
+        # UIを通常モードに戻す
+        yield (
+            gr.update(value="過去ログを客観記憶(Cognee)に取り込む", interactive=True),
+            gr.update(visible=False),
+            None, # プロセス終了
+            console_content,
+            console_content,
+            gr.update(interactive=True) # チャット入力欄を有効化
+        )
+
+
+def handle_importer_stop(process):
+    """
+    実行中のインポータープロセスに停止シグナルを送り、UIを更新する。
+    """
+    if process and process.poll() is None:
+        stop_signal_file = "stop_importer.signal"
+        try:
+            with open(stop_signal_file, "w") as f:
+                f.write("stop")
+            gr.Warning("インポート処理の中断を要求しました。現在の処理が完了次第、安全に停止します...")
+        except Exception as e:
+            gr.Error(f"中断要求の送信中にエラー: {e}")
+        return (
+            gr.update(value="中断中...", interactive=False),
+            gr.update(interactive=False),
+            process,
+            gr.update(interactive=False)
+        )
+    # プロセスが存在しないか、すでに終了している場合
     return (
-        gr.update(value="中断中...", interactive=False),
-        gr.update(interactive=False),
-        process,
-        gr.update(interactive=False)
+        gr.update(interactive=True),
+        gr.update(visible=False),
+        None,
+        gr.update(interactive=True)
     )
 
 def _run_core_memory_update(room_name: str, api_key: str):

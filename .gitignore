@@ -2,3 +2,16 @@ __pycache__/
 characters/
 alarms.json
 config.json
+
+# Log and data directories
+.memos/
+cognee_data/
+
+# Importer temporary files
+importer_progress.json
+importer_errors.log
+retry_success.log
+
+# Temporary test and log files
+app_startup.log
+test_log.txt

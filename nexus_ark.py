@@ -735,8 +735,7 @@ try:
         save_pushover_config_button.click(fn=ui_handlers.handle_save_pushover_config, inputs=[pushover_user_key_input, pushover_app_token_input], outputs=[])
         save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
         auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
-        # ▼▼▼ ここからが修正の核心 ▼▼▼
-
+        # ▼▼▼【ここからが修正の核心】▼▼▼
         import_event = memos_import_button.click(
             fn=ui_handlers.handle_memos_batch_import,
             inputs=[current_room_name, debug_console_state],
@@ -758,10 +757,11 @@ try:
                 importer_stop_button,
                 importer_process_state,
                 chat_input_multimodal
-            ]
+            ],
+            cancels=[import_event] # 実行中のインポート処理をキャンセル可能にする
         )
 
-        # ▲▲▲ ここまで ▲▲▲
+        # ▲▲▲【修正はここまで】▲▲▲
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_room_name, current_api_key_name_state], outputs=None)
         generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_room_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])

@@ -1,0 +1,2 @@
+{"role": "USER", "content": "Hello Cognee, this is a test."}
+{"role": "AGENT", "content": "Hello, I am Cognee. I have received your test message."}
