@@ -1156,10 +1156,9 @@ def handle_memos_batch_import(room_name: str, console_content: str):
 
     process = None
     try:
-        command = [sys.executable, "batch_importer.py", "--character", room_name]
+        # UIからの実行であることを示すフラグを追加
+        command = [sys.executable, "batch_importer.py", "--character", room_name, "--is_running_from_ui"]
 
-        # ▼▼▼【ここからが修正の核心】▼▼▼
-        # OSのデフォルトエンコーディングを取得し、エラーハンドリングを追加
         encoding = locale.getpreferredencoding(False)
         print(f"--- サブプロセスのエンコーディングとして '{encoding}' を使用します ---")
 
@@ -1168,11 +1167,10 @@ def handle_memos_batch_import(room_name: str, console_content: str):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            encoding=encoding, # エンコーディングを明示的に指定
-            errors='replace',     # デコードできない文字は置換してエラーを防ぐ
+            encoding=encoding,
+            errors='replace',
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
-        # ▲▲▲【修正はここまで】▲▲▲
 
         if process.stdout:
             for line in iter(process.stdout.readline, ''):
@@ -1222,7 +1220,6 @@ def handle_importer_stop(process):
             process,
             gr.update(interactive=False)
         )
-    # プロセスが存在しないか、すでに終了している場合
     return (
         gr.update(interactive=True),
         gr.update(visible=False),
