@@ -21,18 +21,15 @@ import logging
 import logging.config
 from pathlib import Path
 from sys import stdout
+from datetime import datetime
 import traceback
 
-# ▼▼▼【ここからが修正の核心】▼▼▼
 # config_managerと、cognee関連のインポートをここから削除する
 from google.api_core import exceptions as google_exceptions
-# from langchain_core.documents import Document # これも後でインポート
 import utils
 import constants
-# ▲▲▲【修正ここまで】▲▲▲
 
 # --- [ロギング設定] ---
-# ... (この部分は変更なし) ...
 LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE_PATH = LOGS_DIR / "importer.log"
@@ -48,7 +45,6 @@ except ValueError as e:
 
 
 # --- [定数とヘルパー関数] ---
-# ... (この部分も変更なし) ...
 PROGRESS_FILE = "importer_progress.json"
 ERROR_LOG_FILE = "importer_errors.log"
 STOP_SIGNAL_FILE = "stop_importer.signal"
@@ -87,11 +83,8 @@ def log_error(filename: str, pair_index: int, pair: List[Dict[str,str]], error: 
         f.write(traceback.format_exc() + "\n")
         f.write("-" * 20 + "\n\n")
 
-# ▼▼▼【ここからが修正の核心】▼▼▼
-# main関数を、実際の処理を行う関数にリネーム
 def run_importer(character_name: str, api_key_name: str, is_from_ui: bool):
     """インポート処理の本体"""
-    # 内部で必要なライブラリをここでインポート
     from langchain_core.documents import Document
     from langchain_cognee import CogneeVectorStore
 
@@ -108,7 +101,6 @@ def run_importer(character_name: str, api_key_name: str, is_from_ui: bool):
         print("インポーターを終了します。")
 
 
-    # ... (ここから下のロジックは、以前のmain関数の中身とほぼ同じ) ...
     character_path = Path(constants.ROOMS_DIR) / character_name
     import_source_path = character_path / "log_import_source"
 
@@ -130,7 +122,6 @@ def run_importer(character_name: str, api_key_name: str, is_from_ui: bool):
         vector_store = CogneeVectorStore()
         print("--- Cogneeベクターストアの初期化に成功しました ---")
 
-        # ... (以降、ファイルのループ処理は変更なし) ...
         for file_path in log_files:
             filename = file_path.name
             if character_progress["last_processed_file"] and filename < character_progress["last_processed_file"]:
@@ -227,15 +218,12 @@ def run_importer(character_name: str, api_key_name: str, is_from_ui: bool):
 
 
 if __name__ == "__main__":
-    # 1. 最初に引数を解析
     parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをCognee記憶システムに一括インポートするツール")
     parser.add_argument("--character", required=True, help="対象のルーム名（フォルダ名）")
     parser.add_argument("--api-key-name", required=True, help="使用するGemini APIキーの名前 (config.jsonで設定したもの)")
     parser.add_argument("--is_running_from_ui", action="store_true", help="UIから実行されたことを示す内部フラグ")
     args = parser.parse_args()
 
-    # 2. 次に設定ファイルを読み込む
-    # この時点ではまだcogneeをインポートしていない
     import config_manager
     config_manager.load_config()
     api_key_value = config_manager.GEMINI_API_KEYS.get(args.api_key_name)
@@ -244,14 +232,10 @@ if __name__ == "__main__":
         print(f"!!! エラー: 指定されたAPIキー '{args.api_key_name}' がconfig.jsonで見つからないか、有効な値ではありません。")
         sys.exit(1)
 
-    # 3. 環境変数を設定する（最重要）
-    os.environ["GOOGLE_API_KEY"] = api_key_value
-    print(f"--- APIキー '{args.api_key_name}' をCogneeの環境変数に設定しました ---")
+    os.environ["COGNEE_LLM_PROVIDER"] = "google"
+    os.environ["COGNEE_LLM_API_KEY"] = api_key_value
+    print(f"--- APIキー '{args.api_key_name}' をCogneeの環境変数に設定しました (Provider: google) ---")
 
-    # 4. 全ての設定が完了した後で、Cogneeをインポートする
     import cognee_manager
 
-    # 5. メインの処理関数を呼び出す
     run_importer(args.character, args.api_key_name, args.is_running_from_ui)
-
-# ▲▲▲【修正ここまで】▲▲▲

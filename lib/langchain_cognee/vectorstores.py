@@ -1,4 +1,7 @@
 # lib/langchain_cognee/vectorstores.py
+# This file has been patched by Jules to work with the modern `cognee` package API.
+# The original code was incompatible with cognee v0.2.4 due to structural changes
+# in the cognee library and undeclared dependencies in the langchain-cognee package.
 from __future__ import annotations
 
 import asyncio
@@ -13,12 +16,7 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VectorStore
 
-# Patched by Jules: The original 'from cognee.cognee import Cognee' fails because
-# the 'cognee' package (v0.2.4) does not have that structure.
-# The langchain-cognee package also fails to declare its dependency on cognee.
-# This patch imports the necessary functions directly and wraps them in a dummy client.
-from cognee import add as aadd_documents
-from cognee import search as asearch
+from cognee import add, search
 
 class CogneeVectorStore(VectorStore):
     """
@@ -33,15 +31,10 @@ class CogneeVectorStore(VectorStore):
         """
         Initialize with Cognee client.
         """
-        if cognee_client:
-            self.cognee_client = cognee_client
-        else:
-            # Create a dummy client that holds the functions
-            class CogneeClient:
-                pass
-            self.cognee_client = CogneeClient()
-            self.cognee_client.aadd_documents = aadd_documents
-            self.cognee_client.asearch = asearch
+        # The original code instantiated a `Cognee()` client, which no longer exists.
+        # This has been patched to work with the functional API of the modern cognee package.
+        pass
+
 
     def add_texts(
         self,
@@ -70,8 +63,6 @@ class CogneeVectorStore(VectorStore):
         return self.add_documents(documents)
 
     def add_documents(self, documents: List[Document], **kwargs: Any) -> List[str]:
-        # The cognee `add` function, which we aliased to `aadd_documents`, is async.
-        # We need to run it in an event loop.
         return asyncio.run(self.aadd_documents(documents, **kwargs))
 
     async def aadd_documents(
@@ -86,10 +77,8 @@ class CogneeVectorStore(VectorStore):
         Returns:
             List of ids from adding the texts into the vectorstore.
         """
-        # The original code was `await self.cognee_client.aadd_documents(documents)`.
-        # Our dummy client's method points to the real `add` function from cognee.
-        # The `add` function in cognee likely takes documents directly.
-        await self.cognee_client.aadd_documents(documents)
+        # Patched to call the imported `add` function directly.
+        await add(documents, **kwargs)
         return [document.metadata.get("id", "") for document in documents]
 
     def similarity_search(
@@ -102,10 +91,8 @@ class CogneeVectorStore(VectorStore):
         self, query: str, k: int = 4, **kwargs: Any
     ) -> List[Document]:
         """Return docs most similar to query."""
-        # The original code was `results = await self.cognee_client.asearch(query, k, **kwargs)`
-        # Our dummy client's method points to the real `search` function.
-        results = await self.cognee_client.asearch(query, k=k, **kwargs)
-        # The original code returned a list of Documents, so we assume the search function does as well.
+        # Patched to call the imported `search` function directly.
+        results = await search(query, k=k, **kwargs)
         return [result for result in results if isinstance(result, Document)]
 
     @classmethod

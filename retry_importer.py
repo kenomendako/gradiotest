@@ -1,4 +1,3 @@
-# [retry_importer.py を、この内容で完全に置き換える]
 import sys
 import os
 
@@ -17,20 +16,17 @@ import argparse
 import time
 import re
 from typing import List, Dict
+from datetime import datetime
+import traceback
 
-# ▼▼▼【ここからが修正の核心】▼▼▼
-# config_managerと、cognee関連のインポートをここから削除する
 import constants
-# ▲▲▲【修正ここまで】▲▲▲
 
 
 # --- 定数 ---
-# ... (この部分は変更なし) ...
 ERROR_LOG_FILE = "importer_errors.log"
 SUCCESS_LOG_FILE = "retry_success.log"
 
 # --- ヘルパー関数 ---
-# ... (この部分も変更なし) ...
 def parse_error_log() -> List[Dict]:
     """importer_errors.log を解析し、会話ペアとメタデータのリストを抽出する。"""
     if not os.path.exists(ERROR_LOG_FILE):
@@ -72,7 +68,6 @@ def log_success(task: Dict):
         json.dump(task, f, indent=2, ensure_ascii=False)
         f.write("\n\n")
 
-# ▼▼▼【ここからが修正の核心】▼▼▼
 def run_retry_importer(character_name: str, api_key_name: str):
     """再インポート処理の本体"""
     from langchain_core.documents import Document
@@ -90,7 +85,6 @@ def run_retry_importer(character_name: str, api_key_name: str):
         vector_store = CogneeVectorStore()
         print("--- Cogneeベクターストアの初期化に成功しました ---")
 
-        # ... (以降の処理は、以前のmain関数の中身と全く同じ) ...
         success_count = 0
         for i, task in enumerate(error_tasks):
             print(f"\n--- 処理中 {i+1}/{len(error_tasks)} ---")
@@ -138,13 +132,11 @@ def run_retry_importer(character_name: str, api_key_name: str):
         traceback.print_exc()
 
 if __name__ == "__main__":
-    # 1. 最初に引数を解析
     parser = argparse.ArgumentParser(description="Nexus Arkのインポートエラーログから、失敗した会話ペアを対話的に再インポートするツール")
     parser.add_argument("--character", required=True, help="対象のルーム名（メタデータとして使用）")
     parser.add_argument("--api-key-name", required=True, help="使用するGemini APIキーの名前 (config.jsonで設定したもの)")
     args = parser.parse_args()
 
-    # 2. 次に設定ファイルを読み込む
     import config_manager
     config_manager.load_config()
     api_key_value = config_manager.GEMINI_API_KEYS.get(args.api_key_name)
@@ -153,13 +145,10 @@ if __name__ == "__main__":
         print(f"!!! エラー: 指定されたAPIキー '{args.api_key_name}' がconfig.jsonで見つからないか、有効な値ではありません。")
         sys.exit(1)
 
-    # 3. 環境変数を設定する（最重要）
-    os.environ["GOOGLE_API_KEY"] = api_key_value
-    print(f"--- APIキー '{args.api_key_name}' をCogneeの環境変数に設定しました ---")
+    os.environ["COGNEE_LLM_PROVIDER"] = "google"
+    os.environ["COGNEE_LLM_API_KEY"] = api_key_value
+    print(f"--- APIキー '{args.api_key_name}' をCogneeの環境変数に設定しました (Provider: google) ---")
 
-    # 4. 全ての設定が完了した後で、Cogneeをインポートする
     import cognee_manager
 
-    # 5. メインの処理関数を呼び出す
     run_retry_importer(args.character, args.api_key_name)
-# ▲▲▲【修正ここまで】▲▲▲
