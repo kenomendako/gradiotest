@@ -1137,32 +1137,78 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
 
 def handle_memos_batch_import(room_name: str, console_content: str):
     """
-    【暫定対応】この機能は新しい記憶システムへの移行のため、一時的に無効化されています。
+    新しい`batch_importer.py`をサブプロセスとして実行する。
     """
-    gr.Warning("この機能は現在、新しい記憶システムへの移行のため一時的に無効化されています。フェーズ2で再実装される予定です。")
-    # UIコンポーネントの状態を変化させずに、元の状態を維持するための戻り値を生成します。
-    # outputsの数（6個）に合わせる必要があります。
-    yield (
-        gr.update(), # memos_import_button
-        gr.update(visible=False), # importer_stop_button
-        None, # importer_process_state
-        console_content, # debug_console_state
-        console_content, # debug_console_output
-        gr.update() # chat_input_multimodal
-    )
+    if not room_name:
+        gr.Warning("知識グラフを構築するルームを選択してください。")
+        yield (gr.update(), gr.update(visible=False), None, console_content, console_content, gr.update())
+        return
 
-def handle_importer_stop(process):
-    stop_signal_file = "stop_importer.signal"
+    command = [sys.executable, "batch_importer.py", room_name]
+
     try:
-        with open(stop_signal_file, "w") as f: f.write("stop")
-        gr.Warning("インポート処理の中断を要求しました。現在のペア処理が完了次第、安全に停止します...")
-    except Exception as e: gr.Error(f"中断要求の送信中にエラー: {e}")
-    # 戻り値の数を4個に修正
+        gr.Info(f"「{room_name}」の知識グラフ構築をバックグラウンドで開始しました。詳細はデバッグコンソールを確認してください。")
+
+        # 標準出力と標準エラーをパイプにリダイレクトして、非同期で読み取れるようにする
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding='utf-8',
+            errors='replace'
+        )
+
+        # UIを更新して処理中の状態を示す
+        yield (
+            gr.update(interactive=False, value="構築中..."),
+            gr.update(visible=True, interactive=True),
+            process.pid,  # プロセスオブジェクトではなくPIDを渡す
+            console_content,
+            console_content,
+            gr.update(interactive=False)
+        )
+
+        # サブプロセスの出力を非同期で読み取り、デバッグコンソールに表示
+        # (この部分はGradioのイベントリスナー内では直接実行が難しいため、
+        #  出力はimporter.logにリダイレクトされ、ユーザーはそちらを見る形がベターかもしれない)
+        #  今回はシンプルに、プロセスの完了を待たずにUIを返す。
+        #  進捗は`importer.log`と`importer_progress.json`で確認する。
+
+    except FileNotFoundError:
+        error_msg = "エラー: `batch_importer.py`が見つかりません。"
+        gr.Error(error_msg)
+        yield (gr.update(), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update())
+    except Exception as e:
+        error_msg = f"インポーターの起動中にエラーが発生しました: {e}"
+        gr.Error(error_msg)
+        traceback.print_exc()
+        yield (gr.update(), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update())
+
+
+def handle_importer_stop(pid: int):
+    """
+    実行中のインポータープロセスを中断する。
+    """
+    if pid is None:
+        gr.Warning("停止対象のプロセスが見つかりません。")
+        return gr.update(interactive=True, value="知識グラフを構築/更新する"), gr.update(visible=False), None, gr.update(interactive=True)
+
+    try:
+        process = psutil.Process(pid)
+        process.terminate()  # SIGTERMを送信
+        gr.Info(f"インポート処理(PID: {pid})に停止信号を送信しました。")
+    except psutil.NoSuchProcess:
+        gr.Warning(f"プロセス(PID: {pid})は既に終了しています。")
+    except Exception as e:
+        gr.Error(f"プロセスの停止中にエラーが発生しました: {e}")
+        traceback.print_exc()
+
     return (
-        gr.update(value="中断中...", interactive=False),
-        gr.update(interactive=False),
-        process,
-        gr.update(interactive=False)
+        gr.update(interactive=True, value="知識グラフを構築/更新する"),
+        gr.update(visible=False),
+        None,
+        gr.update(interactive=True)
     )
 
 def _run_core_memory_update(room_name: str, api_key: str):
