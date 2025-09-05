@@ -1137,21 +1137,58 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
 
 def handle_memos_batch_import(room_name: str, console_content: str):
     """
-    新しい`batch_importer.py`をサブプロセスとして実行する。
+    プロセスを2段階に分離して実行する。
+    1. batch_importer.py: 骨格を同期的に生成。
+    2. soul_injector.py: 魂を非同期的に注入。
     """
     if not room_name:
         gr.Warning("知識グラフを構築するルームを選択してください。")
         yield (gr.update(), gr.update(visible=False), None, console_content, console_content, gr.update())
         return
 
-    command = [sys.executable, "batch_importer.py", room_name]
-
+    # --- Stage 1: Skeleton Creation (Synchronous) ---
     try:
-        gr.Info(f"「{room_name}」の知識グラフ構築をバックグラウンドで開始しました。詳細はデバッグコンソールを確認してください。")
+        gr.Info(f"ステージ1: 「{room_name}」の知識グラフの骨格を作成しています...")
+        command_importer = [sys.executable, "batch_importer.py", room_name]
 
-        # 標準出力と標準エラーをパイプにリダイレクトして、非同期で読み取れるようにする
+        # subprocess.runを使って同期待ちする
+        result = subprocess.run(
+            command_importer,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            check=True # エラーがあれば例外を発生させる
+        )
+
+        console_content += f"\n--- [batch_importer.py Output] ---\n{result.stdout}\n{result.stderr}\n"
+        gr.Info("ステージ1完了。知識グラフの骨格が作成されました。")
+
+    except FileNotFoundError:
+        error_msg = "エラー: `batch_importer.py`が見つかりません。"
+        gr.Error(error_msg)
+        yield (gr.update(), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update())
+        return
+    except subprocess.CalledProcessError as e:
+        error_msg = f"ステージ1(骨格作成)でエラーが発生しました:\n{e.stderr}"
+        gr.Error(error_msg)
+        console_content += f"\n--- [batch_importer.py ERROR] ---\n{e.stdout}\n{e.stderr}\n"
+        yield (gr.update(), gr.update(visible=False), None, console_content, console_content, gr.update())
+        return
+    except Exception as e:
+        error_msg = f"ステージ1の実行中に予期せぬエラーが発生しました: {e}"
+        gr.Error(error_msg)
+        traceback.print_exc()
+        yield (gr.update(), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update())
+        return
+
+    # --- Stage 2: Soul Injection (Asynchronous) ---
+    try:
+        gr.Info(f"ステージ2: 「{room_name}」の知識グラフに魂を注入しています...(非同期)")
+        command_injector = [sys.executable, "soul_injector.py", room_name]
+
         process = subprocess.Popen(
-            command,
+            command_injector,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -1159,28 +1196,20 @@ def handle_memos_batch_import(room_name: str, console_content: str):
             errors='replace'
         )
 
-        # UIを更新して処理中の状態を示す
         yield (
-            gr.update(interactive=False, value="構築中..."),
+            gr.update(interactive=False, value="魂を注入中..."),
             gr.update(visible=True, interactive=True),
-            process.pid,  # プロセスオブジェクトではなくPIDを渡す
+            process.pid,
             console_content,
-            console_content,
+            console_content, # 後で非同期に更新するなら、ここも更新対象
             gr.update(interactive=False)
         )
-
-        # サブプロセスの出力を非同期で読み取り、デバッグコンソールに表示
-        # (この部分はGradioのイベントリスナー内では直接実行が難しいため、
-        #  出力はimporter.logにリダイレクトされ、ユーザーはそちらを見る形がベターかもしれない)
-        #  今回はシンプルに、プロセスの完了を待たずにUIを返す。
-        #  進捗は`importer.log`と`importer_progress.json`で確認する。
-
     except FileNotFoundError:
-        error_msg = "エラー: `batch_importer.py`が見つかりません。"
+        error_msg = "エラー: `soul_injector.py`が見つかりません。"
         gr.Error(error_msg)
         yield (gr.update(), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update())
     except Exception as e:
-        error_msg = f"インポーターの起動中にエラーが発生しました: {e}"
+        error_msg = f"ステージ2の起動中にエラーが発生しました: {e}"
         gr.Error(error_msg)
         traceback.print_exc()
         yield (gr.update(), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update())
