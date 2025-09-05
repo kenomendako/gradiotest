@@ -90,6 +90,7 @@ def run_importer(character_name: str, is_from_ui: bool):
     # api_key_name引数はもはや不要
 
     def final_cleanup(progress_data, character_name, character_progress):
+        # ... (変更なし) ...
         if character_progress:
             print(f"最終結果: {character_progress.get('total_success_count', 0)}件の会話を記憶しました。")
             progress_data[character_name] = character_progress
@@ -115,6 +116,7 @@ def run_importer(character_name: str, is_from_ui: bool):
     print(f"--- Cognee記憶インポーターを開始します (対象ルーム: {character_name}) ---")
     print("--- (.envファイルから設定を読み込んでいます...) ---")
 
+    # ... (以降の処理は、APIキー関連のロジックが不要になった以外は同じ) ...
     progress_data = load_progress()
     character_progress = progress_data.get(character_name, { "last_processed_file": None, "last_processed_pair_index": -1, "total_success_count": 0, })
 
@@ -214,6 +216,7 @@ def run_importer(character_name: str, is_from_ui: bool):
         traceback.print_exc()
     finally:
         final_cleanup(progress_data, character_name, character_progress)
+# ▲▲▲【修正ここまで】▲▲▲
 
 if __name__ == "__main__":
     # ▼▼▼【ここからが修正の核心】▼▼▼

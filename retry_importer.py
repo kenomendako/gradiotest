@@ -13,7 +13,7 @@ import asyncio
 
 # ▼▼▼【ここからが修正の核心】▼▼▼
 import constants
-import config_manager
+# cognee_managerはDBパス設定のために必要
 import cognee_manager
 from langchain_core.documents import Document
 from google.api_core import exceptions as google_exceptions
@@ -81,6 +81,7 @@ def run_retry_importer(character_name: str):
         return
 
     print(f"--- {len(error_tasks)} 件のエラーを検知しました。再処理を開始します。 ---")
+    print("--- (.envファイルから設定を読み込んでいます...) ---")
 
     try:
         success_count = 0
