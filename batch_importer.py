@@ -81,37 +81,58 @@ def chunk_log(log_content: str) -> List[str]:
     logger.info(f"Log content chunked into {len(chunks)} parts.")
     return chunks
 
-def get_relation_from_gemini(gemini_model: genai.GenerativeModel, chunk: str, entity1: str, entity2: str) -> str:
+# ---------------------------------
+# ▼▼▼【ここからが修正箇所】▼▼▼
+# ---------------------------------
+
+# 引数から、間違った型ヒントと、不要な`gemini_model`を削除します。
+# 代わりに、作法の基本となる`client`オブジェクトを受け取ります。
+def get_relation_from_gemini(client: 'genai.client.Client', chunk: str, entity1: str, entity2: str) -> str:
     """
-    Uses Gemini API to determine the relationship between two entities.
+    Gemini APIを呼び出して、2つのエンティティ間の関係性を推論する。
     """
-    prompt_template = """
+    # プロジェクト規約で定められた、中央管理のモデル名を`constants`から取得します。
+    model_name = constants.INTERNAL_PROCESSING_MODEL
+
+    prompt = f"""
     あなたは、二つのエンティティ間の関係性を定義する、高精度の言語分析AIです。
+
     【コンテキストとなる会話】
     ---
-    {conversation_chunk}
+    {chunk}
     ---
+
     【あなたのタスク】
     上記の会話において、「{entity1}」と「{entity2}」の間に存在する最も的確な関係性を、以下の選択肢から一つだけ選び、その単語のみを返答してください。
+
     【関係性の選択肢】
     IS_IN (〜にいる), GOES_TO (〜へ行く), TALKS_ABOUT (〜について話す), LIKES (〜を好む), DISLIKES (〜を嫌う), HAS (〜を持つ)
+
     【最重要ルール】
     - あなたの思考や挨拶は不要です。選択肢の中から最も適切な単語、ただ一つだけを出力してください。
     - どの選択肢も当てはまらない場合は、`UNKNOWN`とだけ出力してください。
     """
-    prompt = prompt_template.format(conversation_chunk=chunk, entity1=entity1, entity2=entity2)
 
-    while not shutdown_flag:
-        try:
-            response = gemini_model.generate_content(prompt)
-            return response.text.strip()
-        except ResourceExhausted:
-            logger.warning("ResourceExhausted error. Retrying after 30 seconds...")
-            time.sleep(30)
-        except Exception as e:
-            logger.error(f"An unexpected error occurred with Gemini API: {e}\n{traceback.format_exc()}")
-            return "UNKNOWN"
-    return "UNKNOWN" # Shutdown requested
+    try:
+        # 唯一の正しい作法: client.models.generate_content(...) を使用します。
+        response = client.models.generate_content(
+            model=f"models/{model_name}",
+            contents=[prompt]
+        )
+        relation = response.text.strip()
+        # 念のため、応答が選択肢のいずれかであるかを確認します
+        valid_relations = ["IS_IN", "GOES_TO", "TALKS_ABOUT", "LIKES", "DISLIKES", "HAS", "UNKNOWN"]
+        return relation if relation in valid_relations else "UNKNOWN"
+    except Exception as e:
+        # スマートリトライ機構は、この関数の呼び出し元で実装するため、
+        # ここではエラーが発生したことを示す文字列を返します。
+        logging.error(f"Gemini API call failed for entities ('{entity1}', '{entity2}'): {e}")
+        # リトライを促すための特別なキーワードを返す
+        return "API_ERROR_RETRY"
+
+# ---------------------------------
+# ▲▲▲【修正はここまで】▲▲▲
+# ---------------------------------
 
 def main(room_name: str, api_key: str):
     G = nx.Graph()
@@ -124,8 +145,7 @@ def main(room_name: str, api_key: str):
         # --- Setup ---
         try:
             gemini_client = genai.Client(api_key=api_key)
-            gemini_model = gemini_client.models.get(f"models/{constants.INTERNAL_PROCESSING_MODEL}")
-            logger.info(f"Gemini API client created for model '{constants.INTERNAL_PROCESSING_MODEL}'.")
+            logger.info(f"Gemini API client created successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize Gemini client: {e}")
             sys.exit(1)
@@ -196,7 +216,22 @@ def main(room_name: str, api_key: str):
             if not origin_chunk: continue
 
             logger.info(f"Analyzing relation for ({u}, {v}) - {i+1}/{len(edges_to_process)}")
-            relation = get_relation_from_gemini(gemini_model, origin_chunk, u, v)
+
+            # Smart retry loop
+            retry_count = 0
+            max_retries = 5
+            while retry_count < max_retries and not shutdown_flag:
+                relation = get_relation_from_gemini(gemini_client, origin_chunk, u, v)
+                if relation != "API_ERROR_RETRY":
+                    break
+                retry_count += 1
+                wait_time = 5 * (2 ** (retry_count - 1)) # Exponential backoff
+                logger.warning(f"API error detected. Retrying in {wait_time} seconds... (Attempt {retry_count}/{max_retries})")
+                time.sleep(wait_time)
+
+            if relation == "API_ERROR_RETRY":
+                logger.error(f"Failed to get relation for ({u}, {v}) after {max_retries} retries. Skipping.")
+                continue
 
             if relation != "UNKNOWN" and relation in ["IS_IN", "GOES_TO", "TALKS_ABOUT", "LIKES", "DISLIKES", "HAS"]:
                 G[u][v]['relation'] = relation
