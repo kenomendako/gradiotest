@@ -1,13 +1,4 @@
-import sys
-import os
-
-# プロジェクトのルートディレクトリをPythonの検索パスに追加
-# これにより、'lib'フォルダ内のライブラリを直接インポートできるようになる
-project_root = os.path.abspath(os.path.dirname(__file__))
-lib_path = os.path.join(project_root, 'lib')
-if lib_path not in sys.path:
-    sys.path.insert(0, lib_path)
-
+# [retry_importer.py を、この内容で完全に置き換える]
 
 import os
 import sys
@@ -18,8 +9,23 @@ import re
 from typing import List, Dict
 from datetime import datetime
 import traceback
+import asyncio
 
+# ▼▼▼【ここからが修正の核心】▼▼▼
+# config_managerと、cognee関連のインポートをここから削除する
 import constants
+import config_manager
+import cognee_manager
+from langchain_core.documents import Document
+from google.api_core import exceptions as google_exceptions
+
+try:
+    from cognee.api.v1.add import add as cognee_add
+except ImportError:
+    print("!!! [致命的エラー] 'cognee-python'ライブラリから'add'関数をインポートできません。")
+    print("    'pip install -r requirements.txt' を実行して、正しいパッケージがインストールされているか確認してください。")
+    sys.exit(1)
+# ▲▲▲【修正ここまで】▲▲▲
 
 
 # --- 定数 ---
@@ -70,9 +76,6 @@ def log_success(task: Dict):
 
 def run_retry_importer(character_name: str, api_key_name: str):
     """再インポート処理の本体"""
-    from langchain_core.documents import Document
-    from langchain_cognee import CogneeVectorStore
-
     error_tasks = parse_error_log()
     if not error_tasks:
         print("エラーログに処理対象が見つかりませんでした。")
@@ -81,10 +84,6 @@ def run_retry_importer(character_name: str, api_key_name: str):
     print(f"--- {len(error_tasks)} 件のエラーを検知しました。再処理を開始します。 ---")
 
     try:
-        print("--- Cogneeベクターストアを初期化します ---")
-        vector_store = CogneeVectorStore()
-        print("--- Cogneeベクターストアの初期化に成功しました ---")
-
         success_count = 0
         for i, task in enumerate(error_tasks):
             print(f"\n--- 処理中 {i+1}/{len(error_tasks)} ---")
@@ -105,7 +104,6 @@ def run_retry_importer(character_name: str, api_key_name: str):
                     user_name = task['pair'][0].get("responder", "ユーザー")
                     agent_name = task['pair'][1].get("responder", character_name)
                     content_string = f"{user_name}: {task['pair'][0]['content']}\n{agent_name}: {task['pair'][1]['content']}"
-
                     metadata = {
                         "source_file": task['filename'],
                         "pair_index": task['pair_index'],
@@ -114,7 +112,7 @@ def run_retry_importer(character_name: str, api_key_name: str):
                     }
                     document = Document(page_content=content_string, metadata=metadata)
 
-                    vector_store.add_documents([document])
+                    asyncio.run(cognee_add([document]))
 
                     log_success(task)
                     success_count += 1
@@ -125,8 +123,6 @@ def run_retry_importer(character_name: str, api_key_name: str):
                 print("無効な入力です。スキップします。")
 
         print(f"\n--- 再処理が完了しました。{success_count} 件のペアをインポートしました。 ---")
-
-
     except Exception as e:
         print(f"\n!!! [致命的エラー] 再インポート処理中に予期せぬエラーが発生しました !!!")
         traceback.print_exc()
@@ -137,7 +133,6 @@ if __name__ == "__main__":
     parser.add_argument("--api-key-name", required=True, help="使用するGemini APIキーの名前 (config.jsonで設定したもの)")
     args = parser.parse_args()
 
-    import config_manager
     config_manager.load_config()
     api_key_value = config_manager.GEMINI_API_KEYS.get(args.api_key_name)
 
@@ -148,7 +143,5 @@ if __name__ == "__main__":
     os.environ["COGNEE_LLM_PROVIDER"] = "google"
     os.environ["COGNEE_LLM_API_KEY"] = api_key_value
     print(f"--- APIキー '{args.api_key_name}' をCogneeの環境変数に設定しました (Provider: google) ---")
-
-    import cognee_manager
 
     run_retry_importer(args.character, args.api_key_name)

@@ -1,14 +1,4 @@
 # [batch_importer.py を、この内容で完全に置き換える]
-import sys
-import os
-
-# プロジェクトのルートディレクトリをPythonの検索パスに追加
-# これにより、'lib'フォルダ内のライブラリを直接インポートできるようになる
-project_root = os.path.abspath(os.path.dirname(__file__))
-lib_path = os.path.join(project_root, 'lib')
-if lib_path not in sys.path:
-    sys.path.insert(0, lib_path)
-
 
 import os
 import sys
@@ -23,13 +13,26 @@ from pathlib import Path
 from sys import stdout
 from datetime import datetime
 import traceback
+import asyncio # ★★★ この行を新しく追加 ★★★
 
-# config_managerと、cognee関連のインポートをここから削除する
 from google.api_core import exceptions as google_exceptions
+from langchain_core.documents import Document
 import utils
 import constants
+import config_manager
+import cognee_manager
 
-# --- [ロギング設定] ---
+# ▼▼▼【ここからが修正の核心】▼▼▼
+# Cogneeの、我々が発見した「真の」APIをインポートする
+try:
+    from cognee.api.v1.add import add as cognee_add
+except ImportError:
+    print("!!! [致命的エラー] 'cognee-python'ライブラリから'add'関数をインポートできません。")
+    print("    'pip install -r requirements.txt' を実行して、正しいパッケージがインストールされているか確認してください。")
+    sys.exit(1)
+# ▲▲▲【修正ここまで】▲▲▲
+
+# --- [ロギング設定とヘルパー関数は、以前のままで変更なし] ---
 LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE_PATH = LOGS_DIR / "importer.log"
@@ -43,8 +46,6 @@ except ValueError as e:
     print("   'concurrent-log-handler'がインストールされているか確認してください: pip install concurrent-log-handler")
     sys.exit(1)
 
-
-# --- [定数とヘルパー関数] ---
 PROGRESS_FILE = "importer_progress.json"
 ERROR_LOG_FILE = "importer_errors.log"
 STOP_SIGNAL_FILE = "stop_importer.signal"
@@ -85,8 +86,6 @@ def log_error(filename: str, pair_index: int, pair: List[Dict[str,str]], error: 
 
 def run_importer(character_name: str, api_key_name: str, is_from_ui: bool):
     """インポート処理の本体"""
-    from langchain_core.documents import Document
-    from langchain_cognee import CogneeVectorStore
 
     def final_cleanup(progress_data, character_name, character_progress):
         if character_progress:
@@ -99,7 +98,6 @@ def run_importer(character_name: str, api_key_name: str, is_from_ui: bool):
         if os.path.exists(STOP_SIGNAL_FILE):
             os.remove(STOP_SIGNAL_FILE)
         print("インポーターを終了します。")
-
 
     character_path = Path(constants.ROOMS_DIR) / character_name
     import_source_path = character_path / "log_import_source"
@@ -118,10 +116,6 @@ def run_importer(character_name: str, api_key_name: str, is_from_ui: bool):
     character_progress = progress_data.get(character_name, { "last_processed_file": None, "last_processed_pair_index": -1, "total_success_count": 0, })
 
     try:
-        print("--- Cogneeベクターストアを初期化します ---")
-        vector_store = CogneeVectorStore()
-        print("--- Cogneeベクターストアの初期化に成功しました ---")
-
         for file_path in log_files:
             filename = file_path.name
             if character_progress["last_processed_file"] and filename < character_progress["last_processed_file"]:
@@ -155,7 +149,10 @@ def run_importer(character_name: str, api_key_name: str, is_from_ui: bool):
                         metadata = { "source_file": filename, "pair_index": i, "character": character_name }
                         document = Document(page_content=content_string, metadata=metadata)
 
-                        vector_store.add_documents([document])
+                        # ▼▼▼【ここが修正の核心】▼▼▼
+                        # CogneeのAPIを非同期で直接呼び出す
+                        asyncio.run(cognee_add([document]))
+                        # ▲▲▲【修正ここまで】▲▲▲
 
                         success = True
                         character_progress["total_success_count"] += 1
@@ -209,13 +206,11 @@ def run_importer(character_name: str, api_key_name: str, is_from_ui: bool):
             print(f"\n--- ファイル処理完了: {filename} ---")
 
         print("\n--- 全てのファイルのインポートが完了しました。 ---")
-
     except Exception as e:
-        print(f"\n!!! [致命的エラー] インポート処理中に予期せぬエラーが発生しました !!!")
+        print(f"\n!!! [致命的エラー] インポート処理中に予期せず処理が中断されました !!!")
         traceback.print_exc()
     finally:
         final_cleanup(progress_data, character_name, character_progress)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをCognee記憶システムに一括インポートするツール")
@@ -224,7 +219,6 @@ if __name__ == "__main__":
     parser.add_argument("--is_running_from_ui", action="store_true", help="UIから実行されたことを示す内部フラグ")
     args = parser.parse_args()
 
-    import config_manager
     config_manager.load_config()
     api_key_value = config_manager.GEMINI_API_KEYS.get(args.api_key_name)
 
@@ -235,7 +229,5 @@ if __name__ == "__main__":
     os.environ["COGNEE_LLM_PROVIDER"] = "google"
     os.environ["COGNEE_LLM_API_KEY"] = api_key_value
     print(f"--- APIキー '{args.api_key_name}' をCogneeの環境変数に設定しました (Provider: google) ---")
-
-    import cognee_manager
 
     run_importer(args.character, args.api_key_name, args.is_running_from_ui)
