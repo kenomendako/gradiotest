@@ -84,8 +84,10 @@ def log_error(filename: str, pair_index: int, pair: List[Dict[str,str]], error: 
         f.write(traceback.format_exc() + "\n")
         f.write("-" * 20 + "\n\n")
 
-def run_importer(character_name: str, api_key_name: str, is_from_ui: bool):
+# ▼▼▼【ここからが修正の核心】▼▼▼
+def run_importer(character_name: str, is_from_ui: bool):
     """インポート処理の本体"""
+    # api_key_name引数はもはや不要
 
     def final_cleanup(progress_data, character_name, character_progress):
         if character_progress:
@@ -111,6 +113,7 @@ def run_importer(character_name: str, api_key_name: str, is_from_ui: bool):
         sys.exit(0)
 
     print(f"--- Cognee記憶インポーターを開始します (対象ルーム: {character_name}) ---")
+    print("--- (.envファイルから設定を読み込んでいます...) ---")
 
     progress_data = load_progress()
     character_progress = progress_data.get(character_name, { "last_processed_file": None, "last_processed_pair_index": -1, "total_success_count": 0, })
@@ -213,21 +216,15 @@ def run_importer(character_name: str, api_key_name: str, is_from_ui: bool):
         final_cleanup(progress_data, character_name, character_progress)
 
 if __name__ == "__main__":
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # 引数からAPIキーの指定を削除
     parser = argparse.ArgumentParser(description="Nexus Arkの過去ログをCognee記憶システムに一括インポートするツール")
     parser.add_argument("--character", required=True, help="対象のルーム名（フォルダ名）")
-    parser.add_argument("--api-key-name", required=True, help="使用するGemini APIキーの名前 (config.jsonで設定したもの)")
     parser.add_argument("--is_running_from_ui", action="store_true", help="UIから実行されたことを示す内部フラグ")
     args = parser.parse_args()
 
-    config_manager.load_config()
-    api_key_value = config_manager.GEMINI_API_KEYS.get(args.api_key_name)
+    # 環境変数を設定するロジックは全て削除
 
-    if not api_key_value or api_key_value == "YOUR_API_KEY_HERE":
-        print(f"!!! エラー: 指定されたAPIキー '{args.api_key_name}' がconfig.jsonで見つからないか、有効な値ではありません。")
-        sys.exit(1)
-
-    os.environ["COGNEE_LLM_PROVIDER"] = "google"
-    os.environ["COGNEE_LLM_API_KEY"] = api_key_value
-    print(f"--- APIキー '{args.api_key_name}' をCogneeの環境変数に設定しました (Provider: google) ---")
-
-    run_importer(args.character, args.api_key_name, args.is_running_from_ui)
+    # メインの処理関数を呼び出す
+    run_importer(args.character, args.is_running_from_ui)
+    # ▲▲▲【修正ここまで】▲▲▲

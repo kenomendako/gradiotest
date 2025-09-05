@@ -12,7 +12,6 @@ import traceback
 import asyncio
 
 # ▼▼▼【ここからが修正の核心】▼▼▼
-# config_managerと、cognee関連のインポートをここから削除する
 import constants
 import config_manager
 import cognee_manager
@@ -74,7 +73,7 @@ def log_success(task: Dict):
         json.dump(task, f, indent=2, ensure_ascii=False)
         f.write("\n\n")
 
-def run_retry_importer(character_name: str, api_key_name: str):
+def run_retry_importer(character_name: str):
     """再インポート処理の本体"""
     error_tasks = parse_error_log()
     if not error_tasks:
@@ -130,18 +129,6 @@ def run_retry_importer(character_name: str, api_key_name: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Nexus Arkのインポートエラーログから、失敗した会話ペアを対話的に再インポートするツール")
     parser.add_argument("--character", required=True, help="対象のルーム名（メタデータとして使用）")
-    parser.add_argument("--api-key-name", required=True, help="使用するGemini APIキーの名前 (config.jsonで設定したもの)")
     args = parser.parse_args()
 
-    config_manager.load_config()
-    api_key_value = config_manager.GEMINI_API_KEYS.get(args.api_key_name)
-
-    if not api_key_value or api_key_value == "YOUR_API_KEY_HERE":
-        print(f"!!! エラー: 指定されたAPIキー '{args.api_key_name}' がconfig.jsonで見つからないか、有効な値ではありません。")
-        sys.exit(1)
-
-    os.environ["COGNEE_LLM_PROVIDER"] = "google"
-    os.environ["COGNEE_LLM_API_KEY"] = api_key_value
-    print(f"--- APIキー '{args.api_key_name}' をCogneeの環境変数に設定しました (Provider: google) ---")
-
-    run_retry_importer(args.character, args.api_key_name)
+    run_retry_importer(args.character)
