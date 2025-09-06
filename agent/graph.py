@@ -18,6 +18,7 @@ from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import (
     set_current_location, update_location_content, add_new_location, read_world_settings
 )
+from tools.knowledge_tools import search_knowledge_graph
 from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory
 from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
 from tools.web_tools import web_search_tool, read_url_tool
@@ -31,14 +32,14 @@ import config_manager
 import constants
 
 all_tools = [
-    set_current_location, read_memory_by_path, edit_memory,
-    add_secret_diary_entry, summarize_and_save_core_memory, add_to_notepad,
-    update_notepad, delete_from_notepad, read_full_notepad, web_search_tool,
-    read_url_tool,
-    generate_image, read_full_memory, set_personal_alarm,
-    update_location_content, add_new_location,
+    set_current_location, update_location_content, add_new_location, read_world_settings,
+    read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory,
+    add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad,
+    web_search_tool, read_url_tool,
+    generate_image,
+    set_personal_alarm,
     set_timer, set_pomodoro_timer,
-    read_world_settings
+    search_knowledge_graph
 ]
 
 class AgentState(TypedDict):
