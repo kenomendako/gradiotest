@@ -2133,6 +2133,56 @@ def handle_core_memory_update_click(room_name: str, api_key_name: str):
     gr.Info(f"「{room_name}」のコアメモリ更新をバックグラウンドで開始しました。")
     threading.Thread(target=_run_core_memory_update, args=(room_name, api_key)).start()
 
+def handle_visualize_graph(room_name: str):
+    """
+    【新規作成】
+    現在の知識グラフを可視化し、その結果をUIに表示する。
+    """
+    if not room_name:
+        gr.Warning("可視化するルームが選択されていません。")
+        return gr.update(visible=False)
+
+    script_path = "visualize_graph.py"
+
+    gr.Info(f"ルーム「{room_name}」の知識グラフを可視化しています...")
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-X", "utf8", script_path, room_name],
+            capture_output=True, text=True, check=True, encoding='utf-8', errors='ignore'
+        )
+
+        # スクリプトの標準出力を解析して、画像のパスを取得
+        output = proc.stdout.strip()
+        image_path = None
+        # 出力の最後の行にパスが含まれていると仮定
+        for line in reversed(output.splitlines()):
+            if line.strip().endswith(".png"):
+                image_path = line.strip()
+                break
+
+        if image_path and os.path.exists(image_path):
+            gr.Info("知識グラフの可視化に成功しました。")
+            return gr.update(value=image_path, visible=True)
+        else:
+            # スクリプトは成功したが、パスの取得に失敗した場合
+            gr.Error("可視化画像のパス取得に失敗しました。詳細はコンソールログを確認してください。")
+            print(f"--- [可視化エラー] ---")
+            print(f"visualize_graph.pyからの出力:\n{output}")
+            return gr.update(visible=False)
+
+    except subprocess.CalledProcessError as e:
+        # スクリプト自体がエラーで終了した場合
+        error_message = "知識グラフの可視化スクリプト実行中にエラーが発生しました。"
+        gr.Error(error_message)
+        print(f"--- [可視化エラー] ---")
+        print(f"Stderr:\n{e.stderr}")
+        return gr.update(visible=False)
+    except Exception as e:
+        gr.Error(f"可視化処理中に予期せぬエラーが発生しました: {e}")
+        return gr.update(visible=False)
+
+
 def handle_stop_button_click():
     """ストップボタンが押されたときにUIの状態をリセットする。"""
     print("--- [UI] ユーザーによりストップボタンが押されました ---")
