@@ -1,120 +1,135 @@
-# [batch_importer.py を、この内容で完全に置き換える]
+# --- ステップ1: 必要な標準ライブラリと設定マネージャーをインポート ---
 import os
 import sys
-import json
 import argparse
-import time
-import re
-from typing import List, Dict
 import logging
-import logging.config
-from pathlib import Path
-from sys import stdout
-from datetime import datetime
+import json
+import time
+import signal
 import traceback
+from typing import List
+from pathlib import Path
 
-# --- [ロギング設定] ---
-LOGS_DIR = Path(os.getenv("MEMOS_BASE_PATH", Path.cwd())) / ".memos" / "logs"
-LOGS_DIR.mkdir(parents=True, exist_ok=True)
-LOG_FILE_PATH = LOGS_DIR / "importer.log" # ログファイル名を importer.log に変更
+# --- ステップ2: Nexus Arkのコア設定を、何よりも先に読み込む ---
+import config_manager
+config_manager.load_config()
 
-LOGGING_CONFIG = {
-    "version": 1, "disable_existing_loggers": False,
-    "formatters": { "standard": { "format": "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s" } },
-    "handlers": {
-        "console": { "level": "INFO", "class": "logging.StreamHandler", "stream": stdout, "formatter": "standard" },
-        "file": {
-            "level": "DEBUG", "class": "concurrent_log_handler.ConcurrentRotatingFileHandler",
-            "filename": LOG_FILE_PATH, "maxBytes": 1024 * 1024 * 10, "backupCount": 5,
-            "formatter": "standard", "use_gzip": True,
-        },
-    },
-    "root": { "level": "DEBUG", "handlers": ["console", "file"] },
-    "loggers": {
-        "memos": { "level": "WARNING", "propagate": True },
-        "gradio": { "level": "WARNING", "propagate": True },
-        "httpx": { "level": "WARNING", "propagate": True },
-        "neo4j": { "level": "WARNING", "propagate": True },
-    },
-}
-logging.config.dictConfig(LOGGING_CONFIG)
-logging.config.dictConfig = lambda *args, **kwargs: None
-print("--- [Nexus Ark Importer] ロギング設定を完全に掌握しました (ログファイル: importer.log) ---")
-
-
-# --- [インポート文] ---
+# --- ステップ3: 設定が完了した後で、外部ライブラリをインポート ---
+import spacy
+import networkx as nx
+import constants
 import utils
-import room_manager
 
-# --- [定数とヘルパー関数] ---
-PROGRESS_FILE = "importer_progress.json"
-ERROR_LOG_FILE = "importer_errors.log"
-STOP_SIGNAL_FILE = "stop_importer.signal"
+# --- Logging Setup ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-def group_messages_into_pairs(messages: List[Dict[str, str]]) -> List[List[Dict[str, str]]]:
-    pairs = []
-    i = 0
-    while i < len(messages):
-        if messages[i]["role"] == "user" and messages[i].get("content"):
-            if i + 1 < len(messages) and messages[i+1]["role"] == "assistant" and messages[i+1].get("content"):
-                pairs.append([messages[i], messages[i+1]])
-                i += 2
-                continue
-        i += 1
-    return pairs
+# --- Graceful Shutdown ---
+shutdown_flag = False
+def signal_handler(signum, frame):
+    global shutdown_flag
+    logger.warning(f"Shutdown signal {signum} received. Saving progress...")
+    shutdown_flag = True
 
-def load_progress():
-    if os.path.exists(PROGRESS_FILE):
-        try:
-            with open(PROGRESS_FILE, "r", encoding="utf-8") as f: return json.load(f)
-        except (json.JSONDecodeError, IOError): return {}
-    return {}
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
-def save_progress(progress_data):
-    with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
-        json.dump(progress_data, f, indent=2, ensure_ascii=False)
+# --- spaCy Model Loading ---
+try:
+    nlp = spacy.load("ja_core_news_lg")
+    logger.info("spaCy Japanese model 'ja_core_news_lg' loaded successfully.")
+except OSError:
+    logger.error("spaCy model 'ja_core_news_lg' not found. Please run 'python -m spacy download ja_core_news_lg' to download it.")
+    sys.exit(1)
 
-def log_error(filename: str, pair_index: int, pair: List[Dict[str,str]], error: Exception):
-    """失敗したペアの情報をエラーログに記録する"""
-    with open(ERROR_LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(f"--- ERROR at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-        f.write(f"File: {filename}\n")
-        f.write(f"Pair Index: {pair_index}\n")
-        f.write("Pair Content:\n")
-        json.dump(pair, f, indent=2, ensure_ascii=False)
-        f.write("\nError Details:\n")
-        f.write(str(error) + "\n")
-        f.write("-" * 20 + "\n\n")
 
-def main():
-    # --- 正常終了時も異常終了時も、必ず最後に実行される後処理 ---
-    def final_cleanup(progress_data, character_name, character_progress):
-        if character_progress:
-            print(f"最終結果: {character_progress.get('total_success_count', 0)}件の会話を記憶しました。")
-            progress_data[character_name] = character_progress
-            save_progress(progress_data)
-            print("\n--- 最終的な進捗を importer_progress.json に保存しました。 ---")
+def chunk_log(log_content: str) -> List[str]:
+    """
+    Splits a clean log file content into meaningful conversation chunks.
+    """
+    if not log_content:
+        return []
+    messages = log_content.strip().split('\n\n')
+    chunk_size = 4
+    chunks = ['\n\n'.join(messages[i:i+chunk_size]) for i in range(0, len(messages), chunk_size)]
+    logger.info(f"Log content chunked into {len(chunks)} parts.")
+    return chunks
 
-        if os.path.exists(ERROR_LOG_FILE):
-            print(f"★★★ いくつかのエラーが発生しました。詳細は {ERROR_LOG_FILE} を確認してください。 ★★★")
 
-        if os.path.exists(STOP_SIGNAL_FILE):
-            os.remove(STOP_SIGNAL_FILE)
+def main(room_name: str):
+    G = nx.Graph()
+    pending_analysis_tasks = []
+    rag_data_path = Path("characters") / room_name / "rag_data"
+    graph_path = rag_data_path / "knowledge_graph.graphml"
+    analysis_file_path = rag_data_path / "pending_analysis.json"
 
-        print("インポーターを終了します。")
+    try:
+        # --- Setup ---
+        log_source_path = Path("characters") / room_name / "log_import_source"
+        log_source_path.mkdir(parents=True, exist_ok=True)
+        rag_data_path.mkdir(parents=True, exist_ok=True)
 
-    # --- main関数の本体 ---
-    if os.path.exists(STOP_SIGNAL_FILE):
-        os.remove(STOP_SIGNAL_FILE)
+        if graph_path.exists():
+            os.remove(graph_path)
+            logger.info("Removed existing knowledge graph to rebuild.")
+        if analysis_file_path.exists():
+            os.remove(analysis_file_path)
+            logger.info("Removed existing analysis file.")
 
-    # ▼▼▼【ここから下のブロックをまるごと置き換え】▼▼▼
-    print("\n" + "="*60)
-    print("!!! [重要なお知らせ] !!!")
-    print("Nexus Arkの記憶システムは、現在新しい『Cognee』システムへの移行作業中です。")
-    print("そのため、このバッチインポータースクリプトは一時的に無効化されています。")
-    print("開発ロードマップのフェーズ2で、Cogneeに対応した新しいバージョンが提供される予定です。")
-    print("="*60 + "\n")
-    # ▲▲▲【置き換えここまで】▲▲▲
+        G = nx.Graph()
+        logger.info("Created a new, empty knowledge graph.")
+
+        # --- Entity & Initial Edge Extraction ---
+        log_files = [f for f in log_source_path.glob("*.txt")]
+        logger.info(f"Found {len(log_files)} log files.")
+
+        all_chunks = []
+        for log_file_path in log_files:
+            if shutdown_flag: break
+            logger.info(f"Reading and parsing log file: {log_file_path.name}")
+            log_entries = utils.load_chat_log(str(log_file_path))
+            full_conversation_text = "\n\n".join([entry["content"] for entry in log_entries if "content" in entry])
+            all_chunks.extend(chunk_log(full_conversation_text))
+
+        for i, chunk in enumerate(all_chunks):
+            if shutdown_flag: break
+            logger.info(f"Processing chunk {i+1}/{len(all_chunks)} for skeleton creation.")
+            doc = nlp(chunk)
+            entities = list(set([ent.text for ent in doc.ents if ent.label_ in ["PERSON", "ORG", "GPE", "FAC", "LOC"]]))
+
+            if len(entities) >= 2:
+                for entity in entities:
+                    if not G.has_node(entity): G.add_node(entity)
+                for j in range(len(entities)):
+                    for k in range(j + 1, len(entities)):
+                        u, v = entities[j], entities[k]
+                        if not G.has_edge(u, v):
+                            G.add_edge(u, v, relation="related_to")
+                            task = {"entity1": u, "entity2": v, "chunk": chunk}
+                            pending_analysis_tasks.append(task)
+
+        if shutdown_flag:
+             logger.warning("Shutdown signal received during chunk processing.")
+
+    finally:
+        # --- Save Skeleton Graph and Analysis "To-Do" List ---
+        logger.info("Saving skeleton graph and pending analysis tasks...")
+
+        nx.write_graphml(G, graph_path)
+        logger.info(f"Skeleton knowledge graph saved to {graph_path}")
+
+        with open(analysis_file_path, 'w', encoding='utf-8') as f:
+            json.dump(pending_analysis_tasks, f, indent=2, ensure_ascii=False)
+        logger.info(f"Pending analysis tasks saved to {analysis_file_path}")
+
+        if shutdown_flag:
+            logger.warning("Importer stopped due to shutdown signal. Partial files were saved.")
+        else:
+            logger.info("Skeleton creation process completed successfully.")
+
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Nexus Ark Knowledge Graph Skeleton Creator")
+    parser.add_argument("room_name", help="The name of the room to process.")
+    args = parser.parse_args()
+    main(args.room_name)

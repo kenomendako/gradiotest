@@ -365,12 +365,12 @@ try:
                             save_memory_button = gr.Button("主観的記憶を保存", variant="secondary")
                             reload_memory_button = gr.Button("再読込", variant="secondary")
                             core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
-                    with gr.TabItem("客観的記憶 (MemOS)"):
-                        gr.Markdown("## 客観的記憶 (MemOS) の管理")
-                        gr.Markdown("過去の対話ログなどをMemOSに取り込み、AIの永続的な記憶を構築します。")
+                    with gr.TabItem("知識グラフ管理"):
+                        gr.Markdown("## 知識グラフの管理")
+                        gr.Markdown("過去の対話ログを分析し、エンティティ間の関係性を抽出して、AIの永続的な知識グラフを構築・更新します。")
                         # ▼▼▼ 以下の <gr.Row> を追加 ▼▼▼
                         with gr.Row():
-                            memos_import_button = gr.Button("過去ログを客観記憶(MemOS)に取り込む", variant="primary", scale=3)
+                            memos_import_button = gr.Button("知識グラフを構築/更新する", variant="primary", scale=3)
                             importer_stop_button = gr.Button("処理を中断", variant="stop", visible=False, scale=1)
                         # ▲▲▲ ここまで ▲▲▲
                         gr.Markdown("---")

@@ -1137,32 +1137,112 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
 
 def handle_memos_batch_import(room_name: str, console_content: str):
     """
-    【暫定対応】この機能は新しい記憶システムへの移行のため、一時的に無効化されています。
+    【v3: 最終FIX版】
+    知識グラフの構築を、2段階のサブプロセスとして、堅牢に実行する。
+    いかなる状況でも、UIがフリーズしないことを保証する。
     """
-    gr.Warning("この機能は現在、新しい記憶システムへの移行のため一時的に無効化されています。フェーズ2で再実装される予定です。")
-    # UIコンポーネントの状態を変化させずに、元の状態を維持するための戻り値を生成します。
-    # outputsの数（6個）に合わせる必要があります。
+    # UIコンポーネントの数をハードコードするのではなく、動的に取得するか、
+    # 確実な数（今回は6）を返すようにする。
+    NUM_OUTPUTS = 6
+
+    # 処理中のUI更新を定義
+    # ★★★ あなたの好みに合わせてテキストを修正 ★★★
     yield (
-        gr.update(), # memos_import_button
-        gr.update(visible=False), # importer_stop_button
-        None, # importer_process_state
-        console_content, # debug_console_state
-        console_content, # debug_console_output
-        gr.update() # chat_input_multimodal
+        gr.update(value="知識グラフ構築中...", interactive=False), # Button
+        gr.update(visible=True), # Stop Button (今回は実装しないが将来のため)
+        None, # Process State
+        console_content, # Console State
+        console_content, # Console Output
+        gr.update(interactive=False)  # Chat Input
     )
 
-def handle_importer_stop(process):
-    stop_signal_file = "stop_importer.signal"
+    full_log_output = console_content
+    script_path_1 = "batch_importer.py"
+    script_path_2 = "soul_injector.py"
+
     try:
-        with open(stop_signal_file, "w") as f: f.write("stop")
-        gr.Warning("インポート処理の中断を要求しました。現在のペア処理が完了次第、安全に停止します...")
-    except Exception as e: gr.Error(f"中断要求の送信中にエラー: {e}")
-    # 戻り値の数を4個に修正
+        # --- ステージ1: 骨格の作成 ---
+        gr.Info("ステージ1/2: 知識グラフの骨格を作成しています...")
+
+        proc1 = subprocess.run(
+            [sys.executable, "-X", "utf8", script_path_1, room_name],
+            capture_output=True, text=True, encoding='utf-8', errors='ignore'
+        )
+
+        log_chunk = f"\n--- [{script_path_1} Output] ---\n{proc1.stdout}\n{proc1.stderr}"
+        full_log_output += log_chunk
+        yield (
+            gr.update(), gr.update(), None,
+            full_log_output, full_log_output, gr.update()
+        )
+
+        if proc1.returncode != 0:
+            raise RuntimeError(f"{script_path_1} failed with return code {proc1.returncode}")
+
+        gr.Info("ステージ1/2: 骨格の作成に成功しました。")
+
+        # --- ステージ2: 魂の注入 ---
+        # ★★★ あなたの好みに合わせてテキストを修正 ★★★
+        gr.Info("ステージ2/2: 知識グラフを構築中です...")
+
+        proc2 = subprocess.run(
+            [sys.executable, "-X", "utf8", script_path_2, room_name],
+            capture_output=True, text=True, encoding='utf-8', errors='ignore'
+        )
+
+        log_chunk = f"\n--- [{script_path_2} Output] ---\n{proc2.stdout}\n{proc2.stderr}"
+        full_log_output += log_chunk
+        yield (
+            gr.update(), gr.update(), None,
+            full_log_output, full_log_output, gr.update()
+        )
+
+        if proc2.returncode != 0:
+            raise RuntimeError(f"{script_path_2} failed with return code {proc2.returncode}")
+
+        gr.Info("✅ 知識グラフの構築が、正常に完了しました！")
+
+    except Exception as e:
+        error_message = f"知識グラフの構築中にエラーが発生しました: {e}"
+        logging.error(error_message)
+        logging.error(traceback.format_exc())
+        gr.Error(error_message)
+
+    finally:
+        # --- 最終処理: UIを必ず元の状態に戻す ---
+        yield (
+            gr.update(value="知識グラフを構築/更新する", interactive=True), # Button
+            gr.update(visible=False), # Stop Button
+            None, # Process State
+            full_log_output, # Console State
+            full_log_output, # Console Output
+            gr.update(interactive=True) # Chat Input
+        )
+
+
+def handle_importer_stop(pid: int):
+    """
+    実行中のインポータープロセスを中断する。
+    """
+    if pid is None:
+        gr.Warning("停止対象のプロセスが見つかりません。")
+        return gr.update(interactive=True, value="知識グラフを構築/更新する"), gr.update(visible=False), None, gr.update(interactive=True)
+
+    try:
+        process = psutil.Process(pid)
+        process.terminate()  # SIGTERMを送信
+        gr.Info(f"インポート処理(PID: {pid})に停止信号を送信しました。")
+    except psutil.NoSuchProcess:
+        gr.Warning(f"プロセス(PID: {pid})は既に終了しています。")
+    except Exception as e:
+        gr.Error(f"プロセスの停止中にエラーが発生しました: {e}")
+        traceback.print_exc()
+
     return (
-        gr.update(value="中断中...", interactive=False),
-        gr.update(interactive=False),
-        process,
-        gr.update(interactive=False)
+        gr.update(interactive=True, value="知識グラフを構築/更新する"),
+        gr.update(visible=False),
+        None,
+        gr.update(interactive=True)
     )
 
 def _run_core_memory_update(room_name: str, api_key: str):

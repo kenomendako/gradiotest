@@ -86,6 +86,11 @@ cd your-repository-name
 pip install -r requirements.txt
 ```
 
+新しい知識グラフシステムのために、`spaCy`の日本語モデルをダウンロードします。
+```bash
+python -m spacy download ja_core_news_lg
+```
+
 ### 3. 設定
 
 初めてアプリケーションを起動すると、いくつかの設定ファイルが自動で生成されます。
