@@ -374,6 +374,10 @@ try:
                             importer_stop_button = gr.Button("処理を中断", variant="stop", visible=False, scale=1)
                         # ▲▲▲ ここまで ▲▲▲
                         gr.Markdown("---")
+                        with gr.Row():
+                            visualize_graph_button = gr.Button("現在の知識グラフを可視化する")
+                        graph_image_display = gr.Image(label="知識グラフの可視化結果", interactive=False, visible=False)
+                        gr.Markdown("---")
                         gr.Markdown("### 索引管理（旧機能）")
                         rag_update_button = gr.Button("手帳の索引を更新", variant="secondary", visible=False) # 機能は削除されたが、UIハンドラに残っているので一旦非表示
                     with gr.TabItem("メモ帳 (Markdown)"):
@@ -741,6 +745,12 @@ try:
                 importer_process_state,
                 chat_input_multimodal
             ]
+        )
+
+        visualize_graph_button.click(
+            fn=ui_handlers.handle_visualize_graph,
+            inputs=[current_room_name],
+            outputs=[graph_image_display]
         )
 
         # ▲▲▲ ここまで ▲▲▲
