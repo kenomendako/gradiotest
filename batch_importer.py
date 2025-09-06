@@ -1,25 +1,24 @@
+# --- ステップ1: 必要な標準ライブラリと設定マネージャーをインポート ---
 import os
 import sys
-import json
 import argparse
-import time
-import re
-import signal
-from typing import List, Dict, Tuple
 import logging
-from pathlib import Path
+import json
+import time
+import signal
 import traceback
+from typing import List
+from pathlib import Path
 
+# --- ステップ2: Nexus Arkのコア設定を、何よりも先に読み込む ---
+import config_manager
+config_manager.load_config()
+
+# --- ステップ3: 設定が完了した後で、外部ライブラリをインポート ---
 import spacy
 import networkx as nx
-
-# Constants and utilsをインポート
-try:
-    import constants
-    import utils
-except ImportError:
-    print("Error: constants.py or utils.py not found. Please ensure they are in the same directory.")
-    sys.exit(1)
+import constants
+import utils
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -70,7 +69,6 @@ def main(room_name: str):
         log_source_path.mkdir(parents=True, exist_ok=True)
         rag_data_path.mkdir(parents=True, exist_ok=True)
 
-        # Always start with a fresh graph and analysis file for simplicity
         if graph_path.exists():
             os.remove(graph_path)
             logger.info("Removed existing knowledge graph to rebuild.")
@@ -107,7 +105,6 @@ def main(room_name: str):
                         u, v = entities[j], entities[k]
                         if not G.has_edge(u, v):
                             G.add_edge(u, v, relation="related_to")
-                            # Add this edge to the list of tasks for the next step
                             task = {"entity1": u, "entity2": v, "chunk": chunk}
                             pending_analysis_tasks.append(task)
 
@@ -118,11 +115,9 @@ def main(room_name: str):
         # --- Save Skeleton Graph and Analysis "To-Do" List ---
         logger.info("Saving skeleton graph and pending analysis tasks...")
 
-        # Save the graph with "related_to" edges
         nx.write_graphml(G, graph_path)
         logger.info(f"Skeleton knowledge graph saved to {graph_path}")
 
-        # Save the list of tasks for the soul_injector.py
         with open(analysis_file_path, 'w', encoding='utf-8') as f:
             json.dump(pending_analysis_tasks, f, indent=2, ensure_ascii=False)
         logger.info(f"Pending analysis tasks saved to {analysis_file_path}")
