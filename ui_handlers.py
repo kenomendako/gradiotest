@@ -1151,7 +1151,7 @@ def handle_memos_batch_import(room_name: str, console_content: str):
         gr.Info(f"ステージ1/2: 知識グラフの骨格を作成しています...")
         yield gr.update(value="知識グラフ構築中...", interactive=False), gr.update(visible=False), None, console_content, console_content, gr.update(interactive=False)
 
-        command_importer = [sys.executable, "batch_importer.py", room_name]
+        command_importer = [sys.executable, "-X", "utf8", "batch_importer.py", room_name]
 
         result = subprocess.run(
             command_importer,
@@ -1186,7 +1186,7 @@ def handle_memos_batch_import(room_name: str, console_content: str):
     # --- Stage 2: Soul Injection (Asynchronous) ---
     try:
         gr.Info(f"ステージ2/2: 知識グラフに魂を注入しています...(非同期)")
-        command_injector = [sys.executable, "soul_injector.py", room_name]
+        command_injector = [sys.executable, "-X", "utf8", "soul_injector.py", room_name]
 
         process = subprocess.Popen(
             command_injector,
