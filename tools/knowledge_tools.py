@@ -41,20 +41,37 @@ def search_knowledge_graph(query: str, room_name: str) -> str:
     # 3. 質問文から、核となるエンティティを抽出
     doc = nlp(query)
     entities_in_query = [ent.text for ent in doc.ents]
+
+    # もしspaCyが固有表現を見つけられなかった場合、
+    # 質問文そのもの（query）を、検索キーワードのリストに追加するフォールバック処理
     if not entities_in_query:
-        # もし固有表現が見つからなければ、名詞を抽出するフォールバック
-        entities_in_query = [token.text for token in doc if token.pos_ == "NOUN"]
+        # 質問文から、助詞や句読点などを取り除き、キーワードだけを抽出する
+        # （例：「ルシアンに関する情報を教えて」 -> 「ルシアン 情報」）
+        keywords = [token.lemma_ for token in doc if not token.is_stop and not token.is_punct and token.pos_ not in ['AUX', 'PART']]
+        if keywords:
+            entities_in_query.extend(keywords)
+        else:
+            # それでもキーワードが見つからなければ、元のqueryをそのまま使う
+            entities_in_query.append(query)
 
     if not entities_in_query:
-        return "【エラー】質問文から、検索の核となるキーワード（人名、場所、物事など）を特定できませんでした。"
+        return "【エラー】質問文から、検索の核となるキーワードを特定できませんでした。"
 
     # 4. グラフ内から、関連する情報を検索
     found_facts = []
     # 質問に含まれる各エンティティについてループ
     for entity in entities_in_query:
-        # グラフ内に、そのエンティティに部分一致するノードがあるか検索
-        # （例：質問が「キャラクターA」なら、グラフの「キャラクターA」や「キャラクターABC」がヒットする）
-        matching_nodes = [node for node in G.nodes() if entity in node]
+        # グラフ内に、そのエンティティに「部分一致」するノードがあるか検索
+        # （例：質問が「ルシアン」なら、グラフの「ルシアン」がヒットする）
+        # 以前の `in` 演算子による部分一致検索は、意図しない結果を生む可能性があるため、
+        # より厳格な「完全一致」でまず探し、見つからなければ部分一致を試みる、という2段階の検索に変更する。
+
+        # ステップA: 完全一致するノードを探す
+        matching_nodes = [node for node in G.nodes() if entity == node]
+
+        # ステップB: もし完全一致で見つからなければ、部分一致を試みる
+        if not matching_nodes:
+            matching_nodes = [node for node in G.nodes() if entity in node]
 
         for node in matching_nodes:
             # そのノードに接続されている全てのエッジ（関係性）を取得
