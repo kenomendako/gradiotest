@@ -1148,43 +1148,44 @@ def handle_memos_batch_import(room_name: str, console_content: str):
 
     # --- Stage 1: Skeleton Creation (Synchronous) ---
     try:
-        gr.Info(f"ステージ1: 「{room_name}」の知識グラフの骨格を作成しています...")
+        gr.Info(f"ステージ1/2: 知識グラフの骨格を作成しています...")
+        yield gr.update(value="知識グラフ構築中...", interactive=False), gr.update(visible=False), None, console_content, console_content, gr.update(interactive=False)
+
         command_importer = [sys.executable, "batch_importer.py", room_name]
 
-        # subprocess.runを使って同期待ちする
         result = subprocess.run(
             command_importer,
             capture_output=True,
             text=True,
+            check=True,
             encoding='utf-8',
-            errors='replace',
-            check=True # エラーがあれば例外を発生させる
+            errors='ignore'
         )
 
         console_content += f"\n--- [batch_importer.py Output] ---\n{result.stdout}\n{result.stderr}\n"
-        gr.Info("ステージ1完了。知識グラフの骨格が作成されました。")
+        gr.Info("ステージ1完了。骨格の作成に成功しました。")
 
     except FileNotFoundError:
         error_msg = "エラー: `batch_importer.py`が見つかりません。"
         gr.Error(error_msg)
-        yield (gr.update(), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update())
+        yield (gr.update(interactive=True), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update(interactive=True))
         return
     except subprocess.CalledProcessError as e:
         error_msg = f"ステージ1(骨格作成)でエラーが発生しました:\n{e.stderr}"
         gr.Error(error_msg)
         console_content += f"\n--- [batch_importer.py ERROR] ---\n{e.stdout}\n{e.stderr}\n"
-        yield (gr.update(), gr.update(visible=False), None, console_content, console_content, gr.update())
+        yield (gr.update(interactive=True), gr.update(visible=False), None, console_content, console_content, gr.update(interactive=True))
         return
     except Exception as e:
         error_msg = f"ステージ1の実行中に予期せぬエラーが発生しました: {e}"
         gr.Error(error_msg)
         traceback.print_exc()
-        yield (gr.update(), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update())
+        yield (gr.update(interactive=True), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update(interactive=True))
         return
 
     # --- Stage 2: Soul Injection (Asynchronous) ---
     try:
-        gr.Info(f"ステージ2: 「{room_name}」の知識グラフに魂を注入しています...(非同期)")
+        gr.Info(f"ステージ2/2: 知識グラフに魂を注入しています...(非同期)")
         command_injector = [sys.executable, "soul_injector.py", room_name]
 
         process = subprocess.Popen(
@@ -1193,26 +1194,26 @@ def handle_memos_batch_import(room_name: str, console_content: str):
             stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
-            errors='replace'
+            errors='ignore'
         )
 
         yield (
-            gr.update(interactive=False, value="魂を注入中..."),
+            gr.update(value="知識グラフ構築中...", interactive=False),
             gr.update(visible=True, interactive=True),
             process.pid,
             console_content,
-            console_content, # 後で非同期に更新するなら、ここも更新対象
+            console_content,
             gr.update(interactive=False)
         )
     except FileNotFoundError:
         error_msg = "エラー: `soul_injector.py`が見つかりません。"
         gr.Error(error_msg)
-        yield (gr.update(), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update())
+        yield (gr.update(interactive=True), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update(interactive=True))
     except Exception as e:
         error_msg = f"ステージ2の起動中にエラーが発生しました: {e}"
         gr.Error(error_msg)
         traceback.print_exc()
-        yield (gr.update(), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update())
+        yield (gr.update(interactive=True), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update(interactive=True))
 
 
 def handle_importer_stop(pid: int):
