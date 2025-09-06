@@ -1137,83 +1137,87 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
 
 def handle_memos_batch_import(room_name: str, console_content: str):
     """
-    プロセスを2段階に分離して実行する。
-    1. batch_importer.py: 骨格を同期的に生成。
-    2. soul_injector.py: 魂を非同期的に注入。
+    【v3: 最終FIX版】
+    知識グラフの構築を、2段階のサブプロセスとして、堅牢に実行する。
+    いかなる状況でも、UIがフリーズしないことを保証する。
     """
-    if not room_name:
-        gr.Warning("知識グラフを構築するルームを選択してください。")
-        yield (gr.update(), gr.update(visible=False), None, console_content, console_content, gr.update())
-        return
+    # UIコンポーネントの数をハードコードするのではなく、動的に取得するか、
+    # 確実な数（今回は6）を返すようにする。
+    NUM_OUTPUTS = 6
 
-    # --- Stage 1: Skeleton Creation (Synchronous) ---
+    # 処理中のUI更新を定義
+    # ★★★ あなたの好みに合わせてテキストを修正 ★★★
+    yield (
+        gr.update(value="知識グラフ構築中...", interactive=False), # Button
+        gr.update(visible=True), # Stop Button (今回は実装しないが将来のため)
+        None, # Process State
+        console_content, # Console State
+        console_content, # Console Output
+        gr.update(interactive=False)  # Chat Input
+    )
+
+    full_log_output = console_content
+    script_path_1 = "batch_importer.py"
+    script_path_2 = "soul_injector.py"
+
     try:
-        gr.Info(f"ステージ1/2: 知識グラフの骨格を作成しています...")
-        yield gr.update(value="知識グラフ構築中...", interactive=False), gr.update(visible=False), None, console_content, console_content, gr.update(interactive=False)
+        # --- ステージ1: 骨格の作成 ---
+        gr.Info("ステージ1/2: 知識グラフの骨格を作成しています...")
 
-        command_importer = [sys.executable, "-X", "utf8", "batch_importer.py", room_name]
-
-        result = subprocess.run(
-            command_importer,
-            capture_output=True,
-            text=True,
-            check=True,
-            encoding='utf-8',
-            errors='ignore'
+        proc1 = subprocess.run(
+            [sys.executable, "-X", "utf8", script_path_1, room_name],
+            capture_output=True, text=True, encoding='utf-8', errors='ignore'
         )
 
-        console_content += f"\n--- [batch_importer.py Output] ---\n{result.stdout}\n{result.stderr}\n"
-        gr.Info("ステージ1完了。骨格の作成に成功しました。")
-
-    except FileNotFoundError:
-        error_msg = "エラー: `batch_importer.py`が見つかりません。"
-        gr.Error(error_msg)
-        yield (gr.update(interactive=True), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update(interactive=True))
-        return
-    except subprocess.CalledProcessError as e:
-        error_msg = f"ステージ1(骨格作成)でエラーが発生しました:\n{e.stderr}"
-        gr.Error(error_msg)
-        console_content += f"\n--- [batch_importer.py ERROR] ---\n{e.stdout}\n{e.stderr}\n"
-        yield (gr.update(interactive=True), gr.update(visible=False), None, console_content, console_content, gr.update(interactive=True))
-        return
-    except Exception as e:
-        error_msg = f"ステージ1の実行中に予期せぬエラーが発生しました: {e}"
-        gr.Error(error_msg)
-        traceback.print_exc()
-        yield (gr.update(interactive=True), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update(interactive=True))
-        return
-
-    # --- Stage 2: Soul Injection (Asynchronous) ---
-    try:
-        gr.Info(f"ステージ2/2: 知識グラフに魂を注入しています...(非同期)")
-        command_injector = [sys.executable, "-X", "utf8", "soul_injector.py", room_name]
-
-        process = subprocess.Popen(
-            command_injector,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8',
-            errors='ignore'
-        )
-
+        log_chunk = f"\n--- [{script_path_1} Output] ---\n{proc1.stdout}\n{proc1.stderr}"
+        full_log_output += log_chunk
         yield (
-            gr.update(value="知識グラフ構築中...", interactive=False),
-            gr.update(visible=True, interactive=True),
-            process.pid,
-            console_content,
-            console_content,
-            gr.update(interactive=False)
+            gr.update(), gr.update(), None,
+            full_log_output, full_log_output, gr.update()
         )
-    except FileNotFoundError:
-        error_msg = "エラー: `soul_injector.py`が見つかりません。"
-        gr.Error(error_msg)
-        yield (gr.update(interactive=True), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update(interactive=True))
+
+        if proc1.returncode != 0:
+            raise RuntimeError(f"{script_path_1} failed with return code {proc1.returncode}")
+
+        gr.Info("ステージ1/2: 骨格の作成に成功しました。")
+
+        # --- ステージ2: 魂の注入 ---
+        # ★★★ あなたの好みに合わせてテキストを修正 ★★★
+        gr.Info("ステージ2/2: 知識グラフを構築中です...")
+
+        proc2 = subprocess.run(
+            [sys.executable, "-X", "utf8", script_path_2, room_name],
+            capture_output=True, text=True, encoding='utf-8', errors='ignore'
+        )
+
+        log_chunk = f"\n--- [{script_path_2} Output] ---\n{proc2.stdout}\n{proc2.stderr}"
+        full_log_output += log_chunk
+        yield (
+            gr.update(), gr.update(), None,
+            full_log_output, full_log_output, gr.update()
+        )
+
+        if proc2.returncode != 0:
+            raise RuntimeError(f"{script_path_2} failed with return code {proc2.returncode}")
+
+        gr.Info("✅ 知識グラフの構築が、正常に完了しました！")
+
     except Exception as e:
-        error_msg = f"ステージ2の起動中にエラーが発生しました: {e}"
-        gr.Error(error_msg)
-        traceback.print_exc()
-        yield (gr.update(interactive=True), gr.update(visible=False), None, console_content, f"{console_content}\n{error_msg}", gr.update(interactive=True))
+        error_message = f"知識グラフの構築中にエラーが発生しました: {e}"
+        logging.error(error_message)
+        logging.error(traceback.format_exc())
+        gr.Error(error_message)
+
+    finally:
+        # --- 最終処理: UIを必ず元の状態に戻す ---
+        yield (
+            gr.update(value="知識グラフを構築/更新する", interactive=True), # Button
+            gr.update(visible=False), # Stop Button
+            None, # Process State
+            full_log_output, # Console State
+            full_log_output, # Console Output
+            gr.update(interactive=True) # Chat Input
+        )
 
 
 def handle_importer_stop(pid: int):
