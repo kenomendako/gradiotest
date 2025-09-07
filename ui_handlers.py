@@ -78,7 +78,12 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         room_list = room_manager.get_room_list_for_ui()
         room_name = room_list[0][1] if room_list else "Default"
 
-    chat_history, mapping_list = reload_chat_log(room_name, config_manager.initial_api_history_limit_option_global)
+    effective_settings = config_manager.get_effective_settings(room_name)
+    chat_history, mapping_list = reload_chat_log(
+        room_name=room_name,
+        api_history_limit_value=config_manager.initial_api_history_limit_option_global,
+        add_timestamp=effective_settings.get("add_timestamp", False)
+    )
     _, _, img_p, mem_p, notepad_p = get_room_files_paths(room_name)
     memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
     profile_image = img_p if img_p and os.path.exists(img_p) else None
@@ -93,7 +98,6 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         location_dd_val = None
     current_location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
     scenery_image_path = utils.find_scenery_image(room_name, location_dd_val)
-    effective_settings = config_manager.get_effective_settings(room_name)
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "iapetus"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
     safety_display_map = {
@@ -293,7 +297,13 @@ def _stream_and_handle_response(
     【v2: 再生成対応】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
     """
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
-    chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit)
+    effective_settings = config_manager.get_effective_settings(soul_vessel_room)
+    add_timestamp = effective_settings.get("add_timestamp", False)
+    chatbot_history, mapping_list = reload_chat_log(
+        room_name=soul_vessel_room,
+        api_history_limit_value=api_history_limit,
+        add_timestamp=add_timestamp
+    )
 
     try:
         # 1. UIをストリーミングモードに移行
@@ -373,7 +383,11 @@ def _stream_and_handle_response(
 
     finally:
         # 7. 処理完了後の最終的なUI更新
-        final_chatbot_history, final_mapping_list = reload_chat_log(soul_vessel_room, api_history_limit)
+        final_chatbot_history, final_mapping_list = reload_chat_log(
+            room_name=soul_vessel_room,
+            api_history_limit_value=api_history_limit,
+            add_timestamp=add_timestamp
+        )
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
         scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
@@ -405,9 +419,9 @@ def handle_message_submission(*args: Any):
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
 
     log_message_parts = []
-    effective_settings = config_manager.get_effective_settings(soul_vessel_room)
-    add_timestamp = effective_settings.get("add_timestamp", False)
-    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}" if add_timestamp else ""
+    # タイムスタンプはUI設定(add_timestamp)に関わらず、常にログに記録する。
+    # UIでの表示/非表示は、表示用のフォーマッタ(format_history_for_gradio)が担当する。
+    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
 
     if user_prompt_from_textbox:
         log_message_parts.append(user_prompt_from_textbox + timestamp)
@@ -422,7 +436,9 @@ def handle_message_submission(*args: Any):
     full_user_log_entry = "\n".join(log_message_parts).strip()
 
     if not full_user_log_entry:
-        history, mapping = reload_chat_log(soul_vessel_room, api_history_limit)
+        effective_settings = config_manager.get_effective_settings(soul_vessel_room)
+        add_timestamp = effective_settings.get("add_timestamp", False)
+        history, mapping = reload_chat_log(soul_vessel_room, api_history_limit, add_timestamp)
         yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), console_content, console_content,
                gr.update(visible=False), gr.update(interactive=True))
@@ -505,7 +521,9 @@ def handle_rerun_button_click(*args: Any):
 
     if restored_input_text is None:
         gr.Error("ログの巻き戻しに失敗しました。再生成できません。")
-        history, mapping = reload_chat_log(room_name, api_history_limit)
+        effective_settings = config_manager.get_effective_settings(room_name)
+        add_timestamp = effective_settings.get("add_timestamp", False)
+        history, mapping = reload_chat_log(room_name, api_history_limit, add_timestamp)
         yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), console_content, console_content,
                gr.update(visible=True, interactive=True), gr.update(interactive=True))
@@ -919,10 +937,18 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
     else:
         gr.Error("メッセージの削除に失敗しました。詳細はターミナルを確認してください。")
 
-    history, mapping_list = reload_chat_log(room_name, api_history_limit)
+    effective_settings = config_manager.get_effective_settings(room_name)
+    add_timestamp = effective_settings.get("add_timestamp", False)
+    history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, mapping_list, None, gr.update(visible=False)
 
-def reload_chat_log(room_name: Optional[str], api_history_limit_value: str, screenshot_mode: bool = False, redaction_rules: List[Dict] = None):
+def reload_chat_log(
+    room_name: Optional[str],
+    api_history_limit_value: str,
+    add_timestamp: bool,
+    screenshot_mode: bool = False,
+    redaction_rules: List[Dict] = None
+):
     if not room_name:
         return [], []
 
@@ -933,7 +959,13 @@ def reload_chat_log(room_name: Optional[str], api_history_limit_value: str, scre
     full_raw_history = utils.load_chat_log(log_f)
     display_turns = _get_display_history_count(api_history_limit_value)
     visible_history = full_raw_history[-(display_turns * 2):]
-    history, mapping_list = format_history_for_gradio(visible_history, room_name, screenshot_mode, redaction_rules)
+    history, mapping_list = utils.format_history_for_gradio(
+        messages=visible_history,
+        current_room_folder=room_name,
+        add_timestamp=add_timestamp,
+        screenshot_mode=screenshot_mode,
+        redaction_rules=redaction_rules
+    )
     return history, mapping_list
 
 def handle_wb_add_place_button_click(area_selector_value: Optional[str]):
@@ -1134,6 +1166,71 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
     config_manager.save_memos_config("auto_memory_enabled", auto_memory_enabled)
     status = "有効" if auto_memory_enabled else "無効"
     gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
+
+def handle_memory_archiving(room_name: str, console_content: str, source: str):
+    """
+    【v1: 新規作成】
+    記憶の生成（アーカイブまたは手動インポート）をサブプロセスとして堅牢に実行する。
+    いかなる状況でも、UIがフリーズしないことを保証する。
+    """
+    # nexus_ark.pyで定義されている出力コンポーネントの数に合わせる
+    # (memos_import_button, memory_archive_button, importer_stop_button, importer_process_state,
+    #  debug_console_state, debug_console_output, chat_input_multimodal)
+    NUM_OUTPUTS = 7
+
+    # 処理中のUI更新を定義
+    yield (
+        gr.update(value="記憶を生成中...", interactive=False),
+        gr.update(value="記憶を生成中...", interactive=False),
+        gr.update(visible=True),
+        None, # Process State
+        console_content, # Console State
+        console_content, # Console Output
+        gr.update(interactive=False)  # Chat Input
+    )
+
+    full_log_output = console_content
+    script_path = "memory_archivist.py"
+
+    try:
+        gr.Info(f"記憶の生成を開始します... (ソース: {source})")
+
+        proc = subprocess.run(
+            [sys.executable, "-X", "utf8", script_path, "--room_name", room_name, "--source", source],
+            capture_output=True, text=True, encoding='utf-8', errors='ignore'
+        )
+
+        log_chunk = f"\n--- [{script_path} Output] ---\n{proc.stdout}\n{proc.stderr}"
+        full_log_output += log_chunk
+        yield (
+            gr.update(), gr.update(), None,
+            full_log_output, full_log_output, gr.update()
+        )
+
+        if proc.returncode != 0:
+            raise RuntimeError(f"{script_path} failed with return code {proc.returncode}")
+
+        gr.Info("✅ 記憶の生成が、正常に完了しました！")
+
+    except Exception as e:
+        error_message = f"記憶の生成中にエラーが発生しました: {e}"
+        # loggingは未定義なので、printとtracebackを使用
+        print(error_message)
+        traceback.print_exc()
+        gr.Error(error_message)
+
+    finally:
+        # --- 最終処理: UIを必ず元の状態に戻す ---
+        yield (
+            gr.update(value="手動インポートから記憶を生成", interactive=True),
+            gr.update(value="自動アーカイブから記憶を生成", interactive=True),
+            gr.update(visible=False), # Stop Button
+            None, # Process State
+            full_log_output, # Console State
+            full_log_output, # Console Output
+            gr.update(interactive=True) # Chat Input
+        )
+
 
 def handle_memos_batch_import(room_name: str, console_content: str):
     """
@@ -1355,146 +1452,6 @@ def handle_delete_redaction_rule(
     # フォームと選択状態をリセット
     return df_for_ui, current_rules, None, "", ""
 
-def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
-    """
-    生ログの辞書リストを、GradioのChatbotコンポーネントが要求する形式に変換する。
-    UI上の行と元のログの行を紐付けるマッピングリストも同時に生成する。
-    v4: 話者名にも置換ルールを適用。
-    """
-    if not messages:
-        return [], []
-
-    # --- 置換ルールの準備 ---
-    active_rules = []
-    if screenshot_mode and redaction_rules:
-        active_rules = sorted(redaction_rules, key=lambda x: len(x["find"]), reverse=True)
-
-    def apply_redactions_to_speaker(speaker_name: str) -> str:
-        """話者名専用の置換関数。HTMLタグを含めず、テキストのみを返す。"""
-        if not screenshot_mode or not active_rules or not speaker_name:
-            return speaker_name
-
-        # 話者名は単純なテキスト置換を行う
-        temp_speaker_name = speaker_name
-        for rule in active_rules:
-            # 大文字小文字を区別せずに置換する
-            if rule["find"].lower() in temp_speaker_name.lower():
-                 # 置換する際、元の単語の大文字小文字の状態をできるだけ維持しようと試みる
-                 # （この実装は単純なもので、より複雑なケースには対応しきれない可能性がある）
-                 # 例： 'Miho' -> 'Keno', 'miho' -> 'keno'
-                try:
-                    # 正規表現で大文字小文字を無視して置換
-                    temp_speaker_name = re.sub(rule["find"], rule["replace"], temp_speaker_name, flags=re.IGNORECASE)
-                except re.error:
-                    # 正規表現エラーを避けるためのフォールバック
-                    temp_speaker_name = temp_speaker_name.replace(rule["find"], rule["replace"])
-
-        return temp_speaker_name
-
-    def apply_redactions_to_content(text: str) -> str:
-        """本文専用の置換関数。HTMLタグでハイライトする。"""
-        if not screenshot_mode or not active_rules or not text:
-            return html.escape(text) if text else ""
-
-        escaped_text = html.escape(text)
-        for rule in active_rules:
-            find_str = html.escape(rule["find"])
-            # 正規表現のエスケープを行い、安全に置換する
-            safe_find_str = re.escape(find_str)
-            # 置換後の文字列はHTMLなのでエスケープしない
-            replace_str = f'<span style="background-color: #FFFFB3; padding: 1px 3px; border-radius: 3px; color: #333;">{html.escape(rule["replace"])}</span>'
-            try:
-                # 大文字小文字を無視して置換
-                escaped_text = re.sub(safe_find_str, replace_str, escaped_text, flags=re.IGNORECASE)
-            except re.error:
-                 # 正規表現エラーを避けるためのフォールバック
-                escaped_text = escaped_text.replace(find_str, replace_str)
-
-        return escaped_text
-
-    # --- 話者名解決の準備 ---
-    current_room_config = room_manager.get_room_config(current_room_folder) or {}
-    user_display_name = current_room_config.get("user_display_name", "ユーザー")
-    all_rooms_list = room_manager.get_room_list_for_ui()
-    folder_to_display_map = {folder: display for display, folder in all_rooms_list}
-    known_configs = {}
-
-    # --- Stage 1: 生ログをUI表示要素のリストに分解 ---
-    proto_history = []
-    user_file_attach_pattern = re.compile(r"\[ファイル添付: ([^\]]+?)\]")
-    gen_image_pattern = re.compile(r"\[Generated Image: ([^\]]+?)\]")
-
-    for i, msg in enumerate(messages):
-        role = msg.get("role")
-        content = msg.get("content", "").strip()
-        responder_id = msg.get("responder")
-        if not responder_id: continue
-
-        initial_speaker_name = ""
-        if role == "USER":
-            initial_speaker_name = user_display_name
-        elif role == "AGENT":
-            if responder_id == current_room_folder:
-                initial_speaker_name = current_room_config.get("agent_display_name") or current_room_config.get("room_name", responder_id)
-            else:
-                if responder_id not in known_configs:
-                    known_configs[responder_id] = room_manager.get_room_config(responder_id) if responder_id in folder_to_display_map else {}
-                config = known_configs[responder_id]
-                initial_speaker_name = config.get("agent_display_name") or config.get("room_name", responder_id) if config else f"{responder_id} [削除済]"
-        else:
-            initial_speaker_name = responder_id
-
-        # ▼▼▼【ここからが修正の核心】▼▼▼
-        final_speaker_name = apply_redactions_to_speaker(initial_speaker_name)
-        # ▲▲▲【修正ここまで】▲▲▲
-
-        text_part, media_paths = content, []
-        if role == "USER":
-            text_part = user_file_attach_pattern.sub("", content).strip()
-            media_paths = [p.strip() for p in user_file_attach_pattern.findall(content)]
-        elif role == "AGENT":
-            text_part = gen_image_pattern.sub("", content).strip()
-            media_paths = [p.strip() for p in gen_image_pattern.findall(content)]
-
-        if text_part:
-            thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
-            thought_match = thoughts_pattern.search(text_part)
-            thoughts_content = thought_match.group(1).strip() if thought_match else ""
-            main_text_content = thoughts_pattern.sub("", text_part).strip()
-            proto_history.append({"type": "text", "role": role, "speaker": final_speaker_name, "main_text": main_text_content, "thoughts": thoughts_content, "log_index": i})
-
-        for path in media_paths:
-            if os.path.exists(path):
-                proto_history.append({"type": "media", "role": role, "speaker": final_speaker_name, "path": path, "log_index": i})
-
-        if not text_part and not media_paths:
-            proto_history.append({"type": "text", "role": role, "speaker": final_speaker_name, "main_text": "", "thoughts": "", "log_index": i})
-
-    # --- Stage 2: UI表示要素リストから最終的なGradio形式を生成 ---
-    gradio_history, mapping_list = [], []
-    total_ui_rows = len(proto_history)
-
-    for ui_index, item in enumerate(proto_history):
-        mapping_list.append(item["log_index"])
-
-        if item["type"] == "text":
-            # ▼▼▼【ここを修正】▼▼▼
-            # コンテンツの置換は新しい専用関数を呼び出す
-            formatted_text = _format_text_content_for_gradio(
-                apply_redactions_to_content(item["main_text"]),
-                apply_redactions_to_content(item["thoughts"]),
-                item["speaker"], # こちらは既に置換済みの話者名
-                ui_index,
-                total_ui_rows
-            )
-            # ▲▲▲【修正ここまで】▲▲▲
-            gradio_history.append((formatted_text, None) if item["role"] == "USER" else (None, formatted_text))
-
-        elif item["type"] == "media":
-            media_tuple = (item["path"], os.path.basename(item["path"]))
-            gradio_history.append((media_tuple, None) if item["role"] == "USER" else (None, media_tuple))
-
-    return gradio_history, mapping_list
 
 def _format_text_content_for_gradio(
     main_text_html: str,
@@ -1550,10 +1507,10 @@ def update_api_key_state(api_key_name):
     gr.Info(f"APIキーを '{api_key_name}' に設定しました。")
     return api_key_name
 
-def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, room_name: Optional[str], screenshot_mode: bool = False, redaction_rules: List[Dict] = None):
+def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, room_name: Optional[str], add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None):
     key = next((k for k, v in constants.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
     config_manager.save_config("last_api_history_limit_option", key)
-    history, mapping_list = reload_chat_log(room_name, key, screenshot_mode, redaction_rules)
+    history, mapping_list = reload_chat_log(room_name, key, add_timestamp, screenshot_mode, redaction_rules)
     return key, history, mapping_list
 
 def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], room_name: str, api_key_name: str):

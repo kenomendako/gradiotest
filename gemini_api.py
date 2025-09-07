@@ -74,11 +74,15 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
     return result.total_tokens
 
-def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str) -> list:
+def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str, add_timestamp: bool) -> list:
     from langchain_core.messages import HumanMessage, AIMessage
     lc_messages = []
+    timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
+
     for h_item in raw_history:
         content = h_item.get('content', '').strip()
+        if not add_timestamp:
+            content = timestamp_pattern.sub('', content)
         responder_id = h_item.get('responder', '')
         role = h_item.get('role', '')
         # This was `if not content...`, but empty content is a valid message (header-only)
@@ -138,14 +142,15 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
 
     # --- ハイブリッド履歴構築ロジック ---
     messages = []
+    add_timestamp = effective_settings.get("add_timestamp", False)
     responding_ai_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
         own_history_raw = utils.load_chat_log(responding_ai_log_f)
-        messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond)
+        messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond, add_timestamp)
 
     if history_log_path and os.path.exists(history_log_path):
         snapshot_history_raw = utils.load_chat_log(history_log_path)
-        snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond)
+        snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond, add_timestamp)
         if snapshot_messages and messages:
             first_snapshot_user_message_content = None
             for msg in snapshot_messages:

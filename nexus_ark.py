@@ -370,7 +370,8 @@ try:
                         gr.Markdown("過去の対話ログを分析し、エンティティ間の関係性を抽出して、AIの永続的な知識グラフを構築・更新します。")
                         # ▼▼▼ 以下の <gr.Row> を追加 ▼▼▼
                         with gr.Row():
-                            memos_import_button = gr.Button("知識グラフを構築/更新する", variant="primary", scale=3)
+                            memos_import_button = gr.Button("手動インポートから記憶を生成", variant="primary", scale=2)
+                            memory_archive_button = gr.Button("自動アーカイブから記憶を生成", variant="primary", scale=2)
                             importer_stop_button = gr.Button("処理を中断", variant="stop", visible=False, scale=1)
                         # ▲▲▲ ここまで ▲▲▲
                         gr.Markdown("---")
@@ -528,7 +529,11 @@ try:
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
-        chat_reload_button.click(fn=ui_handlers.reload_chat_log, inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state], outputs=[chatbot_display, current_log_map_state])
+        chat_reload_button.click(
+            fn=ui_handlers.reload_chat_log,
+            inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
+            outputs=[chatbot_display, current_log_map_state]
+        )
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
             inputs=[current_room_name, api_history_limit_state, current_log_map_state],
@@ -538,7 +543,7 @@ try:
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_room_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
         api_history_limit_dropdown.change(
             fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
-            inputs=[api_history_limit_dropdown, current_room_name, screenshot_mode_checkbox, redaction_rules_state],
+            inputs=[api_history_limit_dropdown, current_room_name, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
             outputs=[api_history_limit_state, chatbot_display, current_log_map_state]
         ).then(
             fn=ui_handlers.handle_context_settings_change,
@@ -723,17 +728,27 @@ try:
         auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
         # ▼▼▼ ここからが修正の核心 ▼▼▼
 
-        import_event = memos_import_button.click(
-            fn=ui_handlers.handle_memos_batch_import,
+        # Define the outputs once to be reused by both buttons
+        memory_archiving_outputs = [
+            memos_import_button,
+            memory_archive_button,
+            importer_stop_button,
+            importer_process_state,
+            debug_console_state,
+            debug_console_output,
+            chat_input_multimodal
+        ]
+
+        memos_import_button.click(
+            fn=lambda room, console: ui_handlers.handle_memory_archiving(room, console, source='import'),
             inputs=[current_room_name, debug_console_state],
-            outputs=[
-                memos_import_button,
-                importer_stop_button,
-                importer_process_state,
-                debug_console_state,
-                debug_console_output,
-                chat_input_multimodal
-            ]
+            outputs=memory_archiving_outputs
+        )
+
+        memory_archive_button.click(
+            fn=lambda room, console: ui_handlers.handle_memory_archiving(room, console, source='archive'),
+            inputs=[current_room_name, debug_console_state],
+            outputs=memory_archiving_outputs
         )
 
         importer_stop_button.click(
