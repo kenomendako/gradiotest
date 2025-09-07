@@ -56,7 +56,7 @@ def ensure_room_files(room_name: str) -> bool:
             os.path.join(spaces_dir, "images"),
             cache_dir,
             os.path.join(base_path, "log_archives", "processed"),
-            os.path.join(base_path, "import", "processed")
+            os.path.join(base_path, "log_import_source", "processed")
         ]
         for path in dirs_to_create:
             os.makedirs(path, exist_ok=True)

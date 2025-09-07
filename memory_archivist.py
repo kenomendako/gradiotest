@@ -149,8 +149,8 @@ def main():
     os.makedirs(memory_dir, exist_ok=True)
 
     if args.source == "import":
-        source_dir = os.path.join(room_dir, "import")
-        processed_dir = os.path.join(room_dir, "import", "processed")
+        source_dir = os.path.join(room_dir, "log_import_source")
+        processed_dir = os.path.join(room_dir, "log_import_source", "processed")
     else: # archive
         source_dir = os.path.join(room_dir, "log_archives")
         processed_dir = os.path.join(room_dir, "log_archives", "processed")
