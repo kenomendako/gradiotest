@@ -942,6 +942,197 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
     history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, mapping_list, None, gr.update(visible=False)
 
+def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
+    """
+    生ログの辞書リストを、GradioのChatbotコンポーネントが要求する形式に変換する。
+    UI上の行と元のログの行を紐付けるマッピングリストも同時に生成する。
+    v5: タイムスタンプの動的表示制御を追加。
+    """
+    if not messages:
+        return [], []
+
+    # --- タイムスタンプの表示制御 ---
+    # add_timestampがFalseの場合、表示前にメッセージからタイムスタンプを除去する
+    if not add_timestamp:
+        timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
+        for msg in messages:
+            if msg.get("content"):
+                msg["content"] = timestamp_pattern.sub('', msg["content"])
+
+    # --- 置換ルールの準備 ---
+    active_rules = []
+    if screenshot_mode and redaction_rules:
+        active_rules = sorted(redaction_rules, key=lambda x: len(x["find"]), reverse=True)
+
+    def apply_redactions_to_speaker(speaker_name: str) -> str:
+        """話者名専用の置換関数。HTMLタグを含めず、テキストのみを返す。"""
+        if not screenshot_mode or not active_rules or not speaker_name:
+            return speaker_name
+
+        # 話者名は単純なテキスト置換を行う
+        temp_speaker_name = speaker_name
+        for rule in active_rules:
+            # 大文字小文字を区別せずに置換する
+            if rule["find"].lower() in temp_speaker_name.lower():
+                 # 置換する際、元の単語の大文字小文字の状態をできるだけ維持しようと試みる
+                 # （この実装は単純なもので、より複雑なケースには対応しきれない可能性がある）
+                 # 例： 'Miho' -> 'Keno', 'miho' -> 'keno'
+                try:
+                    # 正規表現で大文字小文字を無視して置換
+                    temp_speaker_name = re.sub(rule["find"], rule["replace"], temp_speaker_name, flags=re.IGNORECASE)
+                except re.error:
+                    # 正規表現エラーを避けるためのフォールバック
+                    temp_speaker_name = temp_speaker_name.replace(rule["find"], rule["replace"])
+
+        return temp_speaker_name
+
+    def apply_redactions_to_content(text: str) -> str:
+        """本文専用の置換関数。HTMLタグでハイライトする。"""
+        if not screenshot_mode or not active_rules or not text:
+            return html.escape(text) if text else ""
+
+        escaped_text = html.escape(text)
+        for rule in active_rules:
+            find_str = html.escape(rule["find"])
+            # 正規表現のエスケープを行い、安全に置換する
+            safe_find_str = re.escape(find_str)
+            # 置換後の文字列はHTMLなのでエスケープしない
+            replace_str = f'<span style="background-color: #FFFFB3; padding: 1px 3px; border-radius: 3px; color: #333;">{html.escape(rule["replace"])}</span>'
+            try:
+                # 大文字小文字を無視して置換
+                escaped_text = re.sub(safe_find_str, replace_str, escaped_text, flags=re.IGNORECASE)
+            except re.error:
+                 # 正規表現エラーを避けるためのフォールバック
+                escaped_text = escaped_text.replace(find_str, replace_str)
+
+        return escaped_text
+
+    # --- 話者名解決の準備 ---
+    current_room_config = room_manager.get_room_config(current_room_folder) or {}
+    user_display_name = current_room_config.get("user_display_name", "ユーザー")
+    all_rooms_list = room_manager.get_room_list_for_ui()
+    folder_to_display_map = {folder: display for display, folder in all_rooms_list}
+    known_configs = {}
+
+    # --- Stage 1: 生ログをUI表示要素のリストに分解 ---
+    proto_history = []
+    user_file_attach_pattern = re.compile(r"\[ファイル添付: ([^\]]+?)\]")
+    gen_image_pattern = re.compile(r"\[Generated Image: ([^\]]+?)\]")
+
+    for i, msg in enumerate(messages):
+        role = msg.get("role")
+        content = msg.get("content", "").strip()
+        responder_id = msg.get("responder")
+        if not responder_id: continue
+
+        initial_speaker_name = ""
+        if role == "USER":
+            initial_speaker_name = user_display_name
+        elif role == "AGENT":
+            if responder_id == current_room_folder:
+                initial_speaker_name = current_room_config.get("agent_display_name") or current_room_config.get("room_name", responder_id)
+            else:
+                if responder_id not in known_configs:
+                    known_configs[responder_id] = room_manager.get_room_config(responder_id) if responder_id in folder_to_display_map else {}
+                config = known_configs[responder_id]
+                initial_speaker_name = config.get("agent_display_name") or config.get("room_name", responder_id) if config else f"{responder_id} [削除済]"
+        else:
+            initial_speaker_name = responder_id
+
+        final_speaker_name = apply_redactions_to_speaker(initial_speaker_name)
+
+        text_part, media_paths = content, []
+        if role == "USER":
+            text_part = user_file_attach_pattern.sub("", content).strip()
+            media_paths = [p.strip() for p in user_file_attach_pattern.findall(content)]
+        elif role == "AGENT":
+            text_part = gen_image_pattern.sub("", content).strip()
+            media_paths = [p.strip() for p in gen_image_pattern.findall(content)]
+
+        if text_part:
+            thoughts_pattern = re.compile(r"【Thoughts】(.*?)【/Thoughts】", re.DOTALL | re.IGNORECASE)
+            thought_match = thoughts_pattern.search(text_part)
+            thoughts_content = thought_match.group(1).strip() if thought_match else ""
+            main_text_content = thoughts_pattern.sub("", text_part).strip()
+            proto_history.append({"type": "text", "role": role, "speaker": final_speaker_name, "main_text": main_text_content, "thoughts": thoughts_content, "log_index": i})
+
+        for path in media_paths:
+            if os.path.exists(path):
+                proto_history.append({"type": "media", "role": role, "speaker": final_speaker_name, "path": path, "log_index": i})
+
+        if not text_part and not media_paths:
+            proto_history.append({"type": "text", "role": role, "speaker": final_speaker_name, "main_text": "", "thoughts": "", "log_index": i})
+
+    # --- Stage 2: UI表示要素リストから最終的なGradio形式を生成 ---
+    gradio_history, mapping_list = [], []
+    total_ui_rows = len(proto_history)
+
+    for ui_index, item in enumerate(proto_history):
+        mapping_list.append(item["log_index"])
+
+        if item["type"] == "text":
+            formatted_text = _format_text_content_for_gradio(
+                apply_redactions_to_content(item["main_text"]),
+                apply_redactions_to_content(item["thoughts"]),
+                item["speaker"], # こちらは既に置換済みの話者名
+                ui_index,
+                total_ui_rows
+            )
+            gradio_history.append((formatted_text, None) if item["role"] == "USER" else (None, formatted_text))
+
+        elif item["type"] == "media":
+            media_tuple = (item["path"], os.path.basename(item["path"]))
+            gradio_history.append((media_tuple, None) if item["role"] == "USER" else (None, media_tuple))
+
+    return gradio_history, mapping_list
+
+def _format_text_content_for_gradio(
+    main_text_html: str,
+    thoughts_html: str,
+    speaker_name: str,
+    current_ui_index: int,
+    total_ui_rows: int
+) -> str:
+    """
+    発言のテキスト部分を、GradioのChatbotで表示するための最終的なHTML文字列に変換する。
+    思考ログ、ナビゲーションボタン（▲▼）、メニューアイコン（…）の表示ロジックも内包する。
+    """
+    current_anchor_id = f"msg-anchor-{current_ui_index}"
+    final_html_parts = []
+
+    final_html_parts.append(f"<span id='{current_anchor_id}'></span>")
+    final_html_parts.append(f"<strong>{html.escape(speaker_name)}:</strong><br>")
+
+    if thoughts_html:
+        # 先に改行文字の置換処理を行い、結果を変数に格納します。
+        formatted_thoughts_html = thoughts_html.replace('\n', '<br>')
+        # その後、バックスラッシュを含まない変数をf-stringに渡します。
+        final_html_parts.append(f"<div class='thoughts'>【Thoughts】<br>{formatted_thoughts_html}</div>")
+
+    if main_text_html:
+        final_html_parts.append(main_text_html.replace('\n', '<br>'))
+
+    nav_buttons_list = []
+    if current_ui_index > 0:
+        nav_buttons_list.append(f"<a href='#msg-anchor-{current_ui_index - 1}' class='message-nav-link' title='前の発言へ' style='text-decoration: none; color: inherit;'>▲</a>")
+
+    if current_ui_index < total_ui_rows - 1:
+        nav_buttons_list.append(f"<a href='#msg-anchor-{current_ui_index + 1}' class='message-nav-link' title='次の発言へ' style='text-decoration: none; color: inherit;'>▼</a>")
+
+    nav_buttons_html = "&nbsp;&nbsp;".join(nav_buttons_list)
+    menu_icon_html = "<span title='メニュー表示' style='font-weight: bold; cursor: pointer;'>&#8942;</span>"
+
+    final_buttons_list = []
+    if nav_buttons_html:
+        final_buttons_list.append(nav_buttons_html)
+    final_buttons_list.append(menu_icon_html)
+
+    buttons_str = "&nbsp;&nbsp;&nbsp;".join(final_buttons_list)
+    button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{buttons_str}</div>"
+    final_html_parts.append(button_container)
+
+    return "".join(final_html_parts)
+
 def reload_chat_log(
     room_name: Optional[str],
     api_history_limit_value: str,
@@ -959,7 +1150,7 @@ def reload_chat_log(
     full_raw_history = utils.load_chat_log(log_f)
     display_turns = _get_display_history_count(api_history_limit_value)
     visible_history = full_raw_history[-(display_turns * 2):]
-    history, mapping_list = utils.format_history_for_gradio(
+    history, mapping_list = format_history_for_gradio(
         messages=visible_history,
         current_room_folder=room_name,
         add_timestamp=add_timestamp,
