@@ -1358,44 +1358,36 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
     status = "有効" if auto_memory_enabled else "無効"
     gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
 
-def handle_memory_archiving(room_name: str, console_content: str, source: str):
-    """
-    【v1: 新規作成】
-    記憶の生成（アーカイブまたは手動インポート）をサブプロセスとして堅牢に実行する。
-    いかなる状況でも、UIがフリーズしないことを保証する。
-    """
-    # nexus_ark.pyで定義されている出力コンポーネントの数に合わせる
-    # (memos_import_button, memory_archive_button, importer_stop_button, importer_process_state,
-    #  debug_console_state, debug_console_output, chat_input_multimodal)
-    NUM_OUTPUTS = 7
-
-    # 処理中のUI更新を定義
+def handle_memory_archiving(room_name: str, console_content: str, source_type: str):
+    # 処理中のUI更新 (6つの値を返す)
     yield (
-        gr.update(value="記憶を生成中...", interactive=False),
-        gr.update(value="記憶を生成中...", interactive=False),
-        gr.update(visible=True),
-        None, # Process State
-        console_content, # Console State
-        console_content, # Console Output
-        gr.update(interactive=False)  # Chat Input
+        gr.update(value=f"{source_type.capitalize()}から記憶生成中...", interactive=False),
+        gr.update(interactive=False),
+        console_content,
+        console_content,
+        gr.update(interactive=False),
+        gr.update(interactive=False)
     )
 
     full_log_output = console_content
     script_path = "memory_archivist.py"
 
     try:
-        gr.Info(f"記憶の生成を開始します... (ソース: {source})")
+        gr.Info(f"記憶の生成を開始します... (ソース: {source_type})")
 
         proc = subprocess.run(
-            [sys.executable, "-X", "utf8", script_path, "--room_name", room_name, "--source", source],
+            [sys.executable, "-X", "utf8", script_path, "--room_name", room_name, "--source", source_type],
             capture_output=True, text=True, encoding='utf-8', errors='ignore'
         )
 
         log_chunk = f"\n--- [{script_path} Output] ---\n{proc.stdout}\n{proc.stderr}"
         full_log_output += log_chunk
+
+        # This yield is to update the console in real-time
         yield (
-            gr.update(), gr.update(), None,
-            full_log_output, full_log_output, gr.update()
+            gr.update(), gr.update(),
+            full_log_output, full_log_output,
+            gr.update(), gr.update()
         )
 
         if proc.returncode != 0:
@@ -1405,21 +1397,19 @@ def handle_memory_archiving(room_name: str, console_content: str, source: str):
 
     except Exception as e:
         error_message = f"記憶の生成中にエラーが発生しました: {e}"
-        # loggingは未定義なので、printとtracebackを使用
         print(error_message)
         traceback.print_exc()
         gr.Error(error_message)
 
     finally:
-        # --- 最終処理: UIを必ず元の状態に戻す ---
+        # 最終的なUI更新 (6つの値を返す)
         yield (
             gr.update(value="手動インポートから記憶を生成", interactive=True),
             gr.update(value="自動アーカイブから記憶を生成", interactive=True),
-            gr.update(visible=False), # Stop Button
-            None, # Process State
-            full_log_output, # Console State
-            full_log_output, # Console Output
-            gr.update(interactive=True) # Chat Input
+            full_log_output,
+            full_log_output,
+            gr.update(interactive=True),
+            gr.update(interactive=True)
         )
 
 

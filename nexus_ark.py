@@ -119,7 +119,6 @@ try:
         current_log_map_state = gr.State([])
         active_participants_state = gr.State([]) # 現在アクティブな複数人対話の参加者リスト
         debug_console_state = gr.State("")
-        importer_process_state = gr.State(None) # インポーターのサブプロセスを管理
         chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
@@ -372,7 +371,6 @@ try:
                         with gr.Row():
                             memos_import_button = gr.Button("手動インポートから記憶を生成", variant="primary", scale=2)
                             memory_archive_button = gr.Button("自動アーカイブから記憶を生成", variant="primary", scale=2)
-                            importer_stop_button = gr.Button("処理を中断", variant="stop", visible=False, scale=1)
                         # ▲▲▲ ここまで ▲▲▲
                         gr.Markdown("---")
                         with gr.Row():
@@ -728,38 +726,25 @@ try:
         auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
         # ▼▼▼ ここからが修正の核心 ▼▼▼
 
-        # Define the outputs once to be reused by both buttons
         memory_archiving_outputs = [
             memos_import_button,
             memory_archive_button,
-            importer_stop_button,
-            importer_process_state,
             debug_console_state,
             debug_console_output,
-            chat_input_multimodal
+            chat_input_multimodal,
+            visualize_graph_button
         ]
 
         memos_import_button.click(
-            fn=lambda room, console: ui_handlers.handle_memory_archiving(room, console, source='import'),
-            inputs=[current_room_name, debug_console_state],
+            fn=ui_handlers.handle_memory_archiving,
+            inputs=[current_room_name, debug_console_state, gr.State("import")],
             outputs=memory_archiving_outputs
         )
 
         memory_archive_button.click(
-            fn=lambda room, console: ui_handlers.handle_memory_archiving(room, console, source='archive'),
-            inputs=[current_room_name, debug_console_state],
+            fn=ui_handlers.handle_memory_archiving,
+            inputs=[current_room_name, debug_console_state, gr.State("archive")],
             outputs=memory_archiving_outputs
-        )
-
-        importer_stop_button.click(
-            fn=ui_handlers.handle_importer_stop,
-            inputs=[importer_process_state],
-            outputs=[
-                memos_import_button,
-                importer_stop_button,
-                importer_process_state,
-                chat_input_multimodal
-            ]
         )
 
         visualize_graph_button.click(
