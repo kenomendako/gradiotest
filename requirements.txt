@@ -55,3 +55,6 @@ ijson
 # For RAG system's vector store
 faiss-cpu
 langchain-faiss
+
+# Core dependency for community integrations like FAISS
+langchain-community
