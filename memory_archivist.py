@@ -10,7 +10,7 @@ from datetime import datetime
 import spacy
 import networkx as nx
 import traceback
-from langchain_community.vectorstores import FAISS
+from langchain_faiss import FAISS
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import google.genai as genai
