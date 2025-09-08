@@ -22,8 +22,8 @@ import room_manager
 
 # --- Spacy Model Loading ---
 # Load a smaller, efficient model. This might need to be downloaded on first run.
-# python -m spacy download en_core_web_sm
-nlp = spacy.load("en_core_web_sm")
+# python -m spacy download ja_core_news_lg
+nlp = spacy.load("ja_core_news_lg")
 
 # --- LLM and Helper Functions ---
 
