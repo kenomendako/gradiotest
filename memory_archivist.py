@@ -6,6 +6,7 @@ import json
 import shutil
 import tempfile
 from datetime import datetime
+import logging
 
 import spacy
 import networkx as nx
@@ -20,29 +21,23 @@ import constants
 import utils
 import room_manager
 
+# --- Logging Setup ---
+# Set up a basic logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 # --- Spacy Model Loading ---
-# Load a smaller, efficient model. This might need to be downloaded on first run.
-# python -m spacy download ja_core_news_lg
-nlp = spacy.load("ja_core_news_lg")
+try:
+    nlp = spacy.load("ja_core_news_lg")
+except OSError:
+    logger.error("Japanese spaCy model 'ja_core_news_lg' not found.")
+    logger.error("Please run 'python -m spacy download ja_core_news_lg' to install it.")
+    sys.exit(1)
 
 # --- LLM and Helper Functions ---
 
-def get_llm(api_key: str):
-    """Initializes and returns the Gemini client."""
-    # Safety settings to block as little as possible.
-    safety_settings = {
-        "HARM_CATEGORY_HARASSMENT": "BLOCK_NONE",
-        "HARM_CATEGORY_HATE_SPEECH": "BLOCK_NONE",
-        "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_NONE",
-        "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
-    }
-    return genai.GenerativeModel(
-        constants.INTERNAL_PROCESSING_MODEL,
-        safety_settings=safety_settings
-    )
-
-def summarize_chunk(llm, chunk: str) -> str:
-    """Summarizes a text chunk using the provided LLM."""
+def summarize_chunk(gemini_client: genai.Client, chunk: str) -> str:
+    """Summarizes a text chunk using the provided Gemini client."""
     prompt = f"""
 あなたは、対話ログを要約する専門家です。以下の対話の要点を、客観的な事実に基づき、簡潔な箇条書きで3〜5点にまとめてください。
 
@@ -54,10 +49,13 @@ def summarize_chunk(llm, chunk: str) -> str:
 【要約】
 """
     try:
-        response = llm.generate_content(prompt)
+        response = gemini_client.models.generate_content(
+            model=f"models/{constants.INTERNAL_PROCESSING_MODEL}",
+            contents=[prompt]
+        )
         return response.text.strip()
     except Exception as e:
-        print(f"Error during summarization: {e}", file=sys.stderr)
+        logger.error(f"Error during summarization: {e}")
         return "" # Return empty string on error
 
 def load_graph(path: str) -> nx.DiGraph:
@@ -73,16 +71,13 @@ def save_graph(G: nx.DiGraph, path: str):
 def extract_entities(text: str) -> list:
     """Extracts named entities (people, places, organizations) from text."""
     doc = nlp(text)
-    # We are interested in specific entity types that are likely to be important.
-    # PERSON, ORG, GPE (Geopolitical Entity), LOC (Location)
     entities = [
         ent.text.strip() for ent in doc.ents
         if ent.label_ in ["PERSON", "ORG", "GPE", "LOC"]
     ]
-    # Remove duplicates and return
     return sorted(list(set(entities)))
 
-def get_rich_relation_from_gemini(llm, chunk: str, entity1: str, entity2: str) -> dict:
+def get_rich_relation_from_gemini(gemini_client: genai.Client, chunk: str, entity1: str, entity2: str) -> dict:
     """
     Uses Gemini to extract a rich, structured relationship between two entities from a text chunk.
     """
@@ -109,8 +104,10 @@ def get_rich_relation_from_gemini(llm, chunk: str, entity1: str, entity2: str) -
 - 全てのフィールドを必ず埋めてください。
 """
     try:
-        response = llm.generate_content(prompt)
-        # Clean up the response to extract only the JSON part
+        response = gemini_client.models.generate_content(
+            model=f"models/{constants.INTERNAL_PROCESSING_MODEL}",
+            contents=[prompt]
+        )
         json_text = response.text.strip()
         if json_text.startswith("```json"):
             json_text = json_text[7:]
@@ -118,11 +115,10 @@ def get_rich_relation_from_gemini(llm, chunk: str, entity1: str, entity2: str) -
             json_text = json_text[:-3]
 
         data = json.loads(json_text)
-        # Basic validation
         if all(k in data for k in ["relation", "polarity", "intensity", "context"]):
             return data
-    except (json.JSONDecodeError, AttributeError, Exception) as e:
-        print(f"Error parsing relation from Gemini for ({entity1}, {entity2}): {e}", file=sys.stderr)
+    except Exception as e:
+        logger.error(f"Error parsing relation from Gemini for ({entity1}, {entity2}): {e}")
     return None
 
 def main():
@@ -131,18 +127,22 @@ def main():
     parser.add_argument("--room_name", type=str, required=True, help="The name of the room to process.")
     args = parser.parse_args()
 
-    print(f"--- Memory Archivist Started for Room: {args.room_name}, Source: {args.source} ---")
+    logger.info(f"--- Memory Archivist Started for Room: {args.room_name}, Source: {args.source} ---")
 
     # --- Setup ---
     config_manager.load_config()
-    # For now, we'll use the globally configured API key. This could be enhanced later.
     api_key = config_manager.GEMINI_API_KEYS.get(config_manager.initial_api_key_name_global)
-    if not api_key:
-        print("ERROR: Could not find a valid Gemini API key in config.json.", file=sys.stderr)
+
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        logger.error("FATAL: The selected API key is invalid.")
         sys.exit(1)
 
-    genai.configure(api_key=api_key)
-    llm = get_llm(api_key)
+    try:
+        gemini_client = genai.Client(api_key=api_key)
+        logger.info("Gemini API client created successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize Gemini client: {e}")
+        sys.exit(1)
 
     room_dir = os.path.join(constants.ROOMS_DIR, args.room_name)
     memory_dir = os.path.join(room_dir, "memory")
@@ -167,7 +167,7 @@ def main():
         if not os.path.isfile(log_file_path):
             continue
 
-        print(f"\n--- Processing log file: {filename} ---")
+        logger.info(f"--- Processing log file: {filename} ---")
         all_episode_summaries = []
 
         try:
@@ -175,7 +175,7 @@ def main():
                 log_content = f.read()
 
             if not log_content.strip():
-                print("Log file is empty, skipping.")
+                logger.warning("Log file is empty, skipping.")
                 shutil.move(log_file_path, os.path.join(processed_dir, filename))
                 continue
 
@@ -187,28 +187,26 @@ def main():
             chunks = text_splitter.split_text(log_content)
 
             # --- Block 1: Episodic Memory ---
-            print("Block 1: Generating episodic memory...")
+            logger.info("Block 1: Generating episodic memory...")
 
             short_term_summary_path = os.path.join(memory_dir, "memory_short_term_summary.txt")
             mid_term_summary_path = os.path.join(memory_dir, "memory_mid_term_summary.json")
 
             for i, chunk in enumerate(chunks):
-                print(f"  - Summarizing chunk {i+1}/{len(chunks)}...")
-                summary = summarize_chunk(llm, chunk)
+                logger.info(f"  - Summarizing chunk {i+1}/{len(chunks)}...")
+                summary = summarize_chunk(gemini_client, chunk)
                 if not summary:
-                    print("  - Skipping empty summary.")
+                    logger.warning("  - Skipping empty summary.")
                     continue
 
                 episode_id = str(uuid.uuid4())
                 timestamp = datetime.now().isoformat()
 
-                # Append to short-term text file
                 with open(short_term_summary_path, "a", encoding="utf-8") as f:
                     f.write(f"## Episode: {episode_id} (Generated: {timestamp})\n")
                     f.write(summary)
                     f.write("\n\n")
 
-                # Append to mid-term JSON file
                 episode_data = {
                     "episode_id": episode_id,
                     "timestamp": timestamp,
@@ -220,59 +218,58 @@ def main():
                 with open(mid_term_summary_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps(episode_data, ensure_ascii=False) + "\n")
 
-            print(f"  - Generated {len(all_episode_summaries)} episodic memories.")
+            logger.info(f"  - Generated {len(all_episode_summaries)} episodic memories.")
 
             # --- Block 2: Semantic Memory ---
-            print("Block 2: Deepening semantic memory (Knowledge Graph)...")
+            logger.info("Block 2: Deepening semantic memory (Knowledge Graph)...")
             graph_path = os.path.join(memory_dir, "knowledge_graph.graphml")
             G = load_graph(graph_path)
 
             for i, chunk in enumerate(chunks):
-                print(f"  - Analyzing entities and relations in chunk {i+1}/{len(chunks)}...")
+                logger.info(f"  - Analyzing entities and relations in chunk {i+1}/{len(chunks)}...")
                 entities = extract_entities(chunk)
                 if len(entities) < 2:
                     continue
 
-                # Create all combinations of entity pairs
                 from itertools import combinations
                 entity_pairs = list(combinations(entities, 2))
 
                 for entity1, entity2 in entity_pairs:
-                    # Avoid adding self-loops or duplicate relations in the same run
                     if G.has_edge(entity1, entity2):
                         continue
 
-                    relation_data = get_rich_relation_from_gemini(llm, chunk, entity1, entity2)
+                    relation_data = get_rich_relation_from_gemini(gemini_client, chunk, entity1, entity2)
                     if relation_data:
-                        print(f"    - Found relation: {entity1} -> {relation_data['relation']} -> {entity2}")
+                        logger.info(f"    - Found relation: {entity1} -> {relation_data['relation']} -> {entity2}")
                         G.add_edge(entity1, entity2, label=relation_data['relation'], **relation_data)
 
             save_graph(G, graph_path)
-            print(f"  - Knowledge graph updated with {G.number_of_edges()} relations.")
-
+            logger.info(f"  - Knowledge graph updated with {G.number_of_edges()} relations.")
 
             # --- Block 3: RAG Indexing ---
-            print("Block 3: Indexing for RAG...")
+            logger.info("Block 3: Indexing for RAG...")
             if all_episode_summaries:
                 faiss_index_path = os.path.join(memory_dir, "episode_summary_index.faiss")
-                embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", task_type="RETRIEVAL_DOCUMENT")
+                embeddings = GoogleGenerativeAIEmbeddings(
+                    model="models/embedding-001",
+                    task_type="RETRIEVAL_DOCUMENT",
+                    google_api_key=api_key
+                )
 
-                # Format summaries for embedding
                 documents_to_index = [
                     f"Episode ID: {item['episode_id']}\nTimestamp: {item['timestamp']}\nSummary:\n{item['summary']}"
                     for item in all_episode_summaries
                 ]
 
                 if os.path.exists(faiss_index_path):
-                    print("  - Loading existing FAISS index...")
+                    logger.info("  - Loading existing FAISS index...")
                     vector_store = FAISS.load_local(faiss_index_path, embeddings, allow_dangerous_deserialization=True)
-                    print("  - Adding new documents to index...")
+                    logger.info("  - Adding new documents to index...")
                     vector_store.add_texts(documents_to_index)
                 else:
-                    print("  - Creating new FAISS index...")
+                    logger.info("  - Creating new FAISS index...")
                     vector_store = FAISS.from_texts(documents_to_index, embeddings)
 
-                # Atomic save using tempfile and shutil.move
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, mode='w', dir=memory_dir) as temp_file:
                         temp_path = temp_file.name
@@ -280,28 +277,22 @@ def main():
                     vector_store.save_local(temp_path)
                     shutil.move(os.path.join(temp_path, "index.faiss"), faiss_index_path)
                     shutil.move(os.path.join(temp_path, "index.pkl"), os.path.join(memory_dir, "episode_summary_index.pkl"))
-                    os.rmdir(temp_path) # Clean up the temporary directory created by save_local
-                    print(f"  - FAISS index saved successfully to {faiss_index_path}")
+                    os.rmdir(temp_path)
+                    logger.info(f"  - FAISS index saved successfully to {faiss_index_path}")
 
                 except Exception as e:
-                    print(f"!!! Error during atomic save of FAISS index: {e}", file=sys.stderr)
-                    # If saving fails, we should not mark the log as processed.
-                    # Re-raise the exception to be caught by the main try...except block.
+                    logger.error(f"!!! Error during atomic save of FAISS index: {e}")
                     raise e
             else:
-                print("  - No new summaries to index.")
+                logger.info("  - No new summaries to index.")
 
-
-            # Move the processed file to the processed directory
             shutil.move(log_file_path, os.path.join(processed_dir, filename))
-            print(f"--- Successfully processed and moved {filename} ---")
+            logger.info(f"--- Successfully processed and moved {filename} ---")
 
         except Exception as e:
-            print(f"!!! FAILED to process {filename}: {e}", file=sys.stderr)
-            traceback.print_exc()
-            # If any block fails, we do not move the file, so it can be re-processed.
+            logger.error(f"!!! FAILED to process {filename}: {e}", exc_info=True)
 
-    print("\n--- Memory Archivist Finished ---")
+    logger.info("\n--- Memory Archivist Finished ---")
 
 
 if __name__ == "__main__":
