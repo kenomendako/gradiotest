@@ -51,8 +51,8 @@ def call_gemini_with_smart_retry(gemini_client: genai.Client, model_name: str, p
             )
             return response.text
         except genai_errors.ClientError as e:
-            # レート制限エラー(429)の場合のみ、リトライ処理を続行する
-            if e.status_code == 429:
+            # エラーオブジェクトの文字列表現に "429" が含まれるかで判断する
+            if "429" in str(e):
                 retry_count += 1
                 if retry_count >= max_retries:
                     logger.error(f"API rate limit exceeded. Max retries ({max_retries}) reached. Aborting this call.")
