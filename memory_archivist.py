@@ -141,19 +141,19 @@ def main():
         logger.error(f"Failed to initialize Gemini client: {e}")
         sys.exit(1)
 
+    # 1. Define and ensure all necessary paths exist before any file operations
     room_path = Path(constants.ROOMS_DIR) / args.room_name
     rag_data_path = room_path / "rag_data"
+    rag_data_path.mkdir(parents=True, exist_ok=True)
 
     if args.source == "import":
         source_dir = room_path / "log_import_source"
-        processed_dir = source_dir / "processed"
-    else:
+    else: # archive
         source_dir = room_path / "log_archives"
-        processed_dir = source_dir / "processed"
 
-    rag_data_path.mkdir(exist_ok=True)
-    source_dir.mkdir(exist_ok=True)
-    processed_dir.mkdir(exist_ok=True)
+    processed_dir = source_dir / "processed"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    processed_dir.mkdir(parents=True, exist_ok=True)
 
     progress_file = rag_data_path / "archivist_progress.json"
     processed_files = set()
@@ -287,4 +287,11 @@ def main():
             json.dump({"processed_files": list(processed_files)}, f, indent=2)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        # This is a final catch-all for any unexpected errors during initialization or execution
+        logger.critical(f"An unhandled exception occurred in the archivist process: {e}")
+        import traceback
+        logger.critical(traceback.format_exc())
+        sys.exit(1)

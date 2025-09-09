@@ -1375,23 +1375,28 @@ def handle_memory_archiving(room_name: str, console_content: str, source_type: s
     try:
         gr.Info(f"記憶の生成を開始します... (ソース: {source_type})")
 
-        proc = subprocess.run(
-            [sys.executable, "-X", "utf8", script_path, "--room_name", room_name, "--source", source_type],
-            capture_output=True, text=True, encoding='utf-8', errors='ignore'
-        )
+        cmd = [sys.executable, "-u", script_path, "--room_name", room_name, "--source", source_type]
 
-        log_chunk = f"\n--- [{script_path} Output] ---\n{proc.stdout}\n{proc.stderr}"
-        full_log_output += log_chunk
+        with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='ignore') as proc:
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    break
 
-        # This yield is to update the console in real-time
-        yield (
-            gr.update(), gr.update(),
-            full_log_output, full_log_output,
-            gr.update(), gr.update()
-        )
+                line = line.strip()
+                print(line)
+                full_log_output += line + "\n"
 
-        if proc.returncode != 0:
-            raise RuntimeError(f"{script_path} failed with return code {proc.returncode}")
+                yield (
+                    gr.update(), gr.update(),
+                    full_log_output, full_log_output,
+                    gr.update(), gr.update()
+                )
+
+            proc.wait()
+
+            if proc.returncode != 0:
+                raise RuntimeError(f"{script_path} failed with return code {proc.returncode}")
 
         gr.Info("✅ 記憶の生成が、正常に完了しました！")
 
