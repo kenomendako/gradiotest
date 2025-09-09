@@ -53,7 +53,7 @@ def call_gemini_with_smart_retry(gemini_client: genai.Client, model_name: str, p
         except google_exceptions.ResourceExhausted as e:
             retry_count += 1
             if retry_count >= max_retries:
-                logger.error(f"API rate limit exceeded. Max retries ({max_retries}) reached. Aborting. Error: {e}")
+                logger.error(f"API rate limit exceeded. Max retries ({max_retries}) reached. Aborting.")
                 return None
 
             wait_time = 5 * (2 ** (retry_count - 1))
@@ -100,7 +100,7 @@ def get_rich_relation_from_gemini(gemini_client: genai.Client, chunk: str, entit
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
 
     if response_text is None:
-        return None # API call definitively failed
+        return None
 
     try:
         json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
@@ -111,7 +111,7 @@ def get_rich_relation_from_gemini(gemini_client: genai.Client, chunk: str, entit
             logger.warning(f"Parsed JSON is missing required keys for ({entity1}, {entity2}).")
             return None
     except (json.JSONDecodeError, KeyError) as e:
-        logger.error(f"Failed to parse JSON response from Gemini for ({entity1}, {entity2}): {e}\nResponse was: {response_text}")
+        logger.error(f"Failed to parse JSON response from Gemini: {e}\nResponse was: {response_text}")
         return None
 
 def load_graph(path: Path) -> nx.DiGraph:
@@ -149,6 +149,7 @@ def main():
         logger.error(f"Failed to initialize Gemini client: {e}", exc_info=True)
         sys.exit(1)
 
+    # --- 1. Define and ensure all necessary paths exist before any file operations ---
     room_path = Path(constants.ROOMS_DIR) / args.room_name
     rag_data_path = room_path / "rag_data"
 
@@ -163,6 +164,7 @@ def main():
     source_dir.mkdir(parents=True, exist_ok=True)
     processed_dir.mkdir(parents=True, exist_ok=True)
 
+    # --- 2. Load progress ---
     progress_file = rag_data_path / "archivist_progress.json"
     processed_files = set()
     if progress_file.exists():
@@ -173,6 +175,7 @@ def main():
             except json.JSONDecodeError:
                 logger.warning("Progress file is corrupted. Starting from scratch.")
 
+    # --- 3. Create file list to process ---
     all_logs = [f for f in source_dir.glob("*.txt") if f.is_file()]
     files_to_process = sorted([f for f in all_logs if f.name not in processed_files])
 
@@ -184,6 +187,7 @@ def main():
 
     logger.info(f"Found {len(files_to_process)} log file(s) to process.")
 
+    # --- 4. Main loop with guaranteed progress saving ---
     try:
         for log_file in files_to_process:
             try:
@@ -207,7 +211,8 @@ def main():
                 for i, chunk in enumerate(chunks):
                     summary = summarize_chunk(gemini_client, chunk)
                     if summary is None:
-                        raise RuntimeError(f"Failed to summarize chunk {i+1} after max retries.")
+                        logger.error(f"Failed to summarize chunk {i+1} after max retries. Stopping archivist.")
+                        sys.exit(1)
                     episode_id = str(uuid.uuid4())
                     episode_data = {"episode_id": episode_id, "timestamp": datetime.now().isoformat(), "summary": summary, "source_log": log_file.name}
                     all_episode_summaries.append(episode_data)
@@ -231,7 +236,8 @@ def main():
                         if G.has_edge(entity1, entity2): continue
                         relation_data = get_rich_relation_from_gemini(gemini_client, chunk, entity1, entity2)
                         if relation_data is None:
-                            raise RuntimeError(f"Failed to get relation for ({entity1}, {entity2}) after max retries.")
+                            logger.error(f"Failed to get relation for ({entity1}, {entity2}) after max retries. Stopping archivist process to save progress.")
+                            sys.exit(1)
                         logger.info(f"    - Found relation: {entity1} -> {relation_data['relation']} -> {entity2}")
                         G.add_edge(entity1, entity2, label=relation_data['relation'], **relation_data)
                 save_graph(G, graph_path)
