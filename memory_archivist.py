@@ -13,7 +13,6 @@ from itertools import combinations
 
 import spacy
 import networkx as nx
-import traceback
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -38,24 +37,34 @@ except OSError:
     sys.exit(1)
 
 # --- LLM and Helper Functions ---
-def _call_gemini_with_retry(gemini_client: genai.Client, model_name: str, prompt: str) -> str:
+def call_gemini_with_smart_retry(gemini_client: genai.Client, model_name: str, prompt: str, max_retries: int = 5) -> str | None:
     """
-    Calls the API, catching ResourceExhausted errors to return a special value.
+    Self-contained API call function with exponential backoff.
+    Returns response text on success, None on definitive failure.
     """
-    try:
-        response = gemini_client.models.generate_content(
-            model=f"models/{model_name}",
-            contents=[prompt],
-        )
-        return response.text
-    except google_exceptions.ResourceExhausted as e:
-        logger.warning(f"API rate limit exceeded during call. SDK's internal retry failed. Details: {e}")
-        return "RATE_LIMIT_EXCEEDED"
-    except Exception as e:
-        logger.error(f"An unexpected API error occurred: {e}")
-        return "API_ERROR"
+    retry_count = 0
+    while retry_count < max_retries:
+        try:
+            response = gemini_client.models.generate_content(
+                model=f"models/{model_name}",
+                contents=[prompt],
+            )
+            return response.text
+        except google_exceptions.ResourceExhausted as e:
+            retry_count += 1
+            if retry_count >= max_retries:
+                logger.error(f"API rate limit exceeded. Max retries ({max_retries}) reached. Aborting. Error: {e}")
+                return None
 
-def summarize_chunk(gemini_client: genai.Client, chunk: str) -> str:
+            wait_time = 5 * (2 ** (retry_count - 1))
+            logger.info(f"Rate limit hit. Retrying in {wait_time} seconds... ({retry_count}/{max_retries})")
+            time.sleep(wait_time)
+        except Exception as e:
+            logger.error(f"An unexpected API error occurred: {e}", exc_info=True)
+            return None
+    return None
+
+def summarize_chunk(gemini_client: genai.Client, chunk: str) -> str | None:
     """Summarizes a text chunk using the provided Gemini client."""
     prompt = f"""
 あなたは、対話ログを要約する専門家です。以下の対話の要点を、客観的な事実に基づき、簡潔な箇条書きで3〜5点にまとめてください。
@@ -65,12 +74,11 @@ def summarize_chunk(gemini_client: genai.Client, chunk: str) -> str:
 ---
 【要約】
 """
-    return _call_gemini_with_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
+    response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
+    return response_text.strip() if response_text else None
 
-def get_rich_relation_from_gemini(gemini_client: genai.Client, chunk: str, entity1: str, entity2: str) -> dict | str | None:
-    """
-    Gets a rich relationship. Returns dict on success, str on rate limit/API error, None on other errors.
-    """
+def get_rich_relation_from_gemini(gemini_client: genai.Client, chunk: str, entity1: str, entity2: str) -> dict | None:
+    """Gets a rich relationship. Returns dict on success, None on failure."""
     prompt = f"""
 あなたは、対話の中から人間関係や出来事の機微を読み解く、高度なナラティブ分析AIです。
 【コンテキストとなる会話】
@@ -89,10 +97,10 @@ def get_rich_relation_from_gemini(gemini_client: genai.Client, chunk: str, entit
 - あなた自身の思考や挨拶は絶対に含めず、JSONオブジェクトのみを出力してください。
 - 全てのフィールドを必ず埋めてください。
 """
-    response_text = _call_gemini_with_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
+    response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
 
-    if response_text in ["RATE_LIMIT_EXCEEDED", "API_ERROR"]:
-        return response_text
+    if response_text is None:
+        return None # API call definitively failed
 
     try:
         json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
@@ -138,13 +146,11 @@ def main():
         gemini_client = genai.Client(api_key=api_key)
         logger.info("Gemini API client created successfully.")
     except Exception as e:
-        logger.error(f"Failed to initialize Gemini client: {e}")
+        logger.error(f"Failed to initialize Gemini client: {e}", exc_info=True)
         sys.exit(1)
 
-    # 1. Define and ensure all necessary paths exist before any file operations
     room_path = Path(constants.ROOMS_DIR) / args.room_name
     rag_data_path = room_path / "rag_data"
-    rag_data_path.mkdir(parents=True, exist_ok=True)
 
     if args.source == "import":
         source_dir = room_path / "log_import_source"
@@ -152,6 +158,8 @@ def main():
         source_dir = room_path / "log_archives"
 
     processed_dir = source_dir / "processed"
+
+    rag_data_path.mkdir(parents=True, exist_ok=True)
     source_dir.mkdir(parents=True, exist_ok=True)
     processed_dir.mkdir(parents=True, exist_ok=True)
 
@@ -193,28 +201,26 @@ def main():
                 text_splitter = RecursiveCharacterTextSplitter(chunk_size=8000, chunk_overlap=200, length_function=len)
                 chunks = text_splitter.split_text(log_content)
 
-                all_episode_summaries = []
-                # Block 1: Episodic Memory
+                # Block 1
                 logger.info("Block 1: Generating episodic memory...")
-                short_term_path = rag_data_path / "memory_short_term_summary.txt"
-                mid_term_path = rag_data_path / "memory_mid_term_summary.json"
+                all_episode_summaries = []
                 for i, chunk in enumerate(chunks):
                     summary = summarize_chunk(gemini_client, chunk)
-                    if summary == "RATE_LIMIT_EXCEEDED":
-                        raise RuntimeError("API rate limit exceeded during summarization.")
-                    if not summary:
-                        logger.warning(f"Skipping empty summary for chunk {i+1}.")
-                        continue
+                    if summary is None:
+                        raise RuntimeError(f"Failed to summarize chunk {i+1} after max retries.")
                     episode_id = str(uuid.uuid4())
                     episode_data = {"episode_id": episode_id, "timestamp": datetime.now().isoformat(), "summary": summary, "source_log": log_file.name}
                     all_episode_summaries.append(episode_data)
-                    with open(short_term_path, "a", encoding="utf-8") as f:
-                        f.write(f"## Episode: {episode_id} (Generated: {episode_data['timestamp']})\n{summary}\n\n")
-                    with open(mid_term_path, "a", encoding="utf-8") as f:
-                        f.write(json.dumps(episode_data, ensure_ascii=False) + "\n")
-                logger.info(f"  - Generated {len(all_episode_summaries)} episodic memories.")
 
-                # Block 2: Semantic Memory
+                short_term_path = rag_data_path / "memory_short_term_summary.txt"
+                mid_term_path = rag_data_path / "memory_mid_term_summary.json"
+                with open(short_term_path, "a", encoding="utf-8") as f, open(mid_term_path, "a", encoding="utf-8") as jf:
+                    for item in all_episode_summaries:
+                        f.write(f"## Episode: {item['episode_id']} (Generated: {item['timestamp']})\n{item['summary']}\n\n")
+                        jf.write(json.dumps(item, ensure_ascii=False) + "\n")
+                logger.info(f"  - Generated and saved {len(all_episode_summaries)} episodic memories.")
+
+                # Block 2
                 logger.info("Block 2: Deepening semantic memory (Knowledge Graph)...")
                 graph_path = rag_data_path / "knowledge_graph.graphml"
                 G = load_graph(graph_path)
@@ -223,37 +229,21 @@ def main():
                     if len(entities) < 2: continue
                     for entity1, entity2 in combinations(entities, 2):
                         if G.has_edge(entity1, entity2): continue
-
-                        max_retries = 3
-                        retry_count = 0
-                        relation_data = None
-                        while retry_count < max_retries:
-                            relation_data = get_rich_relation_from_gemini(gemini_client, chunk, entity1, entity2)
-                            if isinstance(relation_data, str) and relation_data == "RATE_LIMIT_EXCEEDED":
-                                retry_count += 1
-                                wait_time = 5 * retry_count
-                                logger.warning(f"Rate limit hit for relation extraction. Retrying in {wait_time}s... (Attempt {retry_count}/{max_retries})")
-                                time.sleep(wait_time)
-                            else:
-                                break
-
-                        if relation_data == "RATE_LIMIT_EXCEEDED":
-                            raise RuntimeError("API rate limit exceeded after max retries during relation extraction.")
-
-                        if isinstance(relation_data, dict):
-                            logger.info(f"    - Found relation: {entity1} -> {relation_data['relation']} -> {entity2}")
-                            G.add_edge(entity1, entity2, label=relation_data['relation'], **relation_data)
-
+                        relation_data = get_rich_relation_from_gemini(gemini_client, chunk, entity1, entity2)
+                        if relation_data is None:
+                            raise RuntimeError(f"Failed to get relation for ({entity1}, {entity2}) after max retries.")
+                        logger.info(f"    - Found relation: {entity1} -> {relation_data['relation']} -> {entity2}")
+                        G.add_edge(entity1, entity2, label=relation_data['relation'], **relation_data)
                 save_graph(G, graph_path)
                 logger.info(f"  - Knowledge graph updated with {G.number_of_edges()} relations.")
 
-                # Block 3: RAG Indexing
+                # Block 3
                 logger.info("Block 3: Indexing for RAG...")
                 if all_episode_summaries:
-                    faiss_index_path = rag_data_path / "episode_summary_index.faiss"
                     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", task_type="RETRIEVAL_DOCUMENT", google_api_key=api_key)
                     docs_to_index = [f"Episode ID: {item['episode_id']}\nTimestamp: {item['timestamp']}\nSummary:\n{item['summary']}" for item in all_episode_summaries]
 
+                    faiss_index_path = rag_data_path / "episode_summary_index.faiss"
                     if faiss_index_path.exists():
                         vector_store = FAISS.load_local(str(rag_data_path), embeddings, "episode_summary_index", allow_dangerous_deserialization=True)
                         vector_store.add_texts(docs_to_index)
@@ -290,8 +280,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        # This is a final catch-all for any unexpected errors during initialization or execution
-        logger.critical(f"An unhandled exception occurred in the archivist process: {e}")
-        import traceback
-        logger.critical(traceback.format_exc())
+        logger.critical(f"An unhandled exception occurred in the archivist process: {e}", exc_info=True)
         sys.exit(1)
