@@ -17,6 +17,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import google.genai as genai
+from google.genai import errors as genai_errors
 from google.api_core import exceptions as google_exceptions
 
 import config_manager
@@ -39,8 +40,7 @@ except OSError:
 # --- LLM and Helper Functions ---
 def call_gemini_with_smart_retry(gemini_client: genai.Client, model_name: str, prompt: str, max_retries: int = 5) -> str | None:
     """
-    Self-contained API call function with exponential backoff.
-    Returns response text on success, None on definitive failure.
+    指数バックオフ付きのスマートリトライ機能を内蔵した、自己完結型のAPI呼び出し関数。
     """
     retry_count = 0
     while retry_count < max_retries:
@@ -50,17 +50,23 @@ def call_gemini_with_smart_retry(gemini_client: genai.Client, model_name: str, p
                 contents=[prompt],
             )
             return response.text
-        except google_exceptions.ResourceExhausted as e:
-            retry_count += 1
-            if retry_count >= max_retries:
-                logger.error(f"API rate limit exceeded. Max retries ({max_retries}) reached. Aborting.")
-                return None
+        except genai_errors.ClientError as e:
+            # レート制限エラー(429)の場合のみ、リトライ処理を続行する
+            if e.status_code == 429:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    logger.error(f"API rate limit exceeded. Max retries ({max_retries}) reached. Aborting this call.")
+                    return None
 
-            wait_time = 5 * (2 ** (retry_count - 1))
-            logger.info(f"Rate limit hit. Retrying in {wait_time} seconds... ({retry_count}/{max_retries})")
-            time.sleep(wait_time)
+                wait_time = 5 * (2 ** (retry_count - 1))
+                logger.info(f"Rate limit hit. Retrying in {wait_time} seconds... ({retry_count}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                # 429以外のクライアントエラー（例: 400 Bad Request）はリトライしても無駄なので即時失敗させる
+                logger.error(f"A non-retriable client error occurred: {e}")
+                return None
         except Exception as e:
-            logger.error(f"An unexpected API error occurred: {e}", exc_info=True)
+            logger.error(f"An unexpected API error occurred: {e}")
             return None
     return None
 
