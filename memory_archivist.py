@@ -18,7 +18,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import google.genai as genai
-from google.api_core.exceptions import ResourceExhausted
+from google.api_core import exceptions as google_exceptions
 
 import config_manager
 import constants
@@ -38,26 +38,22 @@ except OSError:
     sys.exit(1)
 
 # --- LLM and Helper Functions ---
-def _call_gemini_with_retry(gemini_client: genai.Client, model: str, prompt: str, max_retries=3) -> str:
-    """Calls the Gemini API with exponential backoff for retriable errors."""
-    retries = 0
-    while retries < max_retries:
-        try:
-            response = gemini_client.models.generate_content(
-                model=f"models/{model}",
-                contents=[prompt]
-            )
-            return response.text.strip()
-        except ResourceExhausted as e:
-            retries += 1
-            logger.warning(f"API rate limit exceeded. Retrying in {5 * retries}s... (Attempt {retries}/{max_retries})")
-            time.sleep(5 * retries)
-        except Exception as e:
-            logger.error(f"An unexpected API error occurred: {e}")
-            raise  # Re-raise non-retriable errors
-
-    # If all retries fail, return a specific indicator
-    return "RATE_LIMIT_EXCEEDED"
+def _call_gemini_with_retry(gemini_client: genai.Client, model_name: str, prompt: str) -> str:
+    """
+    Calls the API, catching ResourceExhausted errors to return a special value.
+    """
+    try:
+        response = gemini_client.models.generate_content(
+            model=f"models/{model_name}",
+            contents=[prompt],
+        )
+        return response.text
+    except google_exceptions.ResourceExhausted as e:
+        logger.warning(f"API rate limit exceeded during call. SDK's internal retry failed. Details: {e}")
+        return "RATE_LIMIT_EXCEEDED"
+    except Exception as e:
+        logger.error(f"An unexpected API error occurred: {e}")
+        return "API_ERROR"
 
 def summarize_chunk(gemini_client: genai.Client, chunk: str) -> str:
     """Summarizes a text chunk using the provided Gemini client."""
@@ -71,8 +67,10 @@ def summarize_chunk(gemini_client: genai.Client, chunk: str) -> str:
 """
     return _call_gemini_with_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
 
-def get_rich_relation_from_gemini(gemini_client: genai.Client, chunk: str, entity1: str, entity2: str) -> dict or str:
-    """Uses Gemini to extract a rich, structured relationship."""
+def get_rich_relation_from_gemini(gemini_client: genai.Client, chunk: str, entity1: str, entity2: str) -> dict | str | None:
+    """
+    Gets a rich relationship. Returns dict on success, str on rate limit/API error, None on other errors.
+    """
     prompt = f"""
 あなたは、対話の中から人間関係や出来事の機微を読み解く、高度なナラティブ分析AIです。
 【コンテキストとなる会話】
@@ -92,16 +90,21 @@ def get_rich_relation_from_gemini(gemini_client: genai.Client, chunk: str, entit
 - 全てのフィールドを必ず埋めてください。
 """
     response_text = _call_gemini_with_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
-    if response_text == "RATE_LIMIT_EXCEEDED":
-        return "RATE_LIMIT_EXCEEDED"
+
+    if response_text in ["RATE_LIMIT_EXCEEDED", "API_ERROR"]:
+        return response_text
+
     try:
         json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
         data = json.loads(json_text)
         if all(k in data for k in ["relation", "polarity", "intensity", "context"]):
             return data
-    except (json.JSONDecodeError, AttributeError) as e:
-        logger.error(f"Error parsing relation JSON from Gemini for ({entity1}, {entity2}): {e}")
-    return None
+        else:
+            logger.warning(f"Parsed JSON is missing required keys for ({entity1}, {entity2}).")
+            return None
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.error(f"Failed to parse JSON response from Gemini for ({entity1}, {entity2}): {e}\nResponse was: {response_text}")
+        return None
 
 def load_graph(path: Path) -> nx.DiGraph:
     if path.exists():
@@ -144,7 +147,7 @@ def main():
     if args.source == "import":
         source_dir = room_path / "log_import_source"
         processed_dir = source_dir / "processed"
-    else: # archive
+    else:
         source_dir = room_path / "log_archives"
         processed_dir = source_dir / "processed"
 
@@ -162,7 +165,7 @@ def main():
             except json.JSONDecodeError:
                 logger.warning("Progress file is corrupted. Starting from scratch.")
 
-    all_logs = [f for f in source_dir.glob("*.txt")]
+    all_logs = [f for f in source_dir.glob("*.txt") if f.is_file()]
     files_to_process = sorted([f for f in all_logs if f.name not in processed_files])
 
     if not files_to_process:
@@ -184,21 +187,21 @@ def main():
                 if not log_content.strip():
                     logger.warning("Log file is empty, skipping.")
                     processed_files.add(log_file.name)
-                    shutil.move(log_file, processed_dir / log_file.name)
+                    shutil.move(str(log_file), str(processed_dir / log_file.name))
                     continue
 
                 text_splitter = RecursiveCharacterTextSplitter(chunk_size=8000, chunk_overlap=200, length_function=len)
                 chunks = text_splitter.split_text(log_content)
 
+                all_episode_summaries = []
                 # Block 1: Episodic Memory
                 logger.info("Block 1: Generating episodic memory...")
                 short_term_path = rag_data_path / "memory_short_term_summary.txt"
                 mid_term_path = rag_data_path / "memory_mid_term_summary.json"
-                all_episode_summaries = []
                 for i, chunk in enumerate(chunks):
                     summary = summarize_chunk(gemini_client, chunk)
                     if summary == "RATE_LIMIT_EXCEEDED":
-                        raise RuntimeError("API rate limit exceeded after max retries during summarization.")
+                        raise RuntimeError("API rate limit exceeded during summarization.")
                     if not summary:
                         logger.warning(f"Skipping empty summary for chunk {i+1}.")
                         continue
@@ -220,12 +223,27 @@ def main():
                     if len(entities) < 2: continue
                     for entity1, entity2 in combinations(entities, 2):
                         if G.has_edge(entity1, entity2): continue
-                        relation_data = get_rich_relation_from_gemini(gemini_client, chunk, entity1, entity2)
+
+                        max_retries = 3
+                        retry_count = 0
+                        relation_data = None
+                        while retry_count < max_retries:
+                            relation_data = get_rich_relation_from_gemini(gemini_client, chunk, entity1, entity2)
+                            if isinstance(relation_data, str) and relation_data == "RATE_LIMIT_EXCEEDED":
+                                retry_count += 1
+                                wait_time = 5 * retry_count
+                                logger.warning(f"Rate limit hit for relation extraction. Retrying in {wait_time}s... (Attempt {retry_count}/{max_retries})")
+                                time.sleep(wait_time)
+                            else:
+                                break
+
                         if relation_data == "RATE_LIMIT_EXCEEDED":
                             raise RuntimeError("API rate limit exceeded after max retries during relation extraction.")
-                        if relation_data:
+
+                        if isinstance(relation_data, dict):
                             logger.info(f"    - Found relation: {entity1} -> {relation_data['relation']} -> {entity2}")
                             G.add_edge(entity1, entity2, label=relation_data['relation'], **relation_data)
+
                 save_graph(G, graph_path)
                 logger.info(f"  - Knowledge graph updated with {G.number_of_edges()} relations.")
 
@@ -252,7 +270,7 @@ def main():
                     logger.info("  - No new summaries to index.")
 
                 processed_files.add(log_file.name)
-                shutil.move(log_file, processed_dir / log_file.name)
+                shutil.move(str(log_file), str(processed_dir / log_file.name))
                 logger.info(f"Successfully processed and moved {log_file.name}")
 
             except Exception as e:
