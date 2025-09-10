@@ -145,9 +145,17 @@ def extract_entities(text: str) -> list:
     return sorted(list(set(entities)))
 
 def extract_conversation_pairs(log_messages: list) -> list:
+    """
+    Processes a list of raw log message dictionaries and groups them into
+    meaningful conversation pairs, handling consecutive messages from the same role.
+    """
     pairs = []
-    current_pair = None
-    pending_system_content = ""
+    if not log_messages:
+        return pairs
+
+    current_user_content = []
+    current_agent_content = []
+    pending_system_content = []
 
     for msg in log_messages:
         role = msg.get("role")
@@ -156,33 +164,36 @@ def extract_conversation_pairs(log_messages: list) -> list:
             continue
 
         if role == 'SYSTEM':
-            pending_system_content += content + "\n"
+            pending_system_content.append(content)
 
         elif role == 'USER':
-            if current_pair and current_pair.get("agent_content"):
-                pairs.append(current_pair)
-                current_pair = None
+            # If there's pending agent content, it means a pair has just ended.
+            if current_agent_content:
+                pairs.append({
+                    "user_content": "\n".join(current_user_content),
+                    "agent_content": "\n".join(current_agent_content)
+                })
+                current_user_content = []
+                current_agent_content = []
 
-            if not current_pair:
-                current_pair = {"user_content": "", "agent_content": ""}
-                if pending_system_content:
-                    current_pair["user_content"] = pending_system_content.strip() + "\n"
-                    pending_system_content = ""
+            # Prepend any system messages to the start of this new user turn
+            if pending_system_content:
+                current_user_content.extend(pending_system_content)
+                pending_system_content = []
 
-            if current_pair["user_content"]:
-                current_pair["user_content"] += "\n" + content
-            else:
-                current_pair["user_content"] = content
+            current_user_content.append(content)
 
         elif role == 'AGENT':
-            if current_pair and current_pair.get("user_content"):
-                if current_pair["agent_content"]:
-                    current_pair["agent_content"] += "\n" + content
-                else:
-                    current_pair["agent_content"] = content
+            # Only add agent content if a user turn has started
+            if current_user_content:
+                current_agent_content.append(content)
 
-    if current_pair:
-        pairs.append(current_pair)
+    # Add the final pair after the loop finishes
+    if current_user_content:
+        pairs.append({
+            "user_content": "\n".join(current_user_content),
+            "agent_content": "\n".join(current_agent_content)
+        })
 
     return pairs
 
