@@ -157,15 +157,15 @@ def extract_conversation_pairs(log_messages: list) -> list:
     pending_system_content = ""
 
     for msg in log_messages:
-        speaker = msg.get("speaker")
+        role = msg.get("role")
         content = msg.get("content", "").strip()
-        if not speaker or not content:
+        if not role or not content:
             continue
 
-        if speaker == constants.SYSTEM_SPEAKER:
+        if role == 'SYSTEM':
             pending_system_content += content + "\n"
 
-        elif speaker == constants.USER_SPEAKER:
+        elif role == 'USER':
             # If an old pair was finished (had user and agent content), add it to the list.
             if current_pair and current_pair.get("agent_content"):
                 pairs.append(current_pair)
@@ -188,7 +188,7 @@ def extract_conversation_pairs(log_messages: list) -> list:
             else:
                 current_pair["user_content"] = content
 
-        elif speaker == constants.AGENT_SPEAKER:
+        elif role == 'AGENT':
             # Only add agent content if there's an active user turn
             if current_pair and current_pair.get("user_content"):
                 if current_pair["agent_content"]:
