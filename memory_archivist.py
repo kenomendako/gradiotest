@@ -224,10 +224,20 @@ def main():
         logger.error(f"Failed to initialize Gemini client: {e}", exc_info=True)
         sys.exit(1)
 
-    # --- 1. Define and ensure all necessary paths exist before any file operations ---
+    # --- 1. Synchronize memory (progress file) with reality (rag_data folder) ---
     room_path = Path(constants.ROOMS_DIR) / args.room_name
     rag_data_path = room_path / "rag_data"
+    progress_file = rag_data_path / "archivist_progress.json"
 
+    # If rag_data doesn't exist, it implies a user-intended reset.
+    # In this case, we must delete the old progress file to prevent using "ghost memory".
+    if not rag_data_path.exists():
+        logger.warning("`rag_data` directory not found. Assuming a full memory reset is intended.")
+        if progress_file.exists():
+            progress_file.unlink()
+            logger.info("Deleted old progress file to match the reset state.")
+
+    # --- 2. Define and ensure all necessary paths exist before any file operations ---
     if args.source == "import":
         source_dir = room_path / "log_import_source"
     else: # archive
