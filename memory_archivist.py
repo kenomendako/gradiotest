@@ -255,6 +255,8 @@ def main():
 
     # --- 3. Create file list to process ---
     all_logs = [f for f in source_dir.glob("*.txt") if f.is_file()]
+    logger.info(f"DEBUG: Checking for logs in source directory: {source_dir.resolve()}")
+    logger.info(f"DEBUG: Found {len(all_logs)} files via glob: {[f.name for f in all_logs]}")
     files_to_process = []
     for log_file in sorted(all_logs):
         file_progress = progress_data.get(log_file.name, {})
@@ -263,8 +265,6 @@ def main():
 
     if not files_to_process:
         logger.info("All log files have already been processed.")
-        if progress_file.exists():
-            progress_file.unlink()
         return
 
     logger.info(f"Found {len(files_to_process)} log file(s) to process.")
