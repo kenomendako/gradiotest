@@ -145,13 +145,6 @@ def extract_entities(text: str) -> list:
     return sorted(list(set(entities)))
 
 def extract_conversation_pairs(log_messages: list) -> list:
-    """
-    Processes a list of raw log message dictionaries and groups them into
-    meaningful conversation pairs.
-    A pair consists of a user's turn (one or more messages) and the AI's
-    subsequent turn (one or more messages). System messages are prepended
-    to the next user turn.
-    """
     pairs = []
     current_pair = None
     pending_system_content = ""
@@ -166,37 +159,28 @@ def extract_conversation_pairs(log_messages: list) -> list:
             pending_system_content += content + "\n"
 
         elif role == 'USER':
-            # If an old pair was finished (had user and agent content), add it to the list.
             if current_pair and current_pair.get("agent_content"):
                 pairs.append(current_pair)
                 current_pair = None
 
-            # Start a new pair if one isn't active
             if not current_pair:
-                current_pair = {
-                    "user_content": "",
-                    "agent_content": ""
-                }
-                # Prepend any pending system messages
+                current_pair = {"user_content": "", "agent_content": ""}
                 if pending_system_content:
                     current_pair["user_content"] = pending_system_content.strip() + "\n"
                     pending_system_content = ""
 
-            # Append user content
             if current_pair["user_content"]:
                 current_pair["user_content"] += "\n" + content
             else:
                 current_pair["user_content"] = content
 
         elif role == 'AGENT':
-            # Only add agent content if there's an active user turn
             if current_pair and current_pair.get("user_content"):
                 if current_pair["agent_content"]:
                     current_pair["agent_content"] += "\n" + content
                 else:
                     current_pair["agent_content"] = content
 
-    # Add the last pair if it exists
     if current_pair:
         pairs.append(current_pair)
 
