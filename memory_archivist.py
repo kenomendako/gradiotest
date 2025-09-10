@@ -70,13 +70,13 @@ def call_gemini_with_smart_retry(gemini_client: genai.Client, model_name: str, p
             return None
     return None
 
-def summarize_chunk(gemini_client: genai.Client, chunk: str) -> str | None:
-    """Summarizes a text chunk using the provided Gemini client."""
+def generate_episodic_summary(gemini_client: genai.Client, pair_content: str) -> str | None:
+    """Generates a summary for a single conversation pair."""
     prompt = f"""
 あなたは、対話ログを要約する専門家です。以下の対話の要点を、客観的な事実に基づき、簡潔な箇条書きで3〜5点にまとめてください。
 【対話ログ】
 ---
-{chunk}
+{pair_content}
 ---
 【要約】
 """
@@ -128,10 +128,79 @@ def load_graph(path: Path) -> nx.DiGraph:
 def save_graph(G: nx.DiGraph, path: Path):
     nx.write_graphml(G, str(path))
 
+def save_progress(progress_file: Path, progress_data: dict):
+    """Atomically saves the progress data dictionary to a JSON file."""
+    temp_path = progress_file.with_suffix(f"{progress_file.suffix}.tmp")
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(progress_data, f, indent=4, ensure_ascii=False)
+        # Use shutil.move for consistency with other atomic operations in the script
+        shutil.move(str(temp_path), str(progress_file))
+    except Exception as e:
+        logger.error(f"CRITICAL: Failed to save progress to {progress_file}. Error: {e}", exc_info=True)
+
 def extract_entities(text: str) -> list:
     doc = nlp(text)
     entities = [ent.text.strip() for ent in doc.ents if ent.label_ in ["PERSON", "ORG", "GPE", "LOC"]]
     return sorted(list(set(entities)))
+
+def extract_conversation_pairs(log_messages: list) -> list:
+    """
+    Processes a list of raw log message dictionaries and groups them into
+    meaningful conversation pairs.
+    A pair consists of a user's turn (one or more messages) and the AI's
+    subsequent turn (one or more messages). System messages are prepended
+    to the next user turn.
+    """
+    pairs = []
+    current_pair = None
+    pending_system_content = ""
+
+    for msg in log_messages:
+        speaker = msg.get("speaker")
+        content = msg.get("content", "").strip()
+        if not speaker or not content:
+            continue
+
+        if speaker == constants.SYSTEM_SPEAKER:
+            pending_system_content += content + "\n"
+
+        elif speaker == constants.USER_SPEAKER:
+            # If an old pair was finished (had user and agent content), add it to the list.
+            if current_pair and current_pair.get("agent_content"):
+                pairs.append(current_pair)
+                current_pair = None
+
+            # Start a new pair if one isn't active
+            if not current_pair:
+                current_pair = {
+                    "user_content": "",
+                    "agent_content": ""
+                }
+                # Prepend any pending system messages
+                if pending_system_content:
+                    current_pair["user_content"] = pending_system_content.strip() + "\n"
+                    pending_system_content = ""
+
+            # Append user content
+            if current_pair["user_content"]:
+                current_pair["user_content"] += "\n" + content
+            else:
+                current_pair["user_content"] = content
+
+        elif speaker == constants.AGENT_SPEAKER:
+            # Only add agent content if there's an active user turn
+            if current_pair and current_pair.get("user_content"):
+                if current_pair["agent_content"]:
+                    current_pair["agent_content"] += "\n" + content
+                else:
+                    current_pair["agent_content"] = content
+
+    # Add the last pair if it exists
+    if current_pair:
+        pairs.append(current_pair)
+
+    return pairs
 
 def main():
     parser = argparse.ArgumentParser(description="Nexus Ark Memory Archivist")
@@ -172,18 +241,23 @@ def main():
 
     # --- 2. Load progress ---
     progress_file = rag_data_path / "archivist_progress.json"
-    processed_files = set()
+    progress_data = {}
     if progress_file.exists():
         with open(progress_file, "r", encoding="utf-8") as f:
             try:
                 progress_data = json.load(f)
-                processed_files = set(progress_data.get("processed_files", []))
+                logger.info("Successfully loaded progress file.")
             except json.JSONDecodeError:
                 logger.warning("Progress file is corrupted. Starting from scratch.")
+                progress_data = {}
 
     # --- 3. Create file list to process ---
     all_logs = [f for f in source_dir.glob("*.txt") if f.is_file()]
-    files_to_process = sorted([f for f in all_logs if f.name not in processed_files])
+    files_to_process = []
+    for log_file in sorted(all_logs):
+        file_progress = progress_data.get(log_file.name, {})
+        if file_progress.get("status") != "completed":
+            files_to_process.append(log_file)
 
     if not files_to_process:
         logger.info("All log files have already been processed.")
@@ -193,100 +267,144 @@ def main():
 
     logger.info(f"Found {len(files_to_process)} log file(s) to process.")
 
-    # --- 4. Main loop with guaranteed progress saving ---
+    # --- 4. Main loop with Multi-Stage Atomic Pair Progression ---
     try:
         for log_file in files_to_process:
+            logger.info(f"--- Processing log file: {log_file.name} ---")
+
+            # --- 1. Load file and extract pairs ---
             try:
-                logger.info(f"--- Processing log file: {log_file.name} ---")
-
-                with open(log_file, "r", encoding="utf-8") as f:
-                    log_content = f.read()
-
-                if not log_content.strip():
-                    logger.warning("Log file is empty, skipping.")
-                    processed_files.add(log_file.name)
+                log_messages = utils.load_chat_log(str(log_file))
+                if not log_messages:
+                    logger.warning(f"Log file {log_file.name} is empty or invalid. Marking as completed.")
+                    progress_data[log_file.name] = {"status": "completed"}
+                    save_progress(progress_file, progress_data)
                     shutil.move(str(log_file), str(processed_dir / log_file.name))
                     continue
-
-                text_splitter = RecursiveCharacterTextSplitter(chunk_size=8000, chunk_overlap=200, length_function=len)
-                chunks = text_splitter.split_text(log_content)
-
-                # Block 1
-                logger.info("Block 1: Generating episodic memory...")
-                all_episode_summaries = []
-                for i, chunk in enumerate(chunks):
-                    summary = summarize_chunk(gemini_client, chunk)
-                    if summary is None:
-                        logger.error(f"Failed to summarize chunk {i+1} after max retries. Stopping archivist.")
-                        sys.exit(1)
-                    episode_id = str(uuid.uuid4())
-                    episode_data = {"episode_id": episode_id, "timestamp": datetime.now().isoformat(), "summary": summary, "source_log": log_file.name}
-                    all_episode_summaries.append(episode_data)
-
-                short_term_path = rag_data_path / "memory_short_term_summary.txt"
-                mid_term_path = rag_data_path / "memory_mid_term_summary.json"
-                with open(short_term_path, "a", encoding="utf-8") as f, open(mid_term_path, "a", encoding="utf-8") as jf:
-                    for item in all_episode_summaries:
-                        f.write(f"## Episode: {item['episode_id']} (Generated: {item['timestamp']})\n{item['summary']}\n\n")
-                        jf.write(json.dumps(item, ensure_ascii=False) + "\n")
-                logger.info(f"  - Generated and saved {len(all_episode_summaries)} episodic memories.")
-
-                # Block 2
-                logger.info("Block 2: Deepening semantic memory (Knowledge Graph)...")
-                graph_path = rag_data_path / "knowledge_graph.graphml"
-                G = load_graph(graph_path)
-                for i, chunk in enumerate(chunks):
-                    entities = extract_entities(chunk)
-                    if len(entities) < 2: continue
-                    for entity1, entity2 in combinations(entities, 2):
-                        if G.has_edge(entity1, entity2): continue
-                        relation_data = get_rich_relation_from_gemini(gemini_client, chunk, entity1, entity2)
-                        if relation_data is None:
-                            logger.error(f"Failed to get relation for ({entity1}, {entity2}) after max retries. Stopping archivist process to save progress.")
-                            sys.exit(1)
-                        logger.info(f"    - Found relation: {entity1} -> {relation_data['relation']} -> {entity2}")
-                        G.add_edge(entity1, entity2, label=relation_data['relation'], **relation_data)
-                save_graph(G, graph_path)
-                logger.info(f"  - Knowledge graph updated with {G.number_of_edges()} relations.")
-
-                # Block 3
-                logger.info("Block 3: Indexing for RAG...")
-                if all_episode_summaries:
-                    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", task_type="RETRIEVAL_DOCUMENT", google_api_key=api_key)
-                    docs_to_index = [f"Episode ID: {item['episode_id']}\nTimestamp: {item['timestamp']}\nSummary:\n{item['summary']}" for item in all_episode_summaries]
-
-                    faiss_index_path = rag_data_path / "episode_summary_index.faiss"
-                    if faiss_index_path.exists():
-                        vector_store = FAISS.load_local(str(rag_data_path), embeddings, "episode_summary_index", allow_dangerous_deserialization=True)
-                        vector_store.add_texts(docs_to_index)
-                    else:
-                        vector_store = FAISS.from_texts(docs_to_index, embeddings)
-
-                    with tempfile.TemporaryDirectory() as temp_dir:
-                        temp_path_str = str(Path(temp_dir) / "temp_index")
-                        vector_store.save_local(temp_path_str)
-                        shutil.move(f"{temp_path_str}/index.faiss", str(rag_data_path / "episode_summary_index.faiss"))
-                        shutil.move(f"{temp_path_str}/index.pkl", str(rag_data_path / "episode_summary_index.pkl"))
-                    logger.info(f"  - FAISS index saved successfully.")
-                else:
-                    logger.info("  - No new summaries to index.")
-
-                processed_files.add(log_file.name)
-                shutil.move(str(log_file), str(processed_dir / log_file.name))
-                logger.info(f"Successfully processed and moved {log_file.name}")
-
+                conversation_pairs = extract_conversation_pairs(log_messages)
             except Exception as e:
-                logger.error(f"!!! FAILED to process {log_file.name}: {e}", exc_info=True)
-                sys.exit(1)
+                logger.error(f"Failed to load or parse log file {log_file.name}: {e}", exc_info=True)
+                progress_data[log_file.name] = {"status": "failed", "error": str(e)}
+                continue
 
-        logger.info("--- All tasks completed successfully ---")
-        if progress_file.exists():
-            progress_file.unlink()
+            # --- 2. Initialize resources and get resume position ---
+            file_progress = progress_data.get(log_file.name, {})
+            start_pair_index = file_progress.get("last_processed_pair_index", -1) + 1
+
+            graph_path = rag_data_path / "knowledge_graph.graphml"
+            G = load_graph(graph_path)
+            embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", task_type="RETRIEVAL_DOCUMENT", google_api_key=api_key)
+            faiss_index_path = rag_data_path / "episode_summary_index.faiss"
+            vector_store = FAISS.load_local(str(rag_data_path), embeddings, "episode_summary_index", allow_dangerous_deserialization=True) if faiss_index_path.exists() else None
+
+            if start_pair_index > 0:
+                logger.info(f"Resuming {log_file.name} from conversation pair {start_pair_index}.")
+
+            # --- 3. Conversation pair processing loop ---
+            for i, pair in enumerate(conversation_pairs[start_pair_index:], start=start_pair_index):
+
+                start_stage = file_progress.get("last_completed_stage", 0) if i == start_pair_index else 0
+
+                try:
+                    combined_content = f"USER: {pair.get('user_content', '')}\nAGENT: {pair.get('agent_content', '')}".strip()
+                    episode_summary_doc = None
+
+                    # --- Stage 1: Episodic Memory ---
+                    if start_stage < 1:
+                        logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 1: Generating episodic memory...")
+                        summary_text = generate_episodic_summary(gemini_client, combined_content)
+                        if summary_text is None:
+                            raise RuntimeError("Failed to generate episodic summary after max retries.")
+
+                        episode_id = str(uuid.uuid4())
+                        episode_data = {"episode_id": episode_id, "timestamp": datetime.now().isoformat(), "summary": summary_text, "source_log": log_file.name, "pair_index": i}
+
+                        short_term_path = rag_data_path / "memory_short_term_summary.txt"
+                        mid_term_path = rag_data_path / "memory_mid_term_summary.json"
+                        with open(short_term_path, "a", encoding="utf-8") as f, open(mid_term_path, "a", encoding="utf-8") as jf:
+                            f.write(f"## Episode: {episode_id} (Source: {log_file.name}, Pair: {i})\n{summary_text}\n\n")
+                            jf.write(json.dumps(episode_data, ensure_ascii=False) + "\n")
+
+                        episode_summary_doc = f"Episode ID: {episode_id}\nTimestamp: {episode_data['timestamp']}\nSummary:\n{summary_text}"
+
+                        file_progress.update({"status": "in_progress", "last_processed_pair_index": i, "last_completed_stage": 1})
+                        progress_data[log_file.name] = file_progress
+                        save_progress(progress_file, progress_data)
+                        logger.info(f"    - Stage 1 completed.")
+
+                    # --- Stage 2: Semantic Memory ---
+                    if start_stage < 2:
+                        logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 2: Deepening semantic memory...")
+                        entities = extract_entities(combined_content)
+                        if len(entities) >= 2:
+                            for entity1, entity2 in combinations(entities, 2):
+                                if G.has_edge(entity1, entity2): continue
+                                relation_data = get_rich_relation_from_gemini(gemini_client, combined_content, entity1, entity2)
+                                if relation_data is None: raise RuntimeError(f"Failed to get relation for ({entity1}, {entity2}) after max retries.")
+                                logger.info(f"      - Found relation: {entity1} -> {relation_data['relation']} -> {entity2}")
+                                G.add_edge(entity1, entity2, label=relation_data['relation'], **relation_data)
+                            save_graph(G, graph_path)
+                        else:
+                            logger.info("    - Not enough entities found to create new relations.")
+
+                        file_progress.update({"last_completed_stage": 2})
+                        progress_data[log_file.name] = file_progress
+                        save_progress(progress_file, progress_data)
+                        logger.info(f"    - Stage 2 completed.")
+
+                    # --- Stage 3: RAG Indexing ---
+                    if start_stage < 3:
+                        logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 3: Indexing for RAG...")
+                        if episode_summary_doc is None:
+                            mid_term_path = rag_data_path / "memory_mid_term_summary.json"
+                            if mid_term_path.exists():
+                                with open(mid_term_path, "r", encoding="utf-8") as jf:
+                                    for line in jf:
+                                        try:
+                                            item = json.loads(line)
+                                            if item.get("source_log") == log_file.name and item.get("pair_index") == i:
+                                                episode_summary_doc = f"Episode ID: {item['episode_id']}\nTimestamp: {item['timestamp']}\nSummary:\n{item['summary']}"
+                                                logger.info("      - Found previous summary for this pair to index.")
+                                                break
+                                        except json.JSONDecodeError: continue
+
+                        if episode_summary_doc:
+                            if vector_store is None:
+                                vector_store = FAISS.from_texts([episode_summary_doc], embeddings)
+                            else:
+                                vector_store.add_texts([episode_summary_doc])
+
+                            with tempfile.TemporaryDirectory() as temp_dir:
+                                temp_path_str = str(Path(temp_dir) / "temp_index")
+                                vector_store.save_local(temp_path_str)
+                                shutil.move(f"{temp_path_str}/index.faiss", str(rag_data_path / "episode_summary_index.faiss"))
+                                shutil.move(f"{temp_path_str}/index.pkl", str(rag_data_path / "episode_summary_index.pkl"))
+                        else:
+                            logger.warning("    - Could not find summary to index for this pair. Skipping RAG indexing.")
+
+                        file_progress.update({"last_completed_stage": 3})
+                        progress_data[log_file.name] = file_progress
+                        save_progress(progress_file, progress_data)
+                        logger.info(f"    - Stage 3 completed.")
+
+                    # --- This pair is fully complete ---
+                    file_progress.update({"last_processed_pair_index": i, "last_completed_stage": 0})
+                    progress_data[log_file.name] = file_progress
+                    save_progress(progress_file, progress_data)
+                    logger.info(f"  - Successfully processed pair {i+1}/{len(conversation_pairs)}.")
+
+                except Exception as e:
+                    logger.error(f"!!! FAILED to process pair {i} in {log_file.name}: {e}", exc_info=True)
+                    sys.exit(1)
+
+            # --- All pairs for this file are done ---
+            logger.info(f"--- Successfully completed all pairs for {log_file.name} ---")
+            progress_data[log_file.name] = {"status": "completed"}
+            shutil.move(str(log_file), str(processed_dir / log_file.name))
 
     finally:
         logger.info("Saving final progress...")
-        with open(progress_file, "w", encoding="utf-8") as f:
-            json.dump({"processed_files": list(processed_files)}, f, indent=2)
+        save_progress(progress_file, progress_data)
 
 if __name__ == "__main__":
     try:
