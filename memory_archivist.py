@@ -364,32 +364,61 @@ def main():
                     # --- Stage 3: RAG Indexing ---
                     if start_stage < 3:
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 3: Indexing for RAG...")
-                        if episode_summary_doc is None:
-                            mid_term_path = rag_data_path / "memory_mid_term_summary.json"
-                            if mid_term_path.exists():
-                                with open(mid_term_path, "r", encoding="utf-8") as jf:
-                                    for line in jf:
-                                        try:
-                                            item = json.loads(line)
-                                            if item.get("source_log") == log_file.name and item.get("pair_index") == i:
-                                                episode_summary_doc = f"Episode ID: {item['episode_id']}\nTimestamp: {item['timestamp']}\nSummary:\n{item['summary']}"
-                                                logger.info("      - Found previous summary for this pair to index.")
-                                                break
-                                        except json.JSONDecodeError: continue
 
-                        if episode_summary_doc:
-                            if vector_store is None:
-                                vector_store = FAISS.from_texts([episode_summary_doc], embeddings)
-                            else:
-                                vector_store.add_texts([episode_summary_doc])
+                        max_retries = 5
+                        retry_count = 0
+                        success = False
+                        while retry_count < max_retries:
+                            try:
+                                # 既存のRAG索引生成コードをここに移動
+                                if episode_summary_doc is None:
+                                    mid_term_path = rag_data_path / "memory_mid_term_summary.json"
+                                    if mid_term_path.exists():
+                                        with open(mid_term_path, "r", encoding="utf-8") as jf:
+                                            for line in jf:
+                                                try:
+                                                    item = json.loads(line)
+                                                    if item.get("source_log") == log_file.name and item.get("pair_index") == i:
+                                                        episode_summary_doc = f"Episode ID: {item['episode_id']}\nTimestamp: {item['timestamp']}\nSummary:\n{item['summary']}"
+                                                        logger.info("      - Found previous summary for this pair to index.")
+                                                        break
+                                                except json.JSONDecodeError: continue
 
-                            with tempfile.TemporaryDirectory() as temp_dir:
-                                temp_path_str = str(Path(temp_dir) / "temp_index")
-                                vector_store.save_local(temp_path_str)
-                                shutil.move(f"{temp_path_str}/index.faiss", str(rag_data_path / "episode_summary_index.faiss"))
-                                shutil.move(f"{temp_path_str}/index.pkl", str(rag_data_path / "episode_summary_index.pkl"))
-                        else:
-                            logger.warning("    - Could not find summary to index for this pair. Skipping RAG indexing.")
+                                if episode_summary_doc:
+                                    if vector_store is None:
+                                        vector_store = FAISS.from_texts([episode_summary_doc], embeddings)
+                                    else:
+                                        vector_store.add_texts([episode_summary_doc])
+
+                                    with tempfile.TemporaryDirectory() as temp_dir:
+                                        temp_path_str = str(Path(temp_dir) / "temp_index")
+                                        vector_store.save_local(temp_path_str)
+                                        shutil.move(f"{temp_path_str}/index.faiss", str(rag_data_path / "episode_summary_index.faiss"))
+                                        shutil.move(f"{temp_path_str}/index.pkl", str(rag_data_path / "episode_summary_index.pkl"))
+                                else:
+                                    logger.warning("    - Could not find summary to index for this pair. Skipping RAG indexing.")
+
+                                success = True
+                                break # 成功したのでループを抜ける
+
+                            except google_exceptions.ResourceExhausted as e:
+                                retry_count += 1
+                                if retry_count >= max_retries:
+                                    logger.error(f"Embedding API rate limit exceeded. Max retries ({max_retries}) reached for pair {i}.")
+                                    raise e # 最終的にはエラーを投げてスクリプトを停止させる
+
+                                wait_time = 5 * (2 ** (retry_count - 1))
+                                logger.info(f"Embedding rate limit hit. Retrying in {wait_time} seconds... ({retry_count}/{max_retries})")
+                                time.sleep(wait_time)
+
+                            except Exception as e:
+                                # ResourceExhausted 以外の予期せぬエラーは即時失敗させる
+                                logger.error(f"An unexpected error occurred during RAG indexing for pair {i}: {e}", exc_info=True)
+                                raise e
+
+                        if not success:
+                            # ループが完了しても成功しなかった場合（理論上はありえないが安全のため）
+                            raise RuntimeError(f"Failed to index for RAG after {max_retries} retries without a clear exception.")
 
                         file_progress.update({"last_completed_stage": 3})
                         progress_data[log_file.name] = file_progress
