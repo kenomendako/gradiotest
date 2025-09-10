@@ -433,7 +433,7 @@ def main():
 
                 except Exception as e:
                     logger.error(f"!!! FAILED to process pair {i} in {log_file.name}: {e}", exc_info=True)
-                    sys.exit(1)
+                    break # sys.exit(1) から break に変更
 
             # --- All pairs for this file are done ---
             logger.info(f"--- Successfully completed all pairs for {log_file.name} ---")
