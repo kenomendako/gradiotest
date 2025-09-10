@@ -15,6 +15,7 @@ import spacy
 import networkx as nx
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_google_genai._common import GoogleGenerativeAIError
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import google.genai as genai
 from google.genai import errors as genai_errors
@@ -255,8 +256,6 @@ def main():
 
     # --- 3. Create file list to process ---
     all_logs = [f for f in source_dir.glob("*.txt") if f.is_file()]
-    logger.info(f"DEBUG: Checking for logs in source directory: {source_dir.resolve()}")
-    logger.info(f"DEBUG: Found {len(all_logs)} files via glob: {[f.name for f in all_logs]}")
     files_to_process = []
     for log_file in sorted(all_logs):
         file_progress = progress_data.get(log_file.name, {})
@@ -265,6 +264,8 @@ def main():
 
     if not files_to_process:
         logger.info("All log files have already been processed.")
+        if progress_file.exists():
+            progress_file.unlink()
         return
 
     logger.info(f"Found {len(files_to_process)} log file(s) to process.")
@@ -370,7 +371,6 @@ def main():
                         success = False
                         while retry_count < max_retries:
                             try:
-                                # 既存のRAG索引生成コードをここに移動
                                 if episode_summary_doc is None:
                                     mid_term_path = rag_data_path / "memory_mid_term_summary.json"
                                     if mid_term_path.exists():
@@ -399,25 +399,25 @@ def main():
                                     logger.warning("    - Could not find summary to index for this pair. Skipping RAG indexing.")
 
                                 success = True
-                                break # 成功したのでループを抜ける
+                                break
 
-                            except google_exceptions.ResourceExhausted as e:
-                                retry_count += 1
-                                if retry_count >= max_retries:
-                                    logger.error(f"Embedding API rate limit exceeded. Max retries ({max_retries}) reached for pair {i}.")
-                                    raise e # 最終的にはエラーを投げてスクリプトを停止させる
+                            except GoogleGenerativeAIError as e:
+                                # LangChainの例外を捕捉し、その根本原因がリトライ対象かを確認する
+                                if isinstance(e.__cause__, google_exceptions.ResourceExhausted):
+                                    retry_count += 1
+                                    if retry_count >= max_retries:
+                                        logger.error(f"Embedding API rate limit exceeded. Max retries ({max_retries}) reached for pair {i}.")
+                                        raise e
 
-                                wait_time = 5 * (2 ** (retry_count - 1))
-                                logger.info(f"Embedding rate limit hit. Retrying in {wait_time} seconds... ({retry_count}/{max_retries})")
-                                time.sleep(wait_time)
-
-                            except Exception as e:
-                                # ResourceExhausted 以外の予期せぬエラーは即時失敗させる
-                                logger.error(f"An unexpected error occurred during RAG indexing for pair {i}: {e}", exc_info=True)
-                                raise e
+                                    wait_time = 5 * (2 ** (retry_count - 1))
+                                    logger.info(f"Embedding rate limit hit. Retrying in {wait_time} seconds... ({retry_count}/{max_retries})")
+                                    time.sleep(wait_time)
+                                else:
+                                    # ResourceExhausted 以外のLangChain/Googleエラーはリトライせず、即時失敗させる
+                                    logger.error(f"A non-retriable Google/LangChain error occurred during RAG indexing for pair {i}: {e}", exc_info=True)
+                                    raise e
 
                         if not success:
-                            # ループが完了しても成功しなかった場合（理論上はありえないが安全のため）
                             raise RuntimeError(f"Failed to index for RAG after {max_retries} retries without a clear exception.")
 
                         file_progress.update({"last_completed_stage": 3})
