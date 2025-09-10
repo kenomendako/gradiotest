@@ -275,6 +275,8 @@ def main():
         for log_file in files_to_process:
             logger.info(f"--- Processing log file: {log_file.name} ---")
 
+            file_processing_interrupted = False # 1. 中断フラグを初期化
+
             # --- 1. Load file and extract pairs ---
             try:
                 log_messages = utils.load_chat_log(str(log_file))
@@ -433,7 +435,14 @@ def main():
 
                 except Exception as e:
                     logger.error(f"!!! FAILED to process pair {i} in {log_file.name}: {e}", exc_info=True)
-                    break # sys.exit(1) から break に変更
+                    file_processing_interrupted = True # 2. エラー発生時にフラグを立てる
+                    break # ループを中断
+
+            # 4. フラグをチェックして、後続処理を分岐させる
+            if file_processing_interrupted:
+                logger.warning(f"Processing of {log_file.name} was interrupted. Progress has been saved.")
+                # 次のログファイルがある場合は、そちらの処理へ移る
+                continue
 
             # --- All pairs for this file are done ---
             logger.info(f"--- Successfully completed all pairs for {log_file.name} ---")
