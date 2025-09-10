@@ -158,7 +158,7 @@ def extract_conversation_pairs(log_messages: list) -> list:
     pending_system_content = []
 
     for msg in log_messages:
-        role = msg.get("role")
+        role = msg.get("role", "").upper() # 大文字に統一して比較
         content = msg.get("content", "").strip()
         if not role or not content:
             continue
@@ -284,6 +284,13 @@ def main():
                     shutil.move(str(log_file), str(processed_dir / log_file.name))
                     continue
                 conversation_pairs = extract_conversation_pairs(log_messages)
+                logger.info(f"Extracted {len(conversation_pairs)} conversation pairs from {log_file.name}.")
+                if not conversation_pairs:
+                    logger.warning(f"No conversation pairs found in {log_file.name}. Marking as completed.")
+                    progress_data[log_file.name] = {"status": "completed"}
+                    save_progress(progress_file, progress_data)
+                    shutil.move(str(log_file), str(processed_dir / log_file.name))
+                    continue
             except Exception as e:
                 logger.error(f"Failed to load or parse log file {log_file.name}: {e}", exc_info=True)
                 progress_data[log_file.name] = {"status": "failed", "error": str(e)}
