@@ -122,6 +122,7 @@ try:
         chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
+        archivist_pid_state = gr.State(None)
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -371,6 +372,7 @@ try:
                         with gr.Row():
                             memos_import_button = gr.Button("手動インポートから記憶を生成", variant="primary", scale=2)
                             memory_archive_button = gr.Button("自動アーカイブから記憶を生成", variant="primary", scale=2)
+                            importer_stop_button = gr.Button("処理を中断", variant="stop", visible=False, scale=1)
                         # ▲▲▲ ここまで ▲▲▲
                         gr.Markdown("---")
                         with gr.Row():
@@ -729,22 +731,34 @@ try:
         memory_archiving_outputs = [
             memos_import_button,
             memory_archive_button,
+            importer_stop_button,
+            archivist_pid_state,
             debug_console_state,
-            debug_console_output,
-            chat_input_multimodal,
-            visualize_graph_button
+            debug_console_output
         ]
 
-        memos_import_button.click(
+        memos_import_click_event = memos_import_button.click(
             fn=ui_handlers.handle_memory_archiving,
             inputs=[current_room_name, debug_console_state, gr.State("import")],
             outputs=memory_archiving_outputs
         )
 
-        memory_archive_button.click(
+        memory_archive_click_event = memory_archive_button.click(
             fn=ui_handlers.handle_memory_archiving,
             inputs=[current_room_name, debug_console_state, gr.State("archive")],
             outputs=memory_archiving_outputs
+        )
+
+        importer_stop_button.click(
+            fn=ui_handlers.handle_archivist_stop,
+            inputs=[archivist_pid_state],
+            outputs=[
+                memos_import_button,
+                memory_archive_button,
+                importer_stop_button,
+                archivist_pid_state
+            ],
+            cancels=[memos_import_click_event, memory_archive_click_event]
         )
 
         visualize_graph_button.click(

@@ -81,25 +81,36 @@ def generate_episodic_summary(gemini_client: genai.Client, pair_content: str) ->
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
     return response_text.strip() if response_text else None
 
-def get_rich_relation_from_gemini(gemini_client: genai.Client, chunk: str, entity1: str, entity2: str) -> dict | None:
-    """Gets a rich relationship. Returns dict on success, None on failure."""
+def extract_relations_from_chunk(gemini_client: genai.Client, chunk: str) -> list | None:
+    """
+    AIに会話のチャンクを渡し、そこに含まれる全ての関係性のリストを一度に抽出させる。
+    """
     prompt = f"""
-あなたは、対話の中から人間関係や出来事の機微を読み解く、高度なナラティブ分析AIです。
+あなたは、テキストから構造化された知識を抽出する、高度な知識グラフアーキテクトです。
 【コンテキストとなる会話】
 ---
 {chunk}
 ---
 【あなたのタスク】
-上記の会話において、「{entity1}」と「{entity2}」の間に存在する最も重要な関係性を分析し、以下のJSON形式で厳密に出力してください。
-{{
-  "relation": "（関係性を表す簡潔な動詞句。例: 'shares tea with', 'worries about', 'is located in'）",
-  "polarity": "（その関係性が持つ感情の極性: "positive", "negative", "neutral" のいずれか）",
-  "intensity": "（感情の強度を1から10の整数で評価）",
-  "context": "（その関係性が生まれた、あるいは示された状況の、50字程度の簡潔な要約）"
-}}
+上記の会話に登場する主要なエンティティ（人物、場所、組織、概念など）を特定し、それらの間に存在する、最も重要で意味のある関係性を、以下のJSON形式のリストとして、可能な限り多く抽出してください。
+
+[
+  {{
+    "subject": "（主語となるエンティティ）",
+    "relation": "（関係性を表す簡潔な動詞句。例: 'develops with', 'is concerned about'）",
+    "object": "（目的語となるエンティティ）"
+  }},
+  {{
+    "subject": "...",
+    "relation": "...",
+    "object": "..."
+  }}
+]
+
 【最重要ルール】
-- あなた自身の思考や挨拶は絶対に含めず、JSONオブジェクトのみを出力してください。
-- 全てのフィールドを必ず埋めてください。
+- あなた自身の思考や挨拶は絶対に含めず、JSON配列のみを出力してください。
+- 抽出する関係性がない場合は、空の配列 `[]` を出力してください。
+- `subject`, `relation`, `object` の全てのフィールドを必ず埋めてください。
 """
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
     if response_text is None:
@@ -107,11 +118,11 @@ def get_rich_relation_from_gemini(gemini_client: genai.Client, chunk: str, entit
     try:
         json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
         data = json.loads(json_text)
-        if all(k in data for k in ["relation", "polarity", "intensity", "context"]):
+        if isinstance(data, list):
             return data
         else:
-            logger.warning(f"Parsed JSON is missing required keys for ({entity1}, {entity2}).")
-            return None
+            logger.warning(f"Parsed JSON is not a list. Response was: {response_text}")
+            return []
     except (json.JSONDecodeError, KeyError) as e:
         logger.error(f"Failed to parse JSON response from Gemini: {e}\nResponse was: {response_text}")
         return None
@@ -322,17 +333,30 @@ def main():
 
                     if start_stage < 2:
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 2: Deepening semantic memory...")
-                        entities = extract_entities(combined_content)
-                        if len(entities) >= 2:
-                            for entity1, entity2 in combinations(entities, 2):
-                                if G.has_edge(entity1, entity2): continue
-                                relation_data = get_rich_relation_from_gemini(gemini_client, combined_content, entity1, entity2)
-                                if relation_data is None: raise RuntimeError(f"Failed to get relation for ({entity1}, {entity2}) after max retries.")
-                                logger.info(f"      - Found relation: {entity1} -> {relation_data['relation']} -> {entity2}")
-                                G.add_edge(entity1, entity2, label=relation_data['relation'], **relation_data)
+
+                        # ▼▼▼【ここから下のブロックを、新しいロジックで置き換える】▼▼▼
+                        relations = extract_relations_from_chunk(gemini_client, combined_content)
+                        if relations is None:
+                            raise RuntimeError("Failed to extract relations after max retries.")
+
+                        if relations:
+                            for rel in relations:
+                                subj = rel.get("subject")
+                                obj = rel.get("object")
+                                pred = rel.get("relation")
+                                if all([subj, obj, pred]):
+                                    # グラフにノードが存在しない場合は追加
+                                    if not G.has_node(subj): G.add_node(subj)
+                                    if not G.has_node(obj): G.add_node(obj)
+                                    # 既存のエッジは上書きしない（最初の発見を尊重）
+                                    if not G.has_edge(subj, obj):
+                                        G.add_edge(subj, obj, label=pred)
+                                        logger.info(f"      - Found relation: {subj} -> {pred} -> {obj}")
                             save_graph(G, graph_path)
                         else:
-                            logger.info("    - Not enough entities found to create new relations.")
+                            logger.info("    - No significant relations found in this pair.")
+                        # ▲▲▲【置き換えはここまで】▲▲▲
+
                         file_progress.update({"last_completed_stage": 2})
                         progress_data[log_file.name] = file_progress
                         save_progress(progress_file, progress_data)

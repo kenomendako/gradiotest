@@ -1359,42 +1359,40 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
     gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
 
 def handle_memory_archiving(room_name: str, console_content: str, source_type: str):
-    # 処理中のUI更新 (6つの値を返す)
+    # 処理中のUI更新
     yield (
         gr.update(value=f"{source_type.capitalize()}から記憶生成中...", interactive=False),
         gr.update(interactive=False),
+        gr.update(visible=True, interactive=True), # Stop button
+        None, # PID state
         console_content,
         console_content,
-        gr.update(interactive=False),
-        gr.update(interactive=False)
     )
 
     full_log_output = console_content
     script_path = "memory_archivist.py"
+    pid = None
 
     try:
         gr.Info(f"記憶の生成を開始します... (ソース: {source_type})")
-
         cmd = [sys.executable, "-u", script_path, "--room_name", room_name, "--source", source_type]
 
-        with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='ignore') as proc:
+        # Popenの引数にcreationflagsを追加して、Windowsでプロセスグループを作成
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
+        with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='ignore', creationflags=creationflags) as proc:
+            pid = proc.pid
+            yield (gr.update(), gr.update(), gr.update(), pid, full_log_output, full_log_output)
+
             while True:
                 line = proc.stdout.readline()
                 if not line:
                     break
-
                 line = line.strip()
                 print(line)
                 full_log_output += line + "\n"
-
-                yield (
-                    gr.update(), gr.update(),
-                    full_log_output, full_log_output,
-                    gr.update(), gr.update()
-                )
+                yield (gr.update(), gr.update(), gr.update(), pid, full_log_output, full_log_output)
 
             proc.wait()
-
             if proc.returncode != 0:
                 raise RuntimeError(f"{script_path} failed with return code {proc.returncode}")
 
@@ -1407,15 +1405,42 @@ def handle_memory_archiving(room_name: str, console_content: str, source_type: s
         gr.Error(error_message)
 
     finally:
-        # 最終的なUI更新 (6つの値を返す)
+        # 最終的なUI更新
         yield (
             gr.update(value="手動インポートから記憶を生成", interactive=True),
             gr.update(value="自動アーカイブから記憶を生成", interactive=True),
+            gr.update(visible=False), # Stop button
+            None, # PID state
             full_log_output,
             full_log_output,
-            gr.update(interactive=True),
-            gr.update(interactive=True)
         )
+
+def handle_archivist_stop(pid: int):
+    """
+    実行中の記憶アーキビストプロセスを中断する。
+    """
+    if pid is None:
+        gr.Warning("停止対象のプロセスが見つかりません。")
+        return gr.update(interactive=True), gr.update(interactive=True), gr.update(visible=False), None
+
+    try:
+        parent = psutil.Process(pid)
+        for child in parent.children(recursive=True):
+            child.terminate()
+        parent.terminate()
+        gr.Info(f"記憶生成プロセス(PID: {pid})と関連プロセスに停止信号を送信しました。")
+    except psutil.NoSuchProcess:
+        gr.Warning(f"プロセス(PID: {pid})は既に終了しています。")
+    except Exception as e:
+        gr.Error(f"プロセスの停止中にエラーが発生しました: {e}")
+        traceback.print_exc()
+
+    return (
+        gr.update(interactive=True, value="手動インポートから記憶を生成"),
+        gr.update(interactive=True, value="自動アーカイブから記憶を生成"),
+        gr.update(visible=False),
+        None,
+    )
 
 
 def handle_memos_batch_import(room_name: str, console_content: str):
