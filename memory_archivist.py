@@ -135,9 +135,43 @@ def save_progress(progress_file: Path, progress_data: dict):
         logger.error(f"CRITICAL: Failed to save progress to {progress_file}. Error: {e}", exc_info=True)
 
 def extract_entities(text: str) -> list:
+    """
+    spaCyを使って、テキストからエンティティ（固有表現）と主要な名詞を抽出する。
+    v2: 助詞が含まれている場合の分割処理と、名詞の追加抽出で精度を向上。
+    """
     doc = nlp(text)
-    entities = [ent.text.strip() for ent in doc.ents if ent.label_ in ["PERSON", "ORG", "GPE", "LOC"]]
-    return sorted(list(set(entities)))
+    entities = set()
+
+    # 助詞のリスト（簡易版）
+    particles = {"って", "は", "が", "の", "に", "を", "と", "へ", "で"}
+
+    # 1. 固有表現(NER)から抽出
+    for ent in doc.ents:
+        # PERSON, ORG (組織), GPE (国・市), LOC (非GPEの地理的エンティティ)に限定
+        if ent.label_ in ["PERSON", "ORG", "GPE", "LOC"]:
+            clean_text = ent.text.strip()
+
+            # 末尾が助詞で終わっている場合、それを取り除く
+            # 例：「ルシアンって」 -> 「ルシアン」
+            if len(clean_text) > 1 and clean_text[-1] in particles:
+                clean_text = clean_text[:-1]
+
+            # 内部に助詞が含まれる場合（例：「ルシアンってケノ」）、助詞で分割して最初の部分を採用
+            # より安全なロジックを検討する必要があるが、一旦これで対応
+            for particle in particles:
+                if f" {particle} " in clean_text:
+                    clean_text = clean_text.split(f" {particle} ")[0]
+
+            if clean_text:
+                entities.add(clean_text)
+
+    # 2. 主要な名詞(NOUN)と固有名詞(PROPN)を追加で抽出
+    for token in doc:
+        # 1文字の名詞はノイズが多いため除外（お好みで調整）
+        if token.pos_ in ["NOUN", "PROPN"] and len(token.text) > 1:
+            entities.add(token.text.strip())
+
+    return sorted(list(entities))
 
 def extract_conversation_pairs(log_messages: list) -> list:
     """

@@ -83,8 +83,14 @@ def visualize_knowledge_graph(room_name: str):
 
         edge_labels = nx.get_edge_attributes(G, 'label')
         nx.draw_networkx_edges(
-            G, pos, edge_color='gray', width=1.5,
-            arrowstyle='->', arrowsize=20, alpha=0.7
+            G,
+            pos,
+            edge_color='gray',
+            width=1.5,
+            arrowstyle='->',
+            arrowsize=20,
+            alpha=0.7,
+            node_size=4000 # ノードのサイズ情報を渡し、矢印が隠れないようにする
         )
 
         nx.draw_networkx_edge_labels(
