@@ -275,8 +275,6 @@ def main():
         for log_file in files_to_process:
             logger.info(f"--- Processing log file: {log_file.name} ---")
 
-            file_processing_interrupted = False # 1. 中断フラグを初期化
-
             # --- 1. Load file and extract pairs ---
             try:
                 log_messages = utils.load_chat_log(str(log_file))
@@ -314,10 +312,8 @@ def main():
 
             # --- 3. Conversation pair processing loop ---
             for i, pair in enumerate(conversation_pairs[start_pair_index:], start=start_pair_index):
-
-                start_stage = file_progress.get("last_completed_stage", 0) if i == start_pair_index else 0
-
                 try:
+                    start_stage = file_progress.get("last_completed_stage", 0) if i == start_pair_index else 0
                     combined_content = f"USER: {pair.get('user_content', '')}\nAGENT: {pair.get('agent_content', '')}".strip()
                     episode_summary_doc = None
 
@@ -435,19 +431,12 @@ def main():
 
                 except Exception as e:
                     logger.error(f"!!! FAILED to process pair {i} in {log_file.name}: {e}", exc_info=True)
-                    file_processing_interrupted = True # 2. エラー発生時にフラグを立てる
                     break # ループを中断
-
-            # 4. フラグをチェックして、後続処理を分岐させる
-            if file_processing_interrupted:
-                logger.warning(f"Processing of {log_file.name} was interrupted. Progress has been saved.")
-                # 次のログファイルがある場合は、そちらの処理へ移る
-                continue
-
-            # --- All pairs for this file are done ---
-            logger.info(f"--- Successfully completed all pairs for {log_file.name} ---")
-            progress_data[log_file.name] = {"status": "completed"}
-            shutil.move(str(log_file), str(processed_dir / log_file.name))
+            else:
+                # このelseブロックは、forループがbreakされずに完了した場合にのみ実行される
+                logger.info(f"--- Successfully completed all pairs for {log_file.name} ---")
+                progress_data[log_file.name] = {"status": "completed"}
+                shutil.move(str(log_file), str(processed_dir / log_file.name))
 
     finally:
         logger.info("Saving final progress...")
