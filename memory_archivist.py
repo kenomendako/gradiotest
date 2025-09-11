@@ -187,7 +187,6 @@ def main():
 
     logger.info(f"--- Memory Archivist Started for Room: {args.room_name}, Source: {args.source} ---")
 
-    # --- APIキーとクライアントの初期化 ---
     config_manager.load_config()
     api_key = config_manager.GEMINI_API_KEYS.get(config_manager.initial_api_key_name_global)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -200,7 +199,6 @@ def main():
         logger.error(f"Failed to initialize Gemini client: {e}", exc_info=True)
         sys.exit(1)
 
-    # --- パスと進捗データの準備 ---
     room_path = Path(constants.ROOMS_DIR) / args.room_name
     rag_data_path = room_path / "rag_data"
     progress_file = rag_data_path / "archivist_progress.json"
@@ -226,9 +224,11 @@ def main():
             except json.JSONDecodeError:
                 logger.warning("Progress file is corrupted. Starting from scratch.")
 
-    # --- メイン処理 ---
     try:
         all_logs = sorted([f for f in source_dir.glob("*.txt") if f.is_file()])
+        logger.info(f"DEBUG: Checking for logs in source directory: {source_dir.resolve()}")
+        logger.info(f"DEBUG: Found {len(all_logs)} files via glob: {[f.name for f in all_logs]}")
+
         files_to_process = [
             f for f in all_logs
             if progress_data.get(f.name, {}).get("status") != "completed"
@@ -236,14 +236,10 @@ def main():
 
         if not files_to_process:
             logger.info("All log files have already been processed.")
-            # 全て完了しているなら、古い進捗ファイルは不要なので削除する
-            if progress_file.exists():
-                progress_file.unlink()
             return
 
         logger.info(f"Found {len(files_to_process)} log file(s) to process.")
 
-        # --- ログファイルごとのループ ---
         for log_file in files_to_process:
             try:
                 logger.info(f"--- Processing log file: {log_file.name} ---")
@@ -254,7 +250,7 @@ def main():
                     logger.warning(f"No conversation pairs found in {log_file.name}. Marking as completed.")
                     progress_data[log_file.name] = {"status": "completed"}
                     shutil.move(str(log_file), str(processed_dir / log_file.name))
-                    continue # 次のファイルの処理へ
+                    continue
 
                 file_progress = progress_data.get(log_file.name, {})
                 start_pair_index = file_progress.get("last_processed_pair_index", -1) + 1
@@ -267,7 +263,6 @@ def main():
                 if start_pair_index > 0:
                     logger.info(f"Resuming {log_file.name} from conversation pair {start_pair_index}.")
 
-                # --- 会話ペアごとのループ (このループ内で例外は捕捉しない) ---
                 for i, pair in enumerate(conversation_pairs[start_pair_index:], start=start_pair_index):
                     start_stage = file_progress.get("last_completed_stage", 0) if i == start_pair_index else 0
                     combined_content = f"USER: {pair.get('user_content', '')}\nAGENT: {pair.get('agent_content', '')}".strip()
@@ -366,14 +361,13 @@ def main():
                     save_progress(progress_file, progress_data)
                     logger.info(f"  - Successfully processed pair {i+1}/{len(conversation_pairs)}.")
 
-                # --- このファイルの全ペアが正常に完了した場合の処理 ---
                 logger.info(f"--- Successfully completed all pairs for {log_file.name} ---")
                 progress_data[log_file.name] = {"status": "completed"}
                 shutil.move(str(log_file), str(processed_dir / log_file.name))
 
             except Exception as e:
                 logger.error(f"Processing of file {log_file.name} was interrupted by an error. Saving progress and stopping.", exc_info=True)
-                break # ファイル処理ループを中断
+                break
 
     finally:
         logger.info("Saving final progress...")

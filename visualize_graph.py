@@ -1,31 +1,32 @@
-# visualize_graph.py (v3: キャッシュ強制再構築機能付き)
+# visualize_graph.py (v4: matplotlib-fontja への移行・最終版)
 
 import os
 import sys
 import argparse
 import logging
 from pathlib import Path
+import time
 
+# 外部ライブラリのインポート
 import networkx as nx
-import matplotlib
 import matplotlib.pyplot as plt
-import japanize_matplotlib
 
-# ▼▼▼【ここからが最終修正：フォントキャッシュの強制再構築】▼▼▼
-# サブプロセスとして実行された際に、正しいフォントキャッシュを読み込ませるための、おまじない
+# ▼▼▼【ここからが最終修正の核心】▼▼▼
+# 新しいライブラリをインポートし、日本語フォントの利用を明示的に宣言する
 try:
-    matplotlib.font_manager._load_fontmanager(try_read_cache=False)
-    logging.info("Matplotlib font manager cache has been successfully rebuilt.")
-except Exception as e:
-    logging.warning(f"Could not force-rebuild font cache. This might cause issues on some environments. Error: {e}")
+    import matplotlib_fontja
+    matplotlib_fontja.japanize()
+    logging.info("matplotlib-fontja loaded successfully. Japanese font has been set.")
+except ImportError:
+    logging.warning("matplotlib-fontja not found. Japanese characters may not be displayed correctly.")
+    # フォールバックとして、一般的な日本語フォントを試みる
+    plt.rcParams['font.family'] = 'MS Gothic', 'Yu Gothic', 'Hiragino Sans', 'IPAexGothic', 'sans-serif'
 # ▲▲▲【修正はここまで】▲▲▲
-
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def visualize_knowledge_graph(room_name: str):
-    # ... (以降の関数の内容は、前回の修正のままで変更ありません) ...
     """
     Loads a directed knowledge graph and saves a visualization with arrows and Japanese labels.
     """
@@ -33,7 +34,7 @@ def visualize_knowledge_graph(room_name: str):
     graph_path = rag_data_path / "knowledge_graph.graphml"
     output_dir = rag_data_path / "visualizations"
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"graph_{room_name}_{int(plt.time.time())}.png"
+    output_path = output_dir / f"graph_{room_name}_{int(time.time())}.png"
 
     if not graph_path.exists():
         print(f"Error: Knowledge graph file not found at {graph_path}", file=sys.stderr)
@@ -51,7 +52,11 @@ def visualize_knowledge_graph(room_name: str):
         plt.figure(figsize=(20, 16))
         pos = nx.spring_layout(G, k=1.5, iterations=50, seed=42)
         nx.draw_networkx_nodes(G, pos, node_size=4000, node_color='lightblue', alpha=0.9)
+
+        # ▼▼▼【変更点: font_familyを明示的に指定しない】▼▼▼
+        # japanize()が設定してくれるため、ここでは指定不要
         nx.draw_networkx_labels(G, pos, font_size=12, font_weight='bold')
+
         edge_labels = nx.get_edge_attributes(G, 'label')
         nx.draw_networkx_edges(
             G, pos, edge_color='gray', width=1.5,
