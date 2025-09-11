@@ -261,7 +261,7 @@ def main():
 
                 graph_path = rag_data_path / "knowledge_graph.graphml"
                 G = load_graph(graph_path)
-                embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", task_type="RETRIEVAL_DOCUMENT", google_api_key=api_key)
+                embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001", google_api_key=api_key)
                 vector_store = FAISS.load_local(str(rag_data_path), embeddings, "episode_summary_index", allow_dangerous_deserialization=True) if (rag_data_path / "episode_summary_index.faiss").exists() else None
 
                 if start_pair_index > 0:
