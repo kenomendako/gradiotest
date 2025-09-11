@@ -51,3 +51,10 @@ concurrent-log-handler
 
 # For streaming large JSON files (ChatGPT Importer)
 ijson
+
+# For RAG system's vector store
+faiss-cpu
+langchain-faiss
+
+# Core dependency for community integrations like FAISS
+langchain-community
