@@ -52,18 +52,15 @@ def call_gemini_with_smart_retry(gemini_client: genai.Client, model_name: str, p
             )
             return response.text
         except genai_errors.ClientError as e:
-            # エラーオブジェクトの文字列表現に "429" が含まれるかで判断する
             if "429" in str(e):
                 retry_count += 1
                 if retry_count >= max_retries:
                     logger.error(f"API rate limit exceeded. Max retries ({max_retries}) reached. Aborting this call.")
                     return None
-
                 wait_time = 5 * (2 ** (retry_count - 1))
                 logger.info(f"Rate limit hit. Retrying in {wait_time} seconds... ({retry_count}/{max_retries})")
                 time.sleep(wait_time)
             else:
-                # 429以外のクライアントエラー（例: 400 Bad Request）はリトライしても無駄なので即時失敗させる
                 logger.error(f"A non-retriable client error occurred: {e}")
                 return None
         except Exception as e:
@@ -105,10 +102,8 @@ def get_rich_relation_from_gemini(gemini_client: genai.Client, chunk: str, entit
 - 全てのフィールドを必ず埋めてください。
 """
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
-
     if response_text is None:
         return None
-
     try:
         json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
         data = json.loads(json_text)
@@ -135,7 +130,6 @@ def save_progress(progress_file: Path, progress_data: dict):
     try:
         with open(temp_path, "w", encoding="utf-8") as f:
             json.dump(progress_data, f, indent=4, ensure_ascii=False)
-        # Use shutil.move for consistency with other atomic operations in the script
         shutil.move(str(temp_path), str(progress_file))
     except Exception as e:
         logger.error(f"CRITICAL: Failed to save progress to {progress_file}. Error: {e}", exc_info=True)
@@ -153,22 +147,17 @@ def extract_conversation_pairs(log_messages: list) -> list:
     pairs = []
     if not log_messages:
         return pairs
-
     current_user_content = []
     current_agent_content = []
     pending_system_content = []
-
     for msg in log_messages:
-        role = msg.get("role", "").upper() # 大文字に統一して比較
+        role = msg.get("role", "").upper()
         content = msg.get("content", "").strip()
         if not role or not content:
             continue
-
         if role == 'SYSTEM':
             pending_system_content.append(content)
-
         elif role == 'USER':
-            # If there's pending agent content, it means a pair has just ended.
             if current_agent_content:
                 pairs.append({
                     "user_content": "\n".join(current_user_content),
@@ -176,26 +165,18 @@ def extract_conversation_pairs(log_messages: list) -> list:
                 })
                 current_user_content = []
                 current_agent_content = []
-
-            # Prepend any system messages to the start of this new user turn
             if pending_system_content:
                 current_user_content.extend(pending_system_content)
                 pending_system_content = []
-
             current_user_content.append(content)
-
         elif role == 'AGENT':
-            # Only add agent content if a user turn has started
             if current_user_content:
                 current_agent_content.append(content)
-
-    # Add the final pair after the loop finishes
     if current_user_content:
         pairs.append({
             "user_content": "\n".join(current_user_content),
             "agent_content": "\n".join(current_agent_content)
         })
-
     return pairs
 
 def main():
@@ -208,11 +189,9 @@ def main():
 
     config_manager.load_config()
     api_key = config_manager.GEMINI_API_KEYS.get(config_manager.initial_api_key_name_global)
-
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         logger.error("FATAL: The selected API key is invalid.")
         sys.exit(1)
-
     try:
         gemini_client = genai.Client(api_key=api_key)
         logger.info("Gemini API client created successfully.")
@@ -220,30 +199,22 @@ def main():
         logger.error(f"Failed to initialize Gemini client: {e}", exc_info=True)
         sys.exit(1)
 
-    # 1. First, define all path variables.
     room_path = Path(constants.ROOMS_DIR) / args.room_name
     rag_data_path = room_path / "rag_data"
-    progress_file = rag_data_path / "archivist_progress.json" # Define the correct address
-    if args.source == "import":
-        source_dir = room_path / "log_import_source"
-    else: # archive
-        source_dir = room_path / "log_archives"
+    progress_file = rag_data_path / "archivist_progress.json"
+    source_dir = room_path / ("log_import_source" if args.source == "import" else "log_archives")
     processed_dir = source_dir / "processed"
 
-    # 2. "Memory Reset" detection logic
     if not rag_data_path.exists():
         logger.warning("`rag_data` directory not found. Assuming a full memory reset is intended.")
-        # At this point, progress_file should not exist, but check just in case.
         if progress_file.exists():
             progress_file.unlink()
             logger.info("Deleted old progress file to match the reset state.")
 
-    # 3. Unconditionally guarantee that all necessary folders exist.
     rag_data_path.mkdir(parents=True, exist_ok=True)
     source_dir.mkdir(parents=True, exist_ok=True)
     processed_dir.mkdir(parents=True, exist_ok=True)
 
-    # 4. Now it is safe to load the progress file.
     progress_data = {}
     if progress_file.exists():
         with open(progress_file, "r", encoding="utf-8") as f:
@@ -252,95 +223,69 @@ def main():
                 logger.info("Successfully loaded progress file.")
             except json.JSONDecodeError:
                 logger.warning("Progress file is corrupted. Starting from scratch.")
-                progress_data = {}
 
-    # --- 3. Create file list to process ---
-    all_logs = [f for f in source_dir.glob("*.txt") if f.is_file()]
-    files_to_process = []
-    for log_file in sorted(all_logs):
-        file_progress = progress_data.get(log_file.name, {})
-        if file_progress.get("status") != "completed":
-            files_to_process.append(log_file)
-
-    if not files_to_process:
-        logger.info("All log files have already been processed.")
-        if progress_file.exists():
-            progress_file.unlink()
-        return
-
-    logger.info(f"Found {len(files_to_process)} log file(s) to process.")
-
-    # --- 4. Main loop with Multi-Stage Atomic Pair Progression ---
     try:
-        for log_file in files_to_process:
-            logger.info(f"--- Processing log file: {log_file.name} ---")
+        all_logs = sorted([f for f in source_dir.glob("*.txt") if f.is_file()])
+        logger.info(f"DEBUG: Checking for logs in source directory: {source_dir.resolve()}")
+        logger.info(f"DEBUG: Found {len(all_logs)} files via glob: {[f.name for f in all_logs]}")
 
-            # --- 1. Load file and extract pairs ---
+        files_to_process = [
+            f for f in all_logs
+            if progress_data.get(f.name, {}).get("status") != "completed"
+        ]
+
+        if not files_to_process:
+            logger.info("All log files have already been processed.")
+            return
+
+        logger.info(f"Found {len(files_to_process)} log file(s) to process.")
+
+        for log_file in files_to_process:
             try:
+                logger.info(f"--- Processing log file: {log_file.name} ---")
                 log_messages = utils.load_chat_log(str(log_file))
-                if not log_messages:
-                    logger.warning(f"Log file {log_file.name} is empty or invalid. Marking as completed.")
-                    progress_data[log_file.name] = {"status": "completed"}
-                    save_progress(progress_file, progress_data)
-                    shutil.move(str(log_file), str(processed_dir / log_file.name))
-                    continue
                 conversation_pairs = extract_conversation_pairs(log_messages)
-                logger.info(f"Extracted {len(conversation_pairs)} conversation pairs from {log_file.name}.")
+
                 if not conversation_pairs:
                     logger.warning(f"No conversation pairs found in {log_file.name}. Marking as completed.")
                     progress_data[log_file.name] = {"status": "completed"}
-                    save_progress(progress_file, progress_data)
                     shutil.move(str(log_file), str(processed_dir / log_file.name))
                     continue
-            except Exception as e:
-                logger.error(f"Failed to load or parse log file {log_file.name}: {e}", exc_info=True)
-                progress_data[log_file.name] = {"status": "failed", "error": str(e)}
-                continue
 
-            # --- 2. Initialize resources and get resume position ---
-            file_progress = progress_data.get(log_file.name, {})
-            start_pair_index = file_progress.get("last_processed_pair_index", -1) + 1
+                file_progress = progress_data.get(log_file.name, {})
+                start_pair_index = file_progress.get("last_processed_pair_index", -1) + 1
 
-            graph_path = rag_data_path / "knowledge_graph.graphml"
-            G = load_graph(graph_path)
-            embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", task_type="RETRIEVAL_DOCUMENT", google_api_key=api_key)
-            faiss_index_path = rag_data_path / "episode_summary_index.faiss"
-            vector_store = FAISS.load_local(str(rag_data_path), embeddings, "episode_summary_index", allow_dangerous_deserialization=True) if faiss_index_path.exists() else None
+                graph_path = rag_data_path / "knowledge_graph.graphml"
+                G = load_graph(graph_path)
+                embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", task_type="RETRIEVAL_DOCUMENT", google_api_key=api_key)
+                vector_store = FAISS.load_local(str(rag_data_path), embeddings, "episode_summary_index", allow_dangerous_deserialization=True) if (rag_data_path / "episode_summary_index.faiss").exists() else None
 
-            if start_pair_index > 0:
-                logger.info(f"Resuming {log_file.name} from conversation pair {start_pair_index}.")
+                if start_pair_index > 0:
+                    logger.info(f"Resuming {log_file.name} from conversation pair {start_pair_index}.")
 
-            # --- 3. Conversation pair processing loop ---
-            for i, pair in enumerate(conversation_pairs[start_pair_index:], start=start_pair_index):
-                try:
+                for i, pair in enumerate(conversation_pairs[start_pair_index:], start=start_pair_index):
                     start_stage = file_progress.get("last_completed_stage", 0) if i == start_pair_index else 0
                     combined_content = f"USER: {pair.get('user_content', '')}\nAGENT: {pair.get('agent_content', '')}".strip()
                     episode_summary_doc = None
 
-                    # --- Stage 1: Episodic Memory ---
                     if start_stage < 1:
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 1: Generating episodic memory...")
                         summary_text = generate_episodic_summary(gemini_client, combined_content)
                         if summary_text is None:
                             raise RuntimeError("Failed to generate episodic summary after max retries.")
-
                         episode_id = str(uuid.uuid4())
                         episode_data = {"episode_id": episode_id, "timestamp": datetime.now().isoformat(), "summary": summary_text, "source_log": log_file.name, "pair_index": i}
-
                         short_term_path = rag_data_path / "memory_short_term_summary.txt"
                         mid_term_path = rag_data_path / "memory_mid_term_summary.json"
                         with open(short_term_path, "a", encoding="utf-8") as f, open(mid_term_path, "a", encoding="utf-8") as jf:
                             f.write(f"## Episode: {episode_id} (Source: {log_file.name}, Pair: {i})\n{summary_text}\n\n")
                             jf.write(json.dumps(episode_data, ensure_ascii=False) + "\n")
-
                         episode_summary_doc = f"Episode ID: {episode_id}\nTimestamp: {episode_data['timestamp']}\nSummary:\n{summary_text}"
-
                         file_progress.update({"status": "in_progress", "last_processed_pair_index": i, "last_completed_stage": 1})
                         progress_data[log_file.name] = file_progress
                         save_progress(progress_file, progress_data)
                         logger.info(f"    - Stage 1 completed.")
 
-                    # --- Stage 2: Semantic Memory ---
                     if start_stage < 2:
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 2: Deepening semantic memory...")
                         entities = extract_entities(combined_content)
@@ -354,16 +299,13 @@ def main():
                             save_graph(G, graph_path)
                         else:
                             logger.info("    - Not enough entities found to create new relations.")
-
                         file_progress.update({"last_completed_stage": 2})
                         progress_data[log_file.name] = file_progress
                         save_progress(progress_file, progress_data)
                         logger.info(f"    - Stage 2 completed.")
 
-                    # --- Stage 3: RAG Indexing ---
                     if start_stage < 3:
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 3: Indexing for RAG...")
-
                         max_retries = 5
                         retry_count = 0
                         success = False
@@ -381,13 +323,11 @@ def main():
                                                         logger.info("      - Found previous summary for this pair to index.")
                                                         break
                                                 except json.JSONDecodeError: continue
-
                                 if episode_summary_doc:
                                     if vector_store is None:
                                         vector_store = FAISS.from_texts([episode_summary_doc], embeddings)
                                     else:
                                         vector_store.add_texts([episode_summary_doc])
-
                                     with tempfile.TemporaryDirectory() as temp_dir:
                                         temp_path_str = str(Path(temp_dir) / "temp_index")
                                         vector_store.save_local(temp_path_str)
@@ -395,48 +335,39 @@ def main():
                                         shutil.move(f"{temp_path_str}/index.pkl", str(rag_data_path / "episode_summary_index.pkl"))
                                 else:
                                     logger.warning("    - Could not find summary to index for this pair. Skipping RAG indexing.")
-
                                 success = True
                                 break
-
                             except GoogleGenerativeAIError as e:
-                                # LangChainの例外を捕捉し、その根本原因がリトライ対象かを確認する
                                 if isinstance(e.__cause__, google_exceptions.ResourceExhausted):
                                     retry_count += 1
                                     if retry_count >= max_retries:
                                         logger.error(f"Embedding API rate limit exceeded. Max retries ({max_retries}) reached for pair {i}.")
                                         raise e
-
                                     wait_time = 5 * (2 ** (retry_count - 1))
                                     logger.info(f"Embedding rate limit hit. Retrying in {wait_time} seconds... ({retry_count}/{max_retries})")
                                     time.sleep(wait_time)
                                 else:
-                                    # ResourceExhausted 以外のLangChain/Googleエラーはリトライせず、即時失敗させる
                                     logger.error(f"A non-retriable Google/LangChain error occurred during RAG indexing for pair {i}: {e}", exc_info=True)
                                     raise e
-
                         if not success:
                             raise RuntimeError(f"Failed to index for RAG after {max_retries} retries without a clear exception.")
-
                         file_progress.update({"last_completed_stage": 3})
                         progress_data[log_file.name] = file_progress
                         save_progress(progress_file, progress_data)
                         logger.info(f"    - Stage 3 completed.")
 
-                    # --- This pair is fully complete ---
                     file_progress.update({"last_processed_pair_index": i, "last_completed_stage": 0})
                     progress_data[log_file.name] = file_progress
                     save_progress(progress_file, progress_data)
                     logger.info(f"  - Successfully processed pair {i+1}/{len(conversation_pairs)}.")
 
-                except Exception as e:
-                    logger.error(f"!!! FAILED to process pair {i} in {log_file.name}: {e}", exc_info=True)
-                    break # ループを中断
-            else:
-                # このelseブロックは、forループがbreakされずに完了した場合にのみ実行される
                 logger.info(f"--- Successfully completed all pairs for {log_file.name} ---")
                 progress_data[log_file.name] = {"status": "completed"}
                 shutil.move(str(log_file), str(processed_dir / log_file.name))
+
+            except Exception as e:
+                logger.error(f"Processing of file {log_file.name} was interrupted by an error. Saving progress and stopping.", exc_info=True)
+                break
 
     finally:
         logger.info("Saving final progress...")
