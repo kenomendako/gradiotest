@@ -58,3 +58,6 @@ langchain-faiss
 
 # Core dependency for community integrations like FAISS
 langchain-community
+
+# For Japanese font support in graph visualization
+japanize_matplotlib
