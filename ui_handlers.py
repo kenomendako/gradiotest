@@ -1353,20 +1353,16 @@ def handle_timer_submission(timer_type, duration, work, brk, cycles, room, work_
         traceback.print_exc()
         return f"タイマー開始エラー: {e}"
 
-def handle_auto_memory_change(auto_memory_enabled: bool):
-    config_manager.save_memos_config("auto_memory_enabled", auto_memory_enabled)
-    status = "有効" if auto_memory_enabled else "無効"
-    gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
-
 def handle_memory_archiving(room_name: str, console_content: str, source_type: str):
-    # 処理中のUI更新
+    # 1. UIを処理中モードに更新
     yield (
-        gr.update(value=f"{source_type.capitalize()}から記憶生成中...", interactive=False),
+        gr.update(value="記憶を構築中...", interactive=False),
+        gr.update(visible=True), # 中断ボタンを表示
+        None, # PIDをリセット
+        console_content,
+        console_content,
         gr.update(interactive=False),
-        gr.update(visible=True, interactive=True), # Stop button
-        None, # PID state
-        console_content,
-        console_content,
+        gr.update(interactive=False)
     )
 
     full_log_output = console_content
@@ -1374,46 +1370,83 @@ def handle_memory_archiving(room_name: str, console_content: str, source_type: s
     pid = None
 
     try:
-        gr.Info(f"記憶の生成を開始します... (ソース: {source_type})")
+        gr.Info(f"記憶の構築を開始します... (ソース: {source_type})")
         cmd = [sys.executable, "-u", script_path, "--room_name", room_name, "--source", source_type]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='ignore')
+        pid = proc.pid
 
-        # Popenの引数にcreationflagsを追加して、Windowsでプロセスグループを作成
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
-        with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='ignore', creationflags=creationflags) as proc:
-            pid = proc.pid
-            yield (gr.update(), gr.update(), gr.update(), pid, full_log_output, full_log_output)
+        # 2. PIDをUIのStateに即座に反映
+        yield (
+            gr.update(), gr.update(), pid,
+            full_log_output, full_log_output,
+            gr.update(), gr.update()
+        )
 
-            while True:
-                line = proc.stdout.readline()
-                if not line:
-                    break
-                line = line.strip()
-                print(line)
-                full_log_output += line + "\n"
-                yield (gr.update(), gr.update(), gr.update(), pid, full_log_output, full_log_output)
+        # 3. サブプロセスの出力をリアルタイムでUIに反映
+        while True:
+            line = proc.stdout.readline()
+            if not line: break
+            line = line.strip()
+            print(line)
+            full_log_output += line + "\n"
+            yield (
+                gr.update(), gr.update(), pid,
+                full_log_output, full_log_output,
+                gr.update(), gr.update()
+            )
 
-            proc.wait()
-            if proc.returncode != 0:
-                raise RuntimeError(f"{script_path} failed with return code {proc.returncode}")
+        proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError(f"{script_path} failed with return code {proc.returncode}")
 
-        gr.Info("✅ 記憶の生成が、正常に完了しました！")
+        gr.Info("✅ 記憶の構築が、正常に完了しました！")
 
     except Exception as e:
-        error_message = f"記憶の生成中にエラーが発生しました: {e}"
-        print(error_message)
-        traceback.print_exc()
-        gr.Error(error_message)
-
+        error_message = f"記憶の構築中にエラーが発生しました: {e}"
+        print(error_message); traceback.print_exc(); gr.Error(error_message)
     finally:
-        # 最終的なUI更新
+        # 4. 最終的にUIを元の状態に戻す
         yield (
-            gr.update(value="手動インポートから記憶を生成", interactive=True),
-            gr.update(value="自動アーカイブから記憶を生成", interactive=True),
-            gr.update(visible=False), # Stop button
-            None, # PID state
-            full_log_output,
-            full_log_output,
+            gr.update(value="過去ログから記憶を構築", interactive=True),
+            gr.update(visible=False), # 中断ボタンを非表示
+            None, # PIDをクリア
+            full_log_output, full_log_output,
+            gr.update(interactive=True), gr.update(interactive=True)
         )
+
+
+def handle_add_current_log_to_memory(room_name: str):
+    """
+    「現在の対話を記憶に追加」ボタンのイベントハンドラ。
+    バックグラウンドでmemory_archivistを呼び出す。
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return
+
+    gr.Info(f"「{room_name}」の現在の対話を、記憶構築キューに追加します...")
+
+    def run_in_background():
+        script_path = "memory_archivist.py"
+        try:
+            cmd = [sys.executable, "-u", script_path, "--room_name", room_name, "--source", "active_log"]
+            # ここではUIの更新は行わないため、完了を待つだけで良い
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
+
+            if result.returncode == 0:
+                print(f"--- [バックグラウンド処理完了] 現在の対話の記憶化に成功 ---")
+            else:
+                print(f"--- [バックグラウンド処理エラー] ---")
+                print(result.stdout)
+                print(result.stderr)
+
+        except Exception as e:
+            print(f"--- [バックグラウンド処理エラー] 記憶化の実行中に予期せぬエラー ---")
+            traceback.print_exc()
+
+    # UIをブロックしないように、別スレッドでサブプロセスを実行
+    threading.Thread(target=run_in_background).start()
+
 
 def handle_archivist_stop(pid: int):
     """
@@ -1421,25 +1454,24 @@ def handle_archivist_stop(pid: int):
     """
     if pid is None:
         gr.Warning("停止対象のプロセスが見つかりません。")
-        return gr.update(interactive=True), gr.update(interactive=True), gr.update(visible=False), None
+    else:
+        try:
+            if psutil.pid_exists(pid):
+                process = psutil.Process(pid)
+                process.terminate()  # SIGTERMを送信
+                gr.Info(f"記憶構築プロセス(PID: {pid})に停止信号を送信しました。")
+            else:
+                gr.Warning(f"プロセス(PID: {pid})は既に終了しています。")
+        except Exception as e:
+            gr.Error(f"プロセスの停止中にエラーが発生しました: {e}")
+            traceback.print_exc()
 
-    try:
-        parent = psutil.Process(pid)
-        for child in parent.children(recursive=True):
-            child.terminate()
-        parent.terminate()
-        gr.Info(f"記憶生成プロセス(PID: {pid})と関連プロセスに停止信号を送信しました。")
-    except psutil.NoSuchProcess:
-        gr.Warning(f"プロセス(PID: {pid})は既に終了しています。")
-    except Exception as e:
-        gr.Error(f"プロセスの停止中にエラーが発生しました: {e}")
-        traceback.print_exc()
-
+    # UIを必ず元の状態に戻す
     return (
-        gr.update(interactive=True, value="手動インポートから記憶を生成"),
-        gr.update(interactive=True, value="自動アーカイブから記憶を生成"),
+        gr.update(interactive=True, value="過去ログから記憶を構築"),
         gr.update(visible=False),
-        None,
+        None, # PIDをクリア
+        gr.update(interactive=True)
     )
 
 
