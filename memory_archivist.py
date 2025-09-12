@@ -188,17 +188,23 @@ def main():
 
     logger.info(f"--- Memory Archivist Started for Room: {args.room_name}, Source: {args.source} ---")
 
+    # --- APIキーとクライアントの初期化 ---
     config_manager.load_config()
-    api_key = config_manager.get_primary_api_key()
-    if not api_key:
-        logger.error("Primary API key is not configured. Exiting.")
-        sys.exit(1)
     try:
+        selected_key_name = config_manager.initial_api_key_name_global
+        api_key = config_manager.GEMINI_API_KEYS.get(selected_key_name)
+
+        if not api_key or api_key.startswith("YOUR_API_KEY"):
+            logger.error(f"FATAL: The selected API key '{selected_key_name}' is invalid or a placeholder.")
+            sys.exit(1)
+
         genai.configure(api_key=api_key)
-        gemini_client = genai.GenerativeModel(constants.INTERNAL_PROCESSING_MODEL)
+        gemini_client = genai.Client(api_key=api_key)
         embeddings = GoogleGenerativeAIEmbeddings(model=constants.EMBEDDING_MODEL, task_type="retrieval_document")
-    except GoogleGenerativeAIError as e:
-        logger.error(f"Failed to initialize Google Generative AI: {e}")
+
+        logger.info(f"Gemini API client and embeddings created successfully for key '{selected_key_name}'.")
+    except Exception as e:
+        logger.error(f"Failed to initialize Gemini client or embeddings: {e}", exc_info=True)
         sys.exit(1)
 
     # --- Path and Progress Setup ---

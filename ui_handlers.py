@@ -177,8 +177,7 @@ def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
-    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
-    auto_memory_enabled: bool
+    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -200,7 +199,6 @@ def handle_save_room_settings(
         "safety_block_threshold_dangerous_content": safety_value_map.get(dangerous),
         "add_timestamp": bool(add_timestamp), "send_thoughts": bool(send_thoughts), "send_notepad": bool(send_notepad),
         "use_common_prompt": bool(use_common_prompt), "send_core_memory": bool(send_core_memory), "send_scenery": bool(send_scenery),
-        "auto_memory_enabled": bool(auto_memory_enabled)
     }
     try:
         # 正しくは room_config.json を参照する
