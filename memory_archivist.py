@@ -188,7 +188,7 @@ def main():
 
     logger.info(f"--- Memory Archivist Started for Room: {args.room_name}, Source: {args.source} ---")
 
-    # --- APIキーとクライアントの初期化 ---
+    # --- APIキーとクライアントの初期化 (プロジェクト規約遵守) ---
     config_manager.load_config()
     try:
         selected_key_name = config_manager.initial_api_key_name_global
@@ -198,11 +198,12 @@ def main():
             logger.error(f"FATAL: The selected API key '{selected_key_name}' is invalid or a placeholder.")
             sys.exit(1)
 
-        genai.configure(api_key=api_key)
+        # 規約1: genai.Clientをインスタンス化する
         gemini_client = genai.Client(api_key=api_key)
-        embeddings = GoogleGenerativeAIEmbeddings(model=constants.EMBEDDING_MODEL, task_type="retrieval_document")
+        # 規約2: LangChain用のEmbeddingクライアントも、キーを渡して個別に初期化する
+        embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001", google_api_key=api_key)
 
-        logger.info(f"Gemini API client and embeddings created successfully for key '{selected_key_name}'.")
+        logger.info(f"Gemini clients initialized successfully for key '{selected_key_name}'.")
     except Exception as e:
         logger.error(f"Failed to initialize Gemini client or embeddings: {e}", exc_info=True)
         sys.exit(1)
