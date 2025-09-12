@@ -122,7 +122,7 @@ try:
         chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
-        archivist_pid_state = gr.State(None) # <<< この行を追加
+        archivist_pid_state = gr.State(None)
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -761,106 +761,4 @@ try:
             inputs=[current_room_name],
             outputs=[graph_image_display]
         )
-        core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_room_name, current_api_key_name_state], outputs=None)
-        generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_room_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
-        audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
-
-        world_builder_tab.select(
-            fn=ui_handlers.handle_world_builder_load,
-            inputs=[current_room_name],
-            outputs=[world_data_state, area_selector, world_settings_raw_editor]
-        )
-        area_selector.change(
-            fn=ui_handlers.handle_wb_area_select,
-            inputs=[world_data_state, area_selector],
-            outputs=[place_selector]
-        )
-        place_selector.change(
-            fn=ui_handlers.handle_wb_place_select,
-            inputs=[world_data_state, area_selector, place_selector],
-            outputs=[content_editor, save_button_row, delete_place_button]
-        )
-        save_button.click(
-            fn=ui_handlers.handle_wb_save,
-            inputs=[current_room_name, world_data_state, area_selector, place_selector, content_editor],
-            outputs=[world_data_state, world_settings_raw_editor]
-        )
-        delete_place_button.click(
-            fn=ui_handlers.handle_wb_delete_place,
-            inputs=[current_room_name, world_data_state, area_selector, place_selector],
-            outputs=[world_data_state, area_selector, place_selector, content_editor, save_button_row, delete_place_button, world_settings_raw_editor]
-        )
-        add_area_button.click(
-            fn=lambda: ("area", gr.update(visible=True), "#### 新しいエリアの作成"),
-            outputs=[new_item_type, new_item_form, new_item_form_title]
-        )
-        add_place_button.click(
-            fn=ui_handlers.handle_wb_add_place_button_click,
-            inputs=[area_selector],
-            outputs=[new_item_type, new_item_form, new_item_form_title]
-        )
-        confirm_add_button.click(
-            fn=ui_handlers.handle_wb_confirm_add,
-            inputs=[current_room_name, world_data_state, area_selector, new_item_type, new_item_name],
-            outputs=[world_data_state, area_selector, place_selector, new_item_form, new_item_name, world_settings_raw_editor]
-        )
-        cancel_add_button.click(
-            fn=lambda: (gr.update(visible=False), ""),
-            outputs=[new_item_form, new_item_name]
-        )
-        save_raw_button.click(
-            fn=ui_handlers.handle_save_world_settings_raw,
-            inputs=[current_room_name, world_settings_raw_editor],
-            outputs=[world_data_state, area_selector, place_selector]
-        )
-        reload_raw_button.click(
-            fn=ui_handlers.handle_reload_world_settings_raw,
-            inputs=[current_room_name],
-            outputs=[world_settings_raw_editor]
-        )
-
-        clear_debug_console_button.click(
-            fn=lambda: ("", ""),
-            outputs=[debug_console_state, debug_console_output]
-        )
-
-        # --- ChatGPT Importer Event Handlers ---
-        chatgpt_import_file.upload(
-            fn=ui_handlers.handle_chatgpt_file_upload,
-            inputs=[chatgpt_import_file],
-            outputs=[chatgpt_thread_dropdown, chatgpt_import_form, chatgpt_thread_choices_state]
-        )
-
-        chatgpt_thread_dropdown.select(
-            fn=ui_handlers.handle_chatgpt_thread_selection,
-            inputs=[chatgpt_thread_choices_state],
-            outputs=[chatgpt_room_name_textbox]
-        )
-
-        chatgpt_import_button.click(
-            fn=ui_handlers.handle_chatgpt_import_button_click,
-            inputs=[
-                chatgpt_import_file,
-                chatgpt_thread_dropdown,
-                chatgpt_room_name_textbox,
-                chatgpt_user_name_textbox
-            ],
-            outputs=[
-                chatgpt_import_file,
-                chatgpt_import_form,
-                room_dropdown,
-                manage_room_selector,
-                alarm_room_dropdown,
-                timer_room_dropdown
-            ]
-        )
-
-        print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
-        demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
-
-except Exception as e:
-    print("\n" + "X"*60); print("!!! [致命的エラー] アプリケーションの起動中に、予期せぬ例外が発生しました。"); print("X"*60); traceback.print_exc()
-finally:
-    utils.release_lock()
-    if os.name == "nt": os.system("pause")
-    else: input("続行するにはEnterキーを押してください...")
+>>>>>>> REPLACE

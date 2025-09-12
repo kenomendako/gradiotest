@@ -171,7 +171,11 @@ def extract_conversation_pairs(log_messages: list) -> list:
             user_message = log_messages[i]
             if i + 1 < len(log_messages) and log_messages[i+1].get("role") == "AGENT":
                 agent_message = log_messages[i+1]
-                pairs.append({"user": user_message, "agent": agent_message})
+                pairs.append({
+                    "user_content": user_message.get("content", ""),
+                    "agent_content": agent_message.get("content", ""),
+                    "last_message_id": agent_message.get("id")
+                })
                 i += 2
             else:
                 i += 1
@@ -193,16 +197,11 @@ def main():
     try:
         selected_key_name = config_manager.initial_api_key_name_global
         api_key = config_manager.GEMINI_API_KEYS.get(selected_key_name)
-
         if not api_key or api_key.startswith("YOUR_API_KEY"):
-            logger.error(f"FATAL: The selected API key '{selected_key_name}' is invalid or a placeholder.")
+            logger.error(f"FATAL: The selected API key '{selected_key_name}' is invalid.")
             sys.exit(1)
-
-        # 規約1: genai.Clientをインスタンス化する
         gemini_client = genai.Client(api_key=api_key)
-        # 規約2: LangChain用のEmbeddingクライアントも、キーを渡して個別に初期化する
         embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001", google_api_key=api_key)
-
         logger.info(f"Gemini clients initialized successfully for key '{selected_key_name}'.")
     except Exception as e:
         logger.error(f"Failed to initialize Gemini client or embeddings: {e}", exc_info=True)
@@ -212,25 +211,27 @@ def main():
     room_path = Path(constants.ROOMS_DIR) / args.room_name
     rag_data_path = room_path / "rag_data"
 
-    # --- Workflow Branching ---
     if args.source == "import":
         source_dir = room_path / "log_import_source"
         progress_file = rag_data_path / "import_progress.json"
     else: # active_log
-        source_dir = room_path # log.txt is in the root
+        source_dir = room_path
         progress_file = rag_data_path / "active_log_progress.json"
 
-    processed_dir = source_dir / "processed" # For import source only
+    processed_dir = room_path / "log_import_source" / "processed"
+
+    if not rag_data_path.exists():
+        logger.warning("`rag_data` directory not found. Assuming a full memory reset is intended.")
+        if progress_file.exists():
+            progress_file.unlink()
 
     rag_data_path.mkdir(parents=True, exist_ok=True)
+
     progress_data = {}
     if progress_file.exists():
-        try:
-            with open(progress_file, "r", encoding="utf-8") as f:
-                progress_data = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            logger.warning(f"Could not read progress file {progress_file}. Starting from scratch.")
-            progress_data = {}
+        with open(progress_file, "r", encoding="utf-8") as f:
+            try: progress_data = json.load(f)
+            except json.JSONDecodeError: logger.warning("Progress file is corrupted.")
 
     try:
         # --- Determine files to process ---
@@ -245,168 +246,157 @@ def main():
             if log_file.exists(): files_to_process.append(log_file)
 
         if not files_to_process:
-            logger.info("No new log files to process.")
+            logger.info("All log files have already been processed.")
+            if progress_file.exists() and args.source == "import": progress_file.unlink()
             return
+
+        logger.info(f"Found {len(files_to_process)} log file(s) to process.")
 
         # --- Main Loop ---
         for log_file in files_to_process:
             try:
                 logger.info(f"--- Processing log file: {log_file.name} ---")
                 log_messages = utils.load_chat_log(str(log_file))
+
+                # Assign unique IDs to messages if they don't have one
+                for i, msg in enumerate(log_messages):
+                    if "id" not in msg: msg["id"] = f"msg_{i}_{uuid.uuid4().hex[:8]}"
+
                 conversation_pairs = extract_conversation_pairs(log_messages)
+
                 if not conversation_pairs:
-                    logger.info(f"No conversation pairs found in {log_file.name}. Skipping.")
-                    progress_data[log_file.name] = {"status": "completed"}
+                    logger.warning(f"No conversation pairs in {log_file.name}. Marking as completed.")
                     if args.source == "import":
+                        progress_data[log_file.name] = {"status": "completed"}
                         shutil.move(str(log_file), str(processed_dir / log_file.name))
                     continue
 
-                # --- Determine start index based on source ---
+                # --- Determine start index ---
                 if args.source == "import":
                     file_progress = progress_data.get(log_file.name, {})
                     start_pair_index = file_progress.get("last_processed_pair_index", -1) + 1
                 else: # active_log
-                    last_id = progress_data.get("last_processed_id", None)
-                    if last_id is None:
-                        start_pair_index = 0
-                    else:
-                        # Find the index of the message after the last processed one
-                        start_pair_index = next((i + 1 for i, msg in enumerate(log_messages) if msg.get("id") == last_id), len(log_messages))
+                    last_id = progress_data.get("last_processed_id")
+                    start_pair_index = 0
+                    if last_id:
+                        found_idx = next((i for i, pair in enumerate(conversation_pairs) if pair.get("last_message_id") == last_id), -1)
+                        if found_idx != -1: start_pair_index = found_idx + 1
 
-                # --- Resource Initialization ---
-                episodic_path = rag_data_path / "episodic_memory.json"
-                vector_store_path = rag_data_path / "faiss_index"
+                # --- Initialize resources ---
                 graph_path = rag_data_path / "knowledge_graph.graphml"
-
-                episodic_memory = []
-                if episodic_path.exists():
-                    with open(episodic_path, "r", encoding="utf-8") as f:
-                        episodic_memory = json.load(f)
-
-                db = FAISS.load_local(str(vector_store_path), embeddings, allow_dangerous_deserialization=True) if vector_store_path.exists() else None
                 G = load_graph(graph_path)
+                vector_store_path = rag_data_path / "episode_summary_index.faiss"
+                vector_store = FAISS.load_local(str(rag_data_path), embeddings, "episode_summary_index", allow_dangerous_deserialization=True) if vector_store_path.exists() else None
+
+                if start_pair_index > 0: logger.info(f"Resuming {log_file.name} from pair {start_pair_index}.")
 
                 # --- Pair Processing Loop ---
                 for i, pair in enumerate(conversation_pairs[start_pair_index:], start=start_pair_index):
-                    user_content = pair["user"]["content"]
-                    agent_content = pair["agent"]["content"]
-                    combined_content = f"User: {user_content}\nAgent: {agent_content}"
-                    pair_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, combined_content))
+                    file_progress = progress_data.get(log_file.name, {}) if args.source == "import" else progress_data
+                    start_stage = file_progress.get("last_completed_stage", 0) if i == start_pair_index else 0
 
-                    file_progress = progress_data.get(log_file.name, {"last_processed_pair_index": -1, "last_completed_stage": 0})
-                    start_stage = file_progress.get("last_completed_stage", 0)
+                    combined_content = f"USER: {pair.get('user_content', '')}\nAGENT: {pair.get('agent_content', '')}".strip()
+                    episode_summary_doc = None
 
                     # --- Stage 1: Episodic Memory ---
                     if start_stage < 1:
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 1: Creating episodic memory...")
-                        summary = generate_episodic_summary(gemini_client, combined_content)
-                        if summary:
-                            episodic_memory.append({
-                                "id": pair_id,
-                                "timestamp": pair["user"].get("timestamp", datetime.now().isoformat()),
-                                "summary": summary,
-                                "user_content": user_content,
-                                "agent_content": agent_content
-                            })
-                            with open(episodic_path, "w", encoding="utf-8") as f:
-                                json.dump(episodic_memory, f, indent=2, ensure_ascii=False)
-                        file_progress.update({"last_completed_stage": 1})
-                        save_progress(progress_file, progress_data)
-                        logger.info(f"    - Stage 1 completed.")
+                        summary_text = generate_episodic_summary(gemini_client, combined_content)
+                        if summary_text is None: raise RuntimeError("Failed to generate episodic summary.")
 
-                    # --- Stage 2: Semantic Memory (v3 SUPER-EVOLUTION) ---
+                        episode_id = str(uuid.uuid4())
+                        episode_data = {"episode_id": episode_id, "timestamp": datetime.now().isoformat(), "summary": summary_text, "source_log": log_file.name, "pair_index": i}
+
+                        (rag_data_path / "memory_short_term_summary.txt").open("a", encoding="utf-8").write(f"## Episode: {episode_id}\n{summary_text}\n\n")
+                        (rag_data_path / "memory_mid_term_summary.json").open("a", encoding="utf-8").write(json.dumps(episode_data, ensure_ascii=False) + "\n")
+
+                        episode_summary_doc = f"Episode ID: {episode_id}\nSummary:\n{summary_text}"
+
+                        if args.source == "import": file_progress.update({"last_completed_stage": 1})
+                        else: progress_data.update({"last_completed_stage": 1})
+                        logger.info("    - Stage 1 completed.")
+
+                    # --- Stage 2: Semantic Memory ---
                     if start_stage < 2:
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 2: Deepening semantic memory...")
-
                         all_relations = extract_rich_relations_from_chunk(gemini_client, combined_content)
-                        if all_relations is None: raise RuntimeError("Failed to extract relations after max retries.")
+                        if all_relations is None: raise RuntimeError("Failed to extract relations.")
 
                         if all_relations:
-                            # Extract all unique entities from the relations found by the AI
-                            unique_entities = set()
-                            for rel in all_relations:
-                                if rel.get("subject"): unique_entities.add(rel.get("subject"))
-                                if rel.get("object"): unique_entities.add(rel.get("object"))
-
-                            # Normalize these entities using AI
-                            normalization_map = normalize_entities_with_ai(gemini_client, list(unique_entities))
-                            reverse_alias_map = {alias: canonical for canonical, aliases in normalization_map.items() for alias in aliases}
+                            unique_entities = set(r[key] for r in all_relations for key in ("subject", "object") if r.get(key))
+                            norm_map = normalize_entities_with_ai(gemini_client, list(unique_entities))
+                            rev_alias_map = {alias: canon for canon, aliases in norm_map.items() for alias in aliases}
 
                             for rel in all_relations:
-                                subj = rel.get("subject")
-                                obj = rel.get("object")
-                                pred = rel.get("relation")
-
+                                subj, obj, pred = rel.get("subject"), rel.get("object"), rel.get("relation")
                                 if not all([subj, obj, pred]): continue
-
-                                # Normalize subject and object
-                                norm_subj = reverse_alias_map.get(subj, subj)
-                                norm_obj = reverse_alias_map.get(obj, obj)
-
+                                norm_subj, norm_obj = rev_alias_map.get(subj, subj), rev_alias_map.get(obj, obj)
                                 if not G.has_node(norm_subj): G.add_node(norm_subj)
                                 if not G.has_node(norm_obj): G.add_node(norm_obj)
-
                                 if not G.has_edge(norm_subj, norm_obj):
-                                    G.add_edge(
-                                        norm_subj, norm_obj,
-                                        label=pred,
-                                        polarity=rel.get("polarity", "neutral"),
-                                        intensity=rel.get("intensity", 5),
-                                        context=rel.get("context", "")
-                                    )
+                                    G.add_edge(norm_subj, norm_obj, label=pred, **{k: v for k, v in rel.items() if k not in ["subject", "object", "relation"]})
                                     logger.info(f"      - Found relation: {norm_subj} -> {pred} -> {norm_obj}")
-
                             save_graph(G, graph_path)
                         else:
                             logger.info("    - No significant relations found in this pair.")
 
-                        file_progress.update({"last_completed_stage": 2})
-                        if args.source == "import":
-                            file_progress["last_processed_pair_index"] = i
-                            progress_data[log_file.name] = file_progress
-                        save_progress(progress_file, progress_data)
-                        logger.info(f"    - Stage 2 completed.")
+                        if args.source == "import": file_progress.update({"last_completed_stage": 2})
+                        else: progress_data.update({"last_completed_stage": 2})
+                        logger.info("    - Stage 2 completed.")
 
                     # --- Stage 3: RAG Indexing ---
                     if start_stage < 3:
-                        logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 3: Indexing for RAG...")
-                        metadata = {
-                            "source": log_file.name,
-                            "pair_id": pair_id,
-                            "timestamp": pair["user"].get("timestamp", datetime.now().isoformat())
-                        }
-                        if db is None:
-                            db = FAISS.from_texts([combined_content], embeddings, metadatas=[metadata])
+                        logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 3: Indexing summary for RAG...")
+                        if episode_summary_doc:
+                            metadata = {
+                                "source": log_file.name,
+                                "pair_index": i,
+                                "episode_id": episode_data["episode_id"],
+                                "timestamp": episode_data["timestamp"]
+                            }
+                            if vector_store is None:
+                                vector_store = FAISS.from_texts([episode_summary_doc], embeddings, metadatas=[metadata])
+                            else:
+                                vector_store.add_texts([episode_summary_doc], metadatas=[metadata])
+
+                            vector_store.save_local(str(rag_data_path), "episode_summary_index")
+
+                            if args.source == "import": file_progress.update({"last_completed_stage": 3})
+                            else: progress_data.update({"last_completed_stage": 3})
+                            logger.info("    - Stage 3 completed.")
                         else:
-                            db.add_texts([combined_content], metadatas=[metadata])
+                            logger.warning("    - Stage 3 skipped: No summary document was generated in Stage 1 (likely resuming).")
 
-                        db.save_local(str(vector_store_path))
+                    # --- Pair Completion ---
+                    if args.source == "import":
+                        file_progress.update({"last_processed_pair_index": i, "last_completed_stage": 0})
+                        progress_data[log_file.name] = file_progress
+                    else:
+                        last_msg_id = pair.get("last_message_id")
+                        if last_msg_id: progress_data.update({"last_processed_id": last_msg_id, "last_completed_stage": 0})
 
-                        file_progress.update({"last_completed_stage": 3})
-                        if args.source == "import":
-                            file_progress["last_processed_pair_index"] = i
-                            progress_data[log_file.name] = file_progress
-                        save_progress(progress_file, progress_data)
-                        logger.info(f"    - Stage 3 completed.")
+                    save_progress(progress_file, progress_data)
+                    logger.info(f"  - Successfully processed pair {i+1}/{len(conversation_pairs)}.")
 
                 # --- Post-loop logic ---
                 if args.source == "import":
                     logger.info(f"--- Successfully completed all pairs for {log_file.name} ---")
                     progress_data[log_file.name] = {"status": "completed"}
                     shutil.move(str(log_file), str(processed_dir / log_file.name))
-                else: # active_log
-                    if log_messages:
-                        last_message_id = log_messages[-1].get("id")
-                        progress_data["last_processed_id"] = last_message_id
-                        logger.info(f"--- Active log processing complete. Last processed ID: {last_message_id} ---")
+                else:
+                    logger.info(f"--- Active log processing complete up to the latest message. ---")
 
             except Exception as e:
-                logger.error(f"Processing of file {log_file.name} was interrupted. Saving progress.", exc_info=True)
+                logger.error(f"Processing of {log_file.name} interrupted. Saving progress.", exc_info=True)
                 break
-
     finally:
         logger.info("Saving final progress...")
         save_progress(progress_file, progress_data)
 
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        logger.critical(f"An unhandled exception occurred: {e}", exc_info=True)
+        sys.exit(1)
