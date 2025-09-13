@@ -177,8 +177,7 @@ def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
-    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
-    auto_memory_enabled: bool
+    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -1358,15 +1357,19 @@ def handle_auto_memory_change(auto_memory_enabled: bool):
     status = "有効" if auto_memory_enabled else "無効"
     gr.Info(f"対話の自動記憶を「{status}」に設定しました。")
 
-def handle_memory_archiving(room_name: str, console_content: str, source_type: str):
-    # 処理中のUI更新
+def handle_memory_archiving(room_name: str, console_content: str):
+    """
+    「過去ログから記憶を構築」ボタンのイベントハンドラ。
+    memory_archivist.py をサブプロセスとして起動し、UIを非同期で更新する。
+    """
     yield (
-        gr.update(value=f"{source_type.capitalize()}から記憶生成中...", interactive=False),
+        gr.update(value="記憶構築中...", interactive=False),
+        gr.update(visible=True, interactive=True), # 中断ボタンを表示・有効化
+        None, # PIDをリセット
+        console_content,
+        console_content,
         gr.update(interactive=False),
-        gr.update(visible=True, interactive=True), # Stop button
-        None, # PID state
-        console_content,
-        console_content,
+        gr.update(interactive=False)
     )
 
     full_log_output = console_content
@@ -1374,61 +1377,69 @@ def handle_memory_archiving(room_name: str, console_content: str, source_type: s
     pid = None
 
     try:
-        gr.Info(f"記憶の生成を開始します... (ソース: {source_type})")
-        cmd = [sys.executable, "-u", script_path, "--room_name", room_name, "--source", source_type]
+        gr.Info("過去ログからの記憶構築を開始します...")
 
-        # Popenの引数にcreationflagsを追加して、Windowsでプロセスグループを作成
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
-        with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='ignore', creationflags=creationflags) as proc:
-            pid = proc.pid
-            yield (gr.update(), gr.update(), gr.update(), pid, full_log_output, full_log_output)
+        cmd = [sys.executable, "-u", script_path, "--room_name", room_name, "--source", "import"]
 
-            while True:
-                line = proc.stdout.readline()
-                if not line:
-                    break
-                line = line.strip()
-                print(line)
-                full_log_output += line + "\n"
-                yield (gr.update(), gr.update(), gr.update(), pid, full_log_output, full_log_output)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='ignore')
+        pid = proc.pid
 
-            proc.wait()
-            if proc.returncode != 0:
-                raise RuntimeError(f"{script_path} failed with return code {proc.returncode}")
+        # UIにPIDを即座に反映
+        yield (
+            gr.update(), gr.update(), pid, full_log_output, full_log_output,
+            gr.update(), gr.update()
+        )
 
-        gr.Info("✅ 記憶の生成が、正常に完了しました！")
+        while True:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            line = line.strip()
+            print(line)
+            full_log_output += line + "\n"
+            yield (
+                gr.update(), gr.update(), pid, full_log_output, full_log_output,
+                gr.update(), gr.update()
+            )
+
+        proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError(f"{script_path} failed with return code {proc.returncode}")
+
+        gr.Info("✅ 過去ログからの記憶構築が、正常に完了しました！")
 
     except Exception as e:
-        error_message = f"記憶の生成中にエラーが発生しました: {e}"
+        error_message = f"記憶の構築中にエラーが発生しました: {e}"
         print(error_message)
         traceback.print_exc()
         gr.Error(error_message)
 
     finally:
-        # 最終的なUI更新
         yield (
-            gr.update(value="手動インポートから記憶を生成", interactive=True),
-            gr.update(value="自動アーカイブから記憶を生成", interactive=True),
-            gr.update(visible=False), # Stop button
-            None, # PID state
+            gr.update(value="過去ログから記憶を構築", interactive=True),
+            gr.update(visible=False),
+            None, # PIDをクリア
             full_log_output,
             full_log_output,
+            gr.update(interactive=True),
+            gr.update(interactive=True)
         )
 
 def handle_archivist_stop(pid: int):
     """
-    実行中の記憶アーキビストプロセスを中断する。
+    実行中の記憶アーキビストのプロセスを中断する。
     """
     if pid is None:
         gr.Warning("停止対象のプロセスが見つかりません。")
-        return gr.update(interactive=True), gr.update(interactive=True), gr.update(visible=False), None
+        return gr.update(), gr.update(visible=False), None, gr.update()
 
     try:
-        parent = psutil.Process(pid)
-        for child in parent.children(recursive=True):
+        process = psutil.Process(pid)
+        # 子プロセスも含めて停止させる
+        for child in process.children(recursive=True):
             child.terminate()
-        parent.terminate()
-        gr.Info(f"記憶生成プロセス(PID: {pid})と関連プロセスに停止信号を送信しました。")
+        process.terminate()
+        gr.Info(f"記憶構築プロセス(PID: {pid})に停止信号を送信しました。")
     except psutil.NoSuchProcess:
         gr.Warning(f"プロセス(PID: {pid})は既に終了しています。")
     except Exception as e:
@@ -1436,11 +1447,81 @@ def handle_archivist_stop(pid: int):
         traceback.print_exc()
 
     return (
-        gr.update(interactive=True, value="手動インポートから記憶を生成"),
-        gr.update(interactive=True, value="自動アーカイブから記憶を生成"),
+        gr.update(interactive=True, value="過去ログから記憶を構築"),
         gr.update(visible=False),
-        None,
+        None, # PIDをクリア
+        gr.update(interactive=True)
     )
+
+def handle_add_current_log_to_queue(room_name: str, console_content: str):
+    """
+    「現在の対話を記憶に追加」ボタンのイベントハンドラ。
+    アクティブなログの新しい部分だけを対象に、記憶化処理を実行する。
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return
+
+    gr.Info("現在の対話の新しい部分を、記憶に追加しています...")
+    # この処理は比較的短時間で終わる想定なので、UIの無効化は行わない
+
+    script_path = "memory_archivist.py"
+    try:
+        # 1. アクティブログの進捗ファイルパスを決定
+        rag_data_path = Path(constants.ROOMS_DIR) / room_name / "rag_data"
+        rag_data_path.mkdir(parents=True, exist_ok=True)
+        active_log_progress_file = rag_data_path / "active_log_progress.json"
+
+        # 2. ログ全体と、前回の進捗を読み込む
+        log_file_path, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        full_log_content = Path(log_file_path).read_text(encoding='utf-8')
+
+        last_processed_pos = 0
+        if active_log_progress_file.exists():
+            progress_data = json.loads(active_log_progress_file.read_text(encoding='utf-8'))
+            last_processed_pos = progress_data.get("last_processed_position", 0)
+
+        # 3. 新しい部分だけを抽出
+        new_log_content = full_log_content[last_processed_pos:]
+        if not new_log_content.strip():
+            gr.Info("新しい会話が見つからなかったため、記憶の追加は行われませんでした。")
+            return
+
+        # 4. 新しい部分を一時ファイルに書き出す
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix='.txt') as temp_file:
+            temp_file.write(new_log_content)
+            temp_file_path = temp_file.name
+
+        # 5. アーキビストをサブプロセスとして同期的に実行
+        cmd = [sys.executable, "-u", script_path, "--room_name", room_name, "--source", "active_log", "--input_file", temp_file_path]
+
+        # ここでは同期的に実行し、完了を待つ
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
+
+        # ターミナルとデバッグコンソールにログを出力
+        print(f"--- [Active Log Archiving Output for {room_name}] ---")
+        print(proc.stdout)
+        if proc.stderr:
+            print("--- Stderr ---")
+            print(proc.stderr)
+
+        # 6. 一時ファイルを削除
+        os.unlink(temp_file_path)
+
+        if proc.returncode != 0:
+            raise RuntimeError(f"{script_path} failed with return code {proc.returncode}. Check terminal for details.")
+
+        # 7. 進捗を更新
+        with open(active_log_progress_file, "w", encoding='utf-8') as f:
+            json.dump({"last_processed_position": len(full_log_content)}, f)
+
+        gr.Info("✅ 現在の対話の新しい部分を、記憶に追加しました！")
+
+    except Exception as e:
+        error_message = f"現在の対話の記憶追加中にエラーが発生しました: {e}"
+        print(error_message)
+        traceback.print_exc()
+        gr.Error(error_message)
 
 
 def handle_memos_batch_import(room_name: str, console_content: str):
