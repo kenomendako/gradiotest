@@ -311,36 +311,37 @@ def main():
                     if start_stage < 2:
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 2: Deepening semantic memory...")
 
-                        # 1. SPOトリプルのリストをAIから一度に取得
-                        triples = extract_spo_triples_from_chunk(gemini_client, combined_content)
-                        if triples is None:
-                            raise RuntimeError("Failed to extract SPO triples after max retries.")
+                        # 【変更点】入力ソースを combined_content から summary_text に変更
+                        if summary_text:
+                            # 1. SPOトリプルのリストをAIから一度に取得
+                            triples = extract_spo_triples_from_chunk(gemini_client, summary_text)
+                            if triples is None:
+                                raise RuntimeError("Failed to extract SPO triples after max retries.")
 
-                        if triples:
-                            for triple in triples:
-                                subj = triple.get("subject")
-                                pred = triple.get("predicate")
-                                obj = triple.get("object")
+                            if triples:
+                                for triple in triples:
+                                    subj = triple.get("subject")
+                                    pred = triple.get("predicate")
+                                    obj = triple.get("object")
 
-                                # 必要なキーが全て揃っているか、文字列であるかを確認
-                                if all(isinstance(val, str) and val for val in [subj, pred, obj]):
-                                    # グラフにノードが存在しない場合は追加
-                                    if not G.has_node(subj): G.add_node(subj)
-                                    if not G.has_node(obj): G.add_node(obj)
+                                    if all(isinstance(val, str) and val for val in [subj, pred, obj]):
+                                        if not G.has_node(subj): G.add_node(subj)
+                                        if not G.has_node(obj): G.add_node(obj)
 
-                                    # 既存のエッジは上書きしない（最初の発見を尊重）
-                                    if not G.has_edge(subj, obj):
-                                        G.add_edge(
-                                            subj, obj,
-                                            label=pred,
-                                            polarity=triple.get("polarity"),
-                                            intensity=triple.get("intensity"),
-                                            context=triple.get("context")
-                                        )
-                                        logger.info(f"      - Found triple: {subj} -> {pred} -> {obj}")
-                            save_graph(G, graph_path)
+                                        if not G.has_edge(subj, obj):
+                                            G.add_edge(
+                                                subj, obj,
+                                                label=pred,
+                                                polarity=triple.get("polarity"),
+                                                intensity=triple.get("intensity"),
+                                                context=triple.get("context")
+                                            )
+                                            logger.info(f"      - Found triple: {subj} -> {pred} -> {obj}")
+                                save_graph(G, graph_path)
+                            else:
+                                logger.info("    - No significant relations found in this summary.")
                         else:
-                            logger.info("    - No significant relations found in this pair.")
+                            logger.warning("    - Summary text is empty, skipping relation extraction.")
 
                         file_progress.update({"last_completed_stage": 2})
                         progress_data[log_file.name] = file_progress
