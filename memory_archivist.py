@@ -81,46 +81,18 @@ def generate_episodic_summary(gemini_client: genai.Client, pair_content: str) ->
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
     return response_text.strip() if response_text else None
 
-def extract_structured_knowledge_from_chunk(gemini_client: genai.Client, chunk: str) -> dict | None:
+def normalize_entities_from_chunk(gemini_client: genai.Client, chunk: str) -> dict | None:
     """
-    AIに生の会話チャンクを渡し、正規化されたエンティティと構造化された関係性リストを含む
-    単一のJSONオブジェクトを抽出させる。
+    【第一段階：正規化の聖域】
+    生の会話チャンクから、正規化されたエンティティの対応辞書を生成する。
+    例: {"USER": ["ケノ", "あなた"], "AGENT": ["ミーモ"]}
     """
     prompt = f"""
-あなたは、対話ログから構造化された知識（ナレッジグラフ）を抽出する、世界最高峰の専門家です。
+あなたは、対話ログから登場人物や重要概念を特定し、名前の揺れを吸収する「名寄せ」の専門家です。
 
 【あなたのタスク】
-以下の【生の会話ログ】を深く分析し、2つのステップで思考してください。
-
-**ステップ1：登場人物と概念の特定（名寄せ）**
-まず、会話に登場する主要な人物、AI、場所、重要な概念をすべて特定します。
-そして、同一であるにも関わらず、異なる表現（例：「USER」「ユーザー」）が使われているものを特定し、それぞれに**ただ一つの「正式名称」**を与え、それ以外の表現を「別名」として整理してください。
-
-**ステップ2：関係性の抽出**
-次に、ステップ1で特定した**「正式名称」のみを使い**、エンティティ間の重要で具体的な関係性を、「主語(subject)」「述語(predicate)」「目的語(object)」の形式で抽出します。
-
-【出力フォーマット】
-思考のプロセスは出力せず、最終的な結果を以下の厳格なJSON形式で、ただ一つだけ出力してください。
-
-{{
-  "entities": [
-    {{
-      "name": "（ステップ1で定めた正式名称）",
-      "aliases": ["（特定した別名のリスト）"],
-      "category": "（"Person", "AI", "Location", "Concept" のいずれか）"
-    }}
-  ],
-  "relationships": [
-    {{
-      "subject": "（エンティティの正式名称）",
-      "predicate": "（関係性を表す、簡潔な動詞句）",
-      "object": "（エンティティの正式名称、または概念）",
-      "polarity": "（関係性が持つ感情の極性: "positive", "negative", "neutral"）",
-      "intensity": "（感情の強度: 1〜10の整数）",
-      "context": "（その関係性が生まれた状況の、簡潔な要約）"
-    }}
-  ]
-}}
+以下の【生の会話ログ】に登場するすべての主要なエンティティ（人物、AI、場所、重要概念）を特定してください。
+次に、同一のエンティティを指す異なる表現（例：「USER」「ケノ」「あなた」）を一つにまとめ、代表となる**「正式名称」**をキー、それ以外の**「別名」**をリストの値とするPythonの辞書（dict）を生成してください。
 
 【生の会話ログ】
 ---
@@ -128,25 +100,74 @@ def extract_structured_knowledge_from_chunk(gemini_client: genai.Client, chunk: 
 ---
 
 【最重要ルール】
-- あなた自身の思考や挨拶は絶対に含めず、JSONオブジェクトのみを出力してください。
-- 抽出するエンティティや関係性がない場合は、それぞれ空の配列 `[]` を持つJSONを出力してください。
-- 全てのフィールドを必ず埋めてください。
+- あなた自身の思考や挨拶は絶対に含めず、Pythonの辞書オブジェクトのみをJSON形式で出力してください。
+- 該当するエンティティがない場合は、空の辞書 `{{}}` を出力してください。
+- キー（正式名称）には、最も頻繁に使われるか、最も正式だと思われる名前を選んでください。
 """
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
     if response_text is None:
-        return None # リトライに失敗した場合
+        return None
     try:
         json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
         data = json.loads(json_text)
-        # 基本的な構造チェック
-        if isinstance(data, dict) and "entities" in data and "relationships" in data:
-            return data
-        else:
-            logger.warning(f"Parsed JSON for knowledge extraction has incorrect structure. Response: {response_text}")
-            return {"entities": [], "relationships": []}
+        return data if isinstance(data, dict) else {}
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse JSON for knowledge extraction. Response: {response_text}")
-        return {"entities": [], "relationships": []}
+        logger.error(f"Failed to parse JSON for entity normalization. Response: {response_text}")
+        return {}
+
+
+def extract_relationships_with_context(gemini_client: genai.Client, chunk: str, entity_map: dict) -> list | None:
+    """
+    【第二段階：関係性の建築家】
+    生の会話チャンクと、事前に正規化されたエンティティ辞書を使い、関係性を抽出する。
+    """
+    # プロンプトで使いやすいように、entity_mapを文字列に変換
+    entity_context = "\n".join([f"- {name}: {', '.join(aliases)}" for name, aliases in entity_map.items()])
+
+    prompt = f"""
+あなたは、対話ログから構造化された知識を抽出する専門家です。
+
+【あなたのタスク】
+以下の【聖域のエンティティリスト】と【生の会話ログ】を分析し、【聖域のエンティティリスト】に記載されている**「正式名称」のみを主語(subject)・目的語(object)として使用して**、エンティティ間の重要な関係性を抽出してください。
+
+【聖域のエンティティリスト（これ以外の名前は絶対に使用しないこと）】
+---
+{entity_context}
+---
+
+【生の会話ログ】
+---
+{chunk}
+---
+
+【出力フォーマット】
+以下の厳格なJSON配列フォーマットで、抽出した関係性リストのみを出力してください。
+
+[
+  {{
+    "subject": "（聖域リストにある正式名称）",
+    "predicate": "（関係性を表す、簡潔な動詞句）",
+    "object": "（聖域リストにある正式名称、またはログ中の具体的な概念）",
+    "polarity": "（感情の極性: "positive", "negative", "neutral"）",
+    "intensity": "（感情の強度: 1〜10の整数）",
+    "context": "（その関係性が生まれた状況の、簡潔な要約）"
+  }}
+]
+
+【最重要ルール】
+- あなた自身の思考や挨拶は絶対に含めず、JSON配列のみを出力してください。
+- 抽出する関係性がない場合は、空の配列 `[]` を出力してください。
+"""
+    response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
+    if response_text is None:
+        return None
+    try:
+        json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
+        data = json.loads(json_text)
+        return data if isinstance(data, list) else []
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse JSON for relationship extraction. Response: {response_text}")
+        return []
 
 def load_graph(path: Path) -> nx.DiGraph:
     if path.exists():
@@ -329,56 +350,57 @@ def main():
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 2: Deepening semantic memory...")
 
                         # ▼▼▼【ここからが修正の核心】▼▼▼
-                        # 要約(summary_text)ではなく、生の会話ペア(combined_content)をAIに渡す
-                        knowledge_data = extract_structured_knowledge_from_chunk(gemini_client, combined_content)
+                        # --- 2段階のAIコールを実行 ---
+                        # 1. 正規化の聖域：まずエンティティの名寄せだけを行う
+                        logger.info("    - Stage 2a: Normalizing entities...")
+                        entity_map = normalize_entities_from_chunk(gemini_client, combined_content)
+                        if entity_map is None:
+                            raise RuntimeError("Failed to normalize entities after max retries.")
 
-                        if knowledge_data is None:
-                            raise RuntimeError("Failed to extract structured knowledge after max retries.")
+                        # 2. 関係性の建築家：正規化されたエンティティリストを使って関係性を抽出
+                        logger.info("    - Stage 2b: Extracting relationships...")
+                        relationships = extract_relationships_with_context(gemini_client, combined_content, entity_map)
+                        if relationships is None:
+                            raise RuntimeError("Failed to extract relationships after max retries.")
 
-                        # 1. エンティティをグラフに追加（正規化された名前と属性）
-                        if knowledge_data.get("entities"):
-                            for entity in knowledge_data["entities"]:
-                                name = entity.get("name")
-                                if name and not G.has_node(name):
-                                    G.add_node(
-                                        name,
-                                        aliases=json.dumps(entity.get("aliases", []), ensure_ascii=False),
-                                        category=entity.get("category", "Unknown"),
-                                        frequency=1 # 初期頻度
-                                    )
-                                elif name and G.has_node(name):
-                                     # 既存ノードの場合、頻度をインクリメント
-                                     G.nodes[name]['frequency'] = G.nodes[name].get('frequency', 0) + 1
-
+                        # --- グラフへの反映 ---
+                        # 1. エンティティをグラフに追加
+                        for name, aliases in entity_map.items():
+                            if not G.has_node(name):
+                                G.add_node(
+                                    name,
+                                    aliases=json.dumps(aliases, ensure_ascii=False),
+                                    category="Unknown", # カテゴリは今後の課題
+                                    frequency=1
+                                )
+                            else:
+                                G.nodes[name]['frequency'] = G.nodes[name].get('frequency', 0) + 1
 
                         # 2. 関係性をグラフに追加
-                        if knowledge_data.get("relationships"):
-                            for rel in knowledge_data["relationships"]:
-                                subj = rel.get("subject")
-                                obj = rel.get("object")
-                                pred = rel.get("predicate")
+                        for rel in relationships:
+                            subj = rel.get("subject")
+                            obj = rel.get("object")
+                            pred = rel.get("predicate")
 
-                                if all(isinstance(val, str) and val for val in [subj, pred, obj]):
-                                    # 関係性の対象となるエンティティがグラフに存在しない場合は追加
-                                    if not G.has_node(subj): G.add_node(subj, category="Concept", frequency=1)
-                                    if not G.has_node(obj): G.add_node(obj, category="Concept", frequency=1)
+                            # subjectがentity_mapのキーに存在することを確認
+                            if subj in entity_map and all(isinstance(val, str) and val for val in [pred, obj]):
+                                if not G.has_node(obj): G.add_node(obj, category="Concept", frequency=1)
 
-                                    # 既存のエッジをチェックし、なければ追加、あれば重みを更新
-                                    if G.has_edge(subj, obj):
-                                        # 既存のエッジの重み(出現頻度)を増やす
-                                        G[subj][obj]['frequency'] = G[subj][obj].get('frequency', 1) + 1
-                                    else:
-                                        G.add_edge(
-                                            subj, obj,
-                                            label=pred,
-                                            polarity=rel.get("polarity"),
-                                            intensity=rel.get("intensity"),
-                                            context=rel.get("context"),
-                                            frequency=1 # 初期頻度
-                                        )
-                                        logger.info(f"      - Found relationship: {subj} -> {pred} -> {obj}")
+                                if G.has_edge(subj, obj):
+                                    G[subj][obj]['frequency'] = G[subj][obj].get('frequency', 1) + 1
+                                else:
+                                    G.add_edge(
+                                        subj, obj,
+                                        label=pred,
+                                        polarity=rel.get("polarity"),
+                                        intensity=rel.get("intensity"),
+                                        context=rel.get("context"),
+                                        frequency=1
+                                    )
+                                    logger.info(f"      - Found relationship: {subj} -> {pred} -> {obj}")
+                            else:
+                                logger.warning(f"Skipping relationship due to unknown subject: {subj}")
 
-                        # グラフの状態をファイルに保存
                         save_graph(G, graph_path)
                         # ▲▲▲【修正ここまで】▲▲▲
 
