@@ -120,9 +120,9 @@ try:
         active_participants_state = gr.State([]) # 現在アクティブな複数人対話の参加者リスト
         debug_console_state = gr.State("")
         chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
+        archivist_pid_state = gr.State(None) # 記憶アーキビストのプロセスIDを保持
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
-        archivist_pid_state = gr.State(None)
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -172,7 +172,6 @@ try:
                                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
-                                    auto_memory_checkbox = gr.Checkbox(label="対話の自動記憶を有効にする", value=lambda: config_manager.CONFIG_GLOBAL.get("memos_config", {}).get("auto_memory_enabled", False), interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
                                     gr.Markdown("---")
                                     gr.Markdown("#### 📢 通知サービス設定")
@@ -297,6 +296,9 @@ try:
                             stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
                             chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
 
+                        with gr.Row():
+                            add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1)
+
                         # 5. スクリーンショット支援機能
                         with gr.Accordion("📸 スクリーンショット支援", open=False):
                             gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
@@ -370,8 +372,7 @@ try:
                         gr.Markdown("過去の対話ログを分析し、エンティティ間の関係性を抽出して、AIの永続的な知識グラフを構築・更新します。")
                         # ▼▼▼ 以下の <gr.Row> を追加 ▼▼▼
                         with gr.Row():
-                            memos_import_button = gr.Button("手動インポートから記憶を生成", variant="primary", scale=2)
-                            memory_archive_button = gr.Button("自動アーカイブから記憶を生成", variant="primary", scale=2)
+                            memos_import_button = gr.Button("過去ログから記憶を構築", variant="primary", scale=3)
                             importer_stop_button = gr.Button("処理を中断", variant="stop", visible=False, scale=1)
                         # ▲▲▲ ここまで ▲▲▲
                         gr.Markdown("---")
@@ -494,7 +495,6 @@ try:
             # file_upload_button は削除
             api_history_limit_state,
             debug_mode_checkbox,
-            auto_memory_checkbox,
             debug_console_state,
             active_participants_state,
             model_dropdown
@@ -620,7 +620,7 @@ try:
         ]
         save_room_settings_button.click(
             fn=ui_handlers.handle_save_room_settings,
-            inputs=[current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes + [auto_memory_checkbox],
+            inputs=[current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes,
             outputs=None
         )
         room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
@@ -725,27 +725,21 @@ try:
         delete_gemini_key_button.click(fn=ui_handlers.handle_delete_gemini_key, inputs=[gemini_key_name_input], outputs=[api_key_dropdown])
         save_pushover_config_button.click(fn=ui_handlers.handle_save_pushover_config, inputs=[pushover_user_key_input, pushover_app_token_input], outputs=[])
         save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
-        auto_memory_checkbox.change(fn=ui_handlers.handle_auto_memory_change, inputs=[auto_memory_checkbox], outputs=None)
         # ▼▼▼ ここからが修正の核心 ▼▼▼
 
         memory_archiving_outputs = [
             memos_import_button,
-            memory_archive_button,
             importer_stop_button,
             archivist_pid_state,
             debug_console_state,
-            debug_console_output
+            debug_console_output,
+            chat_input_multimodal,
+            visualize_graph_button
         ]
 
-        memos_import_click_event = memos_import_button.click(
+        import_event = memos_import_button.click(
             fn=ui_handlers.handle_memory_archiving,
-            inputs=[current_room_name, debug_console_state, gr.State("import")],
-            outputs=memory_archiving_outputs
-        )
-
-        memory_archive_click_event = memory_archive_button.click(
-            fn=ui_handlers.handle_memory_archiving,
-            inputs=[current_room_name, debug_console_state, gr.State("archive")],
+            inputs=[current_room_name, debug_console_state],
             outputs=memory_archiving_outputs
         )
 
@@ -754,11 +748,18 @@ try:
             inputs=[archivist_pid_state],
             outputs=[
                 memos_import_button,
-                memory_archive_button,
                 importer_stop_button,
-                archivist_pid_state
+                archivist_pid_state,
+                chat_input_multimodal
             ],
-            cancels=[memos_import_click_event, memory_archive_click_event]
+            cancels=[import_event] # 実行中のイベントをキャンセル
+        )
+
+        add_log_to_memory_queue_button.click(
+            fn=ui_handlers.handle_add_current_log_to_queue,
+            inputs=[current_room_name, debug_console_state],
+            # 成功/失敗を通知するだけなので、outputは無しで良い
+            outputs=None
         )
 
         visualize_graph_button.click(
