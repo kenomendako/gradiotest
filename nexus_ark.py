@@ -495,7 +495,6 @@ try:
             # file_upload_button は削除
             api_history_limit_state,
             debug_mode_checkbox,
-            auto_memory_checkbox,
             debug_console_state,
             active_participants_state,
             model_dropdown

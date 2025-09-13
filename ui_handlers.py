@@ -409,7 +409,7 @@ def handle_message_submission(*args: Any):
     【v4: ペースト挙動FIX】新規メッセージの送信を処理する司令塔。
     """
     (multimodal_input, soul_vessel_room, api_key_name,
-     api_history_limit, debug_mode, auto_memory_enabled,
+     api_history_limit, debug_mode,
      console_content, active_participants, global_model) = args
 
     # 1. ユーザー入力を解析
