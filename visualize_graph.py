@@ -81,17 +81,22 @@ def visualize_knowledge_graph(room_name: str):
         # ラベルとエッジラベルの描画時に、取得したフォントプロパティを直接指定する
         nx.draw_networkx_labels(G, pos, font_size=12, font_weight='bold', font_family=jp_font_prop.get_name())
 
+        # ▼▼▼【ここからが修正箇所】▼▼▼
+        # エッジの頻度に応じて線の太さを決定
+        edge_widths = [d.get('frequency', 1) for u, v, d in G.edges(data=True)]
+
         edge_labels = nx.get_edge_attributes(G, 'label')
         nx.draw_networkx_edges(
             G,
             pos,
             edge_color='gray',
-            width=1.5,
+            width=[w * 0.8 for w in edge_widths], # 頻度に応じて太さを変更
             arrowstyle='->',
             arrowsize=20,
             alpha=0.7,
-            node_size=4000 # ノードのサイズ情報を渡し、矢印が隠れないようにする
+            node_size=4000
         )
+        # ▲▲▲【修正ここまで】▲▲▲
 
         nx.draw_networkx_edge_labels(
             G, pos, edge_labels=edge_labels, font_color='red', font_size=10,

@@ -81,39 +81,55 @@ def generate_episodic_summary(gemini_client: genai.Client, pair_content: str) ->
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
     return response_text.strip() if response_text else None
 
-def extract_spo_triples_from_chunk(gemini_client: genai.Client, chunk: str) -> list | None:
+def extract_structured_knowledge_from_chunk(gemini_client: genai.Client, chunk: str) -> dict | None:
     """
-    AIに会話のチャンクを渡し、SPOトリプルのリストを感情情報と共に一度に抽出させる。
+    AIに生の会話チャンクを渡し、正規化されたエンティティと構造化された関係性リストを含む
+    単一のJSONオブジェクトを抽出させる。
     """
     prompt = f"""
 あなたは、対話ログから構造化された知識（ナレッジグラフ）を抽出する、世界最高峰の専門家です。
 
-【あなたの哲学】
-知識とは、「誰が（Subject）、何をした（Predicate）、誰に/何に（Object）」という、意味のある情報の集合体（トリプル）である。
+【あなたのタスク】
+以下の【生の会話ログ】を深く分析し、2つのステップで思考してください。
 
-【コンテキストとなる会話】
+**ステップ1：登場人物と概念の特定（名寄せ）**
+まず、会話に登場する主要な人物、AI、場所、重要な概念をすべて特定します。
+そして、同一であるにも関わらず、異なる表現（例：「USER」「ユーザー」）が使われているものを特定し、それぞれに**ただ一つの「正式名称」**を与え、それ以外の表現を「別名」として整理してください。
+
+**ステップ2：関係性の抽出**
+次に、ステップ1で特定した**「正式名称」のみを使い**、エンティティ間の重要で具体的な関係性を、「主語(subject)」「述語(predicate)」「目的語(object)」の形式で抽出します。
+
+【出力フォーマット】
+思考のプロセスは出力せず、最終的な結果を以下の厳格なJSON形式で、ただ一つだけ出力してください。
+
+{{
+  "entities": [
+    {{
+      "name": "（ステップ1で定めた正式名称）",
+      "aliases": ["（特定した別名のリスト）"],
+      "category": "（"Person", "AI", "Location", "Concept" のいずれか）"
+    }}
+  ],
+  "relationships": [
+    {{
+      "subject": "（エンティティの正式名称）",
+      "predicate": "（関係性を表す、簡潔な動詞句）",
+      "object": "（エンティティの正式名称、または概念）",
+      "polarity": "（関係性が持つ感情の極性: "positive", "negative", "neutral"）",
+      "intensity": "（感情の強度: 1〜10の整数）",
+      "context": "（その関係性が生まれた状況の、簡潔な要約）"
+    }}
+  ]
+}}
+
+【生の会話ログ】
 ---
 {chunk}
 ---
 
-【あなたのタスク】
-上記の哲学に基づき、この会話から、登場人物や概念の間の、重要で具体的な関係性を**「主語(Subject)・述語(Predicate)・目的語(Object)」**の形式で、以下のJSON配列として可能な限り多く抽出してください。
-
-[
-  {{
-    "subject": "（主語。会話における行為の主体）",
-    "predicate": "（述語。主語が目的語に対して行う、三人称単数現在形の具体的な動詞句）",
-    "object": "（目的語。行為の対象）",
-    "polarity": "（関係性が持つ感情の極性: "positive", "negative", "neutral"）",
-    "intensity": "（感情の強度: 1〜10）",
-    "context": "（その関係性が生まれた状況の簡潔な要約）"
-  }}
-]
-
 【最重要ルール】
-- subjectとobjectには、必ず具体的なエンティティ（例：「ルシアン」「ノワール」）が入ります。「ルシアンの気持ち」のような**文章や句は、エンティティではありません。**
-- あなた自身の思考や挨拶は絶対に含めず、JSON配列のみを出力してください。
-- 抽出する関係性がない場合は、空の配列 `[]` を出力してください。
+- あなた自身の思考や挨拶は絶対に含めず、JSONオブジェクトのみを出力してください。
+- 抽出するエンティティや関係性がない場合は、それぞれ空の配列 `[]` を持つJSONを出力してください。
 - 全てのフィールドを必ず埋めてください。
 """
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
@@ -122,14 +138,15 @@ def extract_spo_triples_from_chunk(gemini_client: genai.Client, chunk: str) -> l
     try:
         json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
         data = json.loads(json_text)
-        if isinstance(data, list):
+        # 基本的な構造チェック
+        if isinstance(data, dict) and "entities" in data and "relationships" in data:
             return data
         else:
-            logger.warning(f"Parsed JSON for SPO extraction is not a list. Response: {response_text}")
-            return []
+            logger.warning(f"Parsed JSON for knowledge extraction has incorrect structure. Response: {response_text}")
+            return {"entities": [], "relationships": []}
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse JSON for SPO extraction. Response: {response_text}")
-        return []
+        logger.error(f"Failed to parse JSON for knowledge extraction. Response: {response_text}")
+        return {"entities": [], "relationships": []}
 
 def load_graph(path: Path) -> nx.DiGraph:
     if path.exists():
@@ -311,37 +328,59 @@ def main():
                     if start_stage < 2:
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 2: Deepening semantic memory...")
 
-                        # 【変更点】入力ソースを combined_content から summary_text に変更
-                        if summary_text:
-                            # 1. SPOトリプルのリストをAIから一度に取得
-                            triples = extract_spo_triples_from_chunk(gemini_client, summary_text)
-                            if triples is None:
-                                raise RuntimeError("Failed to extract SPO triples after max retries.")
+                        # ▼▼▼【ここからが修正の核心】▼▼▼
+                        # 要約(summary_text)ではなく、生の会話ペア(combined_content)をAIに渡す
+                        knowledge_data = extract_structured_knowledge_from_chunk(gemini_client, combined_content)
 
-                            if triples:
-                                for triple in triples:
-                                    subj = triple.get("subject")
-                                    pred = triple.get("predicate")
-                                    obj = triple.get("object")
+                        if knowledge_data is None:
+                            raise RuntimeError("Failed to extract structured knowledge after max retries.")
 
-                                    if all(isinstance(val, str) and val for val in [subj, pred, obj]):
-                                        if not G.has_node(subj): G.add_node(subj)
-                                        if not G.has_node(obj): G.add_node(obj)
+                        # 1. エンティティをグラフに追加（正規化された名前と属性）
+                        if knowledge_data.get("entities"):
+                            for entity in knowledge_data["entities"]:
+                                name = entity.get("name")
+                                if name and not G.has_node(name):
+                                    G.add_node(
+                                        name,
+                                        aliases=json.dumps(entity.get("aliases", []), ensure_ascii=False),
+                                        category=entity.get("category", "Unknown"),
+                                        frequency=1 # 初期頻度
+                                    )
+                                elif name and G.has_node(name):
+                                     # 既存ノードの場合、頻度をインクリメント
+                                     G.nodes[name]['frequency'] = G.nodes[name].get('frequency', 0) + 1
 
-                                        if not G.has_edge(subj, obj):
-                                            G.add_edge(
-                                                subj, obj,
-                                                label=pred,
-                                                polarity=triple.get("polarity"),
-                                                intensity=triple.get("intensity"),
-                                                context=triple.get("context")
-                                            )
-                                            logger.info(f"      - Found triple: {subj} -> {pred} -> {obj}")
-                                save_graph(G, graph_path)
-                            else:
-                                logger.info("    - No significant relations found in this summary.")
-                        else:
-                            logger.warning("    - Summary text is empty, skipping relation extraction.")
+
+                        # 2. 関係性をグラフに追加
+                        if knowledge_data.get("relationships"):
+                            for rel in knowledge_data["relationships"]:
+                                subj = rel.get("subject")
+                                obj = rel.get("object")
+                                pred = rel.get("predicate")
+
+                                if all(isinstance(val, str) and val for val in [subj, pred, obj]):
+                                    # 関係性の対象となるエンティティがグラフに存在しない場合は追加
+                                    if not G.has_node(subj): G.add_node(subj, category="Concept", frequency=1)
+                                    if not G.has_node(obj): G.add_node(obj, category="Concept", frequency=1)
+
+                                    # 既存のエッジをチェックし、なければ追加、あれば重みを更新
+                                    if G.has_edge(subj, obj):
+                                        # 既存のエッジの重み(出現頻度)を増やす
+                                        G[subj][obj]['frequency'] = G[subj][obj].get('frequency', 1) + 1
+                                    else:
+                                        G.add_edge(
+                                            subj, obj,
+                                            label=pred,
+                                            polarity=rel.get("polarity"),
+                                            intensity=rel.get("intensity"),
+                                            context=rel.get("context"),
+                                            frequency=1 # 初期頻度
+                                        )
+                                        logger.info(f"      - Found relationship: {subj} -> {pred} -> {obj}")
+
+                        # グラフの状態をファイルに保存
+                        save_graph(G, graph_path)
+                        # ▲▲▲【修正ここまで】▲▲▲
 
                         file_progress.update({"last_completed_stage": 2})
                         progress_data[log_file.name] = file_progress
