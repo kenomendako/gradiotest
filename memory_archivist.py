@@ -119,6 +119,51 @@ def normalize_entities(gemini_client: genai.Client, entities: list) -> dict:
         logger.error(f"Failed to parse JSON response for entity normalization. Using raw entities. Response: {response_text}")
         return {entity: [entity] for entity in entities}
 
+def filter_meaningful_entities(gemini_client: genai.Client, entities: list, chunk: str) -> list:
+    """
+    AIを使い、エンティティのリストから、一般的すぎる単語を除外し、
+    文脈上、本当に重要な固有名詞や概念のみをフィルタリングする。
+    """
+    if not entities:
+        return []
+
+    prompt = f"""
+あなたは、テキストから最も重要な情報を抽出する、高度な情報アーキテクトです。
+
+【コンテキストとなる会話】
+---
+{chunk}
+---
+
+【あなたのタスク】
+以下の「入力単語リスト」の中から、上記の会話の文脈において、知識グラフとして記憶する価値のある、**具体的で重要な固有名詞（人名、AI名、作品名、特定の場所や概念など）**だけを厳選してください。
+「ユーザー」「エージェント」「気持ち」「状況」のような、あまりにも一般的、あるいは抽象的すぎる単語は、リストから**除外**してください。
+
+【入力単語リスト】
+{json.dumps(entities, ensure_ascii=False)}
+
+【最重要ルール】
+- あなた自身の思考や挨拶は絶対に含めず、フィルタリング後の単語リストをJSON配列形式で出力してください。
+- 該当する単語がない場合は、空の配列 `[]` を出力してください。
+
+【出力JSON】
+"""
+    response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
+    if response_text is None:
+        logger.warning("Meaningful entity filtering failed. Skipping filtering.")
+        return entities # 失敗した場合は、元のリストをそのまま返す
+    try:
+        json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
+        data = json.loads(json_text)
+        if isinstance(data, list):
+            return data
+        else:
+            logger.warning(f"Parsed JSON for filtering is not a list. Skipping. Response: {response_text}")
+            return entities
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse JSON for entity filtering. Skipping. Response: {response_text}")
+        return entities
+
 def extract_rich_relations_from_chunk(gemini_client: genai.Client, chunk: str) -> list | None:
     """
     AIに会話のチャンクを渡し、感情情報を含む関係性のリストを一度に抽出させる。
@@ -135,13 +180,22 @@ def extract_rich_relations_from_chunk(gemini_client: genai.Client, chunk: str) -
 [
   {{
     "subject": "（主語となるエンティティ）",
-    "relation": "（関係性を表す簡潔な動詞句。例: 'develops with', 'is concerned about'）",
+    "relation": "（関係性を表す、三人称単数現在形の具体的な動詞句。例: 'likes', 'dislikes', 'creates', 'feels happy about'）",
     "object": "（目的語となるエンティティ）",
     "polarity": "（その関係性が持つ感情の極性: "positive", "negative", "neutral" のいずれか）",
     "intensity": "（感情の強度を1から10の整数で評価）",
     "context": "（その関係性が生まれた、あるいは示された状況の、50字程度の簡潔な要約）"
   }}
 ]
+
+【良い関係性 (relation) の例】
+- "wants to know about"
+- "is a development partner of"
+- "feels concerned about"
+
+【悪い関係性 (relation) の例】
+- "is" (あまりにも曖昧すぎる)
+- "is an AI" (これは事実であり、二者間の関係性ではない)
 
 【最重要ルール】
 - あなた自身の思考や挨拶は絶対に含めず、JSON配列のみを出力してください。
@@ -385,8 +439,11 @@ def main():
                         # 1. エンティティ抽出
                         raw_entities = extract_entities(combined_content)
 
+                        # 1.5 意味のあるエンティティのみをフィルタリング
+                        meaningful_entities = filter_meaningful_entities(gemini_client, raw_entities, combined_content)
+
                         # 2. エンティティ正規化
-                        normalized_entity_map = normalize_entities(gemini_client, raw_entities)
+                        normalized_entity_map = normalize_entities(gemini_client, meaningful_entities)
                         # 逆引き辞書を作成 (例: {"ユーザー": "USER", "User": "USER"})
                         reverse_alias_map = {alias: canonical for canonical, aliases in normalized_entity_map.items() for alias in aliases}
 
