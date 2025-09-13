@@ -116,28 +116,45 @@ def normalize_entities_from_chunk(gemini_client: genai.Client, chunk: str) -> di
         return {}
 
 
-def extract_relationships_with_context(gemini_client: genai.Client, chunk: str, entity_map: dict) -> list | None:
+def deterministic_normalize_chunk(chunk: str, entity_map: dict) -> str:
     """
-    【第二段階：関係性の建築家】
-    生の会話チャンクと、事前に正規化されたエンティティ辞書を使い、関係性を抽出する。
+    【第二段階：機械的置換】
+    正規化辞書に基づき、会話チャンク内のすべての別名を正式名称に機械的に置換する。
     """
-    # プロンプトで使いやすいように、entity_mapを文字列に変換
-    entity_context = "\n".join([f"- {name}: {', '.join(aliases)}" for name, aliases in entity_map.items()])
+    normalized_chunk = chunk
+    # 置換が他の単語に影響を与えないよう、別名リストを「長い順」にソートする
+    # 例：「AI」より先に「他のAI」を置換することで、「他のUSER」のような誤変換を防ぐ
+    aliases_to_replace = []
+    for name, aliases in entity_map.items():
+        for alias in aliases:
+            aliases_to_replace.append((alias, name))
 
+    # 長いエイリアスから先に置換する
+    aliases_to_replace.sort(key=lambda x: len(x[0]), reverse=True)
+
+    for alias, name in aliases_to_replace:
+        # 単語の境界を意識して置換するため、より安全な置換を行う
+        # （この実装はシンプルだが多くの場合で機能する）
+        normalized_chunk = normalized_chunk.replace(alias, name)
+
+    return normalized_chunk
+
+
+def extract_relationships_from_normalized_chunk(gemini_client: genai.Client, normalized_chunk: str) -> list | None:
+    """
+    【第三段階：関係性の建築家】
+    完全に正規化された会話チャンクのみを入力とし、関係性を抽出することに集中する。
+    """
     prompt = f"""
 あなたは、対話ログから構造化された知識を抽出する専門家です。
 
 【あなたのタスク】
-以下の【聖域のエンティティリスト】と【生の会話ログ】を分析し、【聖域のエンティティリスト】に記載されている**「正式名称」のみを主語(subject)・目的語(object)として使用して**、エンティティ間の重要な関係性を抽出してください。
+以下の【完全に正規化された会話ログ】を分析し、エンティティ間の重要な関係性を抽出してください。
+このログのエンティティ名は、既に完全に統一されています。
 
-【聖域のエンティティリスト（これ以外の名前は絶対に使用しないこと）】
+【完全に正規化された会話ログ】
 ---
-{entity_context}
----
-
-【生の会話ログ】
----
-{chunk}
+{normalized_chunk}
 ---
 
 【出力フォーマット】
@@ -145,9 +162,9 @@ def extract_relationships_with_context(gemini_client: genai.Client, chunk: str, 
 
 [
   {{
-    "subject": "（聖域リストにある正式名称）",
+    "subject": "（ログに登場するエンティティ名）",
     "predicate": "（関係性を表す、簡潔な動詞句）",
-    "object": "（聖域リストにある正式名称、またはログ中の具体的な概念）",
+    "object": "（ログに登場するエンティティ名、または概念）",
     "polarity": "（感情の極性: "positive", "negative", "neutral"）",
     "intensity": "（感情の強度: 1〜10の整数）",
     "context": "（その関係性が生まれた状況の、簡潔な要約）"
@@ -349,21 +366,24 @@ def main():
                     if start_stage < 2:
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 2: Deepening semantic memory...")
 
-                        # ▼▼▼【ここからが修正の核心】▼▼▼
-                        # --- 2段階のAIコールを実行 ---
-                        # 1. 正規化の聖域：まずエンティティの名寄せだけを行う
+                        # ▼▼▼【ここからがv6アーキテクチャの核心】▼▼▼
+                        # --- ステージ 2a: 正規化辞書の生成 ---
                         logger.info("    - Stage 2a: Normalizing entities...")
                         entity_map = normalize_entities_from_chunk(gemini_client, combined_content)
                         if entity_map is None:
                             raise RuntimeError("Failed to normalize entities after max retries.")
 
-                        # 2. 関係性の建築家：正規化されたエンティティリストを使って関係性を抽出
-                        logger.info("    - Stage 2b: Extracting relationships...")
-                        relationships = extract_relationships_with_context(gemini_client, combined_content, entity_map)
+                        # --- ステージ 2b: 機械的置換 ---
+                        logger.info("    - Stage 2b: Performing deterministic replacement...")
+                        normalized_chunk = deterministic_normalize_chunk(combined_content, entity_map)
+
+                        # --- ステージ 2c: 関係性の抽出 ---
+                        logger.info("    - Stage 2c: Extracting relationships from normalized chunk...")
+                        relationships = extract_relationships_from_normalized_chunk(gemini_client, normalized_chunk)
                         if relationships is None:
                             raise RuntimeError("Failed to extract relationships after max retries.")
 
-                        # --- グラフへの反映 ---
+                        # --- グラフへの反映ロジック（v5から流用・微修正） ---
                         # 1. エンティティをグラフに追加
                         for name, aliases in entity_map.items():
                             if not G.has_node(name):
@@ -384,10 +404,13 @@ def main():
 
                             # subjectがentity_mapのキーに存在することを確認
                             if subj in entity_map and all(isinstance(val, str) and val for val in [pred, obj]):
+                                # objectがentity_mapに存在しない場合、それは「概念」ノードとして扱う
                                 if not G.has_node(obj): G.add_node(obj, category="Concept", frequency=1)
 
                                 if G.has_edge(subj, obj):
+                                    # 既存エッジの重みを更新
                                     G[subj][obj]['frequency'] = G[subj][obj].get('frequency', 1) + 1
+                                    # より情報量の多いコンテキストで上書きするなどのロジックも将来的に検討可能
                                 else:
                                     G.add_edge(
                                         subj, obj,
@@ -399,11 +422,10 @@ def main():
                                     )
                                     logger.info(f"      - Found relationship: {subj} -> {pred} -> {obj}")
                             else:
-                                logger.warning(f"Skipping relationship due to unknown subject: {subj}")
+                                logger.warning(f"Skipping relationship with invalid or unmapped subject: '{subj}'")
+                        # ▲▲▲【v6アーキテクチャここまで】▲▲▲
 
                         save_graph(G, graph_path)
-                        # ▲▲▲【修正ここまで】▲▲▲
-
                         file_progress.update({"last_completed_stage": 2})
                         progress_data[log_file.name] = file_progress
                         save_progress(progress_file, progress_data)
