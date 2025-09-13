@@ -81,86 +81,54 @@ def generate_episodic_summary(gemini_client: genai.Client, pair_content: str) ->
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
     return response_text.strip() if response_text else None
 
-def normalize_entities(gemini_client: genai.Client, entities: list) -> dict:
+def extract_spo_triples_from_chunk(gemini_client: genai.Client, chunk: str) -> list | None:
     """
-    AIを使い、エンティティのリストを正規化（名寄せ・日本語化）する。
-    """
-    if not entities:
-        return {}
-
-    prompt = f"""
-あなたは、テキストに含まれるエンティティ（固有名詞や重要な名詞）を正規化する専門家です。
-以下のリストに含まれる単語を分析し、意味的に重複・類似しているものをグループ化してください。
-最終的な出力は、最も代表的で、かつ可能な限り日本語の名称をキーとし、元の単語のリストを値とするJSONオブジェクトにしてください。
-
-【最重要ルール】
-- あなた自身の思考や挨拶は絶対に含めず、JSONオブジェクトのみを出力してください。
-- 全ての入力単語は、いずれかのキーの配下に必ず含めてください。
-
-入力リスト:
-{json.dumps(entities, ensure_ascii=False)}
-
-出力JSON:
-"""
-    response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
-    if response_text is None:
-        logger.warning("Entity normalization failed after max retries. Using raw entities.")
-        # 失敗した場合は、各エンティティが自分自身にマッピングされる辞書を返す
-        return {entity: [entity] for entity in entities}
-    try:
-        json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
-        data = json.loads(json_text)
-        if isinstance(data, dict):
-            return data
-        else:
-            logger.warning(f"Parsed JSON for normalization is not a dict. Using raw entities. Response: {response_text}")
-            return {entity: [entity] for entity in entities}
-    except json.JSONDecodeError:
-        logger.error(f"Failed to parse JSON response for entity normalization. Using raw entities. Response: {response_text}")
-        return {entity: [entity] for entity in entities}
-
-def extract_rich_relations_from_chunk(gemini_client: genai.Client, chunk: str) -> list | None:
-    """
-    AIに会話のチャンクを渡し、感情情報を含む関係性のリストを一度に抽出させる。
+    AIに会話のチャンクを渡し、SPOトリプルのリストを感情情報と共に一度に抽出させる。
     """
     prompt = f"""
-あなたは、対話の中から人間関係や出来事の機微を読み解く、高度なナラティブ分析AIです。
+あなたは、対話ログから構造化された知識（ナレッジグラフ）を抽出する、世界最高峰の専門家です。
+
+【あなたの哲学】
+知識とは、「誰が（Subject）、何をした（Predicate）、誰に/何に（Object）」という、意味のある情報の集合体（トリプル）である。
+
 【コンテキストとなる会話】
 ---
 {chunk}
 ---
+
 【あなたのタスク】
-上記の会話に登場する主要なエンティティを特定し、それらの間に存在する、最も重要で意味のある関係性を、以下のJSON形式のリストとして、可能な限り多く抽出してください。
+上記の哲学に基づき、この会話から、登場人物や概念の間の、重要で具体的な関係性を**「主語(Subject)・述語(Predicate)・目的語(Object)」**の形式で、以下のJSON配列として可能な限り多く抽出してください。
 
 [
   {{
-    "subject": "（主語となるエンティティ）",
-    "relation": "（関係性を表す簡潔な動詞句。例: 'develops with', 'is concerned about'）",
-    "object": "（目的語となるエンティティ）",
-    "polarity": "（その関係性が持つ感情の極性: "positive", "negative", "neutral" のいずれか）",
-    "intensity": "（感情の強度を1から10の整数で評価）",
-    "context": "（その関係性が生まれた、あるいは示された状況の、50字程度の簡潔な要約）"
+    "subject": "（主語。会話における行為の主体）",
+    "predicate": "（述語。主語が目的語に対して行う、三人称単数現在形の具体的な動詞句）",
+    "object": "（目的語。行為の対象）",
+    "polarity": "（関係性が持つ感情の極性: "positive", "negative", "neutral"）",
+    "intensity": "（感情の強度: 1〜10）",
+    "context": "（その関係性が生まれた状況の簡潔な要約）"
   }}
 ]
 
 【最重要ルール】
+- subjectとobjectには、必ず具体的なエンティティ（例：「ルシアン」「ノワール」）が入ります。「ルシアンの気持ち」のような**文章や句は、エンティティではありません。**
 - あなた自身の思考や挨拶は絶対に含めず、JSON配列のみを出力してください。
 - 抽出する関係性がない場合は、空の配列 `[]` を出力してください。
 - 全てのフィールドを必ず埋めてください。
 """
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
     if response_text is None:
-        return None
+        return None # リトライに失敗した場合
     try:
         json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
         data = json.loads(json_text)
         if isinstance(data, list):
             return data
         else:
-            logger.warning(f"Parsed JSON for relation extraction is not a list. Response: {response_text}")
+            logger.warning(f"Parsed JSON for SPO extraction is not a list. Response: {response_text}")
             return []
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse JSON response for relation extraction. Response: {response_text}")
+        logger.error(f"Failed to parse JSON for SPO extraction. Response: {response_text}")
         return []
 
 def load_graph(path: Path) -> nx.DiGraph:
@@ -181,48 +149,10 @@ def save_progress(progress_file: Path, progress_data: dict):
     except Exception as e:
         logger.error(f"CRITICAL: Failed to save progress to {progress_file}. Error: {e}", exc_info=True)
 
-def extract_entities(text: str) -> list:
-    """
-    spaCyを使って、テキストからエンティティ（固有表現）と主要な名詞を抽出する。
-    v2: 助詞が含まれている場合の分割処理と、名詞の追加抽出で精度を向上。
-    """
-    doc = nlp(text)
-    entities = set()
-
-    # 助詞のリスト（簡易版）
-    particles = {"って", "は", "が", "の", "に", "を", "と", "へ", "で"}
-
-    # 1. 固有表現(NER)から抽出
-    for ent in doc.ents:
-        # PERSON, ORG (組織), GPE (国・市), LOC (非GPEの地理的エンティティ)に限定
-        if ent.label_ in ["PERSON", "ORG", "GPE", "LOC"]:
-            clean_text = ent.text.strip()
-
-            # 末尾が助詞で終わっている場合、それを取り除く
-            # 例：「ルシアンって」 -> 「ルシアン」
-            if len(clean_text) > 1 and clean_text[-1] in particles:
-                clean_text = clean_text[:-1]
-
-            # 内部に助詞が含まれる場合（例：「ルシアンってケノ」）、助詞で分割して最初の部分を採用
-            # より安全なロジックを検討する必要があるが、一旦これで対応
-            for particle in particles:
-                if f" {particle} " in clean_text:
-                    clean_text = clean_text.split(f" {particle} ")[0]
-
-            if clean_text:
-                entities.add(clean_text)
-
-    # 2. 主要な名詞(NOUN)と固有名詞(PROPN)を追加で抽出
-    for token in doc:
-        # 1文字の名詞はノイズが多いため除外（お好みで調整）
-        if token.pos_ in ["NOUN", "PROPN"] and len(token.text) > 1:
-            entities.add(token.text.strip())
-
-    return sorted(list(entities))
 
 def extract_conversation_pairs(log_content: str) -> list:
     """
-    Processes a list of raw log message dictionaries and groups them into
+    Processes a log file's content string and groups them into
     meaningful conversation pairs, handling consecutive messages from the same role.
     """
     log_messages = utils.load_chat_log(log_content)
@@ -378,48 +308,40 @@ def main():
                         save_progress(progress_file, progress_data)
                         logger.info(f"    - Stage 1 completed.")
 
-                    # --- ステージ2: Deepening Semantic Memory (全面的に書き換え) ---
                     if start_stage < 2:
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 2: Deepening semantic memory...")
 
-                        # 1. エンティティ抽出
-                        raw_entities = extract_entities(combined_content)
+                        # 【変更点】入力ソースを combined_content から summary_text に変更
+                        if summary_text:
+                            # 1. SPOトリプルのリストをAIから一度に取得
+                            triples = extract_spo_triples_from_chunk(gemini_client, summary_text)
+                            if triples is None:
+                                raise RuntimeError("Failed to extract SPO triples after max retries.")
 
-                        # 2. エンティティ正規化
-                        normalized_entity_map = normalize_entities(gemini_client, raw_entities)
-                        # 逆引き辞書を作成 (例: {"ユーザー": "USER", "User": "USER"})
-                        reverse_alias_map = {alias: canonical for canonical, aliases in normalized_entity_map.items() for alias in aliases}
+                            if triples:
+                                for triple in triples:
+                                    subj = triple.get("subject")
+                                    pred = triple.get("predicate")
+                                    obj = triple.get("object")
 
-                        # 3. 関係性の一括抽出
-                        relations = extract_rich_relations_from_chunk(gemini_client, combined_content)
-                        if relations is None:
-                            raise RuntimeError("Failed to extract relations after max retries.")
+                                    if all(isinstance(val, str) and val for val in [subj, pred, obj]):
+                                        if not G.has_node(subj): G.add_node(subj)
+                                        if not G.has_node(obj): G.add_node(obj)
 
-                        if relations:
-                            for rel in relations:
-                                subj_raw = rel.get("subject")
-                                obj_raw = rel.get("object")
-
-                                # 4. 関係性の主語・目的語を正規化
-                                subj_norm = reverse_alias_map.get(subj_raw, subj_raw)
-                                obj_norm = reverse_alias_map.get(obj_raw, obj_raw)
-
-                                if all([subj_norm, obj_norm, rel.get("relation")]):
-                                    if not G.has_node(subj_norm): G.add_node(subj_norm)
-                                    if not G.has_node(obj_norm): G.add_node(obj_norm)
-
-                                    if not G.has_edge(subj_norm, obj_norm):
-                                        G.add_edge(
-                                            subj_norm, obj_norm,
-                                            label=rel.get("relation"),
-                                            polarity=rel.get("polarity"),
-                                            intensity=rel.get("intensity"),
-                                            context=rel.get("context")
-                                        )
-                                        logger.info(f"      - Found relation: {subj_norm} -> {rel.get('relation')} -> {obj_norm}")
-                            save_graph(G, graph_path)
+                                        if not G.has_edge(subj, obj):
+                                            G.add_edge(
+                                                subj, obj,
+                                                label=pred,
+                                                polarity=triple.get("polarity"),
+                                                intensity=triple.get("intensity"),
+                                                context=triple.get("context")
+                                            )
+                                            logger.info(f"      - Found triple: {subj} -> {pred} -> {obj}")
+                                save_graph(G, graph_path)
+                            else:
+                                logger.info("    - No significant relations found in this summary.")
                         else:
-                            logger.info("    - No significant relations found in this pair.")
+                            logger.warning("    - Summary text is empty, skipping relation extraction.")
 
                         file_progress.update({"last_completed_stage": 2})
                         progress_data[log_file.name] = file_progress
