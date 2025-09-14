@@ -1,8 +1,10 @@
 import argparse
+import argparse
 import os
 import sys
 import uuid
 import json
+import re
 import shutil
 import tempfile
 from datetime import datetime
@@ -140,17 +142,54 @@ def deterministic_normalize_chunk(chunk: str, entity_map: dict) -> str:
     return normalized_chunk
 
 
-def extract_relationships_from_normalized_chunk(gemini_client: genai.Client, normalized_chunk: str) -> list | None:
+def repair_json_string_with_ai(gemini_client: genai.Client, broken_json_string: str) -> str | None:
     """
-    【第三段階：関係性の建築家】
-    完全に正規化された会話チャンクのみを入力とし、関係性を抽出することに集中する。
+    【機械仕掛けの校正官】
+    文字化けなどで破損した可能性のあるJSON文字列を、AIに修復させる。
     """
     prompt = f"""
-あなたは、対話ログから構造化された知識を抽出する専門家です。
+あなたは、破損したJSON文字列を修復する専門家です。
+以下の【破損した可能性のあるテキスト】を分析し、それが有効なJSONオブジェクトまたはJSON配列になるように修復してください。
+
+【破損した可能性のあるテキスト】
+---
+{broken_json_string}
+---
+
+【最重要ルール】
+- あなた自身の思考や挨拶、言い訳は絶対に含めず、修復されたJSON文字列のみを出力してください。
+- どうしても修復不可能な場合は、空のJSONオブジェクト `{{}}` または `[]` を出力してください。
+- 出力は必ず ````json` と ```` で囲んでください。
+"""
+    # 修復には、より能力の高いモデルを使用することを検討する
+    response_text = call_gemini_with_smart_retry(gemini_client, "gemini-2.5-flash", prompt)
+    if response_text is None:
+        return None
+
+    # AIの応答からJSON部分だけを確実に抽出
+    match = re.search(r'```json\s*([\s\S]*?)\s*```', response_text)
+    if match:
+        return match.group(1).strip()
+    else:
+        # フォールバックとして、AIの応答全体を試す
+        return response_text.strip()
+
+
+def extract_relationships_from_normalized_chunk(gemini_client: genai.Client, normalized_chunk: str) -> list | None:
+    """
+    【第三段階：関係性の建築家 v2】
+    完全に正規化された会話チャンクから、"概念"を短い名詞句に要約・抽象化しつつ、関係性を抽出する。
+    """
+    prompt = f"""
+あなたは、対話ログから構造化された知識を抽出する、世界最高峰の専門家です。
 
 【あなたのタスク】
 以下の【完全に正規化された会話ログ】を分析し、エンティティ間の重要な関係性を抽出してください。
-このログのエンティティ名は、既に完全に統一されています。
+
+【思考プロセス】
+1.  まず、関係性の「目的語(object)」が、具体的なエンティティ（人物、場所、物）ではなく、**長い文章や状況、感情そのもの**である関係性を見つけます。
+2.  次に、その長い文章を、**「USERの願い」「ルシアンの状況」のような、3〜10文字程度の、簡潔で分かりやすい『名詞句』に、あなた自身で要約・抽象化**します。
+3.  最後に、その抽象化した名詞句を`object`として使い、関係性をJSON形式で出力します。
 
 【完全に正規化された会話ログ】
 ---
@@ -164,7 +203,7 @@ def extract_relationships_from_normalized_chunk(gemini_client: genai.Client, nor
   {{
     "subject": "（ログに登場するエンティティ名）",
     "predicate": "（関係性を表す、簡潔な動詞句）",
-    "object": "（ログに登場するエンティティ名、または概念）",
+    "object": "（ログに登場するエンティティ名、またはあなたが抽象化した短い名詞句）",
     "polarity": "（感情の極性: "positive", "negative", "neutral"）",
     "intensity": "（感情の強度: 1〜10の整数）",
     "context": "（その関係性が生まれた状況の、簡潔な要約）"
@@ -172,19 +211,36 @@ def extract_relationships_from_normalized_chunk(gemini_client: genai.Client, nor
 ]
 
 【最重要ルール】
+- `object`に、15文字を超えるような長い文章や、「〜であること」で終わるような記述を含めてはなりません。必ず短い名詞句にしてください。
 - あなた自身の思考や挨拶は絶対に含めず、JSON配列のみを出力してください。
 - 抽出する関係性がない場合は、空の配列 `[]` を出力してください。
 """
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
+
+    # ここからが修復プロセスの追加
     if response_text is None:
-        return None
+        return None # APIコールがリトライ含め失敗した場合
+
     try:
+        # まずはそのままパースを試みる
         json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
         data = json.loads(json_text)
         return data if isinstance(data, list) else []
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse JSON for relationship extraction. Response: {response_text}")
-        return []
+        # パースに失敗した場合、AIによる修復を試みる
+        logger.warning(f"JSON parsing failed. Attempting to repair with AI. Original text: {response_text}")
+        repaired_json_text = repair_json_string_with_ai(gemini_client, response_text)
+        if repaired_json_text:
+            try:
+                data = json.loads(repaired_json_text)
+                logger.info("Successfully repaired JSON string.")
+                return data if isinstance(data, list) else []
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse even the repaired JSON. Repaired text: {repaired_json_text}")
+                return []
+        else:
+            logger.error("AI failed to repair the JSON string.")
+            return []
 
 def load_graph(path: Path) -> nx.DiGraph:
     if path.exists():
