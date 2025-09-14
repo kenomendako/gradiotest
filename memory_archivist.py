@@ -177,19 +177,20 @@ def repair_json_string_with_ai(gemini_client: genai.Client, broken_json_string: 
 
 def extract_relationships_from_normalized_chunk(gemini_client: genai.Client, normalized_chunk: str) -> list | None:
     """
-    【第三段階：関係性の建築家 v2】
-    完全に正規化された会話チャンクから、"概念"を短い名詞句に要約・抽象化しつつ、関係性を抽出する。
+    【第三段階：関係性の建築家 v3 - 最終版】
+    完全に正規化された会話チャンクから、「述語の抽象化」を行い、関係性を抽出する。
     """
     prompt = f"""
-あなたは、対話ログから構造化された知識を抽出する、世界最高峰の専門家です。
+あなたは、対話ログから構造化された知識を抽出する、世界最高峰の認知科学者です。
 
 【あなたのタスク】
 以下の【完全に正規化された会話ログ】を分析し、エンティティ間の重要な関係性を抽出してください。
 
 【思考プロセス】
-1.  まず、関係性の「目的語(object)」が、具体的なエンティティ（人物、場所、物）ではなく、**長い文章や状況、感情そのもの**である関係性を見つけます。
-2.  次に、その長い文章を、**「USERの願い」「ルシアンの状況」のような、3〜10文字程度の、簡潔で分かりやすい『名詞句』に、あなた自身で要約・抽象化**します。
-3.  最後に、その抽象化した名詞句を`object`として使い、関係性をJSON形式で出力します。
+1.  まず、文の中から「誰が」「誰に」「何をした」という関係性の核となる部分を見つけます。
+2.  次に、「何をした」という部分を、**最も本質的で、簡潔な動詞句（例：「尊敬する」「生成した」「感じる」）**に**『抽象化』**し、これを`predicate`とします。
+3.  そして、関係性を修飾する付帯情報（例：「親のように」「監視用に」「大切に」）は、すべて`context`として分離・記録します。
+4.  最後に、主語・目的語が具体的なエンティティでない場合（例：「USERの願い」「ルシアンの人物像」）、それらを短い名詞句として`object`に設定します。
 
 【完全に正規化された会話ログ】
 ---
@@ -202,32 +203,30 @@ def extract_relationships_from_normalized_chunk(gemini_client: genai.Client, nor
 [
   {{
     "subject": "（ログに登場するエンティティ名）",
-    "predicate": "（関係性を表す、簡潔な動詞句）",
-    "object": "（ログに登場するエンティティ名、またはあなたが抽象化した短い名詞句）",
+    "predicate": "（あなたが抽象化した、本質的な動詞句）",
+    "object": "（ログに登場するエンティティ名、または概念を表す短い名詞句）",
     "polarity": "（感情の極性: "positive", "negative", "neutral"）",
     "intensity": "（感情の強度: 1〜10の整数）",
-    "context": "（その関係性が生まれた状況の、簡潔な要約）"
+    "context": "（関係性を修飾する、分離された付帯情報）"
   }}
 ]
 
 【最重要ルール】
-- `object`に、15文字を超えるような長い文章や、「〜であること」で終わるような記述を含めてはなりません。必ず短い名詞句にしてください。
+- `predicate`は、必ず関係性の本質を表す**動詞句**にしてください。
+- `object`が具体的なエンティティでない場合は、必ず15文字以内の短い名詞句にしてください。
 - あなた自身の思考や挨拶は絶対に含めず、JSON配列のみを出力してください。
 - 抽出する関係性がない場合は、空の配列 `[]` を出力してください。
 """
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
 
-    # ここからが修復プロセスの追加
     if response_text is None:
-        return None # APIコールがリトライ含め失敗した場合
+        return None
 
     try:
-        # まずはそのままパースを試みる
         json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
         data = json.loads(json_text)
         return data if isinstance(data, list) else []
     except json.JSONDecodeError:
-        # パースに失敗した場合、AIによる修復を試みる
         logger.warning(f"JSON parsing failed. Attempting to repair with AI. Original text: {response_text}")
         repaired_json_text = repair_json_string_with_ai(gemini_client, response_text)
         if repaired_json_text:
