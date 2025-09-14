@@ -1553,14 +1553,18 @@ def handle_memos_batch_import(room_name: str, console_content: str):
         # --- ステージ1: 骨格の作成 ---
         gr.Info("ステージ1/2: 知識グラフの骨格を作成しています...")
 
+        # ▼▼▼【ここからが修正箇所】▼▼▼
+        # text=True を削除し、stdoutを直接扱う
         proc1 = subprocess.run(
             [sys.executable, "-X", "utf8", script_path_1, room_name],
-            # ▼▼▼【ここからが修正箇所】▼▼▼
-            capture_output=True, text=True, encoding='utf-8', errors='replace'
-            # ▲▲▲【修正ここまで】▲▲▲
+            capture_output=True
         )
+        # バイトストリームを、エラーを無視して強制的にデコードする
+        output_log = proc1.stdout.decode('utf-8', errors='replace')
+        error_log = proc1.stderr.decode('utf-8', errors='replace')
+        log_chunk = f"\n--- [{script_path_1} Output] ---\n{output_log}\n{error_log}"
+        # ▲▲▲【修正ここまで】▲▲▲
 
-        log_chunk = f"\n--- [{script_path_1} Output] ---\n{proc1.stdout}\n{proc1.stderr}"
         full_log_output += log_chunk
         yield (
             gr.update(), gr.update(), None,
@@ -1576,14 +1580,15 @@ def handle_memos_batch_import(room_name: str, console_content: str):
         # ★★★ あなたの好みに合わせてテキストを修正 ★★★
         gr.Info("ステージ2/2: 知識グラフを構築中です...")
 
+        # ▼▼▼【ここからが修正箇所】▼▼▼
         proc2 = subprocess.run(
             [sys.executable, "-X", "utf8", script_path_2, room_name],
-            # ▼▼▼【ここからが修正箇所】▼▼▼
-            capture_output=True, text=True, encoding='utf-8', errors='replace'
-            # ▲▲▲【修正ここまで】▲▲▲
+            capture_output=True
         )
-
-        log_chunk = f"\n--- [{script_path_2} Output] ---\n{proc2.stdout}\n{proc2.stderr}"
+        output_log = proc2.stdout.decode('utf-8', errors='replace')
+        error_log = proc2.stderr.decode('utf-8', errors='replace')
+        log_chunk = f"\n--- [{script_path_2} Output] ---\n{output_log}\n{error_log}"
+        # ▲▲▲【修正ここまで】▲▲▲
         full_log_output += log_chunk
         yield (
             gr.update(), gr.update(), None,
