@@ -394,7 +394,7 @@ def main():
                     if start_stage < 2:
                         logger.info(f"  - Pair {i+1}/{len(conversation_pairs)}, Stage 2: Deepening semantic memory...")
 
-                        # ▼▼▼【ここからがv14アーキテクチャの核心】▼▼▼
+                        # ▼▼▼【ここからがv15アーキテクチャの核心】▼▼▼
                         # --- ステージ 2a: 聖域の定義（正規化辞書の生成） ---
                         logger.info("    - Stage 2a: Normalizing entities...")
                         entity_map = normalize_entities_from_chunk(gemini_client, combined_content)
@@ -420,20 +420,25 @@ def main():
 
                             # 2. 抽出された知識（関係性 or 属性）をグラフに追加
                             for fact in knowledge_list:
-                                fact_type = fact.get("type")
-                                subj = fact.get("subject")
+                                # --- 『代入時の聖絶』：ここが最後の砦 ---
+                                # .get()の第二引数に空文字列""を指定することで、キーが存在しない場合や、
+                                # 値がnullの場合に返されるNoneを、最初から空文字列に変換する。
+                                fact_type = fact.get("type", "")
+                                subj = fact.get("subject", "")
 
-                                # --- 【最終防衛ライン】 ---
-                                if not isinstance(subj, str) or not subj or subj not in entity_map:
+                                # --- 品質検査：subjectの妥当性チェック ---
+                                if not subj or subj not in entity_map:
                                     logger.warning(f"Skipping fact due to invalid or unmapped subject: '{subj}'")
                                     continue
 
                                 if fact_type == "relationship":
-                                    pred = fact.get("predicate")
-                                    obj = fact.get("object")
-                                    if not all(isinstance(val, str) and val for val in [pred, obj]):
+                                    pred = fact.get("predicate", "")
+                                    obj = fact.get("object", "")
+
+                                    if not pred or not obj: # 空文字列チェック
                                         logger.warning(f"Skipping incomplete relationship: {{'s': '{subj}', 'p': '{pred}', 'o': '{obj}'}}")
                                         continue
+
                                     if not G.has_node(obj): G.add_node(obj, category="Concept", frequency=1)
                                     if G.has_edge(subj, obj):
                                         G[subj][obj]['frequency'] = G[subj][obj].get('frequency', 1) + 1
@@ -442,15 +447,17 @@ def main():
                                         logger.info(f"      - Found Relationship: {subj} -> {pred} -> {obj}")
 
                                 elif fact_type == "attribute":
-                                    key = fact.get("attribute_key")
-                                    value = fact.get("attribute_value")
-                                    if not all(isinstance(val, str) and val for val in [key, value]):
+                                    key = fact.get("attribute_key", "")
+                                    value = fact.get("attribute_value", "")
+
+                                    if not key or not value: # 空文字列チェック
                                         logger.warning(f"Skipping incomplete attribute for '{subj}': {{'key': '{key}', 'value': '{value}'}}")
                                         continue
+
                                     G.nodes[subj][key] = value
                                     G.nodes[subj]['frequency'] = G.nodes[subj].get('frequency', 0) + 1
                                     logger.info(f"      - Found Attribute for '{subj}': {key} = {value}")
-                        # ▲▲▲【v14アーキテクチャここまで】▲▲▲
+                        # ▲▲▲【v15アーキテクチャここまで】▲▲▲
 
                         save_graph(G, graph_path)
                         file_progress.update({"last_completed_stage": 2})
