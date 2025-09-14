@@ -93,8 +93,12 @@ def normalize_entities_from_chunk(gemini_client: genai.Client, chunk: str) -> di
 あなたは、対話ログから登場人物や重要概念を特定し、名前の揺れを吸収する「名寄せ」の専門家です。
 
 【あなたのタスク】
-以下の【生の会話ログ】に登場するすべての主要なエンティティ（人物、AI、場所、重要概念）を特定してください。
-次に、同一のエンティティを指す異なる表現（例：「USER」「ケノ」「あなた」）を一つにまとめ、代表となる**「正式名称」**をキー、それ以外の**「別名」**をリストの値とするPythonの辞書（dict）を生成してください。
+以下の【生の会話ログ】を分析し、思考のステップに従って、登場するすべての主要なエンティティの対応辞書を生成してください。
+
+【思考のステップ】
+1.  まず、会話に登場するすべての主要なエンティティ（人物、AI、場所、重要概念）をリストアップします。
+2.  次に、英語やその他の言語で記述されたエンティティを、最も自然な**日本語の表現に翻訳**します。
+3.  最後に、同一のエンティティを指す異なる表現（例：「USER」「ケノ」「あなた」）を一つにまとめ、代表となる**「正式名称（日本語）」**をキー、それ以外の**「別名」**をリストの値とするPythonの辞書（dict）を生成します。
 
 【生の会話ログ】
 ---
@@ -104,18 +108,52 @@ def normalize_entities_from_chunk(gemini_client: genai.Client, chunk: str) -> di
 【最重要ルール】
 - あなた自身の思考や挨拶は絶対に含めず、Pythonの辞書オブジェクトのみをJSON形式で出力してください。
 - 該当するエンティティがない場合は、空の辞書 `{{}}` を出力してください。
-- キー（正式名称）には、最も頻繁に使われるか、最も正式だと思われる名前を選んでください。
 """
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
+
     if response_text is None:
-        return None
+        # AIからの応答がNoneの場合（APIエラーなど）の戻り値を、関数の期待する型に合わせる
+        # この変更により、呼び出し元でのエラーハンドリングが容易になる
+        return {} if "normalize_entities" in sys._getframe().f_code.co_name else []
+
     try:
-        json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
-        data = json.loads(json_text)
-        return data if isinstance(data, dict) else {}
+        # ステップ1: AIの応答から ```json ... ``` ブロックを最優先で抽出する
+        match = re.search(r'```json\s*([\s\S]*?)\s*```', response_text)
+        if match:
+            json_text = match.group(1)
+        else:
+            # ブロックがない場合は、応答全体を対象とする
+            json_text = response_text
+
+        # ステップ2: 目に見えない制御文字やエスケープシーケンスを除去する「聖別」処理
+        # JSONとして有効な文字(ASCII文字、日本語文字、括弧、引用符など)以外を排除
+        sanitized_text = re.sub(r'[^\x20-\x7E\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uFF00-\uFFEF\n\r\t]', '', json_text)
+
+        data = json.loads(sanitized_text)
+
+        # 関数の種類に応じて、正しいデータ型を返す
+        if "normalize_entities" in sys._getframe().f_code.co_name:
+             return data if isinstance(data, dict) else {}
+        else: # extract_relationships
+             return data if isinstance(data, list) else []
+
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse JSON for entity normalization. Response: {response_text}")
-        return {}
+        logger.warning(f"JSON parsing failed after sanitization. Attempting to repair with AI. Sanitized text: {sanitized_text}")
+        repaired_json_text = repair_json_string_with_ai(gemini_client, sanitized_text)
+        if repaired_json_text:
+            try:
+                data = json.loads(repaired_json_text)
+                logger.info("Successfully repaired JSON string.")
+                if "normalize_entities" in sys._getframe().f_code.co_name:
+                    return data if isinstance(data, dict) else {}
+                else: # extract_relationships
+                    return data if isinstance(data, list) else []
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse even the repaired JSON. Repaired text: {repaired_json_text}")
+                return {} if "normalize_entities" in sys._getframe().f_code.co_name else []
+        else:
+            logger.error("AI failed to repair the JSON string.")
+            return {} if "normalize_entities" in sys._getframe().f_code.co_name else []
 
 
 def deterministic_normalize_chunk(chunk: str, entity_map: dict) -> str:
@@ -190,7 +228,7 @@ def extract_relationships_from_normalized_chunk(gemini_client: genai.Client, nor
 1.  まず、文の中から「誰が」「誰に」「何をした」という関係性の核となる部分を見つけます。
 2.  次に、「何をした」という部分を、**最も本質的で、簡潔な動詞句（例：「尊敬する」「生成した」「感じる」）**に**『抽象化』**し、これを`predicate`とします。
 3.  そして、関係性を修飾する付帯情報（例：「親のように」「監視用に」「大切に」）は、すべて`context`として分離・記録します。
-4.  最後に、主語・目的語が具体的なエンティティでない場合（例：「USERの願い」「ルシアンの人物像」）、それらを短い名詞句として`object`に設定します。
+4.  最後に、主語・目的語が具体的なエンティティでない場合（例：「ルシアンがみんなと仲良くすること」）、それを**「USERの願い」「ルシアンの独占欲」のように、文脈を補完する、具体的で短い名詞句**として`object`に設定します。
 
 【完全に正規化された会話ログ】
 ---
@@ -198,13 +236,11 @@ def extract_relationships_from_normalized_chunk(gemini_client: genai.Client, nor
 ---
 
 【出力フォーマット】
-以下の厳格なJSON配列フォーマットで、抽出した関係性リストのみを出力してください。
-
 [
   {{
     "subject": "（ログに登場するエンティティ名）",
     "predicate": "（あなたが抽象化した、本質的な動詞句）",
-    "object": "（ログに登場するエンティティ名、または概念を表す短い名詞句）",
+    "object": "（エンティティ名、またはあなたが抽象化した短い名詞句）",
     "polarity": "（感情の極性: "positive", "negative", "neutral"）",
     "intensity": "（感情の強度: 1〜10の整数）",
     "context": "（関係性を修飾する、分離された付帯情報）"
@@ -213,33 +249,55 @@ def extract_relationships_from_normalized_chunk(gemini_client: genai.Client, nor
 
 【最重要ルール】
 - `predicate`は、必ず関係性の本質を表す**動詞句**にしてください。
-- `object`が具体的なエンティティでない場合は、必ず15文字以内の短い名詞句にしてください。
+- `object`が「親」「子」「撫で」のような単語だけになる場合、それは`predicate`や`context`に含めるべき情報です。`object`は必ず**関係の対象**となるエンティティか、**具体的な概念**を示す名詞句にしてください。
 - あなた自身の思考や挨拶は絶対に含めず、JSON配列のみを出力してください。
 - 抽出する関係性がない場合は、空の配列 `[]` を出力してください。
 """
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
 
     if response_text is None:
-        return None
+        # AIからの応答がNoneの場合（APIエラーなど）の戻り値を、関数の期待する型に合わせる
+        # この変更により、呼び出し元でのエラーハンドリングが容易になる
+        return {} if "normalize_entities" in sys._getframe().f_code.co_name else []
 
     try:
-        json_text = response_text.strip().removeprefix("```json").removesuffix("```").strip()
-        data = json.loads(json_text)
-        return data if isinstance(data, list) else []
+        # ステップ1: AIの応答から ```json ... ``` ブロックを最優先で抽出する
+        match = re.search(r'```json\s*([\s\S]*?)\s*```', response_text)
+        if match:
+            json_text = match.group(1)
+        else:
+            # ブロックがない場合は、応答全体を対象とする
+            json_text = response_text
+
+        # ステップ2: 目に見えない制御文字やエスケープシーケンスを除去する「聖別」処理
+        # JSONとして有効な文字(ASCII文字、日本語文字、括弧、引用符など)以外を排除
+        sanitized_text = re.sub(r'[^\x20-\x7E\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uFF00-\uFFEF\n\r\t]', '', json_text)
+
+        data = json.loads(sanitized_text)
+
+        # 関数の種類に応じて、正しいデータ型を返す
+        if "normalize_entities" in sys._getframe().f_code.co_name:
+             return data if isinstance(data, dict) else {}
+        else: # extract_relationships
+             return data if isinstance(data, list) else []
+
     except json.JSONDecodeError:
-        logger.warning(f"JSON parsing failed. Attempting to repair with AI. Original text: {response_text}")
-        repaired_json_text = repair_json_string_with_ai(gemini_client, response_text)
+        logger.warning(f"JSON parsing failed after sanitization. Attempting to repair with AI. Sanitized text: {sanitized_text}")
+        repaired_json_text = repair_json_string_with_ai(gemini_client, sanitized_text)
         if repaired_json_text:
             try:
                 data = json.loads(repaired_json_text)
                 logger.info("Successfully repaired JSON string.")
-                return data if isinstance(data, list) else []
+                if "normalize_entities" in sys._getframe().f_code.co_name:
+                    return data if isinstance(data, dict) else {}
+                else: # extract_relationships
+                    return data if isinstance(data, list) else []
             except json.JSONDecodeError:
                 logger.error(f"Failed to parse even the repaired JSON. Repaired text: {repaired_json_text}")
-                return []
+                return {} if "normalize_entities" in sys._getframe().f_code.co_name else []
         else:
             logger.error("AI failed to repair the JSON string.")
-            return []
+            return {} if "normalize_entities" in sys._getframe().f_code.co_name else []
 
 def load_graph(path: Path) -> nx.DiGraph:
     if path.exists():
