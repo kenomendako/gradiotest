@@ -1555,7 +1555,9 @@ def handle_memos_batch_import(room_name: str, console_content: str):
 
         proc1 = subprocess.run(
             [sys.executable, "-X", "utf8", script_path_1, room_name],
-            capture_output=True, text=True, encoding='utf-8', errors='ignore'
+            # ▼▼▼【ここからが修正箇所】▼▼▼
+            capture_output=True, text=True, encoding='utf-8', errors='replace'
+            # ▲▲▲【修正ここまで】▲▲▲
         )
 
         log_chunk = f"\n--- [{script_path_1} Output] ---\n{proc1.stdout}\n{proc1.stderr}"
@@ -1576,7 +1578,9 @@ def handle_memos_batch_import(room_name: str, console_content: str):
 
         proc2 = subprocess.run(
             [sys.executable, "-X", "utf8", script_path_2, room_name],
-            capture_output=True, text=True, encoding='utf-8', errors='ignore'
+            # ▼▼▼【ここからが修正箇所】▼▼▼
+            capture_output=True, text=True, encoding='utf-8', errors='replace'
+            # ▲▲▲【修正ここまで】▲▲▲
         )
 
         log_chunk = f"\n--- [{script_path_2} Output] ---\n{proc2.stdout}\n{proc2.stderr}"

@@ -1,3 +1,7 @@
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
 import argparse
 import argparse
 import os
@@ -525,14 +529,16 @@ def main():
                                     G[subj][obj]['frequency'] = G[subj][obj].get('frequency', 1) + 1
                                     # より情報量の多いコンテキストで上書きするなどのロジックも将来的に検討可能
                                 else:
+                                    # ▼▼▼【ここからがNoneを排除する安全装置】▼▼▼
                                     G.add_edge(
                                         subj, obj,
-                                        label=pred,
-                                        polarity=rel.get("polarity"),
-                                        intensity=rel.get("intensity"),
-                                        context=rel.get("context"),
+                                        label=pred or "",
+                                        polarity=rel.get("polarity", "neutral"),
+                                        intensity=rel.get("intensity", 0),
+                                        context=rel.get("context", ""),
                                         frequency=1
                                     )
+                                    # ▲▲▲【修正ここまで】▲▲▲
                                     logger.info(f"      - Found relationship: {subj} -> {pred} -> {obj}")
                             else:
                                 logger.warning(f"Skipping relationship with invalid or unmapped subject: '{subj}'")
