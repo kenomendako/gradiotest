@@ -220,19 +220,19 @@ def repair_json_string_with_ai(gemini_client: genai.Client, broken_json_string: 
 def extract_relationships_from_normalized_chunk(gemini_client: genai.Client, normalized_chunk: str) -> list | None:
     """
     【第三段階：関係性の建築家 v3 - 最終版】
-    完全に正規化された会話チャンクから、「述語の抽象化」を行い、関係性を抽出する。
+    完全に正規化された会話チャンクから、「述語の抽象化」と「属性の分離」を行い、知識を抽出する。
     """
     prompt = f"""
 あなたは、対話ログから構造化された知識を抽出する、世界最高峰の認知科学者です。
 
 【あなたのタスク】
-以下の【完全に正規化された会話ログ】を分析し、エンティティ間の重要な関係性を抽出してください。
+以下の【完全に正規化された会話ログ】を分析し、思考プロセスに従って、エンティティ間の関係性や、エンティティ自身の属性を抽出してください。
 
 【思考プロセス】
-1.  まず、文の中から「誰が」「誰に」「何をした」という関係性の核となる部分を見つけます。
-2.  次に、「何をした」という部分を、**最も本質的で、簡潔な動詞句（例：「尊敬する」「生成した」「感じる」）**に**『抽象化』**し、これを`predicate`とします。
-3.  そして、関係性を修飾する付帯情報（例：「親のように」「監視用に」「大切に」）は、すべて`context`として分離・記録します。
-4.  最後に、主語・目的語が具体的なエンティティでない場合（例：「ルシアンがみんなと仲良くすること」）、それを**「USERの願い」「ルシアンの独占欲」のように、文脈を補完する、具体的で短い名詞句**として`object`に設定します。
+1.  まず、「誰が、誰に、何をした」という**【関係性】**を見つけます。
+2.  次に、「誰が、どのような状態・性質である」という**【属性】**を見つけます。これは、関係性の主語と目的語が同一になるような、自己言及のケースです。
+3.  「何をした（述語）」や「どのような状態（属性）」という部分を、最も本質的で簡潔な動詞句や形容詞句に『抽象化』します。
+4.  その他の付帯情報（例：「親のように」「監視用に」「大切に」）は`context`として分離します。
 
 【完全に正規化された会話ログ】
 ---
@@ -240,68 +240,56 @@ def extract_relationships_from_normalized_chunk(gemini_client: genai.Client, nor
 ---
 
 【出力フォーマット】
+以下の厳格なJSON配列フォーマットで、抽出した知識のみを出力してください。
+
 [
   {{
-    "subject": "（ログに登場するエンティティ名）",
-    "predicate": "（あなたが抽象化した、本質的な動詞句）",
-    "object": "（エンティティ名、またはあなたが抽象化した短い名詞句）",
+    "type": "relationship", // or "attribute"
+    "subject": "（エンティティ名）",
+    // "relationship" の場合
+    "predicate": "（抽象化した動詞句）",
+    "object": "（エンティティ名、または概念を表す短い名詞句）",
+    // "attribute" の場合
+    "attribute_key": "（属性の種類、例：感情、状態、性質）",
+    "attribute_value": "（属性の値、例：独占欲が強い、AIである）",
+    // 共通
     "polarity": "（感情の極性: "positive", "negative", "neutral"）",
     "intensity": "（感情の強度: 1〜10の整数）",
-    "context": "（関係性を修飾する、分離された付帯情報）"
+    "context": "（関係性や属性を修飾する、分離された付帯情報）"
   }}
 ]
 
 【最重要ルール】
-- `predicate`は、必ず関係性の本質を表す**動詞句**にしてください。
-- `object`が「親」「子」「撫で」のような単語だけになる場合、それは`predicate`や`context`に含めるべき情報です。`object`は必ず**関係の対象**となるエンティティか、**具体的な概念**を示す名詞句にしてください。
+- 自己言及や状態の記述は、必ず`"type": "attribute"`として抽出してください。
 - あなた自身の思考や挨拶は絶対に含めず、JSON配列のみを出力してください。
-- 抽出する関係性がない場合は、空の配列 `[]` を出力してください。
+- 抽出する知識がない場合は、空の配列 `[]` を出力してください。
 """
+    # (この関数の残りの部分は、v9の指示書にあった「聖別」ロジックをそのまま使用します)
     response_text = call_gemini_with_smart_retry(gemini_client, constants.INTERNAL_PROCESSING_MODEL, prompt)
 
     if response_text is None:
-        # AIからの応答がNoneの場合（APIエラーなど）の戻り値を、関数の期待する型に合わせる
-        # この変更により、呼び出し元でのエラーハンドリングが容易になる
-        return {} if "normalize_entities" in sys._getframe().f_code.co_name else []
+        return []
 
     try:
-        # ステップ1: AIの応答から ```json ... ``` ブロックを最優先で抽出する
         match = re.search(r'```json\s*([\s\S]*?)\s*```', response_text)
-        if match:
-            json_text = match.group(1)
-        else:
-            # ブロックがない場合は、応答全体を対象とする
-            json_text = response_text
-
-        # ステップ2: 目に見えない制御文字やエスケープシーケンスを除去する「聖別」処理
-        # JSONとして有効な文字(ASCII文字、日本語文字、括弧、引用符など)以外を排除
+        json_text = match.group(1) if match else response_text
         sanitized_text = re.sub(r'[^\x20-\x7E\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uFF00-\uFFEF\n\r\t]', '', json_text)
-
         data = json.loads(sanitized_text)
-
-        # 関数の種類に応じて、正しいデータ型を返す
-        if "normalize_entities" in sys._getframe().f_code.co_name:
-             return data if isinstance(data, dict) else {}
-        else: # extract_relationships
-             return data if isinstance(data, list) else []
-
+        return data if isinstance(data, list) else []
     except json.JSONDecodeError:
-        logger.warning(f"JSON parsing failed after sanitization. Attempting to repair with AI. Sanitized text: {sanitized_text}")
+        logger.warning(f"JSON parsing failed after sanitization. Attempting to repair. Text: {sanitized_text}")
         repaired_json_text = repair_json_string_with_ai(gemini_client, sanitized_text)
         if repaired_json_text:
             try:
                 data = json.loads(repaired_json_text)
                 logger.info("Successfully repaired JSON string.")
-                if "normalize_entities" in sys._getframe().f_code.co_name:
-                    return data if isinstance(data, dict) else {}
-                else: # extract_relationships
-                    return data if isinstance(data, list) else []
+                return data if isinstance(data, list) else []
             except json.JSONDecodeError:
-                logger.error(f"Failed to parse even the repaired JSON. Repaired text: {repaired_json_text}")
-                return {} if "normalize_entities" in sys._getframe().f_code.co_name else []
+                logger.error(f"Failed to parse even the repaired JSON. Repaired: {repaired_json_text}")
+                return []
         else:
             logger.error("AI failed to repair the JSON string.")
-            return {} if "normalize_entities" in sys._getframe().f_code.co_name else []
+            return []
 
 def load_graph(path: Path) -> nx.DiGraph:
     if path.exists():
@@ -500,49 +488,71 @@ def main():
                         if relationships is None:
                             raise RuntimeError("Failed to extract relationships after max retries.")
 
-                        # --- グラフへの反映ロジック（v5から流用・微修正） ---
-                        # 1. エンティティをグラフに追加
+                        # ▼▼▼【ここからがv12アーキテクチャの核心】▼▼▼
+                        # --- グラフへの反映 ---
+                        # 1. エンティティの存在を保証（Noneチェックを追加）
                         for name, aliases in entity_map.items():
+                            if not name or not isinstance(name, str):
+                                continue
                             if not G.has_node(name):
                                 G.add_node(
                                     name,
-                                    aliases=json.dumps(aliases, ensure_ascii=False),
-                                    category="Unknown", # カテゴリは今後の課題
+                                    aliases=json.dumps(aliases or [], ensure_ascii=False),
+                                    category="Unknown",
                                     frequency=1
                                 )
                             else:
                                 G.nodes[name]['frequency'] = G.nodes[name].get('frequency', 0) + 1
 
-                        # 2. 関係性をグラフに追加
-                        for rel in relationships:
-                            subj = rel.get("subject")
-                            obj = rel.get("object")
-                            pred = rel.get("predicate")
+                        # 2. 抽出された知識（関係性 or 属性）をグラフに追加
+                        for fact in relationships:
+                            fact_type = fact.get("type")
+                            subj = fact.get("subject")
 
-                            # subjectがentity_mapのキーに存在することを確認
-                            if subj in entity_map and all(isinstance(val, str) and val for val in [pred, obj]):
-                                # objectがentity_mapに存在しない場合、それは「概念」ノードとして扱う
+                            # --- 品質検査：subjectの妥当性チェック ---
+                            if not isinstance(subj, str) or not subj or subj not in entity_map:
+                                logger.warning(f"Skipping fact due to invalid or unmapped subject: '{subj}'")
+                                continue
+
+                            if fact_type == "relationship":
+                                pred = fact.get("predicate")
+                                obj = fact.get("object")
+
+                                # --- 『空虚の聖絶』：ここが最後の砦 ---
+                                if not all(isinstance(val, str) and val for val in [pred, obj]):
+                                    logger.warning(f"Skipping incomplete relationship: {{'s': '{subj}', 'p': '{pred}', 'o': '{obj}'}}")
+                                    continue
+
                                 if not G.has_node(obj): G.add_node(obj, category="Concept", frequency=1)
 
                                 if G.has_edge(subj, obj):
-                                    # 既存エッジの重みを更新
                                     G[subj][obj]['frequency'] = G[subj][obj].get('frequency', 1) + 1
-                                    # より情報量の多いコンテキストで上書きするなどのロジックも将来的に検討可能
                                 else:
-                                    # ▼▼▼【ここからがNoneを排除する安全装置】▼▼▼
                                     G.add_edge(
                                         subj, obj,
-                                        label=pred or "",
-                                        polarity=rel.get("polarity", "neutral"),
-                                        intensity=rel.get("intensity", 0),
-                                        context=rel.get("context", ""),
+                                        label=pred,
+                                        polarity=fact.get("polarity", "neutral"),
+                                        intensity=fact.get("intensity", 0),
+                                        context=fact.get("context", ""),
                                         frequency=1
                                     )
-                                    # ▲▲▲【修正ここまで】▲▲▲
-                                    logger.info(f"      - Found relationship: {subj} -> {pred} -> {obj}")
+                                    logger.info(f"      - Found Relationship: {subj} -> {pred} -> {obj}")
+
+                            elif fact_type == "attribute":
+                                key = fact.get("attribute_key")
+                                value = fact.get("attribute_value")
+
+                                if not all(isinstance(val, str) and val for val in [key, value]):
+                                    logger.warning(f"Skipping incomplete attribute for '{subj}': {{'key': '{key}', 'value': '{value}'}}")
+                                    continue
+
+                                G.nodes[subj][key] = value
+                                G.nodes[subj]['frequency'] = G.nodes[subj].get('frequency', 0) + 1
+                                logger.info(f"      - Found Attribute for '{subj}': {key} = {value}")
+
                             else:
-                                logger.warning(f"Skipping relationship with invalid or unmapped subject: '{subj}'")
-                        # ▲▲▲【v6アーキテクチャここまで】▲▲▲
+                                logger.warning(f"Skipping unknown fact type: '{fact_type}'")
+                        # ▲▲▲【v12アーキテクチャここまで】▲▲▲
 
                         save_graph(G, graph_path)
                         file_progress.update({"last_completed_stage": 2})
