@@ -203,3 +203,36 @@ def get_all_personas_in_log(main_room_name: str, api_history_limit_key: str) -> 
 
     # "ユーザー"はペルソナではないので除外
     return sorted([p for p in list(personas) if p != "ユーザー"])
+
+
+# ▼▼▼【ここからが新しく追加する関数】▼▼▼
+def backup_log_file(room_name: str) -> Optional[str]:
+    """
+    指定されたルームのlog.txtを、タイムスタンプ付きでバックアップする。
+    成功した場合はバックアップ先のパスを、失敗した場合はNoneを返す。
+    """
+    if not room_name:
+        return None
+
+    try:
+        log_file_path, _, _, _, _ = get_room_files_paths(room_name)
+        if not log_file_path or not os.path.exists(log_file_path):
+            print(f"警告: バックアップ対象のログファイルが見つかりません: {log_file_path}")
+            return None
+
+        backup_dir = os.path.join(constants.ROOMS_DIR, room_name, "log_archives", "manual_backups")
+        os.makedirs(backup_dir, exist_ok=True)
+
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file_name = f"log_{timestamp}.bak.txt"
+        backup_file_path = os.path.join(backup_dir, backup_file_name)
+
+        shutil.copy2(log_file_path, backup_file_path)
+        print(f"--- ログファイルのバックアップを作成しました: {backup_file_path} ---")
+        return backup_file_path
+
+    except Exception as e:
+        print(f"!!! エラー: ログファイルのバックアップ中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return None
+# ▲▲▲【追加はここまで】▲▲▲

@@ -327,3 +327,52 @@ def count_input_tokens(**kwargs):
         print(f"トークン計算中に予期せぬエラー: {e}")
         traceback.print_exc()
         return "トークン数: (例外発生)"
+
+
+# ▼▼▼【ここからが新しく追加する関数】▼▼▼
+def correct_punctuation_with_ai(text_to_fix: str, api_key: str) -> Optional[str]:
+    """
+    読点が除去されたテキストを受け取り、AIを使って適切な読点を再付与する。
+    """
+    if not text_to_fix or not api_key:
+        return None
+
+    # [Julesによる修正] 内部処理の安定性のため、リトライロジックをここに集約
+    max_retries = 3
+    retry_delay = 5
+    for attempt in range(max_retries):
+        try:
+            client = genai.Client(api_key=api_key)
+            prompt = f"""あなたは、日本語の文章を校正する専門家です。あなたの唯一の任務は、以下の【読点除去済みテキスト】に対して、文脈が自然になるように読点（「、」）のみを追加することです。
+
+【最重要ルール】
+- テキストの内容、漢字、ひらがな、カタカナ、句点（「。」）など、読点以外の文字は一切変更してはいけません。
+- あなた自身の意見や挨拶、思考などは一切含めず、読点を追加した後の完成したテキストのみを返答してください。
+
+【読点除去済みテキスト】
+---
+{text_to_fix}
+---
+
+【修正後のテキスト】
+"""
+            response = client.models.generate_content(
+                model=f"models/{constants.INTERNAL_PROCESSING_MODEL}",
+                contents=[prompt]
+            )
+            return response.text.strip()
+
+        except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
+            print(f"--- 読点修正APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                retry_delay *= 2
+            else:
+                print("--- 読点修正APIエラー: 最大リトライ回数に達しました。 ---")
+                return None # リトライ失敗
+        except Exception as e:
+            print(f"--- 読点修正中に予期せぬエラー: {e} ---")
+            traceback.print_exc()
+            return None # 予期せぬエラー
+    return None
+# ▲▲▲【追加はここまで】▲▲▲
