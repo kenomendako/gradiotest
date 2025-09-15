@@ -11,13 +11,13 @@ import io
 import base64
 from PIL import Image
 import google.genai as genai
+import google.api_core.exceptions
 import filetype
 import httpx
-# ▼▼▼【ここから3行を追加】▼▼▼
 import time
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InternalServerError
 import re
-# ▲▲▲【追加はここまで】▲▲▲
+import google.genai.errors
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, AIMessageChunk
 import config_manager
@@ -205,7 +205,9 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
                 yield update
             return # 成功したら関数を抜ける
 
-        except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
+        except (google.api_core.exceptions.ResourceExhausted,
+                google.api_core.exceptions.ServiceUnavailable,
+                google.api_core.exceptions.InternalServerError) as e:
             # 再試行可能なAPIエラーを捕捉
             print(f"--- APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
             if attempt < max_retries - 1:
@@ -327,3 +329,73 @@ def count_input_tokens(**kwargs):
         print(f"トークン計算中に予期せぬエラー: {e}")
         traceback.print_exc()
         return "トークン数: (例外発生)"
+
+
+def correct_punctuation_with_ai(text_to_fix: str, api_key: str) -> Optional[str]:
+    """
+    読点が除去されたテキストを受け取り、AIを使って適切な読点を再付与する。
+    【v3: 503エラー対応・最終版】
+    """
+    if not text_to_fix or not api_key:
+        return None
+
+    client = genai.Client(api_key=api_key)
+    max_retries = 5
+    base_retry_delay = 5  # 指数バックオフの初期遅延（秒）
+
+    for attempt in range(max_retries):
+        try:
+            prompt = f"""あなたは、日本語の文章を校正する専門家です。あなたの唯一の任務は、以下の【読点除去済みテキスト】に対して、文脈が自然になるように読点（「、」）のみを追加することです。
+
+【最重要ルール】
+- テキストの内容、漢字、ひらがな、カタカナ、句点（「。」）など、読点以外の文字は一切変更してはいけません。
+- あなた自身の意見や挨拶、思考などは一切含めず、読点を追加した後の完成したテキストのみを返答してください。
+
+【読点除去済みテキスト】
+---
+{text_to_fix}
+---
+
+【修正後のテキスト】
+"""
+            response = client.models.generate_content(
+                model=f"models/{constants.INTERNAL_PROCESSING_MODEL}",
+                contents=[prompt]
+            )
+            return response.text.strip()
+
+        except (google.genai.errors.ClientError, google.genai.errors.ServerError) as e:
+            wait_time = 0
+            # ClientError (429など) の場合は、推奨待機時間を抽出
+            if isinstance(e, google.genai.errors.ClientError):
+                try:
+                    match = re.search(r"({.*})", str(e))
+                    if match:
+                        error_json = json.loads(match.group(1))
+                        for detail in error_json.get("error", {}).get("details", []):
+                            if detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
+                                delay_str = detail.get("retryDelay", "60s")
+                                delay_match = re.search(r"(\d+)", delay_str)
+                                if delay_match:
+                                    wait_time = int(delay_match.group(1)) + 1
+                                    break
+                except Exception as parse_e:
+                    print(f"--- 待機時間抽出エラー: {parse_e}。指数バックオフを使用します。 ---")
+
+            # 推奨時間がない場合 (ServerErrorなど) は、指数バックオフを適用
+            if wait_time == 0:
+                wait_time = base_retry_delay * (2 ** attempt)
+
+            if attempt < max_retries - 1:
+                print(f"--- APIエラー ({e.__class__.__name__})。{wait_time}秒待機してリトライします... ({attempt + 1}/{max_retries}) ---")
+                time.sleep(wait_time)
+            else:
+                print(f"--- APIエラー: 最大リトライ回数 ({max_retries}) に達しました。 ---")
+                return None
+
+        except Exception as e:
+            print(f"--- 読点修正中に予期せぬエラー: {e} ---")
+            traceback.print_exc()
+            return None
+
+    return None

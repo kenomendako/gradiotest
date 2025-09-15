@@ -2446,3 +2446,142 @@ def handle_stop_button_click():
     """ストップボタンが押されたときにUIの状態をリセットする。"""
     print("--- [UI] ユーザーによりストップボタンが押されました ---")
     return gr.update(visible=False), gr.update(interactive=True)
+
+
+# ▼▼▼【ここからが新しく追加するブロック】▼▼▼
+def _overwrite_log_file(file_path: str, messages: List[Dict]):
+    """
+    メッセージ辞書のリストからログファイルを完全に上書きする。
+    """
+    log_content_parts = []
+    for msg in messages:
+        # 新しいログ形式 `ROLE:NAME` に完全準拠して書き出す
+        role = msg.get("role", "AGENT").upper()
+        responder_id = msg.get("responder", "不明")
+        header = f"## {role}:{responder_id}"
+        content = msg.get('content', '').strip()
+        # contentが空でもヘッダーは記録されるべき場合があるため、
+        # responder_idが存在すればエントリを作成する
+        if responder_id:
+             log_content_parts.append(f"{header}\n{content}")
+
+    new_log_content = "\n\n".join(log_content_parts)
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(new_log_content)
+    # ファイルの末尾に追記用の改行を追加
+    if new_log_content:
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write("\n\n")
+
+def handle_log_punctuation_correction(
+    confirmed: bool,
+    selected_message: Optional[Dict],
+    room_name: str,
+    api_key_name: str,
+    api_history_limit: str,
+    add_timestamp: bool
+):
+    """
+    選択行以降のAGENT応答の読点をAIで修正し、ログを上書きする。
+    """
+    # ユーザーが確認ダイアログで「キャンセル」を押した場合
+    if not confirmed:
+        yield gr.update(), gr.update(), gr.update()
+        return
+
+    # 1. 入力検証
+    if not selected_message:
+        gr.Warning("修正の起点となるメッセージをチャット履歴から選択してください。")
+        yield gr.update(), gr.update(), gr.update()
+        return
+    if not room_name or not api_key_name:
+        gr.Warning("ルームとAPIキーが選択されていません。")
+        yield gr.update(), gr.update(), gr.update()
+        return
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Error(f"APIキー '{api_key_name}' が有効ではありません。")
+        yield gr.update(), gr.update(), gr.update()
+        return
+
+    # 2. 処理開始のUIフィードバック
+    yield gr.update(), gr.update(), gr.update(value="準備中...", interactive=False)
+
+    try:
+        # 3. バックアップ作成
+        backup_path = room_manager.backup_log_file(room_name)
+        if not backup_path:
+            gr.Error("ログのバックアップ作成に失敗しました。処理を中断します。")
+            yield gr.update(), gr.update(), gr.update(interactive=True)
+            return
+
+        # 4. 修正対象を特定
+        log_f, _, _, _, _ = get_room_files_paths(room_name)
+        all_messages = utils.load_chat_log(log_f)
+
+        start_index = -1
+        for i, msg in enumerate(all_messages):
+            if msg == selected_message:
+                start_index = i
+                break
+
+        if start_index == -1:
+            gr.Warning("選択されたメッセージがログに見つかりませんでした。")
+            yield gr.update(), gr.update(), gr.update(interactive=True)
+            return
+
+        targets_with_indices = [
+            (i, msg) for i, msg in enumerate(all_messages)
+            if i >= start_index and msg.get("role") == "AGENT"
+        ]
+
+        if not targets_with_indices:
+            gr.Info("選択範囲に修正対象となるAIの応答がありませんでした。")
+            yield gr.update(), gr.update(), gr.update(interactive=True)
+            return
+
+        # 5. メインの修正ループ
+        total_targets = len(targets_with_indices)
+        for i, (original_index, msg_to_fix) in enumerate(targets_with_indices):
+            progress_text = f"修正中... ({i + 1}/{total_targets}件)"
+            yield gr.update(), gr.update(), gr.update(value=progress_text)
+
+            original_content = msg_to_fix.get("content", "")
+            # 思考ログは修正対象から除外
+            thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", original_content, re.DOTALL | re.IGNORECASE)
+            thoughts_part = thoughts_match.group(1) if thoughts_match else ""
+            main_text_part = re.sub(r"【Thoughts】.*?【/Thoughts】\s*", "", original_content, flags=re.DOTALL | re.IGNORECASE)
+
+            # 読点を除去
+            text_without_comma = main_text_part.replace("、", "").replace("､", "")
+
+            # AIによる修正
+            corrected_text = gemini_api.correct_punctuation_with_ai(text_without_comma, api_key)
+
+            if corrected_text is None:
+                gr.Error(f"AIによる修正に失敗しました (対象: {original_content[:30]}...)。処理を中断しますが、ここまでの進捗は保存されます。")
+                # ★★★ 失敗時点までの進捗を保存する ★★★
+                _overwrite_log_file(log_f, all_messages)
+                # UIを更新して処理を終了
+                history, mapping = reload_chat_log(room_name, api_history_limit, add_timestamp)
+                yield history, mapping, gr.update(interactive=True)
+                return
+
+            # 思考ログと結合して、元のメッセージ辞書を更新
+            all_messages[original_index]["content"] = (thoughts_part + "\n\n" + corrected_text).strip()
+
+        # 6. ログファイルの上書き
+        _overwrite_log_file(log_f, all_messages)
+
+        gr.Info(f"✅ {total_targets}件のAI応答の読点を修正し、ログを更新しました。")
+
+    except Exception as e:
+        gr.Error(f"ログ修正処理中に予期せぬエラーが発生しました: {e}")
+        traceback.print_exc()
+    finally:
+        # 7. 最終的なUI更新
+        final_history, final_mapping = reload_chat_log(room_name, api_history_limit, add_timestamp)
+        yield final_history, final_mapping, gr.update(value="選択行以降の読点をAIで修正", interactive=True)
+
+# ▲▲▲【追加はここまで】▲▲▲
