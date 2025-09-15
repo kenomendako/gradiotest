@@ -58,3 +58,6 @@ langchain-faiss
 
 # Core dependency for community integrations like FAISS
 langchain-community
+
+# For robust GraphML writing
+lxml
