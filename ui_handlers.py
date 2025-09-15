@@ -528,8 +528,9 @@ def handle_rerun_button_click(*args: Any):
                gr.update(visible=True, interactive=True), gr.update(interactive=True))
         return
 
-    # 2. 巻き戻したユーザー発言を、タイムスタンプを更新してログに再保存
-    full_user_log_entry = restored_input_text # タイムスタンプはここで更新しない（元の形式を維持）
+    # 2. 巻き戻したユーザー発言に、新しいタイムスタンプを付加してログに再保存
+    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+    full_user_log_entry = restored_input_text.strip() + timestamp
     utils.save_message_to_log(log_f, "## USER:user", full_user_log_entry)
 
     gr.Info("応答を再生成します...")
