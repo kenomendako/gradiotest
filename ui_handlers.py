@@ -2560,8 +2560,10 @@ def handle_log_punctuation_correction(
             corrected_text = gemini_api.correct_punctuation_with_ai(text_without_comma, api_key)
 
             if corrected_text is None:
-                gr.Error(f"AIによる修正に失敗しました (対象: {original_content[:30]}...)。処理を中断します。")
-                # 失敗した場合は元のログでUIを更新
+                gr.Error(f"AIによる修正に失敗しました (対象: {original_content[:30]}...)。処理を中断しますが、ここまでの進捗は保存されます。")
+                # ★★★ 失敗時点までの進捗を保存する ★★★
+                _overwrite_log_file(log_f, all_messages)
+                # UIを更新して処理を終了
                 history, mapping = reload_chat_log(room_name, api_history_limit, add_timestamp)
                 yield history, mapping, gr.update(interactive=True)
                 return

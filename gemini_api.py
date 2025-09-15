@@ -11,13 +11,13 @@ import io
 import base64
 from PIL import Image
 import google.genai as genai
+import google.api_core.exceptions
 import filetype
 import httpx
-# ▼▼▼【ここから3行を追加】▼▼▼
 import time
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InternalServerError
 import re
-# ▲▲▲【追加はここまで】▲▲▲
+import google.genai.errors
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, AIMessageChunk
 import config_manager
@@ -205,7 +205,10 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
                 yield update
             return # 成功したら関数を抜ける
 
-        except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
+        except (google.api_core.exceptions.ResourceExhausted,
+                google.api_core.exceptions.ServiceUnavailable,
+                google.api_core.exceptions.InternalServerError,
+                google.genai.errors.ResourceExhausted) as e:
             # 再試行可能なAPIエラーを捕捉
             print(f"--- APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
             if attempt < max_retries - 1:
@@ -329,20 +332,18 @@ def count_input_tokens(**kwargs):
         return "トークン数: (例外発生)"
 
 
-# ▼▼▼【ここからが新しく追加する関数】▼▼▼
 def correct_punctuation_with_ai(text_to_fix: str, api_key: str) -> Optional[str]:
     """
     読点が除去されたテキストを受け取り、AIを使って適切な読点を再付与する。
+    【v2: スマートリトライ対応版】
     """
     if not text_to_fix or not api_key:
         return None
 
-    # [Julesによる修正] 内部処理の安定性のため、リトライロジックをここに集約
-    max_retries = 3
-    retry_delay = 5
+    client = genai.Client(api_key=api_key)
+    max_retries = 5
     for attempt in range(max_retries):
         try:
-            client = genai.Client(api_key=api_key)
             prompt = f"""あなたは、日本語の文章を校正する専門家です。あなたの唯一の任務は、以下の【読点除去済みテキスト】に対して、文脈が自然になるように読点（「、」）のみを追加することです。
 
 【最重要ルール】
@@ -362,17 +363,35 @@ def correct_punctuation_with_ai(text_to_fix: str, api_key: str) -> Optional[str]
             )
             return response.text.strip()
 
-        except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
-            print(f"--- 読点修正APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
+        except google.genai.errors.ResourceExhausted as e:
+            # APIからの推奨待機時間を抽出
+            wait_time = 60 # デフォルトは60秒
+            try:
+                # エラーメッセージは文字列なので、jsonとしてパースできる部分を抽出
+                match = re.search(r"({.*})", str(e))
+                if match:
+                    error_json = json.loads(match.group(1))
+                    for detail in error_json.get("error", {}).get("details", []):
+                        if detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
+                            delay_str = detail.get("retryDelay", "60s")
+                            delay_match = re.search(r"(\d+)", delay_str)
+                            if delay_match:
+                                # 推奨時間 + 1秒のバッファ
+                                wait_time = int(delay_match.group(1)) + 1
+                                break
+            except Exception as parse_e:
+                print(f"--- 待機時間抽出エラー: {parse_e}。デフォルト値を使用します。 ---")
+
             if attempt < max_retries - 1:
-                time.sleep(retry_delay)
-                retry_delay *= 2
+                print(f"--- APIレート制限。{wait_time}秒待機してリトライします... ({attempt + 1}/{max_retries}) ---")
+                time.sleep(wait_time)
             else:
-                print("--- 読点修正APIエラー: 最大リトライ回数に達しました。 ---")
+                print(f"--- APIレート制限: 最大リトライ回数 ({max_retries}) に達しました。 ---")
                 return None # リトライ失敗
+
         except Exception as e:
             print(f"--- 読点修正中に予期せぬエラー: {e} ---")
             traceback.print_exc()
             return None # 予期せぬエラー
+
     return None
-# ▲▲▲【追加はここまで】▲▲▲

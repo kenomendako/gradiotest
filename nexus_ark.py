@@ -351,16 +351,12 @@ try:
                                 outputs=[chatbot_display, current_log_map_state]
                             )
 
-                        # ▼▼▼【ここからが新しく追加するブロック】▼▼▼
                         with gr.Accordion("📝 ログ修正", open=False):
                             gr.Markdown("選択した行以降の**AIの応答**に含まれる読点（、）を、AIを使って自動で修正し、自然な文章に校正します。")
                             gr.Warning("**注意:** この操作はログファイルを直接上書きするため、元に戻せません。処理の前に、ログファイルのバックアップが自動的に作成されます。")
                             correct_punctuation_button = gr.Button("選択行以降の読点をAIで修正", variant="secondary")
                             # 状態をリセットするための非表示コンポーネント
                             correction_confirmed_state = gr.Textbox(visible=False)
-                        # ▲▲▲【追加はここまで】▲▲▲
-
-                        # ▲▲▲【修正ここまで】▲▲▲
 
             with gr.TabItem(" 記憶・メモ・指示"):
                 gr.Markdown("##  記憶・メモ・指示\nルームの根幹をなす設定ファイルを、ここで直接編集できます。")
@@ -622,7 +618,6 @@ try:
             outputs=all_room_change_outputs
         )
 
-        # ▼▼▼【ここからが新しく追加するブロック】▼▼▼
         correct_punctuation_button.click(
             fn=None,
             inputs=None,
@@ -636,7 +631,6 @@ try:
             inputs=[correction_confirmed_state, selected_message_state, current_room_name, current_api_key_name_state, api_history_limit_state, room_add_timestamp_checkbox],
             outputs=[chatbot_display, current_log_map_state, correct_punctuation_button]
         )
-        # ▲▲▲【追加はここまで】▲▲▲
         gen_settings_inputs = [
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
