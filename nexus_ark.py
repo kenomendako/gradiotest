@@ -347,7 +347,7 @@ try:
                             )
                             screenshot_mode_checkbox.change(
                                 fn=ui_handlers.reload_chat_log,
-                                inputs=[current_room_name, api_history_limit_state, screenshot_mode_checkbox, redaction_rules_state],
+                                inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
                                 outputs=[chatbot_display, current_log_map_state]
                             )
 
