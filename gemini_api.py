@@ -207,8 +207,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
 
         except (google.api_core.exceptions.ResourceExhausted,
                 google.api_core.exceptions.ServiceUnavailable,
-                google.api_core.exceptions.InternalServerError,
-                google.genai.errors.ResourceExhausted) as e:
+                google.api_core.exceptions.InternalServerError) as e:
             # 再試行可能なAPIエラーを捕捉
             print(f"--- APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
             if attempt < max_retries - 1:
@@ -335,13 +334,15 @@ def count_input_tokens(**kwargs):
 def correct_punctuation_with_ai(text_to_fix: str, api_key: str) -> Optional[str]:
     """
     読点が除去されたテキストを受け取り、AIを使って適切な読点を再付与する。
-    【v2: スマートリトライ対応版】
+    【v3: 503エラー対応・最終版】
     """
     if not text_to_fix or not api_key:
         return None
 
     client = genai.Client(api_key=api_key)
     max_retries = 5
+    base_retry_delay = 5  # 指数バックオフの初期遅延（秒）
+
     for attempt in range(max_retries):
         try:
             prompt = f"""あなたは、日本語の文章を校正する専門家です。あなたの唯一の任務は、以下の【読点除去済みテキスト】に対して、文脈が自然になるように読点（「、」）のみを追加することです。
@@ -363,35 +364,38 @@ def correct_punctuation_with_ai(text_to_fix: str, api_key: str) -> Optional[str]
             )
             return response.text.strip()
 
-        except google.genai.errors.ResourceExhausted as e:
-            # APIからの推奨待機時間を抽出
-            wait_time = 60 # デフォルトは60秒
-            try:
-                # エラーメッセージは文字列なので、jsonとしてパースできる部分を抽出
-                match = re.search(r"({.*})", str(e))
-                if match:
-                    error_json = json.loads(match.group(1))
-                    for detail in error_json.get("error", {}).get("details", []):
-                        if detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
-                            delay_str = detail.get("retryDelay", "60s")
-                            delay_match = re.search(r"(\d+)", delay_str)
-                            if delay_match:
-                                # 推奨時間 + 1秒のバッファ
-                                wait_time = int(delay_match.group(1)) + 1
-                                break
-            except Exception as parse_e:
-                print(f"--- 待機時間抽出エラー: {parse_e}。デフォルト値を使用します。 ---")
+        except (google.genai.errors.ClientError, google.genai.errors.ServerError) as e:
+            wait_time = 0
+            # ClientError (429など) の場合は、推奨待機時間を抽出
+            if isinstance(e, google.genai.errors.ClientError):
+                try:
+                    match = re.search(r"({.*})", str(e))
+                    if match:
+                        error_json = json.loads(match.group(1))
+                        for detail in error_json.get("error", {}).get("details", []):
+                            if detail.get("@type") == "type.googleapis.com/google.rpc.RetryInfo":
+                                delay_str = detail.get("retryDelay", "60s")
+                                delay_match = re.search(r"(\d+)", delay_str)
+                                if delay_match:
+                                    wait_time = int(delay_match.group(1)) + 1
+                                    break
+                except Exception as parse_e:
+                    print(f"--- 待機時間抽出エラー: {parse_e}。指数バックオフを使用します。 ---")
+
+            # 推奨時間がない場合 (ServerErrorなど) は、指数バックオフを適用
+            if wait_time == 0:
+                wait_time = base_retry_delay * (2 ** attempt)
 
             if attempt < max_retries - 1:
-                print(f"--- APIレート制限。{wait_time}秒待機してリトライします... ({attempt + 1}/{max_retries}) ---")
+                print(f"--- APIエラー ({e.__class__.__name__})。{wait_time}秒待機してリトライします... ({attempt + 1}/{max_retries}) ---")
                 time.sleep(wait_time)
             else:
-                print(f"--- APIレート制限: 最大リトライ回数 ({max_retries}) に達しました。 ---")
-                return None # リトライ失敗
+                print(f"--- APIエラー: 最大リトライ回数 ({max_retries}) に達しました。 ---")
+                return None
 
         except Exception as e:
             print(f"--- 読点修正中に予期せぬエラー: {e} ---")
             traceback.print_exc()
-            return None # 予期せぬエラー
+            return None
 
     return None
