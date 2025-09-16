@@ -331,7 +331,9 @@ def _stream_and_handle_response(
             chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
             yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(),
                    gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                   current_console_content, gr.update(), gr.update())
+                   current_console_content, gr.update(), gr.update(),
+                   gr.update() # ← 14個目の値を返すために追加
+            )
 
             # 4. APIに渡す引数を準備
             # グループ会話では、最初のAI（魂の器）のみがファイルを受け取り、他のAIはテキストのみを参照する
@@ -361,7 +363,9 @@ def _stream_and_handle_response(
                             yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                    gr.update(), gr.update(), gr.update(), gr.update(),
                                    gr.update(), gr.update(), current_console_content,
-                                   gr.update(), gr.update())
+                                   gr.update(), gr.update(),
+                                   gr.update() # ← 14個目の値を返すために追加
+                            )
                     elif mode == "values": final_state = chunk
             current_console_content += captured_output.getvalue()
 
