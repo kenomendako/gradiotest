@@ -231,7 +231,7 @@ def handle_save_room_settings(
         gr.Info(f"「{room_name}」の個別設定を保存しました。")
     except Exception as e: gr.Error(f"個別設定の保存中にエラーが発生しました: {e}"); traceback.print_exc()
 
-def handle_context_settings_change(room_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool, evt: gr.SelectData = None):
+def handle_context_settings_change(room_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool, *args, **kwargs):
     if not room_name or not api_key_name: return "入力トークン数: -"
     return gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name, parts=[],
@@ -247,7 +247,7 @@ def update_token_count_on_input(
     multimodal_input: dict,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
-    evt: gr.SelectData = None
+    *args, **kwargs
 ):
     if not room_name or not api_key_name: return "トークン数: -"
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
@@ -1164,7 +1164,8 @@ def reload_chat_log(
     api_history_limit_value: str,
     add_timestamp: bool,
     screenshot_mode: bool = False,
-    redaction_rules: List[Dict] = None
+    redaction_rules: List[Dict] = None,
+    *args, **kwargs
 ):
     if not room_name:
         return [], []
