@@ -176,12 +176,16 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         elif snapshot_messages:
             messages = snapshot_messages
 
-    # ▼▼▼【ここからが修正の核心】▼▼▼
-    # このブロックを削除する。
-    # 理由: ログ保存が先行するため、この処理が重複の原因となっていた。
-    # if user_prompt_parts:
-    #     messages.append(HumanMessage(content=user_prompt_parts))
-    # ▲▲▲【修正ここまで】▲▲▲
+    # ▼▼▼【ここからが新しく追加・修正するブロック】▼▼▼
+    # ログファイルから読み込んだ最新のユーザーメッセージは、画像データが欠落した
+    # テキストのみの不完全なバージョンである。
+    # これを一度リストから削除し、UIハンドラから渡された、画像データを含む
+    # 完全な`user_prompt_parts`で置き換える。
+    if messages and isinstance(messages[-1], HumanMessage):
+        messages.pop() # 最後の不完全なメッセージを削除
+    if user_prompt_parts:
+        messages.append(HumanMessage(content=user_prompt_parts))
+    # ▲▲▲【追加・修正はここまで】▲▲▲
 
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
