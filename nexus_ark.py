@@ -658,8 +658,8 @@ try:
 
         stop_button.click(
             fn=ui_handlers.handle_stop_button_click,
-            inputs=None,
-            outputs=[stop_button, chat_reload_button],
+            inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
+            outputs=[stop_button, chat_reload_button, chatbot_display, current_log_map_state],
             cancels=[submit_event, rerun_event]
         )
         # ▲▲▲【修正ここまで】▲▲▲
