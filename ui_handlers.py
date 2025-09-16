@@ -231,7 +231,7 @@ def handle_save_room_settings(
         gr.Info(f"「{room_name}」の個別設定を保存しました。")
     except Exception as e: gr.Error(f"個別設定の保存中にエラーが発生しました: {e}"); traceback.print_exc()
 
-def handle_context_settings_change(room_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
+def handle_context_settings_change(room_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool, evt: gr.SelectData = None):
     if not room_name or not api_key_name: return "入力トークン数: -"
     return gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name, parts=[],
@@ -246,7 +246,8 @@ def update_token_count_on_input(
     api_history_limit: str,
     multimodal_input: dict,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
-    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool
+    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
+    evt: gr.SelectData = None
 ):
     if not room_name or not api_key_name: return "トークン数: -"
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
@@ -456,61 +457,52 @@ def handle_message_submission(*args: Any):
     if file_input_list:
         for file_obj in file_input_list:
             try:
-                # ペーストされたテキストの処理
-                if isinstance(file_obj, str):
-                    content = file_obj
-                    # ユーザープロンプトが空の場合、これをメインのプロンプトとする
+                # -------------------------------------------------------------
+                # [最終版ロジック] Gradioから渡されるオブジェクトの型と内容で処理を分岐
+                # -------------------------------------------------------------
+                file_path = None
+                # ケース1: ファイルがアップロードされた場合 (gradio.FileDataオブジェクト)
+                if hasattr(file_obj, 'name') and os.path.exists(file_obj.name):
+                    file_path = file_obj.name
+                # ケース2: テキストがペーストされ、それが有効なローカルファイルパスの場合
+                elif isinstance(file_obj, str) and os.path.exists(file_obj):
+                    file_path = file_obj
+                # ケース3: それ以外の単なるテキストがペーストされた場合
+                else:
+                    content = file_obj if isinstance(file_obj, str) else str(file_obj)
                     if not user_prompt_from_textbox and content:
-                         user_prompt_parts_for_api.append({"type": "text", "text": content})
-                    # 既にプロンプトがある場合は、添付テキストとして扱う
+                        user_prompt_parts_for_api.append({"type": "text", "text": content})
                     else:
                         user_prompt_parts_for_api.append({"type": "text", "text": f"添付されたテキストの内容:\n---\n{content}\n---"})
                     continue
 
-                # アップロードされたファイルの処理
-                file_path = file_obj.name
-                file_basename = os.path.basename(file_path)
-                kind = filetype.guess(file_path)
-                mime_type = kind.mime if kind else "application/octet-stream"
+                # --- ファイルパスが特定できた場合の共通処理 ---
+                if file_path:
+                    file_basename = os.path.basename(file_path)
+                    kind = filetype.guess(file_path)
+                    mime_type = kind.mime if kind else "application/octet-stream"
 
-                # テキストベースのファイルタイプを定義
-                text_based_mimes = ["text/", "application/json", "application/javascript", "application/x-python", "application/xml"]
-                text_based_exts = [".md", ".py", ".css", ".html", ".txt", ".json", ".js", ".xml", ".log"]
-
-                # --- 1. 画像の処理 ---
-                if mime_type.startswith('image/'):
-                    with open(file_path, "rb") as f:
-                        encoded_string = base64.b64encode(f.read()).decode("utf-8")
-                    user_prompt_parts_for_api.append({
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
-                    })
-
-                # --- 2. その他のファイル (音声、動画、PDFなど) の処理 ---
-                # テキストベースでないと判断されたファイルは、すべてこの形式でエンコードする
-                elif not (any(mime_type.startswith(t) for t in text_based_mimes) or any(file_basename.endswith(ext) for ext in text_based_exts)):
-                    with open(file_path, "rb") as f:
-                        encoded_string = base64.b64encode(f.read()).decode("utf-8")
-                    # LangChainの標準形式 `media_url` を使用
-                    user_prompt_parts_for_api.append({
-                        "type": "media_url",
-                        "media_url": f"data:{mime_type};base64,{encoded_string}"
-                    })
-
-                # --- 3. テキストベースのファイルの処理 ---
-                else:
-                    try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                        user_prompt_parts_for_api.append({"type": "text", "text": f"添付ファイル「{file_basename}」の内容:\n---\n{content}\n---"})
-                    except Exception as read_e:
-                        user_prompt_parts_for_api.append({"type": "text", "text": f"（ファイル「{file_basename}」の読み込み中にエラーが発生しました: {read_e}）"})
+                    # 画像ファイルはBase64エンコードしてAIに直接渡す
+                    if mime_type.startswith('image/'):
+                        with open(file_path, "rb") as f:
+                            encoded_string = base64.b64encode(f.read()).decode("utf-8")
+                        user_prompt_parts_for_api.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
+                        })
+                    # それ以外のファイルはテキストとして読み込みを試みる
+                    else:
+                        try:
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                            user_prompt_parts_for_api.append({"type": "text", "text": f"添付ファイル「{file_basename}」の内容:\n---\n{content}\n---"})
+                        except Exception as read_e:
+                            user_prompt_parts_for_api.append({"type": "text", "text": f"（ファイル「{file_basename}」の読み込み中にエラーが発生しました: {read_e}）"})
 
             except Exception as e:
-                print(f"--- ファイル処理中にエラー: {e} ---")
+                print(f"--- ファイル処理中に致命的なエラー: {e} ---")
                 traceback.print_exc()
-                error_source = "ペーストされたテキスト" if isinstance(file_obj, str) else f"ファイル「{os.path.basename(file_obj.name)}」"
-                user_prompt_parts_for_api.append({"type": "text", "text": f"（{error_source}の処理中にエラー）"})
+                user_prompt_parts_for_api.append({"type": "text", "text": f"（添付ファイルの処理中に致命的なエラーが発生しました）"})
 
 
     # 3. 中核となるストリーミング関数を呼び出す
