@@ -519,7 +519,8 @@ try:
             token_count_display, current_location_display, current_scenery_display,
             alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
             debug_console_state, debug_console_output,
-            stop_button, chat_reload_button
+            stop_button, chat_reload_button,
+            action_button_group # ← この行をリストの末尾に追加
         ]
 
         rerun_event = rerun_button.click(
@@ -792,6 +793,9 @@ try:
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_room_name, current_api_key_name_state], outputs=None)
         generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_room_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
+        # ▼▼▼【ここからが追加する行】▼▼▼
+        audio_player.pause(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
+        # ▲▲▲【追加はここまで】▲▲▲
 
         world_builder_tab.select(
             fn=ui_handlers.handle_world_builder_load,

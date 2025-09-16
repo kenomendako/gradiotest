@@ -316,10 +316,9 @@ def _stream_and_handle_response(
         yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content,
-               # ▼▼▼【ここが修正点】ストップボタンは押せるようにする ▼▼▼
                gr.update(visible=True, interactive=True),
-               # ▲▲▲【修正はここまで】▲▲▲
-               gr.update(interactive=False)
+               gr.update(interactive=False),
+               gr.update(visible=False) # ← action_button_groupを非表示にする
         )
 
         # 2. グループ会話と情景のコンテキストを準備
@@ -420,7 +419,9 @@ def _stream_and_handle_response(
                new_location_name, new_scenery_text,
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
-               gr.update(visible=False, interactive=True), gr.update(interactive=True)) # Stopボタン非表示, ボタン有効化
+               gr.update(visible=False, interactive=True), gr.update(interactive=True),
+               gr.update(visible=False) # ← action_button_groupを非表示にする
+        )
 
 def handle_message_submission(*args: Any):
     """
