@@ -191,7 +191,7 @@ try:
                                         with gr.Accordion("Discord", open=False):
                                             discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL or "")
                                             save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
-                                        gr.Warning("APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
+                                        gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
                                 with gr.TabItem("個別設定"):
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
                                     with gr.Accordion("🎤 音声設定", open=False):
@@ -354,7 +354,7 @@ try:
 
                         with gr.Accordion("📝 ログ修正", open=False):
                             gr.Markdown("選択した**発言**以降の**AIの応答**に含まれる読点（、）を、AIを使って自動で修正し、自然な文章に校正します。")
-                            gr.Warning("**注意:** この操作はログファイルを直接上書きするため、元に戻せません。処理の前に、ログファイルのバックアップが自動的に作成されます。")
+                            gr.Markdown("⚠️ **注意:** この操作はログファイルを直接上書きするため、元に戻せません。処理の前に、ログファイルのバックアップが自動的に作成されます。")
                             correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
                             # 状態をリセットするための非表示コンポーネント
                             correction_confirmed_state = gr.Textbox(visible=False)
