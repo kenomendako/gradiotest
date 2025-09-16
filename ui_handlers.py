@@ -111,7 +111,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
     dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
 
-    # このタプルの要素数は30個
+    # このタプルの要素数は31個
     chat_tab_updates = (
         room_name, chat_history, mapping_list,
         gr.update(value={'text': '', 'files': []}), # 2つの戻り値を、MultimodalTextbox用の1つの辞書に統合
@@ -127,6 +127,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings["add_timestamp"], effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
         effective_settings["send_core_memory"], effective_settings["send_scenery"],
+        effective_settings["auto_memory_enabled"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path
     )
@@ -135,7 +136,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     """
     【修正】ルーム切り替え時に、全ての関連タブのUIを更新する。
-    戻り値の数は `all_room_change_outputs` の39個と一致する。
+    戻り値の数は `all_room_change_outputs` の40個と一致する。
     """
     chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
 
@@ -157,27 +158,28 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
-    【修正】UIの初期化処理。戻り値の数は `initial_load_outputs` の35個と一致する。
+    【修正】UIの初期化処理。戻り値の数は `initial_load_outputs` の36個と一致する。
     """
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
 
-    # チャットタブ関連の31個の更新値を取得
+    # チャットタブ関連の32個の更新値を取得
     chat_tab_updates = _update_chat_tab_for_room_change(initial_room_to_load, initial_api_key_name)
 
     # 置換ルール関連の1個の更新値を取得
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
 
-    # アラーム(3) + チャットタブ(31) + 置換ルール(1) = 35個の値を返す
+    # アラーム(3) + チャットタブ(32) + 置換ルール(1) = 36個の値を返す
     return (display_df, df_with_ids, feedback_text) + chat_tab_updates + (rules_df_for_ui,)
 
 def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
-    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool
+    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
+    auto_memory_enabled: bool
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -229,7 +231,7 @@ def handle_save_room_settings(
         gr.Info(f"「{room_name}」の個別設定を保存しました。")
     except Exception as e: gr.Error(f"個別設定の保存中にエラーが発生しました: {e}"); traceback.print_exc()
 
-def handle_context_settings_change(room_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool):
+def handle_context_settings_change(room_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool, *args, **kwargs):
     if not room_name or not api_key_name: return "入力トークン数: -"
     return gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name, parts=[],
@@ -244,7 +246,8 @@ def update_token_count_on_input(
     api_history_limit: str,
     multimodal_input: dict,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
-    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool
+    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
+    *args, **kwargs
 ):
     if not room_name or not api_key_name: return "トークン数: -"
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
@@ -454,29 +457,52 @@ def handle_message_submission(*args: Any):
     if file_input_list:
         for file_obj in file_input_list:
             try:
-                if isinstance(file_obj, str):
-                    content = file_obj
+                # -------------------------------------------------------------
+                # [最終版ロジック] Gradioから渡されるオブジェクトの型と内容で処理を分岐
+                # -------------------------------------------------------------
+                file_path = None
+                # ケース1: ファイルがアップロードされた場合 (gradio.FileDataオブジェクト)
+                if hasattr(file_obj, 'name') and os.path.exists(file_obj.name):
+                    file_path = file_obj.name
+                # ケース2: テキストがペーストされ、それが有効なローカルファイルパスの場合
+                elif isinstance(file_obj, str) and os.path.exists(file_obj):
+                    file_path = file_obj
+                # ケース3: それ以外の単なるテキストがペーストされた場合
+                else:
+                    content = file_obj if isinstance(file_obj, str) else str(file_obj)
                     if not user_prompt_from_textbox and content:
-                         user_prompt_parts_for_api.append({"type": "text", "text": content})
+                        user_prompt_parts_for_api.append({"type": "text", "text": content})
                     else:
                         user_prompt_parts_for_api.append({"type": "text", "text": f"添付されたテキストの内容:\n---\n{content}\n---"})
-                else:
-                    file_path = file_obj.name
+                    continue
+
+                # --- ファイルパスが特定できた場合の共通処理 ---
+                if file_path:
                     file_basename = os.path.basename(file_path)
                     kind = filetype.guess(file_path)
-                    if kind and kind.mime.startswith('image/'):
+                    mime_type = kind.mime if kind else "application/octet-stream"
+
+                    # 画像ファイルはBase64エンコードしてAIに直接渡す
+                    if mime_type.startswith('image/'):
                         with open(file_path, "rb") as f:
                             encoded_string = base64.b64encode(f.read()).decode("utf-8")
-                        user_prompt_parts_for_api.append({"type": "image_url", "image_url": {"url": f"data:{kind.mime};base64,{encoded_string}"}})
+                        user_prompt_parts_for_api.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
+                        })
+                    # それ以外のファイルはテキストとして読み込みを試みる
                     else:
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            content = f.read()
-                        user_prompt_parts_for_api.append({"type": "text", "text": f"添付ファイル「{file_basename}」の内容:\n---\n{content}\n---"})
+                        try:
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                            user_prompt_parts_for_api.append({"type": "text", "text": f"添付ファイル「{file_basename}」の内容:\n---\n{content}\n---"})
+                        except Exception as read_e:
+                            user_prompt_parts_for_api.append({"type": "text", "text": f"（ファイル「{file_basename}」の読み込み中にエラーが発生しました: {read_e}）"})
+
             except Exception as e:
-                print(f"--- ファイル処理中にエラー: {e} ---")
+                print(f"--- ファイル処理中に致命的なエラー: {e} ---")
                 traceback.print_exc()
-                error_source = "ペーストされたテキスト" if isinstance(file_obj, str) else f"ファイル「{os.path.basename(file_obj.name)}」"
-                user_prompt_parts_for_api.append({"type": "text", "text": f"（{error_source}の処理中にエラー）"})
+                user_prompt_parts_for_api.append({"type": "text", "text": f"（添付ファイルの処理中に致命的なエラーが発生しました）"})
 
 
     # 3. 中核となるストリーミング関数を呼び出す
@@ -741,7 +767,7 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
 
 def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name: str):
 
-    NUM_ALL_ROOM_CHANGE_OUTPUTS = 38
+    NUM_ALL_ROOM_CHANGE_OUTPUTS = 40
 
     if not confirmed:
         return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
@@ -767,7 +793,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 None, [], [], "", gr.update(value=None), None, "{}", "", "",
                 gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None),
                 "", "", gr.update(choices=[], value=None), "", "", 0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
-                False, True, True, False, True, True, "ℹ️ *ルームを選択してください*", None
+                False, True, True, False, True, True, True, "ℹ️ *ルームを選択してください*", None
             )
             # This is the "empty" state for `world_builder_outputs`
             empty_wb_outputs = ({}, gr.update(choices=[]), "",)
@@ -1138,7 +1164,8 @@ def reload_chat_log(
     api_history_limit_value: str,
     add_timestamp: bool,
     screenshot_mode: bool = False,
-    redaction_rules: List[Dict] = None
+    redaction_rules: List[Dict] = None,
+    *args, **kwargs
 ):
     if not room_name:
         return [], []
