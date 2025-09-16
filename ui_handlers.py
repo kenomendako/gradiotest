@@ -307,6 +307,9 @@ def _stream_and_handle_response(
         add_timestamp=add_timestamp
     )
 
+    # 7. 処理完了後、または中断後の最終的なUI更新を行うための変数を初期化
+    final_chatbot_history, final_mapping_list = chatbot_history, mapping_list
+
     try:
         # 1. UIをストリーミングモードに移行
         chatbot_history.append((None, "▌"))
@@ -383,13 +386,25 @@ def _stream_and_handle_response(
 
         for popup_message in all_turn_popups: gr.Info(popup_message)
 
-    finally:
-        # 7. 処理完了後の最終的なUI更新
+        # 処理が正常に完了した場合、最終的な履歴を取得
         final_chatbot_history, final_mapping_list = reload_chat_log(
             room_name=soul_vessel_room,
             api_history_limit_value=api_history_limit,
             add_timestamp=add_timestamp
         )
+
+    except GeneratorExit:
+        # Gradioのキャンセルによってジェネレータが停止した場合
+        print("--- [ジェネレータ] ユーザーの操作により、ストリーミング処理が正常に中断されました。 ---")
+        # ログから最新の履歴を再取得して、UIの不整合を防ぐ
+        final_chatbot_history, final_mapping_list = reload_chat_log(
+            room_name=soul_vessel_room,
+            api_history_limit_value=api_history_limit,
+            add_timestamp=add_timestamp
+        )
+
+    finally:
+        # 7. 処理完了後、または中断後の最終的なUI更新
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
         scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
@@ -2469,10 +2484,19 @@ def handle_visualize_graph(room_name: str):
         return gr.update(visible=False)
 
 
-def handle_stop_button_click():
-    """ストップボタンが押されたときにUIの状態をリセットする。"""
+def handle_stop_button_click(room_name, api_history_limit, add_timestamp, screenshot_mode, redaction_rules):
+    """
+    ストップボタンが押されたときにUIの状態を即座にリセットし、ログから最新の状態を再描画する。
+    """
     print("--- [UI] ユーザーによりストップボタンが押されました ---")
-    return gr.update(visible=False), gr.update(interactive=True)
+    # ログファイルから最新の履歴を再読み込みして、"思考中..." のような表示を消去する
+    history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp, screenshot_mode, redaction_rules)
+    return (
+        gr.update(visible=False, interactive=True), # ストップボタンを非表示に
+        gr.update(interactive=True),              # 更新ボタンを有効に
+        history,                                  # チャット履歴を最新の状態に
+        mapping_list                              # マッピングリストも更新
+    )
 
 
 # ▼▼▼【ここからが新しく追加するブロック】▼▼▼
