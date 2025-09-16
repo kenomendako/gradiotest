@@ -111,7 +111,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
     dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
 
-    # このタプルの要素数は30個
+    # このタプルの要素数は31個
     chat_tab_updates = (
         room_name, chat_history, mapping_list,
         gr.update(value={'text': '', 'files': []}), # 2つの戻り値を、MultimodalTextbox用の1つの辞書に統合
@@ -127,6 +127,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings["add_timestamp"], effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
         effective_settings["send_core_memory"], effective_settings["send_scenery"],
+        effective_settings["auto_memory_enabled"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path
     )
@@ -135,7 +136,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     """
     【修正】ルーム切り替え時に、全ての関連タブのUIを更新する。
-    戻り値の数は `all_room_change_outputs` の39個と一致する。
+    戻り値の数は `all_room_change_outputs` の40個と一致する。
     """
     chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
 
@@ -157,27 +158,28 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
-    【修正】UIの初期化処理。戻り値の数は `initial_load_outputs` の35個と一致する。
+    【修正】UIの初期化処理。戻り値の数は `initial_load_outputs` の36個と一致する。
     """
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
 
-    # チャットタブ関連の31個の更新値を取得
+    # チャットタブ関連の32個の更新値を取得
     chat_tab_updates = _update_chat_tab_for_room_change(initial_room_to_load, initial_api_key_name)
 
     # 置換ルール関連の1個の更新値を取得
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
 
-    # アラーム(3) + チャットタブ(31) + 置換ルール(1) = 35個の値を返す
+    # アラーム(3) + チャットタブ(32) + 置換ルール(1) = 36個の値を返す
     return (display_df, df_with_ids, feedback_text) + chat_tab_updates + (rules_df_for_ui,)
 
 def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
-    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool
+    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
+    auto_memory_enabled: bool
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -773,7 +775,7 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
 
 def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name: str):
 
-    NUM_ALL_ROOM_CHANGE_OUTPUTS = 38
+    NUM_ALL_ROOM_CHANGE_OUTPUTS = 40
 
     if not confirmed:
         return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
@@ -799,7 +801,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 None, [], [], "", gr.update(value=None), None, "{}", "", "",
                 gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None),
                 "", "", gr.update(choices=[], value=None), "", "", 0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
-                False, True, True, False, True, True, "ℹ️ *ルームを選択してください*", None
+                False, True, True, False, True, True, True, "ℹ️ *ルームを選択してください*", None
             )
             # This is the "empty" state for `world_builder_outputs`
             empty_wb_outputs = ({}, gr.update(choices=[]), "",)

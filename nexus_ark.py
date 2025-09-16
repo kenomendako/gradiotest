@@ -218,6 +218,7 @@ try:
                                     room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
                                     room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
                                     room_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
+                                    auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True)
                                     gr.Markdown("---")
                                     save_room_settings_button = gr.Button("このルームの設定を保存", variant="primary")
 
@@ -447,7 +448,8 @@ try:
         # --- イベントハンドラ定義 ---
         context_checkboxes = [
             room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
-            room_use_common_prompt_checkbox, room_send_core_memory_checkbox, room_send_scenery_checkbox
+            room_use_common_prompt_checkbox, room_send_core_memory_checkbox, room_send_scenery_checkbox,
+            auto_memory_enabled_checkbox
         ]
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
 
