@@ -454,24 +454,56 @@ def handle_message_submission(*args: Any):
     if file_input_list:
         for file_obj in file_input_list:
             try:
+                # ペーストされたテキストの処理
                 if isinstance(file_obj, str):
                     content = file_obj
+                    # ユーザープロンプトが空の場合、これをメインのプロンプトとする
                     if not user_prompt_from_textbox and content:
                          user_prompt_parts_for_api.append({"type": "text", "text": content})
+                    # 既にプロンプトがある場合は、添付テキストとして扱う
                     else:
                         user_prompt_parts_for_api.append({"type": "text", "text": f"添付されたテキストの内容:\n---\n{content}\n---"})
+                    continue
+
+                # アップロードされたファイルの処理
+                file_path = file_obj.name
+                file_basename = os.path.basename(file_path)
+                kind = filetype.guess(file_path)
+                mime_type = kind.mime if kind else "application/octet-stream"
+
+                # テキストベースのファイルタイプを定義
+                text_based_mimes = ["text/", "application/json", "application/javascript", "application/x-python", "application/xml"]
+                text_based_exts = [".md", ".py", ".css", ".html", ".txt", ".json", ".js", ".xml", ".log"]
+
+                # --- 1. 画像の処理 ---
+                if mime_type.startswith('image/'):
+                    with open(file_path, "rb") as f:
+                        encoded_string = base64.b64encode(f.read()).decode("utf-8")
+                    user_prompt_parts_for_api.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
+                    })
+
+                # --- 2. その他のファイル (音声、動画、PDFなど) の処理 ---
+                # テキストベースでないと判断されたファイルは、すべてこの形式でエンコードする
+                elif not (any(mime_type.startswith(t) for t in text_based_mimes) or any(file_basename.endswith(ext) for ext in text_based_exts)):
+                    with open(file_path, "rb") as f:
+                        encoded_string = base64.b64encode(f.read()).decode("utf-8")
+                    # LangChainの標準形式 `media_url` を使用
+                    user_prompt_parts_for_api.append({
+                        "type": "media_url",
+                        "media_url": f"data:{mime_type};base64,{encoded_string}"
+                    })
+
+                # --- 3. テキストベースのファイルの処理 ---
                 else:
-                    file_path = file_obj.name
-                    file_basename = os.path.basename(file_path)
-                    kind = filetype.guess(file_path)
-                    if kind and kind.mime.startswith('image/'):
-                        with open(file_path, "rb") as f:
-                            encoded_string = base64.b64encode(f.read()).decode("utf-8")
-                        user_prompt_parts_for_api.append({"type": "image_url", "image_url": {"url": f"data:{kind.mime};base64,{encoded_string}"}})
-                    else:
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
                             content = f.read()
                         user_prompt_parts_for_api.append({"type": "text", "text": f"添付ファイル「{file_basename}」の内容:\n---\n{content}\n---"})
+                    except Exception as read_e:
+                        user_prompt_parts_for_api.append({"type": "text", "text": f"（ファイル「{file_basename}」の読み込み中にエラーが発生しました: {read_e}）"})
+
             except Exception as e:
                 print(f"--- ファイル処理中にエラー: {e} ---")
                 traceback.print_exc()

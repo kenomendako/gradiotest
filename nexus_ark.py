@@ -277,8 +277,8 @@ try:
 
                         # 2. 入力欄
                         chat_input_multimodal = gr.MultimodalTextbox(
-                            file_types=["image", "audio", "video", "text", ".pdf", ".json"],
-                            max_plain_text_length=100000, # ← この行を追加
+                            file_types=["image", "audio", "video", "text", ".pdf", ".md", ".py", ".json", ".html", ".css", ".js"],
+                            max_plain_text_length=100000,
                             placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...",
                             show_label=False,
                             lines=3,
@@ -352,9 +352,9 @@ try:
                             )
 
                         with gr.Accordion("📝 ログ修正", open=False):
-                            gr.Markdown("選択した行以降の**AIの応答**に含まれる読点（、）を、AIを使って自動で修正し、自然な文章に校正します。")
+                            gr.Markdown("選択した**発言**以降の**AIの応答**に含まれる読点（、）を、AIを使って自動で修正し、自然な文章に校正します。")
                             gr.Warning("**注意:** この操作はログファイルを直接上書きするため、元に戻せません。処理の前に、ログファイルのバックアップが自動的に作成されます。")
-                            correct_punctuation_button = gr.Button("選択行以降の読点をAIで修正", variant="secondary")
+                            correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
                             # 状態をリセットするための非表示コンポーネント
                             correction_confirmed_state = gr.Textbox(visible=False)
 

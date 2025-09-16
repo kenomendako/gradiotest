@@ -56,6 +56,16 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
                             header, encoded = url_data.split(",", 1); mime_type = header.split(":")[1].split(";")[0]
                             sdk_parts.append({"inline_data": {"mime_type": mime_type, "data": encoded}})
                         except: pass
+                # ▼▼▼【ここからが追加するブロック】▼▼▼
+                elif part_type == "media_url":
+                    url_data = part_data.get("media_url", "")
+                    if url_data.startswith("data:"):
+                        try:
+                            header, encoded = url_data.split(",", 1)
+                            mime_type = header.split(":")[1].split(";")[0]
+                            sdk_parts.append({"inline_data": {"mime_type": mime_type, "data": encoded}})
+                        except: pass
+                # ▲▲▲【追加はここまで】▲▲▲
                 elif part_type == "media": sdk_parts.append({"inline_data": {"mime_type": part_data.get("mime_type", "application/octet-stream"),"data": part_data.get("data", "")}})
         if sdk_parts: contents.append({"role": role, "parts": sdk_parts})
     return contents
