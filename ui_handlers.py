@@ -2403,33 +2403,32 @@ def handle_save_redaction_rules(rules_df: pd.DataFrame) -> Tuple[List[Dict[str, 
 
     return rules, updated_df
 
-def handle_delete_redaction_rule(rules_df: pd.DataFrame, selected_index: Optional[int]) -> Tuple[pd.DataFrame, list, None]:
-    """DataFrameで選択されたルールを削除する。"""
-    if selected_index is None:
-        gr.Warning("削除するルールを選択してください。")
-        # DataFrameがNoneの場合でもエラーにならないように初期化
-        if rules_df is None:
-            rules_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
-        return rules_df, config_manager.load_redaction_rules(), None
+def handle_delete_redaction_rule(
+    current_rules: List[Dict],
+    selected_index: Optional[int]
+) -> Tuple[pd.DataFrame, List[Dict], None, str, str]:
+    """選択されたルールを削除する。"""
+    if current_rules is None:
+        current_rules = []
 
-    # DataFrameがNoneの場合やインデックスが範囲外の場合の安全策
-    if rules_df is None or not (0 <= selected_index < len(rules_df)):
-        gr.Warning("選択された行を特定できませんでした。")
-        if rules_df is None:
-            rules_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
-        return rules_df, config_manager.load_redaction_rules(), None
+    if selected_index is None or not (0 <= selected_index < len(current_rules)):
+        gr.Warning("削除するルールをリストから選択してください。")
+        df = _create_redaction_df_from_rules(current_rules)
+        return df, current_rules, selected_index, "", ""
 
-    updated_df = rules_df.drop(index=selected_index).reset_index(drop=True)
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # Pandasの.dropではなく、Pythonのdel文でリストの要素を直接削除する
+    deleted_rule_name = current_rules[selected_index]["find"]
+    del current_rules[selected_index]
+    # ▲▲▲【修正ここまで】▲▲▲
 
-    rules = [
-        {"find": str(row["元の文字列 (Find)"]), "replace": str(row["置換後の文字列 (Replace)"])}
-        for index, row in updated_df.iterrows()
-        if pd.notna(row["元の文字列 (Find)"]) and str(row["元の文字列 (Find)"]).strip()
-    ]
-    config_manager.save_redaction_rules(rules)
-    gr.Info("選択したルールを削除しました。チャット履歴を更新してください。")
-    # 選択状態をリセットするためにNoneを返す
-    return updated_df, rules, None
+    config_manager.save_redaction_rules(current_rules)
+    gr.Info(f"ルール「{deleted_rule_name}」を削除しました。")
+
+    df_for_ui = _create_redaction_df_from_rules(current_rules)
+
+    # フォームと選択状態をリセット
+    return df_for_ui, current_rules, None, "", ""
 
 
 def handle_core_memory_update_click(room_name: str, api_key_name: str):
