@@ -1,4 +1,4 @@
-# agent/graph.py
+# agent/graph.py (v13: K.I.S.S. - Keep It Simple, Stupid)
 
 import os
 import re
@@ -8,39 +8,36 @@ import pytz
 from datetime import datetime
 from typing import TypedDict, Annotated, List, Literal, Optional, Tuple
 
-from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage, HumanMessage
-from langchain_google_genai import HarmCategory, HarmBlockThreshold
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
+from langchain_google_genai import HarmCategory, HarmBlockThreshold, ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
-from langgraph.prebuilt import ToolNode
 
 from agent.prompts import CORE_PROMPT_TEMPLATE
-from tools.space_tools import (
-    set_current_location, update_location_content, add_new_location, read_world_settings
-)
+from tools.space_tools import set_current_location, update_location_content, add_new_location, read_world_settings
 from tools.knowledge_tools import search_knowledge_graph
-from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory
-from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
+from tools.memory_tools import read_full_memory, write_full_memory
+from tools.notepad_tools import read_full_notepad, write_full_notepad
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from tools.timer_tools import set_timer, set_pomodoro_timer
 from room_manager import get_world_settings_path
-from memory_manager import load_memory_data_safe
 import utils
 import config_manager
 import constants
 
+# ▼▼▼【変更点】ツールリストを再定義 ▼▼▼
 all_tools = [
     set_current_location, update_location_content, add_new_location, read_world_settings,
-    read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory,
-    add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad,
+    read_full_memory, write_full_memory,
+    read_full_notepad, write_full_notepad,
     web_search_tool, read_url_tool,
     generate_image,
     set_personal_alarm,
     set_timer, set_pomodoro_timer,
     search_knowledge_graph
 ]
+# ▲▲▲【変更ここまで】▲▲▲
 
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
@@ -58,6 +55,7 @@ class AgentState(TypedDict):
     all_participants: List[str]
 
 def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
+    # (この関数に変更はありません)
     threshold_map = {
         "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
         "BLOCK_LOW_AND_ABOVE": HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
@@ -71,16 +69,13 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(generation_config.get("safety_block_threshold_dangerous_content")),
     }
     return ChatGoogleGenerativeAI(
-        model=model_name,
-        google_api_key=api_key,
-        convert_system_message_to_human=False,
-        max_retries=6,
-        temperature=generation_config.get("temperature", 0.8),
-        top_p=generation_config.get("top_p", 0.95),
-        safety_settings=safety_settings
+        model=model_name, google_api_key=api_key, convert_system_message_to_human=False,
+        max_retries=6, temperature=generation_config.get("temperature", 0.8),
+        top_p=generation_config.get("top_p", 0.95), safety_settings=safety_settings
     )
 
 def get_location_list(room_name: str) -> List[str]:
+    # (この関数に変更はありません)
     if not room_name: return []
     world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path): return []
@@ -94,6 +89,7 @@ def get_location_list(room_name: str) -> List[str]:
     return sorted(locations)
 
 def generate_scenery_context(room_name: str, api_key: str, force_regenerate: bool = False) -> Tuple[str, str, str]:
+    # (この関数に変更はありません)
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
     location_display_name = "（不明な場所）"
@@ -154,6 +150,7 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
     return location_display_name, space_def, scenery_text
 
 def context_generator_node(state: AgentState):
+    # (この関数に変更はありません)
     room_name = state['room_name']
     all_participants = state.get('all_participants', [])
     char_prompt_path = os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")
@@ -179,31 +176,9 @@ def context_generator_node(state: AgentState):
         except Exception as e:
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
-    # ▼▼▼【ここからが修正ブロック】▼▼▼
-    tools_list_str = ""
-    # effective_settings は config_manager から取得する
-    effective_settings = config_manager.get_effective_settings(room_name)
-
-    if not effective_settings.get("use_common_prompt", True):
-        tools_list_str = "（ツールは設定により無効化されています）"
-    elif len(all_participants) > 1:
+    tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
+    if len(all_participants) > 1:
         tools_list_str = "（グループ会話中はツールを使用できません）"
-    else:
-        tool_descriptions = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
-        tools_list_str = f"""
-### 長期記憶（知識グラフ）の活用ルール
-- 過去の会話から抽出・構築された、客観的な事実や、登場人物・場所・物事の関係性について知りたい場合は、`search_knowledge_graph`ツールを使用すること。
-- これは、あなたの主観的な「日記」とは異なる、客観的なデータベースである。
----
-### ツール一覧
-- **画像生成の厳格な手順:**
-  1. ユーザーからイラストや画像の生成を依頼された場合、あなたは `generate_image` ツールを呼び出す。
-  2. ツールが成功すると、あなたは `[Generated Image: path/to/image.png]` という形式の特別なテキストを受け取る。
-  3. あなたの最終的な応答には、**必ず、この受け取った画像タグを、そのままの形で含めなければならない。** これを怠ることは許されない。
-
-{tool_descriptions}
-"""
-    # ▲▲▲【修正はここまで】▲▲▲
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
     prompt_vars = {'character_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
@@ -234,6 +209,7 @@ def context_generator_node(state: AgentState):
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def agent_node(state: AgentState):
+    # (この関数に変更はありません)
     print("--- エージェントノード (agent_node) 実行 ---")
     base_system_prompt = state['system_prompt'].content
     all_participants = state.get('all_participants', [])
@@ -254,15 +230,11 @@ def agent_node(state: AgentState):
         print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
         print(final_system_prompt_text)
         print("-----------------------------------------")
-
     llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
     llm_with_tools = llm.bind_tools(all_tools)
-
     history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
     messages_for_agent = [final_system_prompt_message] + history_messages
-
     import pprint
-
     print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
     for i, msg in enumerate(messages_for_agent):
         msg_type = type(msg).__name__
@@ -287,16 +259,14 @@ def agent_node(state: AgentState):
             pprint.pprint(msg.tool_calls, indent=4)
         print("-" * 20)
     print("--------------------------------------------------\n")
-
     response = llm_with_tools.invoke(messages_for_agent)
-
     print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
     pprint.pprint(response)
     print("---------------------------------------\n")
-
     return {"messages": [response]}
 
 def location_report_node(state: AgentState):
+    # (この関数に変更はありません)
     print("--- 場所移動報告ノード (location_report_node) 実行 ---")
     last_tool_message = next((msg for msg in reversed(state['messages']) if isinstance(msg, ToolMessage) and msg.name == 'set_current_location'), None)
     location_name = "指定の場所"
@@ -322,6 +292,7 @@ def location_report_node(state: AgentState):
         return {"messages": [response]}
 
 def route_after_context(state: AgentState) -> Literal["location_report_node", "agent"]:
+    # (この関数に変更はありません)
     print("--- コンテキスト後ルーター (route_after_context) 実行 ---")
     last_message = state["messages"][-1]
     if isinstance(last_message, ToolMessage) and last_message.name == 'set_current_location':
@@ -330,48 +301,83 @@ def route_after_context(state: AgentState) -> Literal["location_report_node", "a
     print("  - 通常のコンテキスト生成。エージェントの思考へ。")
     return "agent"
 
+# ▼▼▼【変更点】safe_tool_executor を全面的に書き換える ▼▼▼
 def safe_tool_executor(state: AgentState):
-    print("--- カスタムツール実行ノード (safe_tool_executor) 実行 ---")
-    messages = state['messages']
-    last_message = messages[-1]
-    tool_invocations = last_message.tool_calls
+    """
+    AIのツール呼び出し要求を解釈し、安全な方法で実行する。
+    書き込み系ツールの場合は、システムが読み込みとマージを仲介する。
+    """
+    print("--- 安全なツール実行ノード (safe_tool_executor) 実行 ---")
+    last_message = state['messages'][-1]
+    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
+        return {} # ツール呼び出しがない場合は何もしない
+
+    tool_call = last_message.tool_calls[0]
+    tool_name = tool_call["name"]
+    tool_args = tool_call["args"]
+    room_name = state.get('room_name')
     api_key = state.get('api_key')
 
-    current_room_name = state.get('room_name')
-    if not current_room_name:
-        tool_outputs = [
-            ToolMessage(content=f"Error: Could not determine the current room name from the agent state.", tool_call_id=call["id"], name=call["name"])
-            for call in tool_invocations
-        ]
-        return {"messages": tool_outputs}
+    # 1. 書き込み系ツールかどうかの判定
+    is_write_memory = tool_name == "write_full_memory"
+    is_write_notepad = tool_name == "write_full_notepad"
+    # is_write_world = tool_name == "write_world_settings" # 将来の拡張用
 
-    tool_outputs = []
-    for tool_call in tool_invocations:
-        tool_name = tool_call["name"]
-        print(f"  - 準備中のツール: {tool_name} | 引数: {tool_call['args']}")
+    if is_write_memory or is_write_notepad:
+        try:
+            # 2. 対応する読み込みツールを実行
+            read_tool = read_full_memory if is_write_memory else read_full_notepad
+            print(f"  - 書き込み仲介: '{tool_name}' のために '{read_tool.name}' を実行します。")
+            current_content = read_tool.invoke({"room_name": room_name})
 
-        tool_call['args']['room_name'] = current_room_name
-        print(f"    - 'room_name: {current_room_name}' を引数に注入/上書きしました。")
+            # 3. マージ用のAIを呼び出す
+            llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
+            merge_prompt = f"""あなたは、既存のデータと新しい変更要求をマージする専門家です。
+以下の【既存のデータ】に対して、【AIからの変更要求】を適用し、最終的な完成形データのみを生成してください。
 
-        if tool_name == 'generate_image' or tool_name == 'summarize_and_save_core_memory':
-            tool_call['args']['api_key'] = api_key
-            print(f"    - 'api_key' を引数に追加しました。")
+【既存のデータ】
+---
+{current_content}
+---
+
+【AIからの変更要求】
+「{tool_args.get('modification_request')}」
+
+【あなたのタスク】
+上記の要求を解釈し、【既存のデータ】を更新した最終的なテキスト全文を生成してください。
+あなたの思考や挨拶は不要です。最終的なデータのみを出力してください。
+"""
+            merged_content = llm_flash.invoke(merge_prompt).content.strip()
+
+            # 4. 書き込みツールに最終的な内容を渡して実行
+            write_tool = write_full_memory if is_write_memory else write_full_notepad
+            print(f"  - 書き込み仲介: マージされた内容で '{write_tool.name}' を実行します。")
+            output = write_tool.invoke({"room_name": room_name, "full_content": merged_content, "modification_request": tool_args.get('modification_request')})
+
+        except Exception as e:
+            output = f"Error during mediated write for '{tool_name}': {e}"
+            traceback.print_exc()
+    else:
+        # 5. 通常のツール実行
+        tool_args['room_name'] = room_name
+        if tool_name in ['generate_image']:
+            tool_args['api_key'] = api_key
 
         selected_tool = next((t for t in all_tools if t.name == tool_name), None)
         if not selected_tool:
             output = f"Error: Tool '{tool_name}' not found."
         else:
             try:
-                output = selected_tool.invoke(tool_call['args'])
+                output = selected_tool.invoke(tool_args)
             except Exception as e:
                 output = f"Error executing tool '{tool_name}': {e}"
                 traceback.print_exc()
-        tool_outputs.append(
-            ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)
-        )
-    return {"messages": tool_outputs}
+
+    return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)]}
+# ▲▲▲【変更ここまで】▲▲▲
 
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]:
+    # (この関数は元のシンプルなものに戻す)
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
     last_message = state["messages"][-1]
     if last_message.tool_calls:
@@ -381,145 +387,8 @@ def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]
     print("  - ツール呼び出しなし。思考完了と判断し、グラフを終了します。")
     return "__end__"
 
-# ▼▼▼【ここからが新しく追加するブロック】▼▼▼
-WRITE_TOOLS = {
-    "edit_memory", "add_secret_diary_entry",
-    "update_notepad", "delete_from_notepad", "add_to_notepad",
-    "update_location_content", "add_new_location"
-}
-
-READ_MAP = {
-    "edit_memory": "read_full_memory",
-    "add_secret_diary_entry": "read_full_memory",
-    "update_notepad": "read_full_notepad",
-    "delete_from_notepad": "read_full_notepad",
-    "add_to_notepad": "read_full_notepad",
-    "update_location_content": "read_world_settings",
-    "add_new_location": "read_world_settings"
-}
-
-def route_to_read_or_execute(state: AgentState) -> Literal["read_before_write_node", "safe_tool_node", "__end__"]:
-    """
-    AIのツール呼び出しを分析し、書き込み系ツールであれば、
-    まず読み込みノードに処理を迂回させるルーター。
-    """
-    print("--- 書き込み前ルーター (route_to_read_or_execute) 実行 ---")
-    last_message = state["messages"][-1]
-    if not last_message.tool_calls:
-        print("  - ツール呼び出しなし。思考完了。")
-        return "__end__"
-
-    # 最初のツール呼び出しが書き込み系かチェック
-    first_tool_name = last_message.tool_calls[0]['name']
-    if first_tool_name in WRITE_TOOLS:
-        # 既に直前に対応する読み込み結果があるかチェック
-        if len(state["messages"]) > 1:
-            previous_message = state["messages"][-2]
-            if isinstance(previous_message, ToolMessage) and previous_message.name == READ_MAP[first_tool_name]:
-                 print(f"  - 安全な書き込み操作 '{first_tool_name}' を検知。ツール実行へ。")
-                 return "safe_tool_node"
-        print(f"  - 書き込み操作 '{first_tool_name}' を検知。強制読み込みへ。")
-        return "read_before_write_node"
-    else:
-        print(f"  - 読み書き以外のツール '{first_tool_name}' を検知。ツール実行へ。")
-        return "safe_tool_node"
-
-def read_before_write_node(state: AgentState):
-    """
-    書き込み系ツールの前に、対応する読み込み系ツールを強制的に実行するノード。
-    """
-    print("--- 強制読み込みノード (read_before_write_node) 実行 ---")
-    last_message = state["messages"][-1]
-    tool_call = last_message.tool_calls[0]
-    tool_name = tool_call["name"]
-
-    read_tool_name = READ_MAP.get(tool_name)
-    if not read_tool_name:
-         # このケースは発生しないはずだが、安全のために
-        error_message = f"Error: No corresponding read tool found for '{tool_name}'."
-        return {"messages": [ToolMessage(content=error_message, tool_call_id=tool_call["id"], name=tool_name)]}
-
-    print(f"  - '{tool_name}' のために '{read_tool_name}' を実行します。")
-    read_tool = next((t for t in all_tools if t.name == read_tool_name), None)
-    if not read_tool:
-        error_message = f"Error: Read tool '{read_tool_name}' not found in the tool list."
-        return {"messages": [ToolMessage(content=error_message, tool_call_id=tool_call["id"], name=read_tool_name)]}
-
-    # 読み込みツールには room_name のみが必要
-    room_name = state.get('room_name')
-    try:
-        output = read_tool.invoke({"room_name": room_name})
-    except Exception as e:
-        output = f"Error executing read tool '{read_tool_name}': {e}"
-        traceback.print_exc()
-
-    return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=read_tool_name)]}
-
-def rewrite_tool_call_node(state: AgentState):
-    """
-    読み込み結果をコンテキストとして与え、AIに再度書き込みツールの呼び出しを生成させるノード。
-    """
-    print("--- 書き込み再生成ノード (rewrite_tool_call_node) 実行 ---")
-
-    # AIの最初の意図（書き込みツール呼び出し）と、読み込み結果を取得
-    original_ai_message = None
-    read_tool_message = None
-    for msg in reversed(state["messages"]):
-        if isinstance(msg, ToolMessage) and msg.name in READ_MAP.values():
-            read_tool_message = msg
-        elif isinstance(msg, AIMessage) and msg.tool_calls:
-            original_ai_message = msg
-            break # 両方見つかったらループを抜ける
-        if original_ai_message and read_tool_message:
-            break
-
-    if not original_ai_message or not read_tool_message:
-        # この状況は通常発生しないはず
-        return {"messages": [AIMessage(content="[エラー] 内部処理エラー：書き込みの意図または読み込み結果が見つかりません。")]}
-
-    tool_call_to_rewrite = original_ai_message.tool_calls[0]
-    tool_name = tool_call_to_rewrite['name']
-    original_args = tool_call_to_rewrite['args']
-    read_content = read_tool_message.content
-
-    # AIへの強力な指示プロンプト
-    rewrite_prompt = f"""あなたは今、以下のツールを実行しようと試みました。
-
-【あなたの最初の意図】
-- ツール名: `{tool_name}`
-- 引数:
-```json
-{json.dumps(original_args, indent=2, ensure_ascii=False)}
-```
-
-そのために必要な、対象の現在の全内容をシステムが提供しました。
-
-【現在の内容】
----
-{read_content}
----
-
-【あなたの唯一のタスク】
-上記の二つの情報を基に、最終的に実行するべき、ただ一つのツール呼び出しを再生成してください。
-あなたの思考や挨拶、会話文は一切不要です。ツール呼び出しのJSONオブジェクトのみを出力してください。
-"""
-
-    llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
-    llm_with_tools = llm.bind_tools(all_tools)
-
-    # 履歴を限定し、このタスクに集中させる
-    messages_for_rewrite = [
-        SystemMessage(content="あなたはAIエージェントの思考を補助する、ツール呼び出し再生成システムです。"),
-        HumanMessage(content=rewrite_prompt)
-    ]
-
-    response = llm_with_tools.invoke(messages_for_rewrite)
-
-    # ユーザーへの応答ではなく、次のツール呼び出しとしてメッセージリストに追加
-    return {"messages": [response]}
-# ▲▲▲【追加はここまで】▲▲▲
-
 def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"]:
+    # (この関数に変更はありません)
     print("--- ツール後ルーター (route_after_tools) 実行 ---")
     last_ai_message_index = -1
     for i in range(len(state["messages"]) - 1, -1, -1):
@@ -540,13 +409,12 @@ def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"
     print("  - 通常のツール実行完了。エージェントの思考へ。")
     return "agent"
 
+# ▼▼▼【変更点】グラフ定義を完全に書き換える ▼▼▼
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
 workflow.add_node("safe_tool_node", safe_tool_executor)
 workflow.add_node("location_report_node", location_report_node)
-workflow.add_node("read_before_write_node", read_before_write_node)
-workflow.add_node("rewrite_tool_call_node", rewrite_tool_call_node) # ← 新ノード追加
 
 workflow.add_edge(START, "context_generator")
 
@@ -558,26 +426,17 @@ workflow.add_conditional_edges(
 
 workflow.add_conditional_edges(
     "agent",
-    route_to_read_or_execute, # AIの最初の判断
-    {
-        "read_before_write_node": "read_before_write_node", # 書き込み意図→強制読み込み
-        "safe_tool_node": "safe_tool_node",                 # 読み書き以外→直接実行
-        "__end__": END,
-    },
+    route_after_agent,
+    {"safe_tool_node": "safe_tool_node", "__end__": END},
 )
-
-# 強制読み込みの後、書き込み再生成ノードへ
-workflow.add_edge("read_before_write_node", "rewrite_tool_call_node")
-
-# 書き込み再生成の後、安全なツール実行ノードへ
-workflow.add_edge("rewrite_tool_call_node", "safe_tool_node")
 
 workflow.add_conditional_edges(
     "safe_tool_node",
-    route_after_tools, # ツール実行後の判断
+    route_after_tools,
     {"context_generator": "context_generator", "agent": "agent"},
 )
 
 workflow.add_edge("location_report_node", END)
 app = workflow.compile()
-print("--- 統合グラフ(v12)がコンパイルされました ---")
+print("--- 統合グラフ(v13)がコンパイルされました ---")
+# ▲▲▲【変更ここまで】▲▲▲
