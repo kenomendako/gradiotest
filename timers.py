@@ -80,6 +80,7 @@ class UnifiedTimer:
                 "active_participants": [],
                 "shared_location_name": location_name,
                 "shared_scenery_text": scenery_text,
+                "use_common_prompt": False # ← この行を追加
             }
 
             final_response_text = ""

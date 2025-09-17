@@ -316,10 +316,9 @@ def _stream_and_handle_response(
         yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content,
-               # ▼▼▼【ここが修正点】ストップボタンは押せるようにする ▼▼▼
                gr.update(visible=True, interactive=True),
-               # ▲▲▲【修正はここまで】▲▲▲
-               gr.update(interactive=False)
+               gr.update(interactive=False),
+               gr.update(visible=False) # ← action_button_groupを非表示にする
         )
 
         # 2. グループ会話と情景のコンテキストを準備
@@ -332,7 +331,9 @@ def _stream_and_handle_response(
             chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
             yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(),
                    gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                   current_console_content, gr.update(), gr.update())
+                   current_console_content, gr.update(), gr.update(),
+                   gr.update() # ← 14個目の値を返すために追加
+            )
 
             # 4. APIに渡す引数を準備
             # グループ会話では、最初のAI（魂の器）のみがファイルを受け取り、他のAIはテキストのみを参照する
@@ -362,7 +363,9 @@ def _stream_and_handle_response(
                             yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                    gr.update(), gr.update(), gr.update(), gr.update(),
                                    gr.update(), gr.update(), current_console_content,
-                                   gr.update(), gr.update())
+                                   gr.update(), gr.update(),
+                                   gr.update() # ← 14個目の値を返すために追加
+                            )
                     elif mode == "values": final_state = chunk
             current_console_content += captured_output.getvalue()
 
@@ -420,7 +423,9 @@ def _stream_and_handle_response(
                new_location_name, new_scenery_text,
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
-               gr.update(visible=False, interactive=True), gr.update(interactive=True)) # Stopボタン非表示, ボタン有効化
+               gr.update(visible=False, interactive=True), gr.update(interactive=True),
+               gr.update(visible=False) # ← action_button_groupを非表示にする
+        )
 
 def handle_message_submission(*args: Any):
     """
@@ -1279,8 +1284,8 @@ def handle_alarm_selection_for_all_updates(evt: gr.SelectData, df_with_id: pd.Da
     selected_ids = handle_alarm_selection(evt, df_with_id)
     feedback_text = "アラームを選択してください" if not selected_ids else f"{len(selected_ids)} 件のアラームを選択中"
 
-    all_rooms = room_manager.get_room_list()
-    default_room = all_rooms[0] if all_rooms else "Default"
+    all_rooms = room_manager.get_room_list_for_ui()
+    default_room = all_rooms[0][1] if all_rooms else "Default" # ← 戻り値の形式変更にも対応
 
     if len(selected_ids) == 1:
         alarm = next((a for a in alarm_manager.load_alarms() if a.get("id") == selected_ids[0]), None)
@@ -1333,8 +1338,8 @@ def handle_delete_alarms_and_update_ui(selected_ids: list):
     return new_df_with_ids, display_df, new_selected_ids, feedback_text
 
 def handle_cancel_alarm_edit():
-    all_rooms = room_manager.get_room_list()
-    default_room = all_rooms[0] if all_rooms else "Default"
+    all_rooms = room_manager.get_room_list_for_ui()
+    default_room = all_rooms[0][1] if all_rooms else "Default" # ← 戻り値の形式変更にも対応
     return (
         "アラーム追加", "", gr.update(choices=all_rooms, value=default_room),
         [], False, "08", "00", None, [], "アラームを選択してください",
@@ -1355,8 +1360,8 @@ def handle_add_or_update_alarm(editing_id, h, m, room, context, days_ja, is_emer
     set_personal_alarm.func(time=f"{h}:{m}", context_memo=context_memo, room_name=room, days=days_en, date=None, is_emergency=is_emergency)
 
     new_df_with_ids = render_alarms_as_dataframe()
-    all_rooms = room_manager.get_room_list()
-    default_room = all_rooms[0] if all_rooms else "Default"
+    all_rooms = room_manager.get_room_list_for_ui()
+    default_room = all_rooms[0][1] if all_rooms else "Default" # ← 戻り値の形式変更にも対応
 
     return (
         new_df_with_ids, get_display_df(new_df_with_ids),
@@ -2398,33 +2403,32 @@ def handle_save_redaction_rules(rules_df: pd.DataFrame) -> Tuple[List[Dict[str, 
 
     return rules, updated_df
 
-def handle_delete_redaction_rule(rules_df: pd.DataFrame, selected_index: Optional[int]) -> Tuple[pd.DataFrame, list, None]:
-    """DataFrameで選択されたルールを削除する。"""
-    if selected_index is None:
-        gr.Warning("削除するルールを選択してください。")
-        # DataFrameがNoneの場合でもエラーにならないように初期化
-        if rules_df is None:
-            rules_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
-        return rules_df, config_manager.load_redaction_rules(), None
+def handle_delete_redaction_rule(
+    current_rules: List[Dict],
+    selected_index: Optional[int]
+) -> Tuple[pd.DataFrame, List[Dict], None, str, str]:
+    """選択されたルールを削除する。"""
+    if current_rules is None:
+        current_rules = []
 
-    # DataFrameがNoneの場合やインデックスが範囲外の場合の安全策
-    if rules_df is None or not (0 <= selected_index < len(rules_df)):
-        gr.Warning("選択された行を特定できませんでした。")
-        if rules_df is None:
-            rules_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
-        return rules_df, config_manager.load_redaction_rules(), None
+    if selected_index is None or not (0 <= selected_index < len(current_rules)):
+        gr.Warning("削除するルールをリストから選択してください。")
+        df = _create_redaction_df_from_rules(current_rules)
+        return df, current_rules, selected_index, "", ""
 
-    updated_df = rules_df.drop(index=selected_index).reset_index(drop=True)
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # Pandasの.dropではなく、Pythonのdel文でリストの要素を直接削除する
+    deleted_rule_name = current_rules[selected_index]["find"]
+    del current_rules[selected_index]
+    # ▲▲▲【修正ここまで】▲▲▲
 
-    rules = [
-        {"find": str(row["元の文字列 (Find)"]), "replace": str(row["置換後の文字列 (Replace)"])}
-        for index, row in updated_df.iterrows()
-        if pd.notna(row["元の文字列 (Find)"]) and str(row["元の文字列 (Find)"]).strip()
-    ]
-    config_manager.save_redaction_rules(rules)
-    gr.Info("選択したルールを削除しました。チャット履歴を更新してください。")
-    # 選択状態をリセットするためにNoneを返す
-    return updated_df, rules, None
+    config_manager.save_redaction_rules(current_rules)
+    gr.Info(f"ルール「{deleted_rule_name}」を削除しました。")
+
+    df_for_ui = _create_redaction_df_from_rules(current_rules)
+
+    # フォームと選択状態をリセット
+    return df_for_ui, current_rules, None, "", ""
 
 
 def handle_core_memory_update_click(room_name: str, api_key_name: str):
