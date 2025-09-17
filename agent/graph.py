@@ -8,15 +8,15 @@ import pytz
 from datetime import datetime
 from typing import TypedDict, Annotated, List, Literal, Optional, Tuple
 
-from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
+from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage, HumanMessage
 from langchain_google_genai import HarmCategory, HarmBlockThreshold, ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 
 from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, update_location_content, add_new_location, read_world_settings
 from tools.knowledge_tools import search_knowledge_graph
-from tools.memory_tools import read_full_memory, write_full_memory
-from tools.notepad_tools import read_full_notepad, write_full_notepad
+from tools.memory_tools import read_full_memory, write_full_memory, _write_memory_file
+from tools.notepad_tools import read_full_notepad, write_full_notepad, _write_notepad_file
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
@@ -310,7 +310,7 @@ def safe_tool_executor(state: AgentState):
     print("--- 安全なツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
-        return {} # ツール呼び出しがない場合は何もしない
+        return {}
 
     tool_call = last_message.tool_calls[0]
     tool_name = tool_call["name"]
@@ -318,20 +318,16 @@ def safe_tool_executor(state: AgentState):
     room_name = state.get('room_name')
     api_key = state.get('api_key')
 
-    # 1. 書き込み系ツールかどうかの判定
     is_write_memory = tool_name == "write_full_memory"
     is_write_notepad = tool_name == "write_full_notepad"
 
     if is_write_memory or is_write_notepad:
         try:
-            # 2. 対応する読み込みツールで、現在のファイル内容を取得
             read_tool = read_full_memory if is_write_memory else read_full_notepad
             print(f"  - 書き込み仲介: '{tool_name}' のために '{read_tool.name}' を実行します。")
             current_content = read_tool.invoke({"room_name": room_name})
 
-            # 3. ペルソナAI本人にマージ処理を再委任する
             print(f"  - 書き込み仲介: ペルソナAI ({state['model_name']}) にマージ処理を依頼します。")
-            # 通常対話時と同じ設定でLLMを構成
             llm_persona = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
 
             merge_prompt_text = f"""【あなたの現在のタスク】
@@ -351,27 +347,20 @@ def safe_tool_executor(state: AgentState):
 - あなた自身の思考や挨拶、言い訳は一切含めず、最終的なファイル全文のみを出力してください。
 - JSON形式のファイルを編集している場合は、必ず有効なJSON形式で出力してください。
 """
-            # 4. 通常対話時とほぼ同じコンテキストを構築して思考を依頼
-            #    最後のAIメッセージ（ツール呼び出しを含む）は、AIを混乱させるので除外する
             messages_for_merging = [msg for msg in state['messages'] if msg is not last_message]
             messages_for_merging.append(HumanMessage(content=merge_prompt_text))
-
-            # システムプロンプトもコンテキストに含める
             final_context_for_merging = [state['system_prompt']] + messages_for_merging
-
-            # ペルソナAIによる最終版の生成
             merged_content = llm_persona.invoke(final_context_for_merging).content.strip()
 
-            # 5. ペルソナAIが決定した最終内容で、書き込みツールを実行
-            write_tool = write_full_memory if is_write_memory else write_full_notepad
-            print(f"  - 書き込み仲介: ペルソナAIが生成した内容で '{write_tool.name}' を実行します。")
-            output = write_tool.invoke({"room_name": room_name, "full_content": merged_content})
+            write_function = _write_memory_file if is_write_memory else _write_notepad_file
+            print(f"  - 書き込み仲介: ペルソナAIが生成した内容で '{write_function.__name__}' を実行します。")
+            output = write_function(full_content=merged_content, room_name=room_name)
 
         except Exception as e:
             output = f"Error during mediated write for '{tool_name}': {e}"
             traceback.print_exc()
     else:
-        # 6. 書き込み系以外の、通常のツール実行
+        # 通常のツール実行
         tool_args['room_name'] = room_name
         if tool_name in ['generate_image']:
             tool_args['api_key'] = api_key

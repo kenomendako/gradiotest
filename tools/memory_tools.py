@@ -31,37 +31,40 @@ def read_full_memory(room_name: str) -> str:
         return f"【エラー】記憶の読み取り中に予期せぬエラーが発生しました: {e}"
 
 @tool
-def write_full_memory(full_content: str, room_name: str) -> str:
+def write_full_memory(modification_request: str, room_name: str) -> str:
     """
-    あなたの「主観的記憶（日記）」である`memory.json`全体を、新しい内容で完全に上書きします。
-    このツールを呼び出す前に、必ず`read_full_memory`で現在の内容を読み取り、
-    その内容を考慮した上で、最終的な記憶の全文を`full_content`引数に渡してください。
-    full_content: 新しい記憶の完全な内容（JSON形式の文字列）。
+    あなたの「主観的記憶（日記）」である`memory.json`の変更を要求します。
+    このツールは直接書き込みを行いません。システムがあなたの要求を解釈し、安全にファイルを更新します。
+    modification_request: この書き込みがどのような変更意図で行われたかを記述した自然言語の文。（例：「自己紹介を更新した」）
     """
-    if not all([full_content, room_name]):
-        return "【エラー】書き込む内容とルーム名が必要です。"
+    # このツールは safe_tool_executor によって仲介されるため、
+    # 実際にはここのコードは直接実行されない。
+    # しかし、LangChainがツールとして認識するために、有効なPython関数である必要がある。
+    # 成功したかのようなメッセージを返すことで、万が一直接呼ばれた場合でも挙動を明確にする。
+    return f"システムへの記憶更新要求を受け付けました。意図:「{modification_request}」"
 
+
+def _write_memory_file(full_content: str, room_name: str) -> str:
+    """
+    【内部専用】整形済みの完全な文字列を受け取り、memory.jsonに書き込む。
+    """
+    if not all([full_content is not None, room_name]):
+        return "【エラー】書き込む内容とルーム名が必要です。"
+    # (元のwrite_full_memoryのファイル書き込みロジックをここに移植)
     _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
     if not memory_json_path:
         return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
-
     try:
         new_memory_data = json.loads(full_content)
         if not isinstance(new_memory_data, dict):
             return "【エラー】書き込む内容が有効なJSONオブジェクトではありません。"
-
-        # 念のため、既存の秘密の日記があれば引き継ぐ
         existing_memory = load_memory_data_safe(memory_json_path)
         if "secret_diary" in existing_memory:
             new_memory_data["secret_diary"] = existing_memory["secret_diary"]
-
         new_memory_data["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
         with open(memory_json_path, "w", encoding="utf-8") as f:
             json.dump(new_memory_data, f, indent=2, ensure_ascii=False)
-
-        return f"成功: 主観的記憶(memory.json)を完全に更新しました。"
-
+        return "成功: 主観的記憶(memory.json)を完全に更新しました。"
     except json.JSONDecodeError:
         return f"【エラー】書き込もうとしたテキストは、有効なJSON形式ではありませんでした。テキスト: {full_content[:200]}..."
     except Exception as e:
