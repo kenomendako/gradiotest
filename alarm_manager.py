@@ -107,6 +107,7 @@ def send_notification(room_name, message_text, alarm_config):
         _send_discord_notification(config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL, notification_message)
 
 def trigger_alarm(alarm_config, current_api_key_name):
+    from langchain_core.messages import AIMessage
     room_name = alarm_config.get("character")
     alarm_id = alarm_config.get("id")
     context_to_use = alarm_config.get("context_memo", "時間になりました")
@@ -127,10 +128,10 @@ def trigger_alarm(alarm_config, current_api_key_name):
     location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
 
     agent_args_dict = {
-        "room_to_respond": room_name, # ← ★★★ キー名を修正 ★★★
+        "room_to_respond": room_name,
         "api_key_name": current_api_key_name,
         "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
-        "debug_mode": False,
+        "debug_mode": True, # アラーム発火時はデバッグ情報を常に出力
         "history_log_path": log_f,
         "user_prompt_parts": [{"type": "text", "text": synthesized_user_message}],
         "soul_vessel_room": room_name,
@@ -139,12 +140,24 @@ def trigger_alarm(alarm_config, current_api_key_name):
         "shared_scenery_text": scenery_text,
     }
 
-    # 新しい約束の名を呼び、契約書を渡す
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # UIハンドラと同様の、正しいストリームデータ受け取りロジックに変更
     final_response_text = ""
-    for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-        if "final_output" in update:
-            final_response_text = update["final_output"].get("response", "")
-            break
+    final_state = None
+    initial_message_count = 0 # 履歴の初期数を保持
+
+    for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+        if mode == "initial_count":
+            initial_message_count = chunk
+        elif mode == "values":
+            final_state = chunk # 最後のものが最終状態になる
+
+    # ストリーム完了後、最終状態からAIの応答を抽出
+    if final_state:
+        last_ai_message = final_state["messages"][-1]
+        if isinstance(last_ai_message, AIMessage):
+            final_response_text = last_ai_message.content
+    # ▲▲▲【修正はここまで】▲▲▲
 
     # 思考ログを含む完全な応答を raw_response とする（ログ記録用）
     raw_response = final_response_text
@@ -152,18 +165,20 @@ def trigger_alarm(alarm_config, current_api_key_name):
     response_text = utils.remove_thoughts_from_text(raw_response)
 
     if response_text and not response_text.startswith("[エラー"):
-        utils.save_message_to_log(log_f, "## システム(アラーム):system", message_for_log) # ← ログヘッダーを修正
-        utils.save_message_to_log(log_f, f"## AGENT:{room_name}", raw_response) # ← ★★★ 変数名を修正 ★★★
+        # ログヘッダーを新しい形式 `ROLE:NAME` に準拠させる
+        utils.save_message_to_log(log_f, "## SYSTEM:alarm", message_for_log)
+        utils.save_message_to_log(log_f, f"## AGENT:{room_name}", raw_response)
         print(f"アラームログ記録完了 (ID:{alarm_id})")
-        send_notification(room_name, response_text, alarm_config) # ← ★★★ 変数名を修正 ★★★
+        send_notification(room_name, response_text, alarm_config)
         if PLYER_AVAILABLE:
             try:
                 display_message = (response_text[:250] + '...') if len(response_text) > 250 else response_text
-                notification.notify(title=f"{room_name} ⏰", message=display_message, app_name="Nexus Ark", timeout=20) # ← ★★★ 変数名を修正 ★★★
+                notification.notify(title=f"{room_name} ⏰", message=display_message, app_name="Nexus Ark", timeout=20)
                 print("PCデスクトップ通知を送信しました。")
             except Exception as e:
                 print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
     else:
+        # raw_response を渡すように修正
         print(f"警告: アラーム応答の生成に失敗 (ID:{alarm_id}). AIからの生応答: '{raw_response}'")
 
 def check_alarms():
