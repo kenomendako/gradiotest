@@ -1284,8 +1284,8 @@ def handle_alarm_selection_for_all_updates(evt: gr.SelectData, df_with_id: pd.Da
     selected_ids = handle_alarm_selection(evt, df_with_id)
     feedback_text = "アラームを選択してください" if not selected_ids else f"{len(selected_ids)} 件のアラームを選択中"
 
-    all_rooms = room_manager.get_room_list()
-    default_room = all_rooms[0] if all_rooms else "Default"
+    all_rooms = room_manager.get_room_list_for_ui()
+    default_room = all_rooms[0][1] if all_rooms else "Default" # ← 戻り値の形式変更にも対応
 
     if len(selected_ids) == 1:
         alarm = next((a for a in alarm_manager.load_alarms() if a.get("id") == selected_ids[0]), None)

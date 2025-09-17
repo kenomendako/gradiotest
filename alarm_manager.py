@@ -127,13 +127,13 @@ def trigger_alarm(alarm_config, current_api_key_name):
     location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
 
     agent_args_dict = {
-        "character_to_respond": room_name,
+        "room_to_respond": room_name, # ← ★★★ キー名を修正 ★★★
         "api_key_name": current_api_key_name,
         "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
         "debug_mode": False,
         "history_log_path": log_f,
         "user_prompt_parts": [{"type": "text", "text": synthesized_user_message}],
-        "soul_vessel_character": room_name,
+        "soul_vessel_room": room_name,
         "active_participants": [],
         "shared_location_name": location_name,
         "shared_scenery_text": scenery_text,
@@ -150,17 +150,16 @@ def trigger_alarm(alarm_config, current_api_key_name):
     raw_response = final_response_text
     # 表示・通知用には思考ログを除去する
     response_text = utils.remove_thoughts_from_text(raw_response)
-    # ▲▲▲【修正ここまで】▲▲▲
 
     if response_text and not response_text.startswith("[エラー"):
-        utils.save_message_to_log(log_f, "## システム(アラーム):", message_for_log)
-        utils.save_message_to_log(log_f, f"## {char_name}:", raw_response)
+        utils.save_message_to_log(log_f, "## システム(アラーム):system", message_for_log) # ← ログヘッダーを修正
+        utils.save_message_to_log(log_f, f"## AGENT:{room_name}", raw_response) # ← ★★★ 変数名を修正 ★★★
         print(f"アラームログ記録完了 (ID:{alarm_id})")
-        send_notification(char_name, response_text, alarm_config)
+        send_notification(room_name, response_text, alarm_config) # ← ★★★ 変数名を修正 ★★★
         if PLYER_AVAILABLE:
             try:
                 display_message = (response_text[:250] + '...') if len(response_text) > 250 else response_text
-                notification.notify(title=f"{char_name} ⏰", message=display_message, app_name="Nexus Ark", timeout=20)
+                notification.notify(title=f"{room_name} ⏰", message=display_message, app_name="Nexus Ark", timeout=20) # ← ★★★ 変数名を修正 ★★★
                 print("PCデスクトップ通知を送信しました。")
             except Exception as e:
                 print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
