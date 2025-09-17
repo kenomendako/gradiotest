@@ -381,6 +381,81 @@ def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]
     print("  - ツール呼び出しなし。思考完了と判断し、グラフを終了します。")
     return "__end__"
 
+# ▼▼▼【ここからが新しく追加するブロック】▼▼▼
+WRITE_TOOLS = {
+    "edit_memory", "add_secret_diary_entry",
+    "update_notepad", "delete_from_notepad", "add_to_notepad",
+    "update_location_content", "add_new_location"
+}
+
+READ_MAP = {
+    "edit_memory": "read_full_memory",
+    "add_secret_diary_entry": "read_full_memory",
+    "update_notepad": "read_full_notepad",
+    "delete_from_notepad": "read_full_notepad",
+    "add_to_notepad": "read_full_notepad",
+    "update_location_content": "read_world_settings",
+    "add_new_location": "read_world_settings"
+}
+
+def route_to_read_or_execute(state: AgentState) -> Literal["read_before_write_node", "safe_tool_node", "__end__"]:
+    """
+    AIのツール呼び出しを分析し、書き込み系ツールであれば、
+    まず読み込みノードに処理を迂回させるルーター。
+    """
+    print("--- 書き込み前ルーター (route_to_read_or_execute) 実行 ---")
+    last_message = state["messages"][-1]
+    if not last_message.tool_calls:
+        print("  - ツール呼び出しなし。思考完了。")
+        return "__end__"
+
+    # 最初のツール呼び出しが書き込み系かチェック
+    first_tool_name = last_message.tool_calls[0]['name']
+    if first_tool_name in WRITE_TOOLS:
+        # 既に直前に対応する読み込み結果があるかチェック
+        if len(state["messages"]) > 1:
+            previous_message = state["messages"][-2]
+            if isinstance(previous_message, ToolMessage) and previous_message.name == READ_MAP[first_tool_name]:
+                 print(f"  - 安全な書き込み操作 '{first_tool_name}' を検知。ツール実行へ。")
+                 return "safe_tool_node"
+        print(f"  - 書き込み操作 '{first_tool_name}' を検知。強制読み込みへ。")
+        return "read_before_write_node"
+    else:
+        print(f"  - 読み書き以外のツール '{first_tool_name}' を検知。ツール実行へ。")
+        return "safe_tool_node"
+
+def read_before_write_node(state: AgentState):
+    """
+    書き込み系ツールの前に、対応する読み込み系ツールを強制的に実行するノード。
+    """
+    print("--- 強制読み込みノード (read_before_write_node) 実行 ---")
+    last_message = state["messages"][-1]
+    tool_call = last_message.tool_calls[0]
+    tool_name = tool_call["name"]
+
+    read_tool_name = READ_MAP.get(tool_name)
+    if not read_tool_name:
+         # このケースは発生しないはずだが、安全のために
+        error_message = f"Error: No corresponding read tool found for '{tool_name}'."
+        return {"messages": [ToolMessage(content=error_message, tool_call_id=tool_call["id"], name=tool_name)]}
+
+    print(f"  - '{tool_name}' のために '{read_tool_name}' を実行します。")
+    read_tool = next((t for t in all_tools if t.name == read_tool_name), None)
+    if not read_tool:
+        error_message = f"Error: Read tool '{read_tool_name}' not found in the tool list."
+        return {"messages": [ToolMessage(content=error_message, tool_call_id=tool_call["id"], name=read_tool_name)]}
+
+    # 読み込みツールには room_name のみが必要
+    room_name = state.get('room_name')
+    try:
+        output = read_tool.invoke({"room_name": room_name})
+    except Exception as e:
+        output = f"Error executing read tool '{read_tool_name}': {e}"
+        traceback.print_exc()
+
+    return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=read_tool_name)]}
+# ▲▲▲【追加はここまで】▲▲▲
+
 def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"]:
     print("--- ツール後ルーター (route_after_tools) 実行 ---")
     last_ai_message_index = -1
@@ -407,6 +482,7 @@ workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
 workflow.add_node("safe_tool_node", safe_tool_executor)
 workflow.add_node("location_report_node", location_report_node)
+workflow.add_node("read_before_write_node", read_before_write_node) # ← 新しいノードを追加
 workflow.add_edge(START, "context_generator")
 workflow.add_conditional_edges(
     "context_generator",
@@ -418,8 +494,9 @@ workflow.add_conditional_edges(
 )
 workflow.add_conditional_edges(
     "agent",
-    route_after_agent,
+    route_to_read_or_execute, # ← ルーターを新しいものに変更
     {
+        "read_before_write_node": "read_before_write_node", # ← 新しい分岐を追加
         "safe_tool_node": "safe_tool_node",
         "__end__": END,
     },
@@ -429,6 +506,7 @@ workflow.add_conditional_edges(
     route_after_tools,
     {"context_generator": "context_generator", "agent": "agent"},
 )
+workflow.add_edge("read_before_write_node", "agent") # ← この行を新しく追加
 workflow.add_edge("location_report_node", END)
 app = workflow.compile()
 print("--- 統合グラフ(v12)がコンパイルされました ---")
