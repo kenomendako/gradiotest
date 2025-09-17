@@ -138,6 +138,7 @@ def trigger_alarm(alarm_config, current_api_key_name):
         "active_participants": [],
         "shared_location_name": location_name,
         "shared_scenery_text": scenery_text,
+        "use_common_prompt": False # ← この行を追加
     }
 
     # ▼▼▼【ここからが修正の核心】▼▼▼

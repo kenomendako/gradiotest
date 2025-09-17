@@ -179,9 +179,31 @@ def context_generator_node(state: AgentState):
         except Exception as e:
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
-    tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
-    if len(all_participants) > 1:
+    # ▼▼▼【ここからが修正ブロック】▼▼▼
+    tools_list_str = ""
+    # effective_settings は config_manager から取得する
+    effective_settings = config_manager.get_effective_settings(room_name)
+
+    if not effective_settings.get("use_common_prompt", True):
+        tools_list_str = "（ツールは設定により無効化されています）"
+    elif len(all_participants) > 1:
         tools_list_str = "（グループ会話中はツールを使用できません）"
+    else:
+        tool_descriptions = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
+        tools_list_str = f"""
+### 長期記憶（知識グラフ）の活用ルール
+- 過去の会話から抽出・構築された、客観的な事実や、登場人物・場所・物事の関係性について知りたい場合は、`search_knowledge_graph`ツールを使用すること。
+- これは、あなたの主観的な「日記」とは異なる、客観的なデータベースである。
+---
+### ツール一覧
+- **画像生成の厳格な手順:**
+  1. ユーザーからイラストや画像の生成を依頼された場合、あなたは `generate_image` ツールを呼び出す。
+  2. ツールが成功すると、あなたは `[Generated Image: path/to/image.png]` という形式の特別なテキストを受け取る。
+  3. あなたの最終的な応答には、**必ず、この受け取った画像タグを、そのままの形で含めなければならない。** これを怠ることは許されない。
+
+{tool_descriptions}
+"""
+    # ▲▲▲【修正はここまで】▲▲▲
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
     prompt_vars = {'character_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
