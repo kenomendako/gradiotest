@@ -1338,8 +1338,8 @@ def handle_delete_alarms_and_update_ui(selected_ids: list):
     return new_df_with_ids, display_df, new_selected_ids, feedback_text
 
 def handle_cancel_alarm_edit():
-    all_rooms = room_manager.get_room_list()
-    default_room = all_rooms[0] if all_rooms else "Default"
+    all_rooms = room_manager.get_room_list_for_ui()
+    default_room = all_rooms[0][1] if all_rooms else "Default" # ← 戻り値の形式変更にも対応
     return (
         "アラーム追加", "", gr.update(choices=all_rooms, value=default_room),
         [], False, "08", "00", None, [], "アラームを選択してください",
@@ -1360,8 +1360,8 @@ def handle_add_or_update_alarm(editing_id, h, m, room, context, days_ja, is_emer
     set_personal_alarm.func(time=f"{h}:{m}", context_memo=context_memo, room_name=room, days=days_en, date=None, is_emergency=is_emergency)
 
     new_df_with_ids = render_alarms_as_dataframe()
-    all_rooms = room_manager.get_room_list()
-    default_room = all_rooms[0] if all_rooms else "Default"
+    all_rooms = room_manager.get_room_list_for_ui()
+    default_room = all_rooms[0][1] if all_rooms else "Default" # ← 戻り値の形式変更にも対応
 
     return (
         new_df_with_ids, get_display_df(new_df_with_ids),
