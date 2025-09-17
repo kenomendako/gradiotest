@@ -121,7 +121,11 @@ def trigger_alarm(alarm_config, current_api_key_name):
         print(f"警告: アラーム (ID:{alarm_id}) のルームファイルまたはAPIキーが見つからないため、処理をスキップします。")
         return
 
-    synthesized_user_message = f"（システムアラーム：時間です。コンテキスト「{context_to_use}」について、アラームメッセージを伝えてください）"
+    # ▼▼▼【ここからが修正ブロック】▼▼▼
+    # アラームに設定された時刻を取得し、AIへの指示に含める
+    scheduled_time = alarm_config.get("time", "指定時刻")
+    synthesized_user_message = f"（システムアラーム：設定時刻 {scheduled_time} になりました。コンテキスト「{context_to_use}」について、アラームメッセージを伝えてください）"
+    # ▲▲▲【修正はここまで】▲▲▲
     message_for_log = f"（システムアラーム：{alarm_config.get('time', '指定時刻')}）"
 
     from agent.graph import generate_scenery_context
