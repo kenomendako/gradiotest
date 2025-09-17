@@ -8,7 +8,7 @@ import pytz
 from datetime import datetime
 from typing import TypedDict, Annotated, List, Literal, Optional, Tuple
 
-from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
+from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage, HumanMessage
 from langchain_google_genai import HarmCategory, HarmBlockThreshold
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
@@ -454,6 +454,69 @@ def read_before_write_node(state: AgentState):
         traceback.print_exc()
 
     return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=read_tool_name)]}
+
+def rewrite_tool_call_node(state: AgentState):
+    """
+    読み込み結果をコンテキストとして与え、AIに再度書き込みツールの呼び出しを生成させるノード。
+    """
+    print("--- 書き込み再生成ノード (rewrite_tool_call_node) 実行 ---")
+
+    # AIの最初の意図（書き込みツール呼び出し）と、読み込み結果を取得
+    original_ai_message = None
+    read_tool_message = None
+    for msg in reversed(state["messages"]):
+        if isinstance(msg, ToolMessage) and msg.name in READ_MAP.values():
+            read_tool_message = msg
+        elif isinstance(msg, AIMessage) and msg.tool_calls:
+            original_ai_message = msg
+            break # 両方見つかったらループを抜ける
+        if original_ai_message and read_tool_message:
+            break
+
+    if not original_ai_message or not read_tool_message:
+        # この状況は通常発生しないはず
+        return {"messages": [AIMessage(content="[エラー] 内部処理エラー：書き込みの意図または読み込み結果が見つかりません。")]}
+
+    tool_call_to_rewrite = original_ai_message.tool_calls[0]
+    tool_name = tool_call_to_rewrite['name']
+    original_args = tool_call_to_rewrite['args']
+    read_content = read_tool_message.content
+
+    # AIへの強力な指示プロンプト
+    rewrite_prompt = f"""あなたは今、以下のツールを実行しようと試みました。
+
+【あなたの最初の意図】
+- ツール名: `{tool_name}`
+- 引数:
+```json
+{json.dumps(original_args, indent=2, ensure_ascii=False)}
+```
+
+そのために必要な、対象の現在の全内容をシステムが提供しました。
+
+【現在の内容】
+---
+{read_content}
+---
+
+【あなたの唯一のタスク】
+上記の二つの情報を基に、最終的に実行するべき、ただ一つのツール呼び出しを再生成してください。
+あなたの思考や挨拶、会話文は一切不要です。ツール呼び出しのJSONオブジェクトのみを出力してください。
+"""
+
+    llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
+    llm_with_tools = llm.bind_tools(all_tools)
+
+    # 履歴を限定し、このタスクに集中させる
+    messages_for_rewrite = [
+        SystemMessage(content="あなたはAIエージェントの思考を補助する、ツール呼び出し再生成システムです。"),
+        HumanMessage(content=rewrite_prompt)
+    ]
+
+    response = llm_with_tools.invoke(messages_for_rewrite)
+
+    # ユーザーへの応答ではなく、次のツール呼び出しとしてメッセージリストに追加
+    return {"messages": [response]}
 # ▲▲▲【追加はここまで】▲▲▲
 
 def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"]:
@@ -482,31 +545,39 @@ workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
 workflow.add_node("safe_tool_node", safe_tool_executor)
 workflow.add_node("location_report_node", location_report_node)
-workflow.add_node("read_before_write_node", read_before_write_node) # ← 新しいノードを追加
+workflow.add_node("read_before_write_node", read_before_write_node)
+workflow.add_node("rewrite_tool_call_node", rewrite_tool_call_node) # ← 新ノード追加
+
 workflow.add_edge(START, "context_generator")
+
 workflow.add_conditional_edges(
     "context_generator",
     route_after_context,
-    {
-        "location_report_node": "location_report_node",
-        "agent": "agent",
-    },
+    {"location_report_node": "location_report_node", "agent": "agent"},
 )
+
 workflow.add_conditional_edges(
     "agent",
-    route_to_read_or_execute, # ← ルーターを新しいものに変更
+    route_to_read_or_execute, # AIの最初の判断
     {
-        "read_before_write_node": "read_before_write_node", # ← 新しい分岐を追加
-        "safe_tool_node": "safe_tool_node",
+        "read_before_write_node": "read_before_write_node", # 書き込み意図→強制読み込み
+        "safe_tool_node": "safe_tool_node",                 # 読み書き以外→直接実行
         "__end__": END,
     },
 )
+
+# 強制読み込みの後、書き込み再生成ノードへ
+workflow.add_edge("read_before_write_node", "rewrite_tool_call_node")
+
+# 書き込み再生成の後、安全なツール実行ノードへ
+workflow.add_edge("rewrite_tool_call_node", "safe_tool_node")
+
 workflow.add_conditional_edges(
     "safe_tool_node",
-    route_after_tools,
+    route_after_tools, # ツール実行後の判断
     {"context_generator": "context_generator", "agent": "agent"},
 )
-workflow.add_edge("read_before_write_node", "agent") # ← この行を新しく追加
+
 workflow.add_edge("location_report_node", END)
 app = workflow.compile()
 print("--- 統合グラフ(v12)がコンパイルされました ---")
