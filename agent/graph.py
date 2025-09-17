@@ -305,7 +305,7 @@ def route_after_context(state: AgentState) -> Literal["location_report_node", "a
 def safe_tool_executor(state: AgentState):
     """
     AIのツール呼び出し要求を解釈し、安全な方法で実行する。
-    書き込み系ツールの場合は、システムが読み込みとマージを仲介する。
+    書き込み系ツールの場合は、ペルソナAI本人に思考を再委任し、最終的な内容を決定させる。
     """
     print("--- 安全なツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
@@ -321,44 +321,57 @@ def safe_tool_executor(state: AgentState):
     # 1. 書き込み系ツールかどうかの判定
     is_write_memory = tool_name == "write_full_memory"
     is_write_notepad = tool_name == "write_full_notepad"
-    # is_write_world = tool_name == "write_world_settings" # 将来の拡張用
 
     if is_write_memory or is_write_notepad:
         try:
-            # 2. 対応する読み込みツールを実行
+            # 2. 対応する読み込みツールで、現在のファイル内容を取得
             read_tool = read_full_memory if is_write_memory else read_full_notepad
             print(f"  - 書き込み仲介: '{tool_name}' のために '{read_tool.name}' を実行します。")
             current_content = read_tool.invoke({"room_name": room_name})
 
-            # 3. マージ用のAIを呼び出す
-            llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
-            merge_prompt = f"""あなたは、既存のデータと新しい変更要求をマージする専門家です。
-以下の【既存のデータ】に対して、【AIからの変更要求】を適用し、最終的な完成形データのみを生成してください。
+            # 3. ペルソナAI本人にマージ処理を再委任する
+            print(f"  - 書き込み仲介: ペルソナAI ({state['model_name']}) にマージ処理を依頼します。")
+            # 通常対話時と同じ設定でLLMを構成
+            llm_persona = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
+
+            merge_prompt_text = f"""【あなたの現在のタスク】
+あなたは今、ユーザーとの会話の流れで、自身の記憶またはメモ帳を更新しようとしています。
+システムが、現在のファイル内容を以下に提示します。
+あなたの「変更要求」を、この「既存のデータ」に反映させ、最終的にファイルに書き込むべき、完璧な全文を生成してください。
 
 【既存のデータ】
 ---
 {current_content}
 ---
 
-【AIからの変更要求】
+【あなたの変更要求】
 「{tool_args.get('modification_request')}」
 
-【あなたのタスク】
-上記の要求を解釈し、【既存のデータ】を更新した最終的なテキスト全文を生成してください。
-あなたの思考や挨拶は不要です。最終的なデータのみを出力してください。
+【最重要指示】
+- あなた自身の思考や挨拶、言い訳は一切含めず、最終的なファイル全文のみを出力してください。
+- JSON形式のファイルを編集している場合は、必ず有効なJSON形式で出力してください。
 """
-            merged_content = llm_flash.invoke(merge_prompt).content.strip()
+            # 4. 通常対話時とほぼ同じコンテキストを構築して思考を依頼
+            #    最後のAIメッセージ（ツール呼び出しを含む）は、AIを混乱させるので除外する
+            messages_for_merging = [msg for msg in state['messages'] if msg is not last_message]
+            messages_for_merging.append(HumanMessage(content=merge_prompt_text))
 
-            # 4. 書き込みツールに最終的な内容を渡して実行
+            # システムプロンプトもコンテキストに含める
+            final_context_for_merging = [state['system_prompt']] + messages_for_merging
+
+            # ペルソナAIによる最終版の生成
+            merged_content = llm_persona.invoke(final_context_for_merging).content.strip()
+
+            # 5. ペルソナAIが決定した最終内容で、書き込みツールを実行
             write_tool = write_full_memory if is_write_memory else write_full_notepad
-            print(f"  - 書き込み仲介: マージされた内容で '{write_tool.name}' を実行します。")
-            output = write_tool.invoke({"room_name": room_name, "full_content": merged_content, "modification_request": tool_args.get('modification_request')})
+            print(f"  - 書き込み仲介: ペルソナAIが生成した内容で '{write_tool.name}' を実行します。")
+            output = write_tool.invoke({"room_name": room_name, "full_content": merged_content})
 
         except Exception as e:
             output = f"Error during mediated write for '{tool_name}': {e}"
             traceback.print_exc()
     else:
-        # 5. 通常のツール実行
+        # 6. 書き込み系以外の、通常のツール実行
         tool_args['room_name'] = room_name
         if tool_name in ['generate_image']:
             tool_args['api_key'] = api_key
@@ -374,10 +387,9 @@ def safe_tool_executor(state: AgentState):
                 traceback.print_exc()
 
     return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)]}
-# ▲▲▲【変更ここまで】▲▲▲
 
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]:
-    # (この関数は元のシンプルなものに戻す)
+    # この関数はシンプルなものに戻します
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
     last_message = state["messages"][-1]
     if last_message.tool_calls:
@@ -409,11 +421,11 @@ def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"
     print("  - 通常のツール実行完了。エージェントの思考へ。")
     return "agent"
 
-# ▼▼▼【変更点】グラフ定義を完全に書き換える ▼▼▼
+# ▼▼▼ グラフ定義を完全に書き換えます ▼▼▼
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
-workflow.add_node("safe_tool_node", safe_tool_executor)
+workflow.add_node("safe_tool_node", safe_tool_executor) # 新しいノード名
 workflow.add_node("location_report_node", location_report_node)
 
 workflow.add_edge(START, "context_generator")
@@ -427,16 +439,15 @@ workflow.add_conditional_edges(
 workflow.add_conditional_edges(
     "agent",
     route_after_agent,
-    {"safe_tool_node": "safe_tool_node", "__end__": END},
+    {"safe_tool_node": "safe_tool_node", "__end__": END}, # 分岐先を新しいノードに
 )
 
 workflow.add_conditional_edges(
-    "safe_tool_node",
+    "safe_tool_node", # 新しいノードから
     route_after_tools,
     {"context_generator": "context_generator", "agent": "agent"},
 )
 
 workflow.add_edge("location_report_node", END)
 app = workflow.compile()
-print("--- 統合グラフ(v13)がコンパイルされました ---")
-# ▲▲▲【変更ここまで】▲▲▲
+print("--- 統合グラフ(ペルソナ駆動編集対応版)がコンパイルされました ---")

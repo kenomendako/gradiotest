@@ -31,12 +31,12 @@ def read_full_memory(room_name: str) -> str:
         return f"【エラー】記憶の読み取り中に予期せぬエラーが発生しました: {e}"
 
 @tool
-def write_full_memory(full_content: str, modification_request: str, room_name: str) -> str:
+def write_full_memory(full_content: str, room_name: str) -> str:
     """
     あなたの「主観的記憶（日記）」である`memory.json`全体を、新しい内容で完全に上書きします。
-    部分的な変更ではなく、記憶全体を更新したい場合に使用します。
+    このツールを呼び出す前に、必ず`read_full_memory`で現在の内容を読み取り、
+    その内容を考慮した上で、最終的な記憶の全文を`full_content`引数に渡してください。
     full_content: 新しい記憶の完全な内容（JSON形式の文字列）。
-    modification_request: この書き込みがどのような変更意図で行われたかを記述した自然言語の文。（例：「自己紹介を更新した」）
     """
     if not all([full_content, room_name]):
         return "【エラー】書き込む内容とルーム名が必要です。"
@@ -60,7 +60,7 @@ def write_full_memory(full_content: str, modification_request: str, room_name: s
         with open(memory_json_path, "w", encoding="utf-8") as f:
             json.dump(new_memory_data, f, indent=2, ensure_ascii=False)
 
-        return f"成功: 主観的記憶(memory.json)を完全に更新しました。変更意図:「{modification_request}」"
+        return f"成功: 主観的記憶(memory.json)を完全に更新しました。"
 
     except json.JSONDecodeError:
         return f"【エラー】書き込もうとしたテキストは、有効なJSON形式ではありませんでした。テキスト: {full_content[:200]}..."
