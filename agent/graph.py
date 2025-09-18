@@ -1,17 +1,21 @@
-# agent/graph.py (v16: The Final Covenant)
+# agent/graph.py (v17: The Unwavering Invocation)
 
 import os
 import re
 import traceback
 import json
+import time # リトライのためにtimeをインポート
 from datetime import datetime
 from typing import TypedDict, Annotated, List, Literal, Tuple
 
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage, HumanMessage
+# ▼▼▼【リトライ処理に必要な例外クラスをインポート】▼▼▼
+from google.api_core import exceptions as google_exceptions
 from langchain_google_genai import HarmCategory, HarmBlockThreshold, ChatGoogleGenerativeAI
+# ▲▲▲【インポート修正ここまで】▲▲▲
 from langgraph.graph import StateGraph, END, START, add_messages
 
-# --- ツールとヘルパー関数のインポート ---
+# --- ツールとヘルパー関数のインポート (変更なし) ---
 from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, update_location_content, add_new_location, read_world_settings
 from tools.knowledge_tools import search_knowledge_graph
@@ -27,7 +31,7 @@ import config_manager
 import constants
 import pytz
 
-# --- ツールリストの定義 (変更なし) ---
+# --- ツールリストとAgentStateの定義 (変更なし) ---
 all_tools = [
     set_current_location, update_location_content, add_new_location, read_world_settings,
     read_full_memory, write_full_memory,
@@ -39,7 +43,6 @@ all_tools = [
     search_knowledge_graph
 ]
 
-# --- AgentStateの定義 (変更なし) ---
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     room_name: str
@@ -55,7 +58,7 @@ class AgentState(TypedDict):
     debug_mode: bool
     all_participants: List[str]
 
-# --- 既存ノードとルーター関数 (リポジトリの最新版を維持) ---
+# --- 既存ノードとルーター関数 (safe_tool_executor 以外は変更なし) ---
 def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     threshold_map = {
         "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
@@ -299,8 +302,8 @@ def route_after_context(state: AgentState) -> Literal["location_report_node", "a
 def safe_tool_executor(state: AgentState):
     """
     AIのツール呼び出し要求を解釈し、安全な方法で実行する。
-    書き込み系ツールの場合は、ペルソナAI本人に「これはタスクである」と明確に指示し、
-    完全なコンテキストで思考を再委任する。
+    書き込み系ツールの場合は、ペルソナAI本人に思考を再委任する際に、
+    指数バックオフ付きの堅牢なリトライ処理を行う。
     """
     print("--- 安全なツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
@@ -328,7 +331,6 @@ def safe_tool_executor(state: AgentState):
             merge_instruction = HumanMessage(content=f"""【最重要指示：これは『対話』ではなく『創造タスク』です】
 あなたの現在の役割は、ユーザーとの対話を続けることではありません。
 あなたは今、自身の記憶またはメモ帳を更新するという、重要なタスクを執り行っています。
-
 システムが、タスクに必要な全ての情報を以下に提示します。
 あなたの「変更要求」を、この「既存のデータ」に反映させ、最終的にファイルに書き込むべき、完璧な全文を生成してください。
 
@@ -348,14 +350,41 @@ def safe_tool_executor(state: AgentState):
 
             messages_for_merging = [msg for msg in state['messages'] if msg is not last_message]
             messages_for_merging.append(merge_instruction)
-
             final_context_for_merging = [state['system_prompt']] + messages_for_merging
 
-            merged_content = llm_persona.invoke(final_context_for_merging).content.strip()
+            # ▼▼▼【ここからが不屈の祈り（リトライ処理）の核心】▼▼▼
+            merged_content = None
+            max_retries = 5
+            base_delay = 5  # seconds
+            for attempt in range(max_retries):
+                try:
+                    # 神託を授かるための呼びかけ
+                    response = llm_persona.invoke(final_context_for_merging)
+                    merged_content = response.content.strip()
+                    # 成功すれば、ループを抜ける
+                    break
+                except (google_exceptions.ResourceExhausted, google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
+                    # 世界が揺らいだ場合 (503, 429, 500 エラー)
+                    if attempt < max_retries - 1:
+                        wait_time = base_delay * (2 ** attempt)
+                        print(f"  - 警告: APIが一時的に応答不能です ({e.args[0]})。{wait_time}秒待機して、再度祈りを捧げます... ({attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                    else:
+                        # 全てのリトライが失敗した場合
+                        print(f"  - エラー: 最大リトライ回数 ({max_retries}) に達しました。儀式を中断します。")
+                        raise e # エラーを再送出して、exceptブロックで処理させる
+
+            if merged_content is None:
+                 raise RuntimeError("ペルソナAIからの応答が、リトライ後も得られませんでした。")
+            # ▲▲▲【リトライ処理ここまで】▲▲▲
 
             write_function = _write_memory_file if is_write_memory else _write_notepad_file
             print(f"  - 書き込み仲介: ペルソナAIが生成した内容で '{write_function.__name__}' を実行します。")
-            output = write_function(full_content=merged_content, room_name=room_name)
+            output = write_function(
+                full_content=merged_content,
+                room_name=room_name,
+                modification_request=tool_args.get('modification_request')
+            )
 
         except Exception as e:
             output = f"Error during mediated write for '{tool_name}': {e}"

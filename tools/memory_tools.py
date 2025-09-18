@@ -37,9 +37,10 @@ def write_full_memory(modification_request: str, room_name: str) -> str:
     # 実際の処理は _write_memory_file で行われます。
     return f"システムへの記憶更新要求を受け付けました。意図:「{modification_request}」"
 
-def _write_memory_file(full_content: str, room_name: str) -> str:
+def _write_memory_file(full_content: str, room_name: str, modification_request: str) -> str:
     """
     【内部専用】整形済みの完全な文字列を受け取り、memory.jsonに書き込む。
+    modification_requestはログ出力のために予約されているが、この関数内では使用されない。
     """
     if not all([full_content is not None, room_name]):
         return "【エラー】書き込む内容とルーム名が必要です。"

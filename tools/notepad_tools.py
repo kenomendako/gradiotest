@@ -24,8 +24,11 @@ def write_full_notepad(modification_request: str, room_name: str) -> str:
     # この関数は safe_tool_executor によって仲介されるため、これはスキーマ定義のためのものです。
     return f"システムへのメモ帳更新要求を受け付けました。意図:「{modification_request}」"
 
-def _write_notepad_file(full_content: str, room_name: str) -> str:
-    """【内部専用】整形済みの完全な文字列を受け取り、notepad.mdに書き込む。"""
+def _write_notepad_file(full_content: str, room_name: str, modification_request: str) -> str:
+    """
+    【内部専用】整形済みの完全な文字列を受け取り、notepad.mdに書き込む。
+    modification_requestはログ出力のために予約されているが、この関数内では使用されない。
+    """
     if not room_name:
         return "【エラー】ルーム名が必要です。"
     _, _, _, _, notepad_path = get_room_files_paths(room_name)
