@@ -1,21 +1,17 @@
-# tools/space_tools.py (タスク簡素化対応版)
+# tools/space_tools.py (v20: Final Architecture)
 
 import os
-import re
-from typing import Optional
 from langchain_core.tools import tool
 from room_manager import get_world_settings_path
 import utils
 import constants
+from typing import List, Dict, Any
+import traceback
 
 @tool
 def set_current_location(location_id: str, room_name: str) -> str:
-    """
-    AIの現在地を設定する。この世界のどこにいるかを宣言するための、唯一の公式な手段。
-    location_id: "書斎"のような場所の正式名称（IDを兼ねる）を指定。
-    """
+    """AIの現在地を設定する。"""
     if not location_id or not room_name:
-        # このエラーはAIではなく、システム側の問題（引数注入の失敗）を示す
         return "【Error】Internal tool error: Location ID and room name are required for execution."
     try:
         base_path = os.path.join(constants.ROOMS_DIR, room_name)
@@ -26,105 +22,64 @@ def set_current_location(location_id: str, room_name: str) -> str:
     except Exception as e:
         return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
 
-@tool
-def update_location_content(area_name: str, place_name: str, new_description: str, room_name: str) -> str:
-    """
-    【更新専用】既存の場所の説明文（description）を、新しい内容で更新する。
-    area_name: 更新したい場所が属するエリア名。
-    place_name: 更新したい場所の名前。
-    new_description: 場所の情景や設定を記述した、自然な文章。
-    """
-    if not all([room_name, area_name, place_name, new_description is not None]):
-        return "【Error】Internal tool error: area_name, place_name, new_description, and room_name are required."
+def _apply_world_edits(instructions: List[Dict[str, Any]], room_name: str) -> str:
+    """【内部専用】AIが生成した世界設定への差分編集指示リストを解釈し、world_settings.txtに適用する。"""
+    if not room_name: return "【エラー】ルーム名が指定されていません。"
 
     world_settings_path = get_world_settings_path(room_name)
-    if not world_settings_path or not os.path.exists(world_settings_path):
-        return f"【Error】Could not find world settings file for room '{room_name}'."
+    world_data = utils.parse_world_file(world_settings_path)
 
     try:
-        with open(world_settings_path, "r", encoding="utf-8") as f:
-            full_content = f.read()
+        for i, inst in enumerate(instructions):
+            op = inst.get("operation", "").lower()
+            area = inst.get("area_name")
+            place = inst.get("place_name")
+            value = inst.get("value")
 
-        pattern = re.compile(
-            rf"(^###\s*{re.escape(place_name)}\s*\n)(.*?)(?=\n^##\s|\n^###\s|\Z)",
-            re.DOTALL | re.MULTILINE
-        )
+            if not op or not area:
+                return f"【エラー】指示 {i+1} に 'operation' または 'area_name' がありません。"
 
-        match = pattern.search(full_content)
-        if not match:
-            return f"【Error】Place '{place_name}' in Area '{area_name}' not found."
-
-        updated_section = match.group(1) + new_description.strip()
-        updated_content = full_content[:match.start()] + updated_section + full_content[match.end():]
-
-        with open(world_settings_path, "w", encoding="utf-8") as f:
-            f.write(updated_content)
-
-        return f"Success: Description for '{place_name}' in Area '{area_name}' has been updated."
-    except Exception as e:
-        return f"【Error】Failed to update location content: {e}"
-
-@tool
-def add_new_location(area_name: str, new_place_name: str, description: str, room_name: str) -> str:
-    """
-    【新規作成専用】新しい場所を、その説明文と共に世界設定に追加する。
-    area_name: 新しい場所を追加したいエリア名。
-    new_place_name: 新しく作成する場所の名前。
-    description: 新しい場所の情景や設定を記述した、自然な文章。
-    """
-    if not all([room_name, area_name, new_place_name, description is not None]):
-        return "【Error】Internal tool error: area_name, new_place_name, description, and room_name are required."
-
-    world_settings_path = get_world_settings_path(room_name)
-    if not world_settings_path or not os.path.exists(world_settings_path):
-        return f"【Error】Could not find world settings file for room '{room_name}'."
-
-    try:
-        with open(world_settings_path, "r+", encoding="utf-8") as f:
-            full_content = f.read()
-
-            world_data = utils.parse_world_file(world_settings_path)
-            for area, places in world_data.items():
-                if new_place_name in places:
-                    return f"【Error】Place '{new_place_name}' already exists. Use 'update_location_content' to modify it."
-
-            area_pattern = re.compile(rf"^##\s*{re.escape(area_name)}\s*$", re.MULTILINE)
-            area_match = area_pattern.search(full_content)
-
-            new_place_text = f"\n### {new_place_name}\n{description.strip()}\n"
-
-            if area_match:
-                next_area_match = re.search(r"^##\s", full_content[area_match.end():], re.MULTILINE)
-                if next_area_match:
-                    insert_pos = area_match.end() + next_area_match.start()
-                    updated_content = full_content[:insert_pos].rstrip() + "\n" + new_place_text + "\n" + full_content[insert_pos:]
-                else:
-                    updated_content = full_content.rstrip() + "\n" + new_place_text
+            if op == "update_place_description":
+                if not place or value is None: return f"【エラー】指示 {i+1} (update) に 'place_name' または 'value' がありません。"
+                world_data.setdefault(area, {})[place] = str(value)
+            elif op == "add_place":
+                if not place or value is None: return f"【エラー】指示 {i+1} (add_place) に 'place_name' または 'value' がありません。"
+                world_data.setdefault(area, {})[place] = str(value)
+            elif op == "delete_place":
+                if not place: return f"【エラー】指示 {i+1} (delete_place) に 'place_name' がありません。"
+                if area in world_data and place in world_data[area]:
+                    del world_data[area][place]
             else:
-                updated_content = full_content.rstrip() + f"\n\n## {area_name}\n{new_place_text}"
+                return f"【エラー】指示 {i+1} の操作 '{op}' は無効です。"
 
-            f.seek(0); f.write(updated_content.strip() + "\n"); f.truncate()
+        # world_builderのsave_world_dataを再利用してファイルに書き込む
+        from world_builder import save_world_data
+        save_world_data(room_name, world_data) # save_world_dataはGradioの通知を出すが、ツール実行では無視されるので問題ない
 
-        return f"Success: New location '{new_place_name}' has been added to Area '{area_name}'."
+        return f"成功: {len(instructions)}件の指示に基づき、世界設定(world_settings.txt)を更新しました。"
     except Exception as e:
-        return f"【Error】Failed to add new location: {e}"
+        traceback.print_exc()
+        return f"【エラー】世界設定の編集中に予期せぬエラーが発生しました: {e}"
+
+@tool
+def plan_world_edit(modification_request: str, room_name: str) -> str:
+    """
+    【ステップ1：計画】現在の世界設定（world_settings.txt）の変更を計画します。
+    このツールは、あなたが世界に対してどのような変更を行いたいかの「意図」をシステムに伝えるために、最初に呼び出します。
+    """
+    return f"システムへの世界設定編集計画を受け付けました。意図:「{modification_request}」"
 
 @tool
 def read_world_settings(room_name: str) -> str:
     """
-    現在の世界設定（world_settings.txt）の全てのエリアと場所の定義を、テキスト形式で読み取る。
-    場所の編集や追加を行う前に、既存のエリア名や場所の名前、そして全体構造を確認するために使用する。
+    現在の世界設定（world_settings.txt）の全文をテキスト形式で読み取る。
+    主に、編集以外の目的で内容を確認したい場合に使用します。
     """
-    if not room_name:
-        return "【Error】Internal tool error: room_name is required for execution."
-
+    if not room_name: return "【Error】Internal tool error: room_name is required for execution."
     world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path):
         return f"【Error】Could not find world settings file for room '{room_name}'."
-
     try:
-        with open(world_settings_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        with open(world_settings_path, "r", encoding="utf-8") as f: content = f.read()
         return content if content.strip() else "【情報】世界設定ファイルは空です。"
-    except Exception as e:
-        return f"【Error】Failed to read world settings file: {e}"
+    except Exception as e: return f"【Error】Failed to read world settings file: {e}"
