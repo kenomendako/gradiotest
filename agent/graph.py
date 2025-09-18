@@ -1,40 +1,42 @@
-# agent/graph.py
+# agent/graph.py (v17: The Unwavering Invocation)
 
 import os
 import re
 import traceback
 import json
-import pytz
+import time # リトライのためにtimeをインポート
 from datetime import datetime
-from typing import TypedDict, Annotated, List, Literal, Optional, Tuple
+from typing import TypedDict, Annotated, List, Literal, Tuple
 
-from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage
+from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage, HumanMessage
+# ▼▼▼【リトライ処理に必要な例外クラスをインポート】▼▼▼
+from google.api_core import exceptions as google_exceptions
 from langchain_google_genai import HarmCategory, HarmBlockThreshold
-from langchain_google_genai import ChatGoogleGenerativeAI
+from gemini_api import get_configured_llm # 新しい聖域から関数をインポート
+# ▲▲▲【インポート修正ここまで】▲▲▲
 from langgraph.graph import StateGraph, END, START, add_messages
-from langgraph.prebuilt import ToolNode
 
+# --- ツールとヘルパー関数のインポート (変更なし) ---
 from agent.prompts import CORE_PROMPT_TEMPLATE
-from tools.space_tools import (
-    set_current_location, update_location_content, add_new_location, read_world_settings
-)
+from tools.space_tools import set_current_location, update_location_content, add_new_location, read_world_settings
 from tools.knowledge_tools import search_knowledge_graph
-from tools.memory_tools import read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory
-from tools.notepad_tools import add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad
+from tools.memory_tools import read_full_memory, write_full_memory, _write_memory_file
+from tools.notepad_tools import read_full_notepad, write_full_notepad, _write_notepad_file
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from tools.timer_tools import set_timer, set_pomodoro_timer
 from room_manager import get_world_settings_path
-from memory_manager import load_memory_data_safe
 import utils
 import config_manager
 import constants
+import pytz
 
+# --- ツールリストとAgentStateの定義 (変更なし) ---
 all_tools = [
     set_current_location, update_location_content, add_new_location, read_world_settings,
-    read_memory_by_path, edit_memory, add_secret_diary_entry, summarize_and_save_core_memory, read_full_memory,
-    add_to_notepad, update_notepad, delete_from_notepad, read_full_notepad,
+    read_full_memory, write_full_memory,
+    read_full_notepad, write_full_notepad,
     web_search_tool, read_url_tool,
     generate_image,
     set_personal_alarm,
@@ -57,28 +59,7 @@ class AgentState(TypedDict):
     debug_mode: bool
     all_participants: List[str]
 
-def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
-    threshold_map = {
-        "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
-        "BLOCK_LOW_AND_ABOVE": HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-        "BLOCK_MEDIUM_AND_ABOVE": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-        "BLOCK_ONLY_HIGH": HarmBlockThreshold.BLOCK_ONLY_HIGH,
-    }
-    safety_settings = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(generation_config.get("safety_block_threshold_harassment")),
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(generation_config.get("safety_block_threshold_hate_speech")),
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: threshold_map.get(generation_config.get("safety_block_threshold_sexually_explicit")),
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(generation_config.get("safety_block_threshold_dangerous_content")),
-    }
-    return ChatGoogleGenerativeAI(
-        model=model_name,
-        google_api_key=api_key,
-        convert_system_message_to_human=False,
-        max_retries=6,
-        temperature=generation_config.get("temperature", 0.8),
-        top_p=generation_config.get("top_p", 0.95),
-        safety_settings=safety_settings
-    )
+# --- 既存ノードとルーター関数 (safe_tool_executor 以外は変更なし) ---
 
 def get_location_list(room_name: str) -> List[str]:
     if not room_name: return []
@@ -179,31 +160,9 @@ def context_generator_node(state: AgentState):
         except Exception as e:
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
-    # ▼▼▼【ここからが修正ブロック】▼▼▼
-    tools_list_str = ""
-    # effective_settings は config_manager から取得する
-    effective_settings = config_manager.get_effective_settings(room_name)
-
-    if not effective_settings.get("use_common_prompt", True):
-        tools_list_str = "（ツールは設定により無効化されています）"
-    elif len(all_participants) > 1:
+    tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
+    if len(all_participants) > 1:
         tools_list_str = "（グループ会話中はツールを使用できません）"
-    else:
-        tool_descriptions = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
-        tools_list_str = f"""
-### 長期記憶（知識グラフ）の活用ルール
-- 過去の会話から抽出・構築された、客観的な事実や、登場人物・場所・物事の関係性について知りたい場合は、`search_knowledge_graph`ツールを使用すること。
-- これは、あなたの主観的な「日記」とは異なる、客観的なデータベースである。
----
-### ツール一覧
-- **画像生成の厳格な手順:**
-  1. ユーザーからイラストや画像の生成を依頼された場合、あなたは `generate_image` ツールを呼び出す。
-  2. ツールが成功すると、あなたは `[Generated Image: path/to/image.png]` という形式の特別なテキストを受け取る。
-  3. あなたの最終的な応答には、**必ず、この受け取った画像タグを、そのままの形で含めなければならない。** これを怠ることは許されない。
-
-{tool_descriptions}
-"""
-    # ▲▲▲【修正はここまで】▲▲▲
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
     prompt_vars = {'character_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
@@ -254,15 +213,11 @@ def agent_node(state: AgentState):
         print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
         print(final_system_prompt_text)
         print("-----------------------------------------")
-
     llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
     llm_with_tools = llm.bind_tools(all_tools)
-
     history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
     messages_for_agent = [final_system_prompt_message] + history_messages
-
     import pprint
-
     print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
     for i, msg in enumerate(messages_for_agent):
         msg_type = type(msg).__name__
@@ -287,13 +242,10 @@ def agent_node(state: AgentState):
             pprint.pprint(msg.tool_calls, indent=4)
         print("-" * 20)
     print("--------------------------------------------------\n")
-
     response = llm_with_tools.invoke(messages_for_agent)
-
     print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
     pprint.pprint(response)
     print("---------------------------------------\n")
-
     return {"messages": [response]}
 
 def location_report_node(state: AgentState):
@@ -331,45 +283,103 @@ def route_after_context(state: AgentState) -> Literal["location_report_node", "a
     return "agent"
 
 def safe_tool_executor(state: AgentState):
-    print("--- カスタムツール実行ノード (safe_tool_executor) 実行 ---")
-    messages = state['messages']
-    last_message = messages[-1]
-    tool_invocations = last_message.tool_calls
+    """
+    AIのツール呼び出し要求を解釈し、安全な方法で実行する。
+    書き込み系ツールの場合は、「グランド・アーキテクト」モデルに基づき、
+    ペルソナAIの応答から本質（JSON）のみを抽出し、安全に書き込む。
+    """
+    print("--- 安全なツール実行ノード (safe_tool_executor) 実行 ---")
+    last_message = state['messages'][-1]
+    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
+        return {}
+
+    # The graph currently only supports one tool call at a time.
+    # Select the first tool call to maintain stability.
+    tool_call = last_message.tool_calls[0]
+    tool_name = tool_call["name"]
+    tool_args = tool_call["args"]
+    room_name = state.get('room_name')
     api_key = state.get('api_key')
 
-    current_room_name = state.get('room_name')
-    if not current_room_name:
-        tool_outputs = [
-            ToolMessage(content=f"Error: Could not determine the current room name from the agent state.", tool_call_id=call["id"], name=call["name"])
-            for call in tool_invocations
-        ]
-        return {"messages": tool_outputs}
+    is_write_memory = tool_name == "write_full_memory"
+    is_write_notepad = tool_name == "write_full_notepad"
 
-    tool_outputs = []
-    for tool_call in tool_invocations:
-        tool_name = tool_call["name"]
-        print(f"  - 準備中のツール: {tool_name} | 引数: {tool_call['args']}")
+    if is_write_memory or is_write_notepad:
+        try:
+            read_tool = read_full_memory if is_write_memory else read_full_notepad
+            print(f"  - 書き込み仲介: '{read_tool.name}' を実行します。")
+            current_content = read_tool.invoke({"room_name": room_name})
 
-        tool_call['args']['room_name'] = current_room_name
-        print(f"    - 'room_name: {current_room_name}' を引数に注入/上書きしました。")
+            print(f"  - 書き込み仲介: ペルソナAI ({state['model_name']}) に創造タスクを依頼します。")
+            llm_persona = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
 
-        if tool_name == 'generate_image' or tool_name == 'summarize_and_save_core_memory':
-            tool_call['args']['api_key'] = api_key
-            print(f"    - 'api_key' を引数に追加しました。")
+            merge_instruction = HumanMessage(content=f"""【最重要指示：これは『対話』ではなく『創造タスク』です】
+あなたの現在の役割は、ユーザーとの対話を続けることではありません。
+あなたは今、自身の記憶またはメモ帳を更新するという、重要なタスクを執り行っています。
+システムが、タスクに必要な全ての情報を以下に提示します。
+あなたの「変更要求」を、この「既存のデータ」に反映させ、最終的にファイルに書き込むべき、完璧な全文を生成してください。
+
+【既存のデータ】
+---
+{current_content}
+---
+
+【あなたの変更要求】
+「{tool_args.get('modification_request')}」
+
+【絶対的な出力ルール】
+- あなた自身の思考、挨拶、言い訳、そして新たなツール呼び出しは、決して含めてはなりません。
+- あなたの応答は、最終的なファイル全文**のみ**で構成されなければなりません。
+- JSON形式のファイルを編集している場合は、必ず有効なJSON形式で出力してください。
+- 出力は ` ```json ` と ` ``` ` で囲んでも構いません。
+""")
+
+            messages_for_merging = [msg for msg in state['messages'] if msg is not last_message]
+            messages_for_merging.append(merge_instruction)
+            final_context_for_merging = [state['system_prompt']] + messages_for_merging
+
+            response_from_architect = llm_persona.invoke(final_context_for_merging).content.strip()
+
+            # ▼▼▼【マスター・クラフツマンのロジック】▼▼▼
+            # AIの応答から、本質であるJSON文字列のみを抽出する
+            print("  - 書き込み仲介: マスター・クラフツマンが応答から本質を抽出します。")
+            json_match = re.search(r'```json\s*([\s\S]*?)\s*```', response_from_architect, re.DOTALL)
+            if json_match:
+                content_to_write = json_match.group(1).strip()
+                print("    - ` ```json ` ブロックを発見。内容を抽出しました。")
+            else:
+                content_to_write = response_from_architect
+                print("    - ` ```json ` ブロックはなし。応答全体を内容とみなします。")
+            # ▲▲▲【抽出ロジックここまで】▲▲▲
+
+            write_function = _write_memory_file if is_write_memory else _write_notepad_file
+            print(f"  - 書き込み仲介: 抽出された内容で '{write_function.__name__}' を実行します。")
+            output = write_function(
+                full_content=content_to_write,
+                room_name=room_name,
+                modification_request=tool_args.get('modification_request')
+            )
+
+        except Exception as e:
+            output = f"Error during mediated write for '{tool_name}': {e}"
+            traceback.print_exc()
+    else:
+        # 通常のツール実行
+        tool_args['room_name'] = room_name
+        if tool_name in ['generate_image']:
+            tool_args['api_key'] = api_key
 
         selected_tool = next((t for t in all_tools if t.name == tool_name), None)
         if not selected_tool:
             output = f"Error: Tool '{tool_name}' not found."
         else:
             try:
-                output = selected_tool.invoke(tool_call['args'])
+                output = selected_tool.invoke(tool_args)
             except Exception as e:
                 output = f"Error executing tool '{tool_name}': {e}"
                 traceback.print_exc()
-        tool_outputs.append(
-            ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)
-        )
-    return {"messages": tool_outputs}
+
+    return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)]}
 
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
@@ -407,22 +417,17 @@ workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
 workflow.add_node("safe_tool_node", safe_tool_executor)
 workflow.add_node("location_report_node", location_report_node)
+
 workflow.add_edge(START, "context_generator")
 workflow.add_conditional_edges(
     "context_generator",
     route_after_context,
-    {
-        "location_report_node": "location_report_node",
-        "agent": "agent",
-    },
+    {"location_report_node": "location_report_node", "agent": "agent"},
 )
 workflow.add_conditional_edges(
     "agent",
     route_after_agent,
-    {
-        "safe_tool_node": "safe_tool_node",
-        "__end__": END,
-    },
+    {"safe_tool_node": "safe_tool_node", "__end__": END},
 )
 workflow.add_conditional_edges(
     "safe_tool_node",
@@ -431,4 +436,4 @@ workflow.add_conditional_edges(
 )
 workflow.add_edge("location_report_node", END)
 app = workflow.compile()
-print("--- 統合グラフ(v12)がコンパイルされました ---")
+print("--- 統合グラフ(The Final Covenant)がコンパイルされました ---")
