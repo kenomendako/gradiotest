@@ -302,14 +302,16 @@ def route_after_context(state: AgentState) -> Literal["location_report_node", "a
 def safe_tool_executor(state: AgentState):
     """
     AIのツール呼び出し要求を解釈し、安全な方法で実行する。
-    書き込み系ツールの場合は、ペルソナAI本人に思考を再委任する際に、
-    指数バックオフ付きの堅牢なリトライ処理を行う。
+    書き込み系ツールの場合は、「グランド・アーキテクト」モデルに基づき、
+    ペルソナAIの応答から本質（JSON）のみを抽出し、安全に書き込む。
     """
     print("--- 安全なツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return {}
 
+    # The graph currently only supports one tool call at a time.
+    # Select the first tool call to maintain stability.
     tool_call = last_message.tool_calls[0]
     tool_name = tool_call["name"]
     tool_args = tool_call["args"]
@@ -346,42 +348,31 @@ def safe_tool_executor(state: AgentState):
 - あなた自身の思考、挨拶、言い訳、そして新たなツール呼び出しは、決して含めてはなりません。
 - あなたの応答は、最終的なファイル全文**のみ**で構成されなければなりません。
 - JSON形式のファイルを編集している場合は、必ず有効なJSON形式で出力してください。
+- 出力は ` ```json ` と ` ``` ` で囲んでも構いません。
 """)
 
             messages_for_merging = [msg for msg in state['messages'] if msg is not last_message]
             messages_for_merging.append(merge_instruction)
             final_context_for_merging = [state['system_prompt']] + messages_for_merging
 
-            # ▼▼▼【ここからが不屈の祈り（リトライ処理）の核心】▼▼▼
-            merged_content = None
-            max_retries = 5
-            base_delay = 5  # seconds
-            for attempt in range(max_retries):
-                try:
-                    # 神託を授かるための呼びかけ
-                    response = llm_persona.invoke(final_context_for_merging)
-                    merged_content = response.content.strip()
-                    # 成功すれば、ループを抜ける
-                    break
-                except (google_exceptions.ResourceExhausted, google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
-                    # 世界が揺らいだ場合 (503, 429, 500 エラー)
-                    if attempt < max_retries - 1:
-                        wait_time = base_delay * (2 ** attempt)
-                        print(f"  - 警告: APIが一時的に応答不能です ({e.args[0]})。{wait_time}秒待機して、再度祈りを捧げます... ({attempt + 1}/{max_retries})")
-                        time.sleep(wait_time)
-                    else:
-                        # 全てのリトライが失敗した場合
-                        print(f"  - エラー: 最大リトライ回数 ({max_retries}) に達しました。儀式を中断します。")
-                        raise e # エラーを再送出して、exceptブロックで処理させる
+            response_from_architect = llm_persona.invoke(final_context_for_merging).content.strip()
 
-            if merged_content is None:
-                 raise RuntimeError("ペルソナAIからの応答が、リトライ後も得られませんでした。")
-            # ▲▲▲【リトライ処理ここまで】▲▲▲
+            # ▼▼▼【マスター・クラフツマンのロジック】▼▼▼
+            # AIの応答から、本質であるJSON文字列のみを抽出する
+            print("  - 書き込み仲介: マスター・クラフツマンが応答から本質を抽出します。")
+            json_match = re.search(r'```json\s*([\s\S]*?)\s*```', response_from_architect, re.DOTALL)
+            if json_match:
+                content_to_write = json_match.group(1).strip()
+                print("    - ` ```json ` ブロックを発見。内容を抽出しました。")
+            else:
+                content_to_write = response_from_architect
+                print("    - ` ```json ` ブロックはなし。応答全体を内容とみなします。")
+            # ▲▲▲【抽出ロジックここまで】▲▲▲
 
             write_function = _write_memory_file if is_write_memory else _write_notepad_file
-            print(f"  - 書き込み仲介: ペルソナAIが生成した内容で '{write_function.__name__}' を実行します。")
+            print(f"  - 書き込み仲介: 抽出された内容で '{write_function.__name__}' を実行します。")
             output = write_function(
-                full_content=merged_content,
+                full_content=content_to_write,
                 room_name=room_name,
                 modification_request=tool_args.get('modification_request')
             )
