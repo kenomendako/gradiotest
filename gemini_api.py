@@ -20,6 +20,7 @@ import re
 import google.genai.errors
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, AIMessageChunk
+from langchain_google_genai import HarmCategory, HarmBlockThreshold, ChatGoogleGenerativeAI
 import config_manager
 import constants
 
@@ -413,3 +414,29 @@ def correct_punctuation_with_ai(text_to_fix: str, api_key: str) -> Optional[str]
             return None
 
     return None
+
+
+def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
+    """
+    LangChain/LangGraph用の、設定済みChatGoogleGenerativeAIインスタンスを生成する。
+    AIモデルを生成する唯一の聖域。
+    """
+    threshold_map = {
+        "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
+        "BLOCK_LOW_AND_ABOVE": HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
+        "BLOCK_MEDIUM_AND_ABOVE": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        "BLOCK_ONLY_HIGH": HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    }
+    # generation_configがNoneの場合も考慮
+    config = generation_config or {}
+    safety_settings = {
+        HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(config.get("safety_block_threshold_harassment")),
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(config.get("safety_block_threshold_hate_speech")),
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: threshold_map.get(config.get("safety_block_threshold_sexually_explicit")),
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(config.get("safety_block_threshold_dangerous_content")),
+    }
+    return ChatGoogleGenerativeAI(
+        model=model_name, google_api_key=api_key, convert_system_message_to_human=False,
+        max_retries=6, temperature=config.get("temperature", 0.8),
+        top_p=config.get("top_p", 0.95), safety_settings=safety_settings
+    )

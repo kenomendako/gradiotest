@@ -1,11 +1,18 @@
 # tools/memory_tools.py (v14: Final Fix)
 
-from langchain_core.tools import tool
 import json
 import datetime
 import os
+import traceback
+
+from langchain_core.tools import tool
+
+import config_manager
+import constants
+from gemini_api import get_configured_llm
 from room_manager import get_room_files_paths
 from memory_manager import load_memory_data_safe
+
 
 @tool
 def read_full_memory(room_name: str) -> str:
@@ -62,13 +69,6 @@ def _write_memory_file(full_content: str, room_name: str, modification_request: 
         return f"【エラー】AIが生成したテキストは、有効なJSON形式ではありませんでした。テキスト: {full_content[:200]}..."
     except Exception as e:
         return f"【エラー】記憶の上書き中に予期せぬエラーが発生しました: {e}"
-
-# ファイルの末尾に、以下の関数をまるごと追加してください
-
-import config_manager # 関数の先頭でimportが必要
-import constants      # 同上
-from agent.graph import get_configured_llm # 同上
-import traceback # エラー出力のために追加
 
 @tool
 def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:

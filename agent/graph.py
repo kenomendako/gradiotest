@@ -11,7 +11,8 @@ from typing import TypedDict, Annotated, List, Literal, Tuple
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage, HumanMessage
 # ▼▼▼【リトライ処理に必要な例外クラスをインポート】▼▼▼
 from google.api_core import exceptions as google_exceptions
-from langchain_google_genai import HarmCategory, HarmBlockThreshold, ChatGoogleGenerativeAI
+from langchain_google_genai import HarmCategory, HarmBlockThreshold
+from gemini_api import get_configured_llm # 新しい聖域から関数をインポート
 # ▲▲▲【インポート修正ここまで】▲▲▲
 from langgraph.graph import StateGraph, END, START, add_messages
 
@@ -59,24 +60,6 @@ class AgentState(TypedDict):
     all_participants: List[str]
 
 # --- 既存ノードとルーター関数 (safe_tool_executor 以外は変更なし) ---
-def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
-    threshold_map = {
-        "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
-        "BLOCK_LOW_AND_ABOVE": HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-        "BLOCK_MEDIUM_AND_ABOVE": HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-        "BLOCK_ONLY_HIGH": HarmBlockThreshold.BLOCK_ONLY_HIGH,
-    }
-    safety_settings = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(generation_config.get("safety_block_threshold_harassment")),
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(generation_config.get("safety_block_threshold_hate_speech")),
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: threshold_map.get(generation_config.get("safety_block_threshold_sexually_explicit")),
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(generation_config.get("safety_block_threshold_dangerous_content")),
-    }
-    return ChatGoogleGenerativeAI(
-        model=model_name, google_api_key=api_key, convert_system_message_to_human=False,
-        max_retries=6, temperature=generation_config.get("temperature", 0.8),
-        top_p=generation_config.get("top_p", 0.95), safety_settings=safety_settings
-    )
 
 def get_location_list(room_name: str) -> List[str]:
     if not room_name: return []
