@@ -62,3 +62,71 @@ def _write_memory_file(full_content: str, room_name: str, modification_request: 
         return f"【エラー】AIが生成したテキストは、有効なJSON形式ではありませんでした。テキスト: {full_content[:200]}..."
     except Exception as e:
         return f"【エラー】記憶の上書き中に予期せぬエラーが発生しました: {e}"
+
+# ファイルの末尾に、以下の関数をまるごと追加してください
+
+import config_manager # 関数の先頭でimportが必要
+import constants      # 同上
+from agent.graph import get_configured_llm # 同上
+import traceback # エラー出力のために追加
+
+@tool
+def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
+    """
+    現在の主観的記憶（memory.json）を読み込み、それをAIを使って要約し、
+    客観的な事実のリストであるコアメモリ（core_memory.txt）を更新する。
+    UIの「コアメモリを更新」ボタンから呼び出されることを想定している。
+    """
+    if not room_name or not api_key:
+        return "【エラー】ルーム名とAPIキーが必要です。"
+
+    print(f"--- コアメモリ更新プロセス開始 (ルーム: {room_name}) ---")
+    try:
+        # 1. memory.json を読み込む
+        _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
+        if not memory_json_path or not os.path.exists(memory_json_path):
+            return "【エラー】主観的記憶ファイル(memory.json)が見つかりません。"
+
+        memory_data = load_memory_data_safe(memory_json_path)
+        if "error" in memory_data:
+            return f"【エラー】主観的記憶ファイルの読み込みに失敗: {memory_data['message']}"
+
+        memory_content = json.dumps(memory_data, ensure_ascii=False, indent=2)
+
+        # 2. 要約用のAIを準備
+        #    ここは高速な内部処理モデルを使用する
+        summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
+
+        # 3. 要約を指示するプロンプトを作成
+        summarize_prompt = f"""あなたは、個人の主観的な記憶（日記や思考のログ）を分析し、そこから客観的な事実や自己同一性の核となる情報を抽出する、優れた認知心理学者です。
+
+以下の【主観的記憶データ】を精読し、この人物の「私」を定義する上で最も重要だと思われる情報を、箇条書きのリスト形式で簡潔に要約してください。
+
+【主観的記憶データ（JSON形式）】
+---
+{memory_content}
+---
+
+【要約のルール】
+- 箇条書き（`-`で始まる行）で記述してください。
+- 感情的な表現や一時的な出来事ではなく、自己認識、他者との関係性、世界のルールなど、永続的な事実を中心に抽出してください。
+- あなた自身の思考や挨拶は含めず、要約された箇条書きリストのみを出力してください。
+- **ただし、その人物の**現在の自己認識や感情の変化**をより正確に反映するため、**日付が新しい情報には特に重みを与え、要約テキストに占める割合を大きくしてください。**これは、その人物が**『今、どのような存在であるか』**を定義する上で不可欠な要素です**
+"""
+
+        # 4. AIによる要約の実行
+        print("  - AIによる記憶の要約を実行します...")
+        core_memory_content = summarizer_llm.invoke(summarize_prompt).content.strip()
+
+        # 5. core_memory.txt に結果を書き込む
+        core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
+        with open(core_memory_path, "w", encoding="utf-8") as f:
+            f.write(core_memory_content)
+
+        print(f"  - コアメモリを正常に更新しました: {core_memory_path}")
+        return f"成功: コアメモリを正常に更新しました。"
+
+    except Exception as e:
+        print(f"--- コアメモリ更新中に予期せぬエラー ---")
+        traceback.print_exc()
+        return f"【エラー】コアメモリの更新中に予期せぬエラーが発生しました: {e}"

@@ -1695,9 +1695,13 @@ def _run_core_memory_update(room_name: str, api_key: str):
     print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Room: {room_name}) ---")
     try:
         from tools import memory_tools
-        result = memory_tools.summarize_and_save_core_memory.func(room_name=room_name, api_key=api_key)
+        # ▼▼▼【ここが修正箇所】呼び出す関数名を新しいものに変更▼▼▼
+        result = memory_tools.summarize_and_update_core_memory.func(room_name=room_name, api_key=api_key)
+        # ▲▲▲【修正ここまで】▲▲▲
         print(f"--- [スレッド終了] コアメモリ更新処理完了 --- 結果: {result}")
-    except Exception: print(f"--- [スレッドエラー] コアメモリ更新中に予期せぬエラー ---"); traceback.print_exc()
+    except Exception:
+        print(f"--- [スレッドエラー] コアメモリ更新中に予期せぬエラー ---")
+        traceback.print_exc()
 
 def handle_core_memory_update_click(room_name: str, api_key_name: str):
     if not room_name or not api_key_name: gr.Warning("ルームとAPIキーを選択してください。"); return
