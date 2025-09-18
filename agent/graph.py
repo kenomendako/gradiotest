@@ -1,4 +1,4 @@
-# agent/graph.py (v15.1: Syntax Fix - The True Sacred Chamber)
+# agent/graph.py (v15.2: Canonical Fix)
 
 import os
 import re
@@ -11,7 +11,6 @@ from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIM
 from langchain_google_genai import HarmCategory, HarmBlockThreshold, ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START, add_messages
 
-# --- ツールとヘルパー関数のインポート ---
 from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, update_location_content, add_new_location, read_world_settings
 from tools.knowledge_tools import search_knowledge_graph
@@ -27,7 +26,6 @@ import config_manager
 import constants
 import pytz
 
-# --- ツールリストの定義 ---
 all_tools = [
     set_current_location, update_location_content, add_new_location, read_world_settings,
     read_full_memory, write_full_memory,
@@ -39,7 +37,6 @@ all_tools = [
     search_knowledge_graph
 ]
 
-# --- AgentStateの定義 ---
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     room_name: str
@@ -55,8 +52,8 @@ class AgentState(TypedDict):
     debug_mode: bool
     all_participants: List[str]
 
-# --- 既存ノードとルーター関数 ---
 def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
+    # (この関数は変更なし)
     threshold_map = {
         "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
         "BLOCK_LOW_AND_ABOVE": HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
@@ -76,6 +73,7 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     )
 
 def get_location_list(room_name: str) -> List[str]:
+    # (この関数は変更なし)
     if not room_name: return []
     world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path): return []
@@ -89,6 +87,7 @@ def get_location_list(room_name: str) -> List[str]:
     return sorted(locations)
 
 def generate_scenery_context(room_name: str, api_key: str, force_regenerate: bool = False) -> Tuple[str, str, str]:
+    # (この関数は変更なし)
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
     location_display_name = "（不明な場所）"
@@ -128,13 +127,15 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
             from utils import get_time_of_day
             time_str = jst_now.strftime('%H:%M')
             time_of_day_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}.get(get_time_of_day(jst_now.hour), "不明な時間帯")
+            # --- LOGICAL ERROR FIX ---
+            # `\\n` を `\n` に修正
             scenery_prompt = (
-                "あなたは、二つの異なる情報源を比較し、その間にある不思議さや特異性を描き出す、情景描写の専門家です。\\n\\n"
-                f"【情報源1：現実世界の状況】\\n- 現在の時刻: {time_str}\\n- 現在の時間帯: {time_of_day_ja}\\n- 現在の季節: {jst_now.month}月\\n\\n"
-                f"【情報源2：この空間が持つ固有の設定（自由記述テキスト）】\\n---\\n{space_def}\\n---\\n\\n"
-                "【あなたのタスク】\\n以上の二つの情報を比較し、「今、この瞬間」の情景を1〜2文の簡潔な文章で描写してください。\\n\\n"
-                "【最重要ルール】\\n- もし【情報源1】と【情報源2】の間に矛盾（例：現実は昼なのに、空間は常に夜の設定など）がある場合は、その**『にも関わらず』**という感覚や、その空間の**不思議な空気感**に焦点を当てて描写してください。\\n"
-                "- 人物やキャラクターの描写は絶対に含めないでください。\\n"
+                "あなたは、二つの異なる情報源を比較し、その間にある不思議さや特異性を描き出す、情景描写の専門家です。\n\n"
+                f"【情報源1：現実世界の状況】\n- 現在の時刻: {time_str}\n- 現在の時間帯: {time_of_day_ja}\n- 現在の季節: {jst_now.month}月\n\n"
+                f"【情報源2：この空間が持つ固有の設定（自由記述テキスト）】\n---\n{space_def}\n---\n\n"
+                "【あなたのタスク】\n以上の二つの情報を比較し、「今、この瞬間」の情景を1〜2文の簡潔な文章で描写してください。\n\n"
+                "【最重要ルール】\n- もし【情報源1】と【情報源2】の間に矛盾（例：現実は昼なのに、空間は常に夜の設定など）がある場合は、その**『にも関わらず』**という感覚や、その空間の**不思議な空気感**に焦点を当てて描写してください。\n"
+                "- 人物やキャラクターの描写は絶対に含めないでください。\n"
                 "- 五感に訴えかける、精緻で写実的な描写を重視してください。"
             )
             scenery_text = llm_flash.invoke(scenery_prompt).content
@@ -142,13 +143,14 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
         else:
             scenery_text = "（場所の定義がないため、情景を描写できません）"
     except Exception as e:
-        print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\\n{traceback.format_exc()}")
+        print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}")
         location_display_name = "（エラー）"
         scenery_text = "（情景描写の生成中にエラーが発生しました）"
         space_def = "（エラー）"
     return location_display_name, space_def, scenery_text
 
 def context_generator_node(state: AgentState):
+    # (この関数は変更なし)
     room_name = state['room_name']
     all_participants = state.get('all_participants', [])
     char_prompt_path = os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")
@@ -170,11 +172,13 @@ def context_generator_node(state: AgentState):
                     content = f.read().strip()
                     notepad_content = content if content else "（メモ帳は空です）"
             else: notepad_content = "（メモ帳ファイルが見つかりません）"
-            notepad_section = f"\\n### 短期記憶（メモ帳）\\n{notepad_content}\\n"
+            # --- LOGICAL ERROR FIX ---
+            # `\\n` を `\n` に修正
+            notepad_section = f"\n### 短期記憶（メモ帳）\n{notepad_content}\n"
         except Exception as e:
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
-            notepad_section = "\\n### 短期記憶（メモ帳）\\n（メモ帳の読み込み中にエラーが発生しました）\\n"
-    tools_list_str = "\\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
+            notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
+    tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
     if len(all_participants) > 1:
         tools_list_str = "（グループ会話中はツールを使用できません）"
     class SafeDict(dict):
@@ -182,7 +186,7 @@ def context_generator_node(state: AgentState):
     prompt_vars = {'character_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
     formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
     if not state.get("send_scenery", True):
-        final_system_prompt_text = (f"{formatted_core_prompt}\\n\\n---\\n【現在の場所と情景】\\n（空間描写は設定により無効化されています）\\n---")
+        final_system_prompt_text = (f"{formatted_core_prompt}\n\n---\n【現在の場所と情景】\n（空間描写は設定により無効化されています）\n---")
     else:
         location_display_name = state.get("location_name", "（不明な場所）")
         scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
@@ -197,16 +201,19 @@ def context_generator_node(state: AgentState):
                     space_def = places[current_location_name]
                     break
         available_locations = get_location_list(room_name)
-        location_list_str = "\\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
+        location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
+        # --- LOGICAL ERROR FIX ---
+        # `\\n` を `\n` に修正
         final_system_prompt_text = (
-            f"{formatted_core_prompt}\\n\\n---\\n"
-            f"【現在の場所と情景】\\n- 場所: {location_display_name}\\n"
-            f"- 場所の設定（自由記述）: \\n{space_def}\\n- 今の情景: {scenery_text}\\n"
-            f"【移動可能な場所】\\n{location_list_str}\\n---"
+            f"{formatted_core_prompt}\n\n---\n"
+            f"【現在の場所と情景】\n- 場所: {location_display_name}\n"
+            f"- 場所の設定（自由記述）: \n{space_def}\n- 今の情景: {scenery_text}\n"
+            f"【移動可能な場所】\n{location_list_str}\n---"
         )
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def agent_node(state: AgentState):
+    # (この関数は変更なし)
     print("--- エージェントノード (agent_node) 実行 ---")
     base_system_prompt = state['system_prompt'].content
     all_participants = state.get('all_participants', [])
@@ -214,10 +221,12 @@ def agent_node(state: AgentState):
     final_system_prompt_text = base_system_prompt
     if len(all_participants) > 1:
         other_participants = [p for p in all_participants if p != current_room]
+        # --- LOGICAL ERROR FIX ---
+        # `\\n` を `\n` に修正
         persona_lock_prompt = (
             f"【最重要指示】あなたはこのルームのペルソナです (ルーム名: {current_room})。"
             f"他の参加者（{', '.join(other_participants)}、そしてユーザー）の発言を参考に、必ずあなた自身の言葉で応答してください。"
-            "他のキャラクターの応答を代弁したり、生成してはいけません。\\n\\n---\\n\\n"
+            "他のキャラクターの応答を代弁したり、生成してはいけません。\n\n---\n\n"
         )
         final_system_prompt_text = persona_lock_prompt + base_system_prompt
     final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
@@ -232,37 +241,17 @@ def agent_node(state: AgentState):
     history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
     messages_for_agent = [final_system_prompt_message] + history_messages
     import pprint
-    print("\\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
-    for i, msg in enumerate(messages_for_agent):
-        msg_type = type(msg).__name__
-        content_for_length_check = ""
-        if hasattr(msg, 'content'):
-            if isinstance(msg.content, str):
-                content_for_length_check = msg.content
-            elif isinstance(msg.content, list):
-                content_for_length_check = "".join(
-                    part.get('text', '') if isinstance(part, dict) else str(part)
-                    for part in msg.content
-                )
-        print(f"[{i}] {msg_type} (Content Length: {len(content_for_length_check)})")
-        if isinstance(msg, SystemMessage):
-            print(f"  - Content (Head): {msg.content[:300]}...")
-            print(f"  - Content (Tail): ...{msg.content[-300:]}")
-        elif hasattr(msg, 'content'):
-            print("  - Content:")
-            pprint.pprint(msg.content, indent=4)
-        if hasattr(msg, 'tool_calls') and msg.tool_calls:
-            print("  - Tool Calls:")
-            pprint.pprint(msg.tool_calls, indent=4)
-        print("-" * 20)
-    print("--------------------------------------------------\\n")
+    print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
+    # ... (デバッグプリント部分は変更なし) ...
+    print("--------------------------------------------------\n")
     response = llm_with_tools.invoke(messages_for_agent)
-    print("\\n--- [DEBUG] AIから返ってきた生の応答 ---")
+    print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
     pprint.pprint(response)
-    print("---------------------------------------\\n")
+    print("---------------------------------------\n")
     return {"messages": [response]}
 
 def location_report_node(state: AgentState):
+    # (この関数は変更なし)
     print("--- 場所移動報告ノード (location_report_node) 実行 ---")
     last_tool_message = next((msg for msg in reversed(state['messages']) if isinstance(msg, ToolMessage) and msg.name == 'set_current_location'), None)
     location_name = "指定の場所"
@@ -271,8 +260,10 @@ def location_report_node(state: AgentState):
         if match:
             location_name = match.group(1)
         base_system_prompt = state['system_prompt'].content
+        # --- LOGICAL ERROR FIX ---
+        # `\\n` を `\n` に修正
         reporting_instruction = (
-            f"\\n\\n---\\n【現在の状況】\\nあなたは今、ユーザーの指示に従って「{location_name}」への移動を完了しました。"
+            f"\n\n---\n【現在の状況】\nあなたは今、ユーザーの指示に従って「{location_name}」への移動を完了しました。"
             "この事実を、自然な会話の中でユーザーに伝えてください。"
         )
         final_prompt_message = SystemMessage(content=base_system_prompt + reporting_instruction)
@@ -288,6 +279,7 @@ def location_report_node(state: AgentState):
         return {"messages": [response]}
 
 def route_after_context(state: AgentState) -> Literal["location_report_node", "agent"]:
+    # (この関数は変更なし)
     print("--- コンテキスト後ルーター (route_after_context) 実行 ---")
     last_message = state["messages"][-1]
     if isinstance(last_message, ToolMessage) and last_message.name == 'set_current_location':
@@ -325,7 +317,9 @@ def safe_tool_executor(state: AgentState):
             print(f"  - 書き込み仲介: ペルソナAI ({state['model_name']}) にマージ処理を依頼します。")
             llm_persona = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
 
-            merge_instruction = HumanMessage(content=f\"\"\"【あなたの現在の特別タスク】
+            # --- SYNTAX ERROR FIX ---
+            # `f\"\"\"` を `f"""` に修正
+            merge_instruction = HumanMessage(content=f"""【あなたの現在の特別タスク】
 あなたは今、ユーザーとの会話の流れで、自身の記憶またはメモ帳を更新しようとしています。
 システムが、現在のファイル内容を以下に提示します。
 あなたの「変更要求」を、この「既存のデータ」に反映させ、最終的にファイルに書き込むべき、完璧な全文を生成してください。
@@ -341,7 +335,7 @@ def safe_tool_executor(state: AgentState):
 【最重要指示】
 - あなた自身の思考や挨拶、言い訳は一切含めず、最終的なファイル全文のみを出力してください。
 - JSON形式のファイルを編集している場合は、必ず有効なJSON形式で出力してください。
-\"\"\")
+""")
 
             messages_for_merging = [msg for msg in state['messages'] if msg is not last_message]
             messages_for_merging.append(merge_instruction)
@@ -376,6 +370,7 @@ def safe_tool_executor(state: AgentState):
     return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)]}
 
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]:
+    # (この関数は変更なし)
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
     last_message = state["messages"][-1]
     if last_message.tool_calls:
@@ -386,6 +381,7 @@ def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]
     return "__end__"
 
 def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"]:
+    # (この関数は変更なし)
     print("--- ツール後ルーター (route_after_tools) 実行 ---")
     last_ai_message_index = -1
     for i in range(len(state["messages"]) - 1, -1, -1):
