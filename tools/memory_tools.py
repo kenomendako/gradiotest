@@ -1,4 +1,4 @@
-# tools/memory_tools.py (v13: K.I.S.S.)
+# tools/memory_tools.py (v14: Final Fix)
 
 from langchain_core.tools import tool
 import json
@@ -14,17 +14,13 @@ def read_full_memory(room_name: str) -> str:
     """
     if not room_name:
         return "【エラー】内部処理エラー: 引数 'room_name' が不足しています。"
-
     _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
     if not memory_json_path:
         return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
-
     memory_data = load_memory_data_safe(memory_json_path)
     if "error" in memory_data:
         return f"【エラー】記憶ファイルの読み込みに失敗: {memory_data['message']}"
-
     try:
-        # secret_diaryは読み取りから除外する
         memory_data.pop("secret_diary", None)
         return json.dumps(memory_data, ensure_ascii=False, indent=2)
     except Exception as e:
@@ -37,12 +33,9 @@ def write_full_memory(modification_request: str, room_name: str) -> str:
     このツールは直接書き込みを行いません。システムがあなたの要求を解釈し、安全にファイルを更新します。
     modification_request: この書き込みがどのような変更意図で行われたかを記述した自然言語の文。（例：「自己紹介を更新した」）
     """
-    # このツールは safe_tool_executor によって仲介されるため、
-    # 実際にはここのコードは直接実行されない。
-    # しかし、LangChainがツールとして認識するために、有効なPython関数である必要がある。
-    # 成功したかのようなメッセージを返すことで、万が一直接呼ばれた場合でも挙動を明確にする。
+    # この関数は safe_tool_executor によって仲介されるため、これはスキーマ定義のためのものです。
+    # 実際の処理は _write_memory_file で行われます。
     return f"システムへの記憶更新要求を受け付けました。意図:「{modification_request}」"
-
 
 def _write_memory_file(full_content: str, room_name: str) -> str:
     """
@@ -50,14 +43,13 @@ def _write_memory_file(full_content: str, room_name: str) -> str:
     """
     if not all([full_content is not None, room_name]):
         return "【エラー】書き込む内容とルーム名が必要です。"
-    # (元のwrite_full_memoryのファイル書き込みロジックをここに移植)
     _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
     if not memory_json_path:
         return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
     try:
         new_memory_data = json.loads(full_content)
         if not isinstance(new_memory_data, dict):
-            return "【エラー】書き込む内容が有効なJSONオブジェクトではありません。"
+            return "【エラー】AIが生成したテキストは、有効なJSONオブジェクトではありません。"
         existing_memory = load_memory_data_safe(memory_json_path)
         if "secret_diary" in existing_memory:
             new_memory_data["secret_diary"] = existing_memory["secret_diary"]
@@ -66,6 +58,6 @@ def _write_memory_file(full_content: str, room_name: str) -> str:
             json.dump(new_memory_data, f, indent=2, ensure_ascii=False)
         return "成功: 主観的記憶(memory.json)を完全に更新しました。"
     except json.JSONDecodeError:
-        return f"【エラー】書き込もうとしたテキストは、有効なJSON形式ではありませんでした。テキスト: {full_content[:200]}..."
+        return f"【エラー】AIが生成したテキストは、有効なJSON形式ではありませんでした。テキスト: {full_content[:200]}..."
     except Exception as e:
         return f"【エラー】記憶の上書き中に予期せぬエラーが発生しました: {e}"
