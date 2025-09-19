@@ -8,6 +8,7 @@ from memory_manager import load_memory_data_safe
 from typing import List, Dict, Any
 import traceback
 import os
+import constants
 
 @tool
 def read_full_memory(room_name: str) -> str:
