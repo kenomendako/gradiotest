@@ -18,10 +18,10 @@ from langgraph.graph import StateGraph, END, START, add_messages
 
 # --- ツールとヘルパー関数のインポート (変更なし) ---
 from agent.prompts import CORE_PROMPT_TEMPLATE
-from tools.space_tools import set_current_location, update_location_content, add_new_location, read_world_settings
+from tools.space_tools import set_current_location, read_world_settings, plan_world_edit, _apply_world_edits
+from tools.memory_tools import read_full_memory, plan_memory_edit, _apply_memory_edits
+from tools.notepad_tools import read_full_notepad, plan_notepad_edit, _write_notepad_file
 from tools.knowledge_tools import search_knowledge_graph
-from tools.memory_tools import read_full_memory, write_full_memory, _write_memory_file
-from tools.notepad_tools import read_full_notepad, write_full_notepad, _write_notepad_file
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
@@ -34,9 +34,9 @@ import pytz
 
 # --- ツールリストとAgentStateの定義 (変更なし) ---
 all_tools = [
-    set_current_location, update_location_content, add_new_location, read_world_settings,
-    read_full_memory, write_full_memory,
-    read_full_notepad, write_full_notepad,
+    set_current_location, read_world_settings, plan_world_edit,
+    read_full_memory, plan_memory_edit,
+    read_full_notepad, plan_notepad_edit,
     web_search_tool, read_url_tool,
     generate_image,
     set_personal_alarm,
@@ -284,87 +284,103 @@ def route_after_context(state: AgentState) -> Literal["location_report_node", "a
 
 def safe_tool_executor(state: AgentState):
     """
-    AIのツール呼び出し要求を解釈し、安全な方法で実行する。
-    書き込み系ツールの場合は、「グランド・アーキテクト」モデルに基づき、
-    ペルソナAIの応答から本質（JSON）のみを抽出し、安全に書き込む。
+    AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
     """
-    print("--- 安全なツール実行ノード (safe_tool_executor) 実行 ---")
+    print("--- ツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return {}
 
-    # The graph currently only supports one tool call at a time.
-    # Select the first tool call to maintain stability.
     tool_call = last_message.tool_calls[0]
     tool_name = tool_call["name"]
     tool_args = tool_call["args"]
     room_name = state.get('room_name')
     api_key = state.get('api_key')
 
-    is_write_memory = tool_name == "write_full_memory"
-    is_write_notepad = tool_name == "write_full_notepad"
+    is_plan_memory = tool_name == "plan_memory_edit"
+    is_plan_notepad = tool_name == "plan_notepad_edit"
+    is_plan_world = tool_name == "plan_world_edit"
 
-    if is_write_memory or is_write_notepad:
+    if is_plan_memory or is_plan_notepad or is_plan_world:
         try:
-            read_tool = read_full_memory if is_write_memory else read_full_notepad
-            print(f"  - 書き込み仲介: '{read_tool.name}' を実行します。")
+            print(f"  - ファイル編集プロセスを開始: {tool_name}")
+
+            read_tool = None
+            if is_plan_memory: read_tool = read_full_memory
+            elif is_plan_notepad: read_tool = read_full_notepad
+            elif is_plan_world: read_tool = read_world_settings
+
             current_content = read_tool.invoke({"room_name": room_name})
 
-            print(f"  - 書き込み仲介: ペルソナAI ({state['model_name']}) に創造タスクを依頼します。")
+            print(f"  - ペルソナAI ({state['model_name']}) に編集タスクを依頼します。")
             llm_persona = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
 
-            merge_instruction = HumanMessage(content=f"""【最重要指示：これは『対話』ではなく『創造タスク』です】
-あなたの現在の役割は、ユーザーとの対話を続けることではありません。
-あなたは今、自身の記憶またはメモ帳を更新するという、重要なタスクを執り行っています。
-システムが、タスクに必要な全ての情報を以下に提示します。
-あなたの「変更要求」を、この「既存のデータ」に反映させ、最終的にファイルに書き込むべき、完璧な全文を生成してください。
+            instruction_templates = {
+                "plan_memory_edit": (
+                    "【最重要指示：これは『対話』ではなく『設計タスク』です】\n"
+                    "あなたは今、自身の記憶を更新するための『設計図』を作成しています。\n"
+                    "提示された【既存のデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
+                    "【既存のデータ（memory.json全文）】\n---\n{current_content}\n---\n\n"
+                    "【あなたの変更要求】\n「{modification_request}」\n\n"
+                    "【絶対的な出力ルール】\n"
+                    "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
+                    "- 各指示は \"operation\" ('set', 'append', 'delete'), \"path\" (\"key.subkey\"形式), \"value\" のキーを持つ辞書です。\n"
+                    "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
+                ),
+                "plan_world_edit": (
+                    "【最重要指示：これは『対話』ではなく『世界構築タスク』です】\n"
+                    "あなたは今、世界設定を更新するための『設計図』を作成しています。\n"
+                    "提示された【既存のデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
+                    "【既存のデータ（world_settings.txt全文）】\n---\n{current_content}\n---\n\n"
+                    "【あなたの変更要求】\n「{modification_request}」\n\n"
+                    "【絶対的な出力ルール】\n"
+                    "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
+                    "- 各指示は \"operation\" ('update_place_description', 'add_place', 'delete_place'), \"area_name\", \"place_name\", \"value\" のキーを持つ辞書です。\n"
+                    "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
+                ),
+                "plan_notepad_edit": (
+                    "【最重要指示：これは『対話』ではなく『編集タスク』です】\n"
+                    "あなたは今、自身のメモ帳を更新しています。\n"
+                    "提示された【既存のデータ】とあなたの【変更要求】に基づき、最終的にファイルに書き込むべき、完璧な【全文】を生成してください。\n\n"
+                    "【既存のデータ（notepad.md全文）】\n---\n{current_content}\n---\n\n"
+                    "【あなたの変更要求】\n「{modification_request}」\n\n"
+                    "【絶対的な出力ルール】\n"
+                    "- 思考や挨拶は含めず、最終的なファイル全文のみを出力してください。"
+                )
+            }
 
-【既存のデータ】
----
-{current_content}
----
-
-【あなたの変更要求】
-「{tool_args.get('modification_request')}」
-
-【絶対的な出力ルール】
-- あなた自身の思考、挨拶、言い訳、そして新たなツール呼び出しは、決して含めてはなりません。
-- あなたの応答は、最終的なファイル全文**のみ**で構成されなければなりません。
-- JSON形式のファイルを編集している場合は、必ず有効なJSON形式で出力してください。
-- 出力は ` ```json ` と ` ``` ` で囲んでも構いません。
-""")
-
-            messages_for_merging = [msg for msg in state['messages'] if msg is not last_message]
-            messages_for_merging.append(merge_instruction)
-            final_context_for_merging = [state['system_prompt']] + messages_for_merging
-
-            response_from_architect = llm_persona.invoke(final_context_for_merging).content.strip()
-
-            # ▼▼▼【マスター・クラフツマンのロジック】▼▼▼
-            # AIの応答から、本質であるJSON文字列のみを抽出する
-            print("  - 書き込み仲介: マスター・クラフツマンが応答から本質を抽出します。")
-            json_match = re.search(r'```json\s*([\s\S]*?)\s*```', response_from_architect, re.DOTALL)
-            if json_match:
-                content_to_write = json_match.group(1).strip()
-                print("    - ` ```json ` ブロックを発見。内容を抽出しました。")
-            else:
-                content_to_write = response_from_architect
-                print("    - ` ```json ` ブロックはなし。応答全体を内容とみなします。")
-            # ▲▲▲【抽出ロジックここまで】▲▲▲
-
-            write_function = _write_memory_file if is_write_memory else _write_notepad_file
-            print(f"  - 書き込み仲介: 抽出された内容で '{write_function.__name__}' を実行します。")
-            output = write_function(
-                full_content=content_to_write,
-                room_name=room_name,
+            formatted_instruction = instruction_templates[tool_name].format(
+                current_content=current_content,
                 modification_request=tool_args.get('modification_request')
             )
+            edit_instruction_message = HumanMessage(content=formatted_instruction)
+
+            messages_for_editing = [msg for msg in state['messages'] if msg is not last_message]
+            messages_for_editing.append(edit_instruction_message)
+            final_context_for_editing = [state['system_prompt']] + messages_for_editing
+
+            edited_content_document = llm_persona.invoke(final_context_for_editing).content.strip()
+
+            print("  - AIからの応答を受け、ファイル書き込みを実行します。")
+
+            if is_plan_memory or is_plan_world:
+                json_match = re.search(r'```json\s*([\s\S]*?)\s*```', edited_content_document, re.DOTALL)
+                content_to_process = json_match.group(1).strip() if json_match else edited_content_document
+                instructions = json.loads(content_to_process)
+                if is_plan_memory:
+                    output = _apply_memory_edits(instructions=instructions, room_name=room_name)
+                else: # is_plan_world
+                    output = _apply_world_edits(instructions=instructions, room_name=room_name)
+            else: # is_plan_notepad
+                text_match = re.search(r'```(?:.*\n)?([\s\S]*?)```', edited_content_document, re.DOTALL)
+                content_to_process = text_match.group(1).strip() if text_match else edited_content_document
+                output = _write_notepad_file(full_content=content_to_process, room_name=room_name, modification_request=tool_args.get('modification_request'))
 
         except Exception as e:
-            output = f"Error during mediated write for '{tool_name}': {e}"
+            output = f"ファイル編集プロセス中にエラーが発生しました ('{tool_name}'): {e}"
             traceback.print_exc()
     else:
-        # 通常のツール実行
+        print(f"  - 通常ツール実行: {tool_name}")
         tool_args['room_name'] = room_name
         if tool_name in ['generate_image']:
             tool_args['api_key'] = api_key
