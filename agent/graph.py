@@ -258,16 +258,24 @@ def generate_tool_report_node(state: AgentState):
     tool_result = str(last_tool_message.content)
 
     base_system_prompt = state['system_prompt'].content
+    # ▼▼▼ 以下のブロックで、既存の reporting_instruction の定義を置き換えてください ▼▼▼
+    # 履歴から、ツール呼び出しを行ったAI自身の直前の発言を取得する
+    last_ai_message_before_tool = next((msg for msg in reversed(state['messages'][:-1]) if isinstance(msg, AIMessage)), None)
+    previous_statement = ""
+    if last_ai_message_before_tool:
+        previous_statement = str(last_ai_message_before_tool.content)[:200] # 長すぎると冗長なので、冒頭部分のみ
+
     reporting_instruction = (
         f"\n\n---\n【現在の状況】\n"
-        f"あなたはたった今、ツールの実行を完了しました。\n"
+        f"あなたは、ユーザーに対して「{previous_statement}...」という趣旨の発言をした直後に、以下のツールを実行し、正常に完了しました。\n"
         f"- 実行したツール: `{tool_name}`\n"
         f"- 実行結果の概要: 「{tool_result}」\n\n"
         f"【あなたのタスク】\n"
-        f"この事実を、自然な会話の中でユーザーに伝えてください。\n"
-        f"ツールの実行を計画した際の、以前のあなたの発言（「これから〜します」など）を繰り返すのではなく、\n"
-        f"あくまで「完了した」という事実を基に応答を生成してください。"
+        f"あなたの以前の発言とツールの実行結果を踏まえ、自然な会話の流れでユーザーに完了報告をしてください。\n"
+        f"**【最重要ルール】** あなたは既に「これからツールを使う」という意図を伝えているため、その**意気込みや計画を繰り返してはいけません。**"
+        f"簡潔に、しかしあなた自身の言葉で、タスクが完了したことを伝えてください。"
     )
+    # ▲▲▲ 置き換えここまで ▲▲▲
 
     final_prompt_message = SystemMessage(content=base_system_prompt + reporting_instruction)
 
