@@ -370,22 +370,36 @@ def _stream_and_handle_response(
             current_console_content += captured_output.getvalue()
 
             # 6. 最終応答の処理とログ保存
-            final_response_text = ""
             all_turn_popups = []
             if final_state:
+                # ▼▼▼【ここからが修正の核心】▼▼▼
+                # 今回のターンで新たに追加されたメッセージのみを抽出
                 new_messages = final_state["messages"][initial_message_count:]
+
+                # ツール実行結果のポップアップを先に収集
                 for msg in new_messages:
                     if isinstance(msg, ToolMessage):
                         popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                         if popup_text: all_turn_popups.append(popup_text)
-                last_ai_message = final_state["messages"][-1]
-                if isinstance(last_ai_message, AIMessage): final_response_text = last_ai_message.content
 
-            final_response_text = final_response_text or streamed_text
-            chatbot_history[-1] = (None, final_response_text)
+                # 新しいAIのメッセージをすべて順番にログに記録
+                for msg in new_messages:
+                    if isinstance(msg, AIMessage):
+                        response_content = msg.content
+                        if response_content and response_content.strip():
+                             utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", response_content)
+                # ▲▲▲【修正はここまで】▲▲▲
 
-            if final_response_text.strip():
-                utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", final_response_text)
+            # ストリーミング表示の最後の"▌"を消すために、最終応答テキストを設定
+            # (ログ記録は完了しているので、表示のためだけに最後のメッセージ内容を取得)
+            final_display_text = ""
+            if final_state:
+                last_message = final_state["messages"][-1]
+                if isinstance(last_message, AIMessage):
+                    final_display_text = last_message.content
+
+            final_display_text = final_display_text or streamed_text
+            chatbot_history[-1] = (None, final_display_text)
 
         for popup_message in all_turn_popups: gr.Info(popup_message)
 
