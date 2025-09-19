@@ -1,38 +1,33 @@
-# agent/graph.py (v17: The Unwavering Invocation)
+# agent/graph.py (v21: Smart Retry)
 
 import os
 import re
 import traceback
 import json
-import time # リトライのためにtimeをインポート
+import time
 from datetime import datetime
 from typing import TypedDict, Annotated, List, Literal, Tuple
 
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage, HumanMessage
-# ▼▼▼【リトライ処理に必要な例外クラスをインポート】▼▼▼
 from google.api_core import exceptions as google_exceptions
-from langchain_google_genai import HarmCategory, HarmBlockThreshold
-from gemini_api import get_configured_llm # 新しい聖域から関数をインポート
-# ▲▲▲【インポート修正ここまで】▲▲▲
+from gemini_api import get_configured_llm
 from langgraph.graph import StateGraph, END, START, add_messages
 
-# --- ツールとヘルパー関数のインポート (変更なし) ---
 from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, read_world_settings, plan_world_edit, _apply_world_edits
 from tools.memory_tools import read_full_memory, plan_memory_edit, _apply_memory_edits
 from tools.notepad_tools import read_full_notepad, plan_notepad_edit, _write_notepad_file
-from tools.knowledge_tools import search_knowledge_graph
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from tools.timer_tools import set_timer, set_pomodoro_timer
+from tools.knowledge_tools import search_knowledge_graph
 from room_manager import get_world_settings_path
 import utils
 import config_manager
 import constants
 import pytz
 
-# --- ツールリストとAgentStateの定義 (変更なし) ---
 all_tools = [
     set_current_location, read_world_settings, plan_world_edit,
     read_full_memory, plan_memory_edit,
@@ -58,8 +53,6 @@ class AgentState(TypedDict):
     scenery_text: str
     debug_mode: bool
     all_participants: List[str]
-
-# --- 既存ノードとルーター関数 (safe_tool_executor 以外は変更なし) ---
 
 def get_location_list(room_name: str) -> List[str]:
     if not room_name: return []
@@ -285,6 +278,7 @@ def route_after_context(state: AgentState) -> Literal["location_report_node", "a
 def safe_tool_executor(state: AgentState):
     """
     AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
+    APIのレート制限エラーに対して、賢くリトライまたは中断を行う。
     """
     print("--- ツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
@@ -348,7 +342,6 @@ def safe_tool_executor(state: AgentState):
                     "- 思考や挨拶は含めず、最終的なファイル全文のみを出力してください。"
                 )
             }
-
             formatted_instruction = instruction_templates[tool_name].format(
                 current_content=current_content,
                 modification_request=tool_args.get('modification_request')
@@ -359,7 +352,49 @@ def safe_tool_executor(state: AgentState):
             messages_for_editing.append(edit_instruction_message)
             final_context_for_editing = [state['system_prompt']] + messages_for_editing
 
-            edited_content_document = llm_persona.invoke(final_context_for_editing).content.strip()
+            # ▼▼▼【ここからがスマートリトライ機構の核心】▼▼▼
+            edited_content_document = None
+            max_retries = 5
+            base_delay = 5
+            for attempt in range(max_retries):
+                try:
+                    response = llm_persona.invoke(final_context_for_editing)
+                    edited_content_document = response.content.strip()
+                    break # 成功したらループを抜ける
+                except google_exceptions.ResourceExhausted as e:
+                    error_str = str(e)
+                    # 1. 回復不能なエラー（日間上限など）かチェック
+                    if "PerDay" in error_str or "Daily" in error_str:
+                        print(f"  - 致命的エラー: 回復不能なAPI上限（日間など）に達しました。処理を中断します。")
+                        raise RuntimeError("回復不能なAPIレート上限（日間など）に達したため、処理を中断しました。") from e
+
+                    # 2. 回復可能なエラーの場合、推奨待機時間を抽出
+                    wait_time = base_delay * (2 ** attempt) # デフォルトの待機時間
+                    match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
+                    if match:
+                        # APIが推奨する待機時間があれば、それに従う (+1秒のバッファ)
+                        wait_time = int(match.group(1)) + 1
+                        print(f"  - APIレート制限: APIの推奨に従い {wait_time}秒 待機します...")
+                    else:
+                        print(f"  - APIレート制限: 指数バックオフで {wait_time}秒 待機します...")
+
+                    if attempt < max_retries - 1:
+                        time.sleep(wait_time)
+                    else:
+                        # 全てのリトライが失敗した場合
+                        raise e
+                except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
+                    # 503サーバーエラーなどの場合
+                    if attempt < max_retries - 1:
+                        wait_time = base_delay * (2 ** attempt)
+                        print(f"  - 警告: 編集AIが応答不能です ({e.args[0]})。{wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                    else:
+                        raise e
+            # ▲▲▲【スマートリトライ機構ここまで】▲▲▲
+
+            if edited_content_document is None:
+                raise RuntimeError("編集AIからの応答が、リトライ後も得られませんでした。")
 
             print("  - AIからの応答を受け、ファイル書き込みを実行します。")
 
@@ -369,9 +404,9 @@ def safe_tool_executor(state: AgentState):
                 instructions = json.loads(content_to_process)
                 if is_plan_memory:
                     output = _apply_memory_edits(instructions=instructions, room_name=room_name)
-                else: # is_plan_world
+                else:
                     output = _apply_world_edits(instructions=instructions, room_name=room_name)
-            else: # is_plan_notepad
+            else:
                 text_match = re.search(r'```(?:.*\n)?([\s\S]*?)```', edited_content_document, re.DOTALL)
                 content_to_process = text_match.group(1).strip() if text_match else edited_content_document
                 output = _write_notepad_file(full_content=content_to_process, room_name=room_name, modification_request=tool_args.get('modification_request'))
