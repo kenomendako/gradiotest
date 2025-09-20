@@ -53,8 +53,6 @@ class AgentState(TypedDict):
     scenery_text: str
     debug_mode: bool
     all_participants: List[str]
-    # ▼▼▼ 以下の行を追加してください ▼▼▼
-    report_instruction: str = None
 
 def get_location_list(room_name: str) -> List[str]:
     if not room_name: return []
@@ -187,28 +185,21 @@ def context_generator_node(state: AgentState):
         )
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
-# ▼▼▼ 既存の agent_node 関数を、以下のコードで置き換えてください ▼▼▼
+# ▼▼▼ 既存の agent_node 関数を、以下のコードで置き換えてください（前々回の状態に戻します） ▼▼▼
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
-
-    # 報告用プロンプトが存在するかチェック
-    if state.get("report_instruction"):
-        print("  - モード: ツール完了報告")
-        final_system_prompt_text = state["report_instruction"]
-    else:
-        print("  - モード: 通常思考")
-        base_system_prompt = state['system_prompt'].content
-        all_participants = state.get('all_participants', [])
-        current_room = state['room_name']
-        final_system_prompt_text = base_system_prompt
-        if len(all_participants) > 1:
-            other_participants = [p for p in all_participants if p != current_room]
-            persona_lock_prompt = (
-                f"【最重要指示】あなたはこのルームのペルソナです (ルーム名: {current_room})。"
-                f"他の参加者（{', '.join(other_participants)}、そしてユーザー）の発言を参考に、必ずあなた自身の言葉で応答してください。"
-                "他のキャラクターの応答を代弁したり、生成してはいけません。\n\n---\n\n"
-            )
-            final_system_prompt_text = persona_lock_prompt + base_system_prompt
+    base_system_prompt = state['system_prompt'].content
+    all_participants = state.get('all_participants', [])
+    current_room = state['room_name']
+    final_system_prompt_text = base_system_prompt
+    if len(all_participants) > 1:
+        other_participants = [p for p in all_participants if p != current_room]
+        persona_lock_prompt = (
+            f"【最重要指示】あなたはこのルームのペルソナです (ルーム名: {current_room})。"
+            f"他の参加者（{', '.join(other_participants)}、そしてユーザー）の発言を参考に、必ずあなた自身の言葉で応答してください。"
+            "他のキャラクターの応答を代弁したり、生成してはいけません。\n\n---\n\n"
+        )
+        final_system_prompt_text = persona_lock_prompt + base_system_prompt
 
     final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
 
@@ -257,16 +248,15 @@ def agent_node(state: AgentState):
     pprint.pprint(response)
     print("---------------------------------------\n")
 
-    # 報告用プロンプトを消費したのでクリアする
-    return {"messages": [response], "report_instruction": None}
+    return {"messages": [response]}
 
 # ▼▼▼ 既存の generate_tool_report_node 関数を、以下のコードで置き換えてください ▼▼▼
 def generate_tool_report_node(state: AgentState):
     """
-    ツールの実行完了報告を促すための、特別な指示プロンプトを生成し、
-    stateに設定するノード。
+    ツールの実行完了報告を促すための、特別な指示メッセージを生成し、
+    会話の履歴に追加するノード。
     """
-    print("--- ツール完了報告プロンプト生成ノード (generate_tool_report_node) 実行 ---")
+    print("--- ツール完了報告メッセージ生成ノード (generate_tool_report_node) 実行 ---")
 
     last_tool_message = next((msg for msg in reversed(state['messages']) if isinstance(msg, ToolMessage)), None)
     if not last_tool_message:
@@ -280,19 +270,21 @@ def generate_tool_report_node(state: AgentState):
     if last_ai_message_before_tool:
         previous_statement = str(last_ai_message_before_tool.content)[:200]
 
-    base_system_prompt = state['system_prompt'].content
+    # AIへの指示をシステムメッセージではなく、ToolMessageとして作成
     reporting_instruction = (
-        f"{base_system_prompt}\n\n---\n【現在の状況】\n"
-        f"あなたは、ユーザーに対して「{previous_statement}...」という趣旨の発言をした直後に、以下のツールを実行し、正常に完了しました。\n"
-        f"- 実行したツール: `{tool_name}`\n"
-        f"- 実行結果の概要: 「{tool_result}」\n\n"
-        f"【あなたのタスク】\n"
-        f"あなたの以前の発言とツールの実行結果を踏まえ、自然な会話の流れでユーザーに完了報告をしてください。\n"
-        f"**【最重要ルール】** あなたは既に「これからツールを使う」という意図を伝えているため、その**意気込みや計画を繰り返してはいけません。**"
-        f"簡潔に、しかしあなた自身の言葉で、タスクが完了したことを伝えてください。"
+        f"（システム通知：ツール `{tool_name}` の実行が完了しました。結果：『{tool_result}』\n"
+        f"あなたは直前に『{previous_statement}...』と発言しています。\n"
+        f"この事実を踏まえ、自然な会話の流れでユーザーに完了報告をしてください。\n"
+        f"**最重要：** 既に伝えた『これからツールを使う』という意気込みを繰り返してはいけません。）"
     )
 
-    return {"report_instruction": reporting_instruction}
+    # 新しいToolMessageを履歴に追加して返す
+    instruction_message = ToolMessage(
+        content=reporting_instruction,
+        tool_call_id=last_tool_message.tool_call_id # 関連付けのためのID
+    )
+
+    return {"messages": [instruction_message]}
 
 def route_after_context(state: AgentState) -> Literal["generate_tool_report_node", "agent"]:
     print("--- コンテキスト後ルーター (route_after_context) 実行 ---")
