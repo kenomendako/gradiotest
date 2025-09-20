@@ -250,7 +250,7 @@ def agent_node(state: AgentState):
 
     return {"messages": [response]}
 
-# ▼▼▼ 既存の generate_tool_report_node 関数を、以下のコードで置き換えてください ▼▼▼
+# ▼▼▼ 既存の generate_tool_report_node 関数を、以下のコードで完全に置き換えてください ▼▼▼
 def generate_tool_report_node(state: AgentState):
     """
     ツールの実行完了報告を促すための、特別な指示メッセージを生成し、
@@ -265,33 +265,26 @@ def generate_tool_report_node(state: AgentState):
     tool_name = last_tool_message.name
     tool_result = str(last_tool_message.content)
 
-    # ▼▼▼ 既存の reporting_instruction の定義ブロック全体を、以下のコードで置き換えてください ▼▼▼
-
     # ツール実行が成功したか失敗したかを判定
     is_success = "success" in tool_result.lower() or "成功" in tool_result
-
-    # 履歴から、ツール呼び出しを行ったAI自身の直前の発言を取得する
-    last_ai_message_before_tool = next((msg for msg in reversed(state['messages'][:-1]) if isinstance(msg, AIMessage)), None)
-    previous_statement = ""
-    if last_ai_message_before_tool:
-        previous_statement = str(last_ai_message_before_tool.content)[:200]
 
     # 成功時と失敗時で、AIへの指示内容を動的に変更する
     if is_success:
         task_instruction = (
-            "あなたの以前の発言とツールの実行結果を踏まえ、自然な会話の流れでユーザーに完了報告をしてください。\n"
-            "**【最重要ルール】** あなたは既に「これからツールを使う」という意図を伝えているため、その**意気込みや計画を繰り返してはいけません。**"
+            "あなたは、直前の発言で示した意図通りにツールを実行し、成功しました。\n"
+            "その意図（「これから〜する」という宣言）は既にユーザーに伝わっていますので、報告に含める必要はありません。\n"
+            f"ツールの実行が成功した事実と、その結果（『{tool_result}』）に焦点を当て、簡潔に完了報告をしてください。"
         )
     else: # 失敗時
         task_instruction = (
-            "残念ながら、あなたの計画はシステムエラーにより失敗しました。その事実を、自然な会話の中でユーザーに伝えてください。\n"
+            "残念ながら、あなたの計画はシステムエラーにより失敗しました。その事実と、可能であればその理由を、自然な会話の中でユーザーに伝えてください。\n"
             "**【最重要ルール】** 失敗したからといって、**代わりのツールを提案したり、新しい計画を立て直したりしてはいけません。**"
-            "まずは、計画が失敗に終わったことを、あなた自身の言葉で率直に認めてください。"
+            "まずは、計画が失敗に終わったことを、あなた自身の言葉で率直に認め、ユーザーからの次の指示を待ってください。"
         )
 
+    # 最終的な指示メッセージを生成
     reporting_instruction = (
         f"（システム通知：ツール `{tool_name}` の実行が完了しました。結果：『{tool_result}』\n"
-        f"あなたは直前に『{previous_statement}...』と発言しています。\n"
         f"【あなたのタスク】\n{task_instruction}）"
     )
 
