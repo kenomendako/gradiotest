@@ -394,9 +394,13 @@ def safe_tool_executor(state: AgentState):
             )
             edit_instruction_message = HumanMessage(content=formatted_instruction)
 
-            messages_for_editing = [msg for msg in state['messages'] if msg is not last_message]
-            messages_for_editing.append(edit_instruction_message)
-            final_context_for_editing = [state['system_prompt']] + messages_for_editing
+            # ▼▼▼【ここからが差し替えブロック】▼▼▼
+            # ツール呼び出しを行ったAI自身のメッセージ(last_message)を除いた、それ以前の完全な会話履歴を取得
+            history_for_editing = [msg for msg in state['messages'] if msg is not last_message]
+
+            # システムプロンプト、完全な会話履歴、そして最後に今回の編集指示メッセージを結合
+            final_context_for_editing = [state['system_prompt']] + history_for_editing + [edit_instruction_message]
+            # ▲▲▲【差し替えブロックここまで】▲▲▲
 
             # ▼▼▼【ここからがスマートリトライ機構の核心】▼▼▼
             edited_content_document = None
