@@ -53,25 +53,55 @@ def _apply_memory_edits(
     if "error" in memory_data: return f"【エラー】記憶ファイルの読み込みに失敗: {memory_data['message']}"
 
     try:
-        # 処理を 'delete' と 'それ以外' の2つのグループに分ける
-        delete_instructions = [inst for inst in instructions if inst.get("operation", "").lower() == 'delete']
-        other_instructions = [inst for inst in instructions if inst.get("operation", "").lower() != 'delete']
+        # --- 修正の核心：正しいソートキーを定義する ---
+        def sort_key_for_delete(instruction):
+            path_parts = instruction.get('path', '').split('.')
+            # パスの最後の部分が数字（インデックス）であれば、それを数値に変換して返す
+            # これにより、'59' と '9' が正しく数値として比較される
+            if path_parts and path_parts[-1].isdigit():
+                # [is_delete, index, original_path] のようなタプルを返す
+                # is_deleteはTrue(1)が先に, indexは大きい順に, pathは安定ソートのため
+                return (
+                    instruction.get('operation', '').lower() == 'delete',
+                    int(path_parts[-1]),
+                    instruction.get('path', '')
+                )
+            # インデックスでない場合は、通常の文字列ソート
+            return (
+                instruction.get('operation', '').lower() == 'delete',
+                -1, # 数値インデックスより常に優先度が低くなるように
+                instruction.get('path', '')
+            )
 
-        # --- ステップ1: まず、set と append を先に実行する ---
-        for inst in other_instructions:
+        # 新しいソートキーを使って指示を並び替える
+        sorted_instructions = sorted(instructions, key=sort_key_for_delete, reverse=True)
+
+        print(f"--- [DEBUG] Sorted Instructions Order ---")
+        for inst in sorted_instructions:
+            print(f"  - Op: {inst.get('operation')}, Path: {inst.get('path')}")
+        print(f"------------------------------------")
+
+
+        for inst in sorted_instructions:
             operation = inst.get("operation", "").lower()
             path = inst.get("path")
             value = inst.get("value")
 
-            if not path: continue # operationはチェック済み
+            if not operation or not path: continue
 
             keys = path.split('.')
             target_obj = memory_data
 
             for key in keys[:-1]:
-                target_obj = target_obj.setdefault(key, {})
+                if isinstance(target_obj, dict):
+                    target_obj = target_obj.setdefault(key, {})
+                elif isinstance(target_obj, list) and key.isdigit():
+                    target_obj = target_obj[int(key)]
+                else:
+                    raise KeyError(f"Invalid path component '{key}' in path '{path}'")
 
             last_key = keys[-1]
+
             if operation == 'set':
                 if isinstance(target_obj, list) and last_key.isdigit():
                     target_obj[int(last_key)] = value
@@ -82,49 +112,13 @@ def _apply_memory_edits(
                 if not isinstance(target_list, list):
                     return f"【エラー】追記(append)操作はリストにのみ可能です。パス: '{path}'"
                 target_list.append(value)
-
-        # --- ステップ2: 次に、delete を実行する ---
-        # パスが同じリストを指すdelete指示をグループ化する
-        deletions_by_path = {}
-        for inst in delete_instructions:
-            path = inst.get("path")
-            if not path: continue
-
-            # パスから親パスと最後のキー（インデックス）を分離
-            parts = path.split('.')
-            parent_path = ".".join(parts[:-1])
-            index_to_delete_str = parts[-1]
-
-            if not index_to_delete_str.isdigit():
-                # 単一のキーを削除する場合 (リストではない)
-                keys = path.split('.')
-                parent_obj = memory_data
-                for key in keys[:-1]:
-                    parent_obj = parent_obj.get(key)
-                    if parent_obj is None: break
-                if parent_obj and isinstance(parent_obj, dict) and keys[-1] in parent_obj:
-                    del parent_obj[keys[-1]]
-                continue
-
-            # 削除対象のインデックスをグループに追加
-            if parent_path not in deletions_by_path:
-                deletions_by_path[parent_path] = []
-            deletions_by_path[parent_path].append(int(index_to_delete_str))
-
-        # グループごとに、インデックスの大きい順に削除を実行
-        for parent_path, indices in deletions_by_path.items():
-            keys = parent_path.split('.')
-            target_list = memory_data
-            for key in keys:
-                target_list = target_list[key]
-
-            if isinstance(target_list, list):
-                # インデックスの降順でソートして、後ろから削除
-                for index in sorted(indices, reverse=True):
-                    if 0 <= index < len(target_list):
-                        del target_list[index]
-                    else:
-                        print(f"警告: 削除対象のインデックス {index} が範囲外です。パス: {parent_path}")
+            elif operation == 'delete':
+                if isinstance(target_obj, list) and last_key.isdigit():
+                    idx = int(last_key)
+                    if 0 <= idx < len(target_obj):
+                        del target_obj[idx]
+                elif isinstance(target_obj, dict) and last_key in target_obj:
+                    del target_obj[last_key]
 
         memory_data["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         with open(memory_json_path, "w", encoding="utf-8") as f:
