@@ -414,6 +414,20 @@ def safe_tool_executor(state: AgentState):
             final_context_for_editing = [state['system_prompt']] + history_for_editing + [edit_instruction_message]
             # ▲▲▲【差し替えブロックここまで】▲▲▲
 
+            # ▼▼▼【ここ！】以下のデバッグブロックを、この場所に追加してください。▼▼▼
+            if state.get("debug_mode", True): # デバッグモード中は常に出力
+                print("\n--- [DEBUG] AIへの最終編集タスクプロンプト (完全版) ---")
+                for i, msg in enumerate(final_context_for_editing):
+                    msg_type = type(msg).__name__
+                    content_preview = str(msg.content)[:500].replace('\n', ' ')
+                    print(f"[{i}] {msg_type} (Content Length: {len(str(msg.content))})")
+                    if i == len(final_context_for_editing) - 1: # 最後の指示メッセージは全文表示
+                        print(f"  - Content (Full):\n{msg.content}")
+                    else:
+                        print(f"  - Content (Preview): {content_preview}...")
+                print("----------------------------------------------------------\n")
+            # ▲▲▲【デバッグブロックここまで】▲▲▲
+
             # ▼▼▼【ここからがスマートリトライ機構の核心】▼▼▼
             edited_content_document = None
             max_retries = 5
