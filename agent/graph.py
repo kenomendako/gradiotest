@@ -464,9 +464,13 @@ def safe_tool_executor(state: AgentState):
                 json_match = re.search(r'```json\s*([\s\S]*?)\s*```', edited_content_document, re.DOTALL)
                 content_to_process = json_match.group(1).strip() if json_match else edited_content_document
                 instructions = json.loads(content_to_process)
+
+                # ▼▼▼【ここ！】以下のデバッグ用のprint文を1行追加してください。▼▼▼
+                print(f"--- [DEBUG] AIが生成した差分指示リスト ---\n{json.dumps(instructions, indent=2, ensure_ascii=False)}\n------------------------------------")
+
                 if is_plan_memory:
                     output = _apply_memory_edits(instructions=instructions, room_name=room_name)
-                else:
+                else: # is_plan_world
                     output = _apply_world_edits(instructions=instructions, room_name=room_name)
             else:
                 text_match = re.search(r'```(?:.*\n)?([\s\S]*?)```', edited_content_document, re.DOTALL)
