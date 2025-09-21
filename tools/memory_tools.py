@@ -53,73 +53,78 @@ def _apply_memory_edits(
     if "error" in memory_data: return f"【エラー】記憶ファイルの読み込みに失敗: {memory_data['message']}"
 
     try:
-        # 複数回削除される可能性があるため、削除操作はインデックスがずれないように降順で処理する
-        # (例: [3, 1] を削除する場合、先にインデックス3を削除し、次に1を削除する)
-        sorted_instructions = sorted(instructions, key=lambda inst: (
-            inst.get('operation', '').lower() == 'delete',
-            # パスを逆順にしてソートすることで、深い階層や末尾のインデックスから先に処理
-            list(reversed(inst.get('path', '').split('.')))
-        ), reverse=True)
+        # 処理を 'delete' と 'それ以外' の2つのグループに分ける
+        delete_instructions = [inst for inst in instructions if inst.get("operation", "").lower() == 'delete']
+        other_instructions = [inst for inst in instructions if inst.get("operation", "").lower() != 'delete']
 
-        for i, inst in enumerate(sorted_instructions):
+        # --- ステップ1: まず、set と append を先に実行する ---
+        for inst in other_instructions:
             operation = inst.get("operation", "").lower()
             path = inst.get("path")
             value = inst.get("value")
 
-            if not operation or not path:
-                return f"【エラー】指示 {i+1} に 'operation' または 'path' がありません。"
+            if not path: continue # operationはチェック済み
 
             keys = path.split('.')
             target_obj = memory_data
-            parent_obj = None
-            last_key_or_index = None
 
-            # パスの最後の部分を除いて、親オブジェクトまでたどる
             for key in keys[:-1]:
-                if isinstance(target_obj, list) and key.isdigit():
-                    idx = int(key)
-                    if 0 <= idx < len(target_obj):
-                        target_obj = target_obj[idx]
-                    else:
-                        raise KeyError(f"パス '{path}' のインデックス '{key}' が範囲外です。")
-                elif isinstance(target_obj, dict) and key in target_obj:
-                    target_obj = target_obj[key]
-                else:
-                    # パスが存在しない場合、set/append操作なら途中の辞書を作成
-                    if operation in ['set', 'append']:
-                        if isinstance(target_obj, dict):
-                            target_obj = target_obj.setdefault(key, {})
-                        else:
-                             raise KeyError(f"パス '{path}' のキー '{key}' が見つかりません。")
-                    else:
-                        raise KeyError(f"パス '{path}' のキー '{key}' が見つかりません。")
+                target_obj = target_obj.setdefault(key, {})
 
-            # 最後のキーまたはインデックスを処理
-            last_key_str = keys[-1]
-
+            last_key = keys[-1]
             if operation == 'set':
-                if isinstance(target_obj, list) and last_key_str.isdigit():
-                    target_obj[int(last_key_str)] = value
+                if isinstance(target_obj, list) and last_key.isdigit():
+                    target_obj[int(last_key)] = value
                 else:
-                    target_obj[last_key_str] = value
-
+                    target_obj[last_key] = value
             elif operation == 'append':
-                target_list = target_obj.setdefault(last_key_str, []) if isinstance(target_obj, dict) else target_obj
+                target_list = target_obj.setdefault(last_key, []) if isinstance(target_obj, dict) else target_obj
                 if not isinstance(target_list, list):
                     return f"【エラー】追記(append)操作はリストにのみ可能です。パス: '{path}'"
                 target_list.append(value)
 
-            elif operation == 'delete':
-                if isinstance(target_obj, list) and last_key_str.isdigit():
-                    del target_obj[int(last_key_str)]
-                elif isinstance(target_obj, dict) and last_key_str in target_obj:
-                    del target_obj[last_key_str]
-                else:
-                    # 既に削除されている可能性もあるため、エラーではなく警告に留める
-                    print(f"警告: 削除対象が見つかりません (既に削除済みか、パスが不正)。パス: '{path}'")
+        # --- ステップ2: 次に、delete を実行する ---
+        # パスが同じリストを指すdelete指示をグループ化する
+        deletions_by_path = {}
+        for inst in delete_instructions:
+            path = inst.get("path")
+            if not path: continue
 
-            else:
-                return f"【エラー】指示 {i+1} の操作 '{operation}' は無効です。"
+            # パスから親パスと最後のキー（インデックス）を分離
+            parts = path.split('.')
+            parent_path = ".".join(parts[:-1])
+            index_to_delete_str = parts[-1]
+
+            if not index_to_delete_str.isdigit():
+                # 単一のキーを削除する場合 (リストではない)
+                keys = path.split('.')
+                parent_obj = memory_data
+                for key in keys[:-1]:
+                    parent_obj = parent_obj.get(key)
+                    if parent_obj is None: break
+                if parent_obj and isinstance(parent_obj, dict) and keys[-1] in parent_obj:
+                    del parent_obj[keys[-1]]
+                continue
+
+            # 削除対象のインデックスをグループに追加
+            if parent_path not in deletions_by_path:
+                deletions_by_path[parent_path] = []
+            deletions_by_path[parent_path].append(int(index_to_delete_str))
+
+        # グループごとに、インデックスの大きい順に削除を実行
+        for parent_path, indices in deletions_by_path.items():
+            keys = parent_path.split('.')
+            target_list = memory_data
+            for key in keys:
+                target_list = target_list[key]
+
+            if isinstance(target_list, list):
+                # インデックスの降順でソートして、後ろから削除
+                for index in sorted(indices, reverse=True):
+                    if 0 <= index < len(target_list):
+                        del target_list[index]
+                    else:
+                        print(f"警告: 削除対象のインデックス {index} が範囲外です。パス: {parent_path}")
 
         memory_data["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         with open(memory_json_path, "w", encoding="utf-8") as f:
