@@ -357,6 +357,7 @@ def safe_tool_executor(state: AgentState):
 
             instruction_templates = {
                 "plan_memory_edit": (
+                    # ▼▼▼ 以下の文字列で、既存の "plan_memory_edit" のプロンプトを置き換えてください ▼▼▼
                     "【最重要指示：これは『対話』ではなく『設計タスク』です】\n"
                     "あなたは今、自身の記憶を更新するための『設計図』を作成しています。\n"
                     "提示された【既存のデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
@@ -364,8 +365,19 @@ def safe_tool_executor(state: AgentState):
                     "【あなたの変更要求】\n「{modification_request}」\n\n"
                     "【絶対的な出力ルール】\n"
                     "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
+
                     "- 各指示は \"operation\" ('set', 'append', 'delete'), \"path\" (\"key.subkey\"形式), \"value\" のキーを持つ辞書です。\n"
+
+                    "- **【リスト操作の特別ルール】** リスト（`[]`で囲まれた項目）内の要素を操作する場合、`path`には必ずその要素の**インデックス番号（0から始まる順番）**を含めてください。\n"
+                    "  - **例1：** `relationship_history`リストの**2番目**の要素を削除する場合\n"
+                    "    `{{\"operation\": \"delete\", \"path\": \"relationship_history.1\"}}`\n"
+                    "  - **例2：** `relationship_history`リストの**1番目**の要素にある`event`キーの値を更新する場合\n"
+                    "    `{{\"operation\": \"set\", \"path\": \"relationship_history.0.event\", \"value\": \"新しいイベント内容\"}}`\n"
+                    "  - **例3：** `relationship_history`リストの**末尾**に新しい要素を追加する場合\n"
+                    "    `{{\"operation\": \"append\", \"path\": \"relationship_history\", \"value\": {{\"date\": \"...\", \"event\": \"...\"}}}}`\n\n"
+
                     "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
+                    # ▲▲▲ 置き換えここまで ▲▲▲
                 ),
                 "plan_world_edit": (
                     "【最重要指示：これは『対話』ではなく『世界構築タスク』です】\n"
