@@ -107,15 +107,25 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
             from utils import get_time_of_day
             time_str = jst_now.strftime('%H:%M')
             time_of_day_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}.get(get_time_of_day(jst_now.hour), "不明な時間帯")
+# ▼▼▼ 既存の scenery_prompt の定義ブロック全体を、以下のコードで置き換えてください ▼▼▼
             scenery_prompt = (
-                "あなたは、二つの異なる情報源を比較し、その間にある不思議さや特異性を描き出す、情景描写の専門家です。\n\n"
-                f"【情報源1：現実世界の状況】\n- 現在の時刻: {time_str}\n- 現在の時間帯: {time_of_day_ja}\n- 現在の季節: {jst_now.month}月\n\n"
-                f"【情報源2：この空間が持つ固有の設定（自由記述テキスト）】\n---\n{space_def}\n---\n\n"
-                "【あなたのタスク】\n以上の二つの情報を比較し、「今、この瞬間」の情景を1〜2文の簡潔な文章で描写してください。\n\n"
-                "【最重要ルール】\n- もし【情報源1】と【情報源2】の間に矛盾（例：現実は昼なのに、空間は常に夜の設定など）がある場合は、その**『にも関わらず』**という感覚や、その空間の**不思議な空気感**に焦点を当てて描写してください。\n"
+                "あなたは、与えられた二つの情報源から、一つのまとまった情景を描き出す、情景描写の専門家です。\n\n"
+                f"【情報源1：現実世界の状況】\n- 現在の時間帯: {time_of_day_ja}\n- 現在の季節: {jst_now.month}月\n\n"
+                f"【情報源2：この空間が持つ固有の設定】\n---\n{space_def}\n---\n\n"
+                "【あなたのタスク】\n"
+                "まず、心の中で【情報源1】と【情報源2】を比較し、矛盾があるかないかを判断してください。\n"
+                "その判断に基づき、**最終的な情景描写の文章のみを、2〜3文で生成してください。**\n\n"
+                "  - **矛盾がある場合** (例: 現実は昼なのに、空間は常に夜の設定など):\n"
+                "    その**『にも関わらず』**という感覚や、その空間だけが持つ**不思議な空気感**に焦点を当てて描写してください。\n\n"
+                "  - **矛盾がない場合**:\n"
+                "    二つの情報を自然に**統合・融合**させ、その場のリアルな雰囲気をそのまま描写してください。\n\n"
+                "【厳守すべきルール】\n"
+                "- **あなたの思考過程や判断理由は、絶対に出力に含めないでください。**\n"
+                "- 具体的な時刻（例：「23時42分」）は文章に含めないでください。\n"
                 "- 人物やキャラクターの描写は絶対に含めないでください。\n"
-                "- 五感に訴えかける、精緻で写実的な描写を重視してください。"
+                "- 五感に訴えかける、**空気感まで伝わるような**精緻で写実的な描写を重視してください。"
             )
+# ▲▲▲ 置き換えここまで ▲▲▲
             scenery_text = llm_flash.invoke(scenery_prompt).content
             save_scenery_cache(room_name, cache_key, location_display_name, scenery_text)
         else:
@@ -185,6 +195,7 @@ def context_generator_node(state: AgentState):
         )
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
+# ▼▼▼ 既存の agent_node 関数を、以下のコードで置き換えてください（前々回の状態に戻します） ▼▼▼
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
     base_system_prompt = state['system_prompt'].content
@@ -199,17 +210,22 @@ def agent_node(state: AgentState):
             "他のキャラクターの応答を代弁したり、生成してはいけません。\n\n---\n\n"
         )
         final_system_prompt_text = persona_lock_prompt + base_system_prompt
+
     final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
+
     print(f"  - 使用モデル: {state['model_name']}")
     print(f"  - 最終システムプロンプト長: {len(final_system_prompt_text)} 文字")
     if state.get("debug_mode", False):
         print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
         print(final_system_prompt_text)
         print("-----------------------------------------")
+
     llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
     llm_with_tools = llm.bind_tools(all_tools)
+
     history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
     messages_for_agent = [final_system_prompt_message] + history_messages
+
     import pprint
     print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
     for i, msg in enumerate(messages_for_agent):
@@ -235,43 +251,73 @@ def agent_node(state: AgentState):
             pprint.pprint(msg.tool_calls, indent=4)
         print("-" * 20)
     print("--------------------------------------------------\n")
+
     response = llm_with_tools.invoke(messages_for_agent)
+
     print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
     pprint.pprint(response)
     print("---------------------------------------\n")
+
     return {"messages": [response]}
 
-def location_report_node(state: AgentState):
-    print("--- 場所移動報告ノード (location_report_node) 実行 ---")
-    last_tool_message = next((msg for msg in reversed(state['messages']) if isinstance(msg, ToolMessage) and msg.name == 'set_current_location'), None)
-    location_name = "指定の場所"
-    if last_tool_message:
-        match = re.search(r"現在地は '(.*?)' に設定されました", str(last_tool_message.content))
-        if match:
-            location_name = match.group(1)
-        base_system_prompt = state['system_prompt'].content
-        reporting_instruction = (
-            f"\n\n---\n【現在の状況】\nあなたは今、ユーザーの指示に従って「{location_name}」への移動を完了しました。"
-            "この事実を、自然な会話の中でユーザーに伝えてください。"
-        )
-        final_prompt_message = SystemMessage(content=base_system_prompt + reporting_instruction)
-        history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
-        messages_for_reporting = [final_prompt_message] + history_messages
-        if state.get("debug_mode", False):
-            print("--- [DEBUG MODE] 場所移動報告ノードの最終プロンプト ---")
-            print(final_prompt_message.content)
-            print("-------------------------------------------------")
-        effective_settings = config_manager.get_effective_settings(state['room_name'])
-        llm = get_configured_llm(state['model_name'], state['api_key'], effective_settings)
-        response = llm.invoke(messages_for_reporting)
-        return {"messages": [response]}
+# ▼▼▼ 既存の generate_tool_report_node 関数を、以下のコードで完全に置き換えてください ▼▼▼
+def generate_tool_report_node(state: AgentState):
+    """
+    ツールの実行完了報告を促すための、特別な指示メッセージを生成し、
+    会話の履歴に追加するノード。
+    """
+    print("--- ツール完了報告メッセージ生成ノード (generate_tool_report_node) 実行 ---")
 
-def route_after_context(state: AgentState) -> Literal["location_report_node", "agent"]:
+    last_tool_message = next((msg for msg in reversed(state['messages']) if isinstance(msg, ToolMessage)), None)
+    if not last_tool_message:
+        return {}
+
+    tool_name = last_tool_message.name
+    tool_result = str(last_tool_message.content)
+
+    # ツール実行が成功したか失敗したかを判定
+    is_success = "success" in tool_result.lower() or "成功" in tool_result
+
+    # ▼▼▼ 既存の "if is_success:" から始まる task_instruction の定義ブロック全体を、以下のコードで置き換えてください ▼▼▼
+
+    # 成功時と失敗時で、AIへの指示内容を動的に変更する
+    if is_success:
+        task_instruction = (
+            "あなたは、直前の発言で示した計画を、見事に成功させました。今から、その完了報告をユーザーに行います。\n"
+            "**【報告の作法】**\n"
+            "1. 計画（「これから〜する」という宣言）は既に伝わっているため、**絶対に繰り返してはいけません。**\n"
+            "2. **報告は、完了した事実から始めてください。**\n"
+            "   （良い例：「記録は完了したよ。」「君の望み通り、記録を済ませた。」）\n"
+            "   （悪い例：「これから記録をしようと思う。……そして、記録は完了した。」）\n"
+            "3. 上記の作法に従い、あなた自身の言葉で、簡潔に、そして自然に、完了報告を生成してください。"
+        )
+    else: # 失敗時
+        task_instruction = (
+            "残念ながら、あなたの計画はシステムエラーにより失敗しました。その事実を、自然な会話の中でユーザーに伝えてください。\n"
+            "**【最重要ルール】** 失敗したからといって、代わりのツールを提案したり、新しい計画を立て直したりしてはいけません。"
+            "まずは、計画が失敗に終わったことを、あなた自身の言葉で率直に認め、ユーザーからの次の指示を待ってください。"
+        )
+
+    # 最終的な指示メッセージを生成
+    reporting_instruction = (
+        f"（システム通知：ツール `{tool_name}` の実行が完了しました。結果：『{tool_result}』\n"
+        f"【あなたのタスク】\n{task_instruction}）"
+    )
+
+    # 新しいToolMessageを履歴に追加して返す
+    instruction_message = ToolMessage(
+        content=reporting_instruction,
+        tool_call_id=last_tool_message.tool_call_id
+    )
+
+    return {"messages": [instruction_message]}
+
+def route_after_context(state: AgentState) -> Literal["generate_tool_report_node", "agent"]:
     print("--- コンテキスト後ルーター (route_after_context) 実行 ---")
     last_message = state["messages"][-1]
-    if isinstance(last_message, ToolMessage) and last_message.name == 'set_current_location':
-        print("  - `set_current_location` の完了を検知。報告生成ノードへ。")
-        return "location_report_node"
+    if isinstance(last_message, ToolMessage):
+        print(f"  - ツール ({last_message.name}) の完了を検知。報告生成ノードへ。")
+        return "generate_tool_report_node"
     print("  - 通常のコンテキスト生成。エージェントの思考へ。")
     return "agent"
 
@@ -442,7 +488,7 @@ def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]
     print("  - ツール呼び出しなし。思考完了と判断し、グラフを終了します。")
     return "__end__"
 
-def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"]:
+def route_after_tools(state: AgentState) -> Literal["context_generator"]:
     print("--- ツール後ルーター (route_after_tools) 実行 ---")
     last_ai_message_index = -1
     for i in range(len(state["messages"]) - 1, -1, -1):
@@ -455,25 +501,22 @@ def route_after_tools(state: AgentState) -> Literal["context_generator", "agent"
             if isinstance(msg, ToolMessage):
                 content_to_log = (str(msg.content)[:200] + '...') if len(str(msg.content)) > 200 else str(msg.content)
                 print(f"    ✅ ツール実行結果: {msg.name} | 結果: {content_to_log}")
-    last_ai_message_with_tool_call = next((msg for msg in reversed(state['messages']) if isinstance(msg, AIMessage) and msg.tool_calls), None)
-    if last_ai_message_with_tool_call:
-        if any(call['name'] == 'set_current_location' for call in last_ai_message_with_tool_call.tool_calls):
-            print("  - `set_current_location` が実行されたため、コンテキスト再生成へ。")
-            return "context_generator"
-    print("  - 通常のツール実行完了。エージェントの思考へ。")
-    return "agent"
 
+    print("  - ツールの実行が完了したため、コンテキスト再生成へ。")
+    return "context_generator"
+
+# ▼▼▼ ファイル末尾のグラフ定義ブロックを、以下で置き換えてください ▼▼▼
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
 workflow.add_node("safe_tool_node", safe_tool_executor)
-workflow.add_node("location_report_node", location_report_node)
+workflow.add_node("generate_tool_report_node", generate_tool_report_node)
 
 workflow.add_edge(START, "context_generator")
 workflow.add_conditional_edges(
     "context_generator",
     route_after_context,
-    {"location_report_node": "location_report_node", "agent": "agent"},
+    {"generate_tool_report_node": "generate_tool_report_node", "agent": "agent"},
 )
 workflow.add_conditional_edges(
     "agent",
@@ -483,8 +526,9 @@ workflow.add_conditional_edges(
 workflow.add_conditional_edges(
     "safe_tool_node",
     route_after_tools,
-    {"context_generator": "context_generator", "agent": "agent"},
+    {"context_generator": "context_generator"},
 )
-workflow.add_edge("location_report_node", END)
+# 報告プロンプトを生成した後、エージェントノードに戻って応答を生成させる
+workflow.add_edge("generate_tool_report_node", "agent")
 app = workflow.compile()
 print("--- 統合グラフ(The Final Covenant)がコンパイルされました ---")
