@@ -37,56 +37,89 @@ def plan_memory_edit(modification_request: str, room_name: str) -> str:
     """
     return f"システムへの記憶編集計画を受け付けました。意図:「{modification_request}」"
 
-def _apply_memory_edits(instructions: List[Dict[str, Any]], room_name: str) -> str:
+# ▼▼▼ 既存の _apply_memory_edits 関数を、以下のコードで完全に置き換えてください ▼▼▼
+def _apply_memory_edits(
+    instructions: List[Dict[str, Any]],
+    room_name: str
+) -> str:
     """【内部専用】AIが生成した差分編集指示リストを解釈し、memory.jsonに適用する。"""
     if not room_name: return "【エラー】ルーム名が指定されていません。"
+    if not isinstance(instructions, list): return "【エラー】編集指示がリスト形式ではありません。"
+
     _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
-    if not memory_json_path:
-        return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
+    if not memory_json_path: return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
 
     memory_data = load_memory_data_safe(memory_json_path)
-    if "error" in memory_data:
-        return f"【エラー】記憶ファイルの読み込みに失敗: {memory_data['message']}"
+    if "error" in memory_data: return f"【エラー】記憶ファイルの読み込みに失敗: {memory_data['message']}"
 
     try:
-        for i, inst in enumerate(instructions):
-            op = inst.get("operation", "").lower()
+        # 複数回削除される可能性があるため、削除操作はインデックスがずれないように降順で処理する
+        # (例: [3, 1] を削除する場合、先にインデックス3を削除し、次に1を削除する)
+        sorted_instructions = sorted(instructions, key=lambda inst: (
+            inst.get('operation', '').lower() == 'delete',
+            # パスを逆順にしてソートすることで、深い階層や末尾のインデックスから先に処理
+            list(reversed(inst.get('path', '').split('.')))
+        ), reverse=True)
+
+        for i, inst in enumerate(sorted_instructions):
+            operation = inst.get("operation", "").lower()
             path = inst.get("path")
             value = inst.get("value")
 
-            if not op or path is None:
+            if not operation or not path:
                 return f"【エラー】指示 {i+1} に 'operation' または 'path' がありません。"
 
             keys = path.split('.')
             target_obj = memory_data
+            parent_obj = None
+            last_key_or_index = None
 
+            # パスの最後の部分を除いて、親オブジェクトまでたどる
             for key in keys[:-1]:
-                if key not in target_obj or not isinstance(target_obj.get(key), dict):
-                    if op in ['set', 'append']:
-                         target_obj[key] = {}
+                if isinstance(target_obj, list) and key.isdigit():
+                    idx = int(key)
+                    if 0 <= idx < len(target_obj):
+                        target_obj = target_obj[idx]
                     else:
-                        return f"【エラー】指示 {i+1} のパス '{path}' の中間キー '{key}' が存在しません。"
-                target_obj = target_obj[key]
-
-            last_key = keys[-1]
-
-            if op == 'set':
-                if value is None: return f"【エラー】指示 {i+1} (set) に 'value' がありません。"
-                target_obj[last_key] = value
-            elif op == 'append':
-                if value is None: return f"【エラー】指示 {i+1} (append) に 'value' がありません。"
-                if last_key not in target_obj:
-                    target_obj[last_key] = []
-                if not isinstance(target_obj[last_key], list):
-                    return f"【エラー】指示 {i+1} (append) のパス '{path}' はリストではありません。"
-                target_obj[last_key].append(value)
-            elif op == 'delete':
-                if last_key in target_obj:
-                    del target_obj[last_key]
+                        raise KeyError(f"パス '{path}' のインデックス '{key}' が範囲外です。")
+                elif isinstance(target_obj, dict) and key in target_obj:
+                    target_obj = target_obj[key]
                 else:
-                    pass
+                    # パスが存在しない場合、set/append操作なら途中の辞書を作成
+                    if operation in ['set', 'append']:
+                        if isinstance(target_obj, dict):
+                            target_obj = target_obj.setdefault(key, {})
+                        else:
+                             raise KeyError(f"パス '{path}' のキー '{key}' が見つかりません。")
+                    else:
+                        raise KeyError(f"パス '{path}' のキー '{key}' が見つかりません。")
+
+            # 最後のキーまたはインデックスを処理
+            last_key_str = keys[-1]
+
+            if operation == 'set':
+                if isinstance(target_obj, list) and last_key_str.isdigit():
+                    target_obj[int(last_key_str)] = value
+                else:
+                    target_obj[last_key_str] = value
+
+            elif operation == 'append':
+                target_list = target_obj.setdefault(last_key_str, []) if isinstance(target_obj, dict) else target_obj
+                if not isinstance(target_list, list):
+                    return f"【エラー】追記(append)操作はリストにのみ可能です。パス: '{path}'"
+                target_list.append(value)
+
+            elif operation == 'delete':
+                if isinstance(target_obj, list) and last_key_str.isdigit():
+                    del target_obj[int(last_key_str)]
+                elif isinstance(target_obj, dict) and last_key_str in target_obj:
+                    del target_obj[last_key_str]
+                else:
+                    # 既に削除されている可能性もあるため、エラーではなく警告に留める
+                    print(f"警告: 削除対象が見つかりません (既に削除済みか、パスが不正)。パス: '{path}'")
+
             else:
-                return f"【エラー】指示 {i+1} の操作 '{op}' は無効です。"
+                return f"【エラー】指示 {i+1} の操作 '{operation}' は無効です。"
 
         memory_data["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         with open(memory_json_path, "w", encoding="utf-8") as f:
