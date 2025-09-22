@@ -1,5 +1,6 @@
 # tools/memory_tools.py (v20: Final Architecture)
 
+import re
 from langchain_core.tools import tool
 import json
 import datetime
