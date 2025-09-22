@@ -367,12 +367,20 @@ try:
                         with gr.Row():
                             save_prompt_button = gr.Button("プロンプトを保存", variant="secondary")
                             reload_prompt_button = gr.Button("再読込", variant="secondary")
-                    with gr.TabItem("記憶 (JSON)"):
-                        memory_json_editor = gr.Code(label="主観的記憶（日記） - memory.json", language="json", interactive=True, elem_id="memory_json_editor_code", lines=20)
+                    # ▼▼▼ 以下のブロックで、既存の「記憶 (JSON)」タブを置き換えてください ▼▼▼
+                    with gr.TabItem("記憶 (テキスト)"):
+                        memory_txt_editor = gr.Textbox(
+                            label="主観的記憶（日記） - memory.txt",
+                            interactive=True,
+                            elem_id="memory_txt_editor_code", # IDはCSSのために維持
+                            lines=20,
+                            autoscroll=True
+                        )
                         with gr.Row():
                             save_memory_button = gr.Button("主観的記憶を保存", variant="secondary")
                             reload_memory_button = gr.Button("再読込", variant="secondary")
                             core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
+                    # ▲▲▲ 置き換えここまで ▲▲▲
                     with gr.TabItem("知識グラフ管理"):
                         gr.Markdown("## 知識グラフの管理")
                         gr.Markdown("過去の対話ログを分析し、エンティティ間の関係性を抽出して、AIの永続的な知識グラフを構築・更新します。")
@@ -457,7 +465,7 @@ try:
             current_room_name, chatbot_display, current_log_map_state,
             chat_input_multimodal, # chat_input_textbox と file_upload_button をこれ一つに置き換え
             profile_image_display,
-            memory_json_editor, notepad_editor, system_prompt_editor,
+            memory_txt_editor, notepad_editor, system_prompt_editor,
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
             current_location_display, current_scenery_display, room_voice_dropdown,
             room_voice_style_prompt_textbox,
@@ -684,8 +692,8 @@ try:
 
         save_prompt_button.click(fn=ui_handlers.handle_save_system_prompt, inputs=[current_room_name, system_prompt_editor], outputs=None)
         reload_prompt_button.click(fn=ui_handlers.handle_reload_system_prompt, inputs=[current_room_name], outputs=[system_prompt_editor])
-        save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_room_name, memory_json_editor], outputs=[memory_json_editor])
-        reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_room_name], outputs=[memory_json_editor])
+        save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_room_name, memory_txt_editor], outputs=[memory_txt_editor])
+        reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_room_name], outputs=[memory_txt_editor])
         save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_room_name, notepad_editor], outputs=[notepad_editor])
         reload_notepad_button.click(fn=ui_handlers.handle_reload_notepad, inputs=[current_room_name], outputs=[notepad_editor])
         clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_room_name], outputs=[notepad_editor])
