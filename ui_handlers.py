@@ -85,7 +85,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         add_timestamp=effective_settings.get("add_timestamp", False)
     )
     _, _, img_p, mem_p, notepad_p = get_room_files_paths(room_name)
-    memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
+    memory_str = ""
+    if mem_p and os.path.exists(mem_p):
+        with open(mem_p, "r", encoding="utf-8") as f:
+            memory_str = f.read()
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(room_name)
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
