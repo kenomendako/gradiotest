@@ -33,7 +33,7 @@ def _apply_memory_edits(
     instructions: List[Dict[str, Any]],
     room_name: str
 ) -> str:
-    """【内部専用】AIが生成した行番号ベースの差分編集指示リストを解釈し、memory.txtに適用する。"""
+    """【内部専用】AIが生成した行番号ベースの差分編集指示リストを解釈し、memory.txtに適用し、更新日時をroom_config.jsonに記録する。"""
     if not room_name: return "【エラー】ルーム名が指定されていません。"
     if not isinstance(instructions, list): return "【エラー】編集指示がリスト形式ではありません。"
 
@@ -44,41 +44,49 @@ def _apply_memory_edits(
         with open(memory_txt_path, 'r', encoding='utf-8') as f:
             lines = f.read().split('\n')
 
+        # (行番号ベースの編集ロジック部分は、前回の指示から変更なし)
         line_plan = {}
-        insertions = {} # 挿入は別管理
-
+        insertions = {}
         for inst in instructions:
             op = inst.get("operation", "").lower()
             line_num = inst.get("line")
             if line_num is None: continue
-
             target_index = line_num - 1
             if not (0 <= target_index < len(lines)): continue
-
-            if op == "delete":
-                line_plan[target_index] = {"operation": "delete"}
-            elif op == "replace":
-                line_plan[target_index] = {"operation": "replace", "content": inst.get("content", "")}
+            if op == "delete": line_plan[target_index] = {"operation": "delete"}
+            elif op == "replace": line_plan[target_index] = {"operation": "replace", "content": inst.get("content", "")}
             elif op == "insert_after":
                 if target_index not in insertions: insertions[target_index] = []
                 insertions[target_index].append(inst.get("content", ""))
-
         new_lines = []
         for i, line_content in enumerate(lines):
             plan = line_plan.get(i)
-
-            if plan is None:
-                new_lines.append(line_content)
-            elif plan["operation"] == "replace":
-                new_lines.append(plan["content"])
-            elif plan["operation"] == "delete":
-                pass
-
+            if plan is None: new_lines.append(line_content)
+            elif plan["operation"] == "replace": new_lines.append(plan["content"])
+            elif plan["operation"] == "delete": pass
             if i in insertions:
                 new_lines.extend(insertions[i])
 
+        # memory.txt ファイルに書き戻す
         with open(memory_txt_path, "w", encoding="utf-8") as f:
             f.write("\n".join(new_lines))
+
+        # --- ▼▼▼【ここからが新しいブロック】▼▼▼ ---
+        # 2. room_config.json に最終更新日時を記録する
+        try:
+            config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+            config = {}
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+
+            config["memory_last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+        except Exception as config_e:
+            print(f"警告: room_config.jsonへの更新日時記録中にエラーが発生しました: {config_e}")
+        # --- ▲▲▲【新しいブロックここまで】▲▲▲ ---
 
         return f"成功: {len(instructions)}件の指示に基づき、主観的記憶(memory.txt)を更新しました。"
     except Exception as e:
