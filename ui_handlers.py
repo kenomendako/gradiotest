@@ -85,7 +85,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         add_timestamp=effective_settings.get("add_timestamp", False)
     )
     _, _, img_p, mem_p, notepad_p = get_room_files_paths(room_name)
-    memory_str = json.dumps(load_memory_data_safe(mem_p), indent=2, ensure_ascii=False)
+    memory_str = ""
+    if mem_p and os.path.exists(mem_p):
+        with open(mem_p, "r", encoding="utf-8") as f:
+            memory_str = f.read()
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(room_name)
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
@@ -1226,14 +1229,31 @@ def handle_wb_add_place_button_click(area_selector_value: Optional[str]):
         return "place", gr.update(visible=False), "#### 新しい場所の作成"
     return "place", gr.update(visible=True), "#### 新しい場所の作成"
 
-def handle_save_memory_click(room_name, json_string_data):
+def handle_save_memory_click(room_name, text_content):
     if not room_name: gr.Warning("ルームが選択されていません。"); return gr.update()
-    try: return save_memory_data(room_name, json_string_data)
-    except Exception as e: gr.Error(f"記憶の保存中にエラーが発生しました: {e}"); return gr.update()
+    _, _, _, memory_txt_path, _ = get_room_files_paths(room_name)
+    if not memory_txt_path: gr.Error(f"「{room_name}」の記憶パス取得失敗。"); return gr.update()
+    try:
+        with open(memory_txt_path, "w", encoding="utf-8") as f:
+            f.write(text_content)
+        # room_config.json にも更新日時を記録
+        config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+        config = room_manager.get_room_config(room_name) or {}
+        config["memory_last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        gr.Info(f"'{room_name}' の記憶を保存しました。")
+        return gr.update(value=text_content)
+    except Exception as e: gr.Error(f"記憶保存エラー: {e}"); traceback.print_exc(); return gr.update()
 
 def handle_reload_memory(room_name: str) -> str:
-    if not room_name: gr.Warning("ルームが選択されていません。"); return "{}"
-    gr.Info(f"「{room_name}」の記憶を再読み込みしました。"); _, _, _, memory_json_path, _ = get_room_files_paths(room_name); return json.dumps(load_memory_data_safe(memory_json_path), indent=2, ensure_ascii=False)
+    if not room_name: gr.Warning("ルームが選択されていません。"); return ""
+    gr.Info(f"「{room_name}」の記憶を再読み込みしました。")
+    _, _, _, memory_txt_path, _ = get_room_files_paths(room_name)
+    if memory_txt_path and os.path.exists(memory_txt_path):
+        with open(memory_txt_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return ""
 
 def load_notepad_content(room_name: str) -> str:
     if not room_name: return ""

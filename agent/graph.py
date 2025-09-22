@@ -350,22 +350,43 @@ def safe_tool_executor(state: AgentState):
             elif is_plan_notepad: read_tool = read_full_notepad
             elif is_plan_world: read_tool = read_world_settings
 
-            current_content = read_tool.invoke({"room_name": room_name})
+            # ▼▼▼【ここからが差し替えブロック】▼▼▼
+            # 生のファイル内容を読み込む
+            raw_content = read_tool.invoke({"room_name": room_name})
+
+            # memory.json の場合のみ、行番号を付与する
+            if is_plan_memory:
+                lines = raw_content.split('\n')
+                numbered_lines = [f"{i+1}: {line}" for i, line in enumerate(lines)]
+                current_content = "\n".join(numbered_lines)
+            else:
+                current_content = raw_content
+            # ▲▲▲【差し替えブロックここまで】▲▲▲
 
             print(f"  - ペルソナAI ({state['model_name']}) に編集タスクを依頼します。")
             llm_persona = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
 
             instruction_templates = {
                 "plan_memory_edit": (
+                    # ▼▼▼ 以下の文字列で、既存の "plan_memory_edit" のプロンプトを置き換えてください ▼▼▼
                     "【最重要指示：これは『対話』ではなく『設計タスク』です】\n"
-                    "あなたは今、自身の記憶を更新するための『設計図』を作成しています。\n"
-                    "提示された【既存のデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
-                    "【既存のデータ（memory.json全文）】\n---\n{current_content}\n---\n\n"
+                    "あなたは今、自身の記憶ファイル(`memory.txt`)を更新するための『設計図』を作成しています。\n"
+                    "このファイルは自由な書式のテキストファイルです。提示された【行番号付きデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
+                    "【行番号付きデータ（memory.txt全文）】\n---\n{current_content}\n---\n\n"
                     "【あなたの変更要求】\n「{modification_request}」\n\n"
                     "【絶対的な出力ルール】\n"
                     "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
-                    "- 各指示は \"operation\" ('set', 'append', 'delete'), \"path\" (\"key.subkey\"形式), \"value\" のキーを持つ辞書です。\n"
+                    "- 各指示は \"operation\" ('replace', 'delete', 'insert_after'), \"line\" (対象行番号), \"content\" (新しい内容) のキーを持つ辞書です。\n\n"
+                    "- **【操作方法】**\n"
+                    "  - **`delete` (削除):** 指定した`line`番号の行を削除します。`content`は不要です。\n"
+                    "    - `{{\"operation\": \"delete\", \"line\": 15}}` (15行目を削除)\n"
+                    "  - **`replace` (置換):** 指定した`line`番号の行を、新しい`content`に置き換えます。\n"
+                    "    - `{{\"operation\": \"replace\", \"line\": 20, \"content\": \"  \\\"event\\\": \\\"新しいイベント...\\\"\"}}`\n"
+                    "  - **`insert_after` (挿入):** 指定した`line`番号の**直後**に、新しい行として`content`を挿入します。\n"
+                    "    - `{{\"operation\": \"insert_after\", \"line\": 25, \"content\": \"    {{\\\"date\\\": \\\"...\\\"}} \"}}`\n"
+                    "  - **複数行の操作:** 複数行をまとめて削除・置換する場合は、**各行に対して**個別の指示を生成してください。\n\n"
                     "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
+                    # ▲▲▲ 置き換えここまで ▲▲▲
                 ),
                 "plan_world_edit": (
                     "【最重要指示：これは『対話』ではなく『世界構築タスク』です】\n"
@@ -394,9 +415,27 @@ def safe_tool_executor(state: AgentState):
             )
             edit_instruction_message = HumanMessage(content=formatted_instruction)
 
-            messages_for_editing = [msg for msg in state['messages'] if msg is not last_message]
-            messages_for_editing.append(edit_instruction_message)
-            final_context_for_editing = [state['system_prompt']] + messages_for_editing
+            # ▼▼▼【ここからが差し替えブロック】▼▼▼
+            # ツール呼び出しを行ったAI自身のメッセージ(last_message)を除いた、それ以前の完全な会話履歴を取得
+            history_for_editing = [msg for msg in state['messages'] if msg is not last_message]
+
+            # システムプロンプト、完全な会話履歴、そして最後に今回の編集指示メッセージを結合
+            final_context_for_editing = [state['system_prompt']] + history_for_editing + [edit_instruction_message]
+            # ▲▲▲【差し替えブロックここまで】▲▲▲
+
+            # ▼▼▼【ここ！】以下のデバッグブロックを、この場所に追加してください。▼▼▼
+            if state.get("debug_mode", True): # デバッグモード中は常に出力
+                print("\n--- [DEBUG] AIへの最終編集タスクプロンプト (完全版) ---")
+                for i, msg in enumerate(final_context_for_editing):
+                    msg_type = type(msg).__name__
+                    content_preview = str(msg.content)[:500].replace('\n', ' ')
+                    print(f"[{i}] {msg_type} (Content Length: {len(str(msg.content))})")
+                    if i == len(final_context_for_editing) - 1: # 最後の指示メッセージは全文表示
+                        print(f"  - Content (Full):\n{msg.content}")
+                    else:
+                        print(f"  - Content (Preview): {content_preview}...")
+                print("----------------------------------------------------------\n")
+            # ▲▲▲【デバッグブロックここまで】▲▲▲
 
             # ▼▼▼【ここからがスマートリトライ機構の核心】▼▼▼
             edited_content_document = None
@@ -448,9 +487,13 @@ def safe_tool_executor(state: AgentState):
                 json_match = re.search(r'```json\s*([\s\S]*?)\s*```', edited_content_document, re.DOTALL)
                 content_to_process = json_match.group(1).strip() if json_match else edited_content_document
                 instructions = json.loads(content_to_process)
+
+                # ▼▼▼【ここ！】以下のデバッグ用のprint文を1行追加してください。▼▼▼
+                print(f"--- [DEBUG] AIが生成した差分指示リスト ---\n{json.dumps(instructions, indent=2, ensure_ascii=False)}\n------------------------------------")
+
                 if is_plan_memory:
                     output = _apply_memory_edits(instructions=instructions, room_name=room_name)
-                else:
+                else: # is_plan_world
                     output = _apply_world_edits(instructions=instructions, room_name=room_name)
             else:
                 text_match = re.search(r'```(?:.*\n)?([\s\S]*?)```', edited_content_document, re.DOTALL)

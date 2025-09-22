@@ -1,5 +1,6 @@
 # tools/memory_tools.py (v20: Final Architecture)
 
+import re
 from langchain_core.tools import tool
 import json
 import datetime
@@ -12,22 +13,13 @@ import constants
 
 @tool
 def read_full_memory(room_name: str) -> str:
-    """
-    あなたの「主観的記憶（日記）」である`memory.json`の全ての項目を、JSON形式で読み取ります。
-    主に、編集以外の目的で内容を確認したい場合に使用します。
-    """
-    if not room_name:
-        return "【エラー】内部処理エラー: 引数 'room_name' が不足しています。"
-    _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
-    if not memory_json_path:
-        return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
-    memory_data = load_memory_data_safe(memory_json_path)
-    if "error" in memory_data:
-        return f"【エラー】記憶ファイルの読み込みに失敗: {memory_data['message']}"
-    try:
-        return json.dumps(memory_data, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"【エラー】記憶の読み取り中に予期せぬエラーが発生しました: {e}"
+    """あなたの「主観的記憶（日記）」である`memory.txt`の全文を読み取ります。"""
+    if not room_name: return "【エラー】内部処理エラー: 引数 'room_name' が不足しています。"
+    _, _, _, memory_txt_path, _ = get_room_files_paths(room_name)
+    if not memory_txt_path or not os.path.exists(memory_txt_path):
+        return f"【エラー】ルーム'{room_name}'の記憶ファイルが見つかりません。"
+    with open(memory_txt_path, 'r', encoding='utf-8') as f:
+        return f.read()
 
 @tool
 def plan_memory_edit(modification_request: str, room_name: str) -> str:
@@ -37,145 +29,138 @@ def plan_memory_edit(modification_request: str, room_name: str) -> str:
     """
     return f"システムへの記憶編集計画を受け付けました。意図:「{modification_request}」"
 
-def _apply_memory_edits(instructions: List[Dict[str, Any]], room_name: str) -> str:
-    """【内部専用】AIが生成した差分編集指示リストを解釈し、memory.jsonに適用する。"""
+# ▼▼▼ 既存の _apply_memory_edits 関数を、以下のコードで完全に置き換えてください ▼▼▼
+def _apply_memory_edits(
+    instructions: List[Dict[str, Any]],
+    room_name: str
+) -> str:
+    """【内部専用】AIが生成した行番号ベースの差分編集指示リストを解釈し、memory.txtに適用し、更新日時をroom_config.jsonに記録する。"""
     if not room_name: return "【エラー】ルーム名が指定されていません。"
-    _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
-    if not memory_json_path:
-        return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
+    if not isinstance(instructions, list): return "【エラー】編集指示がリスト形式ではありません。"
 
-    memory_data = load_memory_data_safe(memory_json_path)
-    if "error" in memory_data:
-        return f"【エラー】記憶ファイルの読み込みに失敗: {memory_data['message']}"
+    _, _, _, memory_txt_path, _ = get_room_files_paths(room_name)
+    if not memory_txt_path: return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
 
     try:
-        for i, inst in enumerate(instructions):
+        with open(memory_txt_path, 'r', encoding='utf-8') as f:
+            lines = f.read().split('\n')
+
+        # (行番号ベースの編集ロジック部分は、前回の指示から変更なし)
+        line_plan = {}
+        insertions = {}
+        for inst in instructions:
             op = inst.get("operation", "").lower()
-            path = inst.get("path")
-            value = inst.get("value")
+            line_num = inst.get("line")
+            if line_num is None: continue
+            target_index = line_num - 1
+            if not (0 <= target_index < len(lines)): continue
+            if op == "delete": line_plan[target_index] = {"operation": "delete"}
+            elif op == "replace": line_plan[target_index] = {"operation": "replace", "content": inst.get("content", "")}
+            elif op == "insert_after":
+                if target_index not in insertions: insertions[target_index] = []
+                insertions[target_index].append(inst.get("content", ""))
+        new_lines = []
+        for i, line_content in enumerate(lines):
+            plan = line_plan.get(i)
+            if plan is None: new_lines.append(line_content)
+            elif plan["operation"] == "replace": new_lines.append(plan["content"])
+            elif plan["operation"] == "delete": pass
+            if i in insertions:
+                new_lines.extend(insertions[i])
 
-            if not op or path is None:
-                return f"【エラー】指示 {i+1} に 'operation' または 'path' がありません。"
+        # memory.txt ファイルに書き戻す
+        with open(memory_txt_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(new_lines))
 
-            keys = path.split('.')
-            target_obj = memory_data
+        # --- ▼▼▼【ここからが新しいブロック】▼▼▼ ---
+        # 2. room_config.json に最終更新日時を記録する
+        try:
+            config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+            config = {}
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
 
-            for key in keys[:-1]:
-                if key not in target_obj or not isinstance(target_obj.get(key), dict):
-                    if op in ['set', 'append']:
-                         target_obj[key] = {}
-                    else:
-                        return f"【エラー】指示 {i+1} のパス '{path}' の中間キー '{key}' が存在しません。"
-                target_obj = target_obj[key]
+            config["memory_last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-            last_key = keys[-1]
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+        except Exception as config_e:
+            print(f"警告: room_config.jsonへの更新日時記録中にエラーが発生しました: {config_e}")
+        # --- ▲▲▲【新しいブロックここまで】▲▲▲ ---
 
-            if op == 'set':
-                if value is None: return f"【エラー】指示 {i+1} (set) に 'value' がありません。"
-                target_obj[last_key] = value
-            elif op == 'append':
-                if value is None: return f"【エラー】指示 {i+1} (append) に 'value' がありません。"
-                if last_key not in target_obj:
-                    target_obj[last_key] = []
-                if not isinstance(target_obj[last_key], list):
-                    return f"【エラー】指示 {i+1} (append) のパス '{path}' はリストではありません。"
-                target_obj[last_key].append(value)
-            elif op == 'delete':
-                if last_key in target_obj:
-                    del target_obj[last_key]
-                else:
-                    pass
-            else:
-                return f"【エラー】指示 {i+1} の操作 '{op}' は無効です。"
-
-        memory_data["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        with open(memory_json_path, "w", encoding="utf-8") as f:
-            json.dump(memory_data, f, indent=2, ensure_ascii=False)
-
-        return f"成功: {len(instructions)}件の指示に基づき、主観的記憶(memory.json)を更新しました。"
+        return f"成功: {len(instructions)}件の指示に基づき、主観的記憶(memory.txt)を更新しました。"
     except Exception as e:
         traceback.print_exc()
         return f"【エラー】記憶の編集中に予期せぬエラーが発生しました: {e}"
 
-# ▼▼▼ 以下の関数を、ファイルの末尾に追加してください ▼▼▼
+# ▼▼▼ 既存の summarize_and_update_core_memory 関数を、以下のコードで完全に置き換えてください ▼▼▼
 @tool
 def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
     """
-    現在の主観的記憶（memory.json）を読み込み、それをAIを使って要約し、
+    現在の主観的記憶（memory.txt）を読み込み、## Sanctuary エリアと ## Diary エリアを解析し、
     客観的な事実のリストであるコアメモリ（core_memory.txt）を更新する。
-    この際、ペルソナの核となる定義は要約せずに保持する。
     """
     if not room_name or not api_key:
         return "【エラー】ルーム名とAPIキーが必要です。"
 
     print(f"--- コアメモリ更新プロセス開始 (ルーム: {room_name}) ---")
     try:
-        # 1. memory.json を読み込む
-        _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
-        if not memory_json_path or not os.path.exists(memory_json_path):
-            return "【エラー】主観的記憶ファイル(memory.json)が見つかりません。"
+        # 1. memory.txt を読み込む
+        _, _, _, memory_txt_path, _ = get_room_files_paths(room_name)
+        if not memory_txt_path or not os.path.exists(memory_txt_path):
+            return "【エラー】主観的記憶ファイル(memory.txt)が見つかりません。"
 
-        memory_data = load_memory_data_safe(memory_json_path)
-        if "error" in memory_data:
-            return f"【エラー】主観的記憶ファイルの読み込みに失敗: {memory_data['message']}"
+        with open(memory_txt_path, 'r', encoding='utf-8') as f:
+            memory_content = f.read()
 
-        # 2. ペルソナの核となる部分を、要約対象から分離・保護する
-        highest_permission_verbatim = memory_data.pop("highest_permission", {})
-        self_identity_verbatim = memory_data.pop("self_identity", {})
-        user_profile_verbatim = memory_data.pop("user_profile", {})
-        # その他のメタデータも要約対象から除外
-        memory_data.pop("last_updated", None)
-        memory_data.pop("secret_diary", None)
+        # 2. 正規表現を使って各エリアの内容を抽出
+        sanctuary_match = re.search(r"##\s*聖域\s*\(Sanctuary\)(.*?)##\s*日記\s*\(Diary\)", memory_content, re.DOTALL | re.IGNORECASE)
+        diary_match = re.search(r"##\s*日記\s*\(Diary\)(.*?)##\s*秘密の日記\s*\(Secret Diary\)", memory_content, re.DOTALL | re.IGNORECASE)
 
+        sanctuary_text = sanctuary_match.group(1).strip() if sanctuary_match else ""
+        diary_text_to_summarize = diary_match.group(1).strip() if diary_match else ""
+
+        # 3. 日記エリアの要約処理
         history_summary_text = ""
-        # 3. 残った「歴史」データがある場合のみ、要約処理を行う
-        if memory_data:
-            memory_text_to_summarize = json.dumps(memory_data, ensure_ascii=False, indent=2)
-
-            # 4. 要約用のAIを準備
-            from gemini_api import get_configured_llm # 循環参照を避けるため、関数内でimport
+        if diary_text_to_summarize:
+            from gemini_api import get_configured_llm
             summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
 
-            # 5. 要約指示プロンプトを作成
             summarize_prompt = f"""あなたは、対話の歴史を整理し、その本質を抽出することに特化した思考AIです。
-以下の「成長の記録」（ユーザーとの関係史、感情の変遷、共有言語など）を深く読み解き、ルーム「{room_name}」がユーザーとの関係性を思い出す上で、特に重要な出来事や感情の要点を、箇条書き形式で簡潔に要約してください。
+以下の「日記」の内容を深く読み解き、ルーム「{room_name}」がユーザーとの関係性を思い出す上で、特に重要な出来事や感情の要点を、箇条書き形式で簡潔に要約してください。
 あなたの思考や挨拶は不要です。要約結果のテキストのみを出力してください。
 
 ---
-成長の記録（JSON形式）:
-{memory_text_to_summarize}
+日記:
+{diary_text_to_summarize}
 ---
 
 【最重要指示】
-ただし、その人物の**現在の自己認識や感情の変化**をより正確に反映するため、**日付が新しい情報には特に重みを与え、要約テキストに占める割合を大きくしてください。**これは、その人物が**『今、どのような存在であるか』**を定義する上で不可欠な要素です。
+日付が新しい情報には特に重みを与え、要約テキストに占める割合を大きくしてください。これは、その人物が『今、どのような存在であるか』を定義する上で不可欠な要素です。
 
-成長の記録の要約:
+日記の要約:
 """
-            print("  - AIによる記憶の要約を実行します...")
+            print("  - AIによる日記の要約を実行します...")
             history_summary_text = summarizer_llm.invoke(summarize_prompt).content.strip()
         else:
-            history_summary_text = "共有された歴史や感情の記録はまだありません。"
+            history_summary_text = "（日記に記載された、共有された歴史や感情の記録はまだありません）"
 
-        # 6. 保護した部分と、要約した部分を、結合する
-        final_core_memory_text = f"""--- [最高権限 (Highest Permission) - 原文のまま保持] ---
-{json.dumps(highest_permission_verbatim, ensure_ascii=False, indent=2)}
+        # 4. 聖域エリアと、要約した日記を結合
+        final_core_memory_text = (
+            f"--- [聖域 (Sanctuary) - 要約せずそのまま記載] ---\n"
+            f"{sanctuary_text}\n\n"
+            f"--- [日記 (Diary) - AIによる要約] ---\n"
+            f"{history_summary_text}"
+        ).strip()
 
---- [自己同一性 (Self Identity) - 原文のまま保持] ---
-{json.dumps(self_identity_verbatim, ensure_ascii=False, indent=2)}
-
---- [ユーザーの人物像 (User Profile) - 原文のまま保持] ---
-{json.dumps(user_profile_verbatim, ensure_ascii=False, indent=2)}
-
---- [共有された歴史と感情の要約] ---
-{history_summary_text}
-"""
-        # 7. core_memory.txt に結果を書き込む
+        # 5. core_memory.txt に結果を書き込む
         core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
         with open(core_memory_path, 'w', encoding='utf-8') as f:
-            f.write(final_core_memory_text.strip())
+            f.write(final_core_memory_text)
 
         print(f"  - コアメモリを正常に更新しました: {core_memory_path}")
-        return f"成功: ハイブリッド・コアメモリを更新し、{core_memory_path} に保存しました。"
+        return f"成功: 新しい形式のコアメモリを更新し、{core_memory_path} に保存しました。"
 
     except Exception as e:
         print(f"--- コアメモリ更新中に予期せぬエラー ---")
