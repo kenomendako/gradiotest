@@ -6,7 +6,7 @@ import os
 # --- ディレクトリとファイル名 ---
 ROOMS_DIR = "characters"
 PROFILE_IMAGE_FILENAME = "profile.png"
-MEMORY_FILENAME = "memory.json"
+MEMORY_FILENAME = "memory.txt"
 NOTEPAD_FILENAME = "notepad.md"
 CONFIG_FILE = "config.json"
 ALARMS_FILE = "alarms.json"

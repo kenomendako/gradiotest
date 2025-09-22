@@ -63,12 +63,26 @@ def ensure_room_files(room_name: str) -> bool:
 
         # テキストベースのファイル
         world_settings_content = "## 共有リビング\n\n### リビング\n広々としたリビングルーム。大きな窓からは柔らかな光が差し込み、快適なソファが置かれている。\n"
+
+        # ▼▼▼ memory.txt用のテンプレートを定義 ▼▼▼
+        memory_template_content = (
+            "## 聖域 (Sanctuary)\n"
+            "# このエリアの内容は、コアメモリにそのままコピーされます。\n\n"
+            "### 自己同一性 (Self Identity)\n\n\n"
+            "## 日記 (Diary)\n"
+            "# このエリアの内容は、AIによって要約され、コアメモリに追記されます。\n\n"
+            "### 2025-09-22\n\n\n"
+            "## 秘密の日記 (Secret Diary)\n"
+            "# このエリアの内容は、コアメモリには一切記載されません。\n\n"
+        )
         text_files_to_create = {
             os.path.join(base_path, "SystemPrompt.txt"): "",
             os.path.join(base_path, "log.txt"): "",
             os.path.join(base_path, constants.NOTEPAD_FILENAME): "",
             os.path.join(base_path, "current_location.txt"): "リビング",
-            os.path.join(spaces_dir, "world_settings.txt"): world_settings_content
+            os.path.join(spaces_dir, "world_settings.txt"): world_settings_content,
+            # ▼▼▼ 以下の行を追加 ▼▼▼
+            os.path.join(base_path, constants.MEMORY_FILENAME): memory_template_content
         }
         for file_path, content in text_files_to_create.items():
             if not os.path.exists(file_path):
@@ -76,8 +90,8 @@ def ensure_room_files(room_name: str) -> bool:
                     f.write(content)
 
         # JSONベースのファイル
+        # ▼▼▼ memory.json の行を削除 ▼▼▼
         json_files_to_create = {
-            os.path.join(base_path, constants.MEMORY_FILENAME): {},
             os.path.join(cache_dir, "scenery.json"): {},
             os.path.join(cache_dir, "image_prompts.json"): {"prompts": {}},
         }
