@@ -42,89 +42,82 @@ def _apply_memory_edits(
     instructions: List[Dict[str, Any]],
     room_name: str
 ) -> str:
-    """【内部専用】AIが生成した差分編集指示リストを解釈し、memory.jsonに適用する。"""
+    """【内部専用】AIが生成した行番号ベースの差分編集指示リストを解釈し、memory.jsonに適用する。"""
     if not room_name: return "【エラー】ルーム名が指定されていません。"
     if not isinstance(instructions, list): return "【エラー】編集指示がリスト形式ではありません。"
 
     _, _, _, memory_json_path, _ = get_room_files_paths(room_name)
     if not memory_json_path: return f"【エラー】ルーム'{room_name}'の記憶ファイルパスが見つかりません。"
 
-    memory_data = load_memory_data_safe(memory_json_path)
-    if "error" in memory_data: return f"【エラー】記憶ファイルの読み込みに失敗: {memory_data['message']}"
-
     try:
-        # --- 修正の核心：正しいソートキーを定義する ---
-        def sort_key_for_delete(instruction):
-            path_parts = instruction.get('path', '').split('.')
-            # パスの最後の部分が数字（インデックス）であれば、それを数値に変換して返す
-            # これにより、'59' と '9' が正しく数値として比較される
-            if path_parts and path_parts[-1].isdigit():
-                # [is_delete, index, original_path] のようなタプルを返す
-                # is_deleteはTrue(1)が先に, indexは大きい順に, pathは安定ソートのため
-                return (
-                    instruction.get('operation', '').lower() == 'delete',
-                    int(path_parts[-1]),
-                    instruction.get('path', '')
-                )
-            # インデックスでない場合は、通常の文字列ソート
-            return (
-                instruction.get('operation', '').lower() == 'delete',
-                -1, # 数値インデックスより常に優先度が低くなるように
-                instruction.get('path', '')
-            )
+        with open(memory_json_path, 'r', encoding='utf-8') as f:
+            lines = f.read().split('\n')
 
-        # 新しいソートキーを使って指示を並び替える
-        sorted_instructions = sorted(instructions, key=sort_key_for_delete, reverse=True)
+        # 変更を直接適用するのではなく、行ごとの操作計画を立てる
+        # これにより、複数操作によるインデックスのズレを完全に防ぐ
+        # line_plan: { 10: {"operation": "delete"}, 15: {"operation": "replace", "content": "..."} }
+        line_plan = {}
 
-        print(f"--- [DEBUG] Sorted Instructions Order ---")
-        for inst in sorted_instructions:
-            print(f"  - Op: {inst.get('operation')}, Path: {inst.get('path')}")
-        print(f"------------------------------------")
+        for inst in instructions:
+            op = inst.get("operation", "").lower()
+            line_num = inst.get("line")
 
+            if not op or line_num is None:
+                print(f"警告: 無効な指示です (operation/lineキー欠落): {inst}")
+                continue
 
-        for inst in sorted_instructions:
-            operation = inst.get("operation", "").lower()
-            path = inst.get("path")
-            value = inst.get("value")
+            # AIは1から始まる行番号を返すが、リストのインデックスは0から始まる
+            target_index = line_num - 1
+            if not (0 <= target_index < len(lines)):
+                 print(f"警告: 無効な行番号です: {line_num} (ファイルの行数: {len(lines)})")
+                 continue
 
-            if not operation or not path: continue
+            if op == "delete":
+                line_plan[target_index] = {"operation": "delete"}
+            elif op == "replace":
+                line_plan[target_index] = {"operation": "replace", "content": inst.get("content", "")}
+            elif op == "insert_after":
+                # 挿入操作は、既存の操作と競合しないように特別に扱う
+                if target_index not in line_plan:
+                    line_plan[target_index] = {"operation": "keep"} # 元の行は維持
 
-            keys = path.split('.')
-            target_obj = memory_data
+                # 挿入用のキーを追加
+                if "insertions" not in line_plan[target_index]:
+                    line_plan[target_index]["insertions"] = []
+                line_plan[target_index]["insertions"].append(inst.get("content", ""))
 
-            for key in keys[:-1]:
-                if isinstance(target_obj, dict):
-                    target_obj = target_obj.setdefault(key, {})
-                elif isinstance(target_obj, list) and key.isdigit():
-                    target_obj = target_obj[int(key)]
-                else:
-                    raise KeyError(f"Invalid path component '{key}' in path '{path}'")
+        # 計画に基づいて、新しい行リストを構築する
+        new_lines = []
+        for i, line_content in enumerate(lines):
+            plan = line_plan.get(i)
 
-            last_key = keys[-1]
+            if plan is None: # この行に変更はない
+                new_lines.append(line_content)
+            elif plan["operation"] == "delete":
+                pass # この行を新しいリストに追加しない
+            elif plan["operation"] == "replace":
+                new_lines.append(plan["content"])
+            elif plan["operation"] == "keep" or plan["operation"] == "insert_after":
+                # この行自体は維持する
+                new_lines.append(line_content)
 
-            if operation == 'set':
-                if isinstance(target_obj, list) and last_key.isdigit():
-                    target_obj[int(last_key)] = value
-                else:
-                    target_obj[last_key] = value
-            elif operation == 'append':
-                target_list = target_obj.setdefault(last_key, []) if isinstance(target_obj, dict) else target_obj
-                if not isinstance(target_list, list):
-                    return f"【エラー】追記(append)操作はリストにのみ可能です。パス: '{path}'"
-                target_list.append(value)
-            elif operation == 'delete':
-                if isinstance(target_obj, list) and last_key.isdigit():
-                    idx = int(last_key)
-                    if 0 <= idx < len(target_obj):
-                        del target_obj[idx]
-                elif isinstance(target_obj, dict) and last_key in target_obj:
-                    del target_obj[last_key]
+            # この行の直後に挿入する内容があれば追加
+            if plan and "insertions" in plan:
+                new_lines.extend(plan["insertions"])
 
-        memory_data["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        with open(memory_json_path, "w", encoding="utf-8") as f:
-            json.dump(memory_data, f, indent=2, ensure_ascii=False)
+        # ファイルに書き戻す
+        final_content = "\n".join(new_lines)
+
+        # 保存前にJSONとして有効か検証 (将来テキストファイル化してもエラーにならないように)
+        try:
+            json.loads(final_content)
+            with open(memory_json_path, "w", encoding="utf-8") as f:
+                f.write(final_content)
+        except json.JSONDecodeError:
+            return "【エラー】編集の結果、ファイルが有効なJSON形式になりませんでした。AIの指示を見直してください。"
 
         return f"成功: {len(instructions)}件の指示に基づき、主観的記憶(memory.json)を更新しました。"
+
     except Exception as e:
         traceback.print_exc()
         return f"【エラー】記憶の編集中に予期せぬエラーが発生しました: {e}"

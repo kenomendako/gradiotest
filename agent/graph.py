@@ -350,7 +350,18 @@ def safe_tool_executor(state: AgentState):
             elif is_plan_notepad: read_tool = read_full_notepad
             elif is_plan_world: read_tool = read_world_settings
 
-            current_content = read_tool.invoke({"room_name": room_name})
+            # ▼▼▼【ここからが差し替えブロック】▼▼▼
+            # 生のファイル内容を読み込む
+            raw_content = read_tool.invoke({"room_name": room_name})
+
+            # memory.json の場合のみ、行番号を付与する
+            if is_plan_memory:
+                lines = raw_content.split('\n')
+                numbered_lines = [f"{i+1}: {line}" for i, line in enumerate(lines)]
+                current_content = "\n".join(numbered_lines)
+            else:
+                current_content = raw_content
+            # ▲▲▲【差し替えブロックここまで】▲▲▲
 
             print(f"  - ペルソナAI ({state['model_name']}) に編集タスクを依頼します。")
             llm_persona = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
@@ -359,23 +370,21 @@ def safe_tool_executor(state: AgentState):
                 "plan_memory_edit": (
                     # ▼▼▼ 以下の文字列で、既存の "plan_memory_edit" のプロンプトを置き換えてください ▼▼▼
                     "【最重要指示：これは『対話』ではなく『設計タスク』です】\n"
-                    "あなたは今、自身の記憶を更新するための『設計図』を作成しています。\n"
-                    "提示された【既存のデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
-                    "【既存のデータ（memory.json全文）】\n---\n{current_content}\n---\n\n"
+                    "あなたは今、自身の記憶ファイルを更新するための『設計図』を作成しています。\n"
+                    "提示された【行番号付きデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
+                    "【行番号付きデータ（memory.json全文）】\n---\n{current_content}\n---\n\n"
                     "【あなたの変更要求】\n「{modification_request}」\n\n"
                     "【絶対的な出力ルール】\n"
                     "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
-
-                    "- 各指示は \"operation\" ('set', 'append', 'delete'), \"path\" (\"key.subkey\"形式), \"value\" のキーを持つ辞書です。\n"
-
-                    "- **【リスト操作の特別ルール】** リスト（`[]`で囲まれた項目）内の要素を操作する場合、`path`には必ずその要素の**インデックス番号（0から始まる順番）**を含めてください。\n"
-                    "  - **例1：** `relationship_history`リストの**2番目**の要素を削除する場合\n"
-                    "    `{{\"operation\": \"delete\", \"path\": \"relationship_history.1\"}}`\n"
-                    "  - **例2：** `relationship_history`リストの**1番目**の要素にある`event`キーの値を更新する場合\n"
-                    "    `{{\"operation\": \"set\", \"path\": \"relationship_history.0.event\", \"value\": \"新しいイベント内容\"}}`\n"
-                    "  - **例3：** `relationship_history`リストの**末尾**に新しい要素を追加する場合\n"
-                    "    `{{\"operation\": \"append\", \"path\": \"relationship_history\", \"value\": {{\"date\": \"...\", \"event\": \"...\"}}}}`\n\n"
-
+                    "- 各指示は \"operation\" ('replace', 'delete', 'insert_after'), \"line\" (対象行番号), \"content\" (新しい内容) のキーを持つ辞書です。\n\n"
+                    "- **【操作方法】**\n"
+                    "  - **`delete` (削除):** 指定した`line`番号の行を削除します。`content`は不要です。\n"
+                    "    - `{{\"operation\": \"delete\", \"line\": 15}}` (15行目を削除)\n"
+                    "  - **`replace` (置換):** 指定した`line`番号の行を、新しい`content`に置き換えます。\n"
+                    "    - `{{\"operation\": \"replace\", \"line\": 20, \"content\": \"  \\\"event\\\": \\\"新しいイベント...\\\"\"}}`\n"
+                    "  - **`insert_after` (挿入):** 指定した`line`番号の**直後**に、新しい行として`content`を挿入します。\n"
+                    "    - `{{\"operation\": \"insert_after\", \"line\": 25, \"content\": \"    {{\\\"date\\\": \\\"...\\\"}} \"}}`\n"
+                    "  - **複数行の操作:** 複数行をまとめて削除・置換する場合は、**各行に対して**個別の指示を生成してください。\n\n"
                     "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
                     # ▲▲▲ 置き換えここまで ▲▲▲
                 ),
