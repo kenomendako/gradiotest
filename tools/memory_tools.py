@@ -218,38 +218,31 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         with open(memory_main_path, 'r', encoding='utf-8') as f:
             memory_content = f.read()
 
-        # --- 堅牢なセクション抽出ロジック ---
-        # ヘッダー(## ...)で全体を分割。キャプチャグループに入れると区切り文字もリストに残る。
-        parts = re.split(r'(^##\s+.*)', memory_content, flags=re.MULTILINE)
+        # --- 【最終FIX】より堅牢でシンプルなセクション抽出ロジック ---
+        # 最初にファイル全体をヘッダー(## )で分割する
+        # これにより、各要素が「ヘッダー + 内容」の塊になる
+        sections = re.split(r'^##\s+', memory_content, flags=re.MULTILINE)
 
         sanctuary_text = ""
         diary_text_to_summarize = ""
-        current_section = None
 
-        for part in parts:
-            part_content = part.strip()
-            if not part_content:
+        for section in sections:
+            section_content = section.strip()
+            if not section_content:
                 continue
 
-            if part_content.startswith("## "):
-                header = part_content.lower()
-                if "聖域" in header or "sanctuary" in header:
-                    current_section = "sanctuary"
-                elif "日記" in header or "diary" in header:
-                    current_section = "diary"
-                else:
-                    current_section = None
-                continue
+            # 各セクションがどのヘッダーで始まるかを判定
+            header_lower = section_content.lower()
+            if header_lower.startswith("聖域") or header_lower.startswith("sanctuary"):
+                # ヘッダー行を除いた内容部分のみを抽出して代入
+                sanctuary_text = '\n'.join(section.split('\n')[1:]).strip()
+            elif header_lower.startswith("日記") or header_lower.startswith("diary"):
+                # ヘッダー行を除いた内容部分のみを抽出して代入
+                diary_text_to_summarize = '\n'.join(section.split('\n')[1:]).strip()
 
-            if current_section == "sanctuary":
-                sanctuary_text += part + "\n"
-            elif current_section == "diary":
-                diary_text_to_summarize += part + "\n"
+        # --- 抽出ロジックここまで ---
 
-        sanctuary_text = sanctuary_text.strip()
-        diary_text_to_summarize = diary_text_to_summarize.strip()
-
-        # 3. 日記エリアの要約処理
+        # 日記エリアの要約処理
         history_summary_text = ""
         if diary_text_to_summarize:
             from gemini_api import get_configured_llm
@@ -274,7 +267,7 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         else:
             history_summary_text = "（日記に記載された、共有された歴史や感情の記録はまだありません）"
 
-        # 4. 聖域エリアと、要約した日記を結合
+        # 聖域エリアと、要約した日記を結合
         final_core_memory_text = (
             f"--- [聖域 (Sanctuary) - 要約せずそのまま記載] ---\n"
             f"{sanctuary_text}\n\n"
@@ -282,7 +275,7 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
             f"{history_summary_text}"
         ).strip()
 
-        # 5. core_memory.txt に結果を書き込む
+        # core_memory.txt に結果を書き込む
         core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
         with open(core_memory_path, 'w', encoding='utf-8') as f:
             f.write(final_core_memory_text)
