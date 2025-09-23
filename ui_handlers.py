@@ -1857,6 +1857,635 @@ def handle_delete_redaction_rule(
     return df_for_ui, current_rules, None, "", ""
 
 
+def _format_text_content_for_gradio(
+    main_text_html: str,
+    thoughts_html: str,
+    speaker_name: str,
+    current_ui_index: int,
+    total_ui_rows: int
+) -> str:
+    """
+    発言のテキスト部分を、GradioのChatbotで表示するための最終的なHTML文字列に変換する。
+    思考ログ、ナビゲーションボタン（▲▼）、メニューアイコン（…）の表示ロジックも内包する。
+    """
+    current_anchor_id = f"msg-anchor-{current_ui_index}"
+    final_html_parts = []
+
+    final_html_parts.append(f"<span id='{current_anchor_id}'></span>")
+    final_html_parts.append(f"<strong>{html.escape(speaker_name)}:</strong><br>")
+
+    if thoughts_html:
+        # 先に改行文字の置換処理を行い、結果を変数に格納します。
+        formatted_thoughts_html = thoughts_html.replace('\n', '<br>')
+        # その後、バックスラッシュを含まない変数をf-stringに渡します。
+        final_html_parts.append(f"<div class='thoughts'>【Thoughts】<br>{formatted_thoughts_html}</div>")
+
+    if main_text_html:
+        final_html_parts.append(main_text_html.replace('\n', '<br>'))
+
+    nav_buttons_list = []
+    if current_ui_index > 0:
+        nav_buttons_list.append(f"<a href='#msg-anchor-{current_ui_index - 1}' class='message-nav-link' title='前の発言へ' style='text-decoration: none; color: inherit;'>▲</a>")
+
+    if current_ui_index < total_ui_rows - 1:
+        nav_buttons_list.append(f"<a href='#msg-anchor-{current_ui_index + 1}' class='message-nav-link' title='次の発言へ' style='text-decoration: none; color: inherit;'>▼</a>")
+
+    nav_buttons_html = "&nbsp;&nbsp;".join(nav_buttons_list)
+    menu_icon_html = "<span title='メニュー表示' style='font-weight: bold; cursor: pointer;'>&#8942;</span>"
+
+    final_buttons_list = []
+    if nav_buttons_html:
+        final_buttons_list.append(nav_buttons_html)
+    final_buttons_list.append(menu_icon_html)
+
+    buttons_str = "&nbsp;&nbsp;&nbsp;".join(final_buttons_list)
+    button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{buttons_str}</div>"
+    final_html_parts.append(button_container)
+
+    return "".join(final_html_parts)
+
+def update_model_state(model): config_manager.save_config("last_model", model); return model
+
+def update_api_key_state(api_key_name):
+    config_manager.save_config("last_api_key_name", api_key_name)
+    gr.Info(f"APIキーを '{api_key_name}' に設定しました。")
+    return api_key_name
+
+def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, room_name: Optional[str], add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None):
+    key = next((k for k, v in constants.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
+    config_manager.save_config("last_api_history_limit_option", key)
+    history, mapping_list = reload_chat_log(room_name, key, add_timestamp, screenshot_mode, redaction_rules)
+    return key, history, mapping_list
+
+def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], room_name: str, api_key_name: str):
+    if not selected_message:
+        gr.Warning("再生するメッセージが選択されていません。")
+        yield gr.update(visible=False), gr.update(interactive=True), gr.update(interactive=True)
+        return
+
+    yield (
+        gr.update(visible=False),
+        gr.update(value="音声生成中... ▌", interactive=False),
+        gr.update(interactive=False)
+    )
+
+    try:
+        raw_text = utils.extract_raw_text_from_html(selected_message.get("content"))
+        text_to_speak = utils.remove_thoughts_from_text(raw_text)
+        if not text_to_speak:
+            gr.Info("このメッセージには音声で再生できるテキストがありません。")
+            return
+
+        effective_settings = config_manager.get_effective_settings(room_name)
+        voice_id, voice_style_prompt = effective_settings.get("voice_id", "iapetus"), effective_settings.get("voice_style_prompt", "")
+        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+        if not api_key:
+            gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+            return
+
+        from audio_manager import generate_audio_from_text
+        gr.Info(f"「{room_name}」の声で音声を生成しています...")
+        audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
+
+        if audio_filepath:
+            gr.Info("再生します。")
+            yield gr.update(value=audio_filepath, visible=True), gr.update(), gr.update()
+        else:
+            gr.Error("音声の生成に失敗しました。")
+
+    finally:
+        yield (
+            gr.update(),
+            gr.update(value="🔊 選択した発言を再生", interactive=True),
+            gr.update(interactive=True)
+        )
+
+def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text_to_speak: str, api_key_name: str):
+    if not selected_voice_name or not text_to_speak or not api_key_name:
+        gr.Warning("声、テキスト、APIキーがすべて選択されている必要があります。")
+        yield gr.update(visible=False), gr.update(interactive=True), gr.update(interactive=True)
+        return
+
+    yield (
+        gr.update(visible=False),
+        gr.update(interactive=False),
+        gr.update(value="生成中...", interactive=False)
+    )
+
+    try:
+        voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
+        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+        if not voice_id or not api_key:
+            gr.Warning("声またはAPIキーが無効です。")
+            return
+
+        from audio_manager import generate_audio_from_text
+        gr.Info(f"声「{selected_voice_name}」で音声を生成しています...")
+        audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
+
+        if audio_filepath:
+            gr.Info("プレビューを再生します。")
+            yield gr.update(value=audio_filepath, visible=True), gr.update(), gr.update()
+        else:
+            gr.Error("音声の生成に失敗しました。")
+
+    finally:
+        yield (
+            gr.update(),
+            gr.update(interactive=True),
+            gr.update(value="試聴", interactive=True)
+        )
+
+def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: str, style_choice: str) -> Optional[str]:
+    if not room_name or not api_key_name:
+        gr.Warning("ルームとAPIキーを選択してください。")
+        return None
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key:
+        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
+        return None
+
+    location_id = utils.get_current_location(room_name)
+    existing_image_path = utils.find_scenery_image(room_name, location_id)
+
+    if not location_id:
+        gr.Warning("現在地が特定できません。")
+        return existing_image_path
+
+    final_prompt = ""
+    gr.Info("シーンディレクターAIがプロンプトを構成しています...")
+    try:
+        now = datetime.datetime.now()
+        time_of_day = utils.get_time_of_day(now.hour)
+        season = utils.get_season(now.month)
+        style_prompts = {
+            "写真風 (デフォルト)": "An ultra-detailed, photorealistic masterpiece with cinematic lighting.",
+            "イラスト風": "A beautiful and detailed anime-style illustration, pixiv contest winner.",
+            "アニメ風": "A high-quality screenshot from a modern animated film.",
+            "水彩画風": "A gentle and emotional watercolor painting."
+        }
+        style_choice_text = style_prompts.get(style_choice, style_prompts["写真風 (デフォルト)"])
+
+        world_settings_path = room_manager.get_world_settings_path(room_name)
+        world_settings = utils.parse_world_file(world_settings_path)
+        if not world_settings:
+            gr.Error("世界設定の読み込みに失敗しました。")
+            return existing_image_path
+
+        space_text = None
+        for area, places in world_settings.items():
+            if location_id in places:
+                space_text = places[location_id]
+                break
+
+        if not space_text:
+            gr.Error("現在の場所の定義が見つかりません。")
+            return existing_image_path
+
+        from agent.graph import get_configured_llm
+        effective_settings = config_manager.get_effective_settings(room_name)
+        scene_director_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
+
+        director_prompt = f"""
+You are a master scene director AI for a high-end image generation model.
+Your sole purpose is to synthesize all available information into a single, cohesive, and flawless English prompt.
+
+**Objective:**
+Generate ONE final, masterful prompt for an image generation AI based on a strict hierarchy of information.
+
+**--- [Primary Directive: The Hierarchy of Truth] ---**
+1.  **Analyze the "Base Location Description" FIRST.** Look for any explicit or implicit descriptions of the **time of day, lighting, weather, or atmosphere** (e.g., "always night," "sunlight streaming through," "rainy," "gloomy").
+2.  **If such descriptions exist, they are the ABSOLUTE TRUTH.** You MUST base the visual atmosphere of the prompt on these descriptions. In this case, you MUST IGNORE the "Current Scene Conditions" regarding time and season, as the location's inherent properties override reality.
+3.  **If, and ONLY IF, the "Base Location Description" contains NO information about time or lighting,** you must then use the "Current Scene Conditions" to determine the time and season for the prompt.
+
+**--- [Core Principles] ---**
+-   **Foundation First:** The "Base Location Description" is the undeniable truth for all physical structures, objects, furniture, and materials. Your prompt MUST be a faithful visual representation of these elements.
+-   **Strictly Visual:** The output must be a purely visual and descriptive paragraph in English. Exclude any narrative, metaphors, sounds, or non-visual elements.
+-   **Mandatory Inclusions:** Your prompt MUST incorporate the specified "Aspect Ratio" and adhere to the "Style Definition".
+-   **Absolute Prohibitions:** Strictly enforce all "Negative Prompts".
+-   **Output Format:** Output ONLY the final, single-paragraph prompt. Do not include any of your own thoughts or conversational text.
+
+---
+**[Information Dossier]**
+
+**1. Base Location Description (Absolute truth for atmosphere if specified, otherwise for objects):**
+```
+{space_text}
+```
+
+**2. Current Scene Conditions (Use ONLY if time/lighting is NOT specified in the description above):**
+- Time of Day: {time_of_day}
+- Season: {season}
+
+**3. Style Definition (Incorporate this aesthetic):**
+- {style_choice_text}
+
+**4. Mandatory Technical Specs:**
+- Aspect Ratio: 16:9 landscape aspect ratio.
+
+**5. Negative Prompts (Strictly enforce these exclusions):**
+- Absolutely no text, letters, characters, signatures, or watermarks. Do not include people.
+---
+
+**Final Master Prompt:**
+"""
+        final_prompt = scene_director_llm.invoke(director_prompt).content.strip()
+
+    except Exception as e:
+        gr.Error(f"シーンディレクターAIによるプロンプト生成中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return existing_image_path
+
+    if not final_prompt:
+        gr.Error("シーンディレクターAIが有効なプロンプトを生成できませんでした。")
+        return existing_image_path
+
+    gr.Info(f"「{style_choice}」で画像を生成します...")
+    result = generate_image_tool_func.func(prompt=final_prompt, room_name=room_name, api_key=api_key)
+
+    if "Generated Image:" in result:
+        generated_path = result.replace("[Generated Image: ", "").replace("]", "").strip()
+        if os.path.exists(generated_path):
+            save_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
+            now = datetime.datetime.now()
+
+            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
+            specific_filename = f"{cache_key}.png"
+            specific_path = os.path.join(save_dir, specific_filename)
+
+            if os.path.exists(specific_path):
+                os.remove(specific_path)
+
+            shutil.move(generated_path, specific_path)
+            print(f"--- 情景画像を生成し、保存しました: {specific_path} ---")
+
+            gr.Info("画像を生成/更新しました。")
+            return specific_path
+        else:
+            gr.Error("画像の生成には成功しましたが、一時ファイルの特定に失敗しました。")
+            return existing_image_path
+    else:
+        gr.Error(f"画像の生成/更新に失敗しました。AIの応答: {result}")
+        return existing_image_path
+
+def handle_api_connection_test(api_key_name: str):
+    if not api_key_name:
+        gr.Warning("テストするAPIキーが選択されていません。")
+        return
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Error(f"APIキー '{api_key_name}' は無効です。config.jsonを確認してください。")
+        return
+
+    gr.Info(f"APIキー '{api_key_name}' を使って、必須モデルへの接続をテストしています...")
+    import google.genai as genai
+
+    required_models = {
+        "models/gemini-2.5-pro": "メインエージェント (agent_node)",
+        "models/gemini-2.5-flash": "高速処理 (context_generator)",
+    }
+    results = []
+    all_ok = True
+
+    try:
+        client = genai.Client(api_key=api_key)
+        for model_name, purpose in required_models.items():
+            try:
+                client.models.get(model=model_name)
+                results.append(f"✅ **{purpose} ({model_name.split('/')[-1]})**: 利用可能です。")
+            except Exception as model_e:
+                results.append(f"❌ **{purpose} ({model_name.split('/')[-1]})**: 利用できません。")
+                print(f"--- モデル '{model_name}' のチェックに失敗: {model_e} ---")
+                all_ok = False
+
+        result_message = "\n\n".join(results)
+        if all_ok:
+            gr.Info(f"✅ **全ての必須モデルが利用可能です！**\n\n{result_message}")
+        else:
+            gr.Warning(f"⚠️ **一部のモデルが利用できません。**\n\n{result_message}\n\nGoogle AI StudioまたはGoogle Cloudコンソールの設定を確認してください。")
+
+    except Exception as e:
+        error_message = f"❌ **APIサーバーへの接続自体に失敗しました。**\n\nAPIキーが無効か、ネットワークの問題が発生している可能性があります。\n\n詳細: {str(e)}"
+        print(f"--- API接続テストエラー ---\n{traceback.format_exc()}")
+        gr.Error(error_message)
+
+from world_builder import get_world_data, save_world_data
+
+def handle_world_builder_load(room_name: str):
+    if not room_name:
+        return {}, gr.update(choices=[], value=None), ""
+
+    world_data = get_world_data(room_name)
+    area_choices = sorted(world_data.keys())
+
+    world_settings_path = room_manager.get_world_settings_path(room_name)
+    raw_content = ""
+    if world_settings_path and os.path.exists(world_settings_path):
+        with open(world_settings_path, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+
+    return world_data, gr.update(choices=area_choices, value=None), raw_content
+
+def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
+    print(f"--- UI司令塔(handle_room_change_for_all_tabs)実行: {room_name} ---")
+
+    # 責務1: 設定をファイルに保存する
+    config_manager.save_config("last_room", room_name)
+
+    # 責務2: 新しいヘルパーを呼び出してUIを更新する
+    return _update_all_tabs_for_room_change(room_name, api_key_name)
+
+def handle_start_session(main_room: str, participant_list: list) -> tuple:
+    if not participant_list:
+        gr.Info("会話に参加するルームを1人以上選択してください。")
+        return gr.update(), gr.update()
+
+    all_participants = [main_room] + participant_list
+    participants_text = "、".join(all_participants)
+    status_text = f"現在、**{participants_text}** を招待して会話中です。"
+    session_start_message = f"（システム通知：{participants_text} との複数人対話セッションが開始されました。）"
+
+    for room_name in all_participants:
+        log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        if log_f:
+            utils.save_message_to_log(log_f, "## システム(セッション管理):", session_start_message)
+
+    gr.Info(f"複数人対話セッションを開始しました。参加者: {participants_text}")
+    return participant_list, status_text
+
+
+def handle_end_session(main_room: str, active_participants: list) -> tuple:
+    if not active_participants:
+        gr.Info("現在、1対1の会話モードです。")
+        return [], "現在、1対1の会話モードです。", gr.update(value=[])
+
+    all_participants = [main_room] + active_participants
+    session_end_message = "（システム通知：複数人対話セッションが終了しました。）"
+
+    for room_name in all_participants:
+        log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        if log_f:
+            utils.save_message_to_log(log_f, "## システム(セッション管理):", session_end_message)
+
+    gr.Info("複数人対話セッションを終了し、1対1の会話モードに戻りました。")
+    return [], "現在、1対1の会話モードです。", gr.update(value=[])
+
+
+def handle_wb_area_select(world_data: Dict, area_name: str):
+    if not area_name or area_name not in world_data:
+        return gr.update(choices=[], value=None)
+    places = sorted(world_data[area_name].keys())
+    return gr.update(choices=places, value=None)
+
+def handle_wb_place_select(world_data: Dict, area_name: str, place_name: str):
+    if not area_name or not place_name:
+        return gr.update(value="", visible=False), gr.update(visible=False), gr.update(visible=False)
+    content = world_data.get(area_name, {}).get(place_name, "")
+    return (
+        gr.update(value=content, visible=True),
+        gr.update(visible=True),
+        gr.update(visible=True)
+    )
+
+def handle_wb_save(room_name: str, world_data: Dict, area_name: str, place_name: str, content: str):
+    if not room_name or not area_name or not place_name:
+        gr.Warning("保存するにはエリアと場所を選択してください。")
+        return world_data, gr.update()
+
+    if area_name in world_data and place_name in world_data[area_name]:
+        world_data[area_name][place_name] = content
+        save_world_data(room_name, world_data)
+        gr.Info("世界設定を保存しました。")
+    else:
+        gr.Error("保存対象のエリアまたは場所が見つかりません。")
+
+    world_settings_path = room_manager.get_world_settings_path(room_name)
+    raw_content = ""
+    if world_settings_path and os.path.exists(world_settings_path):
+        with open(world_settings_path, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+    return world_data, raw_content
+
+def handle_wb_delete_place(room_name: str, world_data: Dict, area_name: str, place_name: str):
+    if not area_name or not place_name:
+        gr.Warning("削除するエリアと場所を選択してください。")
+        return world_data, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+    if area_name not in world_data or place_name not in world_data[area_name]:
+        gr.Warning(f"場所 '{place_name}' がエリア '{area_name}' に見つかりません。")
+        return world_data, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+
+    del world_data[area_name][place_name]
+    save_world_data(room_name, world_data)
+    gr.Info(f"場所 '{place_name}' を削除しました。")
+
+    area_choices = sorted(world_data.keys())
+    place_choices = sorted(world_data.get(area_name, {}).keys())
+    world_settings_path = room_manager.get_world_settings_path(room_name)
+    raw_content = ""
+    if world_settings_path and os.path.exists(world_settings_path):
+        with open(world_settings_path, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+    return (
+        world_data,
+        gr.update(choices=area_choices, value=area_name),
+        gr.update(choices=place_choices, value=None),
+        gr.update(value="", visible=False),
+        gr.update(visible=False),
+        gr.update(visible=False),
+        raw_content
+    )
+
+def handle_wb_confirm_add(room_name: str, world_data: Dict, selected_area: str, item_type: str, item_name: str):
+    if not room_name or not item_name:
+        gr.Warning("ルームが選択されていないか、名前が入力されていません。")
+        return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+
+    item_name = item_name.strip()
+    if not item_name:
+        gr.Warning("名前が空です。")
+        return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+
+    raw_content = ""
+    if item_type == "area":
+        if item_name in world_data:
+            gr.Warning(f"エリア '{item_name}' は既に存在します。")
+            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+        world_data[item_name] = {}
+        save_world_data(room_name, world_data)
+        gr.Info(f"新しいエリア '{item_name}' を追加しました。")
+        area_choices = sorted(world_data.keys())
+        world_settings_path = room_manager.get_world_settings_path(room_name)
+        if world_settings_path and os.path.exists(world_settings_path):
+            with open(world_settings_path, "r", encoding="utf-8") as f: raw_content = f.read()
+        return world_data, gr.update(choices=area_choices, value=item_name), gr.update(choices=[], value=None), gr.update(visible=False), "", raw_content
+
+    elif item_type == "place":
+        if not selected_area:
+            gr.Warning("場所を追加するエリアを選択してください。")
+            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+        if item_name in world_data.get(selected_area, {}):
+            gr.Warning(f"場所 '{item_name}' はエリア '{selected_area}' に既に存在します。")
+            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+        world_data[selected_area][item_name] = "新しい場所です。説明を記述してください。"
+        save_world_data(room_name, world_data)
+        gr.Info(f"エリア '{selected_area}' に新しい場所 '{item_name}' を追加しました。")
+        place_choices = sorted(world_data[selected_area].keys())
+        world_settings_path = room_manager.get_world_settings_path(room_name)
+        if world_settings_path and os.path.exists(world_settings_path):
+            with open(world_settings_path, "r", encoding="utf-8") as f: raw_content = f.read()
+        return world_data, gr.update(), gr.update(choices=place_choices, value=item_name), gr.update(visible=False), "", raw_content
+    else:
+        gr.Error(f"不明なアイテムタイプです: {item_type}")
+        return world_data, gr.update(), gr.update(), gr.update(visible=False), "", gr.update()
+
+def handle_save_world_settings_raw(room_name: str, raw_content: str):
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return raw_content, gr.update()
+    world_settings_path = room_manager.get_world_settings_path(room_name)
+    if not world_settings_path:
+        gr.Error("世界設定ファイルのパスが取得できませんでした。")
+        return raw_content, gr.update()
+    try:
+        with open(world_settings_path, "w", encoding="utf-8") as f:
+            f.write(raw_content)
+        gr.Info("RAWテキストとして世界設定を保存しました。構造化エディタに反映されます。")
+        new_world_data = get_world_data(room_name)
+        new_area_choices = sorted(new_world_data.keys())
+        return new_world_data, gr.update(choices=new_area_choices, value=None), gr.update(choices=[], value=None)
+    except Exception as e:
+        gr.Error(f"世界設定のRAW保存中にエラーが発生しました: {e}")
+        return gr.update(), gr.update(), gr.update()
+
+def handle_reload_world_settings_raw(room_name: str) -> str:
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return ""
+    world_settings_path = room_manager.get_world_settings_path(room_name)
+    raw_content = ""
+    if world_settings_path and os.path.exists(world_settings_path):
+        with open(world_settings_path, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+    gr.Info("世界設定ファイルを再読み込みしました。")
+    return raw_content
+
+def handle_save_gemini_key(key_name, key_value):
+    if not key_name or not key_value:
+        gr.Warning("キーの名前と値の両方を入力してください。")
+        return gr.update(), gr.update()
+    config_manager.add_or_update_gemini_key(key_name, key_value)
+    gr.Info(f"Gemini APIキー「{key_name}」を保存しました。")
+    new_keys = list(config_manager.GEMINI_API_KEYS.keys())
+    return pd.DataFrame(new_keys, columns=["Geminiキー名"]), gr.update(choices=new_keys)
+
+def handle_delete_gemini_key(key_name):
+    if not key_name:
+        gr.Warning("削除するキーの名前を入力してください。")
+        return gr.update(), gr.update()
+    config_manager.delete_gemini_key(key_name)
+    gr.Info(f"Gemini APIキー「{key_name}」を削除しました。")
+    new_keys = list(config_manager.GEMINI_API_KEYS.keys())
+    return pd.DataFrame(new_keys, columns=["Geminiキー名"]), gr.update(choices=new_keys, value=new_keys[0] if new_keys else None)
+
+def handle_save_pushover_config(user_key, app_token):
+    config_manager.update_pushover_config(user_key, app_token)
+    gr.Info("Pushover設定を保存しました。")
+
+def handle_notification_service_change(service_choice: str):
+    if service_choice in ["Discord", "Pushover"]:
+        config_manager.save_config("notification_service", service_choice.lower())
+        gr.Info(f"通知サービスを「{service_choice}」に設定しました。")
+    return service_choice.lower()
+
+def handle_save_discord_webhook(webhook_url: str):
+    config_manager.save_config("notification_webhook_url", webhook_url)
+    gr.Info("Discord Webhook URLを保存しました。")
+
+def load_system_prompt_content(room_name: str) -> str:
+    if not room_name: return ""
+    _, system_prompt_path, _, _, _ = get_room_files_paths(room_name)
+    if system_prompt_path and os.path.exists(system_prompt_path):
+        with open(system_prompt_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return ""
+
+def handle_save_system_prompt(room_name: str, content: str) -> None:
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return
+    _, system_prompt_path, _, _, _ = get_room_files_paths(room_name)
+    if not system_prompt_path:
+        gr.Error(f"「{room_name}」のプロンプトパス取得失敗。")
+        return
+    try:
+        with open(system_prompt_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        gr.Info(f"「{room_name}」の人格プロンプトを保存しました。")
+    except Exception as e:
+        gr.Error(f"人格プロンプトの保存エラー: {e}")
+
+def handle_reload_system_prompt(room_name: str) -> str:
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return ""
+    content = load_system_prompt_content(room_name)
+    gr.Info(f"「{room_name}」の人格プロンプトを再読み込みしました。")
+    return content
+
+def handle_save_redaction_rules(rules_df: pd.DataFrame) -> Tuple[List[Dict[str, str]], pd.DataFrame]:
+    """DataFrameの内容を検証し、jsonファイルに保存し、更新されたルールとDataFrameを返す。"""
+    if rules_df is None:
+        rules_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
+
+    # 列名が存在しない場合（空のDataFrameなど）に対応
+    if '元の文字列 (Find)' not in rules_df.columns or '置換後の文字列 (Replace)' not in rules_df.columns:
+        rules_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
+
+    rules = [
+        {"find": str(row["元の文字列 (Find)"]), "replace": str(row["置換後の文字列 (Replace)"])}
+        for index, row in rules_df.iterrows()
+        if pd.notna(row["元の文字列 (Find)"]) and str(row["元の文字列 (Find)"]).strip()
+    ]
+    config_manager.save_redaction_rules(rules)
+    gr.Info(f"{len(rules)}件の置換ルールを保存しました。チャット履歴を更新してください。")
+
+    # 更新された（空行が除去された）DataFrameをUIに返す
+    # まずPython辞書のリストから新しいDataFrameを作成
+    updated_df_data = [{"元の文字列 (Find)": r["find"], "置換後の文字列 (Replace)": r["replace"]} for r in rules]
+    updated_df = pd.DataFrame(updated_df_data)
+
+    return rules, updated_df
+
+def handle_delete_redaction_rule(
+    current_rules: List[Dict],
+    selected_index: Optional[int]
+) -> Tuple[pd.DataFrame, List[Dict], None, str, str]:
+    """選択されたルールを削除する。"""
+    if current_rules is None:
+        current_rules = []
+
+    if selected_index is None or not (0 <= selected_index < len(current_rules)):
+        gr.Warning("削除するルールをリストから選択してください。")
+        df = _create_redaction_df_from_rules(current_rules)
+        return df, current_rules, selected_index, "", ""
+
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # Pandasの.dropではなく、Pythonのdel文でリストの要素を直接削除する
+    deleted_rule_name = current_rules[selected_index]["find"]
+    del current_rules[selected_index]
+    # ▲▲▲【修正ここまで】▲▲▲
+
+    config_manager.save_redaction_rules(current_rules)
+    gr.Info(f"ルール「{deleted_rule_name}」を削除しました。")
+
+    df_for_ui = _create_redaction_df_from_rules(current_rules)
+
+    # フォームと選択状態をリセット
+    return df_for_ui, current_rules, None, "", ""
+
+
 def handle_visualize_graph(room_name: str):
     """
     【新規作成】
