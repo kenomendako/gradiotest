@@ -27,7 +27,7 @@ import ijson
 
 
 import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer
-from tools import timer_tools
+from tools import timer_tools, memory_tools
 from agent.graph import generate_scenery_context
 from room_manager import get_room_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
@@ -1254,6 +1254,79 @@ def handle_reload_memory(room_name: str) -> str:
         with open(memory_txt_path, "r", encoding="utf-8") as f:
             return f.read()
     return ""
+
+# ▼▼▼ 以下の3つの関数を、適切な場所に追加してください ▼▼▼
+
+def _get_date_choices_from_memory(room_name: str) -> List[str]:
+    """memory_main.txtの日記セクションから日付見出しを抽出する。"""
+    if not room_name:
+        return []
+    try:
+        _, _, _, memory_main_path, _ = get_room_files_paths(room_name)
+        if not memory_main_path or not os.path.exists(memory_main_path):
+            return []
+
+        with open(memory_main_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        diary_match = re.search(r'##\s*(?:日記|Diary).*?(?=^##\s+|$)', content, re.DOTALL | re.IGNORECASE)
+        if not diary_match:
+            return []
+
+        diary_content = diary_match.group(0)
+        date_pattern = r'(?:###|\*\*)?\s*(\d{4}-\d{2}-\d{2})'
+        dates = re.findall(date_pattern, diary_content)
+
+        # 重複を除き、降順で返す
+        return sorted(list(set(dates)), reverse=True)
+    except Exception as e:
+        print(f"日記の日付抽出中にエラー: {e}")
+        return []
+
+def handle_archive_memory_tab_select(room_name: str, memory_editor_content: str):
+    """「記憶」タブが表示されたときに、日付選択肢を更新する。"""
+    # memory_editor_contentはStateから直接取れないため、UIコンポーネントから受け取る
+    # しかし、最新のファイル状態を正として読み込む方が確実
+    dates = _get_date_choices_from_memory(room_name)
+    return gr.update(choices=dates, value=dates[0] if dates else None)
+
+def handle_archive_memory_click(
+    confirmed: bool,
+    room_name: str,
+    api_key_name: str,
+    archive_date: str
+):
+    """「アーカイブ実行」ボタンのイベントハンドラ。"""
+    if not confirmed:
+        return gr.update(), gr.update() # memory_editor と date_dropdown を更新
+
+    if not all([room_name, api_key_name, archive_date]):
+        gr.Warning("ルーム、APIキー、アーカイブする日付をすべて選択してください。")
+        return gr.update(), gr.update()
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。")
+        return gr.update(), gr.update()
+
+    gr.Info("古い日記のアーカイブ処理を開始します。この処理には少し時間がかかります...")
+
+    result = memory_tools.archive_old_diary_entries.func(
+        room_name=room_name,
+        api_key=api_key,
+        archive_before_date=archive_date
+    )
+
+    if "成功" in result:
+        gr.Info(f"✅ {result}")
+    else:
+        gr.Error(f"アーカイブ処理に失敗しました。詳細: {result}")
+
+    # 処理完了後、UIの表示を最新の状態に更新する
+    new_memory_content = handle_reload_memory(room_name)
+    new_dates = _get_date_choices_from_memory(room_name)
+
+    return new_memory_content, gr.update(choices=new_dates, value=new_dates[0] if new_dates else None)
 
 def load_notepad_content(room_name: str) -> str:
     if not room_name: return ""

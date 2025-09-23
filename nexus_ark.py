@@ -368,11 +368,11 @@ try:
                             save_prompt_button = gr.Button("プロンプトを保存", variant="secondary")
                             reload_prompt_button = gr.Button("再読込", variant="secondary")
                     # ▼▼▼ 以下のブロックで、既存の「記憶 (JSON)」タブを置き換えてください ▼▼▼
-                    with gr.TabItem("記憶 (テキスト)"):
+                    with gr.TabItem("記憶 (テキスト)") as memory_text_tab:
                         memory_txt_editor = gr.Textbox(
                             label="主観的記憶（日記） - memory.txt",
                             interactive=True,
-                            elem_id="memory_txt_editor_code", # IDはCSSのために維持
+                            elem_id="memory_txt_editor_code",
                             lines=20,
                             autoscroll=True
                         )
@@ -380,6 +380,17 @@ try:
                             save_memory_button = gr.Button("主観的記憶を保存", variant="secondary")
                             reload_memory_button = gr.Button("再読込", variant="secondary")
                             core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
+
+                        # ▼▼▼ ここからが新しく追加するUIブロック ▼▼▼
+                        with gr.Accordion("📝 古い日記をアーカイブする", open=False):
+                            gr.Markdown(
+                                "指定した日付**より前**の日記を要約し、別ファイルに保存して、このメインファイルから削除します。\n"
+                                "**⚠️注意:** この操作は`memory_main.txt`を直接変更します（処理前にバックアップは作成されます）。"
+                            )
+                            archive_date_dropdown = gr.Dropdown(label="この日付より前をアーカイブ", interactive=True)
+                            archive_confirm_state = gr.Textbox(visible=False) # 確認ダイアログ用
+                            archive_memory_button = gr.Button("アーカイブを実行", variant="stop")
+                        # ▲▲▲ 追加ブロックここまで ▲▲▲
                     # ▲▲▲ 置き換えここまで ▲▲▲
                     with gr.TabItem("知識グラフ管理"):
                         gr.Markdown("## 知識グラフの管理")
@@ -543,6 +554,31 @@ try:
             outputs=all_room_change_outputs
         ).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
+        ).then(
+            fn=ui_handlers.handle_archive_memory_tab_select,
+            inputs=[room_dropdown, memory_txt_editor],
+            outputs=[archive_date_dropdown]
+        )
+
+        # --- 新しい日記アーカイブ機能のイベント接続 ---
+
+        # 「記憶 (テキスト)」タブが選択された時に、日付ドロップダウンを更新
+        memory_text_tab.select(
+            fn=ui_handlers.handle_archive_memory_tab_select,
+            inputs=[current_room_name, memory_txt_editor],
+            outputs=[archive_date_dropdown]
+        )
+
+        # アーカイブ実行ボタンのクリックイベント
+        archive_memory_button.click(
+            fn=None,
+            inputs=None,
+            outputs=[archive_confirm_state],
+            js="() => confirm('本当によろしいですか？ この操作はmemory_main.txtを直接変更します。')"
+        ).then(
+            fn=ui_handlers.handle_archive_memory_click,
+            inputs=[archive_confirm_state, current_room_name, api_key_dropdown, archive_date_dropdown],
+            outputs=[memory_txt_editor, archive_date_dropdown]
         )
 
         chat_reload_button.click(

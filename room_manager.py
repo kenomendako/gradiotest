@@ -57,8 +57,9 @@ def ensure_room_files(room_name: str) -> bool:
             cache_dir,
             os.path.join(base_path, "log_archives", "processed"),
             os.path.join(base_path, "log_import_source", "processed"),
-            os.path.join(base_path, "memory"), # <-- 追加
-            os.path.join(base_path, "private")  # <-- 追加
+            os.path.join(base_path, "memory"),
+            os.path.join(base_path, "memory", "backups"), # <-- この行を追加
+            os.path.join(base_path, "private")
         ]
         for path in dirs_to_create:
             os.makedirs(path, exist_ok=True)
@@ -251,3 +252,33 @@ def backup_log_file(room_name: str) -> Optional[str]:
         traceback.print_exc()
         return None
 # ▲▲▲【追加はここまで】▲▲▲
+
+
+# ▼▼▼ ファイルの末尾に、以下の新しい関数をまるごと追加してください ▼▼▼
+def backup_memory_main_file(room_name: str) -> Optional[str]:
+    """
+    指定されたルームのmemory_main.txtを、タイムスタンプ付きでバックアップする。
+    成功した場合はバックアップ先のパスを、失敗した場合はNoneを返す。
+    """
+    if not room_name:
+        return None
+    try:
+        _, _, _, memory_main_path, _ = get_room_files_paths(room_name)
+        if not memory_main_path or not os.path.exists(memory_main_path):
+            print(f"警告: バックアップ対象の記憶ファイルが見つかりません: {memory_main_path}")
+            return None
+
+        backup_dir = os.path.join(constants.ROOMS_DIR, room_name, "memory", "backups")
+        os.makedirs(backup_dir, exist_ok=True)
+
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file_name = f"memory_main_{timestamp}.bak.txt"
+        backup_file_path = os.path.join(backup_dir, backup_file_name)
+
+        shutil.copy2(memory_main_path, backup_file_path)
+        print(f"--- 記憶ファイルのバックアップを作成しました: {backup_file_path} ---")
+        return backup_file_path
+    except Exception as e:
+        print(f"!!! エラー: 記憶ファイルのバックアップ中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return None
