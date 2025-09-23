@@ -56,7 +56,9 @@ def ensure_room_files(room_name: str) -> bool:
             os.path.join(spaces_dir, "images"),
             cache_dir,
             os.path.join(base_path, "log_archives", "processed"),
-            os.path.join(base_path, "log_import_source", "processed")
+            os.path.join(base_path, "log_import_source", "processed"),
+            os.path.join(base_path, "memory"), # <-- 追加
+            os.path.join(base_path, "private")  # <-- 追加
         ]
         for path in dirs_to_create:
             os.makedirs(path, exist_ok=True)
@@ -64,16 +66,15 @@ def ensure_room_files(room_name: str) -> bool:
         # テキストベースのファイル
         world_settings_content = "## 共有リビング\n\n### リビング\n広々としたリビングルーム。大きな窓からは柔らかな光が差し込み、快適なソファが置かれている。\n"
 
-        # ▼▼▼ memory.txt用のテンプレートを定義 ▼▼▼
         memory_template_content = (
             "## 聖域 (Sanctuary)\n"
             "# このエリアの内容は、コアメモリにそのままコピーされます。\n\n"
             "### 自己同一性 (Self Identity)\n\n\n"
             "## 日記 (Diary)\n"
             "# このエリアの内容は、AIによって要約され、コアメモリに追記されます。\n\n"
-            "### 2025-09-22\n\n\n"
-            "## 秘密の日記 (Secret Diary)\n"
-            "# このエリアの内容は、コアメモリには一切記載されません。\n\n"
+            f"### {datetime.datetime.now().strftime('%Y-%m-%d')}\n\n\n"
+            "## アーカイブ要約 (Archive Summary)\n"
+            "# このセクションには、アーカイブされた古い日記の要約が蓄積されます。\n\n"
         )
         text_files_to_create = {
             os.path.join(base_path, "SystemPrompt.txt"): "",
@@ -81,8 +82,8 @@ def ensure_room_files(room_name: str) -> bool:
             os.path.join(base_path, constants.NOTEPAD_FILENAME): "",
             os.path.join(base_path, "current_location.txt"): "リビング",
             os.path.join(spaces_dir, "world_settings.txt"): world_settings_content,
-            # ▼▼▼ 以下の行を追加 ▼▼▼
-            os.path.join(base_path, constants.MEMORY_FILENAME): memory_template_content
+            os.path.join(base_path, "memory", "memory_main.txt"): memory_template_content, # <-- パス変更
+            os.path.join(base_path, "private", "secret_diary.txt"): "" # <-- 追加
         }
         for file_path, content in text_files_to_create.items():
             if not os.path.exists(file_path):
@@ -90,7 +91,6 @@ def ensure_room_files(room_name: str) -> bool:
                     f.write(content)
 
         # JSONベースのファイル
-        # ▼▼▼ memory.json の行を削除 ▼▼▼
         json_files_to_create = {
             os.path.join(cache_dir, "scenery.json"): {},
             os.path.join(cache_dir, "image_prompts.json"): {"prompts": {}},
@@ -170,10 +170,11 @@ def get_room_files_paths(room_name: str) -> Optional[Tuple[str, str, Optional[st
     log_file = os.path.join(base_path, "log.txt")
     system_prompt_file = os.path.join(base_path, "SystemPrompt.txt")
     profile_image_path = os.path.join(base_path, constants.PROFILE_IMAGE_FILENAME)
-    memory_json_path = os.path.join(base_path, constants.MEMORY_FILENAME)
+    # memory.txt へのパスを memory/memory_main.txt に変更
+    memory_main_path = os.path.join(base_path, "memory", "memory_main.txt")
     notepad_path = os.path.join(base_path, constants.NOTEPAD_FILENAME)
     if not os.path.exists(profile_image_path): profile_image_path = None
-    return log_file, system_prompt_file, profile_image_path, memory_json_path, notepad_path
+    return log_file, system_prompt_file, profile_image_path, memory_main_path, notepad_path
 
 def get_world_settings_path(room_name: str):
     if not room_name or not ensure_room_files(room_name): return None

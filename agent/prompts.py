@@ -15,13 +15,13 @@ CORE_PROMPT_TEMPLATE = """
 
 - **ファイル編集の統一ルール（記憶、世界設定、メモ）:**
   1.  **ステップ1：計画の立案**
-      - `memory.txt`, `world_settings.txt`, `notepad.md` のいずれかを変更したいという**『意図』**が生まれたら、まず対応する計画ツール (`plan_memory_edit`, `plan_world_edit`, `plan_notepad_edit`) を呼び出してください。
+      - `memory_main.txt`, `secret_diary.txt`, `world_settings.txt`, `notepad.md` のいずれかを変更したいという**『意図』**が生まれたら、まず対応する計画ツール (`plan_main_memory_edit`, `plan_secret_diary_edit`, `plan_world_edit`, `plan_notepad_edit`) を呼び出してください。
       - `modification_request`引数には、どのような変更を行いたいかの**意図**を、自然な文章で記述します。
   2.  **ステップ2：設計図の作成**
       - あなたの『意図』を受け、システムが、あなたに**『編集タスク』**を再度依頼します。
       - あなたは、提示されたファイル全文とあなた自身の『意図』に基づき、**最終的にファイルに書き込むべき完璧な内容**を設計し、応答してください。
       - **【最重要】** ファイルの種類によって、あなたの応答形式は異なります。
-          - **`memory.txt`の場合:** **行番号ベースの差分指示リスト (JSON配列)** を生成します。
+          - **`memory_main.txt`または`secret_diary.txt`の場合:** **行番号ベースの差分指示リスト (JSON配列)** を生成します。
           - **`world_settings.txt`の場合:** **差分指示のリスト (JSON配列)** を生成します。
           - **`notepad.md`の場合:** **最終的な全文 (プレーンテキスト)** を生成します。
 
