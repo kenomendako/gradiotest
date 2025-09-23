@@ -218,8 +218,9 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         with open(memory_main_path, 'r', encoding='utf-8') as f:
             memory_content = f.read()
 
-        sanctuary_match = re.search(r"##\s*聖域\s*\(Sanctuary\)(.*?)(?=##\s*\w+)", memory_content, re.DOTALL | re.IGNORECASE)
-        diary_match = re.search(r"##\s*日記\s*\(Diary\)(.*?)(?=##\s*\w+)", memory_content, re.DOTALL | re.IGNORECASE)
+        # 正規表現を修正：次の `## ` またはファイルの終端までをマッチさせる
+        sanctuary_match = re.search(r"##\s*聖域\s*\(Sanctuary\)(.*?)(?=##\s+|$)", memory_content, re.DOTALL | re.IGNORECASE)
+        diary_match = re.search(r"##\s*日記\s*\(Diary\)(.*?)(?=##\s+|$)", memory_content, re.DOTALL | re.IGNORECASE)
 
         sanctuary_text = sanctuary_match.group(1).strip() if sanctuary_match else ""
         diary_text_to_summarize = diary_match.group(1).strip() if diary_match else ""
