@@ -218,12 +218,36 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         with open(memory_main_path, 'r', encoding='utf-8') as f:
             memory_content = f.read()
 
-        # 正規表現を修正：次の `## ` またはファイルの終端までをマッチさせる
-        sanctuary_match = re.search(r"##\s*聖域\s*\(Sanctuary\)(.*?)(?=##\s+|$)", memory_content, re.DOTALL | re.IGNORECASE)
-        diary_match = re.search(r"##\s*日記\s*\(Diary\)(.*?)(?=##\s+|$)", memory_content, re.DOTALL | re.IGNORECASE)
+        # --- 堅牢なセクション抽出ロジック ---
+        # ヘッダー(## ...)で全体を分割。キャプチャグループに入れると区切り文字もリストに残る。
+        parts = re.split(r'(^##\s+.*)', memory_content, flags=re.MULTILINE)
 
-        sanctuary_text = sanctuary_match.group(1).strip() if sanctuary_match else ""
-        diary_text_to_summarize = diary_match.group(1).strip() if diary_match else ""
+        sanctuary_text = ""
+        diary_text_to_summarize = ""
+        current_section = None
+
+        for part in parts:
+            part_content = part.strip()
+            if not part_content:
+                continue
+
+            if part_content.startswith("## "):
+                header = part_content.lower()
+                if "聖域" in header or "sanctuary" in header:
+                    current_section = "sanctuary"
+                elif "日記" in header or "diary" in header:
+                    current_section = "diary"
+                else:
+                    current_section = None
+                continue
+
+            if current_section == "sanctuary":
+                sanctuary_text += part + "\n"
+            elif current_section == "diary":
+                diary_text_to_summarize += part + "\n"
+
+        sanctuary_text = sanctuary_text.strip()
+        diary_text_to_summarize = diary_text_to_summarize.strip()
 
         # 3. 日記エリアの要約処理
         history_summary_text = ""
@@ -264,7 +288,7 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
             f.write(final_core_memory_text)
 
         print(f"  - コアメモリを正常に更新しました: {core_memory_path}")
-        return f"成功: 新しい形式のコアメモリを更新し、{core_memory_path} に保存しました。"
+        return f"成功: コアメモリを更新し、{core_memory_path} に保存しました。"
 
     except Exception as e:
         print(f"--- コアメモリ更新中に予期せぬエラー ---")
