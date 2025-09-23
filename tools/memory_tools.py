@@ -290,7 +290,6 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         traceback.print_exc()
         return f"【エラー】コアメモリの更新中に予期せぬエラーが発生しました: {e}"
 
-# ▼▼▼ ファイルの末尾に、以下の新しいツール関数をまるごと追加してください ▼▼▼
 @tool
 def archive_old_diary_entries(room_name: str, api_key: str, archive_before_date: str) -> str:
     """

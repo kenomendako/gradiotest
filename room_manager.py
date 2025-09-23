@@ -254,7 +254,6 @@ def backup_log_file(room_name: str) -> Optional[str]:
 # ▲▲▲【追加はここまで】▲▲▲
 
 
-# ▼▼▼ ファイルの末尾に、以下の新しい関数をまるごと追加してください ▼▼▼
 def backup_memory_main_file(room_name: str) -> Optional[str]:
     """
     指定されたルームのmemory_main.txtを、タイムスタンプ付きでバックアップする。

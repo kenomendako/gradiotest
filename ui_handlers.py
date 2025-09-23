@@ -139,7 +139,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     """
     【修正】ルーム切り替え時に、全ての関連タブのUIを更新する。
-    戻り値の数は `all_room_change_outputs` の40個と一致する。
+    戻り値の数は `all_room_change_outputs` の41個と一致する。
     """
     chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
 
@@ -156,7 +156,12 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
 
-    return chat_tab_updates + world_builder_updates + session_management_updates + (rules_df_for_ui,)
+    # ▼▼▼ 新しく追加するロジック ▼▼▼
+    archive_dates = _get_date_choices_from_memory(room_name)
+    archive_date_dropdown_update = gr.update(choices=archive_dates, value=archive_dates[0] if archive_dates else None)
+    # ▲▲▲ 追加ここまで ▲▲▲
+
+    return chat_tab_updates + world_builder_updates + session_management_updates + (rules_df_for_ui, archive_date_dropdown_update)
 
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
@@ -1255,8 +1260,6 @@ def handle_reload_memory(room_name: str) -> str:
             return f.read()
     return ""
 
-# ▼▼▼ 以下の3つの関数を、適切な場所に追加してください ▼▼▼
-
 def _get_date_choices_from_memory(room_name: str) -> List[str]:
     """memory_main.txtの日記セクションから日付見出しを抽出する。"""
     if not room_name:
@@ -1283,10 +1286,8 @@ def _get_date_choices_from_memory(room_name: str) -> List[str]:
         print(f"日記の日付抽出中にエラー: {e}")
         return []
 
-def handle_archive_memory_tab_select(room_name: str, memory_editor_content: str):
+def handle_archive_memory_tab_select(room_name: str):
     """「記憶」タブが表示されたときに、日付選択肢を更新する。"""
-    # memory_editor_contentはStateから直接取れないため、UIコンポーネントから受け取る
-    # しかし、最新のファイル状態を正として読み込む方が確実
     dates = _get_date_choices_from_memory(room_name)
     return gr.update(choices=dates, value=dates[0] if dates else None)
 
@@ -2281,7 +2282,7 @@ def handle_start_session(main_room: str, participant_list: list) -> tuple:
     session_start_message = f"（システム通知：{participants_text} との複数人対話セッションが開始されました。）"
 
     for room_name in all_participants:
-        log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        log_f, _, _, _, _ = get_room_files_paths(room_name)
         if log_f:
             utils.save_message_to_log(log_f, "## システム(セッション管理):", session_start_message)
 
@@ -2298,7 +2299,7 @@ def handle_end_session(main_room: str, active_participants: list) -> tuple:
     session_end_message = "（システム通知：複数人対話セッションが終了しました。）"
 
     for room_name in all_participants:
-        log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        log_f, _, _, _, _ = get_room_files_paths(room_name)
         if log_f:
             utils.save_message_to_log(log_f, "## システム(セッション管理):", session_end_message)
 

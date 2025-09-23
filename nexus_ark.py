@@ -367,8 +367,7 @@ try:
                         with gr.Row():
                             save_prompt_button = gr.Button("プロンプトを保存", variant="secondary")
                             reload_prompt_button = gr.Button("再読込", variant="secondary")
-                    # ▼▼▼ 以下のブロックで、既存の「記憶 (JSON)」タブを置き換えてください ▼▼▼
-                    with gr.TabItem("記憶 (テキスト)") as memory_text_tab:
+                    with gr.TabItem("記憶 (テキスト)"):
                         memory_txt_editor = gr.Textbox(
                             label="主観的記憶（日記） - memory.txt",
                             interactive=True,
@@ -381,8 +380,8 @@ try:
                             reload_memory_button = gr.Button("再読込", variant="secondary")
                             core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
 
-                        # ▼▼▼ ここからが新しく追加するUIブロック ▼▼▼
-                        with gr.Accordion("📝 古い日記をアーカイブする", open=False):
+                        # ▼▼▼ ここからが修正・追加するUIブロック ▼▼▼
+                        with gr.Accordion("📝 古い日記をアーカイブする", open=False) as memory_archive_accordion:
                             gr.Markdown(
                                 "指定した日付**より前**の日記を要約し、別ファイルに保存して、このメインファイルから削除します。\n"
                                 "**⚠️注意:** この操作は`memory_main.txt`を直接変更します（処理前にバックアップは作成されます）。"
@@ -390,23 +389,20 @@ try:
                             archive_date_dropdown = gr.Dropdown(label="この日付より前をアーカイブ", interactive=True)
                             archive_confirm_state = gr.Textbox(visible=False) # 確認ダイアログ用
                             archive_memory_button = gr.Button("アーカイブを実行", variant="stop")
-                        # ▲▲▲ 追加ブロックここまで ▲▲▲
-                    # ▲▲▲ 置き換えここまで ▲▲▲
+                        # ▲▲▲ 修正・追加ブロックここまで ▲▲▲
                     with gr.TabItem("知識グラフ管理"):
                         gr.Markdown("## 知識グラフの管理")
                         gr.Markdown("過去の対話ログを分析し、エンティティ間の関係性を抽出して、AIの永続的な知識グラフを構築・更新します。")
-                        # ▼▼▼ 以下の <gr.Row> を追加 ▼▼▼
                         with gr.Row():
                             memos_import_button = gr.Button("過去ログから記憶を構築", variant="primary", scale=3)
                             importer_stop_button = gr.Button("処理を中断", variant="stop", visible=False, scale=1)
-                        # ▲▲▲ ここまで ▲▲▲
                         gr.Markdown("---")
                         with gr.Row():
                             visualize_graph_button = gr.Button("現在の知識グラフを可視化する")
                         graph_image_display = gr.Image(label="知識グラフの可視化結果", interactive=False, visible=False)
                         gr.Markdown("---")
                         gr.Markdown("### 索引管理（旧機能）")
-                        rag_update_button = gr.Button("手帳の索引を更新", variant="secondary", visible=False) # 機能は削除されたが、UIハンドラに残っているので一旦非表示
+                        rag_update_button = gr.Button("手帳の索引を更新", variant="secondary", visible=False)
                     with gr.TabItem("メモ帳 (Markdown)"):
                         notepad_editor = gr.Textbox(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code", lines=20, autoscroll=True)
                         with gr.Row():
@@ -492,7 +488,7 @@ try:
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
 
-        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df] # ← ここに追加
+        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df, archive_date_dropdown]
 
         demo.load(
             fn=ui_handlers.handle_initial_load,
@@ -554,37 +550,38 @@ try:
             outputs=all_room_change_outputs
         ).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
-        ).then(
-            fn=ui_handlers.handle_archive_memory_tab_select,
-            inputs=[room_dropdown, memory_txt_editor],
-            outputs=[archive_date_dropdown]
-        )
-
-        # --- 新しい日記アーカイブ機能のイベント接続 ---
-
-        # 「記憶 (テキスト)」タブが選択された時に、日付ドロップダウンを更新
-        memory_text_tab.select(
-            fn=ui_handlers.handle_archive_memory_tab_select,
-            inputs=[current_room_name, memory_txt_editor],
-            outputs=[archive_date_dropdown]
-        )
-
-        # アーカイブ実行ボタンのクリックイベント
-        archive_memory_button.click(
-            fn=None,
-            inputs=None,
-            outputs=[archive_confirm_state],
-            js="() => confirm('本当によろしいですか？ この操作はmemory_main.txtを直接変更します。')"
-        ).then(
-            fn=ui_handlers.handle_archive_memory_click,
-            inputs=[archive_confirm_state, current_room_name, api_key_dropdown, archive_date_dropdown],
-            outputs=[memory_txt_editor, archive_date_dropdown]
         )
 
         chat_reload_button.click(
             fn=ui_handlers.reload_chat_log,
             inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
             outputs=[chatbot_display, current_log_map_state]
+        )
+
+        # --- 日記アーカイブ機能のイベント接続 ---
+
+        # 「記憶をアーカイブする」アコーディオンが開かれた時に、日付ドロップダウンを更新
+        memory_archive_accordion.expand(
+            fn=ui_handlers.handle_archive_memory_tab_select,
+            inputs=[current_room_name],
+            outputs=[archive_date_dropdown]
+        )
+
+        # アーカイブ実行ボタンがクリックされたら、JavaScriptで確認ダイアログを表示し、
+        # 結果を非表示のTextbox `archive_confirm_state` に書き込む
+        archive_memory_button.click(
+            fn=None,
+            inputs=None,
+            outputs=[archive_confirm_state],
+            js="() => confirm('本当によろしいですか？ この操作はmemory_main.txtを直接変更します。')"
+        )
+
+        # 非表示Textboxの値が変更されたら（＝ユーザーがダイアログを操作したら）、
+        # バックエンドの処理を実行する
+        archive_confirm_state.change(
+            fn=ui_handlers.handle_archive_memory_click,
+            inputs=[archive_confirm_state, current_room_name, api_key_dropdown, archive_date_dropdown],
+            outputs=[memory_txt_editor, archive_date_dropdown]
         )
         chatbot_display.select(
             fn=ui_handlers.handle_chatbot_selection,
