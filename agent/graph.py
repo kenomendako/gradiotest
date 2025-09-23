@@ -15,7 +15,11 @@ from langgraph.graph import StateGraph, END, START, add_messages
 
 from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, read_world_settings, plan_world_edit, _apply_world_edits
-from tools.memory_tools import read_full_memory, plan_memory_edit, _apply_memory_edits
+from tools.memory_tools import (
+    search_memory,
+    read_main_memory, plan_main_memory_edit, _apply_main_memory_edits,
+    read_secret_diary, plan_secret_diary_edit, _apply_secret_diary_edits
+)
 from tools.notepad_tools import read_full_notepad, plan_notepad_edit, _write_notepad_file
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
@@ -30,7 +34,7 @@ import pytz
 
 all_tools = [
     set_current_location, read_world_settings, plan_world_edit,
-    read_full_memory, plan_memory_edit,
+    search_memory, read_main_memory, plan_main_memory_edit, read_secret_diary, plan_secret_diary_edit,
     read_full_notepad, plan_notepad_edit,
     web_search_tool, read_url_tool,
     generate_image,
@@ -337,56 +341,65 @@ def safe_tool_executor(state: AgentState):
     room_name = state.get('room_name')
     api_key = state.get('api_key')
 
-    is_plan_memory = tool_name == "plan_memory_edit"
+    is_plan_main_memory = tool_name == "plan_main_memory_edit"
+    is_plan_secret_diary = tool_name == "plan_secret_diary_edit"
     is_plan_notepad = tool_name == "plan_notepad_edit"
     is_plan_world = tool_name == "plan_world_edit"
 
-    if is_plan_memory or is_plan_notepad or is_plan_world:
+    if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad or is_plan_world:
         try:
             print(f"  - ファイル編集プロセスを開始: {tool_name}")
 
             read_tool = None
-            if is_plan_memory: read_tool = read_full_memory
+            if is_plan_main_memory: read_tool = read_main_memory
+            elif is_plan_secret_diary: read_tool = read_secret_diary
             elif is_plan_notepad: read_tool = read_full_notepad
             elif is_plan_world: read_tool = read_world_settings
 
-            # ▼▼▼【ここからが差し替えブロック】▼▼▼
-            # 生のファイル内容を読み込む
             raw_content = read_tool.invoke({"room_name": room_name})
 
-            # memory.json の場合のみ、行番号を付与する
-            if is_plan_memory:
+            if is_plan_main_memory or is_plan_secret_diary:
                 lines = raw_content.split('\n')
                 numbered_lines = [f"{i+1}: {line}" for i, line in enumerate(lines)]
                 current_content = "\n".join(numbered_lines)
             else:
                 current_content = raw_content
-            # ▲▲▲【差し替えブロックここまで】▲▲▲
 
             print(f"  - ペルソナAI ({state['model_name']}) に編集タスクを依頼します。")
             llm_persona = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
 
             instruction_templates = {
-                "plan_memory_edit": (
-                    # ▼▼▼ 以下の文字列で、既存の "plan_memory_edit" のプロンプトを置き換えてください ▼▼▼
+                "plan_main_memory_edit": (
                     "【最重要指示：これは『対話』ではなく『設計タスク』です】\n"
-                    "あなたは今、自身の記憶ファイル(`memory.txt`)を更新するための『設計図』を作成しています。\n"
+                    "あなたは今、自身の記憶ファイル(`memory_main.txt`)を更新するための『設計図』を作成しています。\n"
                     "このファイルは自由な書式のテキストファイルです。提示された【行番号付きデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
-                    "【行番号付きデータ（memory.txt全文）】\n---\n{current_content}\n---\n\n"
+                    "【行番号付きデータ（memory_main.txt全文）】\n---\n{current_content}\n---\n\n"
                     "【あなたの変更要求】\n「{modification_request}」\n\n"
                     "【絶対的な出力ルール】\n"
                     "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
                     "- 各指示は \"operation\" ('replace', 'delete', 'insert_after'), \"line\" (対象行番号), \"content\" (新しい内容) のキーを持つ辞書です。\n\n"
                     "- **【操作方法】**\n"
                     "  - **`delete` (削除):** 指定した`line`番号の行を削除します。`content`は不要です。\n"
-                    "    - `{{\"operation\": \"delete\", \"line\": 15}}` (15行目を削除)\n"
                     "  - **`replace` (置換):** 指定した`line`番号の行を、新しい`content`に置き換えます。\n"
-                    "    - `{{\"operation\": \"replace\", \"line\": 20, \"content\": \"  \\\"event\\\": \\\"新しいイベント...\\\"\"}}`\n"
                     "  - **`insert_after` (挿入):** 指定した`line`番号の**直後**に、新しい行として`content`を挿入します。\n"
-                    "    - `{{\"operation\": \"insert_after\", \"line\": 25, \"content\": \"    {{\\\"date\\\": \\\"...\\\"}} \"}}`\n"
                     "  - **複数行の操作:** 複数行をまとめて削除・置換する場合は、**各行に対して**個別の指示を生成してください。\n\n"
                     "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
-                    # ▲▲▲ 置き換えここまで ▲▲▲
+                ),
+                 "plan_secret_diary_edit": (
+                    "【最重要指示：これは『対話』ではなく『設計タスク』です】\n"
+                    "あなたは今、自身の秘密の日記(`secret_diary.txt`)を更新するための『設計図』を作成しています。\n"
+                    "このファイルは自由な書式のテキストファイルです。提示された【行番号付きデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
+                    "【行番号付きデータ（secret_diary.txt全文）】\n---\n{current_content}\n---\n\n"
+                    "【あなたの変更要求】\n「{modification_request}」\n\n"
+                    "【絶対的な出力ルール】\n"
+                    "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
+                    "- 各指示は \"operation\" ('replace', 'delete', 'insert_after'), \"line\" (対象行番号), \"content\" (新しい内容) のキーを持つ辞書です。\n\n"
+                    "- **【操作方法】**\n"
+                    "  - **`delete` (削除):** 指定した`line`番号の行を削除します。`content`は不要です。\n"
+                    "  - **`replace` (置換):** 指定した`line`番号の行を、新しい`content`に置き換えます。\n"
+                    "  - **`insert_after` (挿入):** 指定した`line`番号の**直後**に、新しい行として`content`を挿入します。\n"
+                    "  - **複数行の操作:** 複数行をまとめて削除・置換する場合は、**各行に対して**個別の指示を生成してください。\n\n"
+                    "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
                 ),
                 "plan_world_edit": (
                     "【最重要指示：これは『対話』ではなく『世界構築タスク』です】\n"
@@ -415,15 +428,9 @@ def safe_tool_executor(state: AgentState):
             )
             edit_instruction_message = HumanMessage(content=formatted_instruction)
 
-            # ▼▼▼【ここからが差し替えブロック】▼▼▼
-            # ツール呼び出しを行ったAI自身のメッセージ(last_message)を除いた、それ以前の完全な会話履歴を取得
             history_for_editing = [msg for msg in state['messages'] if msg is not last_message]
-
-            # システムプロンプト、完全な会話履歴、そして最後に今回の編集指示メッセージを結合
             final_context_for_editing = [state['system_prompt']] + history_for_editing + [edit_instruction_message]
-            # ▲▲▲【差し替えブロックここまで】▲▲▲
 
-            # ▼▼▼【ここ！】以下のデバッグブロックを、この場所に追加してください。▼▼▼
             if state.get("debug_mode", True): # デバッグモード中は常に出力
                 print("\n--- [DEBUG] AIへの最終編集タスクプロンプト (完全版) ---")
                 for i, msg in enumerate(final_context_for_editing):
@@ -435,9 +442,7 @@ def safe_tool_executor(state: AgentState):
                     else:
                         print(f"  - Content (Preview): {content_preview}...")
                 print("----------------------------------------------------------\n")
-            # ▲▲▲【デバッグブロックここまで】▲▲▲
 
-            # ▼▼▼【ここからがスマートリトライ機構の核心】▼▼▼
             edited_content_document = None
             max_retries = 5
             base_delay = 5
@@ -448,16 +453,13 @@ def safe_tool_executor(state: AgentState):
                     break # 成功したらループを抜ける
                 except google_exceptions.ResourceExhausted as e:
                     error_str = str(e)
-                    # 1. 回復不能なエラー（日間上限など）かチェック
                     if "PerDay" in error_str or "Daily" in error_str:
                         print(f"  - 致命的エラー: 回復不能なAPI上限（日間など）に達しました。処理を中断します。")
                         raise RuntimeError("回復不能なAPIレート上限（日間など）に達したため、処理を中断しました。") from e
 
-                    # 2. 回復可能なエラーの場合、推奨待機時間を抽出
-                    wait_time = base_delay * (2 ** attempt) # デフォルトの待機時間
+                    wait_time = base_delay * (2 ** attempt)
                     match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
                     if match:
-                        # APIが推奨する待機時間があれば、それに従う (+1秒のバッファ)
                         wait_time = int(match.group(1)) + 1
                         print(f"  - APIレート制限: APIの推奨に従い {wait_time}秒 待機します...")
                     else:
@@ -466,33 +468,31 @@ def safe_tool_executor(state: AgentState):
                     if attempt < max_retries - 1:
                         time.sleep(wait_time)
                     else:
-                        # 全てのリトライが失敗した場合
                         raise e
                 except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
-                    # 503サーバーエラーなどの場合
                     if attempt < max_retries - 1:
                         wait_time = base_delay * (2 ** attempt)
                         print(f"  - 警告: 編集AIが応答不能です ({e.args[0]})。{wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries})")
                         time.sleep(wait_time)
                     else:
                         raise e
-            # ▲▲▲【スマートリトライ機構ここまで】▲▲▲
 
             if edited_content_document is None:
                 raise RuntimeError("編集AIからの応答が、リトライ後も得られませんでした。")
 
             print("  - AIからの応答を受け、ファイル書き込みを実行します。")
 
-            if is_plan_memory or is_plan_world:
+            if is_plan_main_memory or is_plan_secret_diary or is_plan_world:
                 json_match = re.search(r'```json\s*([\s\S]*?)\s*```', edited_content_document, re.DOTALL)
                 content_to_process = json_match.group(1).strip() if json_match else edited_content_document
                 instructions = json.loads(content_to_process)
 
-                # ▼▼▼【ここ！】以下のデバッグ用のprint文を1行追加してください。▼▼▼
                 print(f"--- [DEBUG] AIが生成した差分指示リスト ---\n{json.dumps(instructions, indent=2, ensure_ascii=False)}\n------------------------------------")
 
-                if is_plan_memory:
-                    output = _apply_memory_edits(instructions=instructions, room_name=room_name)
+                if is_plan_main_memory:
+                    output = _apply_main_memory_edits(instructions=instructions, room_name=room_name)
+                elif is_plan_secret_diary:
+                    output = _apply_secret_diary_edits(instructions=instructions, room_name=room_name)
                 else: # is_plan_world
                     output = _apply_world_edits(instructions=instructions, room_name=room_name)
             else:
