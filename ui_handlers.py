@@ -1725,24 +1725,41 @@ def handle_importer_stop(pid: int):
         gr.update(interactive=True)
     )
 
-def _run_core_memory_update(room_name: str, api_key: str):
-    print(f"--- [スレッド開始] コアメモリ更新処理を開始します (Room: {room_name}) ---")
+def handle_core_memory_update_click(room_name: str, api_key_name: str):
+    """
+    コアメモリの更新を同期的に実行し、完了時にUIにポップアップ通知を表示する。
+    Gradioのqueue()機能により、UIはブロックされない。
+    """
+    # 1. 入力検証
+    if not room_name or not api_key_name:
+        gr.Warning("ルームとAPIキーを選択してください。")
+        return
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。")
+        return
+
+    # 2. 処理開始をユーザーに通知
+    gr.Info(f"「{room_name}」のコアメモリ更新を開始しました。処理には少し時間がかかります...")
+
+    # 3. コアメモリ更新処理を直接実行
     try:
         from tools import memory_tools
-        # ▼▼▼【ここが修正箇所】呼び出す関数名を新しいものに変更▼▼▼
         result = memory_tools.summarize_and_update_core_memory.func(room_name=room_name, api_key=api_key)
-        # ▲▲▲【修正ここまで】▲▲▲
-        print(f"--- [スレッド終了] コアメモリ更新処理完了 --- 結果: {result}")
-    except Exception:
-        print(f"--- [スレッドエラー] コアメモリ更新中に予期せぬエラー ---")
-        traceback.print_exc()
 
-def handle_core_memory_update_click(room_name: str, api_key_name: str):
-    if not room_name or not api_key_name: gr.Warning("ルームとAPIキーを選択してください。"); return
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-    if not api_key or api_key.startswith("YOUR_API_KEY"): gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。"); return
-    gr.Info(f"「{room_name}」のコアメモリ更新をバックグラウンドで開始しました。")
-    threading.Thread(target=_run_core_memory_update, args=(room_name, api_key)).start()
+        # 4. 結果に応じて最終的なポップアップ通知を表示
+        if "成功" in result:
+            gr.Info(f"✅ コアメモリの更新が正常に完了しました。")
+        else:
+            # ツールからのエラーメッセージをそのまま表示
+            gr.Error(f"コアメモリの更新に失敗しました。詳細: {result}")
+
+    except Exception as e:
+        # 予期せぬエラーが発生した場合
+        gr.Error(f"コアメモリ更新中に予期せぬエラーが発生しました: {e}")
+        print(f"--- コアメモリ更新中に予期せぬエラー ---")
+        traceback.print_exc()
 
 # --- Screenshot Redaction Rules Handlers ---
 
