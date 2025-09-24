@@ -382,13 +382,11 @@ try:
 
                         # ▼▼▼ ここからが修正・追加するUIブロック ▼▼▼
                         with gr.Accordion("📝 古い日記をアーカイブする", open=False) as memory_archive_accordion:
-                            # ▼▼▼ 以下のgr.Markdownとgr.Dropdownのテキストを変更 ▼▼▼
                             gr.Markdown(
-                                "指定した日付**まで**の日記を要約し、別ファイルに保存して、このメインファイルから削除します。\n"
+                                "指定した日付**より前**の日記を要約し、別ファイルに保存して、このメインファイルから削除します。\n"
                                 "**⚠️注意:** この操作は`memory_main.txt`を直接変更します（処理前にバックアップは作成されます）。"
                             )
-                            archive_date_dropdown = gr.Dropdown(label="この日付までをアーカイブ", interactive=True)
-                            # ▲▲▲ 変更ここまで ▲▲▲
+                            archive_date_dropdown = gr.Dropdown(label="この日付より前をアーカイブ", interactive=True)
                             archive_confirm_state = gr.Textbox(visible=False) # 確認ダイアログ用
                             archive_memory_button = gr.Button("アーカイブを実行", variant="stop")
                         # ▲▲▲ 修正・追加ブロックここまで ▲▲▲

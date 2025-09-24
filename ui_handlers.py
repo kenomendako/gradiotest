@@ -1315,7 +1315,7 @@ def handle_archive_memory_click(
     result = memory_tools.archive_old_diary_entries.func(
         room_name=room_name,
         api_key=api_key,
-        archive_before_date=archive_date
+        archive_until_date=archive_date
     )
 
     if "成功" in result:
