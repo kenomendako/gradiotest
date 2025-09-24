@@ -291,17 +291,17 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         return f"【エラー】コアメモリの更新中に予期せぬエラーが発生しました: {e}"
 
 @tool
-def archive_old_diary_entries(room_name: str, api_key: str, archive_before_date: str) -> str:
+def archive_old_diary_entries(room_name: str, api_key: str, archive_until_date: str) -> str:
     """
-    指定された日付より前の日記エントリをmemory_main.txtから抽出し、
+    指定された日付までの日記エントリをmemory_main.txtから抽出し、
     要約してアーカイブセクションに追記した後、
     元のエントリを別のファイルに移動してmemory_main.txtから削除する。
     """
     # 1. 入力検証
-    if not all([room_name, api_key, archive_before_date]):
+    if not all([room_name, api_key, archive_until_date]):
         return "【エラー】ルーム名、APIキー、アーカイブ対象の日付がすべて必要です。"
 
-    print(f"--- 日記アーカイブ処理開始 (ルーム: {room_name}, 日付: {archive_before_date}以前) ---")
+    print(f"--- 日記アーカイブ処理開始 (ルーム: {room_name}, 日付: {archive_until_date}以前) ---")
 
     # 2. 安全装置：バックアップの実行
     backup_path = backup_memory_main_file(room_name)
@@ -319,10 +319,8 @@ def archive_old_diary_entries(room_name: str, api_key: str, archive_before_date:
             return "【情報】アーカイブ対象の日記セクションが見つかりませんでした。"
 
         diary_section_full = diary_match.group(1)
-        # 日記セクションの見出しを除いた内容部分
         diary_content = '\n'.join(diary_section_full.split('\n')[1:]).strip()
 
-        # 4. 日付見出しで日記エントリを分割 (### YYYY-MM-DD や ** YYYY-MM-DD ** などに対応)
         date_pattern = r'^(?:###|\*\*)?\s*(\d{4}-\d{2}-\d{2})'
         entries = re.split(f'({date_pattern}.*)', diary_content, flags=re.MULTILINE)
 
@@ -331,9 +329,10 @@ def archive_old_diary_entries(room_name: str, api_key: str, archive_before_date:
         keep_target_text = ""
         target_date_found = False
 
-        # entries[0]は最初の日付見出しより前のテキストなので、保存対象とする
+        # 最初の見出しより前のテキストは常に保存対象
         keep_target_text += entries[0]
 
+        # 日付を持つエントリをループ処理
         for i in range(1, len(entries), 2):
             header = entries[i]
             content = entries[i+1]
@@ -341,24 +340,44 @@ def archive_old_diary_entries(room_name: str, api_key: str, archive_before_date:
             date_match = re.search(date_pattern, header)
             entry_date_str = date_match.group(1) if date_match else ""
 
-            if entry_date_str == archive_before_date:
-                target_date_found = True
-
+            # ▼▼▼ ここのロジックを変更 ▼▼▼
+            # 選択された日付に到達した"後"のループから、保存対象に切り替える
             if target_date_found:
                 keep_target_text += header + content
             else:
                 archive_target_text += header + content
 
+            if entry_date_str == archive_until_date:
+                target_date_found = True
+            # ▲▲▲ 変更ここまで ▲▲▲
+
         if not target_date_found:
-            return f"【エラー】指定された日付の見出し「{archive_before_date}」が日記内に見つかりませんでした。"
+            return f"【エラー】指定された日付の見出し「{archive_until_date}」が日記内に見つかりませんでした。"
 
         if not archive_target_text.strip():
-            return "【情報】指定された日付より前の、アーカイブ対象となる日記エントリがありませんでした。"
+            return "【情報】指定された日付までの、アーカイブ対象となる日記エントリがありませんでした。"
 
-        # 6. AIによる要約
-        print("  - 古い日記の要約をAIに依頼します...")
+        # 6. AIによる【圧縮率の高い】要約
+        print("  - 古い日記の【索引向け】要約をAIに依頼します...")
+        from gemini_api import get_configured_llm
         summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
-        summarize_prompt = f"あなたは、過去の出来事を簡潔にまとめるのが得意な記録官です。以下の日記の内容を、後から見返してすぐに思い出せるように、重要なポイントを箇条書きで要約してください。\n\n---\n{archive_target_text}\n---\n\n要約:"
+
+        # ▼▼▼ 既存の summarize_prompt の定義ブロック全体を、以下のコードで置き換えてください ▼▼▼
+        summarize_prompt = f"""あなたは、膨大な記録から本質を見抜き、簡潔な索引を作成する専門の図書館司書です。
+以下の過去の日記の内容を読み、後から誰もが「ああ、こんなことがあったな」と物語の概要を思い出せるような索引を作成してください。
+
+【過去の日記】
+---
+{archive_target_text}
+---
+
+【あなたのタスク】
+上記の内容を、非常に簡潔に、3〜5行程度の箇条書きで要約してください。
+これは普段は見ない記録の索引なので、詳細な感情やエピソードは省略し、何が起こったかの骨子だけを、物語のあらすじのように記録してください。
+あなたの思考や挨拶は不要です。索引として完成された箇条書きのテキストのみを出力してください。
+"""
+# ▲▲▲ 置き換えここまで ▲▲▲
+
         summary_text = summarizer_llm.invoke(summarize_prompt).content.strip()
 
         # 7. アーカイブファイルへの保存
@@ -371,24 +390,21 @@ def archive_old_diary_entries(room_name: str, api_key: str, archive_before_date:
         print(f"  - 古い日記をアーカイブしました: {archive_file_path}")
 
         # 8. memory_main.txt の更新
-        # 8a. 古い日記セクションを、保存対象のテキストで置き換え
         new_diary_section = diary_match.group(1).split('\n')[0] + '\n' + keep_target_text.strip()
         memory_content = memory_content.replace(diary_section_full, new_diary_section)
 
-        # 8b. アーカイブ要約セクションに要約を追記
         summary_section_header = "## アーカイブ要約 (Archive Summary)"
         if summary_section_header in memory_content:
-            new_summary_entry = f"\n- {datetime.datetime.now().strftime('%Y-%m-%d')} アーカイブ: {summary_text}"
+            new_summary_entry = f"\n- {datetime.datetime.now().strftime('%Y-%m-%d')} アーカイブ ({archive_until_date}まで): {summary_text}"
             memory_content = memory_content.replace(summary_section_header, summary_section_header + new_summary_entry, 1)
         else:
-            # 存在しない場合は末尾に追加
-            memory_content += f"\n\n{summary_section_header}\n- {datetime.datetime.now().strftime('%Y-%m-%d')} アーカイブ: {summary_text}"
+            memory_content += f"\n\n{summary_section_header}\n- {datetime.datetime.now().strftime('%Y-%m-%d')} アーカイブ ({archive_until_date}まで): {summary_text}"
 
         with open(memory_main_path, 'w', encoding='utf-8') as f:
             f.write(memory_content)
         print("  - memory_main.txtを更新しました。")
 
-        return f"成功: {archive_before_date}以前の日記を要約し、{os.path.basename(archive_file_path)}にアーカイブしました。"
+        return f"成功: {archive_until_date}までの日記を要約し、{os.path.basename(archive_file_path)}にアーカイブしました。"
 
     except Exception as e:
         print(f"--- 日記アーカイブ処理中に予期せぬエラー ---")
