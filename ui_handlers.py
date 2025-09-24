@@ -1302,13 +1302,14 @@ def handle_archive_memory_tab_select(room_name: str):
     return gr.update(choices=dates, value=dates[0] if dates else None)
 
 def handle_archive_memory_click(
-    confirmed: bool,
+    confirmed: any, # Gradioから渡される型が不定なため、anyで受け取る
     room_name: str,
     api_key_name: str,
     archive_date: str
 ):
     """「アーカイブ実行」ボタンのイベントハンドラ。"""
-    if not confirmed:
+    # ▼▼▼ 修正点1: キャンセル判定をより厳格に ▼▼▼
+    if str(confirmed).lower() != 'true':
         gr.Info("アーカイブ処理をキャンセルしました。")
         return gr.update(), gr.update()
 
@@ -1335,10 +1336,18 @@ def handle_archive_memory_click(
     else:
         gr.Error(f"アーカイブ処理に失敗しました。詳細: {result}")
 
-    new_memory_content = handle_reload_memory(room_name)
-    new_dates = _get_date_choices_from_memory(room_name)
+    # ▼▼▼ 修正点2: 戻り値を自身で正しく構築する ▼▼▼
+    # handle_reload_memoryを呼び出さず、必要な処理を直接行う
+    new_memory_content = ""
+    _, _, _, memory_txt_path, _ = get_room_files_paths(room_name)
+    if memory_txt_path and os.path.exists(memory_txt_path):
+        with open(memory_txt_path, "r", encoding="utf-8") as f:
+            new_memory_content = f.read()
 
-    return new_memory_content, gr.update(choices=new_dates, value=new_dates[0] if new_dates else None)
+    new_dates = _get_date_choices_from_memory(room_name)
+    date_dropdown_update = gr.update(choices=new_dates, value=new_dates[0] if new_dates else None)
+
+    return new_memory_content, date_dropdown_update
 
 def load_notepad_content(room_name: str) -> str:
     if not room_name: return ""
