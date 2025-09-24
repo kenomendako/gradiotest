@@ -2776,36 +2776,39 @@ def handle_log_punctuation_correction(
 
 # ▲▲▲【追加はここまで】▲▲▲
 
-from typing import Any
-def handle_profile_image_upload(room_name: str, new_image: Any) -> Optional[str]:
+def handle_profile_image_upload(room_name: str, new_image: Any) -> gr.update:
     """
     新しいプロフィール画像がアップロードされたときに呼び出され、
     適切な場所に'profile.png'として保存する。
     Gradioから渡されるnew_imageはPillow Imageオブジェクトそのもの。
+    戻り値はgr.update()を使い、UIの更新指示を明確にする。
     """
+    # 現在の画像パスを、エラー時やキャンセル時のために先に取得しておく
+    _, _, current_image_path, _, _ = get_room_files_paths(room_name)
+    fallback_path = current_image_path if current_image_path and os.path.exists(current_image_path) else None
+
     if not room_name:
         gr.Warning("画像を変更するルームが選択されていません。")
-        _, _, img_p, _, _ = get_room_files_paths(room_name)
-        return img_p if img_p and os.path.exists(img_p) else None
+        return gr.update(value=fallback_path)
 
     if new_image is None:
-        _, _, img_p, _, _ = get_room_files_paths(room_name)
-        return img_p if img_p and os.path.exists(img_p) else None
+        # 画像が選択されなかった場合（キャンセルなど）
+        return gr.update(value=fallback_path)
 
     try:
-        # new_image は既にPillow Imageオブジェクトなので、そのまま使う
+        # new_image はPillow Imageオブジェクトなので、そのまま使う
         uploaded_image = new_image
-
         save_path = os.path.join(constants.ROOMS_DIR, room_name, constants.PROFILE_IMAGE_FILENAME)
 
         uploaded_image.save(save_path, "PNG")
 
         gr.Info(f"ルーム「{room_name}」のプロフィール画像を更新しました。")
 
-        return save_path
+        # 成功時は、保存した新しい画像のパスでUIを更新するよう指示
+        return gr.update(value=save_path)
 
     except Exception as e:
         gr.Error(f"プロフィール画像の保存中にエラーが発生しました: {e}")
         traceback.print_exc()
-        _, _, img_p, _, _ = get_room_files_paths(room_name)
-        return img_p if img_p and os.path.exists(img_p) else None
+        # エラーが発生した場合は、元の画像に戻すよう指示
+        return gr.update(value=fallback_path)
