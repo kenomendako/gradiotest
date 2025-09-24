@@ -128,7 +128,8 @@ try:
             with gr.TabItem("チャット"):
                 with gr.Row():
                     with gr.Column(scale=1, min_width=300):
-                        profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
+                        profile_image_display = gr.Image(height=200, width=150, interactive=True, show_label=False, container=False, elem_id="profile_image_display")
+                        profile_image_display.upload(fn=ui_handlers.handle_profile_image_upload, inputs=[current_room_name, profile_image_display], outputs=[profile_image_display])
                         room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="ルームを選択", interactive=True)
 
                         with gr.Accordion("🌄 情景描写・移動", open=False):
