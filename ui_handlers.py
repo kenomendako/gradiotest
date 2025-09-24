@@ -2680,37 +2680,38 @@ def handle_log_punctuation_correction(
 ):
     """
     選択行以降のAGENT応答の読点をAIで修正し、ログを上書きする。
+    完了後、選択状態を解除する。
     """
     # ユーザーが確認ダイアログで「キャンセル」を押した場合
-    if not confirmed:
-        yield gr.update(), gr.update(), gr.update()
+    if not str(confirmed).lower() == 'true':
+        yield gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
         return
 
     # 1. 入力検証
     if not selected_message:
         gr.Warning("修正の起点となるメッセージをチャット履歴から選択してください。")
-        yield gr.update(), gr.update(), gr.update()
+        yield gr.update(), gr.update(), gr.update(), None, gr.update(visible=False)
         return
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーが選択されていません。")
-        yield gr.update(), gr.update(), gr.update()
+        yield gr.update(), gr.update(), gr.update(), selected_message, gr.update(visible=True)
         return
 
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         gr.Error(f"APIキー '{api_key_name}' が有効ではありません。")
-        yield gr.update(), gr.update(), gr.update()
+        yield gr.update(), gr.update(), gr.update(), selected_message, gr.update(visible=True)
         return
 
     # 2. 処理開始のUIフィードバック
-    yield gr.update(), gr.update(), gr.update(value="準備中...", interactive=False)
+    yield gr.update(), gr.update(), gr.update(value="準備中...", interactive=False), gr.update(), gr.update()
 
     try:
         # 3. バックアップ作成
         backup_path = room_manager.backup_log_file(room_name)
         if not backup_path:
             gr.Error("ログのバックアップ作成に失敗しました。処理を中断します。")
-            yield gr.update(), gr.update(), gr.update(interactive=True)
+            yield gr.update(), gr.update(), gr.update(interactive=True), selected_message, gr.update(visible=True)
             return
 
         # 4. 修正対象を特定
@@ -2725,7 +2726,7 @@ def handle_log_punctuation_correction(
 
         if start_index == -1:
             gr.Warning("選択されたメッセージがログに見つかりませんでした。")
-            yield gr.update(), gr.update(), gr.update(interactive=True)
+            yield gr.update(), gr.update(), gr.update(interactive=True), None, gr.update(visible=False)
             return
 
         targets_with_indices = [
@@ -2735,42 +2736,34 @@ def handle_log_punctuation_correction(
 
         if not targets_with_indices:
             gr.Info("選択範囲に修正対象となるAIの応答がありませんでした。")
-            yield gr.update(), gr.update(), gr.update(interactive=True)
+            # 処理対象がなくても、選択は解除して終わる
+            yield gr.update(), gr.update(), gr.update(interactive=True), None, gr.update(visible=False)
             return
 
         # 5. メインの修正ループ
         total_targets = len(targets_with_indices)
         for i, (original_index, msg_to_fix) in enumerate(targets_with_indices):
             progress_text = f"修正中... ({i + 1}/{total_targets}件)"
-            yield gr.update(), gr.update(), gr.update(value=progress_text)
+            yield gr.update(), gr.update(), gr.update(value=progress_text), gr.update(), gr.update()
 
             original_content = msg_to_fix.get("content", "")
-            # 思考ログは修正対象から除外
             thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", original_content, re.DOTALL | re.IGNORECASE)
             thoughts_part = thoughts_match.group(1) if thoughts_match else ""
             main_text_part = re.sub(r"【Thoughts】.*?【/Thoughts】\s*", "", original_content, flags=re.DOTALL | re.IGNORECASE)
-
-            # 読点を除去
             text_without_comma = main_text_part.replace("、", "").replace("､", "")
-
-            # AIによる修正
             corrected_text = gemini_api.correct_punctuation_with_ai(text_without_comma, api_key)
 
             if corrected_text is None:
                 gr.Error(f"AIによる修正に失敗しました (対象: {original_content[:30]}...)。処理を中断しますが、ここまでの進捗は保存されます。")
-                # ★★★ 失敗時点までの進捗を保存する ★★★
                 _overwrite_log_file(log_f, all_messages)
-                # UIを更新して処理を終了
                 history, mapping = reload_chat_log(room_name, api_history_limit, add_timestamp)
-                yield history, mapping, gr.update(interactive=True)
+                yield history, mapping, gr.update(interactive=True), None, gr.update(visible=False)
                 return
 
-            # 思考ログと結合して、元のメッセージ辞書を更新
             all_messages[original_index]["content"] = (thoughts_part + "\n\n" + corrected_text).strip()
 
         # 6. ログファイルの上書き
         _overwrite_log_file(log_f, all_messages)
-
         gr.Info(f"✅ {total_targets}件のAI応答の読点を修正し、ログを更新しました。")
 
     except Exception as e:
@@ -2779,6 +2772,6 @@ def handle_log_punctuation_correction(
     finally:
         # 7. 最終的なUI更新
         final_history, final_mapping = reload_chat_log(room_name, api_history_limit, add_timestamp)
-        yield final_history, final_mapping, gr.update(value="選択行以降の読点をAIで修正", interactive=True)
+        yield final_history, final_mapping, gr.update(value="選択行以降の読点をAIで修正", interactive=True), None, gr.update(visible=False)
 
 # ▲▲▲【追加はここまで】▲▲▲
