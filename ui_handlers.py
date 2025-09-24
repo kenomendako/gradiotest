@@ -27,7 +27,7 @@ import ijson
 
 
 import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer
-from tools import timer_tools
+from tools import timer_tools, memory_tools
 from agent.graph import generate_scenery_context
 from room_manager import get_room_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
@@ -139,7 +139,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     """
     【修正】ルーム切り替え時に、全ての関連タブのUIを更新する。
-    戻り値の数は `all_room_change_outputs` の40個と一致する。
+    戻り値の数は `all_room_change_outputs` の41個と一致する。
     """
     chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
 
@@ -156,7 +156,12 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
 
-    return chat_tab_updates + world_builder_updates + session_management_updates + (rules_df_for_ui,)
+    # ▼▼▼ 新しく追加するロジック ▼▼▼
+    archive_dates = _get_date_choices_from_memory(room_name)
+    archive_date_dropdown_update = gr.update(choices=archive_dates, value=archive_dates[0] if archive_dates else None)
+    # ▲▲▲ 追加ここまで ▲▲▲
+
+    return chat_tab_updates + world_builder_updates + session_management_updates + (rules_df_for_ui, archive_date_dropdown_update)
 
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
@@ -1246,14 +1251,103 @@ def handle_save_memory_click(room_name, text_content):
         return gr.update(value=text_content)
     except Exception as e: gr.Error(f"記憶保存エラー: {e}"); traceback.print_exc(); return gr.update()
 
-def handle_reload_memory(room_name: str) -> str:
-    if not room_name: gr.Warning("ルームが選択されていません。"); return ""
+def handle_reload_memory(room_name: str) -> Tuple[str, gr.update]:
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return "", gr.update(choices=[], value=None)
+
     gr.Info(f"「{room_name}」の記憶を再読み込みしました。")
+
+    memory_content = ""
     _, _, _, memory_txt_path, _ = get_room_files_paths(room_name)
     if memory_txt_path and os.path.exists(memory_txt_path):
         with open(memory_txt_path, "r", encoding="utf-8") as f:
-            return f.read()
-    return ""
+            memory_content = f.read()
+
+    # 日付選択肢も同時に更新する
+    new_dates = _get_date_choices_from_memory(room_name)
+    date_dropdown_update = gr.update(choices=new_dates, value=new_dates[0] if new_dates else None)
+
+    return memory_content, date_dropdown_update
+
+def _get_date_choices_from_memory(room_name: str) -> List[str]:
+    """memory_main.txtの日記セクションから日付見出しを抽出する。"""
+    if not room_name:
+        return []
+    try:
+        _, _, _, memory_main_path, _ = get_room_files_paths(room_name)
+        if not memory_main_path or not os.path.exists(memory_main_path):
+            return []
+
+        with open(memory_main_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        diary_match = re.search(r'##\s*(?:日記|Diary).*?(?=^##\s+|$)', content, re.DOTALL | re.IGNORECASE)
+        if not diary_match:
+            return []
+
+        diary_content = diary_match.group(0)
+        date_pattern = r'(?:###|\*\*)?\s*(\d{4}-\d{2}-\d{2})'
+        dates = re.findall(date_pattern, diary_content)
+
+        # 重複を除き、降順で返す
+        return sorted(list(set(dates)), reverse=True)
+    except Exception as e:
+        print(f"日記の日付抽出中にエラー: {e}")
+        return []
+
+def handle_archive_memory_tab_select(room_name: str):
+    """「記憶」タブが表示されたときに、日付選択肢を更新する。"""
+    dates = _get_date_choices_from_memory(room_name)
+    return gr.update(choices=dates, value=dates[0] if dates else None)
+
+def handle_archive_memory_click(
+    confirmed: any, # Gradioから渡される型が不定なため、anyで受け取る
+    room_name: str,
+    api_key_name: str,
+    archive_date: str
+):
+    """「アーカイブ実行」ボタンのイベントハンドラ。"""
+    # ▼▼▼ 修正点1: キャンセル判定をより厳格に ▼▼▼
+    if str(confirmed).lower() != 'true':
+        gr.Info("アーカイブ処理をキャンセルしました。")
+        return gr.update(), gr.update()
+
+    if not all([room_name, api_key_name, archive_date]):
+        gr.Warning("ルーム、APIキー、アーカイブする日付をすべて選択してください。")
+        return gr.update(), gr.update()
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。")
+        return gr.update(), gr.update()
+
+    gr.Info("古い日記のアーカイブ処理を開始します。この処理には少し時間がかかります...")
+
+    from tools import memory_tools
+    result = memory_tools.archive_old_diary_entries.func(
+        room_name=room_name,
+        api_key=api_key,
+        archive_until_date=archive_date
+    )
+
+    if "成功" in result:
+        gr.Info(f"✅ {result}")
+    else:
+        gr.Error(f"アーカイブ処理に失敗しました。詳細: {result}")
+
+    # ▼▼▼ 修正点2: 戻り値を自身で正しく構築する ▼▼▼
+    # handle_reload_memoryを呼び出さず、必要な処理を直接行う
+    new_memory_content = ""
+    _, _, _, memory_txt_path, _ = get_room_files_paths(room_name)
+    if memory_txt_path and os.path.exists(memory_txt_path):
+        with open(memory_txt_path, "r", encoding="utf-8") as f:
+            new_memory_content = f.read()
+
+    new_dates = _get_date_choices_from_memory(room_name)
+    date_dropdown_update = gr.update(choices=new_dates, value=new_dates[0] if new_dates else None)
+
+    return new_memory_content, date_dropdown_update
 
 def load_notepad_content(room_name: str) -> str:
     if not room_name: return ""
@@ -2208,7 +2302,7 @@ def handle_start_session(main_room: str, participant_list: list) -> tuple:
     session_start_message = f"（システム通知：{participants_text} との複数人対話セッションが開始されました。）"
 
     for room_name in all_participants:
-        log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        log_f, _, _, _, _ = get_room_files_paths(room_name)
         if log_f:
             utils.save_message_to_log(log_f, "## システム(セッション管理):", session_start_message)
 
@@ -2225,7 +2319,7 @@ def handle_end_session(main_room: str, active_participants: list) -> tuple:
     session_end_message = "（システム通知：複数人対話セッションが終了しました。）"
 
     for room_name in all_participants:
-        log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        log_f, _, _, _, _ = get_room_files_paths(room_name)
         if log_f:
             utils.save_message_to_log(log_f, "## システム(セッション管理):", session_end_message)
 

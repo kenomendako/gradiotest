@@ -4,8 +4,10 @@ import re
 from langchain_core.tools import tool
 import json
 import datetime
-from room_manager import get_room_files_paths
+import room_manager
+from room_manager import get_room_files_paths, backup_memory_main_file
 from memory_manager import load_memory_data_safe
+from gemini_api import get_configured_llm
 from typing import List, Dict, Any
 import traceback
 import os
@@ -203,7 +205,7 @@ def _apply_secret_diary_edits(instructions, room_name):
 @tool
 def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
     """
-    現在の主観的記憶（memory_main.txt）を読み込み、## Sanctuary と ## Diary を解析し、
+    現在の主観的記憶（memory_main.txt）を読み込み、## Sanctuary, ## Diary, ## Archive Summary を解析し、
     コアメモリ（core_memory.txt）を更新する。
     """
     if not room_name or not api_key:
@@ -218,11 +220,11 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         with open(memory_main_path, 'r', encoding='utf-8') as f:
             memory_content = f.read()
 
-        # --- 【最終FIX】堅牢でシンプルなセクション抽出ロジック ---
         sections = re.split(r'^##\s+', memory_content, flags=re.MULTILINE)
 
         sanctuary_text = ""
         diary_text_to_summarize = ""
+        archive_summary_text = "" # <-- 新しく追加
 
         for section in sections:
             section_content = section.strip()
@@ -234,9 +236,10 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
                 sanctuary_text = '\n'.join(section.split('\n')[1:]).strip()
             elif header_lower.startswith("日記") or header_lower.startswith("diary"):
                 diary_text_to_summarize = '\n'.join(section.split('\n')[1:]).strip()
-        # --- 抽出ロジックここまで ---
+            # ▼▼▼ アーカイブ要約を抽出するロジックを追加 ▼▼▼
+            elif "アーカイブ要約" in header_lower or "archive summary" in header_lower:
+                archive_summary_text = '\n'.join(section.split('\n')[1:]).strip()
 
-        # 日記エリアの要約処理
         history_summary_text = ""
         if diary_text_to_summarize:
             from gemini_api import get_configured_llm
@@ -269,15 +272,20 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         else:
             history_summary_text = "（日記に記載された、共有された歴史や感情の記録はまだありません）"
 
-        # 聖域エリアと、要約した日記を結合
-        final_core_memory_text = (
-            f"--- [聖域 (Sanctuary) - 要約せずそのまま記載] ---\n"
-            f"{sanctuary_text}\n\n"
-            f"--- [日記 (Diary) - AIによる要約] ---\n"
-            f"{history_summary_text}"
-        ).strip()
+        # ▼▼▼ 最終的なテキストの組み立て部分を修正 ▼▼▼
+        final_core_memory_parts = [
+            f"--- [聖域 (Sanctuary) - 要約せずそのまま記載] ---\n{sanctuary_text}"
+        ]
 
-        # core_memory.txt に結果を書き込む
+        if history_summary_text:
+            final_core_memory_parts.append(f"--- [日記 (Diary) - AIによる要約] ---\n{history_summary_text}")
+
+        if archive_summary_text:
+            final_core_memory_parts.append(f"--- [アーカイブ要約 (Archive Summary)] ---\n{archive_summary_text}")
+
+        final_core_memory_text = "\n\n".join(final_core_memory_parts).strip()
+        # ▲▲▲ 修正ここまで ▲▲▲
+
         core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
         with open(core_memory_path, 'w', encoding='utf-8') as f:
             f.write(final_core_memory_text)
@@ -289,3 +297,124 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         print(f"--- コアメモリ更新中に予期せぬエラー ---")
         traceback.print_exc()
         return f"【エラー】コアメモリの更新中に予期せぬエラーが発生しました: {e}"
+
+@tool
+def archive_old_diary_entries(room_name: str, api_key: str, archive_until_date: str) -> str:
+    """
+    指定された日付までの日記エントリをmemory_main.txtから抽出し、
+    要約してアーカイブセクションに追記した後、
+    元のエントリを別のファイルに移動してmemory_main.txtから削除する。
+    """
+    # 1. 入力検証
+    if not all([room_name, api_key, archive_until_date]):
+        return "【エラー】ルーム名、APIキー、アーカイブ対象の日付がすべて必要です。"
+
+    print(f"--- 日記アーカイブ処理開始 (ルーム: {room_name}, 日付: {archive_until_date}以前) ---")
+
+    # 2. 安全装置：バックアップの実行
+    backup_path = room_manager.backup_memory_main_file(room_name)
+    if not backup_path:
+        return "【致命的エラー】処理を開始する前に、記憶ファイルのバックアップに失敗しました。"
+
+    try:
+        _, _, _, memory_main_path, _ = get_room_files_paths(room_name)
+        with open(memory_main_path, 'r', encoding='utf-8') as f:
+            memory_content = f.read()
+
+        # 3. 日記セクションのみを抽出
+        diary_match = re.search(r'(##\s*(?:日記|Diary).*?)(?=^##\s+|$)', memory_content, re.DOTALL | re.IGNORECASE)
+        if not diary_match:
+            return "【情報】アーカイブ対象の日記セクションが見つかりませんでした。"
+
+        diary_section_full = diary_match.group(1)
+        diary_content = '\n'.join(diary_section_full.split('\n')[1:]).strip()
+
+        date_pattern = r'^(?:###|\*\*)?\s*(\d{4}-\d{2}-\d{2})'
+        entries = re.split(f'({date_pattern}.*)', diary_content, flags=re.MULTILINE)
+
+        # 5. アーカイブ対象と保存対象を分割
+        archive_target_text = ""
+        keep_target_text = ""
+        target_date_found = False
+
+        # 最初の見出しより前のテキストは常に保存対象
+        keep_target_text += entries[0]
+
+        # 日付を持つエントリをループ処理
+        for i in range(1, len(entries), 2):
+            header = entries[i]
+            content = entries[i+1]
+
+            date_match = re.search(date_pattern, header)
+            entry_date_str = date_match.group(1) if date_match else ""
+
+            # ▼▼▼ ここのロジックを変更 ▼▼▼
+            # 選択された日付に到達した"後"のループから、保存対象に切り替える
+            if target_date_found:
+                keep_target_text += header + content
+            else:
+                archive_target_text += header + content
+
+            if entry_date_str == archive_until_date:
+                target_date_found = True
+            # ▲▲▲ 変更ここまで ▲▲▲
+
+        if not target_date_found:
+            return f"【エラー】指定された日付の見出し「{archive_until_date}」が日記内に見つかりませんでした。"
+
+        if not archive_target_text.strip():
+            return "【情報】指定された日付までの、アーカイブ対象となる日記エントリがありませんでした。"
+
+        # 6. AIによる【圧縮率の高い】要約
+        print("  - 古い日記の【索引向け】要約をAIに依頼します...")
+        from gemini_api import get_configured_llm
+        summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
+
+        # ▼▼▼ 既存の summarize_prompt の定義ブロック全体を、以下のコードで置き換えてください ▼▼▼
+        summarize_prompt = f"""あなたは、膨大な記録から本質を見抜き、簡潔な索引を作成する専門の図書館司書です。
+以下の過去の日記の内容を読み、後から誰もが「ああ、こんなことがあったな」と物語の概要を思い出せるような索引を作成してください。
+
+【過去の日記】
+---
+{archive_target_text}
+---
+
+【あなたのタスク】
+上記の内容を、非常に簡潔に、3〜5行程度の箇条書きで要約してください。
+これは普段は見ない記録の索引なので、詳細な感情やエピソードは省略し、何が起こったかの骨子だけを、物語のあらすじのように記録してください。
+あなたの思考や挨拶は不要です。索引として完成された箇条書きのテキストのみを出力してください。
+"""
+# ▲▲▲ 置き換えここまで ▲▲▲
+
+        summary_text = summarizer_llm.invoke(summarize_prompt).content.strip()
+
+        # 7. アーカイブファイルへの保存
+        archive_dir = os.path.join(constants.ROOMS_DIR, room_name, "memory")
+        archive_files = [f for f in os.listdir(archive_dir) if f.startswith("memory_archived_") and f.endswith(".txt")]
+        next_archive_num = len(archive_files) + 1
+        archive_file_path = os.path.join(archive_dir, f"memory_archived_{next_archive_num:03d}.txt")
+        with open(archive_file_path, 'w', encoding='utf-8') as f:
+            f.write(archive_target_text.strip())
+        print(f"  - 古い日記をアーカイブしました: {archive_file_path}")
+
+        # 8. memory_main.txt の更新
+        new_diary_section = diary_match.group(1).split('\n')[0] + '\n' + keep_target_text.strip()
+        memory_content = memory_content.replace(diary_section_full, new_diary_section)
+
+        summary_section_header = "## アーカイブ要約 (Archive Summary)"
+        if summary_section_header in memory_content:
+            new_summary_entry = f"\n- {datetime.datetime.now().strftime('%Y-%m-%d')} アーカイブ ({archive_until_date}まで): {summary_text}"
+            memory_content = memory_content.replace(summary_section_header, summary_section_header + new_summary_entry, 1)
+        else:
+            memory_content += f"\n\n{summary_section_header}\n- {datetime.datetime.now().strftime('%Y-%m-%d')} アーカイブ ({archive_until_date}まで): {summary_text}"
+
+        with open(memory_main_path, 'w', encoding='utf-8') as f:
+            f.write(memory_content)
+        print("  - memory_main.txtを更新しました。")
+
+        return f"成功: {archive_until_date}までの日記を要約し、{os.path.basename(archive_file_path)}にアーカイブしました。"
+
+    except Exception as e:
+        print(f"--- 日記アーカイブ処理中に予期せぬエラー ---")
+        traceback.print_exc()
+        return f"【致命的エラー】アーカイブ処理中に予期せぬエラーが発生しました: {e}"
