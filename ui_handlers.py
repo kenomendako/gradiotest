@@ -1251,14 +1251,24 @@ def handle_save_memory_click(room_name, text_content):
         return gr.update(value=text_content)
     except Exception as e: gr.Error(f"記憶保存エラー: {e}"); traceback.print_exc(); return gr.update()
 
-def handle_reload_memory(room_name: str) -> str:
-    if not room_name: gr.Warning("ルームが選択されていません。"); return ""
+def handle_reload_memory(room_name: str) -> Tuple[str, gr.update]:
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return "", gr.update(choices=[], value=None)
+
     gr.Info(f"「{room_name}」の記憶を再読み込みしました。")
+
+    memory_content = ""
     _, _, _, memory_txt_path, _ = get_room_files_paths(room_name)
     if memory_txt_path and os.path.exists(memory_txt_path):
         with open(memory_txt_path, "r", encoding="utf-8") as f:
-            return f.read()
-    return ""
+            memory_content = f.read()
+
+    # 日付選択肢も同時に更新する
+    new_dates = _get_date_choices_from_memory(room_name)
+    date_dropdown_update = gr.update(choices=new_dates, value=new_dates[0] if new_dates else None)
+
+    return memory_content, date_dropdown_update
 
 def _get_date_choices_from_memory(room_name: str) -> List[str]:
     """memory_main.txtの日記セクションから日付見出しを抽出する。"""
@@ -1299,7 +1309,8 @@ def handle_archive_memory_click(
 ):
     """「アーカイブ実行」ボタンのイベントハンドラ。"""
     if not confirmed:
-        return gr.update(), gr.update() # memory_editor と date_dropdown を更新
+        gr.Info("アーカイブ処理をキャンセルしました。")
+        return gr.update(), gr.update()
 
     if not all([room_name, api_key_name, archive_date]):
         gr.Warning("ルーム、APIキー、アーカイブする日付をすべて選択してください。")
@@ -1312,6 +1323,7 @@ def handle_archive_memory_click(
 
     gr.Info("古い日記のアーカイブ処理を開始します。この処理には少し時間がかかります...")
 
+    from tools import memory_tools
     result = memory_tools.archive_old_diary_entries.func(
         room_name=room_name,
         api_key=api_key,
@@ -1323,7 +1335,6 @@ def handle_archive_memory_click(
     else:
         gr.Error(f"アーカイブ処理に失敗しました。詳細: {result}")
 
-    # 処理完了後、UIの表示を最新の状態に更新する
     new_memory_content = handle_reload_memory(room_name)
     new_dates = _get_date_choices_from_memory(room_name)
 

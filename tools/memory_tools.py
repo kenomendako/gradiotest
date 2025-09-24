@@ -205,7 +205,7 @@ def _apply_secret_diary_edits(instructions, room_name):
 @tool
 def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
     """
-    現在の主観的記憶（memory_main.txt）を読み込み、## Sanctuary と ## Diary を解析し、
+    現在の主観的記憶（memory_main.txt）を読み込み、## Sanctuary, ## Diary, ## Archive Summary を解析し、
     コアメモリ（core_memory.txt）を更新する。
     """
     if not room_name or not api_key:
@@ -220,11 +220,11 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         with open(memory_main_path, 'r', encoding='utf-8') as f:
             memory_content = f.read()
 
-        # --- 【最終FIX】堅牢でシンプルなセクション抽出ロジック ---
         sections = re.split(r'^##\s+', memory_content, flags=re.MULTILINE)
 
         sanctuary_text = ""
         diary_text_to_summarize = ""
+        archive_summary_text = "" # <-- 新しく追加
 
         for section in sections:
             section_content = section.strip()
@@ -236,11 +236,13 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
                 sanctuary_text = '\n'.join(section.split('\n')[1:]).strip()
             elif header_lower.startswith("日記") or header_lower.startswith("diary"):
                 diary_text_to_summarize = '\n'.join(section.split('\n')[1:]).strip()
-        # --- 抽出ロジックここまで ---
+            # ▼▼▼ アーカイブ要約を抽出するロジックを追加 ▼▼▼
+            elif "アーカイブ要約" in header_lower or "archive summary" in header_lower:
+                archive_summary_text = '\n'.join(section.split('\n')[1:]).strip()
 
-        # 日記エリアの要約処理
         history_summary_text = ""
         if diary_text_to_summarize:
+            from gemini_api import get_configured_llm
             summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
 
             summarize_prompt = f"""あなたは、単なる要約AIではありません。あなたは、人物の記憶を分析し、その人物の「今」を形作る本質的な出来事を抽出する、経験豊富な記憶編纂官（Memory Archivist）です。
@@ -270,15 +272,20 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         else:
             history_summary_text = "（日記に記載された、共有された歴史や感情の記録はまだありません）"
 
-        # 聖域エリアと、要約した日記を結合
-        final_core_memory_text = (
-            f"--- [聖域 (Sanctuary) - 要約せずそのまま記載] ---\n"
-            f"{sanctuary_text}\n\n"
-            f"--- [日記 (Diary) - AIによる要約] ---\n"
-            f"{history_summary_text}"
-        ).strip()
+        # ▼▼▼ 最終的なテキストの組み立て部分を修正 ▼▼▼
+        final_core_memory_parts = [
+            f"--- [聖域 (Sanctuary) - 要約せずそのまま記載] ---\n{sanctuary_text}"
+        ]
 
-        # core_memory.txt に結果を書き込む
+        if history_summary_text:
+            final_core_memory_parts.append(f"--- [日記 (Diary) - AIによる要約] ---\n{history_summary_text}")
+
+        if archive_summary_text:
+            final_core_memory_parts.append(f"--- [アーカイブ要約 (Archive Summary)] ---\n{archive_summary_text}")
+
+        final_core_memory_text = "\n\n".join(final_core_memory_parts).strip()
+        # ▲▲▲ 修正ここまで ▲▲▲
+
         core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
         with open(core_memory_path, 'w', encoding='utf-8') as f:
             f.write(final_core_memory_text)
