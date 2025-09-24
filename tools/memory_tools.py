@@ -4,6 +4,7 @@ import re
 from langchain_core.tools import tool
 import json
 import datetime
+import room_manager
 from room_manager import get_room_files_paths, backup_memory_main_file
 from memory_manager import load_memory_data_safe
 from gemini_api import get_configured_llm
