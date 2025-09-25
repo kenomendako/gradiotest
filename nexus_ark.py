@@ -124,6 +124,11 @@ try:
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
 
+        # ▼▼▼【ここからが追加するブロック】▼▼▼
+        # 動的なCSSをページに注入するための、非表示のHTMLコンポーネント
+        dynamic_css_html = gr.HTML(visible=False)
+        # ▲▲▲【追加はここまで】▲▲▲
+
         with gr.Tabs():
             with gr.TabItem("チャット"):
                 with gr.Row():
@@ -506,7 +511,7 @@ try:
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
-        ] + context_checkboxes + [room_settings_info, scenery_image_display]
+        ] + context_checkboxes + [room_settings_info, scenery_image_display, dynamic_css_html]
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
@@ -562,7 +567,8 @@ try:
             alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
             debug_console_state, debug_console_output,
             stop_button, chat_reload_button,
-            action_button_group # ← この行をリストの末尾に追加
+            action_button_group,
+            dynamic_css_html # ← ここに追加
         ]
 
         rerun_event = rerun_button.click(
@@ -745,8 +751,8 @@ try:
             show_progress=False
         )
 
-        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
-        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
+        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, dynamic_css_html]) # ← 末尾に追加
+        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, dynamic_css_html]) # ← 末尾に追加
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_room_name, current_api_key_name_state], outputs=[audio_player, play_audio_button, room_preview_voice_button])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
 
