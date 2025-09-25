@@ -128,8 +128,32 @@ try:
             with gr.TabItem("チャット"):
                 with gr.Row():
                     with gr.Column(scale=1, min_width=300):
-                        profile_image_display = gr.Image(height=250, width=188, interactive=True, show_label=False, elem_id="profile_image_display", type="pil")
-                        profile_image_display.upload(fn=ui_handlers.handle_profile_image_upload, inputs=[current_room_name, profile_image_display], outputs=[profile_image_display])
+                        # 1. 最終結果を表示するだけの、編集不可能な画像エリア
+                        profile_image_display = gr.Image(height=250, width=188, interactive=False, show_label=False, elem_id="profile_image_display")
+
+                        # 2. 画像編集機能全体を格納するアコーディオン
+                        with gr.Accordion("プロフィール画像を変更", open=False) as profile_image_accordion:
+                            # 3. 編集前の元画像を保持するための隠しState
+                            staged_image_state = gr.State()
+
+                            # 4. 新しい画像をアップロードするための専用ボタン
+                            image_upload_button = gr.UploadButton("新しい画像をアップロード", file_types=["image"])
+
+                            # 5. トリミングツールを備えた、編集用プレビューエリア（普段は非表示）
+                            cropper_image_preview = gr.ImageEditor(
+                                sources=["upload"],
+                                type="pil",
+                                interactive=True,
+                                show_label=False,
+                                visible=False,
+                                transforms=["crop"], # 使用するツールをクロップのみに限定
+                                brush=None, # ブラシツールを無効化
+                                eraser=None, # 消しゴムツールを無効化
+                            )
+
+                            # 6. トリミングを確定して保存するためのボタン（普段は非表示）
+                            save_cropped_image_button = gr.Button("この範囲で保存", visible=False)
+
                         room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="ルームを選択", interactive=True)
 
                         with gr.Accordion("🌄 情景描写・移動", open=False):
@@ -883,6 +907,22 @@ try:
         cancel_add_button.click(
             fn=lambda: (gr.update(visible=False), ""),
             outputs=[new_item_form, new_item_name]
+        )
+
+        # --- プロフィール画像編集機能のイベント接続 ---
+
+        # 1. アップロードボタンに画像が渡されたら、編集プレビューを表示する
+        image_upload_button.upload(
+            fn=ui_handlers.handle_staging_image_upload,
+            inputs=[image_upload_button],
+            outputs=[staged_image_state, cropper_image_preview, save_cropped_image_button, profile_image_accordion]
+        )
+
+        # 2. 編集プレビューで範囲が選択され、「保存」ボタンが押されたら、最終処理を呼び出す
+        save_cropped_image_button.click(
+            fn=ui_handlers.handle_save_cropped_image,
+            inputs=[current_room_name, staged_image_state, cropper_image_preview],
+            outputs=[profile_image_display, cropper_image_preview, save_cropped_image_button]
         )
         save_raw_button.click(
             fn=ui_handlers.handle_save_world_settings_raw,
