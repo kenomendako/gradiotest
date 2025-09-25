@@ -176,7 +176,18 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     archive_date_dropdown_update = gr.update(choices=archive_dates, value=archive_dates[0] if archive_dates else None)
     # ▲▲▲ 追加ここまで ▲▲▲
 
-    return chat_tab_updates + world_builder_updates + session_management_updates + (rules_df_for_ui, archive_date_dropdown_update)
+    # ▼▼▼【ここからが追加するブロック】▼▼▼
+    # この関数内でトークン数を計算し、戻り値の末尾に追加する
+    token_calc_kwargs = config_manager.get_effective_settings(room_name)
+    token_count_text = gemini_api.count_input_tokens(
+        room_name=room_name, api_key_name=api_key_name,
+        api_history_limit=config_manager.initial_api_history_limit_option_global, # 起動時・切替時はデフォルト値で計算
+        parts=[], **token_calc_kwargs
+    )
+    # ▲▲▲【追加はここまで】▲▲▲
+
+    # ▼▼▼【この return 文を、以下の新しい return 文で置き換えてください】▼▼▼
+    return chat_tab_updates + world_builder_updates + session_management_updates + (rules_df_for_ui, archive_date_dropdown_update, token_count_text)
 
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
@@ -194,8 +205,18 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
 
-    # アラーム(3) + チャットタブ(32) + 置換ルール(1) = 36個の値を返す
-    return (display_df, df_with_ids, feedback_text) + chat_tab_updates + (rules_df_for_ui,)
+    # ▼▼▼【ここからが追加するブロック】▼▼▼
+    # この関数内でも同様にトークン数を計算
+    token_calc_kwargs = config_manager.get_effective_settings(initial_room_to_load)
+    token_count_text = gemini_api.count_input_tokens(
+        room_name=initial_room_to_load, api_key_name=initial_api_key_name,
+        api_history_limit=config_manager.initial_api_history_limit_option_global,
+        parts=[], **token_calc_kwargs
+    )
+    # ▲▲▲【追加はここまで】▲▲▲
+
+    # ▼▼▼【この return 文を、以下の新しい return 文で置き換えてください】▼▼▼
+    return (display_df, df_with_ids, feedback_text) + chat_tab_updates + (rules_df_for_ui, token_count_text)
 
 def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
@@ -256,11 +277,27 @@ def handle_save_room_settings(
 
 def handle_context_settings_change(room_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool, *args, **kwargs):
     if not room_name or not api_key_name: return "入力トークン数: -"
+
+    # **kwargsに格納された追加の引数（global_model_from_uiなど）を、
+    # そのままgemini_api.count_input_tokensに渡すことで、
+    # モデルやAPIキーの変更を即座にトークン計算に反映させる。
+    token_calc_kwargs = {
+        "api_history_limit": api_history_limit,
+        "add_timestamp": add_timestamp,
+        "send_thoughts": send_thoughts,
+        "send_notepad": send_notepad,
+        "use_common_prompt": use_common_prompt,
+        "send_core_memory": send_core_memory,
+        "send_scenery": send_scenery
+    }
+    # kwargsで渡された値で上書きする
+    token_calc_kwargs.update(kwargs)
+
     return gemini_api.count_input_tokens(
-        room_name=room_name, api_key_name=api_key_name, parts=[],
-        api_history_limit=api_history_limit,
-        add_timestamp=add_timestamp, send_thoughts=send_thoughts, send_notepad=send_notepad,
-        use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
+        room_name=room_name,
+        api_key_name=api_key_name,
+        parts=[],
+        **token_calc_kwargs
     )
 
 def update_token_count_on_input(
@@ -2015,12 +2052,30 @@ def _format_text_content_for_gradio(
 
     return "".join(final_html_parts)
 
-def update_model_state(model): config_manager.save_config("last_model", model); return model
+def update_model_state(model: str, room_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool, auto_memory_enabled: bool):
+    """モデルを変更し、それに伴いトークン数を再計算して、両方の結果を返す。"""
+    config_manager.save_config("last_model", model)
 
-def update_api_key_state(api_key_name):
+    token_count_text = handle_context_settings_change(
+        room_name, api_key_name, api_history_limit,
+        add_timestamp, send_thoughts, send_notepad,
+        use_common_prompt, send_core_memory, send_scenery, auto_memory_enabled,
+        global_model_from_ui=model
+    )
+    return model, token_count_text
+
+def update_api_key_state(api_key_name: str, room_name: str, model: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool, auto_memory_enabled: bool):
+    """APIキーを変更し、それに伴いトークン数を再計算して、両方の結果を返す。"""
     config_manager.save_config("last_api_key_name", api_key_name)
     gr.Info(f"APIキーを '{api_key_name}' に設定しました。")
-    return api_key_name
+
+    token_count_text = handle_context_settings_change(
+        room_name, api_key_name, api_history_limit,
+        add_timestamp, send_thoughts, send_notepad,
+        use_common_prompt, send_core_memory, send_scenery, auto_memory_enabled,
+        global_model_from_ui=model
+    )
+    return api_key_name, token_count_text
 
 def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, room_name: Optional[str], add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None):
     key = next((k for k, v in constants.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")

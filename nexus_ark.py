@@ -449,6 +449,7 @@ try:
             auto_memory_enabled_checkbox
         ]
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
+        # ▼▼▼【以下の initial_load_chat_outputs の定義ブロック全体を、新しい定義で完全に置き換えてください】▼▼▼
         initial_load_chat_outputs = [
             current_room_name, chatbot_display, current_log_map_state,
             chat_input_multimodal,
@@ -459,21 +460,29 @@ try:
             room_voice_style_prompt_textbox,
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
-            room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
-        ] + context_checkboxes + [room_settings_info, scenery_image_display, dynamic_css_injector]
+            room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown,
+            # context_checkboxes をここで「アンパック」して個別の要素として展開
+            *context_checkboxes,
+            room_settings_info, scenery_image_display, dynamic_css_injector
+        ]
+
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
-        ] + initial_load_chat_outputs + [redaction_rules_df]
+        ] + initial_load_chat_outputs + [redaction_rules_df, token_count_display]
+
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
-        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df, archive_date_dropdown]
+
+        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df, archive_date_dropdown, token_count_display]
+        # ▲▲▲【置き換えここまで】▲▲▲
+
+        # ▼▼▼【demo.load の定義を、.then() を含まない以下の形で完全に置き換えてください】▼▼▼
         demo.load(
             fn=ui_handlers.handle_initial_load,
             inputs=[current_room_name, current_api_key_name_state],
             outputs=initial_load_outputs
-        ).then(
-            fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
+        # ▲▲▲【置き換えここまで】▲▲▲
         start_session_button.click(
             fn=ui_handlers.handle_start_session,
             inputs=[current_room_name, participant_checkbox_group],
@@ -517,8 +526,6 @@ try:
             fn=ui_handlers.handle_room_change_for_all_tabs,
             inputs=[room_dropdown, api_key_dropdown],
             outputs=all_room_change_outputs
-        ).then(
-            fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
         chat_reload_button.click(
             fn=ui_handlers.reload_chat_log,
@@ -633,8 +640,17 @@ try:
         )
         room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
         for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-        model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-        api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
+
+        model_dropdown.change(
+            fn=ui_handlers.update_model_state,
+            inputs=[model_dropdown, current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes,
+            outputs=[current_model_name, token_count_display]
+        )
+        api_key_dropdown.change(
+            fn=ui_handlers.update_api_key_state,
+            inputs=[api_key_dropdown, current_room_name, model_dropdown, api_history_limit_state] + context_checkboxes,
+            outputs=[current_api_key_name_state, token_count_display]
+        )
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
         submit_event = chat_input_multimodal.submit(
             fn=ui_handlers.handle_message_submission,
