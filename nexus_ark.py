@@ -128,7 +128,8 @@ try:
             with gr.TabItem("チャット"):
                 with gr.Row():
                     with gr.Column(scale=1, min_width=300):
-                        profile_image_display = gr.Image(height=150, width=150, interactive=False, show_label=False, container=False)
+                        profile_image_display = gr.Image(height=250, width=188, interactive=True, show_label=False, elem_id="profile_image_display", type="pil")
+                        profile_image_display.upload(fn=ui_handlers.handle_profile_image_upload, inputs=[current_room_name, profile_image_display], outputs=[profile_image_display])
                         room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="ルームを選択", interactive=True)
 
                         with gr.Accordion("🌄 情景描写・移動", open=False):
@@ -675,7 +676,7 @@ try:
         correction_confirmed_state.change(
             fn=ui_handlers.handle_log_punctuation_correction,
             inputs=[correction_confirmed_state, selected_message_state, current_room_name, current_api_key_name_state, api_history_limit_state, room_add_timestamp_checkbox],
-            outputs=[chatbot_display, current_log_map_state, correct_punctuation_button]
+            outputs=[chatbot_display, current_log_map_state, correct_punctuation_button, selected_message_state, action_button_group]
         )
         gen_settings_inputs = [
             room_temperature_slider, room_top_p_slider,
