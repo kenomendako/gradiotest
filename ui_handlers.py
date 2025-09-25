@@ -2776,39 +2776,60 @@ def handle_log_punctuation_correction(
 
 # ▲▲▲【追加はここまで】▲▲▲
 
-def handle_profile_image_upload(room_name: str, new_image: Any) -> gr.update:
+def handle_staging_image_upload(uploaded_file: Optional[Dict]) -> Tuple[Optional[str], gr.update, gr.update, gr.update]:
     """
-    新しいプロフィール画像がアップロードされたときに呼び出され、
-    適切な場所に'profile.png'として保存する。
-    Gradioから渡されるnew_imageはPillow Imageオブジェクトそのもの。
-    戻り値はgr.update()を使い、UIの更新指示を明確にする。
+    ユーザーが新しい画像をアップロードした際に、編集用プレビューエリアにその画像を表示し、
+    UIを編集モードに切り替える。
     """
-    # 現在の画像パスを、エラー時やキャンセル時のために先に取得しておく
-    _, _, current_image_path, _, _ = get_room_files_paths(room_name)
-    fallback_path = current_image_path if current_image_path and os.path.exists(current_image_path) else None
+    if uploaded_file is None:
+        return None, gr.update(visible=False), gr.update(visible=False), gr.update()
 
+    # アップロードされた画像のパスを返し、Stateとプレビューの両方にセットする
+    # これにより、ユーザーがトリミング操作をしても、元の画像パスを保持できる
+    return (
+        uploaded_file["path"],
+        gr.update(value=uploaded_file["path"], visible=True),
+        gr.update(visible=True),
+        gr.update(open=True) # アコーディオンを開く
+    )
+
+def handle_save_cropped_image(room_name: str, original_image_path: str, cropped_image_data: Dict) -> Tuple[gr.update, gr.update, gr.update]:
+    """
+    ユーザーが「この範囲で保存」ボタンを押した際に、
+    トリミングされた画像を'profile.png'として保存し、UIを更新する。
+    """
     if not room_name:
         gr.Warning("画像を変更するルームが選択されていません。")
-        return gr.update(value=fallback_path)
+        return gr.update(), gr.update(visible=False), gr.update(visible=False)
 
-    if new_image is None:
-        # 画像が選択されなかった場合（キャンセルなど）
-        return gr.update(value=fallback_path)
+    if original_image_path is None or cropped_image_data is None:
+        gr.Warning("元画像またはトリミング範囲のデータがありません。")
+        return gr.update(), gr.update(visible=False), gr.update(visible=False)
 
     try:
-        # new_image はPillow Imageオブジェクトなので、そのまま使う
-        uploaded_image = new_image
+        # Gradioの 'select' tool は、crop後の画像データをNumPy配列として渡す
+        cropped_img_numpy = cropped_image_data["image"]
+
+        # NumPy配列をPillow Imageに変換
+        cropped_img = Image.fromarray(cropped_img_numpy)
+
         save_path = os.path.join(constants.ROOMS_DIR, room_name, constants.PROFILE_IMAGE_FILENAME)
 
-        uploaded_image.save(save_path, "PNG")
+        cropped_img.save(save_path, "PNG")
 
         gr.Info(f"ルーム「{room_name}」のプロフィール画像を更新しました。")
 
-        # 成功時は、保存した新しい画像のパスでUIを更新するよう指示
-        return gr.update(value=save_path)
+        # 最終的なプロフィール画像表示を更新し、編集用UIを非表示に戻す
+        return (
+            gr.update(value=save_path),
+            gr.update(value=None, visible=False),
+            gr.update(visible=False)
+        )
 
     except Exception as e:
-        gr.Error(f"プロフィール画像の保存中にエラーが発生しました: {e}")
+        gr.Error(f"トリミング画像の保存中にエラーが発生しました: {e}")
         traceback.print_exc()
-        # エラーが発生した場合は、元の画像に戻すよう指示
-        return gr.update(value=fallback_path)
+        # エラーが発生した場合、元のプロフィール画像表示は変更せず、編集UIのみを閉じる
+        _, _, current_image_path, _, _ = get_room_files_paths(room_name)
+        fallback_path = current_image_path if current_image_path and os.path.exists(current_image_path) else None
+        return gr.update(value=fallback_path), gr.update(visible=False), gr.update(visible=False)
