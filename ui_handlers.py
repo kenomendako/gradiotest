@@ -43,28 +43,37 @@ def _generate_background_css(image_path: Optional[str]) -> str:
     画像がない場合は、背景をリセットする空のCSSを返す。
     """
     if not image_path or not os.path.exists(image_path):
-        return "" # 画像がない場合はスタイルを適用しない
+        return ""
 
-    # Gradioの内部Webサーバー経由でアクセスできるよう、パスを/file=...形式に変換
-    # バックスラッシュをスラッシュに置換することを忘れない
     web_accessible_path = f"/file={os.path.abspath(image_path).replace(os.sep, '/')}"
 
-    # テキストの可読性を上げるため、画像の上に半透明の黒いオーバーレイをかける
     css_rules = f"""
     <style>
-    #chat_output_area > div.wrap-inner {{
+    /* チャットボットコンポーネント自体に背景を適用 */
+    #chat_output_area {{
         background-image: linear-gradient(rgba(20, 20, 20, 0.75), rgba(20, 20, 20, 0.75)), url('{web_accessible_path}');
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;
-        border-radius: 8px; /* 見た目を整えるための角丸 */
+        /* 背景がパディングの内側にのみ表示されるように設定 */
+        background-clip: padding-box;
+        border: 1px solid #374151; /* 境界線を少し明確に */
     }}
-    /* メッセージのバブル自体の背景色を少し透過させて、背景との一体感を出す */
-    .message-bubble.from-user {{
-        background-color: rgba(2, 90, 187, 0.8) !important;
+    /* メッセージバブルの背景を少し濃くして可読性を上げる */
+    #chat_output_area .message-bubble.from-user {{
+        background-color: rgba(2, 90, 187, 0.85) !important;
+        color: white !important;
     }}
-    .message-bubble.to-user {{
-        background-color: rgba(240, 240, 240, 0.8) !important;
+    #chat_output_area .message-bubble.to-user {{
+        background-color: rgba(243, 244, 246, 0.85) !important;
+        color: black !important;
+    }}
+    /* バブル内のテキスト色を強制的に指定 */
+    #chat_output_area .message-bubble.to-user * {{
+        color: black !important;
+    }}
+    #chat_output_area .message-bubble.from-user * {{
+        color: white !important;
     }}
     </style>
     """
@@ -135,7 +144,6 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         location_dd_val = None
     current_location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
     scenery_image_path = utils.find_scenery_image(room_name, location_dd_val)
-    # ▼▼▼ 以下の1行を追加 ▼▼▼
     dynamic_css_update = _generate_background_css(scenery_image_path)
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "iapetus"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
@@ -169,7 +177,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings["auto_memory_enabled"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path,
-        dynamic_css_update # ← ここに追加
+        dynamic_css_update
     )
     return chat_tab_updates
 
@@ -470,7 +478,6 @@ def _stream_and_handle_response(
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
         scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
-        # ▼▼▼ 以下の1行を追加 ▼▼▼
         dynamic_css_update = _generate_background_css(scenery_image)
         token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
         token_count_text = gemini_api.count_input_tokens(
@@ -486,7 +493,7 @@ def _stream_and_handle_response(
                current_console_content, current_console_content,
                gr.update(visible=False, interactive=True), gr.update(interactive=True),
                gr.update(visible=False), # ← action_button_group
-               dynamic_css_update # ← ここに追加
+               dynamic_css_update
         )
 
 def handle_message_submission(*args: Any):

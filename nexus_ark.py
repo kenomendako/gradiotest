@@ -71,6 +71,7 @@ try:
     #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
     #chat_container { position: relative; }
+    #chat_output_area { padding: 10px; } /* 背景画像が見えるように内側に余白を追加 */
     """
     js_stop_nav_link_propagation = """
     function() {
@@ -124,10 +125,7 @@ try:
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
 
-        # ▼▼▼【ここからが追加するブロック】▼▼▼
-        # 動的なCSSをページに注入するための、非表示のHTMLコンポーネント
         dynamic_css_html = gr.HTML(visible=False)
-        # ▲▲▲【追加はここまで】▲▲▲
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -520,8 +518,6 @@ try:
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
 
-        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df, archive_date_dropdown]
-
         demo.load(
             fn=ui_handlers.handle_initial_load,
             inputs=[gr.State(effective_initial_room), current_api_key_name_state],
@@ -568,7 +564,7 @@ try:
             debug_console_state, debug_console_output,
             stop_button, chat_reload_button,
             action_button_group,
-            dynamic_css_html # ← ここに追加
+            dynamic_css_html
         ]
 
         rerun_event = rerun_button.click(
@@ -576,6 +572,8 @@ try:
             inputs=rerun_inputs,
             outputs=unified_streaming_outputs
         )
+
+        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df, archive_date_dropdown]
 
         room_dropdown.change(
             fn=ui_handlers.handle_room_change_for_all_tabs,
@@ -751,8 +749,8 @@ try:
             show_progress=False
         )
 
-        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, dynamic_css_html]) # ← 末尾に追加
-        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, dynamic_css_html]) # ← 末尾に追加
+        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, dynamic_css_html])
+        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, dynamic_css_html])
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_room_name, current_api_key_name_state], outputs=[audio_player, play_audio_button, room_preview_voice_button])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
 
