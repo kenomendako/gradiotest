@@ -149,7 +149,6 @@ try:
                                 transforms=["crop"], # 使用するツールをクロップのみに限定
                                 brush=None, # ブラシツールを無効化
                                 eraser=None, # 消しゴムツールを無効化
-                                allow_additional_layers=False # レイヤー機能も無効化
                             )
 
                             # 6. トリミングを確定して保存するためのボタン（普段は非表示）
