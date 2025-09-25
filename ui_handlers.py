@@ -2807,8 +2807,8 @@ def handle_save_cropped_image(room_name: str, original_image_path: str, cropped_
         return gr.update(), gr.update(visible=False), gr.update(visible=False)
 
     try:
-        # Gradioの 'select' tool は、crop後の画像データをNumPy配列として渡す
-        cropped_img_numpy = cropped_image_data["image"]
+        # Gradioの 'ImageEditor' は、編集後の画像を辞書の 'composite' キーに格納して渡します。
+        cropped_img_numpy = cropped_image_data["composite"]
 
         # NumPy配列をPillow Imageに変換
         cropped_img = Image.fromarray(cropped_img_numpy)

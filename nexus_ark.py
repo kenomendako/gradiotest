@@ -140,7 +140,17 @@ try:
                             image_upload_button = gr.UploadButton("新しい画像をアップロード", file_types=["image"])
 
                             # 5. トリミングツールを備えた、編集用プレビューエリア（普段は非表示）
-                            cropper_image_preview = gr.Image(sources=["upload"], tool="crop", type="pil", interactive=True, show_label=False, visible=False)
+                            cropper_image_preview = gr.ImageEditor(
+                                sources=["upload"],
+                                type="pil",
+                                interactive=True,
+                                show_label=False,
+                                visible=False,
+                                transforms=["crop"], # 使用するツールをクロップのみに限定
+                                brush=None, # ブラシツールを無効化
+                                eraser=None, # 消しゴムツールを無効化
+                                allow_additional_layers=False # レイヤー機能も無効化
+                            )
 
                             # 6. トリミングを確定して保存するためのボタン（普段は非表示）
                             save_cropped_image_button = gr.Button("この範囲で保存", visible=False)
