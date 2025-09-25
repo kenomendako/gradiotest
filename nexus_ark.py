@@ -86,72 +86,70 @@ try:
         }, true);
     }
     """
+    js_dynamic_background = """
+    function() {
+        // この関数は、Gradioアプリが完全に読み込まれた後に一度だけ実行されます
+        console.log("Nexus Ark Dynamic Background Script Loaded.");
 
-# JavaScriptによるDOM直接操作のためのコード
-js_dynamic_background = """
-function() {
-    // この関数は、Gradioアプリが完全に読み込まれた後に一度だけ実行されます
-    console.log("Nexus Ark Dynamic Background Script Loaded.");
+        // --- スタイルシートの初期設定 ---
+        // チャットボット本体を透明にするためのスタイルタグを作成し、ページの<head>に一度だけ追加
+        const styleSheet = document.createElement("style");
+        styleSheet.innerText = `
+            /* チャットボット本体のデフォルト背景を無効化 */
+            #chat_output_area { background: none !important; border: none !important; }
+            /* 親コンテナのデフォルトパディングを無効化 */
+            .chat-background-container { padding: 0 !important; }
+        `;
+        document.head.appendChild(styleSheet);
 
-    // --- スタイルシートの初期設定 ---
-    // チャットボット本体を透明にするためのスタイルタグを作成し、ページの<head>に一度だけ追加
-    const styleSheet = document.createElement("style");
-    styleSheet.innerText = `
-        /* チャットボット本体のデフォルト背景を無効化 */
-        #chat_output_area { background: none !important; border: none !important; }
-        /* 親コンテナのデフォルトパディングを無効化 */
-        .chat-background-container { padding: 0 !important; }
-    `;
-    document.head.appendChild(styleSheet);
+        // --- 監視対象のセットアップ ---
+        // Pythonからの画像パスを受け取る非表示テキストボックス
+        const injector = document.getElementById('dynamic_css_injector');
+        // 背景を適用するターゲットとなるコンテナ
+        const targetContainer = document.querySelector('.chat-background-container');
 
-    // --- 監視対象のセットアップ ---
-    // Pythonからの画像パスを受け取る非表示テキストボックス
-    const injector = document.getElementById('dynamic_css_injector');
-    // 背景を適用するターゲットとなるコンテナ
-    const targetContainer = document.querySelector('.chat-background-container');
-
-    if (!injector || !targetContainer) {
-        console.error("Dynamic Background: Injector or Target Container not found.");
-        return;
-    }
-
-    // --- メインの処理関数 ---
-    function updateBackground(path) {
-        if (path) {
-            // パスが指定されている場合、背景画像を設定
-            targetContainer.style.backgroundImage = `linear-gradient(rgba(20, 20, 20, 0.75), rgba(20, 20, 20, 0.75)), url('${path}')`;
-            targetContainer.style.backgroundSize = 'cover';
-            targetContainer.style.backgroundPosition = 'center';
-            targetContainer.style.borderRadius = '8px';
-            targetContainer.style.overflow = 'hidden';
-        } else {
-            // パスが空の場合、背景をリセット
-            targetContainer.style.backgroundImage = 'none';
+        if (!injector || !targetContainer) {
+            console.error("Dynamic Background: Injector or Target Container not found.");
+            return;
         }
-    }
 
-    // --- MutationObserverによる監視 ---
-    // injector内のtextareaの値の変更を監視
-    const observer = new MutationObserver((mutationsList, observer) => {
-        for(const mutation of mutationsList) {
-            if (mutation.type === 'childList' || (mutation.type === 'attributes' && mutation.attributeName === 'value')) {
-                const newPath = injector.querySelector('textarea')?.value || '';
-                console.log('Background path changed to:', newPath);
-                updateBackground(newPath);
+        // --- メインの処理関数 ---
+        function updateBackground(path) {
+            if (path) {
+                // パスが指定されている場合、背景画像を設定
+                targetContainer.style.backgroundImage = `linear-gradient(rgba(20, 20, 20, 0.75), rgba(20, 20, 20, 0.75)), url('${path}')`;
+                targetContainer.style.backgroundSize = 'cover';
+                targetContainer.style.backgroundPosition = 'center';
+                targetContainer.style.borderRadius = '8px';
+                targetContainer.style.overflow = 'hidden';
+            } else {
+                // パスが空の場合、背景をリセット
+                targetContainer.style.backgroundImage = 'none';
             }
         }
-    });
 
-    // 監視を開始
-    observer.observe(injector, { attributes: true, childList: true, subtree: true });
+        // --- MutationObserverによる監視 ---
+        // injector内のtextareaの値の変更を監視
+        const observer = new MutationObserver((mutationsList, observer) => {
+            for(const mutation of mutationsList) {
+                if (mutation.type === 'childList' || (mutation.type === 'attributes' && mutation.attributeName === 'value')) {
+                    const newPath = injector.querySelector('textarea')?.value || '';
+                    console.log('Background path changed to:', newPath);
+                    updateBackground(newPath);
+                }
+            }
+        });
 
-    // 初期ロード時の値で一度実行
-    const initialPath = injector.querySelector('textarea')?.value || '';
-    if (initialPath) {
-       updateBackground(initialPath);
+        // 監視を開始
+        observer.observe(injector, { attributes: true, childList: true, subtree: true });
+
+        // 初期ロード時の値で一度実行
+        const initialPath = injector.querySelector('textarea')?.value || '';
+        if (initialPath) {
+           updateBackground(initialPath);
+        }
     }
-}
-"""
+    """
 
     with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, js=f"({js_stop_nav_link_propagation})()\n({js_dynamic_background})()") as demo:
         room_list_on_startup = room_manager.get_room_list_for_ui()
@@ -196,34 +194,16 @@ function() {
             with gr.TabItem("チャット"):
                 with gr.Row():
                     with gr.Column(scale=1, min_width=300):
-                        # 1. 最終結果を表示するだけの、編集不可能な画像エリア
+                        # ... (rest of the UI definition)
                         profile_image_display = gr.Image(height=250, width=188, interactive=False, show_label=False, elem_id="profile_image_display")
-
-                        # 2. 画像編集機能全体を格納するアコーディオン
                         with gr.Accordion("プロフィール画像を変更", open=False) as profile_image_accordion:
-                            # 3. 編集前の元画像を保持するための隠しState
                             staged_image_state = gr.State()
-
-                            # 4. 新しい画像をアップロードするための専用ボタン
                             image_upload_button = gr.UploadButton("新しい画像をアップロード", file_types=["image"])
-
-                            # 5. トリミングツールを備えた、編集用プレビューエリア（普段は非表示）
                             cropper_image_preview = gr.ImageEditor(
-                                sources=["upload"],
-                                type="pil",
-                                interactive=True,
-                                show_label=False,
-                                visible=False,
-                                transforms=["crop"], # 使用するツールをクロップのみに限定
-                                brush=None, # ブラシツールを無効化
-                                eraser=None, # 消しゴムツールを無効化
+                                sources=["upload"], type="pil", interactive=True, show_label=False, visible=False, transforms=["crop"], brush=None, eraser=None
                             )
-
-                            # 6. トリミングを確定して保存するためのボタン（普段は非表示）
                             save_cropped_image_button = gr.Button("この範囲で保存", visible=False)
-
                         room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="ルームを選択", interactive=True)
-
                         with gr.Accordion("🌄 情景描写・移動", open=False):
                             scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
                             generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
@@ -314,18 +294,12 @@ function() {
                                     auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True)
                                     gr.Markdown("---")
                                     save_room_settings_button = gr.Button("このルームの設定を保存", variant="primary")
-
                         with gr.Accordion("🧑‍🤝‍🧑 グループ会話", open=False):
                             session_status_display = gr.Markdown("現在、1対1の会話モードです。")
-                            participant_checkbox_group = gr.CheckboxGroup(
-                                label="会話に招待するルーム",
-                                choices=sorted([c for c in room_list_on_startup if c != effective_initial_room]),
-                                interactive=True
-                            )
+                            participant_checkbox_group = gr.CheckboxGroup(label="会話に招待するルーム", choices=sorted([c for c in room_list_on_startup if c != effective_initial_room]), interactive=True)
                             with gr.Row():
                                 start_session_button = gr.Button("このメンバーで会話を開始 / 更新", variant="primary")
                                 end_session_button = gr.Button("会話を終了 (1対1に戻る)", variant="secondary")
-
                         with gr.Accordion("🗨️ チャットルームの作成・管理", open=False) as manage_room_accordion:
                             with gr.Tabs() as room_management_tabs:
                                 with gr.TabItem("新規作成") as create_room_tab:
@@ -344,23 +318,17 @@ function() {
                                         manage_folder_name_display = gr.Textbox(label="フォルダ名（編集不可）", interactive=False)
                                         save_room_config_button = gr.Button("変更を保存", variant="primary")
                                         delete_room_button = gr.Button("このルームを削除", variant="stop")
-
                                 with gr.TabItem("ChatGPTからインポート") as import_chatgpt_tab:
                                     gr.Markdown("### ChatGPTデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
                                     chatgpt_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
-
                                     with gr.Column(visible=False) as chatgpt_import_form:
                                         chatgpt_thread_dropdown = gr.Dropdown(label="インポートする会話スレッドを選択", interactive=True)
                                         chatgpt_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
                                         chatgpt_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
                                         chatgpt_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
-
                     with gr.Column(scale=3, elem_classes=["chat-background-container"]):
                         chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
-
-                        # ▼▼▼【ここからが修正箇所】▼▼▼
-
-                        # 1. 音声プレーヤーとアクションボタン (チャット欄の直下に移動)
+                        # ... (rest of the UI definition)
                         with gr.Row():
                             audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
                         with gr.Row(visible=False) as action_button_group:
@@ -368,38 +336,16 @@ function() {
                             play_audio_button = gr.Button("🔊 選択した発言を再生")
                             delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
                             cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
-
-                        # 2. 入力欄
-                        chat_input_multimodal = gr.MultimodalTextbox(
-                            file_types=["image", "audio", "video", "text", ".pdf", ".md", ".py", ".json", ".html", ".css", ".js"],
-                            max_plain_text_length=100000,
-                            placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...",
-                            show_label=False,
-                            lines=3,
-                            interactive=True
-                        )
-
-                        # 3. トークンカウンター
-                        token_count_display = gr.Markdown(
-                            "入力トークン数: 0 / 0（Gemini2.5無料枠TPM:250,000）",
-                            elem_id="token_count_display"
-                        )
-
-                        # 4. ボタン類
+                        chat_input_multimodal = gr.MultimodalTextbox(file_types=["image", "audio", "video", "text", ".pdf", ".md", ".py", ".json", ".html", ".css", ".js"], max_plain_text_length=100000, placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...", show_label=False, lines=3, interactive=True)
+                        token_count_display = gr.Markdown("入力トークン数: 0 / 0（Gemini2.5無料枠TPM:250,000）", elem_id="token_count_display")
                         with gr.Row():
                             stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
                             chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
-
                         with gr.Row():
                             add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1)
-
-                        # 5. スクリーンショット支援機能
                         with gr.Accordion("📸 スクリーンショット支援", open=False):
                             gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
-                            screenshot_mode_checkbox = gr.Checkbox(
-                                label="スクリーンショットモードを有効にする",
-                                info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。"
-                            )
+                            screenshot_mode_checkbox = gr.Checkbox(label="スクリーンショットモードを有効にする", info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。")
                             with gr.Row():
                                 with gr.Column(scale=2):
                                     gr.Markdown("**ルールの編集**")
@@ -410,48 +356,18 @@ function() {
                                         clear_rule_form_button = gr.Button("フォームをクリア")
                                 with gr.Column(scale=3):
                                     gr.Markdown("**現在のルールリスト**")
-                                    redaction_rules_df = gr.Dataframe(
-                                        headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
-                                        datatype=["str", "str"],
-                                        row_count=(5, "dynamic"),
-                                        col_count=(2, "fixed"),
-                                        interactive=False
-                                    )
+                                    redaction_rules_df = gr.Dataframe(headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"], datatype=["str", "str"], row_count=(5, "dynamic"), col_count=(2, "fixed"), interactive=False)
                                     delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
-
-                            # イベントハンドラ
-                            redaction_rules_df.select(
-                                fn=ui_handlers.handle_redaction_rule_select,
-                                inputs=[redaction_rules_df],
-                                outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
-                            )
-                            add_rule_button.click(
-                                fn=ui_handlers.handle_add_or_update_redaction_rule,
-                                inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
-                                outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
-                            )
-                            clear_rule_form_button.click(
-                                fn=lambda: (None, "", ""),
-                                outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
-                            )
-                            delete_rule_button.click(
-                                fn=ui_handlers.handle_delete_redaction_rule,
-                                inputs=[redaction_rules_state, selected_redaction_rule_state],
-                                outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
-                            )
-                            screenshot_mode_checkbox.change(
-                                fn=ui_handlers.reload_chat_log,
-                                inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
-                                outputs=[chatbot_display, current_log_map_state]
-                            )
-
+                            redaction_rules_df.select(fn=ui_handlers.handle_redaction_rule_select, inputs=[redaction_rules_df], outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox])
+                            add_rule_button.click(fn=ui_handlers.handle_add_or_update_redaction_rule, inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox], outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox])
+                            clear_rule_form_button.click(fn=lambda: (None, "", ""), outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox])
+                            delete_rule_button.click(fn=ui_handlers.handle_delete_redaction_rule, inputs=[redaction_rules_state, selected_redaction_rule_state], outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox])
+                            screenshot_mode_checkbox.change(fn=ui_handlers.reload_chat_log, inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state], outputs=[chatbot_display, current_log_map_state])
                         with gr.Accordion("📝 ログ修正", open=False):
                             gr.Markdown("選択した**発言**以降の**AIの応答**に含まれる読点（、）を、AIを使って自動で修正し、自然な文章に校正します。")
                             gr.Markdown("⚠️ **注意:** この操作はログファイルを直接上書きするため、元に戻せません。処理の前に、ログファイルのバックアップが自動的に作成されます。")
                             correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
-                            # 状態をリセットするための非表示コンポーネント
                             correction_confirmed_state = gr.Textbox(visible=False)
-
             with gr.TabItem(" 記憶・メモ・指示"):
                 gr.Markdown("##  記憶・メモ・指示\nルームの根幹をなす設定ファイルを、ここで直接編集できます。")
                 with gr.Tabs():
@@ -461,30 +377,16 @@ function() {
                             save_prompt_button = gr.Button("プロンプトを保存", variant="secondary")
                             reload_prompt_button = gr.Button("再読込", variant="secondary")
                     with gr.TabItem("記憶 (テキスト)"):
-                        memory_txt_editor = gr.Textbox(
-                            label="主観的記憶（日記） - memory.txt",
-                            interactive=True,
-                            elem_id="memory_txt_editor_code",
-                            lines=20,
-                            autoscroll=True
-                        )
+                        memory_txt_editor = gr.Textbox(label="主観的記憶（日記） - memory.txt", interactive=True, elem_id="memory_txt_editor_code", lines=20, autoscroll=True)
                         with gr.Row():
                             save_memory_button = gr.Button("主観的記憶を保存", variant="secondary")
                             reload_memory_button = gr.Button("再読込", variant="secondary")
                             core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
-
-                        # ▼▼▼ ここからが修正・追加するUIブロック ▼▼▼
                         with gr.Accordion("📝 古い日記をアーカイブする", open=False) as memory_archive_accordion:
-                            # ▼▼▼ 以下のgr.Markdownとgr.Dropdownのテキストを変更 ▼▼▼
-                            gr.Markdown(
-                                "指定した日付**まで**の日記を要約し、別ファイルに保存して、このメインファイルから削除します。\n"
-                                "**⚠️注意:** この操作は`memory_main.txt`を直接変更します（処理前にバックアップは作成されます）。"
-                            )
+                            gr.Markdown("指定した日付**まで**の日記を要約し、別ファイルに保存して、このメインファイルから削除します。\n" "**⚠️注意:** この操作は`memory_main.txt`を直接変更します（処理前にバックアップは作成されます）。")
                             archive_date_dropdown = gr.Dropdown(label="この日付までをアーカイブ", interactive=True)
-                            # ▲▲▲ 変更ここまで ▲▲▲
-                            archive_confirm_state = gr.Textbox(visible=False) # 確認ダイアログ用
+                            archive_confirm_state = gr.Textbox(visible=False)
                             archive_memory_button = gr.Button("アーカイブを実行", variant="stop")
-                        # ▲▲▲ 修正・追加ブロックここまで ▲▲▲
                     with gr.TabItem("知識グラフ管理"):
                         gr.Markdown("## 知識グラフの管理")
                         gr.Markdown("過去の対話ログを分析し、エンティティ間の関係性を抽出して、AIの永続的な知識グラフを構築・更新します。")
@@ -504,10 +406,8 @@ function() {
                             save_notepad_button = gr.Button("メモ帳を保存", variant="secondary")
                             reload_notepad_button = gr.Button("再読込", variant="secondary")
                             clear_notepad_button = gr.Button("メモ帳を全削除", variant="stop")
-
             with gr.TabItem("ワールド・ビルダー") as world_builder_tab:
                 gr.Markdown("## ワールド・ビルダー\n`world_settings.txt` の内容を、直感的に、または直接的に編集・確認できます。")
-
                 with gr.Tabs():
                     with gr.TabItem("構造化エディタ"):
                         gr.Markdown("エリアと場所を選択して、その内容をピンポイントで編集します。")
@@ -532,29 +432,16 @@ function() {
                                 with gr.Row(visible=False) as save_button_row:
                                     save_button = gr.Button("この場所の設定を保存", variant="primary")
                                     delete_place_button = gr.Button("この場所を削除", variant="stop")
-
                     with gr.TabItem("RAWテキストエディタ"):
                         gr.Markdown("世界設定ファイル (`world_settings.txt`) の全体像を直接編集します。**書式（`##`や`###`）を崩さないようご注意ください。**")
-                        world_settings_raw_editor = gr.Code( # 変数名を _raw_display から _raw_editor に変更
-                            label="world_settings.txt",
-                            language="markdown",
-                            interactive=True, # 編集可能に
-                            lines=25
-                        )
+                        world_settings_raw_editor = gr.Code(label="world_settings.txt", language="markdown", interactive=True, lines=25)
                         with gr.Row():
                             save_raw_button = gr.Button("RAWテキスト全体を保存", variant="primary")
                             reload_raw_button = gr.Button("最後に保存した内容を読み込む", variant="secondary")
-
             with gr.TabItem("デバッグコンソール"):
                 gr.Markdown("## デバッグコンソール\nアプリケーションの内部的な動作ログ（ターミナルに出力される内容）をここに表示します。")
-                debug_console_output = gr.Textbox(
-                    label="コンソール出力",
-                    lines=30,
-                    interactive=False,
-                    autoscroll=True
-                )
+                debug_console_output = gr.Textbox(label="コンソール出力", lines=30, interactive=False, autoscroll=True)
                 clear_debug_console_button = gr.Button("コンソールをクリア", variant="secondary")
-
         # --- イベントハンドラ定義 ---
         context_checkboxes = [
             room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
@@ -562,10 +449,9 @@ function() {
             auto_memory_enabled_checkbox
         ]
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
-
         initial_load_chat_outputs = [
             current_room_name, chatbot_display, current_log_map_state,
-            chat_input_multimodal, # chat_input_textbox と file_upload_button をこれ一つに置き換え
+            chat_input_multimodal,
             profile_image_display,
             memory_txt_editor, notepad_editor, system_prompt_editor,
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
@@ -575,16 +461,12 @@ function() {
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
         ] + context_checkboxes + [room_settings_info, scenery_image_display, dynamic_css_injector]
-
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
         ] + initial_load_chat_outputs + [redaction_rules_df]
-
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
-
         all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df, archive_date_dropdown]
-
         demo.load(
             fn=ui_handlers.handle_initial_load,
             inputs=[gr.State(effective_initial_room), current_api_key_name_state],
@@ -592,8 +474,6 @@ function() {
         ).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
-
-
         start_session_button.click(
             fn=ui_handlers.handle_start_session,
             inputs=[current_room_name, participant_checkbox_group],
@@ -604,26 +484,21 @@ function() {
             inputs=[current_room_name, active_participants_state],
             outputs=[active_participants_state, session_status_display, participant_checkbox_group]
         )
-
         chat_inputs = [
-            chat_input_multimodal, # 変更
+            chat_input_multimodal,
             current_room_name,
             current_api_key_name_state,
-            # file_upload_button は削除
             api_history_limit_state,
             debug_mode_checkbox,
             debug_console_state,
             active_participants_state,
             model_dropdown
         ]
-
         rerun_inputs = [
             selected_message_state, current_room_name, current_api_key_name_state,
             api_history_limit_state, debug_mode_checkbox,
             debug_console_state, active_participants_state, model_dropdown
         ]
-
-        # 新規送信と再生成で、UI更新の対象（outputs）を完全に一致させる
         unified_streaming_outputs = [
             chatbot_display, current_log_map_state, chat_input_multimodal,
             token_count_display, current_location_display, current_scenery_display,
@@ -633,13 +508,11 @@ function() {
             action_button_group,
             dynamic_css_injector
         ]
-
         rerun_event = rerun_button.click(
             fn=ui_handlers.handle_rerun_button_click,
             inputs=rerun_inputs,
             outputs=unified_streaming_outputs
         )
-
         room_dropdown.change(
             fn=ui_handlers.handle_room_change_for_all_tabs,
             inputs=[room_dropdown, api_key_dropdown],
@@ -647,33 +520,22 @@ function() {
         ).then(
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
-
         chat_reload_button.click(
             fn=ui_handlers.reload_chat_log,
             inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
             outputs=[chatbot_display, current_log_map_state]
         )
-
-        # --- 日記アーカイブ機能のイベント接続 ---
-
-        # 「記憶をアーカイブする」アコーディオンが開かれた時に、日付ドロップダウンを更新
         memory_archive_accordion.expand(
             fn=ui_handlers.handle_archive_memory_tab_select,
             inputs=[current_room_name],
             outputs=[archive_date_dropdown]
         )
-
-        # アーカイブ実行ボタンがクリックされたら、JavaScriptで確認ダイアログを表示し、
-        # 結果を非表示のTextbox `archive_confirm_state` に書き込む
         archive_memory_button.click(
             fn=None,
             inputs=None,
             outputs=[archive_confirm_state],
             js="() => confirm('本当によろしいですか？ この操作はmemory_main.txtを直接変更します。')"
         )
-
-        # 非表示Textboxの値が変更されたら（＝ユーザーがダイアログを操作したら）、
-        # バックエンドの処理を実行する
         archive_confirm_state.change(
             fn=ui_handlers.handle_archive_memory_click,
             inputs=[archive_confirm_state, current_room_name, api_key_dropdown, archive_date_dropdown],
@@ -695,7 +557,6 @@ function() {
             inputs=context_token_calc_inputs,
             outputs=token_count_display
         )
-
         create_room_button.click(
             fn=ui_handlers.handle_create_room,
             inputs=[new_room_name, new_user_display_name, initial_system_prompt],
@@ -709,8 +570,6 @@ function() {
                 initial_system_prompt
             ]
         )
-
-        # 既存のイベントハンドラのoutputsを再利用しやすいように変数に格納
         manage_room_select_outputs = [
             manage_room_details,
             manage_room_name,
@@ -719,21 +578,16 @@ function() {
             manage_room_description,
             manage_folder_name_display
         ]
-
-        # 既存のイベント
         manage_room_selector.select(
             fn=ui_handlers.handle_manage_room_select,
             inputs=[manage_room_selector],
             outputs=manage_room_select_outputs
         )
-
-        # アコーディオンが開かれた時にも同じ関数を呼び出す
         manage_room_accordion.expand(
             fn=ui_handlers.handle_manage_room_select,
             inputs=[manage_room_selector],
             outputs=manage_room_select_outputs
         )
-
         save_room_config_button.click(
             fn=ui_handlers.handle_save_room_config,
             inputs=[
@@ -745,7 +599,6 @@ function() {
             ],
             outputs=[room_dropdown, manage_room_selector]
         )
-
         delete_room_button.click(
             fn=None,
             inputs=None,
@@ -757,15 +610,12 @@ function() {
             inputs=[manage_folder_name_display, delete_confirmed_state, api_key_dropdown],
             outputs=all_room_change_outputs
         )
-
         correct_punctuation_button.click(
             fn=None,
             inputs=None,
             outputs=[correction_confirmed_state],
-            # 確認ダイアログを表示するJavaScript
             js="() => confirm('選択した行以降のAI応答の読点を修正します。\\nこの操作はログファイルを直接変更し、元に戻せません。\\n（処理前にバックアップが作成されます）\\n\\n本当によろしいですか？')"
         )
-
         correction_confirmed_state.change(
             fn=ui_handlers.handle_log_punctuation_correction,
             inputs=[correction_confirmed_state, selected_message_state, current_room_name, current_api_key_name_state, api_history_limit_state, room_add_timestamp_checkbox],
@@ -786,26 +636,20 @@ function() {
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
-        # ▼▼▼【送信と停止のイベント定義を全面的に更新】▼▼▼
-        # chat_submit_outputs の定義を削除し、代わりに unified_streaming_outputs を使用
         submit_event = chat_input_multimodal.submit(
             fn=ui_handlers.handle_message_submission,
             inputs=chat_inputs,
-            outputs=unified_streaming_outputs # ここを変更
+            outputs=unified_streaming_outputs
         )
-
         stop_button.click(
             fn=ui_handlers.handle_stop_button_click,
             inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
             outputs=[stop_button, chat_reload_button, chatbot_display, current_log_map_state],
             cancels=[submit_event, rerun_event]
         )
-        # ▲▲▲【修正ここまで】▲▲▲
-
-        # トークン計算イベント（入力内容が変更されるたびに実行）
         token_calc_on_input_inputs = [
             current_room_name, current_api_key_name_state, api_history_limit_state,
-            chat_input_multimodal # 変更
+            chat_input_multimodal
         ] + context_checkboxes
         chat_input_multimodal.change(
             fn=ui_handlers.update_token_count_on_input,
@@ -813,12 +657,10 @@ function() {
             outputs=token_count_display,
             show_progress=False
         )
-
-        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
-        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
+        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, dynamic_css_injector])
+        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, dynamic_css_injector])
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_room_name, current_api_key_name_state], outputs=[audio_player, play_audio_button, room_preview_voice_button])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
-
         save_prompt_button.click(fn=ui_handlers.handle_save_system_prompt, inputs=[current_room_name, system_prompt_editor], outputs=None)
         reload_prompt_button.click(fn=ui_handlers.handle_reload_system_prompt, inputs=[current_room_name], outputs=[system_prompt_editor])
         save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_room_name, memory_txt_editor], outputs=[memory_txt_editor])
@@ -877,14 +719,11 @@ function() {
         )
         timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
         timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_room_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
-
         notification_service_radio.change(fn=ui_handlers.handle_notification_service_change, inputs=[notification_service_radio], outputs=[])
         save_gemini_key_button.click(fn=ui_handlers.handle_save_gemini_key, inputs=[gemini_key_name_input, gemini_key_value_input], outputs=[api_key_dropdown])
         delete_gemini_key_button.click(fn=ui_handlers.handle_delete_gemini_key, inputs=[gemini_key_name_input], outputs=[api_key_dropdown])
         save_pushover_config_button.click(fn=ui_handlers.handle_save_pushover_config, inputs=[pushover_user_key_input, pushover_app_token_input], outputs=[])
         save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
-        # ▼▼▼ ここからが修正の核心 ▼▼▼
-
         memory_archiving_outputs = [
             memos_import_button,
             importer_stop_button,
@@ -894,13 +733,11 @@ function() {
             chat_input_multimodal,
             visualize_graph_button
         ]
-
         import_event = memos_import_button.click(
             fn=ui_handlers.handle_memory_archiving,
             inputs=[current_room_name, debug_console_state],
             outputs=memory_archiving_outputs
         )
-
         importer_stop_button.click(
             fn=ui_handlers.handle_archivist_stop,
             inputs=[archivist_pid_state],
@@ -910,30 +747,22 @@ function() {
                 archivist_pid_state,
                 chat_input_multimodal
             ],
-            cancels=[import_event] # 実行中のイベントをキャンセル
+            cancels=[import_event]
         )
-
         add_log_to_memory_queue_button.click(
             fn=ui_handlers.handle_add_current_log_to_queue,
             inputs=[current_room_name, debug_console_state],
-            # 成功/失敗を通知するだけなので、outputは無しで良い
             outputs=None
         )
-
         visualize_graph_button.click(
             fn=ui_handlers.handle_visualize_graph,
             inputs=[current_room_name],
             outputs=[graph_image_display]
         )
-
-        # ▲▲▲ ここまで ▲▲▲
         core_memory_update_button.click(fn=ui_handlers.handle_core_memory_update_click, inputs=[current_room_name, current_api_key_name_state], outputs=None)
         generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_room_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
-        # ▼▼▼【ここからが追加する行】▼▼▼
         audio_player.pause(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
-        # ▲▲▲【追加はここまで】▲▲▲
-
         world_builder_tab.select(
             fn=ui_handlers.handle_world_builder_load,
             inputs=[current_room_name],
@@ -977,17 +806,11 @@ function() {
             fn=lambda: (gr.update(visible=False), ""),
             outputs=[new_item_form, new_item_name]
         )
-
-        # --- プロフィール画像編集機能のイベント接続 ---
-
-        # 1. アップロードボタンに画像が渡されたら、編集プレビューを表示する
         image_upload_button.upload(
             fn=ui_handlers.handle_staging_image_upload,
             inputs=[image_upload_button],
             outputs=[staged_image_state, cropper_image_preview, save_cropped_image_button, profile_image_accordion]
         )
-
-        # 2. 編集プレビューで範囲が選択され、「保存」ボタンが押されたら、最終処理を呼び出す
         save_cropped_image_button.click(
             fn=ui_handlers.handle_save_cropped_image,
             inputs=[current_room_name, staged_image_state, cropper_image_preview],
@@ -1003,25 +826,20 @@ function() {
             inputs=[current_room_name],
             outputs=[world_settings_raw_editor]
         )
-
         clear_debug_console_button.click(
             fn=lambda: ("", ""),
             outputs=[debug_console_state, debug_console_output]
         )
-
-        # --- ChatGPT Importer Event Handlers ---
         chatgpt_import_file.upload(
             fn=ui_handlers.handle_chatgpt_file_upload,
             inputs=[chatgpt_import_file],
             outputs=[chatgpt_thread_dropdown, chatgpt_import_form, chatgpt_thread_choices_state]
         )
-
         chatgpt_thread_dropdown.select(
             fn=ui_handlers.handle_chatgpt_thread_selection,
             inputs=[chatgpt_thread_choices_state],
             outputs=[chatgpt_room_name_textbox]
         )
-
         chatgpt_import_button.click(
             fn=ui_handlers.handle_chatgpt_import_button_click,
             inputs=[
