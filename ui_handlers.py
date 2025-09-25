@@ -49,30 +49,28 @@ def _generate_background_css(image_path: Optional[str]) -> str:
 
     css_rules = f"""
     <style>
-    /* チャットボットコンポーネント自体に背景を適用 */
-    #chat_output_area {{
-        background-image: linear-gradient(rgba(20, 20, 20, 0.75), rgba(20, 20, 20, 0.75)), url('{web_accessible_path}');
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-        /* 背景がパディングの内側にのみ表示されるように設定 */
-        background-clip: padding-box;
-        border: 1px solid #374151; /* 境界線を少し明確に */
+    /* 専用クラス .chat-background-area をターゲットにし、!importantで強制適用 */
+    .chat-background-area {{
+        background-image: linear-gradient(rgba(20, 20, 20, 0.75), rgba(20, 20, 20, 0.75)), url('{web_accessible_path}') !important;
+        background-size: cover !important;
+        background-position: center !important;
+        background-repeat: no-repeat !important;
+        background-clip: padding-box !important;
+        border: 1px solid #374151 !important;
     }}
-    /* メッセージバブルの背景を少し濃くして可読性を上げる */
-    #chat_output_area .message-bubble.from-user {{
+    /* メッセージバブルの背景も同様に強制適用 */
+    .chat-background-area .message-bubble.from-user {{
         background-color: rgba(2, 90, 187, 0.85) !important;
         color: white !important;
     }}
-    #chat_output_area .message-bubble.to-user {{
+    .chat-background-area .message-bubble.to-user {{
         background-color: rgba(243, 244, 246, 0.85) !important;
         color: black !important;
     }}
-    /* バブル内のテキスト色を強制的に指定 */
-    #chat_output_area .message-bubble.to-user * {{
+    .chat-background-area .message-bubble.to-user * {{
         color: black !important;
     }}
-    #chat_output_area .message-bubble.from-user * {{
+    .chat-background-area .message-bubble.from-user * {{
         color: white !important;
     }}
     </style>
