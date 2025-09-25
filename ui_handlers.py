@@ -1,3 +1,4 @@
+import time
 import shutil
 import psutil
 import pandas as pd
@@ -356,25 +357,30 @@ def _stream_and_handle_response(
                 "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
             }
 
-            # 5. ストリーミング実行とUI更新
+            # 5. ストリーミング実行とUI更新 (擬似タイプライター方式)
             streamed_text = ""
             final_state = None
             initial_message_count = 0
             with utils.capture_prints() as captured_output:
                 for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                    if mode == "initial_count": initial_message_count = chunk
+                    if mode == "initial_count":
+                        initial_message_count = chunk
                     elif mode == "messages":
                         message_chunk, _ = chunk
                         if isinstance(message_chunk, AIMessageChunk):
-                            streamed_text += message_chunk.content
-                            chatbot_history[-1] = (None, streamed_text + "▌")
-                            yield (chatbot_history, mapping_list, gr.update(), gr.update(),
-                                   gr.update(), gr.update(), gr.update(), gr.update(),
-                                   gr.update(), gr.update(), current_console_content,
-                                   gr.update(), gr.update(),
-                                   gr.update() # ← 14個目の値を返すために追加
-                            )
-                    elif mode == "values": final_state = chunk
+                            # AIから受け取ったチャンクを、さらに一文字ずつに分解
+                            for char in message_chunk.content:
+                                streamed_text += char
+                                chatbot_history[-1] = (None, streamed_text + "▌")
+                                # UIを更新
+                                yield (chatbot_history, mapping_list, gr.update(), gr.update(),
+                                       gr.update(), gr.update(), gr.update(), gr.update(),
+                                       gr.update(), gr.update(), current_console_content,
+                                       gr.update(), gr.update(), gr.update(), gr.update())
+                                # 非常に短い待機時間を挟むことで、滑らかな表示を実現
+                                time.sleep(0.01)
+                    elif mode == "values":
+                        final_state = chunk
             current_console_content += captured_output.getvalue()
 
             # 6. 最終応答の処理とログ保存
