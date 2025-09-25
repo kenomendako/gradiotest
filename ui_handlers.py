@@ -43,8 +43,10 @@ def _get_web_accessible_image_path(image_path: Optional[str]) -> str:
     Webアクセス可能なURLパス文字列を生成する。
     画像がない場合は空文字列を返す。
     """
+    # ▼▼▼【この if 文の条件に image_path を追加してください】▼▼▼
     if not image_path or not os.path.exists(image_path):
         return "" # 画像がない場合は空文字列
+    # ▲▲▲【変更ここまで】▲▲▲
 
     # Gradioの内部Webサーバー経由でアクセスできるよう、パスを/file=...形式に変換
     return f"/file={os.path.abspath(image_path).replace(os.sep, '/')}"

@@ -459,8 +459,11 @@ try:
             room_voice_style_prompt_textbox,
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
-            room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
-        ] + context_checkboxes + [room_settings_info, scenery_image_display, dynamic_css_injector]
+            room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown,
+            # context_checkboxes をここで展開
+            *context_checkboxes,
+            room_settings_info, scenery_image_display, dynamic_css_injector
+        ]
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
         ] + initial_load_chat_outputs + [redaction_rules_df]
