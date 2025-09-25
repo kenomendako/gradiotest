@@ -87,7 +87,73 @@ try:
     }
     """
 
-    with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, js=js_stop_nav_link_propagation) as demo:
+# JavaScriptによるDOM直接操作のためのコード
+js_dynamic_background = """
+function() {
+    // この関数は、Gradioアプリが完全に読み込まれた後に一度だけ実行されます
+    console.log("Nexus Ark Dynamic Background Script Loaded.");
+
+    // --- スタイルシートの初期設定 ---
+    // チャットボット本体を透明にするためのスタイルタグを作成し、ページの<head>に一度だけ追加
+    const styleSheet = document.createElement("style");
+    styleSheet.innerText = `
+        /* チャットボット本体のデフォルト背景を無効化 */
+        #chat_output_area { background: none !important; border: none !important; }
+        /* 親コンテナのデフォルトパディングを無効化 */
+        .chat-background-container { padding: 0 !important; }
+    `;
+    document.head.appendChild(styleSheet);
+
+    // --- 監視対象のセットアップ ---
+    // Pythonからの画像パスを受け取る非表示テキストボックス
+    const injector = document.getElementById('dynamic_css_injector');
+    // 背景を適用するターゲットとなるコンテナ
+    const targetContainer = document.querySelector('.chat-background-container');
+
+    if (!injector || !targetContainer) {
+        console.error("Dynamic Background: Injector or Target Container not found.");
+        return;
+    }
+
+    // --- メインの処理関数 ---
+    function updateBackground(path) {
+        if (path) {
+            // パスが指定されている場合、背景画像を設定
+            targetContainer.style.backgroundImage = `linear-gradient(rgba(20, 20, 20, 0.75), rgba(20, 20, 20, 0.75)), url('${path}')`;
+            targetContainer.style.backgroundSize = 'cover';
+            targetContainer.style.backgroundPosition = 'center';
+            targetContainer.style.borderRadius = '8px';
+            targetContainer.style.overflow = 'hidden';
+        } else {
+            // パスが空の場合、背景をリセット
+            targetContainer.style.backgroundImage = 'none';
+        }
+    }
+
+    // --- MutationObserverによる監視 ---
+    // injector内のtextareaの値の変更を監視
+    const observer = new MutationObserver((mutationsList, observer) => {
+        for(const mutation of mutationsList) {
+            if (mutation.type === 'childList' || (mutation.type === 'attributes' && mutation.attributeName === 'value')) {
+                const newPath = injector.querySelector('textarea')?.value || '';
+                console.log('Background path changed to:', newPath);
+                updateBackground(newPath);
+            }
+        }
+    });
+
+    // 監視を開始
+    observer.observe(injector, { attributes: true, childList: true, subtree: true });
+
+    // 初期ロード時の値で一度実行
+    const initialPath = injector.querySelector('textarea')?.value || '';
+    if (initialPath) {
+       updateBackground(initialPath);
+    }
+}
+"""
+
+    with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, js=f"({js_stop_nav_link_propagation})()\n({js_dynamic_background})()") as demo:
         room_list_on_startup = room_manager.get_room_list_for_ui()
         if not room_list_on_startup:
             print("--- 有効なルームが見つからないため、'Default'ルームを作成します。 ---")
@@ -124,7 +190,7 @@ try:
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
 
-        dynamic_css_html = gr.HTML(visible=False)
+        dynamic_css_injector = gr.Textbox(visible=False, elem_id="dynamic_css_injector")
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -508,7 +574,7 @@ try:
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
-        ] + context_checkboxes + [room_settings_info, scenery_image_display, dynamic_css_html]
+        ] + context_checkboxes + [room_settings_info, scenery_image_display, dynamic_css_injector]
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
@@ -516,6 +582,8 @@ try:
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
+
+        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df, archive_date_dropdown]
 
         demo.load(
             fn=ui_handlers.handle_initial_load,
@@ -563,7 +631,7 @@ try:
             debug_console_state, debug_console_output,
             stop_button, chat_reload_button,
             action_button_group,
-            dynamic_css_html
+            dynamic_css_injector
         ]
 
         rerun_event = rerun_button.click(
@@ -571,8 +639,6 @@ try:
             inputs=rerun_inputs,
             outputs=unified_streaming_outputs
         )
-
-        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df, archive_date_dropdown]
 
         room_dropdown.change(
             fn=ui_handlers.handle_room_change_for_all_tabs,
@@ -748,8 +814,8 @@ try:
             show_progress=False
         )
 
-        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, dynamic_css_html])
-        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display, dynamic_css_html])
+        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
+        location_dropdown.change(fn=ui_handlers.handle_location_change, inputs=[current_room_name, location_dropdown, api_key_dropdown], outputs=[current_location_display, current_scenery_display, scenery_image_display])
         play_audio_button.click(fn=ui_handlers.handle_play_audio_button_click, inputs=[selected_message_state, current_room_name, current_api_key_name_state], outputs=[audio_player, play_audio_button, room_preview_voice_button])
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
 

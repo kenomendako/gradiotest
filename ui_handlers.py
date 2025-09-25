@@ -37,77 +37,17 @@ DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 
-def _generate_background_css(image_path: Optional[str]) -> str:
+def _get_web_accessible_image_path(image_path: Optional[str]) -> str:
     """
-    画像のパスを受け取り、チャットエリアの背景として設定するためのCSS文字列を生成する。
-    画像がない場合は、背景をリセットする空のCSSを返す。
+    画像のファイルパスを受け取り、JavaScriptが背景として設定するための
+    Webアクセス可能なURLパス文字列を生成する。
+    画像がない場合は空文字列を返す。
     """
     if not image_path or not os.path.exists(image_path):
-        # 背景をリセットするためのCSS
-        return """
-        <style>
-        .chat-background-container::before {
-            background-image: none !important;
-        }
-        #chat_output_area {
-            background-color: transparent !important;
-        }
-        </style>
-        """
+        return "" # 画像がない場合は空文字列
 
-    web_accessible_path = f"/file={os.path.abspath(image_path).replace(os.sep, '/')}"
-
-    css_rules = f"""
-    <style>
-    /* 1. 親コンテナを背景レイヤーの基準点にする */
-    .chat-background-container {{
-        position: relative !important;
-        /* Gradioのデフォルトパディングを上書きして内部空間を確保 */
-        padding: 10px !important;
-        border-radius: 8px;
-        overflow: hidden; /* 疑似要素がはみ出さないように */
-    }}
-
-    /* 2. 親コンテナの背後に、背景画像を持つ疑似要素を作成 */
-    .chat-background-container::before {{
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-image: linear-gradient(rgba(20, 20, 20, 0.75), rgba(20, 20, 20, 0.75)), url('{web_accessible_path}');
-        background-size: cover;
-        background-position: center;
-        z-index: 0; /* チャットボット本体より背後に配置 */
-    }}
-
-    /* 3. チャットボット本体の背景を完全に透明にする */
-    #chat_output_area {{
-        background-color: transparent !important;
-        border: none !important; /* 背景レイヤーがあるので境界線は不要 */
-        position: relative; /* z-indexを有効にするため */
-        z-index: 1; /* 背景レイヤーより手前に配置 */
-    }}
-
-    /* 4. メッセージバブルの可読性を確保 */
-    #chat_output_area .message-bubble.from-user {{
-        background-color: rgba(2, 90, 187, 0.85) !important;
-        color: white !important;
-    }}
-    #chat_output_area .message-bubble.to-user {{
-        background-color: rgba(243, 244, 246, 0.85) !important;
-        color: black !important;
-    }}
-    #chat_output_area .message-bubble.to-user * {{
-        color: black !important;
-    }}
-    #chat_output_area .message-bubble.from-user * {{
-        color: white !important;
-    }}
-    </style>
-    """
-    return css_rules
+    # Gradioの内部Webサーバー経由でアクセスできるよう、パスを/file=...形式に変換
+    return f"/file={os.path.abspath(image_path).replace(os.sep, '/')}"
 
 
 def _get_location_choices_for_ui(room_name: str) -> list:
@@ -174,7 +114,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         location_dd_val = None
     current_location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
     scenery_image_path = utils.find_scenery_image(room_name, location_dd_val)
-    dynamic_css_update = _generate_background_css(scenery_image_path)
+    web_image_path = _get_web_accessible_image_path(scenery_image_path)
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "iapetus"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
     safety_display_map = {
@@ -207,7 +147,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings["auto_memory_enabled"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path,
-        dynamic_css_update
+        web_image_path # ← ここを修正
     )
     return chat_tab_updates
 
@@ -508,7 +448,7 @@ def _stream_and_handle_response(
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
         scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
-        dynamic_css_update = _generate_background_css(scenery_image)
+        web_image_path = _get_web_accessible_image_path(scenery_image)
         token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
         token_count_text = gemini_api.count_input_tokens(
             room_name=soul_vessel_room, api_key_name=api_key_name,
@@ -522,8 +462,8 @@ def _stream_and_handle_response(
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
                gr.update(visible=False, interactive=True), gr.update(interactive=True),
-               gr.update(visible=False), # ← action_button_group
-               dynamic_css_update
+               gr.update(visible=False),
+               web_image_path
         )
 
 def handle_message_submission(*args: Any):
@@ -714,8 +654,8 @@ def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str,
     else:
         gr.Error("情景の再生成に失敗しました。")
         scenery_image_path = None
-    dynamic_css_update = _generate_background_css(scenery_image_path)
-    return location_name, scenery_text, scenery_image_path, dynamic_css_update
+    web_image_path = _get_web_accessible_image_path(scenery_image_path)
+    return location_name, scenery_text, scenery_image_path, web_image_path
 
 def handle_location_change(room_name: str, selected_value: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     if not selected_value or selected_value.startswith("__AREA_HEADER_"):
@@ -751,8 +691,8 @@ def handle_location_change(room_name: str, selected_value: str, api_key_name: st
 
     new_location_name, _, new_scenery_text = generate_scenery_context(room_name, api_key)
     new_image_path = utils.find_scenery_image(room_name, location_id)
-    dynamic_css_update = _generate_background_css(new_image_path)
-    return new_location_name, new_scenery_text, new_image_path, dynamic_css_update
+    web_image_path = _get_web_accessible_image_path(new_image_path)
+    return new_location_name, new_scenery_text, new_image_path, web_image_path
 
 #
 # --- Room Management Handlers ---
