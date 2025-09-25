@@ -2776,19 +2776,19 @@ def handle_log_punctuation_correction(
 
 # ▲▲▲【追加はここまで】▲▲▲
 
-def handle_staging_image_upload(uploaded_file: Optional[Dict]) -> Tuple[Optional[str], gr.update, gr.update, gr.update]:
+def handle_staging_image_upload(uploaded_file_path: Optional[str]) -> Tuple[Optional[str], gr.update, gr.update, gr.update]:
     """
     ユーザーが新しい画像をアップロードした際に、編集用プレビューエリアにその画像を表示し、
     UIを編集モードに切り替える。
+    GradioのUploadButtonは、一時ファイルのパス(文字列)を直接渡してくる。
     """
-    if uploaded_file is None:
+    if uploaded_file_path is None:
         return None, gr.update(visible=False), gr.update(visible=False), gr.update()
 
-    # アップロードされた画像のパスを返し、Stateとプレビューの両方にセットする
-    # これにより、ユーザーがトリミング操作をしても、元の画像パスを保持できる
+    # uploaded_file_path は既にファイルパスの文字列なので、そのまま使用する
     return (
-        uploaded_file["path"],
-        gr.update(value=uploaded_file["path"], visible=True),
+        uploaded_file_path,
+        gr.update(value=uploaded_file_path, visible=True),
         gr.update(visible=True),
         gr.update(open=True) # アコーディオンを開く
     )
