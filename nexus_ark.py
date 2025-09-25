@@ -459,21 +459,20 @@ try:
             room_voice_style_prompt_textbox,
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
-            room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown,
-            # context_checkboxes をここで展開
-            *context_checkboxes,
-            room_settings_info, scenery_image_display, dynamic_css_injector
-        ]
+            room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
+        ] + context_checkboxes + [room_settings_info, scenery_image_display, dynamic_css_injector]
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
-        ] + initial_load_chat_outputs + [redaction_rules_df, token_count_display]
+        ] + initial_load_chat_outputs + [redaction_rules_df]
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
-        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df, archive_date_dropdown, token_count_display]
+        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df, archive_date_dropdown]
         demo.load(
             fn=ui_handlers.handle_initial_load,
-            inputs=[gr.State(effective_initial_room), current_api_key_name_state],
+            inputs=[current_room_name, current_api_key_name_state],
             outputs=initial_load_outputs
+        ).then(
+            fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
         start_session_button.click(
             fn=ui_handlers.handle_start_session,
@@ -518,6 +517,8 @@ try:
             fn=ui_handlers.handle_room_change_for_all_tabs,
             inputs=[room_dropdown, api_key_dropdown],
             outputs=all_room_change_outputs
+        ).then(
+            fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
         chat_reload_button.click(
             fn=ui_handlers.reload_chat_log,

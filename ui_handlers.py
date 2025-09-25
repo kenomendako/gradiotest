@@ -43,10 +43,8 @@ def _get_web_accessible_image_path(image_path: Optional[str]) -> str:
     Webアクセス可能なURLパス文字列を生成する。
     画像がない場合は空文字列を返す。
     """
-    # ▼▼▼【この if 文の条件に image_path を追加してください】▼▼▼
     if not image_path or not os.path.exists(image_path):
         return "" # 画像がない場合は空文字列
-    # ▲▲▲【変更ここまで】▲▲▲
 
     # Gradioの内部Webサーバー経由でアクセスできるよう、パスを/file=...形式に変換
     return f"/file={os.path.abspath(image_path).replace(os.sep, '/')}"
@@ -178,18 +176,7 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     archive_date_dropdown_update = gr.update(choices=archive_dates, value=archive_dates[0] if archive_dates else None)
     # ▲▲▲ 追加ここまで ▲▲▲
 
-    # ▼▼▼【ここからが追加するブロック】▼▼▼
-    # この関数内でトークン数を計算して、戻り値に追加する
-    token_calc_kwargs = config_manager.get_effective_settings(room_name)
-    token_count_text = gemini_api.count_input_tokens(
-        room_name=room_name, api_key_name=api_key_name,
-        api_history_limit=config_manager.initial_api_history_limit_option_global,
-        parts=[], **token_calc_kwargs
-    )
-    # ▲▲▲【追加はここまで】▲▲▲
-
-    # ▼▼▼【この return 文の末尾に token_count_text を追加】▼▼▼
-    return chat_tab_updates + world_builder_updates + session_management_updates + (rules_df_for_ui, archive_date_dropdown_update, token_count_text)
+    return chat_tab_updates + world_builder_updates + session_management_updates + (rules_df_for_ui, archive_date_dropdown_update)
 
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
@@ -207,18 +194,8 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
 
-    # ▼▼▼【ここからが追加するブロック】▼▼▼
-    # この関数内でも同様にトークン数を計算
-    token_calc_kwargs = config_manager.get_effective_settings(initial_room_to_load)
-    token_count_text = gemini_api.count_input_tokens(
-        room_name=initial_room_to_load, api_key_name=initial_api_key_name,
-        api_history_limit=config_manager.initial_api_history_limit_option_global,
-        parts=[], **token_calc_kwargs
-    )
-    # ▲▲▲【追加はここまで】▲▲▲
-
-    # ▼▼▼【この return 文の末尾に token_count_text を追加】▼▼▼
-    return (display_df, df_with_ids, feedback_text) + chat_tab_updates + (rules_df_for_ui, token_count_text)
+    # アラーム(3) + チャットタブ(32) + 置換ルール(1) = 36個の値を返す
+    return (display_df, df_with_ids, feedback_text) + chat_tab_updates + (rules_df_for_ui,)
 
 def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
