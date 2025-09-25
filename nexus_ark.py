@@ -196,6 +196,15 @@ try:
                                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
                                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
+                                    streaming_speed_slider = gr.Slider(
+                                        minimum=0.0,
+                                        maximum=0.1,
+                                        step=0.005,
+                                        value=0.01,
+                                        label="ストリーミング表示速度",
+                                        info="値が小さいほど速く、大きいほどゆっくり表示されます。(デフォルト: 0.01秒/文字)",
+                                        interactive=True
+                                    )
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
                                     gr.Markdown("---")
@@ -538,21 +547,22 @@ try:
         )
 
         chat_inputs = [
-            chat_input_multimodal, # 変更
+            chat_input_multimodal,
             current_room_name,
             current_api_key_name_state,
-            # file_upload_button は削除
             api_history_limit_state,
             debug_mode_checkbox,
             debug_console_state,
             active_participants_state,
-            model_dropdown
+            model_dropdown,
+            streaming_speed_slider
         ]
 
         rerun_inputs = [
             selected_message_state, current_room_name, current_api_key_name_state,
             api_history_limit_state, debug_mode_checkbox,
-            debug_console_state, active_participants_state, model_dropdown
+            debug_console_state, active_participants_state, model_dropdown,
+            streaming_speed_slider
         ]
 
         # 新規送信と再生成で、UI更新の対象（outputs）を完全に一致させる

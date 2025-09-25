@@ -302,7 +302,8 @@ def _stream_and_handle_response(
     debug_mode: bool,
     soul_vessel_room: str,
     active_participants: List[str],
-    current_console_content: str
+    current_console_content: str,
+    streaming_speed: float
 ) -> Iterator[Tuple]:
     """
     【v2: 再生成対応】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
@@ -378,7 +379,7 @@ def _stream_and_handle_response(
                                        gr.update(), gr.update(), current_console_content,
                                        gr.update(), gr.update(), gr.update(), gr.update())
                                 # 非常に短い待機時間を挟むことで、滑らかな表示を実現
-                                time.sleep(0.01)
+                                time.sleep(streaming_speed)
                     elif mode == "values":
                         final_state = chunk
             current_console_content += captured_output.getvalue()
@@ -461,7 +462,8 @@ def handle_message_submission(*args: Any):
     """
     (multimodal_input, soul_vessel_room, api_key_name,
      api_history_limit, debug_mode,
-     console_content, active_participants, global_model) = args
+     console_content, active_participants, global_model,
+     streaming_speed) = args
 
     # 1. ユーザー入力を解析
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
@@ -564,7 +566,8 @@ def handle_message_submission(*args: Any):
         debug_mode=debug_mode,
         soul_vessel_room=soul_vessel_room,
         active_participants=active_participants or [],
-        current_console_content=console_content
+        current_console_content=console_content,
+        streaming_speed=streaming_speed
     )
 
 def handle_rerun_button_click(*args: Any):
@@ -573,7 +576,8 @@ def handle_rerun_button_click(*args: Any):
     """
     (selected_message, room_name, api_key_name,
      api_history_limit, debug_mode,
-     console_content, active_participants, global_model) = args
+     console_content, active_participants, global_model,
+     streaming_speed) = args
 
     if not selected_message or not room_name:
         gr.Warning("再生成の起点となるメッセージが選択されていません。")
@@ -621,7 +625,8 @@ def handle_rerun_button_click(*args: Any):
         debug_mode=debug_mode,
         soul_vessel_room=room_name,
         active_participants=active_participants or [],
-        current_console_content=console_content
+        current_console_content=console_content,
+        streaming_speed=streaming_speed
     )
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
