@@ -71,7 +71,7 @@
 
 ### 1. 前提条件
 
-*   [Python 3.9](https://www.python.org/downloads/) 以上がインストールされていること。
+*   [Python 3.13](https://www.python.org/downloads/) がインストールされていること。
 
 ### 2. インストール
 
