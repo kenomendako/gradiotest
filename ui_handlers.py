@@ -358,10 +358,16 @@ def _stream_and_handle_response(
                 "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
             }
 
-            # 5. ストリーミング実行とUI更新 (擬似タイプライター方式)
+            # 5. ストリーミング実行とUI更新 (インテリジェント・タイプライター方式)
             streamed_text = ""
             final_state = None
             initial_message_count = 0
+            is_in_code_block = False # コードブロックの内外を判定する状態フラグ
+
+            # 待機時間の倍率を定義
+            PUNCTUATION_MULTIPLIER = 8.0  # 句読点（、。）
+            NEWLINE_MULTIPLIER = 15.0     # 連続改行（段落の区切り）
+
             with utils.capture_prints() as captured_output:
                 for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                     if mode == "initial_count":
@@ -369,17 +375,41 @@ def _stream_and_handle_response(
                     elif mode == "messages":
                         message_chunk, _ = chunk
                         if isinstance(message_chunk, AIMessageChunk):
-                            # AIから受け取ったチャンクを、さらに一文字ずつに分解
-                            for char in message_chunk.content:
+                            new_text_chunk = message_chunk.content
+
+                            # チャンクを一文字ずつ処理
+                            for char in new_text_chunk:
+                                # これから追加する文字も含めて、コードブロックの開始/終了を判定
+                                temp_text_for_check = streamed_text + char
+                                if temp_text_for_check.endswith("```"):
+                                    is_in_code_block = not is_in_code_block
+
+                                # streamed_text を更新
                                 streamed_text += char
                                 chatbot_history[-1] = (None, streamed_text + "▌")
-                                # UIを更新
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                        gr.update(), gr.update(), gr.update(), gr.update(),
                                        gr.update(), gr.update(), current_console_content,
                                        gr.update(), gr.update(), gr.update(), gr.update())
-                                # 非常に短い待機時間を挟むことで、滑らかな表示を実現
-                                time.sleep(streaming_speed)
+
+                                # 待機時間を動的に決定
+                                sleep_duration = 0.0
+                                if is_in_code_block:
+                                    # コードブロック内は待機時間なしで高速表示
+                                    sleep_duration = 0.0
+                                elif char in ['。', '、', '！', '？']:
+                                    # 句読点では少し長めに待機
+                                    sleep_duration = streaming_speed * PUNCTUATION_MULTIPLIER
+                                elif streamed_text.endswith('\n\n'):
+                                    # 2連続の改行（段落の区切り）で長めに待機
+                                    sleep_duration = streaming_speed * NEWLINE_MULTIPLIER
+                                else:
+                                    # 通常の文字は設定された速度で表示
+                                    sleep_duration = streaming_speed
+
+                                if sleep_duration > 0:
+                                    time.sleep(sleep_duration)
+
                     elif mode == "values":
                         final_state = chunk
             current_console_content += captured_output.getvalue()
