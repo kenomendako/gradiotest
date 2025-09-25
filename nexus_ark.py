@@ -71,7 +71,6 @@ try:
     #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
     #chat_container { position: relative; }
-    .chat-background-area { padding: 10px; } /* 背景画像が見えるように内側に余白を追加 */
     """
     js_stop_nav_link_propagation = """
     function() {
@@ -290,8 +289,8 @@ try:
                                         chatgpt_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
                                         chatgpt_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
 
-                    with gr.Column(scale=3):
-                        chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False, elem_classes=["chat-background-area"])
+                    with gr.Column(scale=3, elem_classes=["chat-background-container"]):
+                        chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False)
 
                         # ▼▼▼【ここからが修正箇所】▼▼▼
 

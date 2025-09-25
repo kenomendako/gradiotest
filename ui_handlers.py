@@ -43,34 +43,66 @@ def _generate_background_css(image_path: Optional[str]) -> str:
     画像がない場合は、背景をリセットする空のCSSを返す。
     """
     if not image_path or not os.path.exists(image_path):
-        return ""
+        # 背景をリセットするためのCSS
+        return """
+        <style>
+        .chat-background-container::before {
+            background-image: none !important;
+        }
+        #chat_output_area {
+            background-color: transparent !important;
+        }
+        </style>
+        """
 
     web_accessible_path = f"/file={os.path.abspath(image_path).replace(os.sep, '/')}"
 
     css_rules = f"""
     <style>
-    /* 専用クラス .chat-background-area をターゲットにし、!importantで強制適用 */
-    .chat-background-area {{
-        background-image: linear-gradient(rgba(20, 20, 20, 0.75), rgba(20, 20, 20, 0.75)), url('{web_accessible_path}') !important;
-        background-size: cover !important;
-        background-position: center !important;
-        background-repeat: no-repeat !important;
-        background-clip: padding-box !important;
-        border: 1px solid #374151 !important;
+    /* 1. 親コンテナを背景レイヤーの基準点にする */
+    .chat-background-container {{
+        position: relative !important;
+        /* Gradioのデフォルトパディングを上書きして内部空間を確保 */
+        padding: 10px !important;
+        border-radius: 8px;
+        overflow: hidden; /* 疑似要素がはみ出さないように */
     }}
-    /* メッセージバブルの背景も同様に強制適用 */
-    .chat-background-area .message-bubble.from-user {{
+
+    /* 2. 親コンテナの背後に、背景画像を持つ疑似要素を作成 */
+    .chat-background-container::before {{
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-image: linear-gradient(rgba(20, 20, 20, 0.75), rgba(20, 20, 20, 0.75)), url('{web_accessible_path}');
+        background-size: cover;
+        background-position: center;
+        z-index: 0; /* チャットボット本体より背後に配置 */
+    }}
+
+    /* 3. チャットボット本体の背景を完全に透明にする */
+    #chat_output_area {{
+        background-color: transparent !important;
+        border: none !important; /* 背景レイヤーがあるので境界線は不要 */
+        position: relative; /* z-indexを有効にするため */
+        z-index: 1; /* 背景レイヤーより手前に配置 */
+    }}
+
+    /* 4. メッセージバブルの可読性を確保 */
+    #chat_output_area .message-bubble.from-user {{
         background-color: rgba(2, 90, 187, 0.85) !important;
         color: white !important;
     }}
-    .chat-background-area .message-bubble.to-user {{
+    #chat_output_area .message-bubble.to-user {{
         background-color: rgba(243, 244, 246, 0.85) !important;
         color: black !important;
     }}
-    .chat-background-area .message-bubble.to-user * {{
+    #chat_output_area .message-bubble.to-user * {{
         color: black !important;
     }}
-    .chat-background-area .message-bubble.from-user * {{
+    #chat_output_area .message-bubble.from-user * {{
         color: white !important;
     }}
     </style>
