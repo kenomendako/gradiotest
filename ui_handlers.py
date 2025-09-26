@@ -24,6 +24,7 @@ import uuid
 from tools.image_tools import generate_image as generate_image_tool_func
 import pytz
 import ijson
+import time
 
 
 import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer
@@ -179,8 +180,21 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
 
-    # アラーム(3) + チャットタブ(32) + 置換ルール(1) = 36個の値を返す
-    return (display_df, df_with_ids, feedback_text) + chat_tab_updates + (rules_df_for_ui,)
+    token_calc_kwargs = config_manager.get_effective_settings(initial_room_to_load)
+    token_count_text = gemini_api.count_input_tokens(
+        room_name=initial_room_to_load, api_key_name=initial_api_key_name,
+        api_history_limit=config_manager.initial_api_history_limit_option_global,
+        parts=[], **token_calc_kwargs
+    )
+
+    # ▼▼▼【ここからが追加するブロック】▼▼▼
+    # 起動時にAPIキードロップダウンも正しく更新するための値を追加
+    api_key_choices = list(config_manager.GEMINI_API_KEYS.keys())
+    api_key_dd_update = gr.update(choices=api_key_choices, value=initial_api_key_name)
+    # ▲▲▲【追加はここまで】▲▲▲
+
+    # ▼▼▼【この return 文を、以下の新しい return 文で置き換えてください】▼▼▼
+    return (display_df, df_with_ids, feedback_text) + chat_tab_updates + (rules_df_for_ui, token_count_text, api_key_dd_update)
 
 def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
@@ -301,7 +315,8 @@ def _stream_and_handle_response(
     debug_mode: bool,
     soul_vessel_room: str,
     active_participants: List[str],
-    current_console_content: str
+    current_console_content: str,
+    streaming_speed: float
 ) -> Iterator[Tuple]:
     """
     【v2: 再生成対応】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
@@ -356,25 +371,45 @@ def _stream_and_handle_response(
                 "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
             }
 
-            # 5. ストリーミング実行とUI更新
+            # 5. ストリーミング実行とUI更新 (インテリジェント・タイプライター方式)
             streamed_text = ""
             final_state = None
             initial_message_count = 0
+            is_in_code_block = False # コードブロックの内外を判定する状態フラグ
+            PUNCTUATION_MULTIPLIER = 8.0
+            NEWLINE_MULTIPLIER = 15.0
+
             with utils.capture_prints() as captured_output:
                 for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                    if mode == "initial_count": initial_message_count = chunk
+                    if mode == "initial_count":
+                        initial_message_count = chunk
                     elif mode == "messages":
                         message_chunk, _ = chunk
                         if isinstance(message_chunk, AIMessageChunk):
-                            streamed_text += message_chunk.content
-                            chatbot_history[-1] = (None, streamed_text + "▌")
-                            yield (chatbot_history, mapping_list, gr.update(), gr.update(),
-                                   gr.update(), gr.update(), gr.update(), gr.update(),
-                                   gr.update(), gr.update(), current_console_content,
-                                   gr.update(), gr.update(),
-                                   gr.update() # ← 14個目の値を返すために追加
-                            )
-                    elif mode == "values": final_state = chunk
+                            new_text_chunk = message_chunk.content
+                            for char in new_text_chunk:
+                                temp_text_for_check = streamed_text + char
+                                if temp_text_for_check.endswith("```"):
+                                    is_in_code_block = not is_in_code_block
+                                streamed_text += char
+                                chatbot_history[-1] = (None, streamed_text + "▌")
+                                yield (chatbot_history, mapping_list, gr.update(), gr.update(),
+                                       gr.update(), gr.update(), gr.update(), gr.update(),
+                                       gr.update(), gr.update(), current_console_content,
+                                       gr.update(), gr.update(), gr.update())
+                                sleep_duration = 0.0
+                                if is_in_code_block:
+                                    sleep_duration = 0.0
+                                elif char in ['。', '、', '！', '？']:
+                                    sleep_duration = streaming_speed * PUNCTUATION_MULTIPLIER
+                                elif streamed_text.endswith('\n\n'):
+                                    sleep_duration = streaming_speed * NEWLINE_MULTIPLIER
+                                else:
+                                    sleep_duration = streaming_speed
+                                if sleep_duration > 0:
+                                    time.sleep(sleep_duration)
+                    elif mode == "values":
+                        final_state = chunk
             current_console_content += captured_output.getvalue()
 
             # 6. 最終応答の処理とログ保存
@@ -455,7 +490,8 @@ def handle_message_submission(*args: Any):
     """
     (multimodal_input, soul_vessel_room, api_key_name,
      api_history_limit, debug_mode,
-     console_content, active_participants, global_model) = args
+     console_content, active_participants, global_model,
+     streaming_speed) = args
 
     # 1. ユーザー入力を解析
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
@@ -558,7 +594,8 @@ def handle_message_submission(*args: Any):
         debug_mode=debug_mode,
         soul_vessel_room=soul_vessel_room,
         active_participants=active_participants or [],
-        current_console_content=console_content
+        current_console_content=console_content,
+        streaming_speed=streaming_speed
     )
 
 def handle_rerun_button_click(*args: Any):
@@ -567,7 +604,8 @@ def handle_rerun_button_click(*args: Any):
     """
     (selected_message, room_name, api_key_name,
      api_history_limit, debug_mode,
-     console_content, active_participants, global_model) = args
+     console_content, active_participants, global_model,
+     streaming_speed) = args
 
     if not selected_message or not room_name:
         gr.Warning("再生成の起点となるメッセージが選択されていません。")
@@ -615,7 +653,8 @@ def handle_rerun_button_click(*args: Any):
         debug_mode=debug_mode,
         soul_vessel_room=room_name,
         active_participants=active_participants or [],
-        current_console_content=console_content
+        current_console_content=console_content,
+        streaming_speed=streaming_speed
     )
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
@@ -2468,20 +2507,22 @@ def handle_reload_world_settings_raw(room_name: str) -> str:
 def handle_save_gemini_key(key_name, key_value):
     if not key_name or not key_value:
         gr.Warning("キーの名前と値の両方を入力してください。")
-        return gr.update(), gr.update()
-    config_manager.add_or_update_gemini_key(key_name, key_value)
-    gr.Info(f"Gemini APIキー「{key_name}」を保存しました。")
+        return gr.update()
+    config_manager.add_or_update_gemini_key(key_name.strip(), key_value.strip())
+    gr.Info(f"Gemini APIキー「{key_name.strip()}」を保存しました。")
     new_keys = list(config_manager.GEMINI_API_KEYS.keys())
-    return pd.DataFrame(new_keys, columns=["Geminiキー名"]), gr.update(choices=new_keys)
+    # 正しい作法： choicesとvalueの両方を更新する、ただ一つのgr.update()を返す
+    return gr.update(choices=new_keys, value=key_name.strip())
 
 def handle_delete_gemini_key(key_name):
     if not key_name:
         gr.Warning("削除するキーの名前を入力してください。")
-        return gr.update(), gr.update()
+        return gr.update()
     config_manager.delete_gemini_key(key_name)
     gr.Info(f"Gemini APIキー「{key_name}」を削除しました。")
     new_keys = list(config_manager.GEMINI_API_KEYS.keys())
-    return pd.DataFrame(new_keys, columns=["Geminiキー名"]), gr.update(choices=new_keys, value=new_keys[0] if new_keys else None)
+    # 正しい作法： choicesを更新し、valueはリストの先頭かNoneに設定する
+    return gr.update(choices=new_keys, value=new_keys[0] if new_keys else None)
 
 def handle_save_pushover_config(user_key, app_token):
     config_manager.update_pushover_config(user_key, app_token)
@@ -2491,7 +2532,6 @@ def handle_notification_service_change(service_choice: str):
     if service_choice in ["Discord", "Pushover"]:
         config_manager.save_config("notification_service", service_choice.lower())
         gr.Info(f"通知サービスを「{service_choice}」に設定しました。")
-    return service_choice.lower()
 
 def handle_save_discord_webhook(webhook_url: str):
     config_manager.save_config("notification_webhook_url", webhook_url)
@@ -2832,3 +2872,9 @@ def handle_save_cropped_image(room_name: str, original_image_path: str, cropped_
         _, _, current_image_path, _, _ = get_room_files_paths(room_name)
         fallback_path = current_image_path if current_image_path and os.path.exists(current_image_path) else None
         return gr.update(value=fallback_path), gr.update(visible=False), gr.update(visible=False)
+
+def handle_streaming_speed_change(new_speed: float):
+    """
+    ストリーミング表示速度のスライダーが変更されたときに設定を保存する。
+    """
+    config_manager.save_config("last_streaming_speed", new_speed)

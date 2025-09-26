@@ -196,6 +196,19 @@ try:
                                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
                                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
+
+                                    # ▼▼▼【ここから下のブロックを、再度追加してください】▼▼▼
+                                    streaming_speed_slider = gr.Slider(
+                                        minimum=0.0,
+                                        maximum=0.1,
+                                        step=0.005,
+                                        value=config_manager.initial_streaming_speed_global,
+                                        label="ストリーミング表示速度",
+                                        info="値が小さいほど速く、大きいほどゆっくり表示されます。(デフォルト: 0.01秒/文字)",
+                                        interactive=True
+                                    )
+                                    # ▲▲▲【追加ここまで】▲▲▲
+
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
                                     gr.Markdown("---")
@@ -510,7 +523,7 @@ try:
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
-        ] + initial_load_chat_outputs + [redaction_rules_df]
+        ] + initial_load_chat_outputs + [redaction_rules_df, token_count_display, api_key_dropdown]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
@@ -546,13 +559,15 @@ try:
             debug_mode_checkbox,
             debug_console_state,
             active_participants_state,
-            model_dropdown
+            model_dropdown,
+            streaming_speed_slider
         ]
 
         rerun_inputs = [
             selected_message_state, current_room_name, current_api_key_name_state,
             api_history_limit_state, debug_mode_checkbox,
-            debug_console_state, active_participants_state, model_dropdown
+            debug_console_state, active_participants_state, model_dropdown,
+            streaming_speed_slider
         ]
 
         # 新規送信と再生成で、UI更新の対象（outputs）を完全に一致させる
@@ -714,6 +729,7 @@ try:
         )
         room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
         for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
+        streaming_speed_slider.change(fn=ui_handlers.handle_streaming_speed_change, inputs=[streaming_speed_slider], outputs=None)
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
