@@ -1,3 +1,4 @@
+import gradio as gr
 import shutil
 import psutil
 import pandas as pd
@@ -2878,3 +2879,98 @@ def handle_streaming_speed_change(new_speed: float):
     ストリーミング表示速度のスライダーが変更されたときに設定を保存する。
     """
     config_manager.save_config("last_streaming_speed", new_speed)
+
+# --- Theme Management Handlers ---
+
+def handle_theme_tab_load():
+    """テーマタブが選択されたときに、設定を読み込んでUIを初期化する。"""
+    theme_settings = config_manager.CONFIG_GLOBAL.get("theme_settings", {})
+    custom_themes = theme_settings.get("custom_themes", {})
+    active_theme = theme_settings.get("active_theme", "Soft")
+
+    # Gradioのプリセットテーマ名
+    preset_themes = ["Soft", "Default", "Monochrome", "Glass"]
+    custom_theme_names = sorted(custom_themes.keys())
+
+    all_choices = ["--- プリセット ---"] + preset_themes + ["--- カスタム ---"] + custom_theme_names
+    # 現在のテーマが存在しない場合はデフォルトに戻す
+    current_selection = active_theme if active_theme in (preset_themes + custom_theme_names) else "Soft"
+
+    return theme_settings, gr.update(choices=all_choices, value=current_selection)
+
+def handle_theme_selection(theme_settings, selected_theme_name):
+    """ドロップダウンでテーマが選択されたときに、プレビューUIを更新する。"""
+    if selected_theme_name.startswith("---"):
+        # 区切り線が選択された場合は何もしない
+        return gr.update(), gr.update(), gr.update(), gr.update()
+
+    preset_themes = {
+        "Soft": {"primary_hue": "blue", "secondary_hue": "sky", "neutral_hue": "slate", "font": "Noto Sans JP"},
+        "Default": {"primary_hue": "orange", "secondary_hue": "amber", "neutral_hue": "gray", "font": "Noto Sans JP"},
+        "Monochrome": {"primary_hue": "neutral", "secondary_hue": "neutral", "neutral_hue": "neutral", "font": "IBM Plex Mono"},
+        "Glass": {"primary_hue": "teal", "secondary_hue": "cyan", "neutral_hue": "gray", "font": "Quicksand"},
+    }
+
+    if selected_theme_name in preset_themes:
+        params = preset_themes[selected_theme_name]
+        return (
+            gr.update(value=params["primary_hue"]),
+            gr.update(value=params["secondary_hue"]),
+            gr.update(value=params["neutral_hue"]),
+            gr.update(value=params["font"])
+        )
+    elif selected_theme_name in theme_settings.get("custom_themes", {}):
+        params = theme_settings["custom_themes"][selected_theme_name]
+        # カスタムテーマのフォントはリストで保存されている
+        font_name = params.get("font", ["Noto Sans JP"])[0]
+        return (
+            gr.update(value=params.get("primary_hue")),
+            gr.update(value=params.get("secondary_hue")),
+            gr.update(value=params.get("neutral_hue")),
+            gr.update(value=font_name)
+        )
+    return gr.update(), gr.update(), gr.update(), gr.update()
+
+def handle_save_custom_theme(
+    theme_settings, new_name,
+    primary_hue, secondary_hue, neutral_hue, font
+):
+    """「カスタムテーマとして保存」ボタンのロジック。"""
+    if not new_name or not new_name.strip():
+        gr.Warning("新しいテーマ名を入力してください。")
+        return theme_settings, gr.update(), gr.update()
+
+    new_name = new_name.strip()
+    if new_name.startswith("---") or new_name in ["Soft", "Default", "Monochrome", "Glass"]:
+        gr.Warning("その名前はプリセットテーマ用に予約されています。")
+        return theme_settings, gr.update(), gr.update(value="")
+
+    custom_themes = theme_settings.get("custom_themes", {})
+    custom_themes[new_name] = {
+        "primary_hue": primary_hue,
+        "secondary_hue": secondary_hue,
+        "neutral_hue": neutral_hue,
+        "font": [font] # フォントはリスト形式で保存
+    }
+    theme_settings["custom_themes"] = custom_themes
+    config_manager.save_theme_settings(theme_settings.get("active_theme", "Soft"), custom_themes)
+
+    gr.Info(f"カスタムテーマ「{new_name}」を保存しました。")
+
+    # ドロップダウンの選択肢を更新
+    preset_themes = ["Soft", "Default", "Monochrome", "Glass"]
+    custom_theme_names = sorted(custom_themes.keys())
+    all_choices = ["--- プリセット ---"] + preset_themes + ["--- カスタム ---"] + custom_theme_names
+
+    # 保存したテーマを選択状態にする
+    return theme_settings, gr.update(choices=all_choices, value=new_name), ""
+
+def handle_apply_theme(theme_settings, selected_theme_name):
+    """「このテーマを適用」ボタンのロジック。"""
+    if selected_theme_name.startswith("---"):
+        gr.Warning("適用する有効なテーマを選択してください。")
+        return
+
+    custom_themes = theme_settings.get("custom_themes", {})
+    config_manager.save_theme_settings(selected_theme_name, custom_themes)
+    gr.Info(f"テーマ「{selected_theme_name}」を適用設定にしました。アプリケーションを再起動してください。")
