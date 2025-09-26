@@ -101,64 +101,69 @@ def save_memos_config(key, value):
 # --- メインの読み込み関数 (最重要修正箇所) ---
 def load_config():
     global CONFIG_GLOBAL, GEMINI_API_KEYS, initial_api_key_name_global, initial_room_global, initial_model_global
-    global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global, initial_streaming_speed_global
-    global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL
+    global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global
+    global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, initial_streaming_speed_global
     global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
 
+    # ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
     default_config = {
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
-        "available_models": ["gemini-2.5-pro"], "default_model": "gemini-2.5-pro",
-        "last_room": "Default", "last_model": "gemini-2.5-pro", "last_api_key_name": None,
-        "default_api_key_name": None, "last_send_thoughts_to_api": True,
+        "available_models": ["gemini-2.5-pro", "gemini-2.5-flash-latest"], # ご指定のモデルリスト
+        "default_model": "gemini-2.5-pro",
+        "last_room": "Default",
+        "last_model": "gemini-2.5-pro",
+        "last_api_key_name": None,
+        "last_send_thoughts_to_api": True,
         "last_api_history_limit_option": constants.DEFAULT_API_HISTORY_LIMIT_OPTION,
         "alarm_api_history_turns": constants.DEFAULT_ALARM_API_HISTORY_TURNS,
+        "last_streaming_speed": 0.01,
         "notification_service": "discord",
-        "notification_webhook_url": None, "pushover_app_token": "", "pushover_user_key": "",
+        "notification_webhook_url": None,
+        "pushover_app_token": "",
+        "pushover_user_key": "",
         "log_archive_threshold_mb": 10,
         "log_keep_size_mb": 5,
-        "last_streaming_speed": 0.01,
-        "memos_config": {
-          "auto_memory_enabled": False,
-          "neo4j_config": {
-            "uri": "bolt://localhost:7687",
-            "user": "neo4j",
-            "password": "YOUR_NEO4J_PASSWORD",
-            "db_name": "neo4j"
-          }
-        }
     }
 
+    # ステップ2：ユーザーの設定ファイルを読み込む
     user_config = _load_config_file()
+
+    # ステップ3：ユーザー設定を優先しつつ、不足しているキーだけをデフォルト値で補完
     config = default_config.copy()
     config.update(user_config)
 
-    # ▼▼▼ 読み込んだ設定をグローバル辞書に格納 ▼▼▼
+    # ステップ4：不要なキー（memos_configなど）が存在すれば、メモリ上から削除
+    config.pop("memos_config", None)
+    config.pop("api_keys", None) # 古いキー形式も削除
+
+    # ステップ5：読み込んだ設定と、あるべき設定のキーを比較
+    config_keys_changed = set(config.keys()) != set(user_config.keys())
+
+    # ステップ6：もしキーの構成に変化があった場合のみ、ファイルを更新
+    if config_keys_changed:
+        print("--- [情報] 設定ファイルに新しいキーを追加、または不要なキーを削除しました。config.jsonを更新します。 ---")
+        _save_config_file(config)
+
+    # ステップ7：メモリ上の最終的な設定を、グローバル変数に反映
     CONFIG_GLOBAL = config.copy()
-
-    config_updated = False
-    if "api_keys" in config and "gemini_api_keys" not in user_config:
-        print("--- [情報] 古いAPIキー形式('api_keys')を検出しました。新しい形式('gemini_api_keys')に自動的に移行します。 ---")
-        config["gemini_api_keys"] = config.pop("api_keys")
-        config_updated = True
-
-    GEMINI_API_KEYS = config.get("gemini_api_keys", default_config["gemini_api_keys"])
-    AVAILABLE_MODELS_GLOBAL = config.get("available_models", default_config["available_models"])
-    DEFAULT_MODEL_GLOBAL = config.get("default_model", default_config["default_model"])
-    initial_room_global = config.get("last_room", default_config["last_room"])
-    initial_model_global = config.get("last_model", default_config["last_model"])
-    initial_send_thoughts_to_api_global = config.get("last_send_thoughts_to_api", default_config["last_send_thoughts_to_api"])
-    initial_api_history_limit_option_global = config.get("last_api_history_limit_option", default_config["last_api_history_limit_option"])
-    initial_alarm_api_history_turns_global = config.get("alarm_api_history_turns", default_config["alarm_api_history_turns"])
-    initial_streaming_speed_global = config.get("last_streaming_speed", default_config["last_streaming_speed"])
-    NOTIFICATION_SERVICE_GLOBAL = config.get("notification_service", default_config["notification_service"])
-    NOTIFICATION_WEBHOOK_URL_GLOBAL = config.get("notification_webhook_url", default_config["notification_webhook_url"])
+    GEMINI_API_KEYS = config.get("gemini_api_keys")
+    AVAILABLE_MODELS_GLOBAL = config.get("available_models")
+    DEFAULT_MODEL_GLOBAL = config.get("default_model")
+    initial_room_global = config.get("last_room")
+    initial_model_global = config.get("last_model")
+    initial_send_thoughts_to_api_global = config.get("last_send_thoughts_to_api")
+    initial_api_history_limit_option_global = config.get("last_api_history_limit_option")
+    initial_alarm_api_history_turns_global = config.get("alarm_api_history_turns")
+    initial_streaming_speed_global = config.get("last_streaming_speed")
+    NOTIFICATION_SERVICE_GLOBAL = config.get("notification_service")
+    NOTIFICATION_WEBHOOK_URL_GLOBAL = config.get("notification_webhook_url")
     PUSHOVER_CONFIG = {
-        "user_key": config.get("pushover_user_key", default_config["pushover_user_key"]),
-        "app_token": config.get("pushover_app_token", default_config["pushover_app_token"])
+        "user_key": config.get("pushover_user_key"),
+        "app_token": config.get("pushover_app_token")
     }
 
+    # APIキーの選択ロジック（変更なし）
     valid_api_keys = [k for k, v in GEMINI_API_KEYS.items() if isinstance(v, str) and v and v != "YOUR_API_KEY_HERE"]
-
     last_key = config.get("last_api_key_name")
     if last_key and last_key in valid_api_keys:
         initial_api_key_name_global = last_key
@@ -166,9 +171,6 @@ def load_config():
         initial_api_key_name_global = valid_api_keys[0]
     else:
         initial_api_key_name_global = list(GEMINI_API_KEYS.keys())[0] if GEMINI_API_KEYS else "your_key_name"
-
-    if not os.path.exists(constants.CONFIG_FILE) or config_updated or any(key not in user_config for key in default_config):
-        _save_config_file(config)
 
 
 def get_effective_settings(room_name: str, **kwargs) -> dict:
