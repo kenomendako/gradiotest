@@ -390,7 +390,7 @@ def _stream_and_handle_response(
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                        gr.update(), gr.update(), gr.update(), gr.update(),
                                        gr.update(), gr.update(), current_console_content,
-                                       gr.update(), gr.update(), gr.update(), gr.update())
+                                       gr.update(), gr.update(), gr.update())
 
                                 # 待機時間を動的に決定
                                 sleep_duration = 0.0
@@ -466,24 +466,41 @@ def _stream_and_handle_response(
         )
 
     finally:
-        # 7. 処理完了後、または中断後の最終的なUI更新
-        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-        new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
+        # 7. 処理完了後、または中断後の最終的なUI更新（最適化版）
+
+        # ツール実行によって場所が変更された可能性があるか、final_stateからチェック
+        location_may_have_changed = False
+        if final_state:
+            last_message = final_state["messages"][-1]
+            if isinstance(last_message, AIMessage) and last_message.tool_calls:
+                if any(call["name"] == "set_current_location" for call in last_message.tool_calls):
+                    location_may_have_changed = True
+
+        # 場所が変更された可能性がある場合のみ、APIを呼び出して情景を再生成する
+        if location_may_have_changed:
+            api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+            new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
+        else:
+            # 場所が変わっていない場合は、既存の情景をそのまま使う（APIコールをスキップ）
+            new_location_name = shared_location_name
+            new_scenery_text = shared_scenery_text
+
+        # 既存の情景画像パスを再利用（ファイルI/Oを削減）
         scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
-        token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
-        token_count_text = gemini_api.count_input_tokens(
-            room_name=soul_vessel_room, api_key_name=api_key_name,
-            api_history_limit=api_history_limit, parts=[], **token_calc_kwargs
-        )
-        final_df_with_ids = render_alarms_as_dataframe()
-        final_df = get_display_df(final_df_with_ids)
+
+        # 完了後のトークン数計算を削除（ユーザーが入力するタイミングで再計算されるため不要）
+        token_count_text = gr.update()
+
+        # アラームリストの再レンダリングを削除（このターンで変更されることはないため不要）
+        final_df_with_ids = gr.update()
+        final_df = gr.update()
 
         yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
                new_location_name, new_scenery_text,
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
                gr.update(visible=False, interactive=True), gr.update(interactive=True),
-               gr.update(visible=False) # ← action_button_groupを非表示にする
+               gr.update(visible=False)
         )
 
 def handle_message_submission(*args: Any):
@@ -2875,3 +2892,9 @@ def handle_save_cropped_image(room_name: str, original_image_path: str, cropped_
         _, _, current_image_path, _, _ = get_room_files_paths(room_name)
         fallback_path = current_image_path if current_image_path and os.path.exists(current_image_path) else None
         return gr.update(value=fallback_path), gr.update(visible=False), gr.update(visible=False)
+
+def handle_streaming_speed_change(new_speed: float):
+    """
+    ストリーミング表示速度のスライダーが変更されたときに設定を保存する。
+    """
+    config_manager.save_config("last_streaming_speed", new_speed)

@@ -35,6 +35,7 @@ initial_model_global = DEFAULT_MODEL_GLOBAL
 initial_send_thoughts_to_api_global = True
 initial_api_history_limit_option_global = constants.DEFAULT_API_HISTORY_LIMIT_OPTION
 initial_alarm_api_history_turns_global = constants.DEFAULT_ALARM_API_HISTORY_TURNS
+initial_streaming_speed_global = 0.01
 
 from typing import List, Dict
 
@@ -100,7 +101,7 @@ def save_memos_config(key, value):
 # --- メインの読み込み関数 (最重要修正箇所) ---
 def load_config():
     global CONFIG_GLOBAL, GEMINI_API_KEYS, initial_api_key_name_global, initial_room_global, initial_model_global
-    global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global
+    global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global, initial_streaming_speed_global
     global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL
     global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
 
@@ -115,6 +116,7 @@ def load_config():
         "notification_webhook_url": None, "pushover_app_token": "", "pushover_user_key": "",
         "log_archive_threshold_mb": 10,
         "log_keep_size_mb": 5,
+        "last_streaming_speed": 0.01,
         "memos_config": {
           "auto_memory_enabled": False,
           "neo4j_config": {
@@ -147,6 +149,7 @@ def load_config():
     initial_send_thoughts_to_api_global = config.get("last_send_thoughts_to_api", default_config["last_send_thoughts_to_api"])
     initial_api_history_limit_option_global = config.get("last_api_history_limit_option", default_config["last_api_history_limit_option"])
     initial_alarm_api_history_turns_global = config.get("alarm_api_history_turns", default_config["alarm_api_history_turns"])
+    initial_streaming_speed_global = config.get("last_streaming_speed", default_config["last_streaming_speed"])
     NOTIFICATION_SERVICE_GLOBAL = config.get("notification_service", default_config["notification_service"])
     NOTIFICATION_WEBHOOK_URL_GLOBAL = config.get("notification_webhook_url", default_config["notification_webhook_url"])
     PUSHOVER_CONFIG = {
