@@ -67,19 +67,25 @@ def _save_single_config_key(key: str, value: Any):
 
 # --- 公開APIキー管理関数 ---
 def add_or_update_gemini_key(key_name: str, key_value: str):
+    global GEMINI_API_KEYS
     config = _load_config_file()
     if "gemini_api_keys" not in config or not isinstance(config.get("gemini_api_keys"), dict):
         config["gemini_api_keys"] = {}
     config["gemini_api_keys"][key_name] = key_value
     _save_config_file(config)
+    # ファイルへの保存後、メモリ上の魂も即座に同期させる
+    GEMINI_API_KEYS = config["gemini_api_keys"]
 
 def delete_gemini_key(key_name: str):
+    global GEMINI_API_KEYS
     config = _load_config_file()
     if "gemini_api_keys" in config and isinstance(config.get("gemini_api_keys"), dict) and key_name in config["gemini_api_keys"]:
         del config["gemini_api_keys"][key_name]
         if config.get("last_api_key_name") == key_name:
             config["last_api_key_name"] = None
         _save_config_file(config)
+        # ファイルへの保存後、メモリ上の魂も即座に同期させる
+        GEMINI_API_KEYS = config.get("gemini_api_keys", {})
 
 def update_pushover_config(user_key: str, app_token: str):
     config = _load_config_file()
