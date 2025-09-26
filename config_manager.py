@@ -71,6 +71,12 @@ def add_or_update_gemini_key(key_name: str, key_value: str):
     config = _load_config_file()
     if "gemini_api_keys" not in config or not isinstance(config.get("gemini_api_keys"), dict):
         config["gemini_api_keys"] = {}
+
+    # もし、現在ダミーキーしか存在しないなら、それを削除してから新しいキーを追加する
+    existing_keys = config["gemini_api_keys"]
+    if len(existing_keys) == 1 and "your_key_name" in existing_keys:
+        del existing_keys["your_key_name"]
+
     config["gemini_api_keys"][key_name] = key_value
     _save_config_file(config)
     # ファイルへの保存後、メモリ上の魂も即座に同期させる
@@ -81,6 +87,11 @@ def delete_gemini_key(key_name: str):
     config = _load_config_file()
     if "gemini_api_keys" in config and isinstance(config.get("gemini_api_keys"), dict) and key_name in config["gemini_api_keys"]:
         del config["gemini_api_keys"][key_name]
+
+        # 削除した結果、キーが一つもなくなった場合にのみ、ダミーキーを追加する
+        if not config["gemini_api_keys"]:
+            config["gemini_api_keys"] = {"your_key_name": "YOUR_API_KEY_HERE"}
+
         if config.get("last_api_key_name") == key_name:
             config["last_api_key_name"] = None
         _save_config_file(config)
@@ -145,7 +156,11 @@ def load_config():
         config["gemini_api_keys"] = config.pop("api_keys")
         config_updated = True
 
-    GEMINI_API_KEYS = config.get("gemini_api_keys", default_config["gemini_api_keys"])
+    GEMINI_API_KEYS = config.get("gemini_api_keys", {})
+    # もし、読み込んだAPIキーリストが空なら、ダミーキーをメモリ上に追加する
+    # (これにより、初回起動時や全削除後にUIが正しく表示される)
+    if not GEMINI_API_KEYS:
+        GEMINI_API_KEYS = {"your_key_name": "YOUR_API_KEY_HERE"}
     AVAILABLE_MODELS_GLOBAL = config.get("available_models", default_config["available_models"])
     DEFAULT_MODEL_GLOBAL = config.get("default_model", default_config["default_model"])
     initial_room_global = config.get("last_room", default_config["last_room"])
