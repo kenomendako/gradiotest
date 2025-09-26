@@ -586,7 +586,7 @@ def handle_message_submission(*args: Any):
 
 
     # 3. 中核となるストリーミング関数を呼び出す
-    yield from _stream_and_handle_response(
+    for output_tuple in _stream_and_handle_response(
         room_to_respond=soul_vessel_room,
         full_user_log_entry=full_user_log_entry,
         user_prompt_parts_for_api=user_prompt_parts_for_api,
@@ -598,7 +598,8 @@ def handle_message_submission(*args: Any):
         active_participants=active_participants or [],
         current_console_content=console_content,
         streaming_speed=streaming_speed
-    )
+    ):
+        yield output_tuple
 
 def handle_rerun_button_click(*args: Any):
     """
@@ -645,7 +646,7 @@ def handle_rerun_button_click(*args: Any):
     user_prompt_parts_for_api = [{"type": "text", "text": restored_input_text}]
 
     # 3. 中核となるストリーミング関数を呼び出す
-    yield from _stream_and_handle_response(
+    for output_tuple in _stream_and_handle_response(
         room_to_respond=room_name,
         full_user_log_entry=full_user_log_entry,
         user_prompt_parts_for_api=user_prompt_parts_for_api,
@@ -657,7 +658,8 @@ def handle_rerun_button_click(*args: Any):
         active_participants=active_participants or [],
         current_console_content=console_content,
         streaming_speed=streaming_speed
-    )
+    ):
+        yield output_tuple
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     if not room_name or not api_key_name:
