@@ -42,7 +42,7 @@ import sys
 import utils
 import json
 import gradio as gr
-from gradio.themes.utils import FONTS as GRADIO_FONTS
+from gradio.themes.fonts import FONTS as GRADIO_FONTS
 import traceback
 import pandas as pd
 import config_manager, room_manager, alarm_manager, ui_handlers, constants
