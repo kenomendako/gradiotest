@@ -42,7 +42,6 @@ import sys
 import utils
 import json
 import gradio as gr
-from gradio.themes.utils.fonts import FONTS as GRADIO_FONTS
 import traceback
 import pandas as pd
 import config_manager, room_manager, alarm_manager, ui_handlers, constants
@@ -280,9 +279,17 @@ try:
                                         secondary_hue_picker = gr.ColorPicker(label="セカンダリカラー")
                                         neutral_hue_picker = gr.ColorPicker(label="ニュートラルカラー（テキスト等）")
 
-                                    # Gradioが提供するGoogle Fontのリストを使用
-                                    available_fonts = sorted([font.name for font in GRADIO_FONTS])
-                                    font_dropdown = gr.Dropdown(choices=available_fonts, label="メインフォント", value="Noto Sans JP", interactive=True)
+                                    # 利用可能なフォントのリストを公式ドキュメントに基づいて定義
+                                    AVAILABLE_FONTS = sorted([
+                                        "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
+                                        "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "Inconsolata", "Inter",
+                                        "Jost", "Lato", "Libre Baskerville", "Libre Franklin", "Lora", "Merriweather",
+                                        "Montserrat", "Mulish", "Noto Sans", "Noto Sans JP", "Open Sans", "Playfair Display",
+                                        "Poppins", "Pt Sans", "Pt Serif", "Quattrocento", "Quicksand", "Raleway",
+                                        "Roboto", "Roboto Mono", "Rubik", "Source Sans Pro", "Source Serif Pro",
+                                        "Space Mono", "Spectral", "Sriracha", "Titillium Web", "Ubuntu", "Work Sans"
+                                    ])
+                                    font_dropdown = gr.Dropdown(choices=AVAILABLE_FONTS, label="メインフォント", value="Noto Sans JP", interactive=True)
 
                                     gr.Markdown("---")
                                     custom_theme_name_input = gr.Textbox(label="新しいテーマ名として保存", placeholder="例: My Cool Theme")
