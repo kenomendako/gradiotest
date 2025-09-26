@@ -1,4 +1,4 @@
-# config_manager.py (v6: The Final Covenant - 最終版)
+# config_manager.py (v7: The True Final Covenant - 真・最終版)
 
 import json
 import os
@@ -102,7 +102,7 @@ def update_pushover_config(user_key: str, app_token: str):
     _save_config_file(config)
 
 
-# --- メインの読み込み関数 (最終版) ---
+# --- メインの読み込み関数 (真・最終版) ---
 def load_config():
     global CONFIG_GLOBAL, GEMINI_API_KEYS, initial_api_key_name_global, initial_room_global, initial_model_global
     global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global
@@ -132,11 +132,18 @@ def load_config():
     # ステップ2：ユーザーの設定ファイルを読み込む
     user_config = _load_config_file()
 
-    # ステップ3：ユーザー設定を優先しつつ、不足しているキーだけをデフォルト値で補完
+    # ステップ3：【賢いマージ】available_modelsを統合する
+    default_models_set = set(default_config["available_models"])
+    user_models_set = set(user_config.get("available_models", []))
+    merged_models = sorted(list(default_models_set | user_models_set))
+
+    # ステップ4：ユーザー設定を優先しつつ、不足キーを補完
     config = default_config.copy()
     config.update(user_config)
+    # 統合したモデルリストで、最終的な設定を上書き
+    config["available_models"] = merged_models
 
-    # ステップ4：不要なキー（memos_configなど）が存在すれば、メモリ上から削除
+    # ステップ5：不要なキーをクリーンアップ
     keys_to_remove = ["memos_config", "api_keys", "default_api_key_name"]
     config_keys_changed = False
     for key in keys_to_remove:
@@ -144,13 +151,9 @@ def load_config():
             config.pop(key)
             config_keys_changed = True
 
-    # ステップ5：読み込んだ設定と、あるべき設定のキーを比較
-    if set(config.keys()) != set(user_config.keys()):
-        config_keys_changed = True
-
-    # ステップ6：もしキーの構成に変化があった場合、またはファイルが存在しない場合のみ、ファイルを更新
-    if config_keys_changed or not os.path.exists(constants.CONFIG_FILE):
-        print("--- [情報] 設定ファイルに新しいキーを追加、または不要なキーを削除しました。config.jsonを更新します。 ---")
+    # ステップ6：キー構成の変化、またはモデルリストの変化があった場合のみファイルを更新
+    if config_keys_changed or set(user_config.get("available_models", [])) != set(config["available_models"]) or not os.path.exists(constants.CONFIG_FILE):
+        print("--- [情報] 設定ファイルに新しいキーやモデルを追加、または不要なキーを削除しました。config.jsonを更新します。 ---")
         _save_config_file(config)
 
     # ステップ7：メモリ上の最終的な設定を、グローバル変数に反映
