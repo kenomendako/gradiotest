@@ -405,13 +405,15 @@ def _stream_and_handle_response(
                                        gr.update(), gr.update(), gr.update())
                                 sleep_duration = 0.0
                                 if is_in_code_block:
+                                    # コードブロック内はウェイトなしで一気に表示
                                     sleep_duration = 0.0
-                                elif char in ['。', '、', '！', '？']:
-                                    sleep_duration = streaming_speed * PUNCTUATION_MULTIPLIER
                                 elif streamed_text.endswith('\n\n'):
+                                    # 連続改行（段落間）の場合のみ、長めのウェイトを取る
                                     sleep_duration = streaming_speed * NEWLINE_MULTIPLIER
                                 else:
+                                    # それ以外のすべての文字（句読点含む）は均一のウェイト
                                     sleep_duration = streaming_speed
+
                                 if sleep_duration > 0:
                                     time.sleep(sleep_duration)
                     elif mode == "values":
