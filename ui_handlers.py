@@ -1,6 +1,7 @@
 import gradio as gr
 import shutil
 import psutil
+import ast
 import pandas as pd
 from pandas import DataFrame
 import json
@@ -2904,6 +2905,7 @@ def handle_theme_selection(theme_settings, selected_theme_name):
         # 区切り線が選択された場合は何もしない
         return gr.update(), gr.update(), gr.update(), gr.update()
 
+    # プリセットテーマの定義（値はHUEの名前）
     preset_themes = {
         "Soft": {"primary_hue": "blue", "secondary_hue": "sky", "neutral_hue": "slate", "font": "Noto Sans JP"},
         "Default": {"primary_hue": "orange", "secondary_hue": "amber", "neutral_hue": "gray", "font": "Noto Sans JP"},
@@ -2974,17 +2976,3 @@ def handle_apply_theme(theme_settings, selected_theme_name):
     custom_themes = theme_settings.get("custom_themes", {})
     config_manager.save_theme_settings(selected_theme_name, custom_themes)
     gr.Info(f"テーマ「{selected_theme_name}」を適用設定にしました。アプリケーションを再起動してください。")
-
-def handle_launch_theme_builder():
-    """
-    'launch_builder.py' を非同期の別プロセスとして実行し、
-    ユーザーに操作方法を通知する。
-    """
-    try:
-        # Popenを使い、Nexus Arkのメインプロセスをブロックせずに実行する
-        subprocess.Popen([sys.executable, "launch_builder.py"])
-        gr.Info("新しいタブでテーマビルダーが起動しました。デザインの値をコピーして、こちらの画面で保存・適用してください。")
-    except FileNotFoundError:
-        gr.Error("エラー: launch_builder.pyが見つかりません。")
-    except Exception as e:
-        gr.Error(f"テーマビルダーの起動に失敗しました: {e}")

@@ -77,14 +77,18 @@ try:
         elif active_theme_name in custom_themes:
             print(f"--- [テーマ] カスタムテーマ '{active_theme_name}' を適用します ---")
             params = custom_themes[active_theme_name]
-            # フォント名からGoogleFontオブジェクトを生成
-            font_objects = [gr.themes.GoogleFont(name) for name in params.get("font", ["Noto Sans JP"])]
-            return gr.themes.Base(
-                primary_hue=params.get("primary_hue", "blue"),
-                secondary_hue=params.get("secondary_hue", "sky"),
-                neutral_hue=params.get("neutral_hue", "slate"),
-                font=font_objects
-            )
+
+            # ▼▼▼【ここから下のブロックを修正】▼▼▼
+            # kwargsとして渡すパラメータを準備
+            theme_kwargs = params.copy()
+
+            # 'font'キーは特別扱い：文字列のリストからGoogleFontオブジェクトのリストに変換
+            if 'font' in theme_kwargs and isinstance(theme_kwargs['font'], list):
+                font_names = theme_kwargs.pop('font')
+                theme_kwargs['font'] = [gr.themes.GoogleFont(name) for name in font_names]
+
+            return gr.themes.Base(**theme_kwargs)
+            # ▲▲▲【修正ここまで】▲▲▲
         else:
             print(f"--- [テーマ警告] アクティブなテーマ '{active_theme_name}' が見つかりません。デフォルトの'Soft'テーマを適用します ---")
             return gr.themes.Soft()
@@ -160,6 +164,7 @@ try:
         archivist_pid_state = gr.State(None) # 記憶アーキビストのプロセスIDを保持
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
+        imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -266,14 +271,19 @@ try:
 
                                 with gr.TabItem("🎨 テーマ") as theme_tab:
                                     theme_settings_state = gr.State({})
-                                    launch_theme_builder_button = gr.Button("🎨 テーマビルダーを起動する (別タブで開きます)")
                                     theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
                                     gr.Markdown("---")
                                     gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
+                                    # Gradioのテーマシステムが受け付ける色の系統名を定義
+                                    AVAILABLE_HUES = [
+                                        "slate", "gray", "zinc", "neutral", "stone", "red", "orange", "amber",
+                                        "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue",
+                                        "indigo", "violet", "purple", "fuchsia", "pink", "rose"
+                                    ]
                                     with gr.Row():
-                                        primary_hue_picker = gr.ColorPicker(label="プライマリカラー")
-                                        secondary_hue_picker = gr.ColorPicker(label="セカンダリカラー")
-                                        neutral_hue_picker = gr.ColorPicker(label="ニュートラルカラー（テキスト等）")
+                                        primary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="プライマリカラー系統", value="blue")
+                                        secondary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="セカンダリカラー系統", value="sky")
+                                        neutral_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="ニュートラルカラー系統", value="slate")
                                     AVAILABLE_FONTS = sorted([
                                         "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
                                         "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "IBM Plex Mono", "Inconsolata", "Inter",
@@ -1048,12 +1058,6 @@ try:
         )
 
         # --- Theme Management Event Handlers ---
-        launch_theme_builder_button.click(
-            fn=ui_handlers.handle_launch_theme_builder,
-            inputs=None,
-            outputs=None
-        )
-
         theme_tab.select(
             fn=ui_handlers.handle_theme_tab_load,
             inputs=None,

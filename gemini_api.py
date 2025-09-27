@@ -72,7 +72,13 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
     return contents
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
-    if not messages: return 0
+    """
+    LangChainメッセージリストからトークン数を計算する。
+    503などの一時的なサーバーエラーに対して、指数バックオフ付きのリトライを行う。
+    """
+    if not messages:
+        return 0
+
     client = genai.Client(api_key=api_key)
     contents_for_api = _convert_lc_to_gg_for_count(messages)
     final_contents_for_api = []
@@ -81,9 +87,29 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
         final_contents_for_api.append({"role": "user", "parts": system_instruction_parts})
         final_contents_for_api.append({"role": "model", "parts": [{"text": "OK"}]})
         final_contents_for_api.extend(contents_for_api[1:])
-    else: final_contents_for_api = contents_for_api
-    result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
-    return result.total_tokens
+    else:
+        final_contents_for_api = contents_for_api
+
+    max_retries = 3
+    retry_delay = 2  # seconds
+
+    for attempt in range(max_retries):
+        try:
+            result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
+            return result.total_tokens
+        except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
+            print(f"--- [トークン計算APIエラー] (試行 {attempt + 1}/{max_retries}): {e} ---")
+            if attempt < max_retries - 1:
+                print(f"    - {retry_delay}秒待機してリトライします...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            else:
+                print(f"--- [トークン計算APIエラー] 最大リトライ回数に達しました。 ---")
+                # リトライが尽きた場合は、エラーを示すために0を返すか、例外を再送出する
+                # UI表示がクラッシュしないように、ここでは0を返す
+                return 0
+    # ループが正常に終了することは理論上ないが、念のためフォールバック
+    return 0
 
 def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str, add_timestamp: bool) -> list:
     from langchain_core.messages import HumanMessage, AIMessage
