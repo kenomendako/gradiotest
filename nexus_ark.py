@@ -737,11 +737,10 @@ try:
             fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
-        # 「履歴を更新」ボタンは、セッション全体を再同期する役割を担う
         chat_reload_button.click(
-            fn=ui_handlers.handle_session_re_sync,
-            inputs=[], # ファイルから直接読むので入力は不要
-            outputs=all_room_change_outputs # 部屋変更時と同じ、全ての関連UIを更新対象にする
+            fn=ui_handlers.reload_chat_log,
+            inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
+            outputs=[chatbot_display, current_log_map_state]
         )
 
         # --- 日記アーカイブ機能のイベント接続 ---
