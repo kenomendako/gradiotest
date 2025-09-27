@@ -14,6 +14,7 @@ import sys
 import locale
 import subprocess
 from typing import List, Optional, Dict, Any, Tuple, Iterator
+from markdown_it import MarkdownIt
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 import gradio as gr
 import datetime
@@ -1102,68 +1103,95 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v6: Renderer Trust Edition)
+    (v7: Final Hybrid Rendering Edition)
     生ログをGradioのChatbot形式に変換する。
-    HTMLの手動生成をやめ、GradioのMarkdownレンダラを全面的に信頼する。
+    Python側でMarkdownをHTMLに変換し、話者名やナビボタンを付与する。
     """
     if not messages:
         return [], []
 
     gradio_history, mapping_list = [], []
+    md = MarkdownIt()
 
     # --- 話者名解決とタイムスタンプ除去の準備 ---
     if not add_timestamp:
         timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
     user_display_name = current_room_config.get("user_display_name", "ユーザー")
-    # フォルダ名と表示名のマッピングを事前に作成
     all_rooms_list = room_manager.get_room_list_for_ui()
     folder_to_display_map = {folder: display for display, folder in all_rooms_list}
     known_configs = {}
 
+    proto_history = []
+    # Stage 1: Deconstruct messages into UI elements
     for i, msg in enumerate(messages):
         role = msg.get("role")
         content = msg.get("content", "").strip()
         responder_id = msg.get("responder")
         if not responder_id: continue
 
-        # --- 話者名の決定 ---
-        speaker_name = ""
-        if role == "USER":
-            speaker_name = user_display_name
-        elif role == "AGENT":
-            # agent_display_nameが設定されているかチェック
-            if responder_id not in known_configs:
-                 known_configs[responder_id] = room_manager.get_room_config(responder_id) or {}
-            agent_config = known_configs[responder_id]
-            speaker_name = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
-        else: # SYSTEM or others
-            speaker_name = responder_id
-
-        # --- タイムスタンプの除去 (必要な場合) ---
         if not add_timestamp and content:
             content = timestamp_pattern.sub('', content)
 
-        # --- UI表示要素の生成 ---
-        # テキスト部分を抽出
         text_part = re.sub(r"\[(?:Generated Image|ファイル添付):.*?\]", "", content, flags=re.DOTALL).strip()
         if text_part:
-            gradio_history.append((text_part, None) if role == "USER" else (None, text_part))
-            mapping_list.append(i)
+            proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": text_part, "log_index": i})
 
-        # メディア部分を抽出
         media_pattern = re.compile(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]")
         for path_match in media_pattern.finditer(content):
             path = path_match.group(1).strip()
             if os.path.exists(path):
-                media_tuple = (path, os.path.basename(path))
-                gradio_history.append((media_tuple, None) if role == "USER" else (None, media_tuple))
-                mapping_list.append(i)
+                proto_history.append({"type": "media", "role": role, "responder": responder_id, "path": path, "log_index": i})
 
-        # メッセージが空（ヘッダーのみ）の場合も考慮
         if not text_part and not media_pattern.search(content):
-             gradio_history.append(("", None) if role == "USER" else (None, ""))
-             mapping_list.append(i)
+            proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
+
+    # Stage 2: Construct Gradio history from UI elements
+    total_ui_rows = len(proto_history)
+    for ui_index, item in enumerate(proto_history):
+        mapping_list.append(item["log_index"])
+        role, responder_id = item["role"], item["responder"]
+
+        speaker_name = ""
+        if role == "USER":
+            speaker_name = user_display_name
+        elif role == "AGENT":
+            if responder_id not in known_configs:
+                known_configs[responder_id] = room_manager.get_room_config(responder_id) or {}
+            agent_config = known_configs[responder_id]
+            speaker_name = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
+        else:
+            speaker_name = responder_id
+
+        if item["type"] == "text":
+            # Convert markdown content to HTML
+            html_content = md.render(item["content"])
+
+            # Assemble the final HTML with speaker and nav buttons
+            current_anchor_id = f"msg-anchor-{ui_index}"
+            nav_buttons_list = []
+            if ui_index > 0:
+                nav_buttons_list.append(f"<a href='#msg-anchor-{ui_index - 1}' class='message-nav-link' title='前の発言へ' style='text-decoration: none; color: inherit;'>▲</a>")
+            if ui_index < total_ui_rows - 1:
+                nav_buttons_list.append(f"<a href='#msg-anchor-{ui_index + 1}' class='message-nav-link' title='次の発言へ' style='text-decoration: none; color: inherit;'>▼</a>")
+
+            nav_buttons_html = "&nbsp;&nbsp;".join(nav_buttons_list)
+            menu_icon_html = "<span title='メニュー表示' style='font-weight: bold; cursor: pointer;'>&#8942;</span>"
+            final_buttons_list = [b for b in [nav_buttons_html, menu_icon_html] if b]
+            buttons_str = "&nbsp;&nbsp;&nbsp;".join(final_buttons_list)
+            button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{buttons_str}</div>"
+
+            final_html = (
+                f"<span id='{current_anchor_id}'></span>"
+                f"<strong>{html.escape(speaker_name)}:</strong><br>"
+                f"{html_content}"
+                f"{button_container}"
+            )
+            gradio_history.append((final_html, None) if role == "USER" else (None, final_html))
+
+        elif item["type"] == "media":
+            media_tuple = (item["path"], os.path.basename(item["path"]))
+            gradio_history.append((media_tuple, None) if role == "USER" else (None, media_tuple))
 
     return gradio_history, mapping_list
 
@@ -1913,53 +1941,6 @@ def handle_delete_redaction_rule(
     # フォームと選択状態をリセット
     return df_for_ui, current_rules, None, "", ""
 
-
-def _format_text_content_for_gradio(
-    main_text_html: str,
-    thoughts_html: str,
-    speaker_name: str,
-    current_ui_index: int,
-    total_ui_rows: int
-) -> str:
-    """
-    発言のテキスト部分を、GradioのChatbotで表示するための最終的なHTML文字列に変換する。
-    思考ログ、ナビゲーションボタン（▲▼）、メニューアイコン（…）の表示ロジックも内包する。
-    """
-    current_anchor_id = f"msg-anchor-{current_ui_index}"
-    final_html_parts = []
-
-    final_html_parts.append(f"<span id='{current_anchor_id}'></span>")
-    final_html_parts.append(f"<strong>{html.escape(speaker_name)}:</strong><br>")
-
-    if thoughts_html:
-        # 先に改行文字の置換処理を行い、結果を変数に格納します。
-        formatted_thoughts_html = thoughts_html.replace('\n', '<br>')
-        # その後、バックスラッシュを含まない変数をf-stringに渡します。
-        final_html_parts.append(f"<div class='thoughts'>【Thoughts】<br>{formatted_thoughts_html}</div>")
-
-    if main_text_html:
-        final_html_parts.append(main_text_html.replace('\n', '<br>'))
-
-    nav_buttons_list = []
-    if current_ui_index > 0:
-        nav_buttons_list.append(f"<a href='#msg-anchor-{current_ui_index - 1}' class='message-nav-link' title='前の発言へ' style='text-decoration: none; color: inherit;'>▲</a>")
-
-    if current_ui_index < total_ui_rows - 1:
-        nav_buttons_list.append(f"<a href='#msg-anchor-{current_ui_index + 1}' class='message-nav-link' title='次の発言へ' style='text-decoration: none; color: inherit;'>▼</a>")
-
-    nav_buttons_html = "&nbsp;&nbsp;".join(nav_buttons_list)
-    menu_icon_html = "<span title='メニュー表示' style='font-weight: bold; cursor: pointer;'>&#8942;</span>"
-
-    final_buttons_list = []
-    if nav_buttons_html:
-        final_buttons_list.append(nav_buttons_html)
-    final_buttons_list.append(menu_icon_html)
-
-    buttons_str = "&nbsp;&nbsp;&nbsp;".join(final_buttons_list)
-    button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{buttons_str}</div>"
-    final_html_parts.append(button_container)
-
-    return "".join(final_html_parts)
 
 def update_model_state(model): config_manager.save_config("last_model", model); return model
 
