@@ -271,7 +271,14 @@ try:
 
                                 with gr.TabItem("🎨 テーマ") as theme_tab:
                                     theme_settings_state = gr.State({})
-                                    launch_theme_builder_button = gr.Button("🎨 テーマビルダーを起動する (別タブで開きます)")
+                                    # ▼▼▼【ここから下の2つのUIコンポーネントを visible=False に設定】▼▼▼
+                                    launch_theme_builder_button = gr.Button("🎨 テーマビルダーを起動する (別タブで開きます)", visible=False)
+
+                                    with gr.Accordion("📁 ファイルからテーマをインポート", open=False, visible=False):
+                                        theme_file_importer = gr.File(label="テーマファイル (.py) を選択", file_count="single", root_dir="themes", file_types=[".py"])
+                                        import_theme_button = gr.Button("このファイルをプレビューに読み込む")
+                                    # ▲▲▲【修正ここまで】▲▲▲
+
                                     theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
                                     gr.Markdown("---")
                                     gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
@@ -294,12 +301,6 @@ try:
                                     save_theme_button = gr.Button("カスタムテーマとして保存", variant="secondary")
                                     apply_theme_button = gr.Button("このテーマを適用（要再起動）", variant="primary")
                                     gr.Markdown("⚠️ **注意:** テーマの変更を完全に反映するには、コンソールを閉じて `nexus_ark.py` を再実行する必要があります。")
-
-                                    gr.Markdown("---")
-                                    gr.Markdown("#### ファイルからインポート\n`.py`形式のテーマファイルをアップロードして、カスタムテーマとして読み込みます。")
-                                    with gr.Row():
-                                        theme_file_importer = gr.File(label="テーマファイル (.py) をアップロード", file_types=[".py"], scale=3)
-                                        import_theme_button = gr.Button("このファイルをインポート", scale=1)
 
                                 with gr.TabItem("個別設定"):
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
@@ -1059,11 +1060,23 @@ try:
         )
 
         # --- Theme Management Event Handlers ---
-        launch_theme_builder_button.click(
-            fn=ui_handlers.handle_launch_theme_builder,
-            inputs=None,
-            outputs=None
-        )
+        # ▼▼▼【以下のイベントハンドラをコメントアウト】▼▼▼
+        # launch_theme_builder_button.click(
+        #     fn=ui_handlers.handle_launch_theme_builder,
+        #     inputs=None,
+        #     outputs=None
+        # )
+
+        # import_theme_button.click(
+        #     fn=ui_handlers.handle_import_theme_file,
+        #     inputs=[theme_file_importer],
+        #     outputs=[
+        #         imported_theme_params_state,
+        #         custom_theme_name_input,
+        #         primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown
+        #     ]
+        # )
+        # ▲▲▲【コメントアウトここまで】▲▲▲
 
         theme_tab.select(
             fn=ui_handlers.handle_theme_tab_load,
@@ -1075,16 +1088,6 @@ try:
             fn=ui_handlers.handle_theme_selection,
             inputs=[theme_settings_state, theme_selector],
             outputs=[primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown]
-        )
-
-        import_theme_button.click(
-            fn=ui_handlers.handle_import_theme_file,
-            inputs=[theme_file_importer],
-            outputs=[
-                imported_theme_params_state,
-                custom_theme_name_input,
-                primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown
-            ]
         )
 
         save_theme_button.click(
