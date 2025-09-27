@@ -100,17 +100,70 @@ try:
     alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
-    #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
-    #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word !important; }
-    #memory_json_editor_code .cm-editor { max-height: 400px !important; overflow-y: auto !important; overflow-x: hidden !important; white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: break-word !important; }
-    #notepad_editor_code textarea, #system_prompt_editor textarea { max-height: 400px !important; overflow-y: auto !important; white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: break-word !important; box-sizing: border-box; }
-    #memory_json_editor_code, #notepad_editor_code, #system_prompt_editor { max-height: 410px; border: 1px solid #ccc; border-radius: 5px; padding: 0; }
-    #alarm_dataframe_display { border-radius: 8px !important; } #alarm_dataframe_display table { width: 100% !important; }
-    #alarm_dataframe_display th, #alarm_dataframe_display td { text-align: left !important; padding: 4px 8px !important; white-space: normal !important; font-size: 0.95em; }
-    #alarm_dataframe_display th:nth-child(1), #alarm_dataframe_display td:nth-child(1) { width: 50px !important; text-align: center !important; }
-    #selection_feedback { font-size: 0.9em; color: #555; margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
-    #token_count_display { text-align: right; font-size: 0.85em; color: #555; padding-right: 10px; margin-bottom: 5px; }
-    #tpm_note_display { text-align: right; font-size: 0.75em; color: #777; padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
+    /* --- [Theme-Aware Styles v3 - Final] --- */
+
+    /* 思考ログのスタイル */
+    #chat_output_area .thoughts {
+        background-color: var(--background-fill-secondary);
+        color: var(--text-color-secondary);
+        border: 1px solid var(--border-color-primary);
+        padding: 10px;
+        border-radius: 8px;
+        font-family: var(--font-mono);
+        font-size: 0.9em;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    /* コードブロックの親要素(<pre>)のスタイル */
+    #chat_output_area pre {
+        background-color: var(--background-fill-secondary);
+        border: 1px solid var(--border-color-primary);
+        border-radius: 8px;
+        padding: 12px;
+        overflow-x: auto; /* Fallback scrollbar */
+        /* The key to victory: aggressive wrapping rules */
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+        overflow-wrap: break-word !important;
+    }
+
+    /* コードブロック本体(<code>)のスタイル */
+    #chat_output_area pre code {
+        padding: 0;
+        background-color: transparent;
+        border: none;
+        font-family: var(--font-mono);
+        font-size: 0.9em;
+        /* Inherit the aggressive wrapping rules from the <pre> parent */
+        white-space: inherit !important;
+        word-wrap: inherit !important;
+        overflow-wrap: inherit !important;
+    }
+
+    /* --- [Layout & Utility Styles] --- */
+
+    #memory_json_editor_code .cm-editor, #core_memory_editor_code textarea {
+        max-height: 400px !important; overflow-y: auto !important;
+    }
+    #notepad_editor_code textarea, #system_prompt_editor textarea {
+        max-height: 400px !important; overflow-y: auto !important; box-sizing: border-box;
+    }
+    #memory_json_editor_code, #notepad_editor_code, #system_prompt_editor, #core_memory_editor_code {
+        max-height: 410px; border: 1px solid var(--border-color-primary); border-radius: 5px; padding: 0;
+    }
+    #alarm_dataframe_display { border-radius: 8px !important; }
+    #alarm_dataframe_display table { width: 100% !important; }
+    #alarm_dataframe_display th, #alarm_dataframe_display td {
+        text-align: left !important; padding: 4px 8px !important; white-space: normal !important; font-size: 0.95em;
+    }
+    #alarm_dataframe_display th:nth-child(1), #alarm_dataframe_display td:nth-child(1) {
+        width: 50px !important; text-align: center !important;
+    }
+
+    #selection_feedback { font-size: 0.9em; color: var(--text-color-secondary); margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
+    #token_count_display { text-align: right; font-size: 0.85em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: 5px; }
+    #tpm_note_display { text-align: right; font-size: 0.75em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
     #chat_container { position: relative; }
     """
     js_stop_nav_link_propagation = """
