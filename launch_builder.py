@@ -3,5 +3,5 @@ import gradio as gr
 
 if __name__ == "__main__":
     print("--- Gradio Theme Builderを起動します ---")
-    # .launch() に引数を渡さないことで、自動的に空いているポート (7861など) を探して起動します。
-    gr.themes.builder().launch()
+    # Nexus Ark本体(7860)と衝突しないように、ポート7861を明示的に指定
+    gr.themes.builder().launch(server_port=7861)
