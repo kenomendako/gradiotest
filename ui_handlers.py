@@ -1,6 +1,7 @@
 import gradio as gr
 import shutil
 import psutil
+import ast
 import pandas as pd
 from pandas import DataFrame
 import json
@@ -2882,6 +2883,108 @@ def handle_streaming_speed_change(new_speed: float):
 
 # --- Theme Management Handlers ---
 
+def _parse_theme_file_safely(content: str) -> Dict[str, Any]:
+    """
+    Pythonコードの文字列をASTを使って安全に解析し、
+    Gradioテーマのパラメータを辞書として抽出する。
+    """
+    params = {}
+    tree = ast.parse(content)
+
+    for node in ast.walk(tree):
+        # Baseを継承したクラスを探す
+        if isinstance(node, ast.ClassDef):
+            is_theme_class = False
+            for base in node.bases:
+                if isinstance(base, ast.Name) and base.id == 'Base':
+                    is_theme_class = True
+                    break
+            if not is_theme_class:
+                continue
+
+            # __init__メソッドを探す
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef) and item.name == '__init__':
+                    # super().__init__()呼び出しを探す
+                    for sub_item in item.body:
+                        if (isinstance(sub_item, ast.Expr) and
+                            isinstance(sub_item.value, ast.Call) and
+                            hasattr(sub_item.value.func, 'value') and
+                            isinstance(sub_item.value.func.value, ast.Call) and
+                            hasattr(sub_item.value.func.value.func, 'id') and
+                            sub_item.value.func.value.func.id == 'super'):
+
+                            # キーワード引数を抽出
+                            for kw in sub_item.value.keywords:
+                                key = kw.arg
+                                value_node = kw.value
+
+                                # 値を文字列として抽出
+                                val = None
+                                if isinstance(value_node, (ast.Str, ast.Constant)):
+                                    val = value_node.s
+                                elif isinstance(value_node, ast.Attribute): # colors.blueなど
+                                    val = value_node.attr
+                                elif (isinstance(value_node, ast.Call) and
+                                      hasattr(value_node.func, 'attr') and
+                                      value_node.func.attr == 'GoogleFont' and
+                                      value_node.args): # fonts.GoogleFont("...")
+                                    val = [arg.s for arg in value_node.args if isinstance(arg, ast.Str)]
+
+                                if val is not None:
+                                    params[key] = val
+    return params
+
+def handle_import_theme_file(uploaded_file: Optional[Any]):
+    """
+    アップロードされたテーマの.pyファイルをASTで安全に解析し、
+    全設定をStateに保持しつつ、主要設定をUIに反映させる。
+    """
+    if uploaded_file is None:
+        gr.Warning("インポートするファイルを選択してください。")
+        # 戻り値の数が6つであることを確認
+        return {}, "", gr.update(), gr.update(), gr.update(), gr.update()
+
+    try:
+        file_path = uploaded_file.name
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # 新しいヘルパー関数で全パラメータを抽出
+        all_params = _parse_theme_file_safely(content)
+
+        if not all_params:
+            gr.Warning("ファイルから有効なテーマ設定を抽出できませんでした。")
+            return {}, "", gr.update(), gr.update(), gr.update(), gr.update()
+
+        # ファイル名からテーマ名を生成
+        theme_name = os.path.splitext(os.path.basename(file_path))[0]
+
+        gr.Info(f"テーマ「{theme_name}」を読み込みました。内容を確認して保存してください。")
+
+        # UIに反映する主要な値を取得
+        primary = all_params.get("primary_hue")
+        secondary = all_params.get("secondary_hue")
+        neutral = all_params.get("neutral_hue")
+        # fontはリストの場合があるので、最初の要素を取得
+        font_list = all_params.get("font", [])
+        font = font_list[0] if isinstance(font_list, list) and font_list else None
+
+        # 戻り値の最初に、抽出した全パラメータの辞書を追加
+        return (
+            all_params,
+            gr.update(value=theme_name),
+            gr.update(value=primary),
+            gr.update(value=secondary),
+            gr.update(value=neutral),
+            gr.update(value=font)
+        )
+
+    except Exception as e:
+        gr.Error(f"テーマファイルの解析に失敗しました: {e}")
+        traceback.print_exc()
+        return {}, "", gr.update(), gr.update(), gr.update(), gr.update()
+
 def handle_theme_tab_load():
     """テーマタブが選択されたときに、設定を読み込んでUIを初期化する。"""
     theme_settings = config_manager.CONFIG_GLOBAL.get("theme_settings", {})
@@ -2933,7 +3036,8 @@ def handle_theme_selection(theme_settings, selected_theme_name):
 
 def handle_save_custom_theme(
     theme_settings, new_name,
-    primary_hue, secondary_hue, neutral_hue, font
+    primary_hue, secondary_hue, neutral_hue, font,
+    imported_params # 新しい引数を追加
 ):
     """「カスタムテーマとして保存」ボタンのロジック。"""
     if not new_name or not new_name.strip():
@@ -2945,13 +3049,20 @@ def handle_save_custom_theme(
         gr.Warning("その名前はプリセットテーマ用に予約されています。")
         return theme_settings, gr.update(), gr.update(value="")
 
-    custom_themes = theme_settings.get("custom_themes", {})
-    custom_themes[new_name] = {
+    # ▼▼▼【ここから下のロジックを修正】▼▼▼
+    # インポートされたパラメータをベースに、UIで上書きされた値をマージする
+    final_params = imported_params.copy() if imported_params else {}
+    final_params.update({
         "primary_hue": primary_hue,
         "secondary_hue": secondary_hue,
         "neutral_hue": neutral_hue,
-        "font": [font] # フォントはリスト形式で保存
-    }
+        "font": [font] # フォントは常にリスト形式で保存
+    })
+
+    custom_themes = theme_settings.get("custom_themes", {})
+    custom_themes[new_name] = final_params # マージした完全な辞書を保存
+    # ▲▲▲【修正ここまで】▲▲▲
+
     theme_settings["custom_themes"] = custom_themes
     config_manager.save_theme_settings(theme_settings.get("active_theme", "Soft"), custom_themes)
 

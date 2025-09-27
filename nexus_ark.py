@@ -77,14 +77,18 @@ try:
         elif active_theme_name in custom_themes:
             print(f"--- [テーマ] カスタムテーマ '{active_theme_name}' を適用します ---")
             params = custom_themes[active_theme_name]
-            # フォント名からGoogleFontオブジェクトを生成
-            font_objects = [gr.themes.GoogleFont(name) for name in params.get("font", ["Noto Sans JP"])]
-            return gr.themes.Base(
-                primary_hue=params.get("primary_hue", "blue"),
-                secondary_hue=params.get("secondary_hue", "sky"),
-                neutral_hue=params.get("neutral_hue", "slate"),
-                font=font_objects
-            )
+
+            # ▼▼▼【ここから下のブロックを修正】▼▼▼
+            # kwargsとして渡すパラメータを準備
+            theme_kwargs = params.copy()
+
+            # 'font'キーは特別扱い：文字列のリストからGoogleFontオブジェクトのリストに変換
+            if 'font' in theme_kwargs and isinstance(theme_kwargs['font'], list):
+                font_names = theme_kwargs.pop('font')
+                theme_kwargs['font'] = [gr.themes.GoogleFont(name) for name in font_names]
+
+            return gr.themes.Base(**theme_kwargs)
+            # ▲▲▲【修正ここまで】▲▲▲
         else:
             print(f"--- [テーマ警告] アクティブなテーマ '{active_theme_name}' が見つかりません。デフォルトの'Soft'テーマを適用します ---")
             return gr.themes.Soft()
@@ -160,6 +164,7 @@ try:
         archivist_pid_state = gr.State(None) # 記憶アーキビストのプロセスIDを保持
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
+        imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
@@ -289,6 +294,12 @@ try:
                                     save_theme_button = gr.Button("カスタムテーマとして保存", variant="secondary")
                                     apply_theme_button = gr.Button("このテーマを適用（要再起動）", variant="primary")
                                     gr.Markdown("⚠️ **注意:** テーマの変更を完全に反映するには、コンソールを閉じて `nexus_ark.py` を再実行する必要があります。")
+
+                                    gr.Markdown("---")
+                                    gr.Markdown("#### ファイルからインポート\n`.py`形式のテーマファイルをアップロードして、カスタムテーマとして読み込みます。")
+                                    with gr.Row():
+                                        theme_file_importer = gr.File(label="テーマファイル (.py) をアップロード", file_types=[".py"], scale=3)
+                                        import_theme_button = gr.Button("このファイルをインポート", scale=1)
 
                                 with gr.TabItem("個別設定"):
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
@@ -1066,11 +1077,22 @@ try:
             outputs=[primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown]
         )
 
+        import_theme_button.click(
+            fn=ui_handlers.handle_import_theme_file,
+            inputs=[theme_file_importer],
+            outputs=[
+                imported_theme_params_state,
+                custom_theme_name_input,
+                primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown
+            ]
+        )
+
         save_theme_button.click(
             fn=ui_handlers.handle_save_custom_theme,
             inputs=[
                 theme_settings_state, custom_theme_name_input,
-                primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown
+                primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown,
+                imported_theme_params_state
             ],
             outputs=[theme_settings_state, theme_selector, custom_theme_name_input]
         )
