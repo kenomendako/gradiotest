@@ -852,11 +852,11 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
         return gr.update(), gr.update()
 
 def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name: str):
-    # The total number of outputs for room changes is now 40
+
+    # nexus_ark.pyで定義されている戻り値の総数と一致させる
     NUM_ALL_ROOM_CHANGE_OUTPUTS = 40
 
-    if not str(confirmed).lower() == 'true':
-        # Return a tuple of empty updates matching the output count
+    if not confirmed:
         return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
 
     if not folder_name_to_delete:
@@ -875,37 +875,24 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
         new_room_list = room_manager.get_room_list_for_ui()
         if not new_room_list:
             gr.Warning("全てのルームが削除されました。新しいルームを作成してください。")
-
-            # This is the "empty" state for `initial_load_chat_outputs` (32 elements)
+            # This is the "empty" state for `initial_load_chat_outputs`
             empty_chat_outputs = (
-                None, [], [], gr.update(value={'text': '', 'files': []}), None, "", "", "", "", # 9 elements for room_name to core_memory_editor
-                gr.update(choices=[], value=None), # alarm_room_dropdown
-                gr.update(choices=[], value=None), # timer_room_dropdown
-                gr.update(choices=[], value=None), # manage_room_selector
-                gr.update(choices=[], value=None), # location_dropdown
-                "", "", # location and scenery display
-                gr.update(choices=list(config_manager.SUPPORTED_VOICES.values()), value=list(config_manager.SUPPORTED_VOICES.values())[0]), # voice
-                "", # voice style
-                0.8, 0.95, # temp, top_p
-                "中リスク以上をブロック", "中リスク以上をブロック", "中リスク以上をブロック", "中リスク以上をブロック", # safety settings
-                True, True, True, True, True, True, True, # context checkboxes
-                "ℹ️ *ルームを選択してください*", # room_settings_info
-                None # scenery_image_display
+                None, [], [], gr.update(value={'text': '', 'files': []}), None, "", "", "", "",
+                gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None),
+                "", "", gr.update(value=None), "", 0.8, 0.95, "高リスク以上をブロック", "高リスク以上をブロック", "高リスク以上をブロック", "高リスク以上をブロック",
+                False, True, True, False, True, True, True, "ℹ️ *ルームを選択してください*", None
             )
-
-            # This is the "empty" state for `world_builder_outputs` (3 elements)
-            empty_wb_outputs = ({}, gr.update(choices=[]), "")
-
-            # This is the "empty" state for `session_management_outputs` (3 elements)
-            empty_session_outputs = ([], "ルームがありません", gr.update(choices=[]))
-
-            # This is the "empty" state for the remaining outputs (2 elements)
-            empty_other_outputs = (_create_redaction_df_from_rules([]), gr.update(choices=[], value=None))
-
-            return empty_chat_outputs + empty_wb_outputs + empty_session_outputs + empty_other_outputs
+            # This is the "empty" state for `world_builder_outputs`
+            empty_wb_outputs = ({}, gr.update(choices=[]), "",)
+            # This is the "empty" state for `session_management_outputs`
+            empty_session_outputs = ([], "ルームがありません", gr.update(choices=[]),)
+            # This is the "empty" state for redaction_rules_df and archive_date_dropdown
+            empty_extra_outputs = (pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"]), gr.update(choices=[]),)
+            return empty_chat_outputs + empty_wb_outputs + empty_session_outputs + empty_extra_outputs
 
         new_main_room_folder = new_room_list[0][1]
 
+        # handle_room_change_for_all_tabs を呼び出す
         return handle_room_change_for_all_tabs(new_main_room_folder, api_key_name)
 
     except Exception as e:
