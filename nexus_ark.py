@@ -100,9 +100,9 @@ try:
     alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
-    /* --- [Theme-Aware Styles] --- */
+    /* --- [Theme-Aware Styles v3 - Final] --- */
 
-    /* 思考ログのスタイル: テーマの変数を利用して配色を自動調整 */
+    /* 思考ログのスタイル */
     #chat_output_area .thoughts {
         background-color: var(--background-fill-secondary);
         color: var(--text-color-secondary);
@@ -115,23 +115,30 @@ try:
         word-break: break-word;
     }
 
-    /* markdown-itが生成するコードブロック(<pre><code>)のスタイル */
+    /* コードブロックの親要素(<pre>)のスタイル */
     #chat_output_area pre {
-        white-space: pre-wrap !important; /* 折り返しを最優先 */
-        word-wrap: break-word !important;
-        max-width: 100%;
-        overflow-x: auto; /* 水平スクロールを許可 */
         background-color: var(--background-fill-secondary);
         border: 1px solid var(--border-color-primary);
         border-radius: 8px;
         padding: 12px;
-        font-family: var(--font-mono);
-        font-size: 0.9em;
+        overflow-x: auto; /* Fallback scrollbar */
+        /* The key to victory: aggressive wrapping rules */
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+        overflow-wrap: break-word !important;
     }
+
+    /* コードブロック本体(<code>)のスタイル */
     #chat_output_area pre code {
         padding: 0;
         background-color: transparent;
         border: none;
+        font-family: var(--font-mono);
+        font-size: 0.9em;
+        /* Inherit the aggressive wrapping rules from the <pre> parent */
+        white-space: inherit !important;
+        word-wrap: inherit !important;
+        overflow-wrap: inherit !important;
     }
 
     /* --- [Layout & Utility Styles] --- */
