@@ -3029,12 +3029,23 @@ def handle_theme_selection(theme_settings, selected_theme_name):
         )
     elif selected_theme_name in theme_settings.get("custom_themes", {}):
         params = theme_settings["custom_themes"][selected_theme_name]
-        font_name = params.get("font", ["Noto Sans JP"])[0]
-        # カスタムテーマの値は既にHEXのはずなので、そのまま返す
+
+        def is_hex_color(s):
+            return s and isinstance(s, str) and re.match(r'^#[0-9a-fA-F]{6}$', s)
+
+        # UIに反映する主要な値を取得し、不正な値はデフォルトにフォールバック
+        from gradio.themes.utils import colors
+        primary = params.get("primary_hue") if is_hex_color(params.get("primary_hue")) else colors.blue.c500
+        secondary = params.get("secondary_hue") if is_hex_color(params.get("secondary_hue")) else colors.sky.c500
+        neutral = params.get("neutral_hue") if is_hex_color(params.get("neutral_hue")) else colors.slate.c500
+
+        font_list = params.get("font", ["Noto Sans JP"])
+        font_name = font_list[0] if isinstance(font_list, list) and font_list else "Noto Sans JP"
+
         return (
-            gr.update(value=params.get("primary_hue")),
-            gr.update(value=params.get("secondary_hue")),
-            gr.update(value=params.get("neutral_hue")),
+            gr.update(value=primary),
+            gr.update(value=secondary),
+            gr.update(value=neutral),
             gr.update(value=font_name)
         )
     return gr.update(), gr.update(), gr.update(), gr.update()
