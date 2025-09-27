@@ -941,7 +941,6 @@ def handle_reload_core_memory(room_name: str) -> str:
     content = load_core_memory_content(room_name)
     gr.Info(f"「{room_name}」のコアメモリを再読み込みしました。")
     return content
-        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
 
 
 #
