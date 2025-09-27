@@ -14,9 +14,6 @@ def open_browser(port):
 if __name__ == "__main__":
     print("--- Gradio Theme Builderを起動します ---")
 
-    # Nexus Ark本体(7860)と衝突しないように、ポート7861を明示的に指定
-    # share=False にすることで、意図しない外部公開を防ぎ、終了処理を安定させる
-    # inbrowser=False にして、手動でブラウザを開くように制御する
     theme_builder_app = gr.themes.builder()
 
     # 別スレッドでブラウザを開く準備
@@ -24,7 +21,8 @@ if __name__ == "__main__":
 
     try:
         # サーバーを起動
-        theme_builder_app.launch(server_port=7861, share=False, inbrowser=False)
+        # 自動リロード機能を無効化するため、watch_dirsに空リストを指定
+        theme_builder_app.launch(server_port=7861, share=False, inbrowser=False, watch_dirs=[])
 
     except KeyboardInterrupt:
         print("\n--- Theme Builderを終了します ---")
