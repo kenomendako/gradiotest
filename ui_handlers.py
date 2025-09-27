@@ -3088,13 +3088,24 @@ def handle_apply_theme(theme_settings, selected_theme_name):
 
 def handle_launch_theme_builder():
     """
-    'launch_builder.py' を非同期の別プロセスとして実行し、
+    'launch_builder.py' を完全に独立した新しいコンソールウィンドウで実行し、
     ユーザーに操作方法を通知する。
     """
     try:
-        # Popenを使い、Nexus Arkのメインプロセスをブロックせずに実行する
-        subprocess.Popen([sys.executable, "launch_builder.py"])
-        gr.Info("新しいタブでテーマビルダーが起動しました。デザインの値をコピーして、こちらの画面で保存・適用してください。")
+        # ▼▼▼【ここから下のブロックを修正】▼▼▼
+        if sys.platform == "win32":
+            # Windowsの場合、新しいコンソールウィンドウで起動することでプロセスを完全に分離
+            subprocess.Popen(
+                [sys.executable, "launch_builder.py"],
+                creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+        else:
+            # macOS/Linuxの場合（ターミナルを新規に開くのが一般的）
+            # ここでは単純なPopenのままにしておくが、将来的には 'gnome-terminal' などを指定することも可能
+            subprocess.Popen([sys.executable, "launch_builder.py"])
+        # ▲▲▲【修正ここまで】▲▲▲
+
+        gr.Info("新しいウィンドウでテーマビルダーが起動しました。完了したら、そのウィンドウを閉じてください。")
     except FileNotFoundError:
         gr.Error("エラー: launch_builder.pyが見つかりません。")
     except Exception as e:
