@@ -271,21 +271,19 @@ try:
 
                                 with gr.TabItem("🎨 テーマ") as theme_tab:
                                     theme_settings_state = gr.State({})
-                                    # ▼▼▼【ここから下の2つのUIコンポーネントを visible=False に設定】▼▼▼
-                                    launch_theme_builder_button = gr.Button("🎨 テーマビルダーを起動する (別タブで開きます)", visible=False)
-
-                                    with gr.Accordion("📁 ファイルからテーマをインポート", open=False, visible=False):
-                                        theme_file_importer = gr.File(label="テーマファイル (.py) を選択", file_count="single", file_types=[".py"])
-                                        import_theme_button = gr.Button("このファイルをプレビューに読み込む")
-                                    # ▲▲▲【修正ここまで】▲▲▲
-
                                     theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
                                     gr.Markdown("---")
                                     gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
+                                    # Gradioのテーマシステムが受け付ける色の系統名を定義
+                                    AVAILABLE_HUES = [
+                                        "slate", "gray", "zinc", "neutral", "stone", "red", "orange", "amber",
+                                        "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue",
+                                        "indigo", "violet", "purple", "fuchsia", "pink", "rose"
+                                    ]
                                     with gr.Row():
-                                        primary_hue_picker = gr.ColorPicker(label="プライマリカラー")
-                                        secondary_hue_picker = gr.ColorPicker(label="セカンダリカラー")
-                                        neutral_hue_picker = gr.ColorPicker(label="ニュートラルカラー（テキスト等）")
+                                        primary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="プライマリカラー系統", value="blue")
+                                        secondary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="セカンダリカラー系統", value="sky")
+                                        neutral_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="ニュートラルカラー系統", value="slate")
                                     AVAILABLE_FONTS = sorted([
                                         "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
                                         "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "IBM Plex Mono", "Inconsolata", "Inter",
@@ -1060,24 +1058,6 @@ try:
         )
 
         # --- Theme Management Event Handlers ---
-        # ▼▼▼【以下のイベントハンドラをコメントアウト】▼▼▼
-        # launch_theme_builder_button.click(
-        #     fn=ui_handlers.handle_launch_theme_builder,
-        #     inputs=None,
-        #     outputs=None
-        # )
-
-        # import_theme_button.click(
-        #     fn=ui_handlers.handle_import_theme_file,
-        #     inputs=[theme_file_importer],
-        #     outputs=[
-        #         imported_theme_params_state,
-        #         custom_theme_name_input,
-        #         primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown
-        #     ]
-        # )
-        # ▲▲▲【コメントアウトここまで】▲▲▲
-
         theme_tab.select(
             fn=ui_handlers.handle_theme_tab_load,
             inputs=None,
@@ -1094,8 +1074,7 @@ try:
             fn=ui_handlers.handle_save_custom_theme,
             inputs=[
                 theme_settings_state, custom_theme_name_input,
-                primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown,
-                imported_theme_params_state
+                primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown
             ],
             outputs=[theme_settings_state, theme_selector, custom_theme_name_input]
         )

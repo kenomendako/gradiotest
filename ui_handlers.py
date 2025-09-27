@@ -2883,108 +2883,6 @@ def handle_streaming_speed_change(new_speed: float):
 
 # --- Theme Management Handlers ---
 
-def _parse_theme_file_safely(content: str) -> Dict[str, Any]:
-    """
-    Pythonコードの文字列をASTを使って安全に解析し、
-    Gradioテーマのパラメータを辞書として抽出する。
-    """
-    params = {}
-    tree = ast.parse(content)
-
-    for node in ast.walk(tree):
-        # Baseを継承したクラスを探す
-        if isinstance(node, ast.ClassDef):
-            is_theme_class = False
-            for base in node.bases:
-                if isinstance(base, ast.Name) and base.id == 'Base':
-                    is_theme_class = True
-                    break
-            if not is_theme_class:
-                continue
-
-            # __init__メソッドを探す
-            for item in node.body:
-                if isinstance(item, ast.FunctionDef) and item.name == '__init__':
-                    # super().__init__()呼び出しを探す
-                    for sub_item in item.body:
-                        if (isinstance(sub_item, ast.Expr) and
-                            isinstance(sub_item.value, ast.Call) and
-                            hasattr(sub_item.value.func, 'value') and
-                            isinstance(sub_item.value.func.value, ast.Call) and
-                            hasattr(sub_item.value.func.value.func, 'id') and
-                            sub_item.value.func.value.func.id == 'super'):
-
-                            # キーワード引数を抽出
-                            for kw in sub_item.value.keywords:
-                                key = kw.arg
-                                value_node = kw.value
-
-                                # 値を文字列として抽出
-                                val = None
-                                if isinstance(value_node, (ast.Str, ast.Constant)):
-                                    val = value_node.s
-                                elif isinstance(value_node, ast.Attribute): # colors.blueなど
-                                    val = value_node.attr
-                                elif (isinstance(value_node, ast.Call) and
-                                      hasattr(value_node.func, 'attr') and
-                                      value_node.func.attr == 'GoogleFont' and
-                                      value_node.args): # fonts.GoogleFont("...")
-                                    val = [arg.s for arg in value_node.args if isinstance(arg, ast.Str)]
-
-                                if val is not None:
-                                    params[key] = val
-    return params
-
-def handle_import_theme_file(uploaded_file: Optional[Any]):
-    """
-    アップロードされたテーマの.pyファイルをASTで安全に解析し、
-    全設定をStateに保持しつつ、主要設定をUIに反映させる。
-    """
-    if uploaded_file is None:
-        gr.Warning("インポートするファイルを選択してください。")
-        # 戻り値の数が6つであることを確認
-        return {}, "", gr.update(), gr.update(), gr.update(), gr.update()
-
-    try:
-        file_path = uploaded_file.name
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        # 新しいヘルパー関数で全パラメータを抽出
-        all_params = _parse_theme_file_safely(content)
-
-        if not all_params:
-            gr.Warning("ファイルから有効なテーマ設定を抽出できませんでした。")
-            return {}, "", gr.update(), gr.update(), gr.update(), gr.update()
-
-        # ファイル名からテーマ名を生成
-        theme_name = os.path.splitext(os.path.basename(file_path))[0]
-
-        gr.Info(f"テーマ「{theme_name}」を読み込みました。内容を確認して保存してください。")
-
-        # UIに反映する主要な値を取得
-        primary = all_params.get("primary_hue")
-        secondary = all_params.get("secondary_hue")
-        neutral = all_params.get("neutral_hue")
-        # fontはリストの場合があるので、最初の要素を取得
-        font_list = all_params.get("font", [])
-        font = font_list[0] if isinstance(font_list, list) and font_list else None
-
-        # 戻り値の最初に、抽出した全パラメータの辞書を追加
-        return (
-            all_params,
-            gr.update(value=theme_name),
-            gr.update(value=primary),
-            gr.update(value=secondary),
-            gr.update(value=neutral),
-            gr.update(value=font)
-        )
-
-    except Exception as e:
-        gr.Error(f"テーマファイルの解析に失敗しました: {e}")
-        traceback.print_exc()
-        return {}, "", gr.update(), gr.update(), gr.update(), gr.update()
-
 def handle_theme_tab_load():
     """テーマタブが選択されたときに、設定を読み込んでUIを初期化する。"""
     theme_settings = config_manager.CONFIG_GLOBAL.get("theme_settings", {})
@@ -3004,56 +2902,40 @@ def handle_theme_tab_load():
 def handle_theme_selection(theme_settings, selected_theme_name):
     """ドロップダウンでテーマが選択されたときに、プレビューUIを更新する。"""
     if selected_theme_name.startswith("---"):
+        # 区切り線が選択された場合は何もしない
         return gr.update(), gr.update(), gr.update(), gr.update()
 
-    # ▼▼▼【この preset_themes 辞書全体を、以下の新しいものに置き換えてください】▼▼▼
-    # Gradioの内部カラーパレットから、対応するHEXコードを取得
-    from gradio.themes.utils import colors
+    # プリセットテーマの定義（値はHUEの名前）
     preset_themes = {
-        "Soft": {"primary_hue": colors.blue.c500, "secondary_hue": colors.sky.c500, "neutral_hue": colors.slate.c500, "font": "Noto Sans JP"},
-        "Default": {"primary_hue": colors.orange.c500, "secondary_hue": colors.amber.c500, "neutral_hue": colors.gray.c500, "font": "Noto Sans JP"},
-        "Monochrome": {"primary_hue": colors.neutral.c500, "secondary_hue": colors.neutral.c500, "neutral_hue": colors.neutral.c500, "font": "IBM Plex Mono"},
-        "Glass": {"primary_hue": colors.teal.c500, "secondary_hue": colors.cyan.c500, "neutral_hue": colors.gray.c500, "font": "Quicksand"},
+        "Soft": {"primary_hue": "blue", "secondary_hue": "sky", "neutral_hue": "slate", "font": "Noto Sans JP"},
+        "Default": {"primary_hue": "orange", "secondary_hue": "amber", "neutral_hue": "gray", "font": "Noto Sans JP"},
+        "Monochrome": {"primary_hue": "neutral", "secondary_hue": "neutral", "neutral_hue": "neutral", "font": "IBM Plex Mono"},
+        "Glass": {"primary_hue": "teal", "secondary_hue": "cyan", "neutral_hue": "gray", "font": "Quicksand"},
     }
-    # ▲▲▲【置き換えここまで】▲▲▲
 
     if selected_theme_name in preset_themes:
         params = preset_themes[selected_theme_name]
         return (
-            # ▼▼▼【ここの戻り値も修正】▼▼▼
             gr.update(value=params["primary_hue"]),
             gr.update(value=params["secondary_hue"]),
             gr.update(value=params["neutral_hue"]),
             gr.update(value=params["font"])
-            # ▲▲▲【修正ここまで】▲▲▲
         )
     elif selected_theme_name in theme_settings.get("custom_themes", {}):
         params = theme_settings["custom_themes"][selected_theme_name]
-
-        def is_hex_color(s):
-            return s and isinstance(s, str) and re.match(r'^#[0-9a-fA-F]{6}$', s)
-
-        # UIに反映する主要な値を取得し、不正な値はデフォルトにフォールバック
-        from gradio.themes.utils import colors
-        primary = params.get("primary_hue") if is_hex_color(params.get("primary_hue")) else colors.blue.c500
-        secondary = params.get("secondary_hue") if is_hex_color(params.get("secondary_hue")) else colors.sky.c500
-        neutral = params.get("neutral_hue") if is_hex_color(params.get("neutral_hue")) else colors.slate.c500
-
-        font_list = params.get("font", ["Noto Sans JP"])
-        font_name = font_list[0] if isinstance(font_list, list) and font_list else "Noto Sans JP"
-
+        # カスタムテーマのフォントはリストで保存されている
+        font_name = params.get("font", ["Noto Sans JP"])[0]
         return (
-            gr.update(value=primary),
-            gr.update(value=secondary),
-            gr.update(value=neutral),
+            gr.update(value=params.get("primary_hue")),
+            gr.update(value=params.get("secondary_hue")),
+            gr.update(value=params.get("neutral_hue")),
             gr.update(value=font_name)
         )
     return gr.update(), gr.update(), gr.update(), gr.update()
 
 def handle_save_custom_theme(
     theme_settings, new_name,
-    primary_hue, secondary_hue, neutral_hue, font,
-    imported_params # 新しい引数を追加
+    primary_hue, secondary_hue, neutral_hue, font
 ):
     """「カスタムテーマとして保存」ボタンのロジック。"""
     if not new_name or not new_name.strip():
@@ -3065,20 +2947,13 @@ def handle_save_custom_theme(
         gr.Warning("その名前はプリセットテーマ用に予約されています。")
         return theme_settings, gr.update(), gr.update(value="")
 
-    # ▼▼▼【ここから下のロジックを修正】▼▼▼
-    # インポートされたパラメータをベースに、UIで上書きされた値をマージする
-    final_params = imported_params.copy() if imported_params else {}
-    final_params.update({
+    custom_themes = theme_settings.get("custom_themes", {})
+    custom_themes[new_name] = {
         "primary_hue": primary_hue,
         "secondary_hue": secondary_hue,
         "neutral_hue": neutral_hue,
-        "font": [font] # フォントは常にリスト形式で保存
-    })
-
-    custom_themes = theme_settings.get("custom_themes", {})
-    custom_themes[new_name] = final_params # マージした完全な辞書を保存
-    # ▲▲▲【修正ここまで】▲▲▲
-
+        "font": [font] # フォントはリスト形式で保存
+    }
     theme_settings["custom_themes"] = custom_themes
     config_manager.save_theme_settings(theme_settings.get("active_theme", "Soft"), custom_themes)
 
@@ -3101,28 +2976,3 @@ def handle_apply_theme(theme_settings, selected_theme_name):
     custom_themes = theme_settings.get("custom_themes", {})
     config_manager.save_theme_settings(selected_theme_name, custom_themes)
     gr.Info(f"テーマ「{selected_theme_name}」を適用設定にしました。アプリケーションを再起動してください。")
-
-def handle_launch_theme_builder():
-    """
-    'launch_builder.py' を完全に独立した新しいコンソールウィンドウで実行し、
-    ユーザーに操作方法を通知する。
-    """
-    try:
-        # ▼▼▼【ここから下のブロックを修正】▼▼▼
-        if sys.platform == "win32":
-            # Windowsの場合、新しいコンソールウィンドウで起動することでプロセスを完全に分離
-            subprocess.Popen(
-                [sys.executable, "launch_builder.py"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE
-            )
-        else:
-            # macOS/Linuxの場合（ターミナルを新規に開くのが一般的）
-            # ここでは単純なPopenのままにしておくが、将来的には 'gnome-terminal' などを指定することも可能
-            subprocess.Popen([sys.executable, "launch_builder.py"])
-        # ▲▲▲【修正ここまで】▲▲▲
-
-        gr.Info("新しいウィンドウでテーマビルダーが起動しました。完了したら、そのウィンドウを閉じてください。")
-    except FileNotFoundError:
-        gr.Error("エラー: launch_builder.pyが見つかりません。")
-    except Exception as e:
-        gr.Error(f"テーマビルダーの起動に失敗しました: {e}")
