@@ -283,10 +283,9 @@ try:
                                     gr.Markdown("---")
                                     gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
                                     with gr.Row():
-                                        # ▼▼▼【以下の3行に type="hex" を追加】▼▼▼
-                                        primary_hue_picker = gr.ColorPicker(label="プライマリカラー", type="hex")
-                                        secondary_hue_picker = gr.ColorPicker(label="セカンダリカラー", type="hex")
-                                        neutral_hue_picker = gr.ColorPicker(label="ニュートラルカラー（テキスト等）", type="hex")
+                                        primary_hue_picker = gr.ColorPicker(label="プライマリカラー")
+                                        secondary_hue_picker = gr.ColorPicker(label="セカンダリカラー")
+                                        neutral_hue_picker = gr.ColorPicker(label="ニュートラルカラー（テキスト等）")
                                     AVAILABLE_FONTS = sorted([
                                         "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
                                         "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "IBM Plex Mono", "Inconsolata", "Inter",
