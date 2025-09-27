@@ -117,12 +117,15 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
     dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
 
+    core_memory_content = load_core_memory_content(room_name)
+
     # このタプルの要素数は31個
     chat_tab_updates = (
         room_name, chat_history, mapping_list,
         gr.update(value={'text': '', 'files': []}), # 2つの戻り値を、MultimodalTextbox用の1つの辞書に統合
         profile_image,
         memory_str, notepad_content, load_system_prompt_content(room_name),
+        core_memory_content, # <-- この行を追加
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
@@ -849,10 +852,11 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
         return gr.update(), gr.update()
 
 def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name: str):
-
+    # The total number of outputs for room changes is now 40
     NUM_ALL_ROOM_CHANGE_OUTPUTS = 40
 
-    if not confirmed:
+    if not str(confirmed).lower() == 'true':
+        # Return a tuple of empty updates matching the output count
         return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
 
     if not folder_name_to_delete:
@@ -871,18 +875,34 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
         new_room_list = room_manager.get_room_list_for_ui()
         if not new_room_list:
             gr.Warning("全てのルームが削除されました。新しいルームを作成してください。")
-            # This is the "empty" state for `initial_load_chat_outputs`
+
+            # This is the "empty" state for `initial_load_chat_outputs` (32 elements)
             empty_chat_outputs = (
-                None, [], [], "", gr.update(value=None), None, "{}", "", "",
-                gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None),
-                "", "", gr.update(choices=[], value=None), "", "", 0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
-                False, True, True, False, True, True, True, "ℹ️ *ルームを選択してください*", None
+                None, [], [], gr.update(value={'text': '', 'files': []}), None, "", "", "", "", # 9 elements for room_name to core_memory_editor
+                gr.update(choices=[], value=None), # alarm_room_dropdown
+                gr.update(choices=[], value=None), # timer_room_dropdown
+                gr.update(choices=[], value=None), # manage_room_selector
+                gr.update(choices=[], value=None), # location_dropdown
+                "", "", # location and scenery display
+                gr.update(choices=list(config_manager.SUPPORTED_VOICES.values()), value=list(config_manager.SUPPORTED_VOICES.values())[0]), # voice
+                "", # voice style
+                0.8, 0.95, # temp, top_p
+                "中リスク以上をブロック", "中リスク以上をブロック", "中リスク以上をブロック", "中リスク以上をブロック", # safety settings
+                True, True, True, True, True, True, True, # context checkboxes
+                "ℹ️ *ルームを選択してください*", # room_settings_info
+                None # scenery_image_display
             )
-            # This is the "empty" state for `world_builder_outputs`
-            empty_wb_outputs = ({}, gr.update(choices=[]), "",)
-            # This is the "empty" state for `session_management_outputs`
-            empty_session_outputs = ([], "ルームがありません", gr.update(choices=[]),)
-            return empty_chat_outputs + empty_wb_outputs + empty_session_outputs
+
+            # This is the "empty" state for `world_builder_outputs` (3 elements)
+            empty_wb_outputs = ({}, gr.update(choices=[]), "")
+
+            # This is the "empty" state for `session_management_outputs` (3 elements)
+            empty_session_outputs = ([], "ルームがありません", gr.update(choices=[]))
+
+            # This is the "empty" state for the remaining outputs (2 elements)
+            empty_other_outputs = (_create_redaction_df_from_rules([]), gr.update(choices=[], value=None))
+
+            return empty_chat_outputs + empty_wb_outputs + empty_session_outputs + empty_other_outputs
 
         new_main_room_folder = new_room_list[0][1]
 
@@ -891,6 +911,49 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     except Exception as e:
         gr.Error(f"ルームの削除中にエラーが発生しました: {e}")
         traceback.print_exc()
+        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
+
+
+def load_core_memory_content(room_name: str) -> str:
+    """core_memory.txtの内容を安全に読み込むヘルパー関数。"""
+    if not room_name: return ""
+    core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
+    # core_memory.txt は ensure_room_files で作成されない場合があるため、ここで存在チェックと作成を行う
+    if not os.path.exists(core_memory_path):
+        try:
+            with open(core_memory_path, "w", encoding="utf-8") as f:
+                f.write("") # 空ファイルを作成
+            return ""
+        except Exception as e:
+            print(f"コアメモリファイルの作成に失敗: {e}")
+            return "（コアメモリファイルの作成に失敗しました）"
+
+    with open(core_memory_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+def handle_save_core_memory(room_name: str, content: str) -> str:
+    """コアメモリの保存ボタンのイベントハンドラ。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return content
+    core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
+    try:
+        with open(core_memory_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        gr.Info(f"「{room_name}」のコアメモリを保存しました。")
+        return content
+    except Exception as e:
+        gr.Error(f"コアメモリの保存エラー: {e}")
+        return content
+
+def handle_reload_core_memory(room_name: str) -> str:
+    """コアメモリの再読込ボタンのイベントハンドラ。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return ""
+    content = load_core_memory_content(room_name)
+    gr.Info(f"「{room_name}」のコアメモリを再読み込みしました。")
+    return content
         return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
 
 
@@ -1862,39 +1925,35 @@ def handle_importer_stop(pid: int):
 
 def handle_core_memory_update_click(room_name: str, api_key_name: str):
     """
-    コアメモリの更新を同期的に実行し、完了時にUIにポップアップ通知を表示する。
-    Gradioのqueue()機能により、UIはブロックされない。
+    コアメモリの更新を同期的に実行し、完了後にUIのテキストエリアを更新する。
     """
-    # 1. 入力検証
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーを選択してください。")
-        return
+        return gr.update() # 何も更新しない
 
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         gr.Warning(f"APIキー '{api_key_name}' が有効ではありません。")
-        return
+        return gr.update()
 
-    # 2. 処理開始をユーザーに通知
-    gr.Info(f"「{room_name}」のコアメモリ更新を開始しました。処理には少し時間がかかります...")
-
-    # 3. コアメモリ更新処理を直接実行
+    gr.Info(f"「{room_name}」のコアメモリ更新を開始しました...")
     try:
         from tools import memory_tools
         result = memory_tools.summarize_and_update_core_memory.func(room_name=room_name, api_key=api_key)
 
-        # 4. 結果に応じて最終的なポップアップ通知を表示
         if "成功" in result:
             gr.Info(f"✅ コアメモリの更新が正常に完了しました。")
+            # 成功した場合、更新された内容を読み込んで返す
+            updated_content = load_core_memory_content(room_name)
+            return gr.update(value=updated_content)
         else:
-            # ツールからのエラーメッセージをそのまま表示
             gr.Error(f"コアメモリの更新に失敗しました。詳細: {result}")
+            return gr.update() # 失敗時はUIを更新しない
 
     except Exception as e:
-        # 予期せぬエラーが発生した場合
         gr.Error(f"コアメモリ更新中に予期せぬエラーが発生しました: {e}")
-        print(f"--- コアメモリ更新中に予期せぬエラー ---")
         traceback.print_exc()
+        return gr.update()
 
 # --- Screenshot Redaction Rules Handlers ---
 
