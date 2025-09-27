@@ -3004,28 +3004,33 @@ def handle_theme_tab_load():
 def handle_theme_selection(theme_settings, selected_theme_name):
     """ドロップダウンでテーマが選択されたときに、プレビューUIを更新する。"""
     if selected_theme_name.startswith("---"):
-        # 区切り線が選択された場合は何もしない
         return gr.update(), gr.update(), gr.update(), gr.update()
 
+    # ▼▼▼【この preset_themes 辞書全体を、以下の新しいものに置き換えてください】▼▼▼
+    # Gradioの内部カラーパレットから、対応するHEXコードを取得
+    from gradio.themes.utils import colors
     preset_themes = {
-        "Soft": {"primary_hue": "blue", "secondary_hue": "sky", "neutral_hue": "slate", "font": "Noto Sans JP"},
-        "Default": {"primary_hue": "orange", "secondary_hue": "amber", "neutral_hue": "gray", "font": "Noto Sans JP"},
-        "Monochrome": {"primary_hue": "neutral", "secondary_hue": "neutral", "neutral_hue": "neutral", "font": "IBM Plex Mono"},
-        "Glass": {"primary_hue": "teal", "secondary_hue": "cyan", "neutral_hue": "gray", "font": "Quicksand"},
+        "Soft": {"primary_hue": colors.blue.c500, "secondary_hue": colors.sky.c500, "neutral_hue": colors.slate.c500, "font": "Noto Sans JP"},
+        "Default": {"primary_hue": colors.orange.c500, "secondary_hue": colors.amber.c500, "neutral_hue": colors.gray.c500, "font": "Noto Sans JP"},
+        "Monochrome": {"primary_hue": colors.neutral.c500, "secondary_hue": colors.neutral.c500, "neutral_hue": colors.neutral.c500, "font": "IBM Plex Mono"},
+        "Glass": {"primary_hue": colors.teal.c500, "secondary_hue": colors.cyan.c500, "neutral_hue": colors.gray.c500, "font": "Quicksand"},
     }
+    # ▲▲▲【置き換えここまで】▲▲▲
 
     if selected_theme_name in preset_themes:
         params = preset_themes[selected_theme_name]
         return (
+            # ▼▼▼【ここの戻り値も修正】▼▼▼
             gr.update(value=params["primary_hue"]),
             gr.update(value=params["secondary_hue"]),
             gr.update(value=params["neutral_hue"]),
             gr.update(value=params["font"])
+            # ▲▲▲【修正ここまで】▲▲▲
         )
     elif selected_theme_name in theme_settings.get("custom_themes", {}):
         params = theme_settings["custom_themes"][selected_theme_name]
-        # カスタムテーマのフォントはリストで保存されている
         font_name = params.get("font", ["Noto Sans JP"])[0]
+        # カスタムテーマの値は既にHEXのはずなので、そのまま返す
         return (
             gr.update(value=params.get("primary_hue")),
             gr.update(value=params.get("secondary_hue")),
