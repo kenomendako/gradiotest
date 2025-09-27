@@ -270,6 +270,10 @@ try:
                                 with gr.TabItem("🎨 テーマ") as theme_tab:
                                     theme_settings_state = gr.State({}) # 現在のテーマ設定を保持
 
+            # ▼▼▼【ここから追加】▼▼▼
+            launch_theme_builder_button = gr.Button("🎨 テーマビルダーを起動する (別タブで開きます)")
+            # ▲▲▲【追加ここまで】▲▲▲
+
                                     theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
                                     gr.Markdown("---")
                                     gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
@@ -1055,6 +1059,12 @@ try:
         )
 
         # --- Theme Management Event Handlers ---
+        launch_theme_builder_button.click(
+            fn=ui_handlers.handle_launch_theme_builder,
+            inputs=None,
+            outputs=None
+        )
+
         theme_tab.select(
             fn=ui_handlers.handle_theme_tab_load,
             inputs=None,
