@@ -2879,3 +2879,30 @@ def handle_apply_theme(theme_settings, selected_theme_name):
     custom_themes = theme_settings.get("custom_themes", {})
     config_manager.save_theme_settings(selected_theme_name, custom_themes)
     gr.Info(f"テーマ「{selected_theme_name}」を適用設定にしました。アプリケーションを再起動してください。")
+
+
+def handle_session_re_sync():
+    """
+    「履歴を更新」ボタンの新しい役割。
+    ファイルから最新の設定を強制的に読み込み、UI全体を再同期する。
+    """
+    print("--- [Session Re-Sync] ファイルから最新の設定を読み込み、UIを強制同期します ---")
+    try:
+        # 1. config.json を再読み込みして、最新のグローバル設定を取得
+        config_manager.load_config()
+
+        # 2. 最後に保存されたルーム名とAPIキー名を取得
+        last_room = config_manager.initial_room_global
+        last_api_key = config_manager.initial_api_key_name_global
+
+        # 3. 既存の万能更新関数を呼び出して、UI全体の更新情報を生成
+        #    この関数は既に、ルーム切り替え時に必要なすべてのUI更新を網羅している
+        return _update_all_tabs_for_room_change(last_room, last_api_key)
+
+    except Exception as e:
+        # エラーが発生した場合、UIを壊さないように、現在の状態を維持するgr.update()を返す
+        print(f"!!! セッションの再同期中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        # all_room_change_outputs の要素数と一致させる必要がある
+        # 現状は42個
+        return (gr.update(),) * 42
