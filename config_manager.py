@@ -127,6 +127,12 @@ def load_config():
         "pushover_user_key": "",
         "log_archive_threshold_mb": 10,
         "log_keep_size_mb": 5,
+        # ▼▼▼【ここから追加】▼▼▼
+        "theme_settings": {
+            "active_theme": "Soft", # Gradioのデフォルトテーマ
+            "custom_themes": {}
+        }
+        # ▲▲▲【追加ここまで】▲▲▲
     }
 
     # ステップ2：ユーザーの設定ファイルを読み込む
@@ -247,3 +253,14 @@ def save_redaction_rules(rules: List[Dict[str, str]]):
             json.dump(rules, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"エラー: {constants.REDACTION_RULES_FILE} の保存に失敗しました: {e}")
+
+def save_theme_settings(active_theme: str, custom_themes: Dict):
+    """
+    アクティブなテーマ名とカスタムテーマの定義をconfig.jsonに保存する。
+    """
+    config = _load_config_file()
+    if "theme_settings" not in config:
+        config["theme_settings"] = {}
+    config["theme_settings"]["active_theme"] = active_theme
+    config["theme_settings"]["custom_themes"] = custom_themes
+    _save_config_file(config)

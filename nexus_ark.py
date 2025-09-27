@@ -55,6 +55,43 @@ os.environ["MEM0_TELEMETRY_ENABLED"] = "false"
 
 try:
     config_manager.load_config()
+
+    # ▼▼▼【ここから追加：テーマ適用ロジック】▼▼▼
+    def get_active_theme() -> gr.themes.Base:
+        """config.jsonから現在アクティブなテーマを読み込み、Gradioのテーマオブジェクトを生成する。"""
+        theme_settings = config_manager.CONFIG_GLOBAL.get("theme_settings", {})
+        active_theme_name = theme_settings.get("active_theme", "Soft")
+        custom_themes = theme_settings.get("custom_themes", {})
+
+        # プリセットテーマのマップ
+        preset_themes = {
+            "Default": gr.themes.Default,
+            "Soft": gr.themes.Soft,
+            "Monochrome": gr.themes.Monochrome,
+            "Glass": gr.themes.Glass,
+        }
+
+        if active_theme_name in preset_themes:
+            print(f"--- [テーマ] プリセットテーマ '{active_theme_name}' を適用します ---")
+            return preset_themes[active_theme_name]()
+        elif active_theme_name in custom_themes:
+            print(f"--- [テーマ] カスタムテーマ '{active_theme_name}' を適用します ---")
+            params = custom_themes[active_theme_name]
+            # フォント名からGoogleFontオブジェクトを生成
+            font_objects = [gr.themes.GoogleFont(name) for name in params.get("font", ["Noto Sans JP"])]
+            return gr.themes.Base(
+                primary_hue=params.get("primary_hue", "blue"),
+                secondary_hue=params.get("secondary_hue", "sky"),
+                neutral_hue=params.get("neutral_hue", "slate"),
+                font=font_objects
+            )
+        else:
+            print(f"--- [テーマ警告] アクティブなテーマ '{active_theme_name}' が見つかりません。デフォルトの'Soft'テーマを適用します ---")
+            return gr.themes.Soft()
+
+    active_theme_object = get_active_theme()
+    # ▲▲▲【追加ここまで】▲▲▲
+
     alarm_manager.load_alarms()
     alarm_manager.start_alarm_scheduler_thread()
 
@@ -87,7 +124,7 @@ try:
     }
     """
 
-    with gr.Blocks(theme=gr.themes.Soft(primary_hue="blue", secondary_hue="sky"), css=custom_css, js=js_stop_nav_link_propagation) as demo:
+    with gr.Blocks(theme=active_theme_object, css=custom_css, js=js_stop_nav_link_propagation) as demo:
         room_list_on_startup = room_manager.get_room_list_for_ui()
         if not room_list_on_startup:
             print("--- 有効なルームが見つからないため、'Default'ルームを作成します。 ---")
@@ -196,8 +233,6 @@ try:
                                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
                                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
-
-                                    # ▼▼▼【ここから下のブロックを、再度追加してください】▼▼▼
                                     streaming_speed_slider = gr.Slider(
                                         minimum=0.0,
                                         maximum=0.1,
@@ -207,8 +242,6 @@ try:
                                         info="値が小さいほど速く、大きいほどゆっくり表示されます。(デフォルト: 0.01秒/文字)",
                                         interactive=True
                                     )
-                                    # ▲▲▲【追加ここまで】▲▲▲
-
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
                                     gr.Markdown("---")
@@ -230,6 +263,33 @@ try:
                                             discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL or "")
                                             save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
                                         gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
+
+                                with gr.TabItem("🎨 テーマ") as theme_tab:
+                                    theme_settings_state = gr.State({})
+                                    launch_theme_builder_button = gr.Button("🎨 テーマビルダーを起動する (別タブで開きます)")
+                                    theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
+                                    gr.Markdown("---")
+                                    gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
+                                    with gr.Row():
+                                        primary_hue_picker = gr.ColorPicker(label="プライマリカラー")
+                                        secondary_hue_picker = gr.ColorPicker(label="セカンダリカラー")
+                                        neutral_hue_picker = gr.ColorPicker(label="ニュートラルカラー（テキスト等）")
+                                    AVAILABLE_FONTS = sorted([
+                                        "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
+                                        "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "IBM Plex Mono", "Inconsolata", "Inter",
+                                        "Jost", "Lato", "Libre Baskerville", "Libre Franklin", "Lora", "Merriweather",
+                                        "Montserrat", "Mulish", "Noto Sans", "Noto Sans JP", "Open Sans", "Playfair Display",
+                                        "Poppins", "Pt Sans", "Pt Serif", "Quattrocento", "Quicksand", "Raleway",
+                                        "Roboto", "Roboto Mono", "Rubik", "Source Sans Pro", "Source Serif Pro",
+                                        "Space Mono", "Spectral", "Sriracha", "Titillium Web", "Ubuntu", "Work Sans"
+                                    ])
+                                    font_dropdown = gr.Dropdown(choices=AVAILABLE_FONTS, label="メインフォント", value="Noto Sans JP", interactive=True)
+                                    gr.Markdown("---")
+                                    custom_theme_name_input = gr.Textbox(label="新しいテーマ名として保存", placeholder="例: My Cool Theme")
+                                    save_theme_button = gr.Button("カスタムテーマとして保存", variant="secondary")
+                                    apply_theme_button = gr.Button("このテーマを適用（要再起動）", variant="primary")
+                                    gr.Markdown("⚠️ **注意:** テーマの変更を完全に反映するには、コンソールを閉じて `nexus_ark.py` を再実行する必要があります。")
+
                                 with gr.TabItem("個別設定"):
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
                                     with gr.Accordion("🎤 音声設定", open=False):
@@ -985,6 +1045,40 @@ try:
                 alarm_room_dropdown,
                 timer_room_dropdown
             ]
+        )
+
+        # --- Theme Management Event Handlers ---
+        launch_theme_builder_button.click(
+            fn=ui_handlers.handle_launch_theme_builder,
+            inputs=None,
+            outputs=None
+        )
+
+        theme_tab.select(
+            fn=ui_handlers.handle_theme_tab_load,
+            inputs=None,
+            outputs=[theme_settings_state, theme_selector]
+        )
+
+        theme_selector.change(
+            fn=ui_handlers.handle_theme_selection,
+            inputs=[theme_settings_state, theme_selector],
+            outputs=[primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown]
+        )
+
+        save_theme_button.click(
+            fn=ui_handlers.handle_save_custom_theme,
+            inputs=[
+                theme_settings_state, custom_theme_name_input,
+                primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown
+            ],
+            outputs=[theme_settings_state, theme_selector, custom_theme_name_input]
+        )
+
+        apply_theme_button.click(
+            fn=ui_handlers.handle_apply_theme,
+            inputs=[theme_settings_state, theme_selector],
+            outputs=None # ポップアップ通知のみ
         )
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
