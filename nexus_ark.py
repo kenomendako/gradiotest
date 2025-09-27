@@ -282,7 +282,7 @@ try:
                                     # 利用可能なフォントのリストを公式ドキュメントに基づいて定義
                                     AVAILABLE_FONTS = sorted([
                                         "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
-                                        "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "Inconsolata", "Inter",
+                                        "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "IBM Plex Mono", "Inconsolata", "Inter",
                                         "Jost", "Lato", "Libre Baskerville", "Libre Franklin", "Lora", "Merriweather",
                                         "Montserrat", "Mulish", "Noto Sans", "Noto Sans JP", "Open Sans", "Playfair Display",
                                         "Poppins", "Pt Sans", "Pt Serif", "Quattrocento", "Quicksand", "Raleway",
