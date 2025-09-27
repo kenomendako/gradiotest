@@ -88,10 +88,10 @@ def release_lock():
 
 def load_chat_log(file_path: str) -> List[Dict[str, str]]:
     """
-    (Definitive Edition)
-    Reads a log file with mixed old and new formats and returns a unified list of dictionaries.
-    This version is robustly designed based on analysis of the problematic log file to
-    correctly handle all observed header formats and edge cases.
+    (Definitive Edition v3)
+    Reads a log file and returns a unified list of dictionaries.
+    This version uses a robust finditer approach to prevent message content
+    from being misinterpreted as a new speaker header.
     """
     messages: List[Dict[str, str]] = []
     if not file_path or not os.path.exists(file_path):
@@ -106,40 +106,25 @@ def load_chat_log(file_path: str) -> List[Dict[str, str]]:
     if not content.strip():
         return messages
 
-    # Split by the header line, keeping the delimiter.
-    # This correctly handles messages with no content.
-    parts = re.split(r'(^## .*$)', content, flags=re.MULTILINE)
+    # Regex to find all valid headers
+    header_pattern = re.compile(r'^## (USER|AGENT|SYSTEM):(.+?)$', re.MULTILINE)
 
-    it = iter(parts[1:])
-    for header_line in it:
-        message_content = next(it, "").strip()
-        header_text = header_line[3:].strip()
+    matches = list(header_pattern.finditer(content))
 
-        role = "AGENT"
-        responder = ""
+    for i, match in enumerate(matches):
+        # Extract header info
+        role = match.group(1).upper()
+        responder = match.group(2).strip()
+        if role == "USER":
+            responder = "user"
 
-        # Case 1: New format `## ROLE:ID` (e.g., ## USER:user)
-        # This is the most explicit and preferred format.
-        match_role_id = re.match(r'^(USER|AGENT|SYSTEM):(.+)$', header_text, re.IGNORECASE)
-        if match_role_id:
-            role = match_role_id.group(1).upper()
-            responder = match_role_id.group(2).strip()
-            # Normalize USER responder to 'user'
-            if role == "USER":
-                responder = "user"
-        else:
-            # Case 2: Old format `## NAME` or `## NAME:`
-            # This handles headers that are not in the ROLE:ID format.
-            # We strip trailing colons to handle `## テスト:` and `## ユーザー:` correctly.
-            final_header_text = header_text.removesuffix(':').strip()
-            if final_header_text.lower() in ["user", "ユーザー"]:
-                role = "USER"
-                responder = "user"
-            else:
-                role = "AGENT"
-                responder = final_header_text
+        # Determine content span
+        start_of_content = match.end()
+        end_of_content = matches[i + 1].start() if i + 1 < len(matches) else len(content)
 
-        # This logic guarantees a non-empty responder, fixing the root cause.
+        # Extract and clean content
+        message_content = content[start_of_content:end_of_content].strip()
+
         messages.append({"role": role, "responder": responder, "content": message_content})
 
     return messages
