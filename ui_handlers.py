@@ -1252,34 +1252,9 @@ def _format_text_content_for_gradio(
     total_ui_rows: int
 ) -> str:
     """
-    (v2: Code Block Aware)
     発言のテキスト部分を、GradioのChatbotで表示するための最終的なHTML文字列に変換する。
-    コードブロックを検知し、その内部では改行を<br>に変換しないようにする。
+    思考ログ、ナビゲーションボタン（▲▼）、メニューアイコン（…）の表示ロジックも内包する。
     """
-    def markdown_to_html_with_code_blocks(text_html: str) -> str:
-        """
-        コードブロックを<pre><code>で囲み、それ以外の部分の改行を<br>に変換するヘルパー関数。
-        入力は既にhtml.escape()済みであることを前提とする。
-        """
-        if not text_html:
-            return ""
-
-        parts = re.split(r'(```.*?\n[\s\S]*?\n```)', text_html)
-        html_output = ""
-        for i, part in enumerate(parts):
-            if i % 2 == 1:  # This is a code block
-                # Extract language hint if present
-                first_line = part.split('\n', 1)
-                lang_match = re.match(r'```(\w+)', first_line[0])
-                lang = lang_match.group(1) if lang_match else ''
-                # Remove the backticks lines
-                code_content = '\n'.join(part.split('\n')[1:-1])
-                # Wrap in pre/code tags
-                html_output += f'<pre><code class="language-{lang}">{code_content}</code></pre>'
-            else:  # This is normal text
-                html_output += part.replace('\n', '<br>')
-        return html_output
-
     current_anchor_id = f"msg-anchor-{current_ui_index}"
     final_html_parts = []
 
@@ -1287,26 +1262,29 @@ def _format_text_content_for_gradio(
     final_html_parts.append(f"<strong>{html.escape(speaker_name)}:</strong><br>")
 
     if thoughts_html:
-        # 思考ログはコードブロックを考慮しないシンプルな変換
+        # 先に改行文字の置換処理を行い、結果を変数に格納します。
         formatted_thoughts_html = thoughts_html.replace('\n', '<br>')
+        # その後、バックスラッシュを含まない変数をf-stringに渡します。
         final_html_parts.append(f"<div class='thoughts'>【Thoughts】<br>{formatted_thoughts_html}</div>")
 
     if main_text_html:
-        # メインテキストはコードブロックを考慮した高度な変換
-        final_html_parts.append(markdown_to_html_with_code_blocks(main_text_html))
+        final_html_parts.append(main_text_html.replace('\n', '<br>'))
 
-    # --- Navigation buttons logic (unchanged) ---
     nav_buttons_list = []
     if current_ui_index > 0:
         nav_buttons_list.append(f"<a href='#msg-anchor-{current_ui_index - 1}' class='message-nav-link' title='前の発言へ' style='text-decoration: none; color: inherit;'>▲</a>")
+
     if current_ui_index < total_ui_rows - 1:
         nav_buttons_list.append(f"<a href='#msg-anchor-{current_ui_index + 1}' class='message-nav-link' title='次の発言へ' style='text-decoration: none; color: inherit;'>▼</a>")
+
     nav_buttons_html = "&nbsp;&nbsp;".join(nav_buttons_list)
     menu_icon_html = "<span title='メニュー表示' style='font-weight: bold; cursor: pointer;'>&#8942;</span>"
+
     final_buttons_list = []
     if nav_buttons_html:
         final_buttons_list.append(nav_buttons_html)
     final_buttons_list.append(menu_icon_html)
+
     buttons_str = "&nbsp;&nbsp;&nbsp;".join(final_buttons_list)
     button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{buttons_str}</div>"
     final_html_parts.append(button_container)
@@ -2059,6 +2037,52 @@ def handle_delete_redaction_rule(
     return df_for_ui, current_rules, None, "", ""
 
 
+def _format_text_content_for_gradio(
+    main_text_html: str,
+    thoughts_html: str,
+    speaker_name: str,
+    current_ui_index: int,
+    total_ui_rows: int
+) -> str:
+    """
+    発言のテキスト部分を、GradioのChatbotで表示するための最終的なHTML文字列に変換する。
+    思考ログ、ナビゲーションボタン（▲▼）、メニューアイコン（…）の表示ロジックも内包する。
+    """
+    current_anchor_id = f"msg-anchor-{current_ui_index}"
+    final_html_parts = []
+
+    final_html_parts.append(f"<span id='{current_anchor_id}'></span>")
+    final_html_parts.append(f"<strong>{html.escape(speaker_name)}:</strong><br>")
+
+    if thoughts_html:
+        # 先に改行文字の置換処理を行い、結果を変数に格納します。
+        formatted_thoughts_html = thoughts_html.replace('\n', '<br>')
+        # その後、バックスラッシュを含まない変数をf-stringに渡します。
+        final_html_parts.append(f"<div class='thoughts'>【Thoughts】<br>{formatted_thoughts_html}</div>")
+
+    if main_text_html:
+        final_html_parts.append(main_text_html.replace('\n', '<br>'))
+
+    nav_buttons_list = []
+    if current_ui_index > 0:
+        nav_buttons_list.append(f"<a href='#msg-anchor-{current_ui_index - 1}' class='message-nav-link' title='前の発言へ' style='text-decoration: none; color: inherit;'>▲</a>")
+
+    if current_ui_index < total_ui_rows - 1:
+        nav_buttons_list.append(f"<a href='#msg-anchor-{current_ui_index + 1}' class='message-nav-link' title='次の発言へ' style='text-decoration: none; color: inherit;'>▼</a>")
+
+    nav_buttons_html = "&nbsp;&nbsp;".join(nav_buttons_list)
+    menu_icon_html = "<span title='メニュー表示' style='font-weight: bold; cursor: pointer;'>&#8942;</span>"
+
+    final_buttons_list = []
+    if nav_buttons_html:
+        final_buttons_list.append(nav_buttons_html)
+    final_buttons_list.append(menu_icon_html)
+
+    buttons_str = "&nbsp;&nbsp;&nbsp;".join(final_buttons_list)
+    button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{buttons_str}</div>"
+    final_html_parts.append(button_container)
+
+    return "".join(final_html_parts)
 
 def update_model_state(model): config_manager.save_config("last_model", model); return model
 

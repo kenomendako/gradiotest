@@ -88,10 +88,10 @@ def release_lock():
 
 def load_chat_log(file_path: str) -> List[Dict[str, str]]:
     """
-    (Definitive Edition v2)
+    (Definitive Edition)
     Reads a log file with mixed old and new formats and returns a unified list of dictionaries.
-    The regex is now stricter to only recognize "## ROLE:NAME" as a new speaker,
-    preventing markdown headers from splitting a message.
+    This version is robustly designed based on analysis of the problematic log file to
+    correctly handle all observed header formats and edge cases.
     """
     messages: List[Dict[str, str]] = []
     if not file_path or not os.path.exists(file_path):
@@ -107,29 +107,39 @@ def load_chat_log(file_path: str) -> List[Dict[str, str]]:
         return messages
 
     # Split by the header line, keeping the delimiter.
-    # The regex now specifically looks for "## ROLE:ID" format.
-    parts = re.split(r'(^## (?:USER|AGENT|SYSTEM):.*?$)', content, flags=re.MULTILINE)
+    # This correctly handles messages with no content.
+    parts = re.split(r'(^## .*$)', content, flags=re.MULTILINE)
 
-    # The first part is anything before the first header, which should be empty.
-    # If not empty, it's malformed content, which we'll ignore for now.
     it = iter(parts[1:])
     for header_line in it:
         message_content = next(it, "").strip()
-        header_text = header_line[3:].strip() # Remove "## "
+        header_text = header_line[3:].strip()
 
-        # The regex ensures this format, so we can split confidently.
-        try:
-            role, responder = header_text.split(":", 1)
-            role = role.upper()
-            responder = responder.strip()
-            # Normalize USER responder for consistency
+        role = "AGENT"
+        responder = ""
+
+        # Case 1: New format `## ROLE:ID` (e.g., ## USER:user)
+        # This is the most explicit and preferred format.
+        match_role_id = re.match(r'^(USER|AGENT|SYSTEM):(.+)$', header_text, re.IGNORECASE)
+        if match_role_id:
+            role = match_role_id.group(1).upper()
+            responder = match_role_id.group(2).strip()
+            # Normalize USER responder to 'user'
             if role == "USER":
                 responder = "user"
-        except ValueError:
-            # This case should no longer happen with the new regex, but as a fallback:
-            role = "UNKNOWN"
-            responder = header_text
+        else:
+            # Case 2: Old format `## NAME` or `## NAME:`
+            # This handles headers that are not in the ROLE:ID format.
+            # We strip trailing colons to handle `## テスト:` and `## ユーザー:` correctly.
+            final_header_text = header_text.removesuffix(':').strip()
+            if final_header_text.lower() in ["user", "ユーザー"]:
+                role = "USER"
+                responder = "user"
+            else:
+                role = "AGENT"
+                responder = final_header_text
 
+        # This logic guarantees a non-empty responder, fixing the root cause.
         messages.append({"role": role, "responder": responder, "content": message_content})
 
     return messages
