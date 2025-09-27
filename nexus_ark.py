@@ -275,7 +275,7 @@ try:
                                     launch_theme_builder_button = gr.Button("🎨 テーマビルダーを起動する (別タブで開きます)", visible=False)
 
                                     with gr.Accordion("📁 ファイルからテーマをインポート", open=False, visible=False):
-                                        theme_file_importer = gr.File(label="テーマファイル (.py) を選択", file_count="single", root_dir="themes", file_types=[".py"])
+                                        theme_file_importer = gr.File(label="テーマファイル (.py) を選択", file_count="single", file_types=[".py"])
                                         import_theme_button = gr.Button("このファイルをプレビューに読み込む")
                                     # ▲▲▲【修正ここまで】▲▲▲
 
