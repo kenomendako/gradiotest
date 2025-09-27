@@ -233,8 +233,6 @@ try:
                                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
                                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
-
-                                    # ▼▼▼【ここから下のブロックを、再度追加してください】▼▼▼
                                     streaming_speed_slider = gr.Slider(
                                         minimum=0.0,
                                         maximum=0.1,
@@ -244,8 +242,6 @@ try:
                                         info="値が小さいほど速く、大きいほどゆっくり表示されます。(デフォルト: 0.01秒/文字)",
                                         interactive=True
                                     )
-                                    # ▲▲▲【追加ここまで】▲▲▲
-
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
                                     gr.Markdown("---")
@@ -267,37 +263,32 @@ try:
                                             discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL or "")
                                             save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
                                         gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
-            with gr.TabItem("🎨 テーマ") as theme_tab:
-                # このブロック内の要素は、すべて同じインデントレベルである必要があります
-                theme_settings_state = gr.State({})
 
-                launch_theme_builder_button = gr.Button("🎨 テーマビルダーを起動する (別タブで開きます)")
-                theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
-
-                gr.Markdown("---")
-                gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
-
-                with gr.Row():
-                    primary_hue_picker = gr.ColorPicker(label="プライマリカラー")
-                    secondary_hue_picker = gr.ColorPicker(label="セカンダリカラー")
-                    neutral_hue_picker = gr.ColorPicker(label="ニュートラルカラー（テキスト等）")
-
-                AVAILABLE_FONTS = sorted([
-                    "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
-                    "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "IBM Plex Mono", "Inconsolata", "Inter",
-                    "Jost", "Lato", "Libre Baskerville", "Libre Franklin", "Lora", "Merriweather",
-                    "Montserrat", "Mulish", "Noto Sans", "Noto Sans JP", "Open Sans", "Playfair Display",
-                    "Poppins", "Pt Sans", "Pt Serif", "Quattrocento", "Quicksand", "Raleway",
-                    "Roboto", "Roboto Mono", "Rubik", "Source Sans Pro", "Source Serif Pro",
-                    "Space Mono", "Spectral", "Sriracha", "Titillium Web", "Ubuntu", "Work Sans"
-                ])
-                font_dropdown = gr.Dropdown(choices=AVAILABLE_FONTS, label="メインフォント", value="Noto Sans JP", interactive=True)
-
-                gr.Markdown("---")
-                custom_theme_name_input = gr.Textbox(label="新しいテーマ名として保存", placeholder="例: My Cool Theme")
-                save_theme_button = gr.Button("カスタムテーマとして保存", variant="secondary")
-                apply_theme_button = gr.Button("このテーマを適用（要再起動）", variant="primary")
-                gr.Markdown("⚠️ **注意:** テーマの変更を完全に反映するには、コンソールを閉じて `nexus_ark.py` を再実行する必要があります。")
+                                with gr.TabItem("🎨 テーマ") as theme_tab:
+                                    theme_settings_state = gr.State({})
+                                    launch_theme_builder_button = gr.Button("🎨 テーマビルダーを起動する (別タブで開きます)")
+                                    theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
+                                    gr.Markdown("---")
+                                    gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
+                                    with gr.Row():
+                                        primary_hue_picker = gr.ColorPicker(label="プライマリカラー")
+                                        secondary_hue_picker = gr.ColorPicker(label="セカンダリカラー")
+                                        neutral_hue_picker = gr.ColorPicker(label="ニュートラルカラー（テキスト等）")
+                                    AVAILABLE_FONTS = sorted([
+                                        "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
+                                        "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "IBM Plex Mono", "Inconsolata", "Inter",
+                                        "Jost", "Lato", "Libre Baskerville", "Libre Franklin", "Lora", "Merriweather",
+                                        "Montserrat", "Mulish", "Noto Sans", "Noto Sans JP", "Open Sans", "Playfair Display",
+                                        "Poppins", "Pt Sans", "Pt Serif", "Quattrocento", "Quicksand", "Raleway",
+                                        "Roboto", "Roboto Mono", "Rubik", "Source Sans Pro", "Source Serif Pro",
+                                        "Space Mono", "Spectral", "Sriracha", "Titillium Web", "Ubuntu", "Work Sans"
+                                    ])
+                                    font_dropdown = gr.Dropdown(choices=AVAILABLE_FONTS, label="メインフォント", value="Noto Sans JP", interactive=True)
+                                    gr.Markdown("---")
+                                    custom_theme_name_input = gr.Textbox(label="新しいテーマ名として保存", placeholder="例: My Cool Theme")
+                                    save_theme_button = gr.Button("カスタムテーマとして保存", variant="secondary")
+                                    apply_theme_button = gr.Button("このテーマを適用（要再起動）", variant="primary")
+                                    gr.Markdown("⚠️ **注意:** テーマの変更を完全に反映するには、コンソールを閉じて `nexus_ark.py` を再実行する必要があります。")
 
                                 with gr.TabItem("個別設定"):
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
