@@ -100,6 +100,9 @@ try:
     alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
+    #chat_output_area pre { white-space: pre-wrap !important; word-wrap: break-word !important; }
+    #chat_output_area code { display: block; padding: 10px; border-radius: 5px; background-color: #f0f0f5; color: #333; font-family: "Courier New", Courier, monospace; }
+    #chat_output_area .thoughts code { background-color: initial; color: inherit; padding: 0; }
     #chat_output_area pre { overflow-wrap: break-word !important; white-space: pre-wrap !important; word-break: break-word !important; }
     #chat_output_area .thoughts { background-color: #2f2f32; color: #E6E6E6; padding: 5px; border-radius: 5px; font-family: "Menlo", "Monaco", "Consolas", "Courier New", monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word !important; }
     #memory_json_editor_code .cm-editor { max-height: 400px !important; overflow-y: auto !important; overflow-x: hidden !important; white-space: pre-wrap !important; word-break: break-word !important; overflow-wrap: break-word !important; }
