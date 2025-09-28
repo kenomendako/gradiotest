@@ -1104,7 +1104,7 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v10.2: Final Performance Edition)
+    (v10.3: Final Performance Edition)
     生ログをGradioのChatbot形式に変換する。
     MarkdownItライブラリへの依存をなくし、コードブロックを特別扱いする軽量なHTML生成で高速化と表示品質を両立する。
     """
@@ -1171,16 +1171,19 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
 
             # --- [ここが最終改訂の核心] splitを使った堅牢なパーサー ---
             content_parts_html = []
-            # メッセージ全体を ``` で分割する
             parts = item["content"].split('```')
 
             for i, part in enumerate(parts):
+                if not part and i > 0 and i < len(parts) -1:
+                    # 空のコードブロック ``` ``` の場合を考慮
+                    content_parts_html.append("<pre><code></code></pre>")
+                    continue
                 if not part: continue
 
                 if i % 2 == 1:
                     # 奇数番目の要素はコードブロックの中身
-                    # 最初の行が言語指定子かもしれないので分離する
                     lines = part.split('\n', 1)
+                    # [バグ修正] リストではなく、リストの要素（文字列）を正しく取り出す
                     code_content = lines[1] if len(lines) > 1 else lines[0]
                     escaped_code = html.escape(code_content.strip())
                     content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
