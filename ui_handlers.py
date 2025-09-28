@@ -1104,9 +1104,9 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v10.3: Final Performance Edition)
+    (v10.7: Definitive Edition with Scanner Parser)
     生ログをGradioのChatbot形式に変換する。
-    MarkdownItライブラリへの依存をなくし、コードブロックを特別扱いする軽量なHTML生成で高速化と表示品質を両立する。
+    正規表現を用いた「走査（スキャン）」方式でコードブロックを堅牢にパースし、表示の崩れを完全に防ぐ。
     """
     if not messages:
         return [], []
@@ -1121,7 +1121,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     agent_name_cache = {}
 
     proto_history = []
-    # ステージ1: 生ログをUI要素に分解する
+    # ステージ1: 生ログをUI要素に分解する (変更なし)
     for i, msg in enumerate(messages):
         role = msg.get("role")
         content = msg.get("content", "").strip()
@@ -1154,7 +1154,6 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     for ui_index, item in enumerate(proto_history):
         mapping_list.append(item["log_index"])
         role, responder_id = item["role"], item["responder"]
-
         is_user = (role == "USER")
 
         if item["type"] == "text":
@@ -1169,10 +1168,8 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             else: # SYSTEM
                 speaker_name = responder_id
 
-            # --- [ここが最終改訂の核心] 階層的パーサー ---
+            # --- [ここが最終改訂の核心] 走査（スキャン）型パーサー ---
             content_to_parse = item["content"]
-
-            # 1. 思考ログを先に探し、HTMLを生成して元のコンテンツから除去する
             thoughts_html = ""
             thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", content_to_parse, re.DOTALL | re.IGNORECASE)
             if thoughts_match:
@@ -1180,27 +1177,39 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 thoughts_html = f"<div class='thoughts'>{escaped_thoughts}</div>"
                 content_to_parse = content_to_parse.replace(thoughts_match.group(0), "")
 
-            # 2. 思考ログが除去された残りのコンテンツを、```で分割して処理する
             content_parts_html = []
-            parts = content_to_parse.split('```')
+            # 堅牢な正規表現：```で始まり```で終わるブロック（非貪欲マッチ）
+            code_block_pattern = re.compile(r'```([\s\S]*?)```')
+            last_index = 0
 
-            for i, part in enumerate(parts):
-                if not part and i > 0 and i < len(parts) - 1:
-                    content_parts_html.append("<pre><code></code></pre>")
-                    continue
-                if not part: continue
-
-                if i % 2 == 1:
-                    # 奇数番目 = コードブロックの中身
-                    lines = part.split('\n', 1)
-                    code_content = lines[1] if len(lines) > 1 else lines[0]
-                    # コードブロックの最初と最後の不要な改行や空白を除去してからエスケープ
-                    escaped_code = html.escape(code_content.strip())
-                    content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
-                else:
-                    # 偶数番目 = 通常のテキスト
-                    escaped_main = html.escape(part).replace('\n', '<br>')
+            for match in code_block_pattern.finditer(content_to_parse):
+                # 1. 前回のマッチの終わりから、今回のマッチの始まりまでを「通常テキスト」として処理
+                non_code_text = content_to_parse[last_index:match.start()]
+                if non_code_text:
+                    escaped_main = html.escape(non_code_text).replace('\n', '<br>')
                     content_parts_html.append(escaped_main)
+
+                # 2. 今回のマッチ全体を「コードブロック」として処理
+                code_content_raw = match.group(1) # グループ1は ``` と ``` の間のテキスト
+                lines = code_content_raw.split('\n', 1)
+
+                # 言語指定子があるかどうかの判定を改善
+                if len(lines) > 1 and re.match(r'^\w*$', lines[0].strip()):
+                    code_content = lines[1]
+                else:
+                    code_content = code_content_raw
+
+                escaped_code = html.escape(code_content.strip())
+                content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
+
+                # 3. 最終処理位置を更新
+                last_index = match.end()
+
+            # 4. 最後のマッチ以降に残ったテキストを「通常テキスト」として処理
+            remaining_text = content_to_parse[last_index:]
+            if remaining_text:
+                escaped_main = html.escape(remaining_text).replace('\n', '<br>')
+                content_parts_html.append(escaped_main)
 
             message_body_html = "".join(content_parts_html)
             # --- [最終改訂ここまで] ---
