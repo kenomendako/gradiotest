@@ -1169,36 +1169,38 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             else: # SYSTEM
                 speaker_name = responder_id
 
-            # --- [ここが最終改訂の核心] splitを使った堅牢なパーサー ---
+            # --- [ここが最終改訂の核心] 階層的パーサー ---
+            content_to_parse = item["content"]
+
+            # 1. 思考ログを先に探し、HTMLを生成して元のコンテンツから除去する
+            thoughts_html = ""
+            thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", content_to_parse, re.DOTALL | re.IGNORECASE)
+            if thoughts_match:
+                escaped_thoughts = html.escape(thoughts_match.group(1).strip()).replace('\n', '<br>')
+                thoughts_html = f"<div class='thoughts'>{escaped_thoughts}</div>"
+                content_to_parse = content_to_parse.replace(thoughts_match.group(0), "")
+
+            # 2. 思考ログが除去された残りのコンテンツを、```で分割して処理する
             content_parts_html = []
-            parts = item["content"].split('```')
+            parts = content_to_parse.split('```')
 
             for i, part in enumerate(parts):
-                if not part and i > 0 and i < len(parts) -1:
-                    # 空のコードブロック ``` ``` の場合を考慮
+                if not part and i > 0 and i < len(parts) - 1:
                     content_parts_html.append("<pre><code></code></pre>")
                     continue
                 if not part: continue
 
                 if i % 2 == 1:
-                    # 奇数番目の要素はコードブロックの中身
+                    # 奇数番目 = コードブロックの中身
                     lines = part.split('\n', 1)
-                    # [バグ修正] リストではなく、リストの要素（文字列）を正しく取り出す
                     code_content = lines[1] if len(lines) > 1 else lines[0]
+                    # コードブロックの最初と最後の不要な改行や空白を除去してからエスケープ
                     escaped_code = html.escape(code_content.strip())
                     content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
                 else:
-                    # 偶数番目の要素は通常のテキスト
-                    thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", part, re.DOTALL | re.IGNORECASE)
-                    main_content = re.sub(r"【Thoughts】.*?【/Thoughts】\s*", "", part, flags=re.DOTALL | re.IGNORECASE).strip()
-
-                    if main_content:
-                        escaped_main = html.escape(main_content).replace('\n', '<br>')
-                        content_parts_html.append(escaped_main)
-
-                    if thoughts_match:
-                        escaped_thoughts = html.escape(thoughts_match.group(1).strip()).replace('\n', '<br>')
-                        content_parts_html.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
+                    # 偶数番目 = 通常のテキスト
+                    escaped_main = html.escape(part).replace('\n', '<br>')
+                    content_parts_html.append(escaped_main)
 
             message_body_html = "".join(content_parts_html)
             # --- [最終改訂ここまで] ---
@@ -1218,6 +1220,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 f"<span id='{current_anchor_id}'></span>"
                 f"<strong>{html.escape(speaker_name)}:</strong><br>"
                 f"{message_body_html}"
+                f"{thoughts_html}" # 思考ログは常に追加
                 f"{button_container}"
             )
 
