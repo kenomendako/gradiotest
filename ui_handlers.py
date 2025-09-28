@@ -1171,32 +1171,35 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
 
             # --- [ここが最終改訂の核心] コードブロックと通常テキストを分割して処理 ---
             content_parts_html = []
-            # 正規表現でコードブロックをキャプチャしつつ、テキストを分割
-            parts = re.split(r'(```[\s\S]*?```)', item["content"])
+            # [修正点1] より堅牢な正規表現に変更。言語指定子と前後の改行を考慮する。
+            code_block_pattern = r'(```(?:[a-zA-Z]*)?\n[\s\S]*?\n```)'
+            parts = re.split(code_block_pattern, item["content"])
 
             for part in parts:
-                if part.startswith('```'):
+                if not part: continue # 空の文字列はスキップ
+
+                # [修正点2] partがコードブロックのパターンに完全に一致するかどうかで判断
+                if re.fullmatch(code_block_pattern, part):
                     # コードブロック部分の処理
-                    code_content = part.strip('`\n').strip()
+                    # [修正点3] 開始/終了の ``` と言語指定子をより安全に除去する
+                    first_newline = part.find('\n')
+                    code_content = part[first_newline+1:].rsplit('```', 1)[0].strip()
+
                     escaped_code = html.escape(code_content)
-                    # <pre><code>で囲むことで、CSSが適用され、改行も保持される
                     content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
                 else:
                     # 通常テキスト部分の処理
                     thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", part, re.DOTALL | re.IGNORECASE)
                     main_content = re.sub(r"【Thoughts】.*?【/Thoughts】\s*", "", part, flags=re.DOTALL | re.IGNORECASE).strip()
 
-                    # メインコンテンツ
                     if main_content:
                         escaped_main = html.escape(main_content).replace('\n', '<br>')
                         content_parts_html.append(escaped_main)
 
-                    # 思考ログ
                     if thoughts_match:
                         escaped_thoughts = html.escape(thoughts_match.group(1).strip()).replace('\n', '<br>')
                         content_parts_html.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
 
-            # 分割処理したHTMLパーツを結合
             message_body_html = "".join(content_parts_html)
 
             # --- ナビゲーションボタンの組み立て (変更なし) ---
@@ -1216,7 +1219,6 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 f"{message_body_html}"
                 f"{button_container}"
             )
-            # --- [最終改訂ここまで] ---
 
             gradio_history.append((final_html, None) if is_user else (None, final_html))
 
