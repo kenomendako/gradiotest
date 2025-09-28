@@ -1104,9 +1104,9 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v9: Hyper-Performance Edition)
+    (v10: Final Performance Edition)
     生ログをGradioのChatbot形式に変換する。
-    MarkdownItライブラリへの依存をなくし、軽量なHTML生成で高速化を実現。
+    MarkdownItライブラリへの依存をなくし、コードブロックを特別扱いする軽量なHTML生成で高速化と表示品質を両立する。
     """
     if not messages:
         return [], []
@@ -1118,11 +1118,10 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
     user_display_name = current_room_config.get("user_display_name", "ユーザー")
-    # 話者名をキャッシュして、毎回ファイルI/Oが走るのを防ぐ
     agent_name_cache = {}
 
     proto_history = []
-    # ステージ1: 生ログをUI要素に分解する (メディアとテキストを分離)
+    # ステージ1: 生ログをUI要素に分解する
     for i, msg in enumerate(messages):
         role = msg.get("role")
         content = msg.get("content", "").strip()
@@ -1170,25 +1169,37 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             else: # SYSTEM
                 speaker_name = responder_id
 
-            # --- [ここが改訂の核心] MarkdownItを呼ばずに、軽量なHTMLを直接生成 ---
-            thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", item["content"], re.DOTALL | re.IGNORECASE)
-            main_content = re.sub(r"【Thoughts】.*?【/Thoughts】\s*", "", item["content"], flags=re.DOTALL | re.IGNORECASE).strip()
+            # --- [ここが最終改訂の核心] コードブロックと通常テキストを分割して処理 ---
+            content_parts_html = []
+            # 正規表現でコードブロックをキャプチャしつつ、テキストを分割
+            parts = re.split(r'(```[\s\S]*?```)', item["content"])
 
-            # 1. メインコンテンツをHTMLエスケープし、改行を<br>に置換
-            #    (単純なMarkdown記法 **bold**, *italic* も簡単な置換で対応)
-            escaped_main_content = html.escape(main_content)
-            escaped_main_content = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', escaped_main_content)
-            escaped_main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', escaped_main_content)
-            escaped_main_content = escaped_main_content.replace('\n', '<br>')
+            for part in parts:
+                if part.startswith('```'):
+                    # コードブロック部分の処理
+                    code_content = part.strip('`\n').strip()
+                    escaped_code = html.escape(code_content)
+                    # <pre><code>で囲むことで、CSSが適用され、改行も保持される
+                    content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
+                else:
+                    # 通常テキスト部分の処理
+                    thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", part, re.DOTALL | re.IGNORECASE)
+                    main_content = re.sub(r"【Thoughts】.*?【/Thoughts】\s*", "", part, flags=re.DOTALL | re.IGNORECASE).strip()
 
+                    # メインコンテンツ
+                    if main_content:
+                        escaped_main = html.escape(main_content).replace('\n', '<br>')
+                        content_parts_html.append(escaped_main)
 
-            # 2. 思考ログがあれば、同様に処理して専用divで囲む
-            thoughts_html = ""
-            if thoughts_match:
-                escaped_thoughts = html.escape(thoughts_match.group(1).strip()).replace('\n', '<br>')
-                thoughts_html = f"<div class='thoughts'>{escaped_thoughts}</div>"
+                    # 思考ログ
+                    if thoughts_match:
+                        escaped_thoughts = html.escape(thoughts_match.group(1).strip()).replace('\n', '<br>')
+                        content_parts_html.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
 
-            # 3. 既存のナビゲーションボタンHTMLを組み立てる
+            # 分割処理したHTMLパーツを結合
+            message_body_html = "".join(content_parts_html)
+
+            # --- ナビゲーションボタンの組み立て (変更なし) ---
             current_anchor_id = f"msg-anchor-{ui_index}"
             nav_buttons_list = []
             if ui_index > 0: nav_buttons_list.append(f"<a href='#msg-anchor-{ui_index - 1}' class='message-nav-link' title='前の発言へ' style='text-decoration: none; color: inherit;'>▲</a>")
@@ -1198,15 +1209,14 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             buttons_str = "&nbsp;&nbsp;&nbsp;".join([b for b in [nav_buttons_html, menu_icon_html] if b])
             button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{buttons_str}</div>"
 
-            # 4. 全てのHTMLパーツを結合
+            # --- 全てのHTMLパーツを最終的に結合 ---
             final_html = (
                 f"<span id='{current_anchor_id}'></span>"
                 f"<strong>{html.escape(speaker_name)}:</strong><br>"
-                f"{escaped_main_content}"
-                f"{thoughts_html}"  # 思考ログはメインコンテンツの下に配置
+                f"{message_body_html}"
                 f"{button_container}"
             )
-            # --- [改訂ここまで] ---
+            # --- [最終改訂ここまで] ---
 
             gradio_history.append((final_html, None) if is_user else (None, final_html))
 
