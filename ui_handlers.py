@@ -381,10 +381,11 @@ def _stream_and_handle_response(
             streamed_text = ""
             final_state = None
             initial_message_count = 0
-            is_in_code_block = False # コードブロックの内外を判定する状態フラグ
-            PUNCTUATION_MULTIPLIER = 8.0
-            NEWLINE_MULTIPLIER = 15.0
 
+            # --- [新方式] 時間ベースのバッファリング ---
+            buffer = ""
+            last_update_time = time.time()
+            # AIからのストリームデータを受け取るメインループ
             with utils.capture_prints() as captured_output:
                 for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                     if mode == "initial_count":
@@ -392,33 +393,35 @@ def _stream_and_handle_response(
                     elif mode == "messages":
                         message_chunk, _ = chunk
                         if isinstance(message_chunk, AIMessageChunk):
-                            new_text_chunk = message_chunk.content
-                            for char in new_text_chunk:
-                                temp_text_for_check = streamed_text + char
-                                if temp_text_for_check.endswith("```"):
-                                    is_in_code_block = not is_in_code_block
-                                streamed_text += char
+                            # 新しいテキストをバッファに追加
+                            buffer += message_chunk.content
+
+                            # 更新タイミングを判断
+                            # (前回の更新から0.05秒以上経過しているか、バッファに一定量溜まったら更新)
+                            current_time = time.time()
+                            if buffer and (current_time - last_update_time > 0.05 or len(buffer) > 20):
+                                streamed_text += buffer
+                                buffer = "" # バッファをクリア
                                 chatbot_history[-1] = (None, streamed_text + "▌")
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                        gr.update(), gr.update(), gr.update(), gr.update(),
                                        gr.update(), gr.update(), current_console_content,
                                        gr.update(), gr.update(), gr.update())
-                                sleep_duration = 0.0
-                                if is_in_code_block:
-                                    # コードブロック内はウェイトなしで一気に表示
-                                    sleep_duration = 0.0
-                                elif streamed_text.endswith('\n\n'):
-                                    # 連続改行（段落間）の場合のみ、長めのウェイトを取る
-                                    sleep_duration = streaming_speed * NEWLINE_MULTIPLIER
-                                else:
-                                    # それ以外のすべての文字（句読点含む）は均一のウェイト
-                                    sleep_duration = streaming_speed
-
-                                if sleep_duration > 0:
-                                    time.sleep(sleep_duration)
+                                last_update_time = current_time
+                                # バッファリング方式では個別のsleepは不要
                     elif mode == "values":
                         final_state = chunk
             current_console_content += captured_output.getvalue()
+
+            # ループ終了後、バッファに残っているテキストがあれば最終更新
+            if buffer:
+                streamed_text += buffer
+                chatbot_history[-1] = (None, streamed_text + "▌")
+                yield (chatbot_history, mapping_list, gr.update(), gr.update(),
+                       gr.update(), gr.update(), gr.update(), gr.update(),
+                       gr.update(), gr.update(), current_console_content,
+                       gr.update(), gr.update(), gr.update())
+            # --- [新方式] ここまで ---
 
             # 6. 最終応答の処理とログ保存
             all_turn_popups = []
