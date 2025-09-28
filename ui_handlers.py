@@ -1104,7 +1104,7 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v10: Final Performance Edition)
+    (v10.1: Final Performance Edition)
     生ログをGradioのChatbot形式に変換する。
     MarkdownItライブラリへの依存をなくし、コードブロックを特別扱いする軽量なHTML生成で高速化と表示品質を両立する。
     """
@@ -1169,36 +1169,44 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             else: # SYSTEM
                 speaker_name = responder_id
 
-            # --- [ここが最終改訂の核心] コードブロックと通常テキストを分割して処理 ---
+            # --- [ここが最終改訂の核心] finditer を使った堅牢なパーサー ---
             content_parts_html = []
-            # [修正点1] より堅牢な正規表現に変更。言語指定子と前後の改行を考慮する。
-            code_block_pattern = r'(```(?:[a-zA-Z]*)?\n[\s\S]*?\n```)'
-            parts = re.split(code_block_pattern, item["content"])
+            last_end = 0
+            # Markdownの構造をより正確に捉える正規表現
+            code_block_pattern = re.compile(r'```(?:[a-zA-Z]*)?\n([\s\S]*?)\n```')
 
-            for part in parts:
-                if not part: continue # 空の文字列はスキップ
-
-                # [修正点2] partがコードブロックのパターンに完全に一致するかどうかで判断
-                if re.fullmatch(code_block_pattern, part):
-                    # コードブロック部分の処理
-                    # [修正点3] 開始/終了の ``` と言語指定子をより安全に除去する
-                    first_newline = part.find('\n')
-                    code_content = part[first_newline+1:].rsplit('```', 1)[0].strip()
-
-                    escaped_code = html.escape(code_content)
-                    content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
-                else:
-                    # 通常テキスト部分の処理
-                    thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", part, re.DOTALL | re.IGNORECASE)
-                    main_content = re.sub(r"【Thoughts】.*?【/Thoughts】\s*", "", part, flags=re.DOTALL | re.IGNORECASE).strip()
-
+            for match in code_block_pattern.finditer(item["content"]):
+                # 1. 前のコードブロックの終わりから、今のコードブロックの始まりまでを「通常テキスト」として処理
+                normal_text_part = item["content"][last_end:match.start()]
+                if normal_text_part:
+                    # 通常テキスト部分の共通処理
+                    thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", normal_text_part, re.DOTALL | re.IGNORECASE)
+                    main_content = re.sub(r"【Thoughts】.*?【/Thoughts】\s*", "", normal_text_part, flags=re.DOTALL | re.IGNORECASE).strip()
                     if main_content:
                         escaped_main = html.escape(main_content).replace('\n', '<br>')
                         content_parts_html.append(escaped_main)
-
                     if thoughts_match:
                         escaped_thoughts = html.escape(thoughts_match.group(1).strip()).replace('\n', '<br>')
                         content_parts_html.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
+
+                # 2. マッチした部分を「コードブロック」として処理
+                code_content = match.group(1).strip() # group(1)で ``` の外側だけを取得
+                escaped_code = html.escape(code_content)
+                content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
+
+                last_end = match.end()
+
+            # 3. 最後のコードブロックの後ろに残った「通常テキスト」を処理
+            remaining_text_part = item["content"][last_end:]
+            if remaining_text_part:
+                thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", remaining_text_part, re.DOTALL | re.IGNORECASE)
+                main_content = re.sub(r"【Thoughts】.*?【/Thoughts】\s*", "", remaining_text_part, flags=re.DOTALL | re.IGNORECASE).strip()
+                if main_content:
+                    escaped_main = html.escape(main_content).replace('\n', '<br>')
+                    content_parts_html.append(escaped_main)
+                if thoughts_match:
+                    escaped_thoughts = html.escape(thoughts_match.group(1).strip()).replace('\n', '<br>')
+                    content_parts_html.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
 
             message_body_html = "".join(content_parts_html)
 
