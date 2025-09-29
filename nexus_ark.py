@@ -186,28 +186,28 @@ try:
                 e.preventDefault();
                 e.stopPropagation();
 
-                // 1. [最終FIX] ボタンから親を遡り、メッセージコンテンツを含む最も近いコンテナを探す
-                let messageContainer = copyButton.parentElement;
-                while(messageContainer && !messageContainer.querySelector('.message-content')) {
-                    messageContainer = messageContainer.parentElement;
-                }
+                // 1. [最終FIX] ボタンの直接の親コンテナ（例: .message-buttons-right）を取得
+                const buttonContainer = copyButton.parentElement;
+                if (!buttonContainer) return;
 
-                if (!messageContainer) {
-                    console.error('Nexus Ark: Could not find the parent container for the message.');
+                // 2. [最終FIX] そのコンテナの「直前の兄弟要素」こそが、メッセージバブル本体である
+                const messageBubble = buttonContainer.previousElementSibling;
+                if (!messageBubble) {
+                    console.error('Nexus Ark: Could not find the sibling message bubble.');
                     return;
                 }
 
-                // 2. そのコンテナの中から、目的のコンテンツ(.message-content)を探し出す
-                const messageContent = messageContainer.querySelector('.message-content');
+                // 3. メッセージバブルの中から、目的のコンテンツ(.message-content)を探し出す
+                const messageContent = messageBubble.querySelector('.message-content');
                 if (!messageContent) {
-                    console.error('Nexus Ark: Could not find the message content within the identified container.');
+                    console.error('Nexus Ark: Could not find the message content within the bubble.');
                     return;
                 }
 
-                // 3. メッセージ内容をクローン
+                // 4. メッセージ内容をクローン
                 const clone = messageContent.cloneNode(true);
 
-                // 4. クローンから不要な要素を全て除去（浄化）
+                // 5. クローンから不要な要素を全て除去（浄化）
                 const selectorsToRemove = [
                     "div[style*='text-align: right']", // ナビゲーションボタンのコンテナ
                     "strong",                         // 話者名
@@ -217,11 +217,11 @@ try:
                     clone.querySelectorAll(selector).forEach(el => el.remove());
                 });
 
-                // 5. 浄化されたHTMLから、改行を維持したままテキストを抽出
+                // 6. 浄化されたHTMLから、改行を維持したままテキストを抽出
                 clone.querySelectorAll('br').forEach(br => br.replaceWith('\\n'));
                 let cleanText = (clone.textContent || clone.innerText).trim();
 
-                // 6. 抽出したテキストをクリップボードに書き込む
+                // 7. 抽出したテキストをクリップボードに書き込む
                 navigator.clipboard.writeText(cleanText).then(() => {
                     const originalHTML = copyButton.innerHTML;
                     copyButton.innerHTML = '✅';
