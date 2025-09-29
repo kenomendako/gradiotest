@@ -174,16 +174,13 @@ try:
             // --- [機能1] ナビゲーションリンクの伝播を止める ---
             let navLink = e.target.closest('.message-nav-link');
             if (navLink) {
-                // Gradioのselectイベントが発火するのを阻止
                 e.stopPropagation();
-                // リンクのデフォルト動作（ページ内スクロール）はそのまま実行させる
                 return;
             }
 
             // --- [機能2] コピーボタンの動作を乗っ取る ---
-            // Gradioのコピーボタンが含まれる可能性のあるセレクタ
-            // Gradioのバージョンアップで変更される可能性がある
-            const copyButton = e.target.closest('.copy-button');
+            // [真・最終FIX] スクリーンショットから特定した、正しいtitle属性でボタンを特定する
+            const copyButton = e.target.closest('button[title="Copy message"]');
 
             if (copyButton) {
                 // Gradioの標準コピー動作を完全にキャンセル
@@ -199,29 +196,32 @@ try:
 
                 // 3. クローンから不要な要素を全て除去（浄化）
                 const selectorsToRemove = [
-                    '.copy-button',                 // コピーボタン自体
+                    'button[title="Copy message"]',   // コピーボタン自体
                     "div[style*='text-align: right']", // ナビゲーションボタンのコンテナ
-                    "strong",                       // 話者名 (例: "USER:")
-                    "span[id*='msg-anchor-']"       // アンカー用の非表示span
+                    "strong",                         // 話者名 (例: "USER:")
+                    "span[id*='msg-anchor-']",        // アンカー用の非表示span
+                    ".avatar-container"               // アバター画像
                 ];
                 selectorsToRemove.forEach(selector => {
-                    const el = clone.querySelector(selector);
-                    if (el) el.remove();
+                    clone.querySelectorAll(selector).forEach(el => el.remove());
                 });
 
                 // 4. 浄化されたHTMLから、改行を維持したままテキストを抽出
-                //    <br>タグを改行文字に置換する
                 clone.querySelectorAll('br').forEach(br => br.replaceWith('\\n'));
                 let cleanText = clone.textContent || clone.innerText;
 
                 // 5. 抽出したテキストをクリップボードに書き込む
                 navigator.clipboard.writeText(cleanText.trim()).then(() => {
-                    // (任意) 成功したことをユーザーにフィードバック
-                    const originalIcon = copyButton.innerHTML;
-                    copyButton.innerHTML = '✅'; // チェックマークに変更
-                    setTimeout(() => {
-                        copyButton.innerHTML = originalIcon; // 1.5秒後に元のアイコンに戻す
-                    }, 1500);
+                    const originalIcon = copyButton.querySelector('svg');
+                    if (originalIcon) {
+                        // アイコンを一時的にテキストに変更
+                        copyButton.textContent = '✅';
+                        setTimeout(() => {
+                            // テキストを消去し、元のアイコンを戻す
+                            copyButton.textContent = '';
+                            copyButton.appendChild(originalIcon);
+                        }, 1500);
+                    }
                 }).catch(err => {
                     console.error('Nexus Ark: Failed to copy text: ', err);
                 });
