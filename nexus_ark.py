@@ -166,22 +166,72 @@ try:
     #tpm_note_display { text-align: right; font-size: 0.75em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
     #chat_container { position: relative; }
     """
-    js_stop_nav_link_propagation = """
+    custom_js = """
     function() {
+        // --- [イベント監視] body全体でクリックイベントを監視 ---
         document.body.addEventListener('click', function(e) {
-            let target = e.target;
-            while (target && target !== document.body) {
-                if (target.matches('.message-nav-link')) {
-                    e.stopPropagation();
-                    return;
-                }
-                target = target.parentElement;
+
+            // --- [機能1] ナビゲーションリンクの伝播を止める ---
+            let navLink = e.target.closest('.message-nav-link');
+            if (navLink) {
+                // Gradioのselectイベントが発火するのを阻止
+                e.stopPropagation();
+                // リンクのデフォルト動作（ページ内スクロール）はそのまま実行させる
+                return;
             }
-        }, true);
+
+            // --- [機能2] コピーボタンの動作を乗っ取る ---
+            // Gradioのコピーボタンが含まれる可能性のあるセレクタ
+            // Gradioのバージョンアップで変更される可能性がある
+            const copyButton = e.target.closest('.copy-button');
+
+            if (copyButton) {
+                // Gradioの標準コピー動作を完全にキャンセル
+                e.preventDefault();
+                e.stopPropagation();
+
+                // 1. メッセージバブル全体を探す
+                const messageBubble = copyButton.closest('.message-wrap');
+                if (!messageBubble) return;
+
+                // 2. メッセージ内容をクローン（元の表示は変更しない）
+                const clone = messageBubble.cloneNode(true);
+
+                // 3. クローンから不要な要素を全て除去（浄化）
+                const selectorsToRemove = [
+                    '.copy-button',                 // コピーボタン自体
+                    "div[style*='text-align: right']", // ナビゲーションボタンのコンテナ
+                    "strong",                       // 話者名 (例: "USER:")
+                    "span[id*='msg-anchor-']"       // アンカー用の非表示span
+                ];
+                selectorsToRemove.forEach(selector => {
+                    const el = clone.querySelector(selector);
+                    if (el) el.remove();
+                });
+
+                // 4. 浄化されたHTMLから、改行を維持したままテキストを抽出
+                //    <br>タグを改行文字に置換する
+                clone.querySelectorAll('br').forEach(br => br.replaceWith('\\n'));
+                let cleanText = clone.textContent || clone.innerText;
+
+                // 5. 抽出したテキストをクリップボードに書き込む
+                navigator.clipboard.writeText(cleanText.trim()).then(() => {
+                    // (任意) 成功したことをユーザーにフィードバック
+                    const originalIcon = copyButton.innerHTML;
+                    copyButton.innerHTML = '✅'; // チェックマークに変更
+                    setTimeout(() => {
+                        copyButton.innerHTML = originalIcon; // 1.5秒後に元のアイコンに戻す
+                    }, 1500);
+                }).catch(err => {
+                    console.error('Nexus Ark: Failed to copy text: ', err);
+                });
+            }
+
+        }, true); // true: キャプチャフェーズで実行し、Gradioのイベントより先に捕捉する
     }
     """
 
-    with gr.Blocks(theme=active_theme_object, css=custom_css, js=js_stop_nav_link_propagation) as demo:
+    with gr.Blocks(theme=active_theme_object, css=custom_css, js=custom_js) as demo:
         room_list_on_startup = room_manager.get_room_list_for_ui()
         if not room_list_on_startup:
             print("--- 有効なルームが見つからないため、'Default'ルームを作成します。 ---")
