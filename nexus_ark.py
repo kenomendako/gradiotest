@@ -179,24 +179,24 @@ try:
             }
 
             // --- [機能2] コピーボタンの動作を乗っ取る ---
-            const copyButton = e.target.closest('button[title="Copy message"]');
+            const copyButton = e.target.closest('button[title="Copy message"], button[aria-label="Copy message"]');
 
             if (copyButton) {
                 // Gradioの標準コピー動作を完全にキャンセル
                 e.preventDefault();
                 e.stopPropagation();
 
-                // 1. [最終FIX] ボタンから、メッセージ一行全体を囲む親コンテナ(.message-row)を探す
-                const messageRow = copyButton.closest('.message-row');
-                if (!messageRow) {
-                    console.error('Nexus Ark: Could not find the parent message row.');
+                // 1. [最終FIX] ボタンから、メッセージ全体を囲む、より一般的な親コンテナ(.message-wrap)を探す
+                const messageWrap = copyButton.closest('.message-wrap');
+                if (!messageWrap) {
+                    console.error('Nexus Ark: Could not find the parent message wrap.');
                     return;
                 }
 
-                // 2. [最終FIX] 親コンテナの中から、目的のコンテンツ(.message-content)を探し出す
-                const messageContent = messageRow.querySelector('.message-content');
+                // 2. 親コンテナの中から、目的のコンテンツ(.message-content)を探し出す
+                const messageContent = messageWrap.querySelector('.message-content');
                 if (!messageContent) {
-                    console.error('Nexus Ark: Could not find the message content within the row.');
+                    console.error('Nexus Ark: Could not find the message content within the wrap.');
                     return;
                 }
 
@@ -215,10 +215,10 @@ try:
 
                 // 5. 浄化されたHTMLから、改行を維持したままテキストを抽出
                 clone.querySelectorAll('br').forEach(br => br.replaceWith('\\n'));
-                let cleanText = clone.textContent || clone.innerText;
+                let cleanText = (clone.textContent || clone.innerText).trim();
 
                 // 6. 抽出したテキストをクリップボードに書き込む
-                navigator.clipboard.writeText(cleanText.trim()).then(() => {
+                navigator.clipboard.writeText(cleanText).then(() => {
                     const originalHTML = copyButton.innerHTML;
                     copyButton.innerHTML = '✅';
                     setTimeout(() => {
