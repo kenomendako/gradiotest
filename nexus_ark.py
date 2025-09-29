@@ -186,33 +186,39 @@ try:
                 e.preventDefault();
                 e.stopPropagation();
 
-                // 1. [最終FIX] ボタンの親要素の、さらに直前にある兄弟要素がメッセージ本体であると特定する
-                const messageContent = copyButton.parentElement.previousElementSibling;
-                if (!messageContent) {
-                    console.error('Nexus Ark: Could not find the message content to copy.');
+                // 1. [最終FIX] ボタンから、メッセージ一行全体を囲む親コンテナ(.message-row)を探す
+                const messageRow = copyButton.closest('.message-row');
+                if (!messageRow) {
+                    console.error('Nexus Ark: Could not find the parent message row.');
                     return;
                 }
 
-                // 2. メッセージ内容をクローン
+                // 2. [最終FIX] 親コンテナの中から、目的のコンテンツ(.message-content)を探し出す
+                const messageContent = messageRow.querySelector('.message-content');
+                if (!messageContent) {
+                    console.error('Nexus Ark: Could not find the message content within the row.');
+                    return;
+                }
+
+                // 3. メッセージ内容をクローン
                 const clone = messageContent.cloneNode(true);
 
-                // 3. クローンから不要な要素を全て除去（浄化）
+                // 4. クローンから不要な要素を全て除去（浄化）
                 const selectorsToRemove = [
                     "div[style*='text-align: right']", // ナビゲーションボタンのコンテナ
-                    "strong",                         // 話者名 (例: "USER:")
-                    "span[id*='msg-anchor-']",        // アンカー用の非表示span
+                    "strong",                         // 話者名
+                    "span[id*='msg-anchor-']",        // アンカー
                 ];
                 selectorsToRemove.forEach(selector => {
                     clone.querySelectorAll(selector).forEach(el => el.remove());
                 });
 
-                // 4. 浄化されたHTMLから、改行を維持したままテキストを抽出
+                // 5. 浄化されたHTMLから、改行を維持したままテキストを抽出
                 clone.querySelectorAll('br').forEach(br => br.replaceWith('\\n'));
                 let cleanText = clone.textContent || clone.innerText;
 
-                // 5. 抽出したテキストをクリップボードに書き込む
+                // 6. 抽出したテキストをクリップボードに書き込む
                 navigator.clipboard.writeText(cleanText.trim()).then(() => {
-                    // [最終FIX] ボタンの中身を破壊せず、innerHTMLを記憶して復元する安全な方法
                     const originalHTML = copyButton.innerHTML;
                     copyButton.innerHTML = '✅';
                     setTimeout(() => {
