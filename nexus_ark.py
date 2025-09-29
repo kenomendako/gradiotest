@@ -186,17 +186,21 @@ try:
                 e.preventDefault();
                 e.stopPropagation();
 
-                // 1. [最終FIX] ボタンから、メッセージ全体を囲む、より一般的な親コンテナ(.message-wrap)を探す
-                const messageWrap = copyButton.closest('.message-wrap');
-                if (!messageWrap) {
-                    console.error('Nexus Ark: Could not find the parent message wrap.');
+                // 1. [最終FIX] ボタンから親を遡り、メッセージコンテンツを含む最も近いコンテナを探す
+                let messageContainer = copyButton.parentElement;
+                while(messageContainer && !messageContainer.querySelector('.message-content')) {
+                    messageContainer = messageContainer.parentElement;
+                }
+
+                if (!messageContainer) {
+                    console.error('Nexus Ark: Could not find the parent container for the message.');
                     return;
                 }
 
-                // 2. 親コンテナの中から、目的のコンテンツ(.message-content)を探し出す
-                const messageContent = messageWrap.querySelector('.message-content');
+                // 2. そのコンテナの中から、目的のコンテンツ(.message-content)を探し出す
+                const messageContent = messageContainer.querySelector('.message-content');
                 if (!messageContent) {
-                    console.error('Nexus Ark: Could not find the message content within the wrap.');
+                    console.error('Nexus Ark: Could not find the message content within the identified container.');
                     return;
                 }
 
