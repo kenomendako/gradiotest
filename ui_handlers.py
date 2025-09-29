@@ -1104,10 +1104,10 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v10.8: Definitive Edition with HTML Entity Escaping)
+    (v10.9: Definitive Edition with Unified Scanner Parser)
     生ログをGradioのChatbot形式に変換する。
-    コードブロック内のハイフンをHTMLエンティティに置換することで、
-    GradioのMarkdown再解釈による意図しないヘッダー化（Setext-style header）を完全に防ぐ。
+    思考ログ、コードブロック、通常テキストを単一の走査ループで処理し、
+    非コード部分を<div>で囲むことで、GradioのMarkdown再解釈を完全に無効化する。
     """
     if not messages:
         return [], []
@@ -1169,41 +1169,41 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             else: # SYSTEM
                 speaker_name = responder_id
 
-            # --- [ここが最終改訂の核心] 走査（スキャン）型パーサー + HTMLエンティティ置換 ---
+            # --- [ここが最終改訂の核心] 統一スキャナーパーサー ---
             content_to_parse = item["content"]
-            thoughts_html = ""
-            thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", content_to_parse, re.DOTALL | re.IGNORECASE)
-            if thoughts_match:
-                escaped_thoughts = html.escape(thoughts_match.group(1).strip()).replace('\n', '<br>')
-                thoughts_html = f"<div class='thoughts'>{escaped_thoughts}</div>"
-                content_to_parse = content_to_parse.replace(thoughts_match.group(0), "")
-
             content_parts_html = []
-            code_block_pattern = re.compile(r'```([\s\S]*?)```')
+
+            # 思考ログ、コードブロックを全て同時に捕捉する正規表現
+            unified_pattern = re.compile(r'(【Thoughts】[\s\S]*?【/Thoughts】|```[\s\S]*?```)')
             last_index = 0
 
-            for match in code_block_pattern.finditer(content_to_parse):
-                non_code_text = content_to_parse[last_index:match.start()]
-                if non_code_text:
-                    escaped_main = html.escape(non_code_text).replace('\n', '<br>')
-                    content_parts_html.append(escaped_main)
+            for match in unified_pattern.finditer(content_to_parse):
+                # 1. 前回のマッチの終わりから、今回のマッチの始まりまでを「通常テキスト」として処理
+                non_special_text = content_to_parse[last_index:match.start()]
+                if non_special_text:
+                    escaped_main = html.escape(non_special_text).replace('\n', '<br>')
+                    content_parts_html.append(f"<div>{escaped_main}</div>")
 
-                code_content_raw = match.group(1)
+                # 2. 今回のマッチがどちらの種類かを判定して処理
+                matched_block = match.group(1)
+                if matched_block.startswith('【Thoughts】'):
+                    # 思考ログブロックの処理
+                    escaped_thoughts = html.escape(matched_block.strip()).replace('\n', '<br>')
+                    content_parts_html.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
+                else: # ``` で始まる場合
+                    # コードブロックの処理
+                    code_content_raw = matched_block[3:-3]
+                    escaped_code = html.escape(code_content_raw.strip())
+                    content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
 
-                # --- [ここが真の修正箇所] ---
-                # 1. まず、<, > などの基本的なHTML文字をエスケープ
-                escaped_code = html.escape(code_content_raw.strip())
-                # 2. 次に、GradioのMarkdownエンジンを無力化するため、ハイフンをHTMLエンティティに置換
-                final_code_content = escaped_code.replace('-', '&#45;')
-                # --- [真の修正ここまで] ---
-
-                content_parts_html.append(f"<pre><code>{final_code_content}</code></pre>")
+                # 3. 最終処理位置を更新
                 last_index = match.end()
 
+            # 4. 最後のマッチ以降に残ったテキストを「通常テキスト」として処理
             remaining_text = content_to_parse[last_index:]
             if remaining_text:
                 escaped_main = html.escape(remaining_text).replace('\n', '<br>')
-                content_parts_html.append(escaped_main)
+                content_parts_html.append(f"<div>{escaped_main}</div>")
 
             message_body_html = "".join(content_parts_html)
             # --- [最終改訂ここまで] ---
@@ -1223,7 +1223,6 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 f"<span id='{current_anchor_id}'></span>"
                 f"<strong>{html.escape(speaker_name)}:</strong><br>"
                 f"{message_body_html}"
-                f"{thoughts_html}"
                 f"{button_container}"
             )
 
