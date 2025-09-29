@@ -1104,10 +1104,9 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v10.9: Definitive Edition with Unified Scanner Parser)
-    生ログをGradioのChatbot形式に変換する。
-    思考ログ、コードブロック、通常テキストを単一の走査ループで処理し、
-    非コード部分を<div>で囲むことで、GradioのMarkdown再解釈を完全に無効化する。
+    (v11.0: Definitive Edition with render_markdown=False)
+    GradioのMarkdown再解釈を無効化することを前提とした、最終版HTMLパーサー。
+    思考ログ、コードブロック、通常テキストを単一の走査ループで堅牢に処理する。
     """
     if not messages:
         return [], []
