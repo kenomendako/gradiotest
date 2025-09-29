@@ -200,7 +200,20 @@ try:
                 // 3. メッセージバブルの中から、目的のコンテンツ(.message-content)を探し出す
                 const messageContent = messageBubble.querySelector('.message-content');
                 if (!messageContent) {
-                    console.error('Nexus Ark: Could not find the message content within the bubble.');
+                    // もし.message-contentが見つからなければ、バブル全体を対象にするフォールバック
+                    console.warn('Nexus Ark: .message-content not found, falling back to the whole bubble.');
+                    const fallbackContent = messageBubble;
+
+                    const clone = fallbackContent.cloneNode(true);
+                    clone.querySelectorAll("div[style*='text-align: right'], strong, span[id*='msg-anchor-']").forEach(el => el.remove());
+                    clone.querySelectorAll('br').forEach(br => br.replaceWith('\\n'));
+                    let cleanText = (clone.textContent || clone.innerText).trim();
+
+                    navigator.clipboard.writeText(cleanText).then(() => {
+                        const originalHTML = copyButton.innerHTML;
+                        copyButton.innerHTML = '✅';
+                        setTimeout(() => { copyButton.innerHTML = originalHTML; }, 1500);
+                    });
                     return;
                 }
 
