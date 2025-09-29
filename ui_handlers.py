@@ -1104,9 +1104,9 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v9: Hyper-Performance Edition)
-    生ログをGradioのChatbot形式に変換する。
-    MarkdownItライブラリへの依存をなくし、軽量なHTML生成で高速化を実現。
+    (v11.0: Definitive Edition with render_markdown=False)
+    GradioのMarkdown再解釈を無効化することを前提とした、最終版HTMLパーサー。
+    思考ログ、コードブロック、通常テキストを単一の走査ループで堅牢に処理する。
     """
     if not messages:
         return [], []
@@ -1118,11 +1118,10 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
     user_display_name = current_room_config.get("user_display_name", "ユーザー")
-    # 話者名をキャッシュして、毎回ファイルI/Oが走るのを防ぐ
     agent_name_cache = {}
 
     proto_history = []
-    # ステージ1: 生ログをUI要素に分解する (メディアとテキストを分離)
+    # ステージ1: 生ログをUI要素に分解する (変更なし)
     for i, msg in enumerate(messages):
         role = msg.get("role")
         content = msg.get("content", "").strip()
@@ -1155,7 +1154,6 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     for ui_index, item in enumerate(proto_history):
         mapping_list.append(item["log_index"])
         role, responder_id = item["role"], item["responder"]
-
         is_user = (role == "USER")
 
         if item["type"] == "text":
@@ -1170,25 +1168,46 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             else: # SYSTEM
                 speaker_name = responder_id
 
-            # --- [ここが改訂の核心] MarkdownItを呼ばずに、軽量なHTMLを直接生成 ---
-            thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", item["content"], re.DOTALL | re.IGNORECASE)
-            main_content = re.sub(r"【Thoughts】.*?【/Thoughts】\s*", "", item["content"], flags=re.DOTALL | re.IGNORECASE).strip()
+            # --- [ここが最終改訂の核心] 統一スキャナーパーサー ---
+            content_to_parse = item["content"]
+            content_parts_html = []
 
-            # 1. メインコンテンツをHTMLエスケープし、改行を<br>に置換
-            #    (単純なMarkdown記法 **bold**, *italic* も簡単な置換で対応)
-            escaped_main_content = html.escape(main_content)
-            escaped_main_content = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', escaped_main_content)
-            escaped_main_content = re.sub(r'\*(.*?)\*', r'<i>\1</i>', escaped_main_content)
-            escaped_main_content = escaped_main_content.replace('\n', '<br>')
+            # 思考ログ、コードブロックを全て同時に捕捉する正規表現
+            unified_pattern = re.compile(r'(【Thoughts】[\s\S]*?【/Thoughts】|```[\s\S]*?```)')
+            last_index = 0
 
+            for match in unified_pattern.finditer(content_to_parse):
+                # 1. 前回のマッチの終わりから、今回のマッチの始まりまでを「通常テキスト」として処理
+                non_special_text = content_to_parse[last_index:match.start()]
+                if non_special_text:
+                    escaped_main = html.escape(non_special_text).replace('\n', '<br>')
+                    content_parts_html.append(f"<div>{escaped_main}</div>")
 
-            # 2. 思考ログがあれば、同様に処理して専用divで囲む
-            thoughts_html = ""
-            if thoughts_match:
-                escaped_thoughts = html.escape(thoughts_match.group(1).strip()).replace('\n', '<br>')
-                thoughts_html = f"<div class='thoughts'>{escaped_thoughts}</div>"
+                # 2. 今回のマッチがどちらの種類かを判定して処理
+                matched_block = match.group(1)
+                if matched_block.startswith('【Thoughts】'):
+                    # 思考ログブロックの処理
+                    escaped_thoughts = html.escape(matched_block.strip()).replace('\n', '<br>')
+                    content_parts_html.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
+                else: # ``` で始まる場合
+                    # コードブロックの処理
+                    code_content_raw = matched_block[3:-3]
+                    escaped_code = html.escape(code_content_raw.strip())
+                    content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
 
-            # 3. 既存のナビゲーションボタンHTMLを組み立てる
+                # 3. 最終処理位置を更新
+                last_index = match.end()
+
+            # 4. 最後のマッチ以降に残ったテキストを「通常テキスト」として処理
+            remaining_text = content_to_parse[last_index:]
+            if remaining_text:
+                escaped_main = html.escape(remaining_text).replace('\n', '<br>')
+                content_parts_html.append(f"<div>{escaped_main}</div>")
+
+            message_body_html = "".join(content_parts_html)
+            # --- [最終改訂ここまで] ---
+
+            # --- ナビゲーションボタンの組み立て (変更なし) ---
             current_anchor_id = f"msg-anchor-{ui_index}"
             nav_buttons_list = []
             if ui_index > 0: nav_buttons_list.append(f"<a href='#msg-anchor-{ui_index - 1}' class='message-nav-link' title='前の発言へ' style='text-decoration: none; color: inherit;'>▲</a>")
@@ -1198,15 +1217,13 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             buttons_str = "&nbsp;&nbsp;&nbsp;".join([b for b in [nav_buttons_html, menu_icon_html] if b])
             button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{buttons_str}</div>"
 
-            # 4. 全てのHTMLパーツを結合
+            # --- 全てのHTMLパーツを最終的に結合 ---
             final_html = (
                 f"<span id='{current_anchor_id}'></span>"
                 f"<strong>{html.escape(speaker_name)}:</strong><br>"
-                f"{escaped_main_content}"
-                f"{thoughts_html}"  # 思考ログはメインコンテンツの下に配置
+                f"{message_body_html}"
                 f"{button_container}"
             )
-            # --- [改訂ここまで] ---
 
             gradio_history.append((final_html, None) if is_user else (None, final_html))
 
