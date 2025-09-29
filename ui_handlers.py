@@ -1104,9 +1104,10 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v10.7: Definitive Edition with Scanner Parser)
+    (v10.8: Definitive Edition with HTML Entity Escaping)
     生ログをGradioのChatbot形式に変換する。
-    正規表現を用いた「走査（スキャン）」方式でコードブロックを堅牢にパースし、表示の崩れを完全に防ぐ。
+    コードブロック内のハイフンをHTMLエンティティに置換することで、
+    GradioのMarkdown再解釈による意図しないヘッダー化（Setext-style header）を完全に防ぐ。
     """
     if not messages:
         return [], []
@@ -1168,7 +1169,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             else: # SYSTEM
                 speaker_name = responder_id
 
-            # --- [ここが最終改訂の核心] 走査（スキャン）型パーサー ---
+            # --- [ここが最終改訂の核心] 走査（スキャン）型パーサー + HTMLエンティティ置換 ---
             content_to_parse = item["content"]
             thoughts_html = ""
             thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", content_to_parse, re.DOTALL | re.IGNORECASE)
@@ -1178,34 +1179,27 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 content_to_parse = content_to_parse.replace(thoughts_match.group(0), "")
 
             content_parts_html = []
-            # 堅牢な正規表現：```で始まり```で終わるブロック（非貪欲マッチ）
             code_block_pattern = re.compile(r'```([\s\S]*?)```')
             last_index = 0
 
             for match in code_block_pattern.finditer(content_to_parse):
-                # 1. 前回のマッチの終わりから、今回のマッチの始まりまでを「通常テキスト」として処理
                 non_code_text = content_to_parse[last_index:match.start()]
                 if non_code_text:
                     escaped_main = html.escape(non_code_text).replace('\n', '<br>')
                     content_parts_html.append(escaped_main)
 
-                # 2. 今回のマッチ全体を「コードブロック」として処理
-                code_content_raw = match.group(1) # グループ1は ``` と ``` の間のテキスト
-                lines = code_content_raw.split('\n', 1)
+                code_content_raw = match.group(1)
 
-                # 言語指定子があるかどうかの判定を改善
-                if len(lines) > 1 and re.match(r'^\w*$', lines[0].strip()):
-                    code_content = lines[1]
-                else:
-                    code_content = code_content_raw
+                # --- [ここが真の修正箇所] ---
+                # 1. まず、<, > などの基本的なHTML文字をエスケープ
+                escaped_code = html.escape(code_content_raw.strip())
+                # 2. 次に、GradioのMarkdownエンジンを無力化するため、ハイフンをHTMLエンティティに置換
+                final_code_content = escaped_code.replace('-', '&#45;')
+                # --- [真の修正ここまで] ---
 
-                escaped_code = html.escape(code_content.strip())
-                content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
-
-                # 3. 最終処理位置を更新
+                content_parts_html.append(f"<pre><code>{final_code_content}</code></pre>")
                 last_index = match.end()
 
-            # 4. 最後のマッチ以降に残ったテキストを「通常テキスト」として処理
             remaining_text = content_to_parse[last_index:]
             if remaining_text:
                 escaped_main = html.escape(remaining_text).replace('\n', '<br>')
@@ -1229,7 +1223,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 f"<span id='{current_anchor_id}'></span>"
                 f"<strong>{html.escape(speaker_name)}:</strong><br>"
                 f"{message_body_html}"
-                f"{thoughts_html}" # 思考ログは常に追加
+                f"{thoughts_html}"
                 f"{button_container}"
             )
 
