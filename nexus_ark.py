@@ -179,7 +179,6 @@ try:
             }
 
             // --- [機能2] コピーボタンの動作を乗っ取る ---
-            // [真・最終FIX] スクリーンショットから特定した、正しいtitle属性でボタンを特定する
             const copyButton = e.target.closest('button[title="Copy message"]');
 
             if (copyButton) {
@@ -187,20 +186,21 @@ try:
                 e.preventDefault();
                 e.stopPropagation();
 
-                // 1. メッセージバブル全体を探す
-                const messageBubble = copyButton.closest('.message-wrap');
-                if (!messageBubble) return;
+                // 1. [最終FIX] ボタンの親要素の、さらに直前にある兄弟要素がメッセージ本体であると特定する
+                const messageContent = copyButton.parentElement.previousElementSibling;
+                if (!messageContent) {
+                    console.error('Nexus Ark: Could not find the message content to copy.');
+                    return;
+                }
 
-                // 2. メッセージ内容をクローン（元の表示は変更しない）
-                const clone = messageBubble.cloneNode(true);
+                // 2. メッセージ内容をクローン
+                const clone = messageContent.cloneNode(true);
 
                 // 3. クローンから不要な要素を全て除去（浄化）
                 const selectorsToRemove = [
-                    'button[title="Copy message"]',   // コピーボタン自体
                     "div[style*='text-align: right']", // ナビゲーションボタンのコンテナ
                     "strong",                         // 話者名 (例: "USER:")
                     "span[id*='msg-anchor-']",        // アンカー用の非表示span
-                    ".avatar-container"               // アバター画像
                 ];
                 selectorsToRemove.forEach(selector => {
                     clone.querySelectorAll(selector).forEach(el => el.remove());
@@ -212,16 +212,12 @@ try:
 
                 // 5. 抽出したテキストをクリップボードに書き込む
                 navigator.clipboard.writeText(cleanText.trim()).then(() => {
-                    const originalIcon = copyButton.querySelector('svg');
-                    if (originalIcon) {
-                        // アイコンを一時的にテキストに変更
-                        copyButton.textContent = '✅';
-                        setTimeout(() => {
-                            // テキストを消去し、元のアイコンを戻す
-                            copyButton.textContent = '';
-                            copyButton.appendChild(originalIcon);
-                        }, 1500);
-                    }
+                    // [最終FIX] ボタンの中身を破壊せず、innerHTMLを記憶して復元する安全な方法
+                    const originalHTML = copyButton.innerHTML;
+                    copyButton.innerHTML = '✅';
+                    setTimeout(() => {
+                        copyButton.innerHTML = originalHTML;
+                    }, 1500);
                 }).catch(err => {
                     console.error('Nexus Ark: Failed to copy text: ', err);
                 });
