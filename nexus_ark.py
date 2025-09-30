@@ -186,24 +186,32 @@ try:
                 e.preventDefault();
                 e.stopPropagation();
 
-                // 1. [最終FIX] まず、ボタンを囲むコンテナ(.message-buttons-right)を特定する
+                let messageBubble; // 発見したメッセージ本体を格納する変数
+
+                // --- [ここからが最終FIXの核心] ---
+
+                // 戦略1：ユーザー側の構造を試す (ボタンコンテナの「前の兄弟」を探す)
                 const buttonContainer = copyButton.closest('.message-buttons-right');
-                if (!buttonContainer) {
-                    console.error('Nexus Ark (Debug): Could not find the ".message-buttons-right" container.');
-                    return;
+                if (buttonContainer) {
+                    messageBubble = buttonContainer.previousElementSibling;
                 }
 
-                // 2. [最終FIX] そのコンテナの「前の兄弟要素」こそがメッセージ本体(.message-row)である
-                const messageBubble = buttonContainer.previousElementSibling;
+                // 戦略2：戦略1で失敗した場合、AI側の構造を試す (ボタンの「最も近い親」を探す)
                 if (!messageBubble) {
-                    console.error('Nexus Ark (Debug): Could not find the previous sibling (the message bubble). Structure might have changed.');
+                    messageBubble = copyButton.closest('.message-row');
+                }
+
+                // --- [最終FIXここまで] ---
+
+                if (!messageBubble) {
+                    console.error('Nexus Ark (Debug): Could not find the message bubble using any known method. The Gradio HTML structure may have changed significantly.');
                     return;
                 }
 
                 // 3. メッセージバブルの中から、目的のコンテンツ(.message-content)を探し出す
                 const messageContent = messageBubble.querySelector('.message-content');
 
-                // 4. [堅牢化] もし.message-contentが見つからなければ、バブル全体を対象とするフォールバック処理
+                // 4. [堅牢化] もし.message-contentが見つからなければ、バブル全体を対象とするフォールバック
                 const contentToClone = messageContent || messageBubble;
 
                 // 5. ターゲットとなる要素をクローン
