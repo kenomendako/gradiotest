@@ -143,6 +143,8 @@ try:
 
     /* --- [Layout & Utility Styles] --- */
 
+    #chat_output_area ul, #chat_output_area ol { padding-left: 20px; }
+
     #memory_json_editor_code .cm-editor, #core_memory_editor_code textarea {
         max-height: 400px !important; overflow-y: auto !important;
     }

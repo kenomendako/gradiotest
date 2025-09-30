@@ -1106,18 +1106,17 @@ from markdown_it import MarkdownIt
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v13.0: The Sanctuary & Re-injection Engine)
-    Gradioの解釈を完全に無効化(render_markdown=False)した世界で、
-    MarkdownのレンダリングとカスタムHTMLの表示を完璧に両立させる最終決戦仕様。
+    (v14.0: The Divide and Conquer Engine)
+    render_markdown=Falseの世界で、MarkdownとカスタムHTMLを完璧に両立させる最終決戦仕様。
+    「分割統治」アーキテクチャにより、パフォーマンスと安定性を最大化する。
     """
     if not messages:
         return [], []
 
     gradio_history, mapping_list = [], []
-    # テーブル拡張を有効にしたMarkdownパーサーを初期化
     md = MarkdownIt().enable("table")
 
-    # --- 話者名解決とタイムスタンプ除去の準備 (変更なし) ---
+    # --- [変更なし] 話者名解決とタイムスタンプ除去の準備 ---
     if not add_timestamp:
         timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
@@ -1125,7 +1124,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     agent_name_cache = {}
 
     proto_history = []
-    # ステージ1: 生ログをUI要素に分解する (変更なし)
+    # ステージ1: [変更なし] 生ログをUI要素に分解する
     for i, msg in enumerate(messages):
         # (このループの中身は前回のバージョンから変更ありません)
         role = msg.get("role")
@@ -1173,49 +1172,44 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             else: # SYSTEM
                 speaker_name = responder_id
 
-            # --- [ここからが最終決戦アーキテクチャ] ---
+            # --- [ここからが最終決戦アーキテクチャ：「分割統治」] ---
 
             content_to_parse = item["content"]
+            final_html_parts = []
 
-            # 1. 聖域化 (Extraction)
-            sanctuary = {}
+            # 1. 分割 (Split)
+            # re.splitはキャプチャグループを含むと、区切り文字もリストに残す
             unified_pattern = re.compile(r'(【Thoughts】[\s\S]*?【/Thoughts】|```[\s\S]*?```)')
+            fragments = unified_pattern.split(content_to_parse)
 
-            def sanctuary_replacer(match):
-                placeholder = f"__PLACEHOLDER_{uuid.uuid4().hex}__"
-                matched_block = match.group(1)
+            # 2. 統治 (Process Individually) & 3. 結合 (Join)
+            for fragment in fragments:
+                if not fragment or not fragment.strip():
+                    continue
 
-                if matched_block.startswith('【Thoughts】'):
-                    escaped_thoughts = html.escape(matched_block.strip()).replace('\n', '<br>')
-                    sanctuary[placeholder] = f"<div class='thoughts'>{escaped_thoughts}</div>"
-                else: # ``` で始まる場合
-                    code_content_raw = matched_block[3:-3]
-                    # 言語指定を抽出
+                if fragment.startswith('【Thoughts】'):
+                    # 思考ログは、これまで通り安全にエスケープしてカスタムdivで囲む
+                    escaped_thoughts = html.escape(fragment.strip()).replace('\n', '<br>')
+                    final_html_parts.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
+                elif fragment.startswith('```'):
+                    # コードブロックも、これまで通り安全にエスケープしてpre/codeで囲む
+                    code_content_raw = fragment[3:-3]
                     lines = code_content_raw.split('\n', 1)
                     lang = lines[0].strip()
                     code = lines[1] if len(lines) > 1 else ''
                     lang_class = f'language-{lang}' if lang else ''
                     escaped_code = html.escape(code.strip())
-                    sanctuary[placeholder] = f"<pre><code class='{lang_class}'>{escaped_code}</code></pre>"
+                    final_html_parts.append(f"<pre><code class='{lang_class}'>{escaped_code}</code></pre>")
+                else:
+                    # それ以外の断片は、安全な通常のMarkdownとしてHTMLに変換
+                    html_from_markdown = md.render(fragment)
+                    final_html_parts.append(html_from_markdown)
 
-                return placeholder
-
-            text_with_placeholders = unified_pattern.sub(sanctuary_replacer, content_to_parse)
-
-            # 2. 完全変換 (Conversion)
-            # プレースホルダーを含むテキスト全体をMarkdownとしてレンダリング
-            html_from_markdown = md.render(text_with_placeholders)
-
-            # 3. 再注入 (Re-injection)
-            final_message_body_html = html_from_markdown
-            for placeholder, html_content in sanctuary.items():
-                # <p>タグで囲まれる場合とそうでない場合の両方に対応
-                final_message_body_html = final_message_body_html.replace(f'<p>{placeholder}</p>', html_content)
-                final_message_body_html = final_message_body_html.replace(placeholder, html_content)
+            message_body_html = "".join(final_html_parts)
 
             # --- [アーキテクチャここまで] ---
 
-            # --- ナビゲーションボタンと最終HTMLの組み立て (変更なし) ---
+            # --- [変更なし] ナビゲーションボタンと最終HTMLの組み立て ---
             current_anchor_id = f"msg-anchor-{ui_index}"
             nav_buttons_list = []
             if ui_index > 0: nav_buttons_list.append(f"<a href='#msg-anchor-{ui_index - 1}' class='message-nav-link' title='前の発言へ' style='text-decoration: none; color: inherit;'>▲</a>")
@@ -1226,7 +1220,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             final_html = (
                 f"<span id='{current_anchor_id}'></span>"
                 f"<strong>{html.escape(speaker_name)}:</strong>"
-                f"{final_message_body_html}"
+                f"{message_body_html}"
                 f"{button_container}"
             )
             gradio_history.append((final_html, None) if is_user else (None, final_html))
