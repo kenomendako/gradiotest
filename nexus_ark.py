@@ -186,41 +186,30 @@ try:
                 e.preventDefault();
                 e.stopPropagation();
 
-                // 1. [最終FIX] ボタンの直接の親コンテナ（例: .message-buttons-right）を取得
-                const buttonContainer = copyButton.parentElement;
-                if (!buttonContainer) return;
+                // 1. [最終FIX] まず、ボタンを囲むコンテナ(.message-buttons-right)を特定する
+                const buttonContainer = copyButton.closest('.message-buttons-right');
+                if (!buttonContainer) {
+                    console.error('Nexus Ark (Debug): Could not find the ".message-buttons-right" container.');
+                    return;
+                }
 
-                // 2. [最終FIX] そのコンテナの「直前の兄弟要素」こそが、メッセージバブル本体である
+                // 2. [最終FIX] そのコンテナの「前の兄弟要素」こそがメッセージ本体(.message-row)である
                 const messageBubble = buttonContainer.previousElementSibling;
                 if (!messageBubble) {
-                    console.error('Nexus Ark: Could not find the sibling message bubble.');
+                    console.error('Nexus Ark (Debug): Could not find the previous sibling (the message bubble). Structure might have changed.');
                     return;
                 }
 
                 // 3. メッセージバブルの中から、目的のコンテンツ(.message-content)を探し出す
                 const messageContent = messageBubble.querySelector('.message-content');
-                if (!messageContent) {
-                    // もし.message-contentが見つからなければ、バブル全体を対象にするフォールバック
-                    console.warn('Nexus Ark: .message-content not found, falling back to the whole bubble.');
-                    const fallbackContent = messageBubble;
 
-                    const clone = fallbackContent.cloneNode(true);
-                    clone.querySelectorAll("div[style*='text-align: right'], strong, span[id*='msg-anchor-']").forEach(el => el.remove());
-                    clone.querySelectorAll('br').forEach(br => br.replaceWith('\\n'));
-                    let cleanText = (clone.textContent || clone.innerText).trim();
+                // 4. [堅牢化] もし.message-contentが見つからなければ、バブル全体を対象とするフォールバック処理
+                const contentToClone = messageContent || messageBubble;
 
-                    navigator.clipboard.writeText(cleanText).then(() => {
-                        const originalHTML = copyButton.innerHTML;
-                        copyButton.innerHTML = '✅';
-                        setTimeout(() => { copyButton.innerHTML = originalHTML; }, 1500);
-                    });
-                    return;
-                }
+                // 5. ターゲットとなる要素をクローン
+                const clone = contentToClone.cloneNode(true);
 
-                // 4. メッセージ内容をクローン
-                const clone = messageContent.cloneNode(true);
-
-                // 5. クローンから不要な要素を全て除去（浄化）
+                // 6. クローンから不要な要素を全て除去（浄化）
                 const selectorsToRemove = [
                     "div[style*='text-align: right']", // ナビゲーションボタンのコンテナ
                     "strong",                         // 話者名
@@ -230,11 +219,11 @@ try:
                     clone.querySelectorAll(selector).forEach(el => el.remove());
                 });
 
-                // 6. 浄化されたHTMLから、改行を維持したままテキストを抽出
+                // 7. 浄化されたHTMLから、改行を維持したままテキストを抽出
                 clone.querySelectorAll('br').forEach(br => br.replaceWith('\\n'));
                 let cleanText = (clone.textContent || clone.innerText).trim();
 
-                // 7. 抽出したテキストをクリップボードに書き込む
+                // 8. 抽出したテキストをクリップボードに書き込む
                 navigator.clipboard.writeText(cleanText).then(() => {
                     const originalHTML = copyButton.innerHTML;
                     copyButton.innerHTML = '✅';
