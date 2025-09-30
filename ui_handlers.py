@@ -1224,10 +1224,16 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                     escaped_thoughts = html.escape(fragment.strip()).replace('\n', '<br>')
                     final_html_parts.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
                 elif fragment.startswith('```'):
+                    # --- [v16.1: バグを修正した、正しいコードブロック処理] ---
                     code_content_raw = fragment[3:-3]
                     lines = code_content_raw.split('\n', 1)
-                    lang = lines.strip()
-                    code = lines if len(lines) > 1 else ''
+
+                    # [修正点] リストの0番目の要素(言語名)を安全に取得
+                    lang = lines[0].strip() if lines else ''
+
+                    # [修正点] リストの2番目の要素(コード本体)を安全に取得
+                    code = lines[1] if len(lines) > 1 else ''
+
                     lang_class = f'language-{lang}' if lang else ''
                     escaped_code = html.escape(code.strip())
                     final_html_parts.append(f"<pre><code class='{lang_class}'>{escaped_code}</code></pre>")

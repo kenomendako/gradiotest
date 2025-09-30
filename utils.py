@@ -492,7 +492,9 @@ def save_html_cache(room_name: str, cache_data: Dict[str, str]):
     """指定されたルームのHTMLキャッシュを保存する。"""
     if not room_name:
         return
-    cache_path = os.path.join(constants.ROOMS_DIR, room_name, "cache", "html_cache.json")
+    cache_dir = os.path.join(constants.ROOMS_DIR, room_name, "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, "html_cache.json")
     try:
         # 新しいキャッシュファイルを、一時ファイルに書き出してからリネームすることで、書き込み中のクラッシュによるファイル破損を防ぐ
         temp_path = cache_path + ".tmp"
