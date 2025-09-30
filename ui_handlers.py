@@ -1102,16 +1102,30 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
     history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, mapping_list, None, gr.update(visible=False)
 
+import uuid
+import hashlib
+from markdown_it import MarkdownIt
+
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v11.0: Definitive Edition with render_markdown=False)
-    GradioのMarkdown再解釈を無効化することを前提とした、最終版HTMLパーサー。
-    思考ログ、コードブロック、通常テキストを単一の走査ループで堅牢に処理する。
+    (v16.0: The Self-Cleaning Cache Engine)
+    HTMLキャッシュに自動ガベージコレクション機能を統合し、パフォーマンスと長期的な安定性を両立させる最終版。
     """
     if not messages:
+        # [キャッシュGC] ログが空になった場合、キャッシュも空にする
+        if os.path.exists(os.path.join(constants.ROOMS_DIR, current_room_folder, "cache", "html_cache.json")):
+             utils.save_html_cache(current_room_folder, {})
         return [], []
 
     gradio_history, mapping_list = [], []
+    md = MarkdownIt().enable("table")
+
+    # 1. [キャッシュ機構] この処理の開始前に、既存のキャッシュを一度だけ読み込む
+    html_cache = utils.load_html_cache(current_room_folder)
+    cache_updated = False
+
+    # [キャッシュGC] 今回の表示で有効なキャッシュキーをすべて保持するためのセット
+    valid_cache_keys = set()
 
     # --- 話者名解決とタイムスタンプ除去の準備 ---
     if not add_timestamp:
@@ -1121,38 +1135,70 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     agent_name_cache = {}
 
     proto_history = []
-    # ステージ1: 生ログをUI要素に分解する (変更なし)
+    # ステージ1: 生ログをUI要素に分解する
     for i, msg in enumerate(messages):
         role = msg.get("role")
         content = msg.get("content", "").strip()
         responder_id = msg.get("responder")
         if not responder_id: continue
 
-        if not add_timestamp and content:
-            content = timestamp_pattern.sub('', content)
+        original_content_for_cache = content
+
+        current_content_for_display = content
+        if not add_timestamp:
+            current_content_for_display = timestamp_pattern.sub('', current_content_for_display)
 
         if screenshot_mode and redaction_rules:
             for rule in redaction_rules:
                 if rule.get("find"):
-                    content = content.replace(rule["find"], rule.get("replace", ""))
+                    current_content_for_display = current_content_for_display.replace(rule["find"], rule.get("replace", ""))
 
-        text_part = re.sub(r"\[(?:Generated Image|ファイル添付):.*?\]", "", content, flags=re.DOTALL).strip()
+        text_part = re.sub(r"\[(?:Generated Image|ファイル添付):.*?\]", "", current_content_for_display, flags=re.DOTALL).strip()
+        media_matches = list(re.finditer(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]", current_content_for_display))
+
         if text_part:
-            proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": text_part, "log_index": i})
+            proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": text_part, "log_index": i, "original_content": original_content_for_cache})
 
-        media_pattern = re.compile(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]")
-        for path_match in media_pattern.finditer(content):
-            path = path_match.group(1).strip()
+        for match in media_matches:
+            path = match.group(1).strip()
             if os.path.exists(path):
-                proto_history.append({"type": "media", "role": role, "responder": responder_id, "path": path, "log_index": i})
+                proto_history.append({"type": "media", "role": role, "responder": responder_id, "path": path, "log_index": i, "original_content": original_content_for_cache})
 
-        if not text_part and not media_pattern.search(content):
-            proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
+        if not text_part and not media_matches:
+            proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i, "original_content": original_content_for_cache})
 
     # ステージ2: UI要素からGradioのChatbot形式を組み立てる
     total_ui_rows = len(proto_history)
     for ui_index, item in enumerate(proto_history):
         mapping_list.append(item["log_index"])
+
+        # 2. [キャッシュ機構] 現在のメッセージと設定から、ユニークなキャッシュキーを生成
+        cache_payload = {
+            "item_type": item["type"],
+            "content": item.get("original_content", ""), # 常に元のコンテントを使う
+            "add_timestamp": add_timestamp,
+            "screenshot_mode": screenshot_mode,
+            "redaction_rules": redaction_rules if screenshot_mode else None
+        }
+        cache_key = hashlib.md5(json.dumps(cache_payload, sort_keys=True).encode('utf-8')).hexdigest()
+
+        # [キャッシュGC] このキーは有効であると記録
+        valid_cache_keys.add(cache_key)
+
+        # 3. [キャッシュ機構] キャッシュヒットの確認
+        if cache_key in html_cache:
+            # キャッシュが存在すれば、それを使ってUI要素を組み立て、次のループへ
+            cached_item = html_cache[cache_key]
+            is_user = (cached_item["role"] == "USER")
+            if cached_item["type"] == "html":
+                gradio_history.append((cached_item["html"], None) if is_user else (None, cached_item["html"]))
+            elif cached_item["type"] == "media":
+                media_tuple = (cached_item["path"], os.path.basename(cached_item["path"]))
+                gradio_history.append((media_tuple, None) if is_user else (None, media_tuple))
+            continue # ★★★ これが高速化の鍵 ★★★
+
+        # 4. [キャッシュ機構] キャッシュミスの場合のみ、以下の重い処理を実行
+        cache_updated = True # キャッシュが更新されたことをマーク
         role, responder_id = item["role"], item["responder"]
         is_user = (role == "USER")
 
@@ -1165,71 +1211,71 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                     agent_config = room_manager.get_room_config(responder_id) or {}
                     agent_name_cache[responder_id] = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
                 speaker_name = agent_name_cache[responder_id]
-            else: # SYSTEM
+            else:
                 speaker_name = responder_id
 
-            # --- [ここが最終改訂の核心] 統一スキャナーパーサー ---
             content_to_parse = item["content"]
-            content_parts_html = []
-
-            # 思考ログ、コードブロックを全て同時に捕捉する正規表現
+            final_html_parts = []
             unified_pattern = re.compile(r'(【Thoughts】[\s\S]*?【/Thoughts】|```[\s\S]*?```)')
-            last_index = 0
+            fragments = unified_pattern.split(content_to_parse)
+            for fragment in fragments:
+                if not fragment or not fragment.strip(): continue
+                if fragment.startswith('【Thoughts】'):
+                    escaped_thoughts = html.escape(fragment.strip()).replace('\n', '<br>')
+                    final_html_parts.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
+                elif fragment.startswith('```'):
+                    # --- [v16.1: バグを修正した、正しいコードブロック処理] ---
+                    code_content_raw = fragment[3:-3]
+                    lines = code_content_raw.split('\n', 1)
 
-            for match in unified_pattern.finditer(content_to_parse):
-                # 1. 前回のマッチの終わりから、今回のマッチの始まりまでを「通常テキスト」として処理
-                non_special_text = content_to_parse[last_index:match.start()]
-                if non_special_text:
-                    escaped_main = html.escape(non_special_text).replace('\n', '<br>')
-                    content_parts_html.append(f"<div>{escaped_main}</div>")
+                    # [修正点] リストの0番目の要素(言語名)を安全に取得
+                    lang = lines[0].strip() if lines else ''
 
-                # 2. 今回のマッチがどちらの種類かを判定して処理
-                matched_block = match.group(1)
-                if matched_block.startswith('【Thoughts】'):
-                    # 思考ログブロックの処理
-                    escaped_thoughts = html.escape(matched_block.strip()).replace('\n', '<br>')
-                    content_parts_html.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
-                else: # ``` で始まる場合
-                    # コードブロックの処理
-                    code_content_raw = matched_block[3:-3]
-                    escaped_code = html.escape(code_content_raw.strip())
-                    content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
+                    # [修正点] リストの2番目の要素(コード本体)を安全に取得
+                    code = lines[1] if len(lines) > 1 else ''
 
-                # 3. 最終処理位置を更新
-                last_index = match.end()
+                    lang_class = f'language-{lang}' if lang else ''
+                    escaped_code = html.escape(code.strip())
+                    final_html_parts.append(f"<pre><code class='{lang_class}'>{escaped_code}</code></pre>")
+                else:
+                    html_from_markdown = md.render(fragment)
+                    final_html_parts.append(html_from_markdown)
+            message_body_html = "".join(final_html_parts)
 
-            # 4. 最後のマッチ以降に残ったテキストを「通常テキスト」として処理
-            remaining_text = content_to_parse[last_index:]
-            if remaining_text:
-                escaped_main = html.escape(remaining_text).replace('\n', '<br>')
-                content_parts_html.append(f"<div>{escaped_main}</div>")
-
-            message_body_html = "".join(content_parts_html)
-            # --- [最終改訂ここまで] ---
-
-            # --- ナビゲーションボタンの組み立て (変更なし) ---
             current_anchor_id = f"msg-anchor-{ui_index}"
             nav_buttons_list = []
             if ui_index > 0: nav_buttons_list.append(f"<a href='#msg-anchor-{ui_index - 1}' class='message-nav-link' title='前の発言へ' style='text-decoration: none; color: inherit;'>▲</a>")
             if ui_index < total_ui_rows - 1: nav_buttons_list.append(f"<a href='#msg-anchor-{ui_index + 1}' class='message-nav-link' title='次の発言へ' style='text-decoration: none; color: inherit;'>▼</a>")
             nav_buttons_html = "&nbsp;&nbsp;".join(nav_buttons_list)
-            menu_icon_html = "<span title='メニュー表示' style='font-weight: bold; cursor: pointer;'>&#8942;</span>"
-            buttons_str = "&nbsp;&nbsp;&nbsp;".join([b for b in [nav_buttons_html, menu_icon_html] if b])
-            button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{buttons_str}</div>"
+            button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{nav_buttons_html}</div>"
 
-            # --- 全てのHTMLパーツを最終的に結合 ---
             final_html = (
                 f"<span id='{current_anchor_id}'></span>"
-                f"<strong>{html.escape(speaker_name)}:</strong><br>"
+                f"<strong>{html.escape(speaker_name)}:</strong>"
                 f"{message_body_html}"
                 f"{button_container}"
             )
-
             gradio_history.append((final_html, None) if is_user else (None, final_html))
+
+            # 5. [キャッシュ機構] 生成したHTMLをキャッシュに保存
+            html_cache[cache_key] = {"type": "html", "role": role, "html": final_html}
 
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))
             gradio_history.append((media_tuple, None) if is_user else (None, media_tuple))
+            # 5. [キャッシュ機構] メディア情報もキャッシュに保存
+            html_cache[cache_key] = {"type": "media", "role": role, "path": item["path"]}
+
+    # 6. [キャッシュGC] 既存のキャッシュキーと、有効なキーのセットを比較
+    if set(html_cache.keys()) != valid_cache_keys:
+        # 孤児エントリーが存在する場合、有効なキーのみで新しいキャッシュを構築
+        new_cache = {key: html_cache[key] for key in valid_cache_keys if key in html_cache}
+        html_cache = new_cache
+        cache_updated = True # 保存フラグを立てる
+
+    # 7. [キャッシュ機構] ループ終了後、更新があった場合のみキャッシュファイルを保存
+    if cache_updated:
+        utils.save_html_cache(current_room_folder, html_cache)
 
     return gradio_history, mapping_list
 

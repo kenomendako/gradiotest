@@ -471,3 +471,35 @@ def is_character_name(name: str) -> bool:
     if ".." in name or "/" in name or "\\" in name: return False
     room_dir = os.path.join(constants.ROOMS_DIR, name)
     return os.path.isdir(room_dir)
+
+def load_html_cache(room_name: str) -> Dict[str, str]:
+    """指定されたルームのHTMLキャッシュを読み込む。"""
+    if not room_name:
+        return {}
+    cache_path = os.path.join(constants.ROOMS_DIR, room_name, "cache", "html_cache.json")
+    if os.path.exists(cache_path):
+        try:
+            # パフォーマンスのため、ファイルサイズが0でないこともチェック
+            if os.path.getsize(cache_path) > 0:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, IOError):
+            pass # エラーの場合は新しいキャッシュを作成
+    return {}
+
+def save_html_cache(room_name: str, cache_data: Dict[str, str]):
+    """指定されたルームのHTMLキャッシュを保存する。"""
+    if not room_name:
+        return
+    cache_dir = os.path.join(constants.ROOMS_DIR, room_name, "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, "html_cache.json")
+    try:
+        # 新しいキャッシュファイルを、一時ファイルに書き出してからリネームすることで、書き込み中のクラッシュによるファイル破損を防ぐ
+        temp_path = cache_path + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(cache_data, f) # パフォーマンスのため、インデントなしで保存
+        os.replace(temp_path, cache_path)
+    except Exception as e:
+        print(f"!! エラー: HTMLキャッシュの保存に失敗しました: {e}")
