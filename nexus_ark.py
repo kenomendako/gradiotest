@@ -166,22 +166,80 @@ try:
     #tpm_note_display { text-align: right; font-size: 0.75em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
     #chat_container { position: relative; }
     """
-    js_stop_nav_link_propagation = """
+    custom_js = """
     function() {
+        // --- [イベント監視] body全体でクリックイベントを監視 ---
         document.body.addEventListener('click', function(e) {
-            let target = e.target;
-            while (target && target !== document.body) {
-                if (target.matches('.message-nav-link')) {
-                    e.stopPropagation();
+
+            // --- [機能1] ナビゲーションリンクの伝播を止める ---
+            let navLink = e.target.closest('.message-nav-link');
+            if (navLink) {
+                e.stopPropagation();
+                return;
+            }
+
+            // --- [機能2] コピーボタンの動作を乗っ取る ---
+            const copyButton = e.target.closest('button[title="Copy message"], button[aria-label="Copy message"]');
+
+            if (copyButton) {
+                // Gradioの標準コピー動作を完全にキャンセル
+                e.preventDefault();
+                e.stopPropagation();
+
+                // 1. [最終FIX] 'message-buttons-'で始まるクラスを持つ、最も近い親コンテナを探す (左右を問わない)
+                const buttonContainer = copyButton.closest('[class*="message-buttons-"]');
+                if (!buttonContainer) {
+                    console.error('Nexus Ark (Debug): Could not find the button container with class starting with "message-buttons-".');
                     return;
                 }
-                target = target.parentElement;
+
+                // 2. [最終FIX] そのコンテナの「前の兄弟要素」こそがメッセージ本体(.message-row)である
+                const messageBubble = buttonContainer.previousElementSibling;
+                if (!messageBubble) {
+                    console.error('Nexus Ark (Debug): Could not find the previous sibling (the message bubble).');
+                    return;
+                }
+
+                // 3. メッセージバブルの中から、目的のコンテンツ(.message-content)を探し出す
+                const messageContent = messageBubble.querySelector('.message-content');
+
+                // 4. [堅牢化] もし.message-contentが見つからなければ、バブル全体を対象とするフォールバック処理
+                const contentToClone = messageContent || messageBubble;
+
+                // 5. ターゲットとなる要素をクローン
+                const clone = contentToClone.cloneNode(true);
+
+                // 6. クローンから不要な要素を全て除去（浄化）
+                const selectorsToRemove = [
+                    "div[style*='text-align: right']", // ナビゲーションボタンのコンテナ
+                    "strong",                         // 話者名
+                    "span[id*='msg-anchor-']",        // アンカー
+                ];
+                selectorsToRemove.forEach(selector => {
+                    clone.querySelectorAll(selector).forEach(el => el.remove());
+                });
+
+                // 7. 浄化されたHTMLから、改行を維持したままテキストを抽出
+                clone.querySelectorAll('br').forEach(br => br.replaceWith('\\n'));
+                let cleanText = (clone.textContent || clone.innerText).trim();
+
+                // 8. 抽出したテキストをクリップボードに書き込む
+                navigator.clipboard.writeText(cleanText).then(() => {
+                    const originalHTML = copyButton.innerHTML;
+                    copyButton.innerHTML = '✅';
+                    setTimeout(() => {
+                        copyButton.innerHTML = originalHTML;
+                    }, 1500);
+                }).catch(err => {
+                    console.error('Nexus Ark: Failed to copy text: ', err);
+                });
             }
-        }, true);
+
+        }, true); // true: キャプチャフェーズで実行し、Gradioのイベントより先に捕捉する
     }
     """
 
-    with gr.Blocks(theme=active_theme_object, css=custom_css, js=js_stop_nav_link_propagation) as demo:
+    with gr.Blocks(theme=active_theme_object, css=custom_css, js=custom_js) as demo:
         room_list_on_startup = room_manager.get_room_list_for_ui()
         if not room_list_on_startup:
             print("--- 有効なルームが見つからないため、'Default'ルームを作成します。 ---")
