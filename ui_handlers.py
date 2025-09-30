@@ -1102,18 +1102,22 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
     history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, mapping_list, None, gr.update(visible=False)
 
+from markdown_it import MarkdownIt
+
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v11.0: Definitive Edition with render_markdown=False)
-    GradioのMarkdown再解釈を無効化することを前提とした、最終版HTMLパーサー。
-    思考ログ、コードブロック、通常テキストを単一の走査ループで堅牢に処理する。
+    (v13.0: The Sanctuary & Re-injection Engine)
+    Gradioの解釈を完全に無効化(render_markdown=False)した世界で、
+    MarkdownのレンダリングとカスタムHTMLの表示を完璧に両立させる最終決戦仕様。
     """
     if not messages:
         return [], []
 
     gradio_history, mapping_list = [], []
+    # テーブル拡張を有効にしたMarkdownパーサーを初期化
+    md = MarkdownIt().enable("table")
 
-    # --- 話者名解決とタイムスタンプ除去の準備 ---
+    # --- 話者名解決とタイムスタンプ除去の準備 (変更なし) ---
     if not add_timestamp:
         timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
@@ -1123,6 +1127,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     proto_history = []
     # ステージ1: 生ログをUI要素に分解する (変更なし)
     for i, msg in enumerate(messages):
+        # (このループの中身は前回のバージョンから変更ありません)
         role = msg.get("role")
         content = msg.get("content", "").strip()
         responder_id = msg.get("responder")
@@ -1168,63 +1173,62 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             else: # SYSTEM
                 speaker_name = responder_id
 
-            # --- [ここが最終改訂の核心] 統一スキャナーパーサー ---
+            # --- [ここからが最終決戦アーキテクチャ] ---
+
             content_to_parse = item["content"]
-            content_parts_html = []
 
-            # 思考ログ、コードブロックを全て同時に捕捉する正規表現
+            # 1. 聖域化 (Extraction)
+            sanctuary = {}
             unified_pattern = re.compile(r'(【Thoughts】[\s\S]*?【/Thoughts】|```[\s\S]*?```)')
-            last_index = 0
 
-            for match in unified_pattern.finditer(content_to_parse):
-                # 1. 前回のマッチの終わりから、今回のマッチの始まりまでを「通常テキスト」として処理
-                non_special_text = content_to_parse[last_index:match.start()]
-                if non_special_text:
-                    escaped_main = html.escape(non_special_text).replace('\n', '<br>')
-                    content_parts_html.append(f"<div>{escaped_main}</div>")
-
-                # 2. 今回のマッチがどちらの種類かを判定して処理
+            def sanctuary_replacer(match):
+                placeholder = f"__PLACEHOLDER_{uuid.uuid4().hex}__"
                 matched_block = match.group(1)
+
                 if matched_block.startswith('【Thoughts】'):
-                    # 思考ログブロックの処理
                     escaped_thoughts = html.escape(matched_block.strip()).replace('\n', '<br>')
-                    content_parts_html.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
+                    sanctuary[placeholder] = f"<div class='thoughts'>{escaped_thoughts}</div>"
                 else: # ``` で始まる場合
-                    # コードブロックの処理
                     code_content_raw = matched_block[3:-3]
-                    escaped_code = html.escape(code_content_raw.strip())
-                    content_parts_html.append(f"<pre><code>{escaped_code}</code></pre>")
+                    # 言語指定を抽出
+                    lines = code_content_raw.split('\n', 1)
+                    lang = lines[0].strip()
+                    code = lines[1] if len(lines) > 1 else ''
+                    lang_class = f'language-{lang}' if lang else ''
+                    escaped_code = html.escape(code.strip())
+                    sanctuary[placeholder] = f"<pre><code class='{lang_class}'>{escaped_code}</code></pre>"
 
-                # 3. 最終処理位置を更新
-                last_index = match.end()
+                return placeholder
 
-            # 4. 最後のマッチ以降に残ったテキストを「通常テキスト」として処理
-            remaining_text = content_to_parse[last_index:]
-            if remaining_text:
-                escaped_main = html.escape(remaining_text).replace('\n', '<br>')
-                content_parts_html.append(f"<div>{escaped_main}</div>")
+            text_with_placeholders = unified_pattern.sub(sanctuary_replacer, content_to_parse)
 
-            message_body_html = "".join(content_parts_html)
-            # --- [最終改訂ここまで] ---
+            # 2. 完全変換 (Conversion)
+            # プレースホルダーを含むテキスト全体をMarkdownとしてレンダリング
+            html_from_markdown = md.render(text_with_placeholders)
 
-            # --- ナビゲーションボタンの組み立て (変更なし) ---
+            # 3. 再注入 (Re-injection)
+            final_message_body_html = html_from_markdown
+            for placeholder, html_content in sanctuary.items():
+                # <p>タグで囲まれる場合とそうでない場合の両方に対応
+                final_message_body_html = final_message_body_html.replace(f'<p>{placeholder}</p>', html_content)
+                final_message_body_html = final_message_body_html.replace(placeholder, html_content)
+
+            # --- [アーキテクチャここまで] ---
+
+            # --- ナビゲーションボタンと最終HTMLの組み立て (変更なし) ---
             current_anchor_id = f"msg-anchor-{ui_index}"
             nav_buttons_list = []
             if ui_index > 0: nav_buttons_list.append(f"<a href='#msg-anchor-{ui_index - 1}' class='message-nav-link' title='前の発言へ' style='text-decoration: none; color: inherit;'>▲</a>")
             if ui_index < total_ui_rows - 1: nav_buttons_list.append(f"<a href='#msg-anchor-{ui_index + 1}' class='message-nav-link' title='次の発言へ' style='text-decoration: none; color: inherit;'>▼</a>")
             nav_buttons_html = "&nbsp;&nbsp;".join(nav_buttons_list)
-            menu_icon_html = "<span title='メニュー表示' style='font-weight: bold; cursor: pointer;'>&#8942;</span>"
-            buttons_str = "&nbsp;&nbsp;&nbsp;".join([b for b in [nav_buttons_html, menu_icon_html] if b])
-            button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{buttons_str}</div>"
+            button_container = f"<div style='text-align: right; margin-top: 8px; font-size: 1.2em; line-height: 1;'>{nav_buttons_html}</div>"
 
-            # --- 全てのHTMLパーツを最終的に結合 ---
             final_html = (
                 f"<span id='{current_anchor_id}'></span>"
-                f"<strong>{html.escape(speaker_name)}:</strong><br>"
-                f"{message_body_html}"
+                f"<strong>{html.escape(speaker_name)}:</strong>"
+                f"{final_message_body_html}"
                 f"{button_container}"
             )
-
             gradio_history.append((final_html, None) if is_user else (None, final_html))
 
         elif item["type"] == "media":

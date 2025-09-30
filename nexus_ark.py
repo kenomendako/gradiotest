@@ -482,7 +482,13 @@ try:
                                         chatgpt_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
 
                     with gr.Column(scale=3):
-                        chatbot_display = gr.Chatbot(height=600, elem_id="chat_output_area", show_copy_button=True, show_label=False, render_markdown=False)
+                        chatbot_display = gr.Chatbot(
+                            height=600,
+                            elem_id="chat_output_area",
+                            show_copy_button=True,
+                            show_label=False,
+                            render_markdown=False # これが、我々が絶対的な支配権を取り戻すための誓いである
+                        )
 
                         # ▼▼▼【ここからが修正箇所】▼▼▼
 
