@@ -1108,11 +1108,13 @@ from markdown_it import MarkdownIt
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v15.0: The Intelligent HTML Cache Engine)
-    HTML変換結果をキャッシュすることで、再表示時のパフォーマンスを劇的に向上させる最終版。
-    Julesによって完成された「分割統治」アーキテクチャをコアに統合。
+    (v16.0: The Self-Cleaning Cache Engine)
+    HTMLキャッシュに自動ガベージコレクション機能を統合し、パフォーマンスと長期的な安定性を両立させる最終版。
     """
     if not messages:
+        # [キャッシュGC] ログが空になった場合、キャッシュも空にする
+        if os.path.exists(os.path.join(constants.ROOMS_DIR, current_room_folder, "cache", "html_cache.json")):
+             utils.save_html_cache(current_room_folder, {})
         return [], []
 
     gradio_history, mapping_list = [], []
@@ -1122,7 +1124,10 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     html_cache = utils.load_html_cache(current_room_folder)
     cache_updated = False
 
-    # --- [変更なし] 話者名解決とタイムスタンプ除去の準備 ---
+    # [キャッシュGC] 今回の表示で有効なキャッシュキーをすべて保持するためのセット
+    valid_cache_keys = set()
+
+    # --- 話者名解決とタイムスタンプ除去の準備 ---
     if not add_timestamp:
         timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
@@ -1130,14 +1135,14 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     agent_name_cache = {}
 
     proto_history = []
-    # ステージ1: [変更なし] 生ログをUI要素に分解する
+    # ステージ1: 生ログをUI要素に分解する
     for i, msg in enumerate(messages):
         role = msg.get("role")
         content = msg.get("content", "").strip()
         responder_id = msg.get("responder")
         if not responder_id: continue
 
-        original_content_for_cache = content # タイムスタンプ除去前の内容を保持
+        original_content_for_cache = content
 
         current_content_for_display = content
         if not add_timestamp:
@@ -1149,16 +1154,17 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                     current_content_for_display = current_content_for_display.replace(rule["find"], rule.get("replace", ""))
 
         text_part = re.sub(r"\[(?:Generated Image|ファイル添付):.*?\]", "", current_content_for_display, flags=re.DOTALL).strip()
+        media_matches = list(re.finditer(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]", current_content_for_display))
+
         if text_part:
             proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": text_part, "log_index": i, "original_content": original_content_for_cache})
 
-        media_pattern = re.compile(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]")
-        for path_match in media_pattern.finditer(current_content_for_display):
-            path = path_match.group(1).strip()
+        for match in media_matches:
+            path = match.group(1).strip()
             if os.path.exists(path):
                 proto_history.append({"type": "media", "role": role, "responder": responder_id, "path": path, "log_index": i, "original_content": original_content_for_cache})
 
-        if not text_part and not media_pattern.search(current_content_for_display):
+        if not text_part and not media_matches:
             proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i, "original_content": original_content_for_cache})
 
     # ステージ2: UI要素からGradioのChatbot形式を組み立てる
@@ -1168,12 +1174,16 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
 
         # 2. [キャッシュ機構] 現在のメッセージと設定から、ユニークなキャッシュキーを生成
         cache_payload = {
-            "content": item["original_content"],
+            "item_type": item["type"],
+            "content": item.get("original_content", ""), # 常に元のコンテントを使う
             "add_timestamp": add_timestamp,
             "screenshot_mode": screenshot_mode,
             "redaction_rules": redaction_rules if screenshot_mode else None
         }
         cache_key = hashlib.md5(json.dumps(cache_payload, sort_keys=True).encode('utf-8')).hexdigest()
+
+        # [キャッシュGC] このキーは有効であると記録
+        valid_cache_keys.add(cache_key)
 
         # 3. [キャッシュ機構] キャッシュヒットの確認
         if cache_key in html_cache:
@@ -1193,7 +1203,6 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         is_user = (role == "USER")
 
         if item["type"] == "text":
-            # --- ここから先のHTML生成ロジックは、Julesによって完成された「分割統治」と全く同じ ---
             speaker_name = ""
             if is_user:
                 speaker_name = user_display_name
@@ -1202,39 +1211,29 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                     agent_config = room_manager.get_room_config(responder_id) or {}
                     agent_name_cache[responder_id] = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
                 speaker_name = agent_name_cache[responder_id]
-            else: # SYSTEM
+            else:
                 speaker_name = responder_id
 
             content_to_parse = item["content"]
             final_html_parts = []
-
             unified_pattern = re.compile(r'(【Thoughts】[\s\S]*?【/Thoughts】|```[\s\S]*?```)')
             fragments = unified_pattern.split(content_to_parse)
-
             for fragment in fragments:
-                if not fragment or not fragment.strip():
-                    continue
-
+                if not fragment or not fragment.strip(): continue
                 if fragment.startswith('【Thoughts】'):
                     escaped_thoughts = html.escape(fragment.strip()).replace('\n', '<br>')
                     final_html_parts.append(f"<div class='thoughts'>{escaped_thoughts}</div>")
                 elif fragment.startswith('```'):
-                    code_content_raw = fragment[3:-3].strip()
+                    code_content_raw = fragment[3:-3]
                     lines = code_content_raw.split('\n', 1)
-                    if len(lines) > 1 and lines[0].strip():
-                        lang = lines[0].strip()
-                        code = lines[1]
-                    else:
-                        lang = ''
-                        code = code_content_raw
-
+                    lang = lines.strip()
+                    code = lines if len(lines) > 1 else ''
                     lang_class = f'language-{lang}' if lang else ''
                     escaped_code = html.escape(code.strip())
                     final_html_parts.append(f"<pre><code class='{lang_class}'>{escaped_code}</code></pre>")
                 else:
                     html_from_markdown = md.render(fragment)
                     final_html_parts.append(html_from_markdown)
-
             message_body_html = "".join(final_html_parts)
 
             current_anchor_id = f"msg-anchor-{ui_index}"
@@ -1261,7 +1260,14 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             # 5. [キャッシュ機構] メディア情報もキャッシュに保存
             html_cache[cache_key] = {"type": "media", "role": role, "path": item["path"]}
 
-    # 6. [キャッシュ機構] ループ終了後、更新があった場合のみキャッシュファイルを保存
+    # 6. [キャッシュGC] 既存のキャッシュキーと、有効なキーのセットを比較
+    if set(html_cache.keys()) != valid_cache_keys:
+        # 孤児エントリーが存在する場合、有効なキーのみで新しいキャッシュを構築
+        new_cache = {key: html_cache[key] for key in valid_cache_keys if key in html_cache}
+        html_cache = new_cache
+        cache_updated = True # 保存フラグを立てる
+
+    # 7. [キャッシュ機構] ループ終了後、更新があった場合のみキャッシュファイルを保存
     if cache_updated:
         utils.save_html_cache(current_room_folder, html_cache)
 
