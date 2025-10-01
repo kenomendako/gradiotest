@@ -27,6 +27,7 @@ from tools.image_tools import generate_image as generate_image_tool_func
 import pytz
 import ijson
 import time
+from markdown_it import MarkdownIt
 
 
 import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer
@@ -1102,25 +1103,27 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
     history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, mapping_list, None, gr.update(visible=False)
 
+md = MarkdownIt()
+
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v20.0: The Markdown Renaissance)
-    思考タグをMarkdownのコードブロックに変換し、Gradioネイティブのレンダリングに完全に委ねる最終版。
+    (v21.0: The Final Architecture)
+    AIの【Thoughts】タグを検出し、表示用のHTMLに変換する、最終確定版。
     """
     if not messages:
         return [], []
 
     gradio_history, mapping_list = [], []
 
+    # ... (話者名を取得するための準備部分は変更なし) ...
     if not add_timestamp:
         timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
-
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
     user_display_name = current_room_config.get("user_display_name", "ユーザー")
     agent_name_cache = {}
 
     proto_history = []
-    # ... (この中の proto_history を組み立てるための for ループは変更不要です) ...
+    # ... (proto_history を組み立てるための for ループは変更なし) ...
     for i, msg in enumerate(messages):
         role, content = msg.get("role"), msg.get("content", "").strip()
         responder_id = msg.get("responder")
@@ -1152,21 +1155,34 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 speaker_name = agent_name_cache[responder_id]
             else: speaker_name = responder_id
 
-            content_to_parse = item['content']
+            # --- [ここからが最終アーキテクチャの核心：分割統治と翻訳] ---
 
-            # --- [ここからが新しいアーキテクチャの核心] ---
-            def thoughts_replacer(match):
-                thoughts_content = match.group(1).strip()
-                # コードブロックの前後に改行を追加し、パーサーにブロックの区切りを明確に伝える
-                return f"\n\n```{thoughts_content}```\n\n"
+            # 1. AIの応答を「思考ログ」と「それ以外のMarkdown」に分割する
+            thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
+            parts = thoughts_pattern.split(item['content'])
 
-            thoughts_pattern = re.compile(r"<thinking>([\s\S]*?)</thinking>", re.IGNORECASE)
-            final_content_with_markdown = thoughts_pattern.sub(thoughts_replacer, content_to_parse)
+            html_parts = []
+            for part in parts:
+                if not part or not part.strip():
+                    continue
+
+                # 2. 各パーツを、その性質に合った方法でHTMLに変換する
+                if thoughts_pattern.match(part):
+                    # 【思考ログの処理】
+                    inner_content_match = re.search(r"【Thoughts】([\s\S]*?)【/Thoughts】", part, re.IGNORECASE)
+                    inner_content = inner_content_match.group(1).strip() if inner_content_match else ""
+                    escaped_content = html.escape(inner_content).replace('\n', '<br>')
+                    html_parts.append(f"<div class='thinking'>{escaped_content}</div>")
+                else:
+                    # 【通常Markdownの処理】
+                    html_parts.append(md.render(part.strip()))
+
+            final_html_content = "".join(html_parts)
+            final_html = f"<div><strong>{speaker_name}:</strong></div>{final_html_content}" if speaker_name else final_html_content
+
             # --- [アーキテクチャここまで] ---
 
-            final_markdown = f"**{speaker_name}:**\n\n{final_content_with_markdown}" if speaker_name else final_content_with_markdown
-
-            gradio_history.append((final_markdown, None) if is_user else (None, final_markdown))
+            gradio_history.append((final_html, None) if is_user else (None, final_html))
 
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))

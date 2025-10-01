@@ -100,10 +100,11 @@ try:
     alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
-    /* --- [Final Styles - v6: Markdown Native] --- */
+    /* --- [Final Styles - v5.1] --- */
 
-    /* 思考ログ(コードブロック)のスタイル: <pre>タグを直接スタイリング */
-    #chat_output_area pre {
+    /* 思考ログのスタイル: <div class="thinking"> を直接スタイリング */
+    #chat_output_area div.thinking {
+        display: block; /* ブロック要素として扱う */
         background-color: var(--background-fill-secondary);
         color: var(--text-color-secondary);
         border: 1px solid var(--border-color-primary);
@@ -111,7 +112,7 @@ try:
         border-radius: 8px;
         font-family: var(--font-mono);
         font-size: 0.9em;
-        white-space: pre-wrap !important; /* ← この一行を追加 */
+        white-space: pre-wrap;
         word-break: break-word;
     }
 
@@ -398,7 +399,7 @@ try:
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
-                            render_markdown=True,
+                            render_markdown=False,
                             editable="all"
                         )
 
