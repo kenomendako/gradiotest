@@ -119,7 +119,7 @@ try:
     }
 
     /* ゴミ箱アイコン（クリアボタン）を強制的に非表示にする */
-    #chat_output_area button[aria-label="Clear"] {
+    #chat_output_area button[aria-label="会話をクリア"] {
         display: none !important;
     }
 
