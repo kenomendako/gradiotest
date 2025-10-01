@@ -100,9 +100,9 @@ try:
     alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
-    /* --- [Theme-Aware Styles v3 - Final] --- */
+    /* --- [Final Styles - v4] --- */
 
-    /* 思考ログのスタイル */
+    /* 思考ログのスタイル: Gradioがpタグで囲むことを考慮 */
     #chat_output_area .thoughts {
         background-color: var(--background-fill-secondary);
         color: var(--text-color-secondary);
@@ -113,36 +113,17 @@ try:
         font-size: 0.9em;
         white-space: pre-wrap;
         word-break: break-word;
+        /* Gradioが生成する<p>タグの余白をリセット */
+        margin-top: 0;
+        margin-bottom: 0;
     }
 
-    /* コードブロックの親要素(<pre>)のスタイル */
-    #chat_output_area pre {
-        background-color: var(--background-fill-secondary);
-        border: 1px solid var(--border-color-primary);
-        border-radius: 8px;
-        padding: 12px;
-        overflow-x: auto; /* Fallback scrollbar */
-        /* The key to victory: aggressive wrapping rules */
-        white-space: pre-wrap !important;
-        word-wrap: break-word !important;
-        overflow-wrap: break-word !important;
-    }
-
-    /* コードブロック本体(<code>)のスタイル */
-    #chat_output_area pre code {
-        padding: 0;
-        background-color: transparent;
-        border: none;
-        font-family: var(--font-mono);
-        font-size: 0.9em;
-        /* Inherit the aggressive wrapping rules from the <pre> parent */
-        white-space: inherit !important;
-        word-wrap: inherit !important;
-        overflow-wrap: inherit !important;
+    /* ゴミ箱アイコン（クリアボタン）を強制的に非表示にする */
+    #chat_output_area button[aria-label="会話をクリア"] {
+        display: none !important;
     }
 
     /* --- [Layout & Utility Styles] --- */
-
     #memory_json_editor_code .cm-editor, #core_memory_editor_code textarea {
         max-height: 400px !important; overflow-y: auto !important;
     }
@@ -168,74 +149,7 @@ try:
     """
     custom_js = """
     function() {
-        // --- [イベント監視] body全体でクリックイベントを監視 ---
-        document.body.addEventListener('click', function(e) {
-
-            // --- [機能1] ナビゲーションリンクの伝播を止める ---
-            let navLink = e.target.closest('.message-nav-link');
-            if (navLink) {
-                e.stopPropagation();
-                return;
-            }
-
-            // --- [機能2] コピーボタンの動作を乗っ取る ---
-            const copyButton = e.target.closest('button[title="Copy message"], button[aria-label="Copy message"]');
-
-            if (copyButton) {
-                // Gradioの標準コピー動作を完全にキャンセル
-                e.preventDefault();
-                e.stopPropagation();
-
-                // 1. [最終FIX] 'message-buttons-'で始まるクラスを持つ、最も近い親コンテナを探す (左右を問わない)
-                const buttonContainer = copyButton.closest('[class*="message-buttons-"]');
-                if (!buttonContainer) {
-                    console.error('Nexus Ark (Debug): Could not find the button container with class starting with "message-buttons-".');
-                    return;
-                }
-
-                // 2. [最終FIX] そのコンテナの「前の兄弟要素」こそがメッセージ本体(.message-row)である
-                const messageBubble = buttonContainer.previousElementSibling;
-                if (!messageBubble) {
-                    console.error('Nexus Ark (Debug): Could not find the previous sibling (the message bubble).');
-                    return;
-                }
-
-                // 3. メッセージバブルの中から、目的のコンテンツ(.message-content)を探し出す
-                const messageContent = messageBubble.querySelector('.message-content');
-
-                // 4. [堅牢化] もし.message-contentが見つからなければ、バブル全体を対象とするフォールバック処理
-                const contentToClone = messageContent || messageBubble;
-
-                // 5. ターゲットとなる要素をクローン
-                const clone = contentToClone.cloneNode(true);
-
-                // 6. クローンから不要な要素を全て除去（浄化）
-                const selectorsToRemove = [
-                    "div[style*='text-align: right']", // ナビゲーションボタンのコンテナ
-                    "strong",                         // 話者名
-                    "span[id*='msg-anchor-']",        // アンカー
-                ];
-                selectorsToRemove.forEach(selector => {
-                    clone.querySelectorAll(selector).forEach(el => el.remove());
-                });
-
-                // 7. 浄化されたHTMLから、改行を維持したままテキストを抽出
-                clone.querySelectorAll('br').forEach(br => br.replaceWith('\\n'));
-                let cleanText = (clone.textContent || clone.innerText).trim();
-
-                // 8. 抽出したテキストをクリップボードに書き込む
-                navigator.clipboard.writeText(cleanText).then(() => {
-                    const originalHTML = copyButton.innerHTML;
-                    copyButton.innerHTML = '✅';
-                    setTimeout(() => {
-                        copyButton.innerHTML = originalHTML;
-                    }, 1500);
-                }).catch(err => {
-                    console.error('Nexus Ark: Failed to copy text: ', err);
-                });
-            }
-
-        }, true); // true: キャプチャフェーズで実行し、Gradioのイベントより先に捕捉する
+        // This function is intentionally left blank.
     }
     """
 
@@ -487,7 +401,7 @@ try:
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
-                            render_markdown=True # Gradioに表示を委任する
+                            render_markdown=True
                         )
 
                         # ▼▼▼【ここからが修正箇所】▼▼▼

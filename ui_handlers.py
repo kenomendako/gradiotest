@@ -1102,25 +1102,21 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
     history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, mapping_list, None, gr.update(visible=False)
 
-import uuid
-# hashlibとMarkdownItは不要になるので削除
-# from markdown_it import MarkdownIt
-# import hashlib
-
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v17.0: Back to Basics)
-    Gradioの標準Markdownレンダリングに表示を全面的に委任する、シンプルで堅牢な最終版。
-    思考ログは特別なMarkdown記法に変換し、GradioのCSSセレクタでスタイリングする。
+    (v18.0: The Final Compromise)
+    Gradio標準のMarkdownレンダリングを最大限に活用しつつ、思考ログのみを
+    カスタムHTMLでラップすることで、パフォーマンスと表現力を両立させる最終版。
     """
     if not messages:
         return [], []
 
     gradio_history, mapping_list = [], []
 
-    # --- 話者名解決とタイムスタンプ除去の準備 ---
     if not add_timestamp:
         timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
+
+    # 話者名を取得するための準備
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
     user_display_name = current_room_config.get("user_display_name", "ユーザー")
     agent_name_cache = {}
@@ -1128,14 +1124,12 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     proto_history = []
     # ステージ1: 生ログをUI要素に分解する
     for i, msg in enumerate(messages):
-        # ... (このループは変更なし)
-        # (このループの中身は前回のバージョンから変更ありません)
         role = msg.get("role")
         content = msg.get("content", "").strip()
         responder_id = msg.get("responder")
         if not responder_id: continue
 
-        if not add_timestamp and content:
+        if not add_timestamp:
             content = timestamp_pattern.sub('', content)
 
         if screenshot_mode and redaction_rules:
@@ -1157,44 +1151,43 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         if not text_part and not media_matches:
             proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
 
-
     # ステージ2: UI要素からGradioのChatbot形式を組み立てる
     for item in proto_history:
         mapping_list.append(item["log_index"])
-        role, responder_id = item["role"], item["responder"]
+        role = item["role"]
+        responder_id = item["responder"]
         is_user = (role == "USER")
 
         if item["type"] == "text":
+            # --- [話者名表示ロジックの復活] ---
             speaker_name = ""
             if is_user:
                 speaker_name = user_display_name
             elif role == "AGENT":
                 if responder_id not in agent_name_cache:
                     agent_config = room_manager.get_room_config(responder_id) or {}
+                    # agent_display_name, room_name の順でフォールバック
                     agent_name_cache[responder_id] = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
                 speaker_name = agent_name_cache[responder_id]
-            else: # SYSTEM
+            else: # SYSTEMなど
                 speaker_name = responder_id
-
-            # --- [ここからが新しいアーキテクチャの核心] ---
 
             content_to_parse = item["content"]
 
-            # 1. 思考ログを、カスタムCSSでスタイリングするための特別なMarkdown記法に変換
+            # --- [思考ログのHTMLラップ処理] ---
             def thoughts_replacer(match):
-                thoughts_content = match.group(1).strip()
-                # Gradioが解釈できるカスタムHTMLラッパーで囲む
+                # 思考内容をHTMLエスケープし、改行を<br>に変換
+                thoughts_content = html.escape(match.group(1).strip()).replace('\n', '<br>')
+                # 正しいCSSクラス名 '.thoughts' を使用
                 return f"<div class='thoughts'>{thoughts_content}</div>"
 
-            # 思考ログのパターン
             thoughts_pattern = re.compile(r"【Thoughts】([\s\S]*?)【/Thoughts】", re.IGNORECASE)
             final_content = thoughts_pattern.sub(thoughts_replacer, content_to_parse)
 
-            # 2. 話者名をMarkdownの太字として追加
-            final_markdown = f"**{speaker_name}:**\n{final_content}"
+            # --- [最終的なMarkdown文字列の組み立て] ---
+            final_markdown = f"**{speaker_name}:**\n{final_content}" if speaker_name else final_content
 
-            # --- [アーキテクチャここまで] ---
-
+            # ユーザーの発言は左側、それ以外は右側に表示
             gradio_history.append((final_markdown, None) if is_user else (None, final_markdown))
 
         elif item["type"] == "media":
