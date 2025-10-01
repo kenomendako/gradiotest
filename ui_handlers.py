@@ -1152,7 +1152,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             else: speaker_name = responder_id
 
             # HTML変換は不要になった！
-            final_markdown = f"**{speaker_name}:**\n{item['content']}" if speaker_name else item['content']
+            final_markdown = f"**{speaker_name}:**\n\n{item['content']}" if speaker_name else item['content']
             gradio_history.append((final_markdown, None) if is_user else (None, final_markdown))
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))
