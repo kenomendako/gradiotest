@@ -100,10 +100,11 @@ try:
     alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
-    /* --- [Final Styles - v4] --- */
+    /* --- [Final Styles - v5] --- */
 
-    /* 思考ログのスタイル: Gradioがpタグで囲むことを考慮 */
-    #chat_output_area .thoughts {
+    /* 思考ログのスタイル: <thinking> タグを直接スタイリング */
+    #chat_output_area thinking {
+        display: block; /* ブロック要素として扱う */
         background-color: var(--background-fill-secondary);
         color: var(--text-color-secondary);
         border: 1px solid var(--border-color-primary);
@@ -113,9 +114,6 @@ try:
         font-size: 0.9em;
         white-space: pre-wrap;
         word-break: break-word;
-        /* Gradioが生成する<p>タグの余白をリセット */
-        margin-top: 0;
-        margin-bottom: 0;
     }
 
     /* ゴミ箱アイコン（クリアボタン）を強制的に非表示にする */
@@ -401,7 +399,9 @@ try:
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
-                            render_markdown=True
+                            render_markdown=True,
+                            allow_tags=["thinking"], # ← この行を追加
+                            editable="all"          # ← この行を追加
                         )
 
                         # ▼▼▼【ここからが修正箇所】▼▼▼
@@ -752,6 +752,13 @@ try:
             outputs=[selected_message_state, action_button_group, play_audio_button],
             show_progress=False
         )
+        # --- [ここから追加] ---
+        chatbot_display.edit(
+            fn=ui_handlers.handle_chatbot_edit,
+            inputs=[current_room_name, api_history_limit_state, current_log_map_state, room_add_timestamp_checkbox],
+            outputs=[chatbot_display, current_log_map_state]
+        )
+        # --- [追加ここまで] ---
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_room_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
         api_history_limit_dropdown.change(
             fn=ui_handlers.update_api_history_limit_state_and_reload_chat,

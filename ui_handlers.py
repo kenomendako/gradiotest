@@ -1104,9 +1104,8 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v18.0: The Final Compromise)
-    Gradio標準のMarkdownレンダリングを最大限に活用しつつ、思考ログのみを
-    カスタムHTMLでラップすることで、パフォーマンスと表現力を両立させる最終版。
+    (v19.0: Native Rendering)
+    Gradioの allow_tags と標準Markdownレンダリングを信頼する、最もシンプルなバージョン。
     """
     if not messages:
         return [], []
@@ -1116,84 +1115,48 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     if not add_timestamp:
         timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
 
-    # 話者名を取得するための準備
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
     user_display_name = current_room_config.get("user_display_name", "ユーザー")
     agent_name_cache = {}
 
     proto_history = []
-    # ステージ1: 生ログをUI要素に分解する
     for i, msg in enumerate(messages):
-        role = msg.get("role")
-        content = msg.get("content", "").strip()
+        role, content = msg.get("role"), msg.get("content", "").strip()
         responder_id = msg.get("responder")
         if not responder_id: continue
-
-        if not add_timestamp:
-            content = timestamp_pattern.sub('', content)
-
+        if not add_timestamp: content = timestamp_pattern.sub('', content)
         if screenshot_mode and redaction_rules:
             for rule in redaction_rules:
-                if rule.get("find"):
-                    content = content.replace(rule["find"], rule.get("replace", ""))
-
+                if rule.get("find"): content = content.replace(rule["find"], rule.get("replace", ""))
         text_part = re.sub(r"\[(?:Generated Image|ファイル添付):.*?\]", "", content, flags=re.DOTALL).strip()
         media_matches = list(re.finditer(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]", content))
-
-        if text_part:
-            proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": text_part, "log_index": i})
-
+        if text_part: proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": text_part, "log_index": i})
         for match in media_matches:
             path = match.group(1).strip()
-            if os.path.exists(path):
-                proto_history.append({"type": "media", "role": role, "responder": responder_id, "path": path, "log_index": i})
+            if os.path.exists(path): proto_history.append({"type": "media", "role": role, "responder": responder_id, "path": path, "log_index": i})
+        if not text_part and not media_matches: proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
 
-        if not text_part and not media_matches:
-            proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
-
-    # ステージ2: UI要素からGradioのChatbot形式を組み立てる
     for item in proto_history:
         mapping_list.append(item["log_index"])
-        role = item["role"]
-        responder_id = item["responder"]
+        role, responder_id = item["role"], item["responder"]
         is_user = (role == "USER")
 
         if item["type"] == "text":
-            # --- [話者名表示ロジックの復活] ---
             speaker_name = ""
-            if is_user:
-                speaker_name = user_display_name
+            if is_user: speaker_name = user_display_name
             elif role == "AGENT":
                 if responder_id not in agent_name_cache:
                     agent_config = room_manager.get_room_config(responder_id) or {}
-                    # agent_display_name, room_name の順でフォールバック
                     agent_name_cache[responder_id] = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
                 speaker_name = agent_name_cache[responder_id]
-            else: # SYSTEMなど
-                speaker_name = responder_id
+            else: speaker_name = responder_id
 
-            content_to_parse = item["content"]
-
-            # --- [思考ログのHTMLラップ処理] ---
-            def thoughts_replacer(match):
-                # 思考内容をHTMLエスケープし、改行を<br>に変換
-                thoughts_content = html.escape(match.group(1).strip()).replace('\n', '<br>')
-                # 正しいCSSクラス名 '.thoughts' を使用
-                return f"<div class='thoughts'>{thoughts_content}</div>"
-
-            thoughts_pattern = re.compile(r"【Thoughts】([\s\S]*?)【/Thoughts】", re.IGNORECASE)
-            final_content = thoughts_pattern.sub(thoughts_replacer, content_to_parse)
-
-            # --- [最終的なMarkdown文字列の組み立て] ---
-            final_markdown = f"**{speaker_name}:**\n{final_content}" if speaker_name else final_content
-
-            # ユーザーの発言は左側、それ以外は右側に表示
+            # HTML変換は不要になった！
+            final_markdown = f"**{speaker_name}:**\n{item['content']}" if speaker_name else item['content']
             gradio_history.append((final_markdown, None) if is_user else (None, final_markdown))
-
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))
             gradio_history.append((media_tuple, None) if is_user else (None, media_tuple))
-
     return gradio_history, mapping_list
 
 
@@ -2880,3 +2843,56 @@ def handle_apply_theme(theme_settings, selected_theme_name):
     custom_themes = theme_settings.get("custom_themes", {})
     config_manager.save_theme_settings(selected_theme_name, custom_themes)
     gr.Info(f"テーマ「{selected_theme_name}」を適用設定にしました。アプリケーションを再起動してください。")
+
+
+def handle_chatbot_edit(
+    room_name: str,
+    api_history_limit: str,
+    mapping_list: list,
+    add_timestamp: bool,
+    evt: gr.SelectData
+):
+    """
+    GradioのChatbot編集イベントを処理するハンドラ。
+    """
+    if not room_name or evt.index is None or not mapping_list:
+        return gr.update(), gr.update()
+
+    try:
+        edited_ui_index = evt.index[0]
+        new_text = evt.value
+
+        # 1. 安全装置: ログファイルのバックアップ
+        backup_path = room_manager.backup_log_file(room_name)
+        if not backup_path:
+            gr.Error("ログのバックアップに失敗したため、編集を中止しました。")
+            return gr.update(), gr.update()
+
+        # 2. 編集対象の特定
+        log_f, _, _, _, _ = get_room_files_paths(room_name)
+        all_messages = utils.load_chat_log(log_f)
+
+        # UIインデックスから元のログのインデックスを取得
+        original_log_index = mapping_list[edited_ui_index]
+
+        # 3. ログの書き換え
+        if 0 <= original_log_index < len(all_messages):
+            # タイムスタンプを保持しつつ、メインのコンテンツだけを更新する
+            original_content = all_messages[original_log_index]['content']
+            timestamp_match = re.search(r'(\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$)', original_content)
+            timestamp = timestamp_match.group(1) if timestamp_match else ""
+
+            all_messages[original_log_index]['content'] = new_text.strip() + timestamp
+
+            _overwrite_log_file(log_f, all_messages)
+            gr.Info(f"メッセージを編集し、ログを更新しました。(バックアップ: {os.path.basename(backup_path)})")
+        else:
+            gr.Error("編集対象のメッセージを特定できませんでした。")
+
+    except Exception as e:
+        gr.Error(f"メッセージの編集中にエラーが発生しました: {e}")
+        traceback.print_exc()
+
+    # 4. UIの再描画
+    history, new_mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
+    return history, new_mapping_list

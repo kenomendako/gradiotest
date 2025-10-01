@@ -214,7 +214,8 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
 
 def remove_thoughts_from_text(text: str) -> str:
     if not text: return ""
-    thoughts_pattern = re.compile(r"【Thoughts】.*?【/Thoughts】\s*", re.DOTALL | re.IGNORECASE)
+    # 新しい <thinking> タグに対応
+    thoughts_pattern = re.compile(r"<thinking>.*?</thinking>\s*", re.DOTALL | re.IGNORECASE)
     return thoughts_pattern.sub("", text).strip()
 
 def get_current_location(character_name: str) -> Optional[str]:
