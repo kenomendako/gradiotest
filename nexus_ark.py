@@ -143,6 +143,8 @@ try:
 
     /* --- [Layout & Utility Styles] --- */
 
+    #chat_output_area ul, #chat_output_area ol { padding-left: 20px; }
+
     #memory_json_editor_code .cm-editor, #core_memory_editor_code textarea {
         max-height: 400px !important; overflow-y: auto !important;
     }
@@ -487,7 +489,7 @@ try:
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
-                            render_markdown=True # Gradioに表示を委任する
+                            render_markdown=False # これが、我々が絶対的な支配権を取り戻すための誓いである
                         )
 
                         # ▼▼▼【ここからが修正箇所】▼▼▼
