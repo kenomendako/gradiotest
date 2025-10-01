@@ -1104,8 +1104,8 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v19.0: Native Rendering)
-    Gradioの allow_tags と標準Markdownレンダリングを信頼する、最もシンプルなバージョン。
+    (v19.1: The Final Truth)
+    思考タグを<div>に変換し、GradioのMarkdownパーサーにHTMLとして確実に認識させる最終版。
     """
     if not messages:
         return [], []
@@ -1120,6 +1120,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
     agent_name_cache = {}
 
     proto_history = []
+    # ... (この中の proto_history を組み立てるための for ループは変更不要です) ...
     for i, msg in enumerate(messages):
         role, content = msg.get("role"), msg.get("content", "").strip()
         responder_id = msg.get("responder")
@@ -1136,6 +1137,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             if os.path.exists(path): proto_history.append({"type": "media", "role": role, "responder": responder_id, "path": path, "log_index": i})
         if not text_part and not media_matches: proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
 
+
     for item in proto_history:
         mapping_list.append(item["log_index"])
         role, responder_id = item["role"], item["responder"]
@@ -1151,12 +1153,30 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 speaker_name = agent_name_cache[responder_id]
             else: speaker_name = responder_id
 
-            # HTML変換は不要になった！
-            final_markdown = f"**{speaker_name}:**\n\n{item['content']}" if speaker_name else item['content']
+            content_to_parse = item['content']
+
+            # --- [ここからが新しいアーキテクチャの核心] ---
+            def thoughts_replacer(match):
+                # 1. 思考内容を抽出
+                thoughts_content = match.group(1).strip()
+                # 2. Markdownパーサーに誤解されないよう、中身をHTMLエスケープ
+                escaped_content = html.escape(thoughts_content).replace('\n', '<br>')
+                # 3. Gradioが確実に解釈できる <div> タグで囲む
+                return f"<div class='thinking'>{escaped_content}</div>"
+
+            thoughts_pattern = re.compile(r"<thinking>([\s\S]*?)</thinking>", re.IGNORECASE)
+            # re.subを使って、<thinking>タグを<div class="thinking">に置き換える
+            final_content_with_html = thoughts_pattern.sub(thoughts_replacer, content_to_parse)
+            # --- [アーキテクチャここまで] ---
+
+            final_markdown = f"**{speaker_name}:**\n\n{final_content_with_html}" if speaker_name else final_content_with_html
+
             gradio_history.append((final_markdown, None) if is_user else (None, final_markdown))
+
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))
             gradio_history.append((media_tuple, None) if is_user else (None, media_tuple))
+
     return gradio_history, mapping_list
 
 
