@@ -138,7 +138,6 @@ try:
     #alarm_dataframe_display th:nth-child(1), #alarm_dataframe_display td:nth-child(1) {
         width: 50px !important; text-align: center !important;
     }
-
     #selection_feedback { font-size: 0.9em; color: var(--text-color-secondary); margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
     #token_count_display { text-align: right; font-size: 0.85em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
@@ -398,7 +397,7 @@ try:
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
-                            render_markdown=True # ← FalseからTrueに戻す
+                            render_markdown=True
                         )
 
                         # ▼▼▼【ここからが修正箇所】▼▼▼
