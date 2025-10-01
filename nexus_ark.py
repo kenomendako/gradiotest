@@ -423,7 +423,7 @@ try:
                             show_copy_button=True,
                             show_label=False,
                             render_markdown=True,
-                            show_clear_button=False
+                            placeholder=None # これが、クリアボタンを消すための正しい作法です
                         )
 
                         # ▼▼▼【ここからが修正箇所】▼▼▼
