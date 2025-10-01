@@ -170,74 +170,7 @@ try:
     """
     custom_js = """
     function() {
-        // --- [イベント監視] body全体でクリックイベントを監視 ---
-        document.body.addEventListener('click', function(e) {
-
-            // --- [機能1] ナビゲーションリンクの伝播を止める ---
-            let navLink = e.target.closest('.message-nav-link');
-            if (navLink) {
-                e.stopPropagation();
-                return;
-            }
-
-            // --- [機能2] コピーボタンの動作を乗っ取る ---
-            const copyButton = e.target.closest('button[title="Copy message"], button[aria-label="Copy message"]');
-
-            if (copyButton) {
-                // Gradioの標準コピー動作を完全にキャンセル
-                e.preventDefault();
-                e.stopPropagation();
-
-                // 1. [最終FIX] 'message-buttons-'で始まるクラスを持つ、最も近い親コンテナを探す (左右を問わない)
-                const buttonContainer = copyButton.closest('[class*="message-buttons-"]');
-                if (!buttonContainer) {
-                    console.error('Nexus Ark (Debug): Could not find the button container with class starting with "message-buttons-".');
-                    return;
-                }
-
-                // 2. [最終FIX] そのコンテナの「前の兄弟要素」こそがメッセージ本体(.message-row)である
-                const messageBubble = buttonContainer.previousElementSibling;
-                if (!messageBubble) {
-                    console.error('Nexus Ark (Debug): Could not find the previous sibling (the message bubble).');
-                    return;
-                }
-
-                // 3. メッセージバブルの中から、目的のコンテンツ(.message-content)を探し出す
-                const messageContent = messageBubble.querySelector('.message-content');
-
-                // 4. [堅牢化] もし.message-contentが見つからなければ、バブル全体を対象とするフォールバック処理
-                const contentToClone = messageContent || messageBubble;
-
-                // 5. ターゲットとなる要素をクローン
-                const clone = contentToClone.cloneNode(true);
-
-                // 6. クローンから不要な要素を全て除去（浄化）
-                const selectorsToRemove = [
-                    "div[style*='text-align: right']", // ナビゲーションボタンのコンテナ
-                    "strong",                         // 話者名
-                    "span[id*='msg-anchor-']",        // アンカー
-                ];
-                selectorsToRemove.forEach(selector => {
-                    clone.querySelectorAll(selector).forEach(el => el.remove());
-                });
-
-                // 7. 浄化されたHTMLから、改行を維持したままテキストを抽出
-                clone.querySelectorAll('br').forEach(br => br.replaceWith('\\n'));
-                let cleanText = (clone.textContent || clone.innerText).trim();
-
-                // 8. 抽出したテキストをクリップボードに書き込む
-                navigator.clipboard.writeText(cleanText).then(() => {
-                    const originalHTML = copyButton.innerHTML;
-                    copyButton.innerHTML = '✅';
-                    setTimeout(() => {
-                        copyButton.innerHTML = originalHTML;
-                    }, 1500);
-                }).catch(err => {
-                    console.error('Nexus Ark: Failed to copy text: ', err);
-                });
-            }
-
-        }, true); // true: キャプチャフェーズで実行し、Gradioのイベントより先に捕捉する
+        // This function is intentionally left blank.
     }
     """
 
@@ -489,7 +422,8 @@ try:
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
-                            render_markdown=False # これが、我々が絶対的な支配権を取り戻すための誓いである
+                            render_markdown=True,
+                            show_clear_button=False
                         )
 
                         # ▼▼▼【ここからが修正箇所】▼▼▼
