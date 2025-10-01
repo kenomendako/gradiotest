@@ -111,7 +111,7 @@ try:
         border-radius: 8px;
         font-family: var(--font-mono);
         font-size: 0.9em;
-        white-space: pre-wrap;
+        white-space: pre-wrap !important; /* ← この一行を追加 */
         word-break: break-word;
     }
 

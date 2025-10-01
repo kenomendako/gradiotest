@@ -1157,8 +1157,8 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             # --- [ここからが新しいアーキテクチャの核心] ---
             def thoughts_replacer(match):
                 thoughts_content = match.group(1).strip()
-                # 思考内容を、Markdownのコードブロックで囲む
-                return f"```{thoughts_content}```"
+                # コードブロックの前後に改行を追加し、パーサーにブロックの区切りを明確に伝える
+                return f"\n\n```{thoughts_content}```\n\n"
 
             thoughts_pattern = re.compile(r"<thinking>([\s\S]*?)</thinking>", re.IGNORECASE)
             final_content_with_markdown = thoughts_pattern.sub(thoughts_replacer, content_to_parse)
