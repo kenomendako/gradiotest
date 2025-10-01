@@ -100,11 +100,10 @@ try:
     alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
-    /* --- [Final Styles - v5.1] --- */
+    /* --- [Final Styles - v8: The Renaissance] --- */
 
-    /* 思考ログのスタイル: <div class="thinking"> を直接スタイリング */
-    #chat_output_area div.thinking {
-        display: block; /* ブロック要素として扱う */
+    /* 思考ログ(コードブロック)のスタイル: Gradioが生成する<pre>タグを直接スタイリング */
+    #chat_output_area pre {
         background-color: var(--background-fill-secondary);
         color: var(--text-color-secondary);
         border: 1px solid var(--border-color-primary);
@@ -112,7 +111,7 @@ try:
         border-radius: 8px;
         font-family: var(--font-mono);
         font-size: 0.9em;
-        white-space: pre-wrap;
+        white-space: pre-wrap !important; /* <pre>タグの折り返しを強制する、最も重要な一行 */
         word-break: break-word;
     }
 
@@ -399,8 +398,7 @@ try:
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
-                            render_markdown=False,
-                            editable="all"
+                            render_markdown=True # ← FalseからTrueに戻す
                         )
 
                         # ▼▼▼【ここからが修正箇所】▼▼▼

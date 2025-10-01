@@ -27,7 +27,6 @@ from tools.image_tools import generate_image as generate_image_tool_func
 import pytz
 import ijson
 import time
-from markdown_it import MarkdownIt
 
 
 import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer
@@ -1103,12 +1102,11 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
     history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, mapping_list, None, gr.update(visible=False)
 
-md = MarkdownIt()
-
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v21.0: The Final Architecture)
-    AIの【Thoughts】タグを検出し、表示用のHTMLに変換する、最終確定版。
+    (v22.0: The Renaissance)
+    render_markdown=True を前提とし、Pythonの役割を【Thoughts】タグのMarkdownコードブロックへの変換のみに限定した、
+    パフォーマンスと安定性を両立する最終アーキテクチャ。
     """
     if not messages:
         return [], []
@@ -1155,34 +1153,22 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 speaker_name = agent_name_cache[responder_id]
             else: speaker_name = responder_id
 
-            # --- [ここからが最終アーキテクチャの核心：分割統治と翻訳] ---
+            content_to_parse = item['content']
 
-            # 1. AIの応答を「思考ログ」と「それ以外のMarkdown」に分割する
-            thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
-            parts = thoughts_pattern.split(item['content'])
+            # --- [最終アーキテクチャの核心] ---
+            def thoughts_replacer(match):
+                thoughts_content = match.group(1).strip()
+                # 思考内容をMarkdownのコードブロックで囲み、前後に空行を挿入
+                return f"\n\n```{thoughts_content}```\n\n"
 
-            html_parts = []
-            for part in parts:
-                if not part or not part.strip():
-                    continue
+            thoughts_pattern = re.compile(r"【Thoughts】([\s\S]*?)【/Thoughts】", re.IGNORECASE)
+            # AIの応答から、【Thoughts】タグのみをコードブロックに変換
+            final_content_as_markdown = thoughts_pattern.sub(thoughts_replacer, content_to_parse)
+            # --- [最終アーキテクチャの核心] ---
 
-                # 2. 各パーツを、その性質に合った方法でHTMLに変換する
-                if thoughts_pattern.match(part):
-                    # 【思考ログの処理】
-                    inner_content_match = re.search(r"【Thoughts】([\s\S]*?)【/Thoughts】", part, re.IGNORECASE)
-                    inner_content = inner_content_match.group(1).strip() if inner_content_match else ""
-                    escaped_content = html.escape(inner_content).replace('\n', '<br>')
-                    html_parts.append(f"<div class='thinking'>{escaped_content}</div>")
-                else:
-                    # 【通常Markdownの処理】
-                    html_parts.append(md.render(part.strip()))
+            final_markdown = f"**{speaker_name}:**\n{final_content_as_markdown}" if speaker_name else final_content_as_markdown
 
-            final_html_content = "".join(html_parts)
-            final_html = f"<div><strong>{speaker_name}:</strong></div>{final_html_content}" if speaker_name else final_html_content
-
-            # --- [アーキテクチャここまで] ---
-
-            gradio_history.append((final_html, None) if is_user else (None, final_html))
+            gradio_history.append((final_markdown, None) if is_user else (None, final_markdown))
 
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))
