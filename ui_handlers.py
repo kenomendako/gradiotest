@@ -1104,9 +1104,9 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v17.0: Back to Basics - Final)
-    Gradio標準のMarkdownレンダリングに表示を全面的に委任する、シンプルで堅牢な最終版。
-    思考ログは完全に除去し、表示しない。
+    (v17.1: The Final Fix)
+    思考ログを、除去するのではなく、特別なCSSクラスを持つdivでラップすることで、
+    Gradioの標準Markdownレンダラに渡しつつ、表示/非表示をCSSで制御できるようにする最終版。
     """
     if not messages:
         return [], []
@@ -1132,8 +1132,26 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 if rule.get("find"):
                     content = content.replace(rule["find"], rule.get("replace", ""))
 
-        # 【最重要変更点】思考ログを完全に除去する
-        content = utils.remove_thoughts_from_text(content)
+        # ▼▼▼【ここからが修正の核心】▼▼▼
+        # 正規表現を使って、思考ログとそれ以外の部分を分割する
+        thoughts_pattern = re.compile(r'(【Thoughts】[\s\S]*?【/Thoughts】)', re.IGNORECASE)
+        parts = thoughts_pattern.split(content)
+
+        final_content_parts = []
+        for part in parts:
+            if not part or not part.strip():
+                continue
+            # 思考ログの部分をdivでラップする
+            if thoughts_pattern.match(part):
+                # GradioのMarkdownレンダラはHTMLを解釈するので、
+                # HTMLエスケープは不要。そのままdivで囲む。
+                final_content_parts.append(f"<div class='thoughts-block'>{part}</div>")
+            # それ以外の部分はそのまま追加
+            else:
+                final_content_parts.append(part)
+
+        content = "".join(final_content_parts)
+        # ▲▲▲【修正ここまで】▲▲▲
 
         text_part = re.sub(r"\[(?:Generated Image|ファイル添付):.*?\]", "", content, flags=re.DOTALL).strip()
         media_matches = list(re.finditer(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]", content))
@@ -1156,10 +1174,8 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         is_user = (role == "USER")
 
         if item["type"] == "text":
-            # 話者名を削除し、Gradioのデフォルト表示に任せる
             final_markdown = item["content"]
             gradio_history.append((final_markdown, None) if is_user else (None, final_markdown))
-
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))
             gradio_history.append((media_tuple, None) if is_user else (None, media_tuple))

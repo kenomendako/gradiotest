@@ -100,9 +100,9 @@ try:
     alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
-    /* --- [Theme-Aware Styles v3 - Final] --- */
+    /* --- [Final Styles - v4] --- */
 
-    /* 思考ログのスタイル */
+    /* 思考ログのスタイル: Gradioがpタグで囲むことを考慮 */
     #chat_output_area .thoughts {
         background-color: var(--background-fill-secondary);
         color: var(--text-color-secondary);
@@ -113,38 +113,17 @@ try:
         font-size: 0.9em;
         white-space: pre-wrap;
         word-break: break-word;
+        /* Gradioが生成する<p>タグの余白をリセット */
+        margin-top: 0;
+        margin-bottom: 0;
     }
 
-    /* コードブロックの親要素(<pre>)のスタイル */
-    #chat_output_area pre {
-        background-color: var(--background-fill-secondary);
-        border: 1px solid var(--border-color-primary);
-        border-radius: 8px;
-        padding: 12px;
-        overflow-x: auto; /* Fallback scrollbar */
-        /* The key to victory: aggressive wrapping rules */
-        white-space: pre-wrap !important;
-        word-wrap: break-word !important;
-        overflow-wrap: break-word !important;
-    }
-
-    /* コードブロック本体(<code>)のスタイル */
-    #chat_output_area pre code {
-        padding: 0;
-        background-color: transparent;
-        border: none;
-        font-family: var(--font-mono);
-        font-size: 0.9em;
-        /* Inherit the aggressive wrapping rules from the <pre> parent */
-        white-space: inherit !important;
-        word-wrap: inherit !important;
-        overflow-wrap: inherit !important;
+    /* ゴミ箱アイコン（クリアボタン）を強制的に非表示にする */
+    #chat_output_area button[aria-label="Clear"] {
+        display: none !important;
     }
 
     /* --- [Layout & Utility Styles] --- */
-
-    #chat_output_area ul, #chat_output_area ol { padding-left: 20px; }
-
     #memory_json_editor_code .cm-editor, #core_memory_editor_code textarea {
         max-height: 400px !important; overflow-y: auto !important;
     }
@@ -422,8 +401,7 @@ try:
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
-                            render_markdown=True,
-                            placeholder=None # これが、クリアボタンを消すための正しい作法です
+                            render_markdown=True
                         )
 
                         # ▼▼▼【ここからが修正箇所】▼▼▼
