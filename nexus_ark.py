@@ -100,11 +100,10 @@ try:
     alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
-    /* --- [Final Styles - v5] --- */
+    /* --- [Final Styles - v6: Markdown Native] --- */
 
-    /* 思考ログのスタイル: <thinking> タグを直接スタイリング */
-    #chat_output_area thinking {
-        display: block; /* ブロック要素として扱う */
+    /* 思考ログ(コードブロック)のスタイル: <pre>タグを直接スタイリング */
+    #chat_output_area pre {
         background-color: var(--background-fill-secondary);
         color: var(--text-color-secondary);
         border: 1px solid var(--border-color-primary);
@@ -400,8 +399,7 @@ try:
                             show_copy_button=True,
                             show_label=False,
                             render_markdown=True,
-                            allow_tags=["thinking"], # ← この行を追加
-                            editable="all"          # ← この行を追加
+                            editable="all"
                         )
 
                         # ▼▼▼【ここからが修正箇所】▼▼▼
