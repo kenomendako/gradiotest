@@ -410,8 +410,6 @@ try:
                             group_consecutive_messages=False
                         )
 
-                        # ▼▼▼【ここからが修正箇所】▼▼▼
-
                         # 1. 音声プレーヤーとアクションボタン (チャット欄の直下に移動)
                         with gr.Row():
                             audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")

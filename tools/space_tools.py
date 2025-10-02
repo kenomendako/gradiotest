@@ -1,6 +1,7 @@
 # tools/space_tools.py (v20: Final Architecture)
 
 import os
+import re
 from langchain_core.tools import tool
 from room_manager import get_world_settings_path
 import utils
@@ -10,17 +11,66 @@ import traceback
 
 @tool
 def set_current_location(location_id: str, room_name: str) -> str:
-    """AIの現在地を設定する。"""
+    """AIの現在地を設定する。location_idには、利用可能な場所の名前だけを正確に指定する必要がある。"""
     if not location_id or not room_name:
         return "【Error】Internal tool error: Location ID and room name are required for execution."
-    try:
-        base_path = os.path.join(constants.ROOMS_DIR, room_name)
-        location_file_path = os.path.join(base_path, "current_location.txt")
-        with open(location_file_path, "w", encoding="utf-8") as f:
-            f.write(location_id.strip())
-        return f"Success: 現在地は '{location_id}' に設定されました。この移動タスクは完了です。次に、この結果をユーザーに報告してください。"
-    except Exception as e:
-        return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
+
+    # 1. 有効な場所名のリストを世界設定から取得する
+    world_settings_path = get_world_settings_path(room_name)
+    world_data = utils.parse_world_file(world_settings_path)
+    if not world_data:
+        return f"【Error】世界設定ファイルが見つからないか、空です。ルーム '{room_name}' を確認してください。"
+
+    valid_locations = []
+    for area in world_data:
+        for place in world_data[area]:
+            if not place.startswith("__"):
+                valid_locations.append(place)
+
+    if not valid_locations:
+        return "【Error】世界設定ファイルに、移動可能な場所が一つも定義されていません。"
+
+    # 2. AIからの入力を解釈し、正しい場所名に補正する
+    original_input = location_id.strip()
+    corrected_location_id = None
+
+    # 2a. 完全一致を試みる
+    if original_input in valid_locations:
+        corrected_location_id = original_input
+
+    # 2b. それでも見つからない場合、一般的な間違いパターンを吸収する
+    if not corrected_location_id:
+        # `[エリア名] 場所名` や `[エリア名]場所名` の形式を想定し、括弧とエリア名を除去
+        cleaned_input = re.sub(r'\[.*?\]', '', original_input).strip()
+        if cleaned_input in valid_locations:
+            corrected_location_id = cleaned_input
+        else:
+            # `エリア名 場所名` の形式を想定し、最後の単語を試す
+            parts = cleaned_input.split()
+            if len(parts) > 1 and parts[-1] in valid_locations:
+                corrected_location_id = parts[-1]
+            else:
+                 # `エリア名場所名` のような連結形式を想定し、後方一致で探す
+                 for loc in valid_locations:
+                     if cleaned_input.endswith(loc):
+                         corrected_location_id = loc
+                         break
+
+    # 3. 補正後のIDでファイルに書き込む
+    if corrected_location_id:
+        try:
+            base_path = os.path.join(constants.ROOMS_DIR, room_name)
+            location_file_path = os.path.join(base_path, "current_location.txt")
+            with open(location_file_path, "w", encoding="utf-8") as f:
+                f.write(corrected_location_id)
+            return f"Success: 現在地は '{corrected_location_id}' に設定されました。この移動タスクは完了です。次に、この結果をユーザーに報告してください。"
+        except Exception as e:
+            return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
+    else:
+        # 4. 全ての試みが失敗した場合、AIに明確なエラーと選択肢を返す
+        valid_locations_str = ", ".join(f"'{loc}'" for loc in sorted(list(set(valid_locations))))
+        return (f"【Error】指定された場所 '{original_input}' は見つかりませんでした。"
+                f"location_idには、以下のいずれかを正確に指定してください: {valid_locations_str}")
 
 def _apply_world_edits(instructions: List[Dict[str, Any]], room_name: str) -> str:
     """【内部専用】AIが生成した世界設定への差分編集指示リストを解釈し、world_settings.txtに適用する。"""
