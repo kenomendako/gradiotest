@@ -406,7 +406,8 @@ try:
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
-                            render_markdown=True
+                            render_markdown=True,
+                            group_consecutive_messages=False
                         )
 
                         # ▼▼▼【ここからが修正箇所】▼▼▼
