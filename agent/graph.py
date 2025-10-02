@@ -101,7 +101,8 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
             if cache_key in scenery_cache:
                 cached_data = scenery_cache[cache_key]
                 print(f"--- [有効な情景キャッシュを発見] ({cache_key})。APIコールをスキップします ---")
-                return location_display_name, space_def, cached_data["scenery_text"]
+                # キャッシュから、情景テキストと「一緒に保存されていた」場所の表示名の両方を返す
+                return cached_data.get("location_name", location_display_name), space_def, cached_data.get("scenery_text", scenery_text)
         if not space_def.startswith("（"):
             log_message = "情景を強制的に再生成します" if force_regenerate else "情景をAPIで生成します"
             print(f"--- {log_message} ({cache_key}) ---")
