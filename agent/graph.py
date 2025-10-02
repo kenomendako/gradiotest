@@ -191,11 +191,18 @@ def context_generator_node(state: AgentState):
                     break
         available_locations = get_location_list(room_name)
         location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
+
+        # 移動ツールの使い方に関する注意書きを追加
+        location_tool_usage_note = (
+            "【重要】 `set_current_location` ツールを使用する際は、必ず**場所名のみ**（例： `リビング`）を `location_id` に指定してください。"
+            "エリア名 `[共有リビング]` や括弧 `[]` を含めてはいけません。"
+        )
+
         final_system_prompt_text = (
             f"{formatted_core_prompt}\n\n---\n"
             f"【現在の場所と情景】\n- 場所: {location_display_name}\n"
             f"- 場所の設定（自由記述）: \n{space_def}\n- 今の情景: {scenery_text}\n"
-            f"【移動可能な場所】\n{location_list_str}\n---"
+            f"【移動可能な場所】\n{location_list_str}\n\n{location_tool_usage_note}\n---" # 注意書きをここに追加
         )
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
