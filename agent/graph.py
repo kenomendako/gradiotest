@@ -59,17 +59,25 @@ class AgentState(TypedDict):
     all_participants: List[str]
 
 def get_location_list(room_name: str) -> List[str]:
+    """
+    UIとAIのプロンプトで表示するための、移動可能な場所名のリストを生成する。
+    異なるエリアに同じ名前の場所が存在する可能性を考慮し、
+    重複を許さずに全てのユニークな場所名を返す。
+    """
     if not room_name: return []
     world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path): return []
     world_data = utils.parse_world_file(world_settings_path)
     if not world_data: return []
-    locations = []
+
+    # AIが直接 location_id として使用できる、純粋な場所名のセットを作成する
+    locations = set()
     for area_name, places in world_data.items():
         for place_name in places.keys():
             if place_name == "__area_description__": continue
-            locations.append(f"[{area_name}] {place_name}")
-    return sorted(locations)
+            locations.add(place_name)
+
+    return sorted(list(locations))
 
 def generate_scenery_context(room_name: str, api_key: str, force_regenerate: bool = False) -> Tuple[str, str, str]:
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
@@ -185,24 +193,26 @@ def context_generator_node(state: AgentState):
         if current_location_name:
             world_settings_path = get_world_settings_path(soul_vessel_room)
             world_data = utils.parse_world_file(world_settings_path)
-            for area, places in world_data.items():
-                if current_location_name in places:
-                    space_def = places[current_location_name]
-                    break
+            # 防御的プログラミング：space_def が巨大なデータにならないように保証する
+            if isinstance(world_data, dict):
+                for area, places in world_data.items():
+                    if isinstance(places, dict) and current_location_name in places:
+                        space_def = places[current_location_name]
+                        # 念のため、予期せぬ長大なデータが混入することを防ぐ
+                        if isinstance(space_def, str) and len(space_def) > 2000:
+                            space_def = space_def[:2000] + "\n...（長すぎるため省略）"
+                        break
+            else:
+                # world_dataが予期せず辞書でない場合のエラーハンドリング
+                space_def = "（エラー：世界設定のデータ構造が不正です）"
+
         available_locations = get_location_list(room_name)
         location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
-
-        # 移動ツールの使い方に関する注意書きを追加
-        location_tool_usage_note = (
-            "【重要】 `set_current_location` ツールを使用する際は、必ず**場所名のみ**（例： `リビング`）を `location_id` に指定してください。"
-            "エリア名 `[共有リビング]` や括弧 `[]` を含めてはいけません。"
-        )
-
         final_system_prompt_text = (
             f"{formatted_core_prompt}\n\n---\n"
             f"【現在の場所と情景】\n- 場所: {location_display_name}\n"
             f"- 場所の設定（自由記述）: \n{space_def}\n- 今の情景: {scenery_text}\n"
-            f"【移動可能な場所】\n{location_list_str}\n\n{location_tool_usage_note}\n---" # 注意書きをここに追加
+            f"【移動可能な場所】\n{location_list_str}\n---"
         )
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
