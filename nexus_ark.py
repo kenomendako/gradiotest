@@ -103,7 +103,8 @@ try:
     /* --- [Final Styles - v8: The Renaissance] --- */
 
     /* 思考ログ(コードブロック)のスタイル: Gradioが生成する<pre>タグを直接スタイリング */
-    #chat_output_area .code_wrap pre {
+    #chat_output_area .code_wrap pre,
+    #chat_output_area .code_wrap code {
         background-color: var(--background-fill-secondary);
         color: var(--text-color-secondary);
         border: 1px solid var(--border-color-primary);
@@ -111,7 +112,7 @@ try:
         border-radius: 8px;
         font-family: var(--font-mono);
         font-size: 0.9em;
-        white-space: pre-wrap !important; /* <pre>タグの折り返しを強制する、最も重要な一行 */
+        white-space: pre-wrap !important; /* <pre>タグと<code>タグ両方の折り返しを強制する */
         word-break: break-word;
     }
 
