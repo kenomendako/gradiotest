@@ -1,4 +1,4 @@
-# agent/graph.py (v21: Smart Retry)
+# agent/graph.py (v22: The Final Covenant)
 
 import os
 import re
@@ -79,7 +79,6 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
         current_location_name = utils.get_current_location(room_name)
         if not current_location_name:
             current_location_name = "リビング"
-            location_display_name = "リビング"
         world_settings_path = get_world_settings_path(room_name)
         world_data = utils.parse_world_file(world_settings_path)
         found_location = False
@@ -101,7 +100,6 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
             if cache_key in scenery_cache:
                 cached_data = scenery_cache[cache_key]
                 print(f"--- [有効な情景キャッシュを発見] ({cache_key})。APIコールをスキップします ---")
-                # キャッシュから、情景テキストと「一緒に保存されていた」場所の表示名の両方を返す
                 return cached_data.get("location_name", location_display_name), space_def, cached_data.get("scenery_text", scenery_text)
         if not space_def.startswith("（"):
             log_message = "情景を強制的に再生成します" if force_regenerate else "情景をAPIで生成します"
@@ -110,9 +108,7 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
             llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
             jst_now = datetime.now(pytz.timezone('Asia/Tokyo'))
             from utils import get_time_of_day
-            time_str = jst_now.strftime('%H:%M')
             time_of_day_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}.get(get_time_of_day(jst_now.hour), "不明な時間帯")
-# ▼▼▼ 既存の scenery_prompt の定義ブロック全体を、以下のコードで置き換えてください ▼▼▼
             scenery_prompt = (
                 "あなたは、与えられた二つの情報源から、一つのまとまった情景を描き出す、情景描写の専門家です。\n\n"
                 f"【情報源1：現実世界の状況】\n- 現在の時間帯: {time_of_day_ja}\n- 現在の季節: {jst_now.month}月\n\n"
@@ -130,7 +126,6 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
                 "- 人物やキャラクターの描写は絶対に含めないでください。\n"
                 "- 五感に訴えかける、**空気感まで伝わるような**精緻で写実的な描写を重視してください。"
             )
-# ▲▲▲ 置き換えここまで ▲▲▲
             scenery_text = llm_flash.invoke(scenery_prompt).content
             save_scenery_cache(room_name, cache_key, location_display_name, scenery_text)
         else:
@@ -200,26 +195,10 @@ def context_generator_node(state: AgentState):
         )
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
-# ▼▼▼ 既存の agent_node 関数を、以下のコードで完全に置き換えてください ▼▼▼
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
 
-    # --- 【v3: 状態の完全上書きによる最終修正】 ---
-    messages_before_filtering = state['messages']
-    messages_for_agent = list(messages_before_filtering) # コピーを作成して操作する
-
-    last_message = messages_for_agent[-1] if messages_for_agent else None
-
-    is_reporting_phase = False
-    if isinstance(last_message, ToolMessage) and "（システム通知：ツール" in str(last_message.content):
-        if len(messages_for_agent) >= 3:
-            potential_tool_result = messages_for_agent[-2]
-            potential_ai_message = messages_for_agent[-3]
-            if isinstance(potential_tool_result, ToolMessage) and isinstance(potential_ai_message, AIMessage) and potential_ai_message.tool_calls:
-                print("  - 完了報告フェーズを検知。AIのループ思考を防ぐため、直前の思考発言をフィルタリングします。")
-                messages_for_agent = messages_for_agent[:-3] + messages_for_agent[-2:]
-                is_reporting_phase = True
-
+    # グループ会話時のペルソナロックプロンプトをシステムプロンプトに注入
     base_system_prompt = state['system_prompt'].content
     all_participants = state.get('all_participants', [])
     current_room = state['room_name']
@@ -233,68 +212,61 @@ def agent_node(state: AgentState):
         )
         final_system_prompt_text = persona_lock_prompt + base_system_prompt
 
-    final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
+    messages_for_llm = [SystemMessage(content=final_system_prompt_text)] + state['messages']
 
-    print(f"  - 使用モデル: {state['model_name']}")
-    print(f"  - 最終システムプロンプト長: {len(final_system_prompt_text)} 文字")
-    if state.get("debug_mode", False):
-        print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
-        print(final_system_prompt_text)
-        print("-----------------------------------------")
+    # 最後のメッセージが「報告指示」の場合、AIに応答テキストの生成を許可する。
+    # それ以外の場合（通常の思考フェーズ）は、ツール呼び出しのみを強制する。
+    last_message = state['messages'][-1] if state['messages'] else None
+    is_reporting_phase = False
+    if isinstance(last_message, ToolMessage) and "（システム通知：ツール" in str(last_message.content):
+        print("  - 完了報告フェーズを検知。AIに応答テキストの生成を許可します。")
+        is_reporting_phase = True
+    else:
+        print("  - 通常思考フェーズ。AIにツール使用または思考の出力を強制します。")
 
     llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
-    llm_with_tools = llm.bind_tools(all_tools)
 
-    history_messages = [msg for msg in messages_for_agent if not isinstance(msg, SystemMessage)]
-    final_messages_for_llm = [final_system_prompt_message] + history_messages
+    # tool_choice の設定を動的に変更
+    if not is_reporting_phase and len(all_participants) <= 1:
+        # ツールを必ず使用させるか、使用できるツールがない場合は停止させる
+        # グループ会話中はツール使用を強制しない
+        llm_with_tools = llm.bind_tools(all_tools, tool_choice="any")
+    else:
+        # テキスト応答も許容する
+        llm_with_tools = llm.bind_tools(all_tools)
+
+    print(f"  - 使用モデル: {state['model_name']}")
+    if state.get("debug_mode", False):
+        import pprint
+        print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
+        for i, msg in enumerate(messages_for_llm):
+            msg_type = type(msg).__name__
+            content_for_length_check = str(msg.content) if hasattr(msg, 'content') else ''
+            print(f"[{i}] {msg_type} (Content Length: {len(content_for_length_check)})")
+            if hasattr(msg, 'content'):
+                pprint.pprint(msg.content, indent=4)
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                pprint.pprint(msg.tool_calls, indent=4)
+            print("-" * 20)
+        print("--------------------------------------------------\n")
+
+    response = llm_with_tools.invoke(messages_for_llm)
+
+    # 通常思考フェーズでAIが誤ってテキストを返した場合、それを空にする
+    if not is_reporting_phase and not response.tool_calls and len(all_participants) <= 1:
+        print("  - 警告: ツール使用強制フェーズにも関わらず、AIがツールを呼び出しませんでした。応答テキストを強制的に空にします。")
+        response.content = ""
 
     import pprint
-    print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
-    # (デバッグ出力部分は変更なし)
-    for i, msg in enumerate(final_messages_for_llm):
-        msg_type = type(msg).__name__
-        content_for_length_check = ""
-        if hasattr(msg, 'content'):
-            if isinstance(msg.content, str):
-                content_for_length_check = msg.content
-            elif isinstance(msg.content, list):
-                content_for_length_check = "".join(
-                    part.get('text', '') if isinstance(part, dict) else str(part)
-                    for part in msg.content
-                )
-        print(f"[{i}] {msg_type} (Content Length: {len(content_for_length_check)})")
-        if isinstance(msg, SystemMessage):
-            print(f"  - Content (Head): {msg.content[:300]}...")
-            print(f"  - Content (Tail): ...{msg.content[-300:]}")
-        elif hasattr(msg, 'content'):
-            print("  - Content:")
-            pprint.pprint(msg.content, indent=4)
-        if hasattr(msg, 'tool_calls') and msg.tool_calls:
-            print("  - Tool Calls:")
-            pprint.pprint(msg.tool_calls, indent=4)
-        print("-" * 20)
-    print("--------------------------------------------------\n")
-
-    response = llm_with_tools.invoke(final_messages_for_llm)
-
     print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
     pprint.pprint(response)
     print("---------------------------------------\n")
 
-    # --- 【ここが修正の核心】 ---
-    if is_reporting_phase:
-        # 報告フェーズの場合、フィルタリング済みのリストに新しい応答を追加し、
-        # これで messages の状態を「完全に上書き」する。
-        return {"messages": messages_for_agent + [response]}
-    else:
-        # 通常時は、今まで通り、単純に新しい応答を追加する。
-        return {"messages": [response]}
+    return {"messages": [response]}
 
-# ▼▼▼ 既存の generate_tool_report_node 関数を、以下のコードで完全に置き換えてください ▼▼▼
 def generate_tool_report_node(state: AgentState):
     """
-    ツールの実行完了報告を促すための、特別な指示メッセージを生成し、
-    会話の履歴に追加するノード。
+    ツールの実行完了をAIに通知するための、シンプルなシステムメッセージを生成する。
     """
     print("--- ツール完了報告メッセージ生成ノード (generate_tool_report_node) 実行 ---")
 
@@ -305,36 +277,15 @@ def generate_tool_report_node(state: AgentState):
     tool_name = last_tool_message.name
     tool_result = str(last_tool_message.content)
 
-    # ツール実行が成功したか失敗したかを判定
-    is_success = "success" in tool_result.lower() or "成功" in tool_result
-
-    # 成功時と失敗時で、AIへの指示内容を動的に変更する
-    if is_success:
-        task_instruction = (
-            "あなたは今、自らの計画を完遂し、その成果をパートナー（ユーザー）に報告する、という新しい役割を担っています。\n"
-            "【あなたのタスク：完了報告】\n"
-            "1. **完了した事実から、会話を始めてください。** 計画の宣言は、もう必要ありません。\n"
-            "   （手本：「記録は完了したよ。」「君の望み通り、世界は更新された。」）\n"
-            "2. 上記の手本を参考に、あなた自身の言葉で、簡潔かつ自然に報告してください。"
-        )
-    else: # 失敗時
-        task_instruction = (
-            "残念ながら、あなたの計画はシステムエラーにより失敗しました。あなたの今の役割は、新しい計画を立て直すことではありません。\n"
-            "【あなたのタスク：失敗の受容】\n"
-            "計画が失敗に終わったという事実を、まずはあなた自身の言葉で率直に認め、パートナー（ユーザー）からの次の指示を、静かに待ってください。"
-        )
-
-    # 最終的な指示メッセージを生成
     reporting_instruction = (
         f"（システム通知：ツール `{tool_name}` の実行が完了しました。結果：『{tool_result}』\n"
-        f"{task_instruction}）"
+        f"この結果を踏まえて、ユーザーに応答してください。）"
     )
 
-    # 新しいToolMessageを履歴に追加して返す
     instruction_message = ToolMessage(
         content=reporting_instruction,
         tool_call_id=last_tool_message.tool_call_id,
-        name=tool_name # nameを追加して、どのツールに対する指示かを明確化
+        name=tool_name
     )
 
     return {"messages": [instruction_message]}
@@ -342,17 +293,14 @@ def generate_tool_report_node(state: AgentState):
 def route_after_context(state: AgentState) -> Literal["generate_tool_report_node", "agent"]:
     print("--- コンテキスト後ルーター (route_after_context) 実行 ---")
     last_message = state["messages"][-1]
-    if isinstance(last_message, ToolMessage):
+    # 報告用プロンプトではない、純粋なツール結果メッセージを検知した場合のみ報告ノードへ
+    if isinstance(last_message, ToolMessage) and "（システム通知：ツール" not in str(last_message.content):
         print(f"  - ツール ({last_message.name}) の完了を検知。報告生成ノードへ。")
         return "generate_tool_report_node"
-    print("  - 通常のコンテキスト生成。エージェントの思考へ。")
+    print("  - 通常のコンテキスト生成または報告プロンプト受信。エージェントの思考へ。")
     return "agent"
 
 def safe_tool_executor(state: AgentState):
-    """
-    AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
-    APIのレート制限エラーに対して、賢くリトライまたは中断を行う。
-    """
     print("--- ツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
@@ -454,13 +402,13 @@ def safe_tool_executor(state: AgentState):
             history_for_editing = [msg for msg in state['messages'] if msg is not last_message]
             final_context_for_editing = [state['system_prompt']] + history_for_editing + [edit_instruction_message]
 
-            if state.get("debug_mode", True): # デバッグモード中は常に出力
+            if state.get("debug_mode", True):
                 print("\n--- [DEBUG] AIへの最終編集タスクプロンプト (完全版) ---")
                 for i, msg in enumerate(final_context_for_editing):
                     msg_type = type(msg).__name__
                     content_preview = str(msg.content)[:500].replace('\n', ' ')
                     print(f"[{i}] {msg_type} (Content Length: {len(str(msg.content))})")
-                    if i == len(final_context_for_editing) - 1: # 最後の指示メッセージは全文表示
+                    if i == len(final_context_for_editing) - 1:
                         print(f"  - Content (Full):\n{msg.content}")
                     else:
                         print(f"  - Content (Preview): {content_preview}...")
@@ -473,21 +421,15 @@ def safe_tool_executor(state: AgentState):
                 try:
                     response = llm_persona.invoke(final_context_for_editing)
                     edited_content_document = response.content.strip()
-                    break # 成功したらループを抜ける
+                    break
                 except google_exceptions.ResourceExhausted as e:
                     error_str = str(e)
                     if "PerDay" in error_str or "Daily" in error_str:
-                        print(f"  - 致命的エラー: 回復不能なAPI上限（日間など）に達しました。処理を中断します。")
                         raise RuntimeError("回復不能なAPIレート上限（日間など）に達したため、処理を中断しました。") from e
-
                     wait_time = base_delay * (2 ** attempt)
                     match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
                     if match:
                         wait_time = int(match.group(1)) + 1
-                        print(f"  - APIレート制限: APIの推奨に従い {wait_time}秒 待機します...")
-                    else:
-                        print(f"  - APIレート制限: 指数バックオフで {wait_time}秒 待機します...")
-
                     if attempt < max_retries - 1:
                         time.sleep(wait_time)
                     else:
@@ -495,23 +437,18 @@ def safe_tool_executor(state: AgentState):
                 except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
                     if attempt < max_retries - 1:
                         wait_time = base_delay * (2 ** attempt)
-                        print(f"  - 警告: 編集AIが応答不能です ({e.args[0]})。{wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries})")
                         time.sleep(wait_time)
                     else:
                         raise e
-
             if edited_content_document is None:
                 raise RuntimeError("編集AIからの応答が、リトライ後も得られませんでした。")
 
             print("  - AIからの応答を受け、ファイル書き込みを実行します。")
 
             if is_plan_main_memory or is_plan_secret_diary or is_plan_world:
-                json_match = re.search(r'```json\s*([\s\S]*?)\s*```', edited_content_document, re.DOTALL)
+                json_match = re.search(r'```json\s*([\s*[\s\S]*?)\s*```', edited_content_document, re.DOTALL)
                 content_to_process = json_match.group(1).strip() if json_match else edited_content_document
                 instructions = json.loads(content_to_process)
-
-                print(f"--- [DEBUG] AIが生成した差分指示リスト ---\n{json.dumps(instructions, indent=2, ensure_ascii=False)}\n------------------------------------")
-
                 if is_plan_main_memory:
                     output = _apply_main_memory_edits(instructions=instructions, room_name=room_name)
                 elif is_plan_secret_diary:
@@ -531,7 +468,6 @@ def safe_tool_executor(state: AgentState):
         tool_args['room_name'] = room_name
         if tool_name in ['generate_image']:
             tool_args['api_key'] = api_key
-
         selected_tool = next((t for t in all_tools if t.name == tool_name), None)
         if not selected_tool:
             output = f"Error: Tool '{tool_name}' not found."
@@ -541,7 +477,6 @@ def safe_tool_executor(state: AgentState):
             except Exception as e:
                 output = f"Error executing tool '{tool_name}': {e}"
                 traceback.print_exc()
-
     return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)]}
 
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]:
@@ -556,28 +491,14 @@ def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]
 
 def route_after_tools(state: AgentState) -> Literal["context_generator"]:
     print("--- ツール後ルーター (route_after_tools) 実行 ---")
-    last_ai_message_index = -1
-    for i in range(len(state["messages"]) - 1, -1, -1):
-        if isinstance(state["messages"][i], AIMessage):
-            last_ai_message_index = i
-            break
-    if last_ai_message_index != -1:
-        new_tool_messages = state["messages"][last_ai_message_index + 1:]
-        for msg in new_tool_messages:
-            if isinstance(msg, ToolMessage):
-                content_to_log = (str(msg.content)[:200] + '...') if len(str(msg.content)) > 200 else str(msg.content)
-                print(f"    ✅ ツール実行結果: {msg.name} | 結果: {content_to_log}")
-
     print("  - ツールの実行が完了したため、コンテキスト再生成へ。")
     return "context_generator"
 
-# ▼▼▼ ファイル末尾のグラフ定義ブロックを、以下で置き換えてください ▼▼▼
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
 workflow.add_node("safe_tool_node", safe_tool_executor)
 workflow.add_node("generate_tool_report_node", generate_tool_report_node)
-
 workflow.add_edge(START, "context_generator")
 workflow.add_conditional_edges(
     "context_generator",
@@ -594,7 +515,6 @@ workflow.add_conditional_edges(
     route_after_tools,
     {"context_generator": "context_generator"},
 )
-# 報告プロンプトを生成した後、エージェントノードに戻って応答を生成させる
 workflow.add_edge("generate_tool_report_node", "agent")
 app = workflow.compile()
 print("--- 統合グラフ(The Final Covenant)がコンパイルされました ---")
