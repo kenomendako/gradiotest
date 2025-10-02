@@ -158,7 +158,7 @@ try:
     }
     """
 
-    with gr.Blocks(theme=active_theme_object, css=custom_css, js=custom_js) as demo:
+    with gr.Blocks(theme=active_theme_object, css=custom_css, js=custom_js, title="Nexus Ark") as demo:
         room_list_on_startup = room_manager.get_room_list_for_ui()
         if not room_list_on_startup:
             print("--- 有効なルームが見つからないため、'Default'ルームを作成します。 ---")

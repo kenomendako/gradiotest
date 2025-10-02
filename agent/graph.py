@@ -241,11 +241,24 @@ def agent_node(state: AgentState):
         print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
         for i, msg in enumerate(messages_for_llm):
             msg_type = type(msg).__name__
-            content_for_length_check = str(msg.content) if hasattr(msg, 'content') else ''
-            print(f"[{i}] {msg_type} (Content Length: {len(content_for_length_check)})")
+            content_for_length_check = ""
             if hasattr(msg, 'content'):
+                if isinstance(msg.content, str):
+                    content_for_length_check = msg.content
+                elif isinstance(msg.content, list):
+                    content_for_length_check = "".join(
+                        part.get('text', '') if isinstance(part, dict) else str(part)
+                        for part in msg.content
+                    )
+            print(f"[{i}] {msg_type} (Content Length: {len(content_for_length_check)})")
+            if isinstance(msg, SystemMessage):
+                print(f"  - Content (Head): msg.content[:300]...")
+                print(f"  - Content (Tail): ...msg.content[-300:]")
+            elif hasattr(msg, 'content'):
+                print("  - Content:")
                 pprint.pprint(msg.content, indent=4)
             if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                print("  - Tool Calls:")
                 pprint.pprint(msg.tool_calls, indent=4)
             print("-" * 20)
         print("--------------------------------------------------\n")
@@ -254,8 +267,10 @@ def agent_node(state: AgentState):
 
     # 通常思考フェーズでAIが誤ってテキストを返した場合、それを空にする
     if not is_reporting_phase and not response.tool_calls and len(all_participants) <= 1:
-        print("  - 警告: ツール使用強制フェーズにも関わらず、AIがツールを呼び出しませんでした。応答テキストを強制的に空にします。")
-        response.content = ""
+        # AIが思考だけを返した場合（contentもtool_callsも空）は、テキストを空にしない
+        if response.content or response.tool_calls:
+            print("  - 警告: ツール使用強制フェーズにも関わらず、AIがツールを呼び出しませんでした。応答テキストを強制的に空にします。")
+            response.content = ""
 
     import pprint
     print("\n--- [DEBUG] AIから返ってきた生の応答 ---")

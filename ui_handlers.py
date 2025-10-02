@@ -422,7 +422,6 @@ def _stream_and_handle_response(
             # 6. 最終応答の処理とログ保存
             all_turn_popups = []
             if final_state:
-                # ▼▼▼【ここからが修正の核心】▼▼▼
                 # 今回のターンで新たに追加されたメッセージのみを抽出
                 new_messages = final_state["messages"][initial_message_count:]
 
@@ -436,9 +435,9 @@ def _stream_and_handle_response(
                 for msg in new_messages:
                     if isinstance(msg, AIMessage):
                         response_content = msg.content
+                        # contentが空でなく、空白文字だけでもない場合のみログに記録
                         if response_content and response_content.strip():
                              utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", response_content)
-                # ▲▲▲【修正はここまで】▲▲▲
 
             # ストリーミング表示の最後の"▌"を消すために、最終応答テキストを設定
             # (ログ記録は完了しているので、表示のためだけに最後のメッセージ内容を取得)
