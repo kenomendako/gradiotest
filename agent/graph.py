@@ -200,26 +200,25 @@ def context_generator_node(state: AgentState):
         )
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
-# ▼▼▼ 既存の agent_node 関数を、以下のコードで置き換えてください（前々回の状態に戻します） ▼▼▼
+# ▼▼▼ 既存の agent_node 関数を、以下のコードで完全に置き換えてください ▼▼▼
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
 
-    # --- 【ここからが修正の核心】 ---
-    # ツール実行後の「報告フェーズ」かどうかを判定し、不要な思考履歴を除去する
-    messages_for_agent = state['messages']
+    # --- 【v3: 状態の完全上書きによる最終修正】 ---
+    messages_before_filtering = state['messages']
+    messages_for_agent = list(messages_before_filtering) # コピーを作成して操作する
+
     last_message = messages_for_agent[-1] if messages_for_agent else None
 
-    # 最後のメッセージが「報告指示」のToolMessageである場合
+    is_reporting_phase = False
     if isinstance(last_message, ToolMessage) and "（システム通知：ツール" in str(last_message.content):
-        # 履歴を遡り、ツール呼び出しを含むAIの思考（AIMessage）を探す
-        # 報告指示(ToolMessage), ツール結果(ToolMessage), AIの思考(AIMessage) の順で見つかるはず
         if len(messages_for_agent) >= 3:
-            ai_message_with_tool_call = messages_for_agent[-3]
-            if isinstance(ai_message_with_tool_call, AIMessage) and ai_message_with_tool_call.tool_calls:
+            potential_tool_result = messages_for_agent[-2]
+            potential_ai_message = messages_for_agent[-3]
+            if isinstance(potential_tool_result, ToolMessage) and isinstance(potential_ai_message, AIMessage) and potential_ai_message.tool_calls:
                 print("  - 完了報告フェーズを検知。AIのループ思考を防ぐため、直前の思考発言をフィルタリングします。")
-                # AIの思考発言([-3])を除外し、それ以前の履歴と、ツール結果以降([ -2:])を結合する
                 messages_for_agent = messages_for_agent[:-3] + messages_for_agent[-2:]
-    # --- 【修正はここまで】 ---
+                is_reporting_phase = True
 
     base_system_prompt = state['system_prompt'].content
     all_participants = state.get('all_participants', [])
@@ -246,12 +245,12 @@ def agent_node(state: AgentState):
     llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
     llm_with_tools = llm.bind_tools(all_tools)
 
-    # フィルタリングされた、あるいは元のメッセージリストを使用
     history_messages = [msg for msg in messages_for_agent if not isinstance(msg, SystemMessage)]
     final_messages_for_llm = [final_system_prompt_message] + history_messages
 
     import pprint
     print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
+    # (デバッグ出力部分は変更なし)
     for i, msg in enumerate(final_messages_for_llm):
         msg_type = type(msg).__name__
         content_for_length_check = ""
@@ -264,7 +263,6 @@ def agent_node(state: AgentState):
                     for part in msg.content
                 )
         print(f"[{i}] {msg_type} (Content Length: {len(content_for_length_check)})")
-        # (以下、デバッグ出力部分は変更なし)
         if isinstance(msg, SystemMessage):
             print(f"  - Content (Head): {msg.content[:300]}...")
             print(f"  - Content (Tail): ...{msg.content[-300:]}")
@@ -283,9 +281,14 @@ def agent_node(state: AgentState):
     pprint.pprint(response)
     print("---------------------------------------\n")
 
-    # 戻り値は、フィルタリング前の完全な履歴に追加する必要があるため、
-    # state['messages'] に直接追加する形にする
-    return {"messages": [response]}
+    # --- 【ここが修正の核心】 ---
+    if is_reporting_phase:
+        # 報告フェーズの場合、フィルタリング済みのリストに新しい応答を追加し、
+        # これで messages の状態を「完全に上書き」する。
+        return {"messages": messages_for_agent + [response]}
+    else:
+        # 通常時は、今まで通り、単純に新しい応答を追加する。
+        return {"messages": [response]}
 
 # ▼▼▼ 既存の generate_tool_report_node 関数を、以下のコードで完全に置き換えてください ▼▼▼
 def generate_tool_report_node(state: AgentState):
