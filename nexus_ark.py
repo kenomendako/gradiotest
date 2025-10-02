@@ -102,18 +102,26 @@ try:
     custom_css = """
     /* --- [Final Styles - v8: The Renaissance] --- */
 
-    /* 思考ログ(コードブロック)のスタイル: Gradioが生成する<pre>タグを直接スタイリング */
-    #chat_output_area .code_wrap pre,
-    #chat_output_area .code_wrap code {
+    /* ルール1: <pre>タグ（外側のコンテナ）のスタイル */
+    #chat_output_area .code_wrap pre {
         background-color: var(--background-fill-secondary);
         color: var(--text-color-secondary);
-        border: 1px solid var(--border-color-primary);
+        border: 1px solid var(--border-color-primary); /* ← これが復活させる外枠です */
         padding: 10px;
         border-radius: 8px;
         font-family: var(--font-mono);
         font-size: 0.9em;
-        white-space: pre-wrap !important; /* <pre>タグと<code>タグ両方の折り返しを強制する */
+        white-space: pre-wrap !important;
         word-break: break-word;
+    }
+
+    /* ルール2: <code>タグ（内側のテキスト）のスタイルをリセット */
+    #chat_output_area .code_wrap code {
+        background: none !important;      /* 背景をリセット */
+        border: none !important;          /* 枠線をリセット */
+        padding: 0 !important;            /* パディングをリセット */
+        background-image: none !important; /* 背景画像をリセット */
+        white-space: inherit !important; /* 親の折り返し設定を強制的に継承する */
     }
 
     /* ゴミ箱アイコン（クリアボタン）を強制的に非表示にする */
