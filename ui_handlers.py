@@ -1195,7 +1195,7 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                     # 【思考ログの処理】
                     inner_content_match = re.search(r"【Thoughts】([\s\S]*?)【/Thoughts】", part, re.IGNORECASE)
                     inner_content = inner_content_match.group(1).strip() if inner_content_match else ""
-                    markdown_parts.append(f"```{inner_content}```")
+                    markdown_parts.append(f"```\n{inner_content}\n```")
                 else:
                     # 【通常テキストの処理】
                     markdown_parts.append(part.strip())
