@@ -1104,44 +1104,37 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
 
 def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
     """
-    (v22.1: The Final Peace Treaty with Parser)
-    話者名、思考ブロック、通常文の全てを空行で明確に分離し、
-    Gradioパーサーとの完全な和解を果たす最終版。
+    (v23: HTML Direct Rendering Architecture)
+    GradioのMarkdown解釈をバイパスし、Python側で安全なHTMLを直接生成する最終版。
     """
     if not messages:
         return [], []
 
     gradio_history, mapping_list = [], []
 
-    # 話者名やタイムスタンプ処理のための準備
     if not add_timestamp:
         timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
     user_display_name = current_room_config.get("user_display_name", "ユーザー")
     agent_name_cache = {}
 
-    # ステージ1: 生ログをUIで扱いやすい中間形式(proto_history)に分解する
     proto_history = []
     for i, msg in enumerate(messages):
         role, content = msg.get("role"), msg.get("content", "").strip()
         responder_id = msg.get("responder")
         if not responder_id: continue
 
-        # タイムスタンプの除去（設定による）
         if not add_timestamp:
             content = timestamp_pattern.sub('', content)
 
-        # スクリーンショットモードの置換処理
         if screenshot_mode and redaction_rules:
             for rule in redaction_rules:
                 if rule.get("find"):
                     content = content.replace(rule["find"], rule.get("replace", ""))
 
-        # テキスト部分とメディア添付部分を分離
         text_part = re.sub(r"\[(?:Generated Image|ファイル添付):.*?\]", "", content, flags=re.DOTALL).strip()
         media_matches = list(re.finditer(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]", content))
 
-        # 分離したパーツをproto_historyに追加
         if text_part:
             proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": text_part, "log_index": i})
         for match in media_matches:
@@ -1149,18 +1142,15 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
             if os.path.exists(path):
                 proto_history.append({"type": "media", "role": role, "responder": responder_id, "path": path, "log_index": i})
 
-        # テキストもメディアもない場合（空のメッセージ）も、元のインデックスを保持するために追加
         if not text_part and not media_matches:
             proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
 
-    # ステージ2: 中間形式(proto_history)をGradioが解釈できる形式に組み立てる
     for item in proto_history:
         mapping_list.append(item["log_index"])
         role, responder_id = item["role"], item["responder"]
         is_user = (role == "USER")
 
         if item["type"] == "text":
-            # 話者名を取得
             speaker_name = ""
             if is_user:
                 speaker_name = user_display_name
@@ -1173,38 +1163,30 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 speaker_name = responder_id
 
             content_to_parse = item['content']
-
-            # --- [最終アーキテクチャの核心] ---
-
-            # 1. AIの応答を「思考ログ」と「それ以外の部分」に分割
             thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
             parts = thoughts_pattern.split(content_to_parse)
 
-            markdown_parts = []
-
-            # 2. 話者名が有る場合、最初のパーツとして追加
+            html_parts = []
             if speaker_name:
-                markdown_parts.append(f"**{speaker_name}:**")
+                html_parts.append(f"<b>{html.escape(speaker_name)}:</b>")
 
-            # 3. 各パーツを処理し、Markdownコードブロックに変換
             for part in parts:
                 if not part or not part.strip():
                     continue
 
                 if thoughts_pattern.match(part):
-                    # 【思考ログの処理】
                     inner_content_match = re.search(r"【Thoughts】([\s\S]*?)【/Thoughts】", part, re.IGNORECASE)
                     inner_content = inner_content_match.group(1).strip() if inner_content_match else ""
-                    markdown_parts.append(f"```{inner_content}```")
+                    escaped_content = html.escape(inner_content)
+                    html_parts.append(f"<pre>{escaped_content}</pre>")
                 else:
-                    # 【通常テキストの処理】
-                    markdown_parts.append(part.strip())
+                    escaped_part = html.escape(part.strip())
+                    # 簡易的なMarkdownサポート: **太字** を <b>太字</b> に変換
+                    escaped_part = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', escaped_part)
+                    html_parts.append(escaped_part.replace('\n', '<br>'))
 
-            # 4. 全てのパーツを「空行」で結合し、単一のMarkdown文字列を生成
-            final_markdown = "\n\n".join(markdown_parts)
-            # --- [アーキテクチャここまで] ---
-
-            gradio_history.append((final_markdown, None) if is_user else (None, final_markdown))
+            final_html = "<br><br>".join(html_parts)
+            gradio_history.append((final_html, None) if is_user else (None, final_html))
 
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))
