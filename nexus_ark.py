@@ -103,7 +103,7 @@ try:
     /* --- [Final Styles - v8: The Renaissance] --- */
 
     /* 思考ログ(コードブロック)のスタイル: Gradioが生成する<pre>タグを直接スタイリング */
-    #chat_output_area pre {
+    #chat_output_area .code_wrap pre {
         background-color: var(--background-fill-secondary);
         color: var(--text-color-secondary);
         border: 1px solid var(--border-color-primary);
