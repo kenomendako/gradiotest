@@ -687,37 +687,43 @@ def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str,
     return location_name, scenery_text, scenery_image_path
 
 def handle_location_change(room_name: str, selected_value: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
-    if not selected_value or selected_value.startswith("__AREA_HEADER_"):
-        location_name, _, scenery_text = generate_scenery_context(room_name, config_manager.GEMINI_API_KEYS.get(api_key_name))
-        scenery_image_path = utils.find_scenery_image(room_name, utils.get_current_location(room_name))
-        return location_name, scenery_text, scenery_image_path
-
-    location_id = selected_value
-
-    from tools.space_tools import set_current_location
-    print(f"--- UIからの場所変更処理開始: ルーム='{room_name}', 移動先ID='{location_id}' ---")
-
-    scenery_cache = utils.load_scenery_cache(room_name)
-    current_loc_name = scenery_cache.get("location_name", "（場所不明）")
-    scenery_text = scenery_cache.get("scenery_text", "（情景不明）")
-    current_image_path = utils.find_scenery_image(room_name, utils.get_current_location(room_name))
-
-    if not room_name or not location_id:
-        gr.Warning("ルームと移動先の場所を選択してください。")
-        return current_loc_name, scenery_text, current_image_path
-
-    result = set_current_location.func(location_id=location_id, room_name=room_name)
-    if "Success" not in result:
-        gr.Error(f"場所の変更に失敗しました: {result}")
-        return current_loc_name, scenery_text, current_image_path
-
-    gr.Info(f"場所を「{location_id}」に移動しました。情景を更新します...")
-
+    """
+    UIからの場所変更を処理し、必ず最新の情景コンテキストを生成して返す。
+    """
+    # 1. APIキーを最初に取得・検証
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return "（APIキーエラー）", "（APIキーエラー）", None
+        # エラー時でも、現在の状態を再取得して返すことでUIの崩壊を防ぐ
+        current_loc = utils.get_current_location(room_name)
+        loc_name, _, scenery = generate_scenery_context(room_name, "DUMMY_KEY_FOR_ERROR_CASE") # APIキーなしでも呼べるように
+        img_path = utils.find_scenery_image(room_name, current_loc)
+        return loc_name, scenery, img_path
 
+    # 2. 移動先が選択されていない、またはヘッダーがクリックされた場合は、現在の場所の情報を再生成して返す
+    if not selected_value or selected_value.startswith("__AREA_HEADER_"):
+        current_loc = utils.get_current_location(room_name)
+        location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
+        scenery_image_path = utils.find_scenery_image(room_name, current_loc)
+        return location_name, scenery_text, scenery_image_path
+
+    # 3. ここからが本処理：場所の更新と、それに続く「必須」の情景再生成
+    location_id = selected_value
+    print(f"--- UIからの場所変更処理開始: ルーム='{room_name}', 移動先ID='{location_id}' ---")
+
+    from tools.space_tools import set_current_location
+    result = set_current_location.func(location_id=location_id, room_name=room_name)
+
+    if "Success" not in result:
+        gr.Error(f"場所の変更に失敗しました: {result}")
+        # 失敗した場合でも、現在の（変更されなかった）場所の最新情報を返す
+        current_loc = utils.get_current_location(room_name)
+        location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
+        scenery_image_path = utils.find_scenery_image(room_name, current_loc)
+        return location_name, scenery_text, scenery_image_path
+
+    # 4. 成功した場合、必ず最新の情景情報を生成して返す
+    gr.Info(f"場所を「{location_id}」に移動しました。情景を更新します...")
     new_location_name, _, new_scenery_text = generate_scenery_context(room_name, api_key)
     new_image_path = utils.find_scenery_image(room_name, location_id)
 
