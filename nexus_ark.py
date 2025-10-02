@@ -100,22 +100,28 @@ try:
     alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
-    /* --- [Final Styles - v4] --- */
+    /* --- [Final Styles - v8: The Renaissance] --- */
 
-    /* 思考ログのスタイル: Gradioがpタグで囲むことを考慮 */
-    #chat_output_area .thoughts {
+    /* ルール1: <pre>タグ（外側のコンテナ）のスタイル */
+    #chat_output_area .code_wrap pre {
         background-color: var(--background-fill-secondary);
         color: var(--text-color-secondary);
-        border: 1px solid var(--border-color-primary);
+        border: 1px solid var(--border-color-primary); /* ← これが復活させる外枠です */
         padding: 10px;
         border-radius: 8px;
         font-family: var(--font-mono);
         font-size: 0.9em;
-        white-space: pre-wrap;
+        white-space: pre-wrap !important;
         word-break: break-word;
-        /* Gradioが生成する<p>タグの余白をリセット */
-        margin-top: 0;
-        margin-bottom: 0;
+    }
+
+    /* ルール2: <code>タグ（内側のテキスト）のスタイルをリセット */
+    #chat_output_area .code_wrap code {
+        background: none !important;      /* 背景をリセット */
+        border: none !important;          /* 枠線をリセット */
+        padding: 0 !important;            /* パディングをリセット */
+        background-image: none !important; /* 背景画像をリセット */
+        white-space: inherit !important; /* 親の折り返し設定を強制的に継承する */
     }
 
     /* ゴミ箱アイコン（クリアボタン）を強制的に非表示にする */
@@ -141,7 +147,6 @@ try:
     #alarm_dataframe_display th:nth-child(1), #alarm_dataframe_display td:nth-child(1) {
         width: 50px !important; text-align: center !important;
     }
-
     #selection_feedback { font-size: 0.9em; color: var(--text-color-secondary); margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
     #token_count_display { text-align: right; font-size: 0.85em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
@@ -752,6 +757,13 @@ try:
             outputs=[selected_message_state, action_button_group, play_audio_button],
             show_progress=False
         )
+        # --- [ここから追加] ---
+        chatbot_display.edit(
+            fn=ui_handlers.handle_chatbot_edit,
+            inputs=[current_room_name, api_history_limit_state, current_log_map_state, room_add_timestamp_checkbox],
+            outputs=[chatbot_display, current_log_map_state]
+        )
+        # --- [追加ここまで] ---
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_room_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
         api_history_limit_dropdown.change(
             fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
