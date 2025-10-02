@@ -1,6 +1,7 @@
 # tools/space_tools.py (v20: Final Architecture)
 
 import os
+import re  # ← この行を追加
 from langchain_core.tools import tool
 from room_manager import get_world_settings_path
 import utils
@@ -10,17 +11,47 @@ import traceback
 
 @tool
 def set_current_location(location_id: str, room_name: str) -> str:
-    """AIの現在地を設定する。"""
+    """AIの現在地を設定する。 location_idには、移動可能な場所リストにある、角括弧を含まない具体的な場所名を指定する必要がある。"""
     if not location_id or not room_name:
-        return "【Error】Internal tool error: Location ID and room name are required for execution."
+        return "【エラー】内部ツールエラー：実行には場所IDとルーム名が必要です。"
+
     try:
-        base_path = os.path.join(constants.ROOMS_DIR, room_name)
-        location_file_path = os.path.join(base_path, "current_location.txt")
-        with open(location_file_path, "w", encoding="utf-8") as f:
-            f.write(location_id.strip())
-        return f"Success: 現在地は '{location_id}' に設定されました。この移動タスクは完了です。次に、この結果をユーザーに報告してください。"
+        # 1. 有効な場所名のリストを取得
+        world_settings_path = get_world_settings_path(room_name)
+        world_data = utils.parse_world_file(world_settings_path)
+        valid_locations = []
+        for area, places in world_data.items():
+            for place_name in places.keys():
+                if not place_name.startswith("__"):
+                    valid_locations.append(place_name)
+
+        if not valid_locations:
+            return "【エラー】この世界には、現在移動可能な場所が一つも定義されていません。"
+
+        # 2. 入力から場所名を抽出
+        input_id_stripped = location_id.strip()
+        # `[エリア名] 場所名` の形式から場所名だけを抽出する
+        match = re.match(r'\[.*?\]\s*(.*)', input_id_stripped)
+        place_to_check = match.group(1).strip() if match else input_id_stripped
+
+        # 3. 場所名の有効性を検証
+        if place_to_check in valid_locations:
+            # 4. 成功：ファイルを書き込む
+            location_file_path = os.path.join(constants.ROOMS_DIR, room_name, "current_location.txt")
+            with open(location_file_path, "w", encoding="utf-8") as f:
+                f.write(place_to_check)
+            return f"成功: 現在地は '{place_to_check}' に設定されました。この移動タスクは完了です。次に、この結果をユーザーに報告してください。"
+        else:
+            # 5. 失敗：具体的なフィードバックを返す
+            available_locations_str = "\n - ".join(sorted(valid_locations))
+            return (
+                f"【エラー】指定された '{location_id}' は有効な場所名ではありませんでした。"
+                f" location_id引数には、角括弧 `[]` を含まない、以下のリストにある正確な場所名を指定する必要があります。\n"
+                f"【移動可能な場所名リスト】\n - {available_locations_str}"
+            )
     except Exception as e:
-        return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
+        traceback.print_exc()
+        return f"【エラー】現在地の設定中に予期せぬエラーが発生しました: {e}"
 
 def _apply_world_edits(instructions: List[Dict[str, Any]], room_name: str) -> str:
     """【内部専用】AIが生成した世界設定への差分編集指示リストを解釈し、world_settings.txtに適用する。"""
