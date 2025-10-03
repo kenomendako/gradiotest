@@ -324,7 +324,7 @@ def _stream_and_handle_response(
     streaming_speed: float
 ) -> Iterator[Tuple]:
     """
-    【v2: 再生成対応】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
+    【v3: リアルタイムポップアップ対応】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
     """
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
     effective_settings = config_manager.get_effective_settings(soul_vessel_room)
@@ -334,8 +334,7 @@ def _stream_and_handle_response(
         api_history_limit_value=api_history_limit,
         add_timestamp=add_timestamp
     )
-
-    # 7. 処理完了後、または中断後の最終的なUI更新を行うための変数を初期化
+    processed_tool_messages_count = 0
     final_chatbot_history, final_mapping_list = chatbot_history, mapping_list
 
     try:
@@ -344,10 +343,8 @@ def _stream_and_handle_response(
         yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content,
-               gr.update(visible=True, interactive=True),
-               gr.update(interactive=False),
-               gr.update(visible=False) # ← action_button_groupを非表示にする
-        )
+               gr.update(visible=True, interactive=True), gr.update(interactive=False),
+               gr.update(visible=False))
 
         # 2. グループ会話と情景のコンテキストを準備
         all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
@@ -359,105 +356,86 @@ def _stream_and_handle_response(
             chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
             yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(),
                    gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                   current_console_content, gr.update(), gr.update(),
-                   gr.update() # ← 14個目の値を返すために追加
-            )
+                   current_console_content, gr.update(), gr.update(), gr.update())
 
             # 4. APIに渡す引数を準備
-            # グループ会話では、最初のAI（魂の器）のみがファイルを受け取り、他のAIはテキストのみを参照する
             final_user_prompt_parts = user_prompt_parts_for_api if current_room == soul_vessel_room else [{"type": "text", "text": full_user_log_entry}]
-
             agent_args_dict = {
                 "room_to_respond": current_room, "api_key_name": api_key_name,
-                "global_model_from_ui": global_model,
-                "api_history_limit": api_history_limit, "debug_mode": debug_mode,
-                "history_log_path": main_log_f, "user_prompt_parts": final_user_prompt_parts,
-                "soul_vessel_room": soul_vessel_room, "active_participants": active_participants,
-                "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
+                "global_model_from_ui": global_model, "api_history_limit": api_history_limit,
+                "debug_mode": debug_mode, "history_log_path": main_log_f,
+                "user_prompt_parts": final_user_prompt_parts, "soul_vessel_room": soul_vessel_room,
+                "active_participants": active_participants, "shared_location_name": shared_location_name,
+                "shared_scenery_text": shared_scenery_text,
             }
 
-            # 5. ストリーミング実行とUI更新 (インテリジェント・タイプライター方式)
+            # 5. ストリーミング実行とUI更新
             streamed_text = ""
             final_state = None
             initial_message_count = 0
-            is_in_code_block = False # コードブロックの内外を判定する状態フラグ
-            PUNCTUATION_MULTIPLIER = 8.0
-            NEWLINE_MULTIPLIER = 15.0
+            is_in_code_block = False
+            stream_generator = gemini_api.invoke_nexus_agent_stream(agent_args_dict)
 
+            # 5-1. 最初のメッセージ(初期メッセージ数)を取得
+            try:
+                mode, chunk = next(stream_generator)
+                if mode == "initial_count":
+                    initial_message_count = chunk
+            except StopIteration:
+                pass # ジェネレータが空の場合は何もしない
+
+            # 5-2. メインのストリーミングループ
             with utils.capture_prints() as captured_output:
-                for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                    if mode == "initial_count":
-                        initial_message_count = chunk
-                    elif mode == "messages":
-                        message_chunk, _ = chunk
+                for mode, chunk in stream_generator:
+                    if mode == "messages":
+                        message_chunk, intermediate_values = chunk
+                        # 思考プロセスが更新されるたびに、新しいToolMessageがないかチェック
+                        if intermediate_values and "messages" in intermediate_values:
+                            tool_messages = [msg for msg in intermediate_values["messages"] if isinstance(msg, ToolMessage)]
+                            if len(tool_messages) > processed_tool_messages_count:
+                                new_tool_message = tool_messages[processed_tool_messages_count]
+                                popup_text = utils.format_tool_result_for_ui(new_tool_message.name, str(new_tool_message.content))
+                                if popup_text: gr.Info(popup_text)
+                                processed_tool_messages_count += 1
+
+                        # テキストチャンクを処理
                         if isinstance(message_chunk, AIMessageChunk):
                             new_text_chunk = message_chunk.content
                             for char in new_text_chunk:
                                 temp_text_for_check = streamed_text + char
-                                if temp_text_for_check.endswith("```"):
-                                    is_in_code_block = not is_in_code_block
+                                if temp_text_for_check.endswith("```"): is_in_code_block = not is_in_code_block
                                 streamed_text += char
                                 chatbot_history[-1] = (None, streamed_text + "▌")
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                        gr.update(), gr.update(), gr.update(), gr.update(),
                                        gr.update(), gr.update(), current_console_content,
                                        gr.update(), gr.update(), gr.update())
-                                sleep_duration = 0.0
-                                if is_in_code_block:
-                                    # コードブロック内はウェイトなしで一気に表示
-                                    sleep_duration = 0.0
-                                elif streamed_text.endswith('\n\n'):
-                                    # 連続改行（段落間）の場合のみ、長めのウェイトを取る
-                                    sleep_duration = streaming_speed * NEWLINE_MULTIPLIER
-                                else:
-                                    # それ以外のすべての文字（句読点含む）は均一のウェイト
-                                    sleep_duration = streaming_speed
+                                sleep_duration = 0.0 if is_in_code_block else streaming_speed
+                                if sleep_duration > 0: time.sleep(sleep_duration)
 
-                                if sleep_duration > 0:
-                                    time.sleep(sleep_duration)
                     elif mode == "values":
                         final_state = chunk
             current_console_content += captured_output.getvalue()
 
             # 6. 最終応答の処理とログ保存
-            all_turn_popups = []
             if final_state:
-                # ▼▼▼【ここからが修正の核心】▼▼▼
-                # 今回のターンで新たに追加されたメッセージのみを抽出
                 new_messages = final_state["messages"][initial_message_count:]
-
-                # ツール実行結果のポップアップを先に収集
-                for msg in new_messages:
-                    if isinstance(msg, ToolMessage):
-                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                        if popup_text: all_turn_popups.append(popup_text)
-
-                # 新しいAIのメッセージをすべて順番にログに記録
                 for msg in new_messages:
                     if isinstance(msg, AIMessage):
                         response_content = msg.content
                         if response_content and response_content.strip():
                              utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", response_content)
-                # ▲▲▲【修正はここまで】▲▲▲
 
-            # ストリーミング表示の最後の"▌"を消すために、最終応答テキストを設定
-            # (ログ記録は完了しているので、表示のためだけに最後のメッセージ内容を取得)
+            # ストリーミング表示の最後の"▌"を消す
             final_display_text = ""
-            if final_state:
-                last_message = final_state["messages"][-1]
-                if isinstance(last_message, AIMessage):
-                    final_display_text = last_message.content
-
+            if final_state and isinstance(final_state["messages"][-1], AIMessage):
+                final_display_text = final_state["messages"][-1].content
             final_display_text = final_display_text or streamed_text
             chatbot_history[-1] = (None, final_display_text)
 
-        for popup_message in all_turn_popups: gr.Info(popup_message)
-
         # 処理が正常に完了した場合、最終的な履歴を取得
         final_chatbot_history, final_mapping_list = reload_chat_log(
-            room_name=soul_vessel_room,
-            api_history_limit_value=api_history_limit,
-            add_timestamp=add_timestamp
+            room_name=soul_vessel_room, api_history_limit_value=api_history_limit, add_timestamp=add_timestamp
         )
 
     except GeneratorExit:

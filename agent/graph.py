@@ -26,7 +26,7 @@ from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from tools.timer_tools import set_timer, set_pomodoro_timer
 from tools.knowledge_tools import search_knowledge_graph
-from room_manager import get_world_settings_path, get_room_files_paths
+from room_manager import get_world_settings_path
 import utils
 import config_manager
 import constants
@@ -60,24 +60,28 @@ class AgentState(TypedDict):
 
 def get_location_list(room_name: str) -> List[str]:
     """
-    UIとAIのプロンプトで表示するための、移動可能な場所名のリストを生成する。
-    異なるエリアに同じ名前の場所が存在する可能性を考慮し、
-    重複を許さずに全てのユニークな場所名を返す。
+    【v2: 安定性向上】AIが認識しやすいように、エリア名を明記した場所リストを生成する。
+    ['[エリア名] 場所名', '[エリア名] 場所名', ...] の形式で返す。
     """
     if not room_name: return []
     world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path): return []
+
     world_data = utils.parse_world_file(world_settings_path)
     if not world_data: return []
 
-    # AIが直接 location_id として使用できる、純粋な場所名のセットを作成する
-    locations = set()
-    for area_name, places in world_data.items():
-        for place_name in places.keys():
-            if place_name == "__area_description__": continue
-            locations.add(place_name)
+    locations = []
+    # エリア名をアルファベット順にソート
+    for area_name in sorted(world_data.keys()):
+        places = world_data[area_name]
+        # 場所名をアルファベット順にソート
+        for place_name in sorted(places.keys()):
+            # 内部用のキーは除外
+            if place_name.startswith("__"): continue
+            # AIがエリアと場所を明確に区別できるフォーマットで追加
+            locations.append(f"[{area_name}] {place_name}")
 
-    return sorted(list(locations))
+    return locations
 
 def generate_scenery_context(room_name: str, api_key: str, force_regenerate: bool = False) -> Tuple[str, str, str]:
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
@@ -193,20 +197,11 @@ def context_generator_node(state: AgentState):
         if current_location_name:
             world_settings_path = get_world_settings_path(soul_vessel_room)
             world_data = utils.parse_world_file(world_settings_path)
-            # 防御的プログラミング：space_def が巨大なデータにならないように保証する
-            if isinstance(world_data, dict):
-                for area, places in world_data.items():
-                    if isinstance(places, dict) and current_location_name in places:
-                        space_def = places[current_location_name]
-                        # 念のため、予期せぬ長大なデータが混入することを防ぐ
-                        if isinstance(space_def, str) and len(space_def) > 2000:
-                            space_def = space_def[:2000] + "\n...（長すぎるため省略）"
-                        break
-            else:
-                # world_dataが予期せず辞書でない場合のエラーハンドリング
-                space_def = "（エラー：世界設定のデータ構造が不正です）"
-
-        available_locations = get_location_list(room_name)
+            for area, places in world_data.items():
+                if current_location_name in places:
+                    space_def = places[current_location_name]
+                    break
+        available_locations = get_location_list(soul_vessel_room) # 参照先を魂の器のルームに修正
         location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
         final_system_prompt_text = (
             f"{formatted_core_prompt}\n\n---\n"
@@ -347,7 +342,6 @@ def safe_tool_executor(state: AgentState):
     AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
     APIのレート制限エラーに対して、賢くリトライまたは中断を行う。
     """
-    print("--- ツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return {}
@@ -355,6 +349,7 @@ def safe_tool_executor(state: AgentState):
     tool_call = last_message.tool_calls[0]
     tool_name = tool_call["name"]
     tool_args = tool_call["args"]
+    print(f"--- [Tool Executor] Calling: {tool_name} | Args: {tool_args} ---")
     room_name = state.get('room_name')
     api_key = state.get('api_key')
 
@@ -535,25 +530,6 @@ def safe_tool_executor(state: AgentState):
             except Exception as e:
                 output = f"Error executing tool '{tool_name}': {e}"
                 traceback.print_exc()
-
-    # --- [ここからが追加ブロック] ---
-    # AIの自己認識を促すため、ツールの実行結果をシステムメッセージとしてログに記録する
-    try:
-        log_file_path, _, _, _, _ = get_room_files_paths(room_name)
-        if log_file_path:
-            # 結果が長すぎる場合、ログが肥大化しないように要約する
-            output_summary = (str(output)[:250] + '...') if len(str(output)) > 250 else str(output)
-            system_log_message = f"（システム通知：ツール「{tool_name}」の実行が完了しました。結果：『{output_summary}』）"
-
-            # utilsの関数を呼び出してログファイルに追記
-            utils.save_message_to_log(log_file_path, "## SYSTEM:tool_executor", system_log_message)
-            print(f"  - ツール実行結果をログに記録しました: {tool_name}")
-        else:
-            print(f"  - 警告: ツール実行結果のログ記録に失敗しました。ルーム '{room_name}' のログパスが見つかりません。")
-    except Exception as log_e:
-        print(f"  - 警告: ツール実行結果のログ記録中に予期せぬエラーが発生しました: {log_e}")
-        traceback.print_exc()
-    # --- [追加ブロックここまで] ---
 
     return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)]}
 

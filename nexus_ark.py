@@ -407,8 +407,10 @@ try:
                             show_copy_button=True,
                             show_label=False,
                             render_markdown=True,
-                            group_consecutive_messages=False
+                            group_consecutive_messages=False # この行を追加
                         )
+
+                        # ▼▼▼【ここからが修正箇所】▼▼▼
 
                         # 1. 音声プレーヤーとアクションボタン (チャット欄の直下に移動)
                         with gr.Row():
