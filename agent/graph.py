@@ -26,7 +26,7 @@ from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from tools.timer_tools import set_timer, set_pomodoro_timer
 from tools.knowledge_tools import search_knowledge_graph
-from room_manager import get_world_settings_path
+from room_manager import get_world_settings_path, get_room_files_paths
 import utils
 import config_manager
 import constants
@@ -535,6 +535,25 @@ def safe_tool_executor(state: AgentState):
             except Exception as e:
                 output = f"Error executing tool '{tool_name}': {e}"
                 traceback.print_exc()
+
+    # --- [ここからが追加ブロック] ---
+    # AIの自己認識を促すため、ツールの実行結果をシステムメッセージとしてログに記録する
+    try:
+        log_file_path, _, _, _, _ = get_room_files_paths(room_name)
+        if log_file_path:
+            # 結果が長すぎる場合、ログが肥大化しないように要約する
+            output_summary = (str(output)[:250] + '...') if len(str(output)) > 250 else str(output)
+            system_log_message = f"（システム通知：ツール「{tool_name}」の実行が完了しました。結果：『{output_summary}』）"
+
+            # utilsの関数を呼び出してログファイルに追記
+            utils.save_message_to_log(log_file_path, "## SYSTEM:tool_executor", system_log_message)
+            print(f"  - ツール実行結果をログに記録しました: {tool_name}")
+        else:
+            print(f"  - 警告: ツール実行結果のログ記録に失敗しました。ルーム '{room_name}' のログパスが見つかりません。")
+    except Exception as log_e:
+        print(f"  - 警告: ツール実行結果のログ記録中に予期せぬエラーが発生しました: {log_e}")
+        traceback.print_exc()
+    # --- [追加ブロックここまで] ---
 
     return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)]}
 
