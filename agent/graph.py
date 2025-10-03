@@ -59,29 +59,17 @@ class AgentState(TypedDict):
     all_participants: List[str]
 
 def get_location_list(room_name: str) -> List[str]:
-    """
-    【v2: 安定性向上】AIが認識しやすいように、エリア名を明記した場所リストを生成する。
-    ['[エリア名] 場所名', '[エリア名] 場所名', ...] の形式で返す。
-    """
     if not room_name: return []
     world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path): return []
-
     world_data = utils.parse_world_file(world_settings_path)
     if not world_data: return []
-
     locations = []
-    # エリア名をアルファベット順にソート
-    for area_name in sorted(world_data.keys()):
-        places = world_data[area_name]
-        # 場所名をアルファベット順にソート
-        for place_name in sorted(places.keys()):
-            # 内部用のキーは除外
-            if place_name.startswith("__"): continue
-            # AIがエリアと場所を明確に区別できるフォーマットで追加
+    for area_name, places in world_data.items():
+        for place_name in places.keys():
+            if place_name == "__area_description__": continue
             locations.append(f"[{area_name}] {place_name}")
-
-    return locations
+    return sorted(locations)
 
 def generate_scenery_context(room_name: str, api_key: str, force_regenerate: bool = False) -> Tuple[str, str, str]:
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
@@ -201,7 +189,7 @@ def context_generator_node(state: AgentState):
                 if current_location_name in places:
                     space_def = places[current_location_name]
                     break
-        available_locations = get_location_list(soul_vessel_room) # 参照先を魂の器のルームに修正
+        available_locations = get_location_list(room_name)
         location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
         final_system_prompt_text = (
             f"{formatted_core_prompt}\n\n---\n"
@@ -342,6 +330,7 @@ def safe_tool_executor(state: AgentState):
     AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
     APIのレート制限エラーに対して、賢くリトライまたは中断を行う。
     """
+    print("--- ツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return {}
@@ -349,7 +338,6 @@ def safe_tool_executor(state: AgentState):
     tool_call = last_message.tool_calls[0]
     tool_name = tool_call["name"]
     tool_args = tool_call["args"]
-    print(f"--- [Tool Executor] Calling: {tool_name} | Args: {tool_args} ---")
     room_name = state.get('room_name')
     api_key = state.get('api_key')
 

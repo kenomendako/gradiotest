@@ -7,57 +7,20 @@ import utils
 import constants
 from typing import List, Dict, Any
 import traceback
-import re
 
 @tool
 def set_current_location(location_id: str, room_name: str) -> str:
-    """
-    AIの現在地を設定する。
-
-    Args:
-        location_id: 移動先の場所ID。ユーザーの選択肢から正確に引用する必要がある。
-                     例: "リビング", "書斎", "カフェテラス"
-        room_name: 現在のルーム名。
-
-    Returns:
-        処理の成功または失敗を示す文字列。
-    """
+    """AIの現在地を設定する。"""
     if not location_id or not room_name:
         return "【Error】Internal tool error: Location ID and room name are required for execution."
-
-    # AIが余分なマークダウンや括弧を含めてしまうケースに対応
-    # 例: "「リビング」", "`リビング`", "リビング (Living Room)"
-    # この正規表現は、クォート、バッククォート、括弧に囲まれた主要な部分を抽出する
-    match = re.search(r'[`"\'「『]([^`"\'」』]+)[`"\'」』]', location_id)
-    if match:
-        cleaned_location_id = match.group(1).strip()
-        print(f"--- [Location Tool] Info: AIからの入力値を正規化しました: '{location_id}' -> '{cleaned_location_id}' ---")
-    else:
-        # マッチしない場合は、括弧内の説明などを除去する
-        cleaned_location_id = re.split(r'[（(]', location_id)[0].strip()
-
-    if not cleaned_location_id:
-        return f"【Error】AIからの入力値 '{location_id}' を解釈できませんでした。場所IDを正しく指定してください。"
-
     try:
         base_path = os.path.join(constants.ROOMS_DIR, room_name)
         location_file_path = os.path.join(base_path, "current_location.txt")
-
-        world_settings_path = get_world_settings_path(room_name)
-        world_data = utils.parse_world_file(world_settings_path)
-        all_valid_locations = []
-        for area in world_data.values():
-            all_valid_locations.extend(area.keys())
-
-        if cleaned_location_id not in all_valid_locations:
-            return f"【Error】指定された場所ID '{cleaned_location_id}' は、世界設定に存在しません。有効な選択肢の中から選んでください。"
-
         with open(location_file_path, "w", encoding="utf-8") as f:
-            f.write(cleaned_location_id)
-
-        return f"Success: 現在地は '{cleaned_location_id}' に設定されました。この移動タスクは完了です。次に、この結果をユーザーに報告してください。"
+            f.write(location_id.strip())
+        return f"Success: 現在地は '{location_id}' に設定されました。この移動タスクは完了です。次に、この結果をユーザーに報告してください。"
     except Exception as e:
-        return f"【Error】現在地のファイル書き込み中に予期せぬエラーが発生しました: {e}"
+        return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
 
 def _apply_world_edits(instructions: List[Dict[str, Any]], room_name: str) -> str:
     """【内部専用】AIが生成した世界設定への差分編集指示リストを解釈し、world_settings.txtに適用する。"""
