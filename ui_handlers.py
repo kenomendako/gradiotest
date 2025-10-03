@@ -137,6 +137,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
         effective_settings["send_core_memory"], effective_settings["send_scenery"],
         effective_settings["auto_memory_enabled"],
+        effective_settings["enable_typewriter_effect"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path
     )
@@ -206,7 +207,8 @@ def handle_save_room_settings(
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
-    auto_memory_enabled: bool
+    auto_memory_enabled: bool,
+    enable_typewriter_effect: bool
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -228,7 +230,8 @@ def handle_save_room_settings(
         "safety_block_threshold_dangerous_content": safety_value_map.get(dangerous),
         "add_timestamp": bool(add_timestamp), "send_thoughts": bool(send_thoughts), "send_notepad": bool(send_notepad),
         "use_common_prompt": bool(use_common_prompt), "send_core_memory": bool(send_core_memory), "send_scenery": bool(send_scenery),
-        "auto_memory_enabled": bool(auto_memory_enabled)
+        "auto_memory_enabled": bool(auto_memory_enabled),
+        "enable_typewriter_effect": bool(enable_typewriter_effect)
     }
     try:
         # 正しくは room_config.json を参照する
@@ -376,13 +379,14 @@ def _stream_and_handle_response(
                 "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
             }
 
-            # 5. ストリーミング実行とUI更新 (インテリジェント・タイプライター方式)
+            # 5. ストリーミング実行とUI更新
             streamed_text = ""
             final_state = None
             initial_message_count = 0
-            is_in_code_block = False # コードブロックの内外を判定する状態フラグ
-            PUNCTUATION_MULTIPLIER = 8.0
-            NEWLINE_MULTIPLIER = 15.0
+
+            # ▼▼▼【ここからが全面的に書き換えるブロック】▼▼▼
+            # 設定に応じてタイプライター効果を適用するかどうかを取得
+            typewriter_enabled = effective_settings.get("enable_typewriter_effect", True)
 
             with utils.capture_prints() as captured_output:
                 for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
@@ -392,31 +396,32 @@ def _stream_and_handle_response(
                         message_chunk, _ = chunk
                         if isinstance(message_chunk, AIMessageChunk):
                             new_text_chunk = message_chunk.content
-                            for char in new_text_chunk:
-                                temp_text_for_check = streamed_text + char
-                                if temp_text_for_check.endswith("```"):
-                                    is_in_code_block = not is_in_code_block
-                                streamed_text += char
+
+                            if typewriter_enabled:
+                                # --- タイプライター効果が有効な場合（従来の処理） ---
+                                for char in new_text_chunk:
+                                    streamed_text += char
+                                    chatbot_history[-1] = (None, streamed_text + "▌")
+                                    yield (chatbot_history, mapping_list, gr.update(), gr.update(),
+                                           gr.update(), gr.update(), gr.update(), gr.update(),
+                                           gr.update(), gr.update(), current_console_content,
+                                           gr.update(), gr.update(), gr.update())
+                                    if streaming_speed > 0:
+                                        time.sleep(streaming_speed)
+                            else:
+                                # --- タイプライター効果が無効な場合（チャンク単位で一括表示） ---
+                                streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
+                                # UI更新はチャンクごとに行う
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                        gr.update(), gr.update(), gr.update(), gr.update(),
                                        gr.update(), gr.update(), current_console_content,
                                        gr.update(), gr.update(), gr.update())
-                                sleep_duration = 0.0
-                                if is_in_code_block:
-                                    # コードブロック内はウェイトなしで一気に表示
-                                    sleep_duration = 0.0
-                                elif streamed_text.endswith('\n\n'):
-                                    # 連続改行（段落間）の場合のみ、長めのウェイトを取る
-                                    sleep_duration = streaming_speed * NEWLINE_MULTIPLIER
-                                else:
-                                    # それ以外のすべての文字（句読点含む）は均一のウェイト
-                                    sleep_duration = streaming_speed
 
-                                if sleep_duration > 0:
-                                    time.sleep(sleep_duration)
                     elif mode == "values":
                         final_state = chunk
+            # ▲▲▲【書き換えはここまで】▲▲▲
+
             current_console_content += captured_output.getvalue()
 
             # 6. 最終応答の処理とログ保存 (二幕構成アーキテクチャ)
