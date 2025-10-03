@@ -420,28 +420,29 @@ def _stream_and_handle_response(
             current_console_content += captured_output.getvalue()
 
             # 6. 最終応答の処理とログ保存
-            all_turn_popups = []
             if final_state:
-                # ▼▼▼【ここからが修正の核心】▼▼▼
+                # --- [ここからが修正ブロック] ---
                 # 今回のターンで新たに追加されたメッセージのみを抽出
                 new_messages = final_state["messages"][initial_message_count:]
 
-                # ツール実行結果のポップアップを先に収集
+                # 新しいメッセージを順番にログファイルに追記する
                 for msg in new_messages:
-                    if isinstance(msg, ToolMessage):
-                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                        if popup_text: all_turn_popups.append(popup_text)
-
-                # 新しいAIのメッセージをすべて順番にログに記録
-                for msg in new_messages:
+                    # AIによる応答 (思考ログのみ、または通常の会話)
                     if isinstance(msg, AIMessage):
-                        response_content = msg.content
-                        if response_content and response_content.strip():
-                             utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", response_content)
-                # ▲▲▲【修正はここまで】▲▲▲
+                        # msg.contentが空でも、tool_callsがあればそれは有効な「行動」なので記録する
+                        # これにより、思考ログが失われることを防ぐ
+                        if msg.content or msg.tool_calls:
+                            utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", msg.content)
+
+                    # システムからのツール実行結果は、UIハンドラ側ではログに記録しない
+                    # (これはグラフの責務であり、ポップアップ表示のみを行う)
+                    elif isinstance(msg, ToolMessage):
+                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                        if popup_text:
+                            gr.Info(popup_text)
+                # --- [修正ブロックここまで] ---
 
             # ストリーミング表示の最後の"▌"を消すために、最終応答テキストを設定
-            # (ログ記録は完了しているので、表示のためだけに最後のメッセージ内容を取得)
             final_display_text = ""
             if final_state:
                 last_message = final_state["messages"][-1]
