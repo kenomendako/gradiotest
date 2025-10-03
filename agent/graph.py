@@ -272,19 +272,6 @@ def agent_node(state: AgentState):
 
     response = llm_with_tools.invoke(messages_for_agent)
 
-    # --- [ここからが置換ブロック] ---
-    # 【最終安全装置 v3】
-    # ツール呼び出しが検知された場合、AIの応答から「思考ログ」のみを抽出し、
-    # それ以外の「会話（意気込み）」を強制的に除去する。
-    if response.tool_calls:
-        print("  - ツール呼び出しを検知。安全装置により、AIの会話部分を無効化（思考ログは保持）します。")
-        thoughts_match = re.search(r"(【Thoughts】.*?【/Thoughts】)", response.content, re.DOTALL | re.IGNORECASE)
-        if thoughts_match:
-            response.content = thoughts_match.group(1)
-        else:
-            response.content = "" # 思考ログがない場合は完全に空にする
-    # --- [置換ブロックここまで] ---
-
     print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
     pprint.pprint(response)
     print("---------------------------------------\n")
