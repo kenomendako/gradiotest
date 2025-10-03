@@ -452,8 +452,6 @@ def _stream_and_handle_response(
             final_display_text = final_display_text or streamed_text
             chatbot_history[-1] = (None, final_display_text)
 
-        for popup_message in all_turn_popups: gr.Info(popup_message)
-
         # 処理が正常に完了した場合、最終的な履歴を取得
         final_chatbot_history, final_mapping_list = reload_chat_log(
             room_name=soul_vessel_room,
