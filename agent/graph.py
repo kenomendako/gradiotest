@@ -272,6 +272,16 @@ def agent_node(state: AgentState):
 
     response = llm_with_tools.invoke(messages_for_agent)
 
+    # --- [ここからが追加ブロック] ---
+    # 【最終安全装置・復活】
+    # AIがプロンプトの指示を破り、ツール呼び出しと会話を同時に生成した場合でも、
+    # ツール呼び出しが検知されたら、会話部分を物理的に空にする。
+    # これにより、アーキテクチャの安定性を100%保証する。
+    if response.tool_calls:
+        print("  - ツール呼び出しを検知。安全装置により、AIの会話部分を無効化します。")
+        response.content = ""
+    # --- [追加ブロックここまで] ---
+
     print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
     pprint.pprint(response)
     print("---------------------------------------\n")
