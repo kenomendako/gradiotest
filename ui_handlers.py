@@ -419,57 +419,47 @@ def _stream_and_handle_response(
                         final_state = chunk
             current_console_content += captured_output.getvalue()
 
-            # 6. 最終応答の処理とログ保存、そして「二幕劇」の演出
+            # 6. 最終応答の処理とログ保存 (二幕構成アーキテクチャ)
+            all_turn_popups = []
             if final_state:
-                # --- [ここからが最終アーキテクチャ] ---
+                # 6a. 今回のターンで追加された全メッセージを抽出
                 new_messages = final_state["messages"][initial_message_count:]
-                ai_message_to_log = None
+
+                # 6b. 全メッセージを順番に処理し、ログに記録 & ポップアップを準備
                 for msg in new_messages:
                     if isinstance(msg, AIMessage):
-                        ai_message_to_log = msg
-                        break # 最初のAIMessageを見つけたらループを抜ける
+                        # AIMessageは思考ログも含めて、そのままの内容を保存
+                        response_content = msg.content
+                        if response_content and response_content.strip():
+                            utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", response_content)
+                    elif isinstance(msg, ToolMessage):
+                        # ToolMessageはUIポップアップ用に整形する
+                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                        if popup_text:
+                            all_turn_popups.append(popup_text)
 
-                if ai_message_to_log:
-                    # ログには、思考ログや意気込みを含む、AIが生成したcontentをありのまま保存する
-                    utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", ai_message_to_log.content)
-
-                    # もしツール呼び出しがある場合（第一幕）、UIの履歴を更新して第二幕に備える
-                    if ai_message_to_log.tool_calls:
-                        # ストリーミングで表示した内容を確定させ、次のAI応答に備える
-                        chatbot_history, mapping_list = reload_chat_log(
-                            room_name=soul_vessel_room,
-                            api_history_limit_value=api_history_limit,
-                            add_timestamp=add_timestamp
-                        )
-                # --- [最終アーキテクチャここまで] ---
-
-            # ストリーミング表示の最後の"▌"を消す
+            # 6c. ストリーミング表示の最後の"▌"を消す
+            # streamed_textには最初のAIMessageの内容しか含まれないが、
+            # finallyブロックで全体が再描画されるため、一時的な表示として許容する。
             chatbot_history[-1] = (None, streamed_text)
 
-        # ツール実行結果のポップアップは、ループの外で一度だけ行う
-        if final_state:
-            new_messages = final_state["messages"][initial_message_count:]
-            for msg in new_messages:
-                if isinstance(msg, ToolMessage):
-                    popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                    if popup_text:
-                        gr.Info(popup_text)
-
-        # 処理が正常に完了した場合、最終的な履歴を確定
-        final_chatbot_history, final_mapping_list = chatbot_history, mapping_list
+        # 7. このターンで発生した全てのツール結果をまとめてポップアップ表示
+        for popup_message in all_turn_popups:
+            gr.Info(popup_message)
 
     except GeneratorExit:
-        # Gradioのキャンセルによってジェネレータが停止した場合
         print("--- [ジェネレータ] ユーザーの操作により、ストリーミング処理が正常に中断されました。 ---")
-        # ログから最新の履歴を再取得して、UIの不整合を防ぐ
+        # 中断した場合でも、finallyブロックでUIが正しく更新されるため、ここでは何もしない
+
+    finally:
+        # 8. [最終防衛ライン] 処理完了・中断・エラーに関わらず、必ずログから最新の状態を再描画する
         final_chatbot_history, final_mapping_list = reload_chat_log(
             room_name=soul_vessel_room,
             api_history_limit_value=api_history_limit,
             add_timestamp=add_timestamp
         )
 
-    finally:
-        # 7. 処理完了後、または中断後の最終的なUI更新
+        # 9. その他のUIコンポーネントを更新
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
         scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
