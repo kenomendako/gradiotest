@@ -175,7 +175,21 @@ def context_generator_node(state: AgentState):
         except Exception as e:
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
-    tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
+    # --- [ここからが修正ブロック] ---
+    # AIに表示するツールリストを生成する。
+    # AIが指定する必要のない引数（room_name, api_key）は、プロンプトから除外する。
+    tools_to_display = []
+    for tool in all_tools:
+        # ツールが持つ引数のうち、表示対象外のものを除外
+        visible_args = [
+            arg_name for arg_name in tool.args.keys()
+            if arg_name not in ['room_name', 'api_key']
+        ]
+        # 引数をカンマで連結して、'tool_name(arg1, arg2)' のような文字列を生成
+        args_str = ", ".join(visible_args)
+        tools_to_display.append(f"- `{tool.name}({args_str})`: {tool.description}")
+    tools_list_str = "\n".join(tools_to_display)
+    # --- [修正ブロックここまで] ---
     if len(all_participants) > 1:
         tools_list_str = "（グループ会話中はツールを使用できません）"
     class SafeDict(dict):
