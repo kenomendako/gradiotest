@@ -57,6 +57,7 @@ class AgentState(TypedDict):
     scenery_text: str
     debug_mode: bool
     all_participants: List[str]
+    loop_count: int # ← この行を追加
 
 def get_location_list(room_name: str) -> List[str]:
     """
@@ -216,6 +217,13 @@ def context_generator_node(state: AgentState):
 
 def agent_node(state: AgentState):
     print("--- エージェントノード (agent_node) 実行 ---")
+
+    # ▼▼▼ 新しいブロックをここに追加 ▼▼▼
+    # ループカウンターを初期化または取得
+    loop_count = state.get("loop_count", 0)
+    print(f"  - 現在の再思考ループカウント: {loop_count}")
+    # ▲▲▲ 追加ここまで ▲▲▲
+
     base_system_prompt = state['system_prompt'].content
     all_participants = state.get('all_participants', [])
     current_room = state['room_name']
@@ -276,7 +284,10 @@ def agent_node(state: AgentState):
     pprint.pprint(response)
     print("---------------------------------------\n")
 
-    return {"messages": [response]}
+    # ▼▼▼ return文の直前に、以下の2行を追加 ▼▼▼
+    # 実行後にループカウンターを1増やす
+    loop_count += 1
+    return {"messages": [response], "loop_count": loop_count}
 
 def safe_tool_executor(state: AgentState):
     """
@@ -474,14 +485,22 @@ def safe_tool_executor(state: AgentState):
 
     return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)]}
 
-def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node"]:
+def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node", "agent"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
     last_message = state["messages"][-1]
+    loop_count = state.get("loop_count", 0)
+
     if last_message.tool_calls:
         print("  - ツール呼び出しあり。ツール実行ノードへ。")
         for tool_call in last_message.tool_calls: print(f"    🛠️ ツール呼び出し: {tool_call['name']} | 引数: {tool_call['args']}")
         return "safe_tool_node"
-    print("  - ツール呼び出しなし。思考完了と判断し、グラフを終了します。")
+
+    # 1回までの再思考を許容する
+    if loop_count < 2:
+        print(f"  - ツール呼び出しなし。再思考します。(ループカウント: {loop_count})")
+        return "agent" # agentノードにループバック
+
+    print(f"  - ツール呼び出しなし。最大ループ回数({loop_count})に達したため、グラフを終了します。")
     return "__end__"
 
 workflow = StateGraph(AgentState)
@@ -500,6 +519,7 @@ workflow.add_conditional_edges(
     route_after_agent,
     {
         "safe_tool_node": "safe_tool_node",
+        "agent": "agent", # ← この行を追加
         "__end__": END,
     },
 )
