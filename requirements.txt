@@ -135,3 +135,4 @@ wrapt==1.17.3
 xxhash==3.5.0
 yarl==1.20.1
 zstandard==0.25.0
+concurrent-log-handler==0.9.28
