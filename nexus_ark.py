@@ -604,7 +604,7 @@ try:
             memory_txt_editor, notepad_editor, system_prompt_editor,
             core_memory_editor, # <-- この行を追加
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
-            current_location_display, current_scenery_display, room_voice_dropdown,
+            current_scenery_display, room_voice_dropdown,
             room_voice_style_prompt_textbox,
             # ▼▼▼ 以下の2行を追加 ▼▼▼
             enable_typewriter_effect_checkbox,
