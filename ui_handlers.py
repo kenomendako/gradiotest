@@ -1143,12 +1143,6 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
         if not add_timestamp:
             content = timestamp_pattern.sub('', content)
 
-        # スクリーンショットモードの置換処理
-        if screenshot_mode and redaction_rules:
-            for rule in redaction_rules:
-                if rule.get("find"):
-                    content = content.replace(rule["find"], rule.get("replace", ""))
-
         # テキスト部分とメディア添付部分を分離
         text_part = re.sub(r"\[(?:Generated Image|ファイル添付):.*?\]", "", content, flags=re.DOTALL).strip()
         media_matches = list(re.finditer(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]", content))
@@ -1185,6 +1179,15 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                 speaker_name = responder_id
 
             content_to_parse = item['content']
+
+            # スクリーンショットモードの置換処理を、話者名と本文の両方に適用
+            if screenshot_mode and redaction_rules:
+                for rule in redaction_rules:
+                    find_str = rule.get("find")
+                    if find_str:
+                        replace_str = rule.get("replace", "")
+                        speaker_name = speaker_name.replace(find_str, replace_str)
+                        content_to_parse = content_to_parse.replace(find_str, replace_str)
 
             # --- [最終アーキテクチャの核心] ---
 
