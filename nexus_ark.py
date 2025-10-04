@@ -678,11 +678,13 @@ try:
         # 新規送信と再生成で、UI更新の対象（outputs）を完全に一致させる
         unified_streaming_outputs = [
             chatbot_display, current_log_map_state, chat_input_multimodal,
-            token_count_display, current_location_display, current_scenery_display,
+            token_count_display,
+            location_dropdown, # ← current_location_display の代わりにこれを追加
+            current_scenery_display,
             alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
             debug_console_state, debug_console_output,
             stop_button, chat_reload_button,
-            action_button_group # ← この行をリストの末尾に追加
+            action_button_group
         ]
 
         rerun_event = rerun_button.click(
