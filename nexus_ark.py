@@ -667,7 +667,10 @@ try:
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
-        ] + initial_load_chat_outputs + [redaction_rules_df, token_count_display, api_key_dropdown]
+        ] + initial_load_chat_outputs + [
+            redaction_rules_df, token_count_display, api_key_dropdown,
+            world_data_state # ← この行を追加
+        ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]

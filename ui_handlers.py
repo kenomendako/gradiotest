@@ -202,8 +202,17 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     api_key_dd_update = gr.update(choices=api_key_choices, value=initial_api_key_name)
     # ▲▲▲【追加はここまで】▲▲▲
 
-    # ▼▼▼【この return 文を、以下の新しい return 文で置き換えてください】▼▼▼
-    return (display_df, df_with_ids, feedback_text) + chat_tab_updates + (rules_df_for_ui, token_count_text, api_key_dd_update)
+    # ▼▼▼ この関数の最後の return 文の直前に、以下の1行を追加 ▼▼▼
+    world_data_for_state = get_world_data(initial_room_to_load)
+    # ▲▲▲ 追加ここまで ▲▲▲
+
+    # ▼▼▼ そして、最後の return 文を、以下のように修正 ▼▼▼
+    return (
+        (display_df, df_with_ids, feedback_text) +
+        chat_tab_updates +
+        (rules_df_for_ui, token_count_text, api_key_dd_update) +
+        (world_data_for_state,) # ← world_data_state用の戻り値(タプル)を追加
+    )
 
 def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
