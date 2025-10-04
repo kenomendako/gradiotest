@@ -78,17 +78,39 @@ try:
             print(f"--- [テーマ] カスタムテーマ '{active_theme_name}' を適用します ---")
             params = custom_themes[active_theme_name]
 
-            # ▼▼▼【ここから下のブロックを修正】▼▼▼
-            # kwargsとして渡すパラメータを準備
-            theme_kwargs = params.copy()
+            # gr.themes.Default と .set() の引数を分離
+            default_args = {}
+            set_args = {}
+            # gr.themes.Defaultがコンストラクタで受け付ける引数のリスト
+            default_arg_keys = [
+                "primary_hue", "secondary_hue", "neutral_hue",
+                "text_size", "spacing_size", "radius_size", "font", "font_mono"
+            ]
 
-            # 'font'キーは特別扱い：文字列のリストからGoogleFontオブジェクトのリストに変換
-            if 'font' in theme_kwargs and isinstance(theme_kwargs['font'], list):
-                font_names = theme_kwargs.pop('font')
-                theme_kwargs['font'] = [gr.themes.GoogleFont(name) for name in font_names]
+            for key, value in params.items():
+                if key in default_arg_keys:
+                    default_args[key] = value
+                else:
+                    set_args[key] = value
 
-            return gr.themes.Base(**theme_kwargs)
-            # ▲▲▲【修正ここまで】▲▲▲
+            # text_size, font などの値をGradioオブジェクトに変換
+            if 'text_size' in default_args and isinstance(default_args['text_size'], dict):
+                # Sizeオブジェクトのコンストラクタが受け付けるキーのみを渡す
+                valid_keys = ["xxs", "xs", "sm", "md", "lg", "xl", "xxl"]
+                size_params = {k: v for k, v in default_args['text_size'].items() if k in valid_keys}
+                default_args['text_size'] = gr.themes.Size(**size_params)
+
+            if 'font' in default_args and isinstance(default_args['font'], list):
+                # GoogleFontとそれ以外（システムフォントなど）を区別しない
+                # Gradioが内部で処理してくれる
+                default_args['font'] = [gr.themes.GoogleFont(name) if name not in ['ui-sans-serif', 'system-ui', 'sans-serif'] else name for name in default_args['font']]
+
+            # テーマオブジェクトを構築
+            theme_obj = gr.themes.Default(**default_args)
+            if set_args:
+                theme_obj = theme_obj.set(**set_args)
+
+            return theme_obj
         else:
             print(f"--- [テーマ警告] アクティブなテーマ '{active_theme_name}' が見つかりません。デフォルトの'Soft'テーマを適用します ---")
             return gr.themes.Soft()
