@@ -110,6 +110,39 @@ def load_config():
     global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
 
     # ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
+
+    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+    # 新しいデフォルトテーマ「Nexus Ark」のパラメータ定義
+    nexus_ark_theme_params = {
+        # gr.themes.Default の引数
+        "primary_hue": "neutral",
+        "secondary_hue": "gray",
+        "neutral_hue": "stone",
+        "text_size": {
+            "lg": "16px", "md": "13px", "sm": "12px", "xl": "22px",
+            "xs": "10px", "xxl": "26px", "xxs": "9px"
+        },
+        "spacing_size": "sm",
+        "font": ['Source Sans Pro', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        # .set() で設定する引数
+        "body_background_fill": '*neutral_200',
+        "body_background_fill_dark": '*neutral_950',
+        "body_text_color": '*neutral_600',
+        "body_text_color_dark": '*neutral_200',
+        "body_text_weight": '200',
+        "background_fill_primary": '*primary_50',
+        "background_fill_secondary": '*neutral_100',
+        "background_fill_secondary_dark": '*neutral_800',
+        "border_color_accent": '*primary_400',
+        "color_accent": '*secondary_500',
+        "code_background_fill": '*primary_200',
+        "block_title_text_size": '*text_sm',
+        "section_header_text_size": '*text_sm',
+        "checkbox_label_text_size": '*text_sm'
+    }
+    # ▲▲▲【追加ここまで】▲▲▲
+
+    # ▼▼▼ 既存の default_config の定義を、これで完全に置き換え ▼▼▼
     default_config = {
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
         "available_models": ["gemini-2.5-pro", "gemini-2.5-flash-latest"],
@@ -126,29 +159,50 @@ def load_config():
         "pushover_user_key": "",
         "log_archive_threshold_mb": 10,
         "log_keep_size_mb": 5,
-        # ▼▼▼【ここから追加】▼▼▼
         "theme_settings": {
-            "active_theme": "Soft", # Gradioのデフォルトテーマ
-            "custom_themes": {}
+            "active_theme": "Nexus Ark", # デフォルトテーマを "Nexus Ark" に変更
+            "custom_themes": {
+                "Nexus Ark": nexus_ark_theme_params # 新テーマをカスタムテーマとして追加
+            }
         }
-        # ▲▲▲【追加ここまで】▲▲▲
     }
+    # ▲▲▲【置き換えここまで】▲▲▲
 
     # ステップ2：ユーザーの設定ファイルを読み込む
     user_config = _load_config_file()
 
-    # ステップ3：【賢いマージ】available_modelsを統合する
+    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+    # ステップ3：【賢いマージ】テーマ設定をディープマージする
+    default_theme_settings = default_config["theme_settings"]
+    user_theme_settings = user_config.get("theme_settings", {})
+
+    # ユーザーのカスタムテーマとデフォルトのカスタムテーマを結合（ユーザー設定優先）
+    merged_custom_themes = default_theme_settings["custom_themes"].copy()
+    merged_custom_themes.update(user_theme_settings.get("custom_themes", {}))
+
+    # 最終的なテーマ設定を決定（アクティブテーマはユーザー設定を優先）
+    final_theme_settings = {
+        "active_theme": user_theme_settings.get("active_theme", default_theme_settings["active_theme"]),
+        "custom_themes": merged_custom_themes
+    }
+    # ▲▲▲【追加ここまで】▲▲▲
+
+    # ▼▼▼ 既存の "ステップ3：【賢いマージ】available_modelsを統合する" ブロックを、
+    # "ステップ4" に変更し、その下のロジックをこれで置き換える ▼▼▼
+
+    # ステップ4：【賢いマージ】available_modelsを統合する
     default_models_set = set(default_config["available_models"])
     user_models_set = set(user_config.get("available_models", []))
     merged_models = sorted(list(default_models_set | user_models_set))
 
-    # ステップ4：ユーザー設定を優先しつつ、不足キーを補完
+    # ステップ5：ユーザー設定を優先しつつ、不足キーを補完
     config = default_config.copy()
     config.update(user_config)
-    # 統合したモデルリストで、最終的な設定を上書き
+    # 統合したモデルリストとテーマ設定で、最終的な設定を上書き
     config["available_models"] = merged_models
+    config["theme_settings"] = final_theme_settings
 
-    # ステップ5：不要なキーをクリーンアップ
+    # ステップ6：不要なキーをクリーンアップ
     keys_to_remove = ["memos_config", "api_keys", "default_api_key_name"]
     config_keys_changed = False
     for key in keys_to_remove:
@@ -156,12 +210,15 @@ def load_config():
             config.pop(key)
             config_keys_changed = True
 
-    # ステップ6：キー構成の変化、またはモデルリストの変化があった場合のみファイルを更新
-    if config_keys_changed or set(user_config.get("available_models", [])) != set(config["available_models"]) or not os.path.exists(constants.CONFIG_FILE):
-        print("--- [情報] 設定ファイルに新しいキーやモデルを追加、または不要なキーを削除しました。config.jsonを更新します。 ---")
+    # ステップ7：キー構成の変化、またはモデルリスト/テーマ設定の変化があった場合のみファイルを更新
+    if (config_keys_changed or
+        set(user_config.get("available_models", [])) != set(config["available_models"]) or
+        user_config.get("theme_settings") != config["theme_settings"] or # テーマ設定の変更もチェック
+        not os.path.exists(constants.CONFIG_FILE)):
+        print("--- [情報] 設定ファイルに新しいキーやモデル、テーマを追加、または不要なキーを削除しました。config.jsonを更新します。 ---")
         _save_config_file(config)
 
-    # ステップ7：メモリ上の最終的な設定を、グローバル変数に反映
+    # ステップ8：メモリ上の最終的な設定を、グローバル変数に反映
     CONFIG_GLOBAL = config.copy()
 
     GEMINI_API_KEYS = config.get("gemini_api_keys", {})
