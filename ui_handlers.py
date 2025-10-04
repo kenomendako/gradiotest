@@ -102,7 +102,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     if current_location_from_file and current_location_from_file not in valid_location_ids:
         gr.Warning(f"最後にいた場所「{current_location_from_file}」が見つかりません。移動先を選択し直してください。")
         location_dd_val = None
-    _, _, scenery_text = generate_scenery_context(room_name, api_key) # location_nameは不要に
+    current_location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
     scenery_image_path = utils.find_scenery_image(room_name, location_dd_val)
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "iapetus"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
@@ -130,7 +130,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=locations_for_ui, value=location_dd_val),
-        scenery_text,
+        current_location_name, scenery_text,
         voice_display_name, voice_style_prompt_val,
         # ▼▼▼ 以下の1行の "enable_typewriter_effect" の直後に、streaming_speedを追加 ▼▼▼
         effective_settings["enable_typewriter_effect"],
@@ -482,7 +482,7 @@ def _stream_and_handle_response(
 
         # 9. その他のUIコンポーネントを更新
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-        _, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key) # location_nameは不要に
+        new_location_name, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
         scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
         token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
         token_count_text = gemini_api.count_input_tokens(
@@ -492,18 +492,12 @@ def _stream_and_handle_response(
         final_df_with_ids = render_alarms_as_dataframe()
         final_df = get_display_df(final_df_with_ids)
 
-        # 最新の現在地を取得し、ドロップダウンの選択肢と選択値を更新する
-        new_location_choices = _get_location_choices_for_ui(soul_vessel_room)
-        latest_location_id = utils.get_current_location(soul_vessel_room)
-        location_dropdown_update = gr.update(choices=new_location_choices, value=latest_location_id)
-
         yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
-               location_dropdown_update, # ← new_location_name の代わりにこれを返す
-               new_scenery_text,
+               new_location_name, new_scenery_text,
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
                gr.update(visible=False, interactive=True), gr.update(interactive=True),
-               gr.update(visible=False)
+               gr.update(visible=False) # ← action_button_groupを非表示にする
         )
 
 def handle_message_submission(*args: Any):
@@ -698,30 +692,32 @@ def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str,
         gr.Error("情景の再生成に失敗しました。")
         scenery_image_path = None
 
-    latest_location_id = utils.get_current_location(room_name)
-    return gr.update(value=latest_location_id), scenery_text, scenery_image_path
+    return location_name, scenery_text, scenery_image_path
 
-def handle_location_change(room_name: str, selected_value: str, api_key_name: str) -> Tuple[gr.update, str, Optional[str]]:
+def handle_location_change(room_name: str, selected_value: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
     if not selected_value or selected_value.startswith("__AREA_HEADER_"):
-        # ▼▼▼ 戻り値を修正 ▼▼▼
-        # location_name, _, scenery_text = ... を削除
-        _, _, scenery_text = generate_scenery_context(room_name, config_manager.GEMINI_API_KEYS.get(api_key_name))
+        location_name, _, scenery_text = generate_scenery_context(room_name, config_manager.GEMINI_API_KEYS.get(api_key_name))
         scenery_image_path = utils.find_scenery_image(room_name, utils.get_current_location(room_name))
-        latest_location_id = utils.get_current_location(room_name)
-        return gr.update(value=latest_location_id), scenery_text, scenery_image_path
+        return location_name, scenery_text, scenery_image_path
 
     location_id = selected_value
 
     from tools.space_tools import set_current_location
     print(f"--- UIからの場所変更処理開始: ルーム='{room_name}', 移動先ID='{location_id}' ---")
 
+    scenery_cache = utils.load_scenery_cache(room_name)
+    current_loc_name = scenery_cache.get("location_name", "（場所不明）")
+    scenery_text = scenery_cache.get("scenery_text", "（情景不明）")
+    current_image_path = utils.find_scenery_image(room_name, utils.get_current_location(room_name))
+
+    if not room_name or not location_id:
+        gr.Warning("ルームと移動先の場所を選択してください。")
+        return current_loc_name, scenery_text, current_image_path
+
     result = set_current_location.func(location_id=location_id, room_name=room_name)
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
-        latest_location_id = utils.get_current_location(room_name)
-        _, _, scenery_text = generate_scenery_context(room_name, config_manager.GEMINI_API_KEYS.get(api_key_name))
-        scenery_image_path = utils.find_scenery_image(room_name, latest_location_id)
-        return gr.update(value=latest_location_id), scenery_text, scenery_image_path
+        return current_loc_name, scenery_text, current_image_path
 
     gr.Info(f"場所を「{location_id}」に移動しました。情景を更新します...")
 
@@ -730,10 +726,10 @@ def handle_location_change(room_name: str, selected_value: str, api_key_name: st
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return "（APIキーエラー）", "（APIキーエラー）", None
 
-    _, _, new_scenery_text = generate_scenery_context(room_name, api_key)
+    new_location_name, _, new_scenery_text = generate_scenery_context(room_name, api_key)
     new_image_path = utils.find_scenery_image(room_name, location_id)
 
-    return gr.update(value=location_id), new_scenery_text, new_image_path
+    return new_location_name, new_scenery_text, new_image_path
 
 #
 # --- Room Management Handlers ---
