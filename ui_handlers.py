@@ -75,7 +75,7 @@ def _create_redaction_df_from_rules(rules: List[Dict]) -> pd.DataFrame:
 def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     """
     【修正】チャットタブと、それに付随する設定UIの更新のみを担当するヘルパー関数。
-    戻り値の数は `initial_load_chat_outputs` の30個と一致する。
+    戻り値の数は `initial_load_chat_outputs` の34個と一致する。
     """
     if not room_name:
         room_list = room_manager.get_room_list_for_ui()
@@ -119,25 +119,28 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
     core_memory_content = load_core_memory_content(room_name)
 
-    # このタプルの要素数は31個
+    # このタプルの要素数は34個になる
     chat_tab_updates = (
         room_name, chat_history, mapping_list,
-        gr.update(value={'text': '', 'files': []}), # 2つの戻り値を、MultimodalTextbox用の1つの辞書に統合
+        gr.update(value={'text': '', 'files': []}),
         profile_image,
         memory_str, notepad_content, load_system_prompt_content(room_name),
-        core_memory_content, # <-- この行を追加
+        core_memory_content,
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=locations_for_ui, value=location_dd_val),
         current_location_name, scenery_text,
         voice_display_name, voice_style_prompt_val,
+        # ▼▼▼ 以下の1行の "enable_typewriter_effect" の直後に、streaming_speedを追加 ▼▼▼
+        effective_settings["enable_typewriter_effect"],
+        effective_settings["streaming_speed"],
+        # ▲▲▲ 修正ここまで ▲▲▲
         temp_val, top_p_val, harassment_val, hate_val, sexual_val, dangerous_val,
         effective_settings["add_timestamp"], effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
         effective_settings["send_core_memory"], effective_settings["send_scenery"],
         effective_settings["auto_memory_enabled"],
-        effective_settings["enable_typewriter_effect"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path
     )
@@ -173,7 +176,7 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
-    【修正】UIの初期化処理。戻り値の数は `initial_load_outputs` の36個と一致する。
+    【修正】UIの初期化処理。戻り値の数は `initial_load_outputs` の41個と一致する。
     """
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
@@ -199,12 +202,22 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     api_key_dd_update = gr.update(choices=api_key_choices, value=initial_api_key_name)
     # ▲▲▲【追加はここまで】▲▲▲
 
-    # ▼▼▼【この return 文を、以下の新しい return 文で置き換えてください】▼▼▼
-    return (display_df, df_with_ids, feedback_text) + chat_tab_updates + (rules_df_for_ui, token_count_text, api_key_dd_update)
+    # ▼▼▼ この関数の最後の return 文の直前に、以下の1行を追加 ▼▼▼
+    world_data_for_state = get_world_data(initial_room_to_load)
+    # ▲▲▲ 追加ここまで ▲▲▲
+
+    # ▼▼▼ そして、最後の return 文を、以下のように修正 ▼▼▼
+    return (
+        (display_df, df_with_ids, feedback_text) +
+        chat_tab_updates +
+        (rules_df_for_ui, token_count_text, api_key_dd_update) +
+        (world_data_for_state,) # ← world_data_state用の戻り値(タプル)を追加
+    )
 
 def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
+    streaming_speed: float, # ← この引数を追加
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
     auto_memory_enabled: bool,
@@ -231,7 +244,8 @@ def handle_save_room_settings(
         "add_timestamp": bool(add_timestamp), "send_thoughts": bool(send_thoughts), "send_notepad": bool(send_notepad),
         "use_common_prompt": bool(use_common_prompt), "send_core_memory": bool(send_core_memory), "send_scenery": bool(send_scenery),
         "auto_memory_enabled": bool(auto_memory_enabled),
-        "enable_typewriter_effect": bool(enable_typewriter_effect)
+        "enable_typewriter_effect": bool(enable_typewriter_effect),
+        "streaming_speed": float(streaming_speed) # ← この行を追加
     }
     try:
         # 正しくは room_config.json を参照する
@@ -324,14 +338,16 @@ def _stream_and_handle_response(
     soul_vessel_room: str,
     active_participants: List[str],
     current_console_content: str,
-    streaming_speed: float
 ) -> Iterator[Tuple]:
     """
     【v2: 再生成対応】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
     """
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
+    # ▼▼▼ 関数内で effective_settings から直接取得する ▼▼▼
     effective_settings = config_manager.get_effective_settings(soul_vessel_room)
+    streaming_speed = effective_settings.get("streaming_speed", 0.01)
     add_timestamp = effective_settings.get("add_timestamp", False)
+    # ▲▲▲ 修正ここまで ▲▲▲
     chatbot_history, mapping_list = reload_chat_log(
         room_name=soul_vessel_room,
         api_history_limit_value=api_history_limit,
@@ -491,7 +507,7 @@ def handle_message_submission(*args: Any):
     (multimodal_input, soul_vessel_room, api_key_name,
      api_history_limit, debug_mode,
      console_content, active_participants, global_model,
-     streaming_speed) = args
+     ) = args
 
     # 1. ユーザー入力を解析
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
@@ -595,7 +611,6 @@ def handle_message_submission(*args: Any):
         soul_vessel_room=soul_vessel_room,
         active_participants=active_participants or [],
         current_console_content=console_content,
-        streaming_speed=streaming_speed
     )
 
 def handle_rerun_button_click(*args: Any):
@@ -605,7 +620,7 @@ def handle_rerun_button_click(*args: Any):
     (selected_message, room_name, api_key_name,
      api_history_limit, debug_mode,
      console_content, active_participants, global_model,
-     streaming_speed) = args
+     ) = args
 
     if not selected_message or not room_name:
         gr.Warning("再生成の起点となるメッセージが選択されていません。")
@@ -2787,12 +2802,6 @@ def handle_save_cropped_image(room_name: str, original_image_path: str, cropped_
         _, _, current_image_path, _, _ = get_room_files_paths(room_name)
         fallback_path = current_image_path if current_image_path and os.path.exists(current_image_path) else None
         return gr.update(value=fallback_path), gr.update(visible=False), gr.update(visible=False)
-
-def handle_streaming_speed_change(new_speed: float):
-    """
-    ストリーミング表示速度のスライダーが変更されたときに設定を保存する。
-    """
-    config_manager.save_config("last_streaming_speed", new_speed)
 
 # --- Theme Management Handlers ---
 

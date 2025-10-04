@@ -120,7 +120,6 @@ def load_config():
         "last_send_thoughts_to_api": True,
         "last_api_history_limit_option": constants.DEFAULT_API_HISTORY_LIMIT_OPTION,
         "alarm_api_history_turns": constants.DEFAULT_ALARM_API_HISTORY_TURNS,
-        "last_streaming_speed": 0.01,
         "notification_service": "discord",
         "notification_webhook_url": None,
         "pushover_app_token": "",
@@ -206,6 +205,7 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         "send_core_memory": True, "send_scenery": True,
         "auto_memory_enabled": False,
         "enable_typewriter_effect": True,
+        "streaming_speed": 0.01, # ← この行を追加
         "temperature": 0.8, "top_p": 0.95,
         "safety_block_threshold_harassment": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_hate_speech": "BLOCK_ONLY_HIGH",

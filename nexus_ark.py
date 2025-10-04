@@ -262,21 +262,18 @@ try:
                                         pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
                                     timer_room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="通知ルーム", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
                         with gr.Accordion("⚙️ 設定", open=False):
-                            with gr.Tabs():
-                                with gr.TabItem("共通設定"):
+                            # ▼▼▼ with gr.Tabs() の行を修正 ▼▼▼
+                            with gr.Tabs() as settings_tabs:
+                                with gr.TabItem("共通") as common_settings_tab: # ← 名称変更と変数追加
                                     gr.Markdown("#### ⚙️ 一般設定")
                                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
                                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
-                                    streaming_speed_slider = gr.Slider(
-                                        minimum=0.0,
-                                        maximum=0.1,
-                                        step=0.005,
-                                        value=config_manager.initial_streaming_speed_global,
-                                        label="ストリーミング表示速度",
-                                        info="値が小さいほど速く、大きいほどゆっくり表示されます。(デフォルト: 0.01秒/文字)",
-                                        interactive=True
-                                    )
+
+                                    # ▼▼▼ streaming_speed_slider の定義をここから削除 ▼▼▼
+                                    # streaming_speed_slider = gr.Slider(...)
+                                    # ▲▲▲ 削除ここまで ▲▲▲
+
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
                                     gr.Markdown("---")
@@ -299,7 +296,58 @@ try:
                                             save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
                                         gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
 
-                                with gr.TabItem("🎨 テーマ") as theme_tab:
+                                # ▼▼▼ TabItemの順番と名称を変更 ▼▼▼
+                                with gr.TabItem("個別") as individual_settings_tab: # ← 名称変更と変数追加
+                                    room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
+
+                                    # ▼▼▼ 「APIコンテキスト設定」の上に、新しいアコーディオンを追加 ▼▼▼
+                                    with gr.Accordion("📜 ストリーミング表示設定", open=False):
+                                        enable_typewriter_effect_checkbox = gr.Checkbox(label="タイプライター風の逐次表示を有効化", interactive=True)
+                                        streaming_speed_slider = gr.Slider(
+                                            minimum=0.0,
+                                            maximum=0.1,
+                                            step=0.005,
+                                            label="表示速度",
+                                            info="値が小さいほど速く、大きいほどゆっくり表示されます。(0.0で最速)",
+                                            interactive=True
+                                        )
+                                    # ▲▲▲ 追加ここまで ▲▲▲
+
+                                    with gr.Accordion("🎤 音声設定", open=False):
+                                        room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
+                                        room_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
+                                        with gr.Row():
+                                            room_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
+                                            room_preview_voice_button = gr.Button("試聴", scale=1)
+                                    with gr.Accordion("🔬 AI生成パラメータ調整", open=False):
+                                        gr.Markdown("このルームの応答の「創造性」と「安全性」を調整します。")
+                                        room_temperature_slider = gr.Slider(minimum=0.0, maximum=2.0, step=0.05, label="Temperature", info="値が高いほど、AIの応答がより創造的で多様になります。(推奨: 0.7 ~ 0.9)")
+                                        room_top_p_slider = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, label="Top-P", info="値が低いほど、ありふれた単語が選ばれやすくなります。(推奨: 0.95)")
+                                        safety_choices = ["ブロックしない", "低リスク以上をブロック", "中リスク以上をブロック", "高リスクのみブロック"]
+                                        with gr.Row():
+                                            room_safety_harassment_dropdown = gr.Dropdown(choices=safety_choices, label="嫌がらせコンテンツ", interactive=True)
+                                            room_safety_hate_speech_dropdown = gr.Dropdown(choices=safety_choices, label="ヘイトスピーチ", interactive=True)
+                                        with gr.Row():
+                                            room_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
+                                            room_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
+                                    gr.Markdown("#### APIコンテキスト設定")
+                                    room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
+                                    room_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
+                                    room_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
+                                    room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
+                                    room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
+                                    room_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
+                                    auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True)
+
+                                    # ▼▼▼ enable_typewriter_effect_checkbox の定義をここから削除 ▼▼▼
+                                    # enable_typewriter_effect_checkbox = gr.Checkbox(...)
+                                    # ▲▲▲ 削除ここまで ▲▲▲
+
+                                    gr.Markdown("---")
+                                    save_room_settings_button = gr.Button("このルームの設定を保存", variant="primary")
+
+                                # ▼▼▼ TabItemの順番と名称を変更 ▼▼▼
+                                with gr.TabItem("🎨 パレット") as theme_tab: # ← 名称変更と変数追加
                                     theme_settings_state = gr.State({})
                                     theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
                                     gr.Markdown("---")
@@ -329,37 +377,6 @@ try:
                                     save_theme_button = gr.Button("カスタムテーマとして保存", variant="secondary")
                                     apply_theme_button = gr.Button("このテーマを適用（要再起動）", variant="primary")
                                     gr.Markdown("⚠️ **注意:** テーマの変更を完全に反映するには、コンソールを閉じて `nexus_ark.py` を再実行する必要があります。")
-
-                                with gr.TabItem("個別設定"):
-                                    room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
-                                    with gr.Accordion("🎤 音声設定", open=False):
-                                        room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
-                                        room_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
-                                        with gr.Row():
-                                            room_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
-                                            room_preview_voice_button = gr.Button("試聴", scale=1)
-                                    with gr.Accordion("🔬 AI生成パラメータ調整", open=False):
-                                        gr.Markdown("このルームの応答の「創造性」と「安全性」を調整します。")
-                                        room_temperature_slider = gr.Slider(minimum=0.0, maximum=2.0, step=0.05, label="Temperature", info="値が高いほど、AIの応答がより創造的で多様になります。(推奨: 0.7 ~ 0.9)")
-                                        room_top_p_slider = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, label="Top-P", info="値が低いほど、ありふれた単語が選ばれやすくなります。(推奨: 0.95)")
-                                        safety_choices = ["ブロックしない", "低リスク以上をブロック", "中リスク以上をブロック", "高リスクのみブロック"]
-                                        with gr.Row():
-                                            room_safety_harassment_dropdown = gr.Dropdown(choices=safety_choices, label="嫌がらせコンテンツ", interactive=True)
-                                            room_safety_hate_speech_dropdown = gr.Dropdown(choices=safety_choices, label="ヘイトスピーチ", interactive=True)
-                                        with gr.Row():
-                                            room_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
-                                            room_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
-                                    gr.Markdown("#### APIコンテキスト設定")
-                                    room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
-                                    room_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
-                                    room_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
-                                    room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
-                                    room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
-                                    room_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
-                                    auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True)
-                                    enable_typewriter_effect_checkbox = gr.Checkbox(label="タイプライター風の逐次表示を有効化", interactive=True)
-                                    gr.Markdown("---")
-                                    save_room_settings_button = gr.Button("このルームの設定を保存", variant="primary")
 
                         with gr.Accordion("🧑‍🤝‍🧑 グループ会話", open=False):
                             session_status_display = gr.Markdown("現在、1対1の会話モードです。")
@@ -620,14 +637,15 @@ try:
                 clear_debug_console_button = gr.Button("コンソールをクリア", variant="secondary")
 
         # --- イベントハンドラ定義 ---
+        # ▼▼▼ context_checkboxes のリスト定義を修正 ▼▼▼
         context_checkboxes = [
             room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
             room_use_common_prompt_checkbox, room_send_core_memory_checkbox, room_send_scenery_checkbox,
             auto_memory_enabled_checkbox,
-            enable_typewriter_effect_checkbox
         ]
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
 
+        # ▼▼▼ initial_load_chat_outputs のリスト定義を修正 ▼▼▼
         initial_load_chat_outputs = [
             current_room_name, chatbot_display, current_log_map_state,
             chat_input_multimodal, # chat_input_textbox と file_upload_button をこれ一つに置き換え
@@ -637,6 +655,10 @@ try:
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
             current_location_display, current_scenery_display, room_voice_dropdown,
             room_voice_style_prompt_textbox,
+            # ▼▼▼ 以下の2行を追加 ▼▼▼
+            enable_typewriter_effect_checkbox,
+            streaming_speed_slider,
+            # ▲▲▲ 追加ここまで ▲▲▲
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
@@ -644,7 +666,10 @@ try:
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
-        ] + initial_load_chat_outputs + [redaction_rules_df, token_count_display, api_key_dropdown]
+        ] + initial_load_chat_outputs + [
+            redaction_rules_df, token_count_display, api_key_dropdown,
+            world_data_state # ← この行を追加
+        ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
@@ -677,6 +702,7 @@ try:
             outputs=[active_participants_state, session_status_display, participant_checkbox_group]
         )
 
+        # ▼▼▼ chat_inputs のリスト定義から streaming_speed_slider を削除 ▼▼▼
         chat_inputs = [
             chat_input_multimodal, # 変更
             current_room_name,
@@ -687,14 +713,15 @@ try:
             debug_console_state,
             active_participants_state,
             model_dropdown,
-            streaming_speed_slider
+            # streaming_speed_slider # ← この行を削除
         ]
 
+        # ▼▼▼ rerun_inputs のリスト定義から streaming_speed_slider を削除 ▼▼▼
         rerun_inputs = [
             selected_message_state, current_room_name, current_api_key_name_state,
             api_history_limit_state, debug_mode_checkbox,
             debug_console_state, active_participants_state, model_dropdown,
-            streaming_speed_slider
+            # streaming_speed_slider # ← この行を削除
         ]
 
         # 新規送信と再生成で、UI更新の対象（outputs）を完全に一致させる
@@ -858,12 +885,17 @@ try:
         ]
         save_room_settings_button.click(
             fn=ui_handlers.handle_save_room_settings,
-            inputs=[current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox] + gen_settings_inputs + context_checkboxes,
+            inputs=[
+                current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox
+            ] + gen_settings_inputs + [
+                streaming_speed_slider,
+                enable_typewriter_effect_checkbox, # ← この行を追加
+            ] + context_checkboxes,
             outputs=None
         )
         room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
         for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-        streaming_speed_slider.change(fn=ui_handlers.handle_streaming_speed_change, inputs=[streaming_speed_slider], outputs=None)
+        # streaming_speed_slider.change(fn=ui_handlers.handle_streaming_speed_change, inputs=[streaming_speed_slider], outputs=None)
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
