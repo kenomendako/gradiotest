@@ -200,9 +200,8 @@ try:
             with gr.TabItem("チャット"):
                 # --- [ここからが新しい3カラムレイアウト] ---
                 with gr.Row(equal_height=False):
-
-                    # --- 左カラム (scale=1) ---
-                    with gr.Column(scale=1, min_width=300):
+                    # --- 左カラム ---
+                    with gr.Column(scale=2, min_width=300): # ← scale=1 を 2 に変更
                         room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="ルームを選択", interactive=True)
 
                         with gr.Accordion("⏰ 時間管理", open=False):
@@ -398,10 +397,10 @@ try:
                                     correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
                                     correction_confirmed_state = gr.Textbox(visible=False)
 
-                    # --- 中央カラム (scale=3) ---
-                    with gr.Column(scale=3):
+                    # --- 中央カラム ---
+                    with gr.Column(scale=6): # ← scale=3 を 6 に変更
                         chatbot_display = gr.Chatbot(
-                            height=500,
+                            height=480, # ← height を 480 に変更
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
@@ -439,34 +438,40 @@ try:
                             add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1, visible=False)
 
 
-                    # --- 右カラム (scale=1.5) ---
-                    with gr.Column(scale=1.5, min_width=300):
+                    # --- 右カラム ---
+                    with gr.Column(scale=3, min_width=300): # ← scale=1.5 を 3 に変更
                         with gr.Accordion("👤 プロフィール・情景", open=True):
-                            # 1. プロフィール画像関連
-                            profile_image_display = gr.Image(height=250, width=188, interactive=False, show_label=False, elem_id="profile_image_display")
+                            # --- プロフィール画像セクション ---
+                            profile_image_display = gr.Image(
+                                height=200, interactive=False, show_label=False, elem_id="profile_image_display"
+                            )
                             with gr.Accordion("プロフィール画像を変更", open=False) as profile_image_accordion:
                                 staged_image_state = gr.State()
                                 image_upload_button = gr.UploadButton("新しい画像をアップロード", file_types=["image"])
                                 cropper_image_preview = gr.ImageEditor(
-                                    sources=["upload"],
-                                    type="pil",
-                                    interactive=True,
-                                    show_label=False,
-                                    visible=False,
-                                    transforms=["crop"],
-                                    brush=None,
-                                    eraser=None,
+                                    sources=["upload"], type="pil", interactive=True, show_label=False,
+                                    visible=False, transforms=["crop"], brush=None, eraser=None,
                                 )
                                 save_cropped_image_button = gr.Button("この範囲で保存", visible=False)
 
-                            # 2. 情景描写関連
+                            # --- 情景ビジュアルセクション ---
                             scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
-                            generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
-                            scenery_style_radio = gr.Dropdown(choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"], label="画風を選択", value="写真風 (デフォルト)", interactive=True)
-                            current_location_display = gr.Textbox(label="現在地", interactive=False)
-                            current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
-                            refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
-                            location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True)
+                            current_scenery_display = gr.Textbox( # ← ここに移動し、labelを削除
+                                interactive=False, lines=4, max_lines=10, show_label=False,
+                                placeholder="現在の情景が表示されます..."
+                            )
+
+                            # --- 移動メニュー ---
+                            location_dropdown = gr.Dropdown(label="現在地 / 移動先を選択", interactive=True) # ← label を変更
+
+                            # --- 画像生成メニュー ---
+                            with gr.Accordion("🎨 情景ビジュアル生成", open=False):
+                                generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
+                                scenery_style_radio = gr.Dropdown(
+                                    choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
+                                    label="画風を選択", value="写真風 (デフォルト)", interactive=True
+                                )
+                                refresh_scenery_button = gr.Button("情景を更新", variant="secondary") # ← ここに移動
 
                 # --- [3カラムレイアウトはここまで] ---
 
@@ -598,14 +603,13 @@ try:
         # ▼▼▼ initial_load_chat_outputs のリスト定義を修正 ▼▼▼
         initial_load_chat_outputs = [
             current_room_name, chatbot_display, current_log_map_state,
-            chat_input_multimodal, # chat_input_textbox と file_upload_button をこれ一つに置き換え
+            chat_input_multimodal,
             profile_image_display,
             memory_txt_editor, notepad_editor, system_prompt_editor,
-            core_memory_editor, # <-- この行を追加
+            core_memory_editor,
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
-            current_location_display, current_scenery_display, room_voice_dropdown,
-            room_voice_style_prompt_textbox,
-            # ▼▼▼ 以下の2行を追加 ▼▼▼
+            # current_location_display,  # ← この行を削除
+            current_scenery_display, room_voice_dropdown,
             enable_typewriter_effect_checkbox,
             streaming_speed_slider,
             # ▲▲▲ 追加ここまで ▲▲▲
@@ -677,11 +681,13 @@ try:
         # 新規送信と再生成で、UI更新の対象（outputs）を完全に一致させる
         unified_streaming_outputs = [
             chatbot_display, current_log_map_state, chat_input_multimodal,
-            token_count_display, current_location_display, current_scenery_display,
+            token_count_display,
+            location_dropdown, # ← current_location_display の代わりにこれを追加
+            current_scenery_display,
             alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
             debug_console_state, debug_console_output,
             stop_button, chat_reload_button,
-            action_button_group # ← この行をリストの末尾に追加
+            action_button_group
         ]
 
         rerun_event = rerun_button.click(
