@@ -119,23 +119,23 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
     core_memory_content = load_core_memory_content(room_name)
 
-    # このタプルの要素数は33個になる
+    # このタプルの要素数は34個になる
     chat_tab_updates = (
         room_name, chat_history, mapping_list,
-        gr.update(value={'text': '', 'files': []}), # 2つの戻り値を、MultimodalTextbox用の1つの辞書に統合
+        gr.update(value={'text': '', 'files': []}),
         profile_image,
         memory_str, notepad_content, load_system_prompt_content(room_name),
-        core_memory_content, # <-- この行を追加
+        core_memory_content,
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=locations_for_ui, value=location_dd_val),
         current_location_name, scenery_text,
         voice_display_name, voice_style_prompt_val,
-        # ▼▼▼ 以下の2行を追加 ▼▼▼
+        # ▼▼▼ 以下の1行の "enable_typewriter_effect" の直後に、streaming_speedを追加 ▼▼▼
         effective_settings["enable_typewriter_effect"],
         effective_settings["streaming_speed"],
-        # ▲▲▲ 追加ここまで ▲▲▲
+        # ▲▲▲ 修正ここまで ▲▲▲
         temp_val, top_p_val, harassment_val, hate_val, sexual_val, dangerous_val,
         effective_settings["add_timestamp"], effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
@@ -208,11 +208,11 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
 def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
+    streaming_speed: float, # ← この引数を追加
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
     auto_memory_enabled: bool,
-    enable_typewriter_effect: bool,
-    streaming_speed: float # ← 引数を追加
+    enable_typewriter_effect: bool
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
