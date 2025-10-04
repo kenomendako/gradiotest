@@ -198,44 +198,13 @@ try:
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
-                with gr.Row():
+                # --- [ここからが新しい3カラムレイアウト] ---
+                with gr.Row(equal_height=False):
+
+                    # --- 左カラム (scale=1) ---
                     with gr.Column(scale=1, min_width=300):
-                        # 1. 最終結果を表示するだけの、編集不可能な画像エリア
-                        profile_image_display = gr.Image(height=250, width=188, interactive=False, show_label=False, elem_id="profile_image_display")
-
-                        # 2. 画像編集機能全体を格納するアコーディオン
-                        with gr.Accordion("プロフィール画像を変更", open=False) as profile_image_accordion:
-                            # 3. 編集前の元画像を保持するための隠しState
-                            staged_image_state = gr.State()
-
-                            # 4. 新しい画像をアップロードするための専用ボタン
-                            image_upload_button = gr.UploadButton("新しい画像をアップロード", file_types=["image"])
-
-                            # 5. トリミングツールを備えた、編集用プレビューエリア（普段は非表示）
-                            cropper_image_preview = gr.ImageEditor(
-                                sources=["upload"],
-                                type="pil",
-                                interactive=True,
-                                show_label=False,
-                                visible=False,
-                                transforms=["crop"], # 使用するツールをクロップのみに限定
-                                brush=None, # ブラシツールを無効化
-                                eraser=None, # 消しゴムツールを無効化
-                            )
-
-                            # 6. トリミングを確定して保存するためのボタン（普段は非表示）
-                            save_cropped_image_button = gr.Button("この範囲で保存", visible=False)
-
                         room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="ルームを選択", interactive=True)
 
-                        with gr.Accordion("🌄 情景描写・移動", open=False):
-                            scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
-                            generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
-                            scenery_style_radio = gr.Dropdown(choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"], label="画風を選択", value="写真風 (デフォルト)", interactive=True)
-                            current_location_display = gr.Textbox(label="現在地", interactive=False)
-                            current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
-                            refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
-                            location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True)
                         with gr.Accordion("⏰ 時間管理", open=False):
                             with gr.Tabs():
                                 with gr.TabItem("アラーム"):
@@ -261,19 +230,14 @@ try:
                                     with gr.Column(visible=False) as pomo_timer_ui:
                                         pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
                                     timer_room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="通知ルーム", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
+
                         with gr.Accordion("⚙️ 設定", open=False):
-                            # ▼▼▼ with gr.Tabs() の行を修正 ▼▼▼
                             with gr.Tabs() as settings_tabs:
-                                with gr.TabItem("共通") as common_settings_tab: # ← 名称変更と変数追加
+                                with gr.TabItem("共通") as common_settings_tab:
                                     gr.Markdown("#### ⚙️ 一般設定")
                                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
                                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
-
-                                    # ▼▼▼ streaming_speed_slider の定義をここから削除 ▼▼▼
-                                    # streaming_speed_slider = gr.Slider(...)
-                                    # ▲▲▲ 削除ここまで ▲▲▲
-
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
                                     gr.Markdown("---")
@@ -295,12 +259,8 @@ try:
                                             discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL or "")
                                             save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
                                         gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
-
-                                # ▼▼▼ TabItemの順番と名称を変更 ▼▼▼
-                                with gr.TabItem("個別") as individual_settings_tab: # ← 名称変更と変数追加
+                                with gr.TabItem("個別") as individual_settings_tab:
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
-
-                                    # ▼▼▼ 「APIコンテキスト設定」の上に、新しいアコーディオンを追加 ▼▼▼
                                     with gr.Accordion("📜 ストリーミング表示設定", open=False):
                                         enable_typewriter_effect_checkbox = gr.Checkbox(label="タイプライター風の逐次表示を有効化", interactive=True)
                                         streaming_speed_slider = gr.Slider(
@@ -311,8 +271,6 @@ try:
                                             info="値が小さいほど速く、大きいほどゆっくり表示されます。(0.0で最速)",
                                             interactive=True
                                         )
-                                    # ▲▲▲ 追加ここまで ▲▲▲
-
                                     with gr.Accordion("🎤 音声設定", open=False):
                                         room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
                                         room_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
@@ -338,21 +296,13 @@ try:
                                     room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
                                     room_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
                                     auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True)
-
-                                    # ▼▼▼ enable_typewriter_effect_checkbox の定義をここから削除 ▼▼▼
-                                    # enable_typewriter_effect_checkbox = gr.Checkbox(...)
-                                    # ▲▲▲ 削除ここまで ▲▲▲
-
                                     gr.Markdown("---")
                                     save_room_settings_button = gr.Button("このルームの設定を保存", variant="primary")
-
-                                # ▼▼▼ TabItemの順番と名称を変更 ▼▼▼
-                                with gr.TabItem("🎨 パレット") as theme_tab: # ← 名称変更と変数追加
+                                with gr.TabItem("🎨 パレット") as theme_tab:
                                     theme_settings_state = gr.State({})
                                     theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
                                     gr.Markdown("---")
                                     gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
-                                    # Gradioのテーマシステムが受け付ける色の系統名を定義
                                     AVAILABLE_HUES = [
                                         "slate", "gray", "zinc", "neutral", "stone", "red", "orange", "amber",
                                         "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue",
@@ -407,20 +357,51 @@ try:
                                         manage_folder_name_display = gr.Textbox(label="フォルダ名（編集不可）", interactive=False)
                                         save_room_config_button = gr.Button("変更を保存", variant="primary")
                                         delete_room_button = gr.Button("このルームを削除", variant="stop")
-
                                 with gr.TabItem("ChatGPTからインポート") as import_chatgpt_tab:
                                     gr.Markdown("### ChatGPTデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
                                     chatgpt_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
-
                                     with gr.Column(visible=False) as chatgpt_import_form:
                                         chatgpt_thread_dropdown = gr.Dropdown(label="インポートする会話スレッドを選択", interactive=True)
                                         chatgpt_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
                                         chatgpt_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
                                         chatgpt_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
 
+                        with gr.Accordion("🛠️ チャット支援ツール", open=False):
+                            with gr.Tabs():
+                                with gr.TabItem("📸 スクリーンショット支援"):
+                                    gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
+                                    screenshot_mode_checkbox = gr.Checkbox(
+                                        label="スクリーンショットモードを有効にする",
+                                        info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。"
+                                    )
+                                    with gr.Row():
+                                        with gr.Column(scale=2):
+                                            gr.Markdown("**ルールの編集**")
+                                            redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)")
+                                            redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)")
+                                            with gr.Row():
+                                                add_rule_button = gr.Button("ルールを追加/更新", variant="primary")
+                                                clear_rule_form_button = gr.Button("フォームをクリア")
+                                        with gr.Column(scale=3):
+                                            gr.Markdown("**現在のルールリスト**")
+                                            redaction_rules_df = gr.Dataframe(
+                                                headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
+                                                datatype=["str", "str"],
+                                                row_count=(5, "dynamic"),
+                                                col_count=(2, "fixed"),
+                                                interactive=False
+                                            )
+                                            delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
+                                with gr.TabItem("📝 ログ修正"):
+                                    gr.Markdown("選択した**発言**以降の**AIの応答**に含まれる読点（、）を、AIを使って自動で修正し、自然な文章に校正します。")
+                                    gr.Markdown("⚠️ **注意:** この操作はログファイルを直接上書きするため、元に戻せません。処理の前に、ログファイルのバックアップが自動的に作成されます。")
+                                    correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
+                                    correction_confirmed_state = gr.Textbox(visible=False)
+
+                    # --- 中央カラム (scale=3) ---
                     with gr.Column(scale=3):
                         chatbot_display = gr.Chatbot(
-                            height=600,
+                            height=500,
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
@@ -428,7 +409,6 @@ try:
                             group_consecutive_messages=False
                         )
 
-                        # 1. 音声プレーヤーとアクションボタン (チャット欄の直下に移動)
                         with gr.Row():
                             audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
                         with gr.Row(visible=False) as action_button_group:
@@ -437,7 +417,6 @@ try:
                             delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
                             cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
 
-                        # 2. 入力欄
                         chat_input_multimodal = gr.MultimodalTextbox(
                             file_types=["image", "audio", "video", "text", ".pdf", ".md", ".py", ".json", ".html", ".css", ".js"],
                             max_plain_text_length=100000,
@@ -447,78 +426,49 @@ try:
                             interactive=True
                         )
 
-                        # 3. トークンカウンター
                         token_count_display = gr.Markdown(
                             "入力トークン数: 0 / 0（Gemini2.5無料枠TPM:250,000）",
                             elem_id="token_count_display"
                         )
 
-                        # 4. ボタン類
                         with gr.Row():
                             stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
                             chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
 
                         with gr.Row():
-                            add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1)
+                            add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1, visible=False)
 
-                        # 5. スクリーンショット支援機能
-                        with gr.Accordion("📸 スクリーンショット支援", open=False):
-                            gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
-                            screenshot_mode_checkbox = gr.Checkbox(
-                                label="スクリーンショットモードを有効にする",
-                                info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。"
-                            )
-                            with gr.Row():
-                                with gr.Column(scale=2):
-                                    gr.Markdown("**ルールの編集**")
-                                    redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)")
-                                    redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)")
-                                    with gr.Row():
-                                        add_rule_button = gr.Button("ルールを追加/更新", variant="primary")
-                                        clear_rule_form_button = gr.Button("フォームをクリア")
-                                with gr.Column(scale=3):
-                                    gr.Markdown("**現在のルールリスト**")
-                                    redaction_rules_df = gr.Dataframe(
-                                        headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
-                                        datatype=["str", "str"],
-                                        row_count=(5, "dynamic"),
-                                        col_count=(2, "fixed"),
-                                        interactive=False
-                                    )
-                                    delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
 
-                            # イベントハンドラ
-                            redaction_rules_df.select(
-                                fn=ui_handlers.handle_redaction_rule_select,
-                                inputs=[redaction_rules_df],
-                                outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
-                            )
-                            add_rule_button.click(
-                                fn=ui_handlers.handle_add_or_update_redaction_rule,
-                                inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
-                                outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
-                            )
-                            clear_rule_form_button.click(
-                                fn=lambda: (None, "", ""),
-                                outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
-                            )
-                            delete_rule_button.click(
-                                fn=ui_handlers.handle_delete_redaction_rule,
-                                inputs=[redaction_rules_state, selected_redaction_rule_state],
-                                outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
-                            )
-                            screenshot_mode_checkbox.change(
-                                fn=ui_handlers.reload_chat_log,
-                                inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
-                                outputs=[chatbot_display, current_log_map_state]
-                            )
+                    # --- 右カラム (scale=1.5) ---
+                    with gr.Column(scale=1.5, min_width=300):
+                        with gr.Accordion("👤 プロフィール・情景", open=True):
+                            # 1. プロフィール画像関連
+                            profile_image_display = gr.Image(height=250, width=188, interactive=False, show_label=False, elem_id="profile_image_display")
+                            with gr.Accordion("プロフィール画像を変更", open=False) as profile_image_accordion:
+                                staged_image_state = gr.State()
+                                image_upload_button = gr.UploadButton("新しい画像をアップロード", file_types=["image"])
+                                cropper_image_preview = gr.ImageEditor(
+                                    sources=["upload"],
+                                    type="pil",
+                                    interactive=True,
+                                    show_label=False,
+                                    visible=False,
+                                    transforms=["crop"],
+                                    brush=None,
+                                    eraser=None,
+                                )
+                                save_cropped_image_button = gr.Button("この範囲で保存", visible=False)
 
-                        with gr.Accordion("📝 ログ修正", open=False):
-                            gr.Markdown("選択した**発言**以降の**AIの応答**に含まれる読点（、）を、AIを使って自動で修正し、自然な文章に校正します。")
-                            gr.Markdown("⚠️ **注意:** この操作はログファイルを直接上書きするため、元に戻せません。処理の前に、ログファイルのバックアップが自動的に作成されます。")
-                            correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
-                            # 状態をリセットするための非表示コンポーネント
-                            correction_confirmed_state = gr.Textbox(visible=False)
+                            # 2. 情景描写関連
+                            scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
+                            generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
+                            scenery_style_radio = gr.Dropdown(choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"], label="画風を選択", value="写真風 (デフォルト)", interactive=True)
+                            current_location_display = gr.Textbox(label="現在地", interactive=False)
+                            current_scenery_display = gr.Textbox(label="現在の情景", interactive=False, lines=4, max_lines=10)
+                            refresh_scenery_button = gr.Button("情景を更新", variant="secondary")
+                            location_dropdown = gr.Dropdown(label="移動先を選択", interactive=True)
+
+                # --- [3カラムレイアウトはここまで] ---
 
             with gr.TabItem(" 記憶・メモ・指示"):
                 gr.Markdown("##  記憶・メモ・指示\nルームの根幹をなす設定ファイルを、ここで直接編集できます。")
@@ -863,6 +813,32 @@ try:
             fn=ui_handlers.handle_delete_room,
             inputs=[manage_folder_name_display, delete_confirmed_state, api_key_dropdown],
             outputs=all_room_change_outputs
+        )
+
+        # --- Screenshot Helper Event Handlers ---
+        redaction_rules_df.select(
+            fn=ui_handlers.handle_redaction_rule_select,
+            inputs=[redaction_rules_df],
+            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+        )
+        add_rule_button.click(
+            fn=ui_handlers.handle_add_or_update_redaction_rule,
+            inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
+            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+        )
+        clear_rule_form_button.click(
+            fn=lambda: (None, "", ""),
+            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+        )
+        delete_rule_button.click(
+            fn=ui_handlers.handle_delete_redaction_rule,
+            inputs=[redaction_rules_state, selected_redaction_rule_state],
+            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+        )
+        screenshot_mode_checkbox.change(
+            fn=ui_handlers.reload_chat_log,
+            inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
+            outputs=[chatbot_display, current_log_map_state]
         )
 
         correct_punctuation_button.click(
