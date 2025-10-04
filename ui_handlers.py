@@ -75,7 +75,7 @@ def _create_redaction_df_from_rules(rules: List[Dict]) -> pd.DataFrame:
 def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     """
     【修正】チャットタブと、それに付随する設定UIの更新のみを担当するヘルパー関数。
-    戻り値の数は `initial_load_chat_outputs` の30個と一致する。
+    戻り値の数は `initial_load_chat_outputs` の34個と一致する。
     """
     if not room_name:
         room_list = room_manager.get_room_list_for_ui()
@@ -176,7 +176,7 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
-    【修正】UIの初期化処理。戻り値の数は `initial_load_outputs` の36個と一致する。
+    【修正】UIの初期化処理。戻り値の数は `initial_load_outputs` の41個と一致する。
     """
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()

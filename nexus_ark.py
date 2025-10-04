@@ -642,7 +642,6 @@ try:
             room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
             room_use_common_prompt_checkbox, room_send_core_memory_checkbox, room_send_scenery_checkbox,
             auto_memory_enabled_checkbox,
-            enable_typewriter_effect_checkbox
         ]
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
 
@@ -890,6 +889,7 @@ try:
                 current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox
             ] + gen_settings_inputs + [
                 streaming_speed_slider,
+                enable_typewriter_effect_checkbox, # ← この行を追加
             ] + context_checkboxes,
             outputs=None
         )
