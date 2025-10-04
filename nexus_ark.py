@@ -610,6 +610,7 @@ try:
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
             # current_location_display,  # ← この行を削除
             current_scenery_display, room_voice_dropdown,
+            room_voice_style_prompt_textbox, # ← この行を追記
             enable_typewriter_effect_checkbox,
             streaming_speed_slider,
             # ▲▲▲ 追加ここまで ▲▲▲
