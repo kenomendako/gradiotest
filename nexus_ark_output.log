@@ -1,4 +1,29 @@
-  File "/app/nexus_ark.py", line 126
-    alarm_manager.load_alarms()
-    ^^^^^^^^^^^^^
-SyntaxError: expected 'except' or 'finally' block
+Traceback (most recent call last):
+  File "/home/jules/.pyenv/versions/3.12.11/lib/python3.12/logging/config.py", line 404, in resolve
+    found = self.importer(used)
+            ^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'concurrent_log_handler'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/jules/.pyenv/versions/3.12.11/lib/python3.12/logging/config.py", line 608, in configure
+    handler = self.configure_handler(handlers[name])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.11/lib/python3.12/logging/config.py", line 797, in configure_handler
+    klass = self.resolve(cname)
+            ^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.11/lib/python3.12/logging/config.py", line 415, in resolve
+    raise v from e
+ValueError: Cannot resolve 'concurrent_log_handler.ConcurrentRotatingFileHandler': No module named 'concurrent_log_handler'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/nexus_ark.py", line 31, in <module>
+    logging.config.dictConfig(LOGGING_CONFIG)
+  File "/home/jules/.pyenv/versions/3.12.11/lib/python3.12/logging/config.py", line 942, in dictConfig
+    dictConfigClass(config).configure()
+  File "/home/jules/.pyenv/versions/3.12.11/lib/python3.12/logging/config.py", line 615, in configure
+    raise ValueError('Unable to configure handler '
+ValueError: Unable to configure handler 'file'
