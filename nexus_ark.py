@@ -63,6 +63,31 @@ try:
         active_theme_name = theme_settings.get("active_theme", "Soft")
         custom_themes = theme_settings.get("custom_themes", {})
 
+        # 1. 新しい「Nexus Ark」テーマを定義
+        nexus_ark_theme = gr.themes.Default(
+            primary_hue="neutral",
+            secondary_hue="gray",
+            neutral_hue="stone",
+            text_size=gr.themes.Size(lg="16px", md="13px", sm="12px", xl="22px", xs="10px", xxl="26px", xxs="9px"),
+            spacing_size="sm",
+            font=[gr.themes.GoogleFont('Source Sans Pro'), 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        ).set(
+            body_background_fill='*neutral_200',
+            body_background_fill_dark='*neutral_950',
+            body_text_color='*neutral_600',
+            body_text_color_dark='*neutral_200',
+            body_text_weight='200',
+            background_fill_primary='*primary_50',
+            background_fill_secondary='*neutral_100',
+            background_fill_secondary_dark='*neutral_800',
+            border_color_accent='*primary_400',
+            color_accent='*secondary_500',
+            code_background_fill='*primary_200',
+            block_title_text_size='*text_sm',
+            section_header_text_size='*text_sm',
+            checkbox_label_text_size='*text_sm'
+        )
+
         # プリセットテーマのマップ
         preset_themes = {
             "Default": gr.themes.Default,
@@ -71,14 +96,17 @@ try:
             "Glass": gr.themes.Glass,
         }
 
-        if active_theme_name in preset_themes:
+        # 2. テーマを適用
+        if active_theme_name == "Nexus Ark":
+            print("--- [テーマ] デフォルトテーマ 'Nexus Ark' を適用します ---")
+            return nexus_ark_theme
+        elif active_theme_name in preset_themes:
             print(f"--- [テーマ] プリセットテーマ '{active_theme_name}' を適用します ---")
             return preset_themes[active_theme_name]()
         elif active_theme_name in custom_themes:
             print(f"--- [テーマ] カスタムテーマ '{active_theme_name}' を適用します ---")
             params = custom_themes[active_theme_name]
 
-            # ▼▼▼【ここから下のブロックを修正】▼▼▼
             # kwargsとして渡すパラメータを準備
             theme_kwargs = params.copy()
 
@@ -88,7 +116,6 @@ try:
                 theme_kwargs['font'] = [gr.themes.GoogleFont(name) for name in font_names]
 
             return gr.themes.Base(**theme_kwargs)
-            # ▲▲▲【修正ここまで】▲▲▲
         else:
             print(f"--- [テーマ警告] アクティブなテーマ '{active_theme_name}' が見つかりません。デフォルトの'Soft'テーマを適用します ---")
             return gr.themes.Soft()
