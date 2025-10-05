@@ -399,6 +399,9 @@ def _stream_and_handle_response(
                 "effective_settings": effective_settings # ← この行を追加
             }
 
+            # --- ▼▼▼ ここからが修正ブロック ▼▼▼ ---
+            # 状態フラグと、蓄積されたテキストを、ストリーミング処理ループの外側で初期化する
+            in_special_block = False
             streamed_text = ""
             final_state = None
             initial_message_count = 0
@@ -415,46 +418,35 @@ def _stream_and_handle_response(
                         if isinstance(message_chunk, AIMessageChunk):
                             new_text_chunk = message_chunk.content
 
-                            if typewriter_enabled:
-                                # --- タイプライター効果が有効な場合（最終修正版） ---
-                                
-                                # 現在、特殊ブロック（コード or 思考ログ）の内側にいるかどうかを追跡するフラグ
-                                in_special_block = False
-                                
-                                # チャンクごとに処理を行う
+                            if typewriter_enabled and streaming_speed > 0:
+                                # --- タイプライター効果が有効な場合（新アーキテクチャ） ---
                                 for char in new_text_chunk:
+                                    # 1. これから表示する文字のために、まず全文を更新
                                     streamed_text += char
-                                    
-                                    # --- 状態遷移の判定 ---
-                                    # 3文字以上のテキストが蓄積されている場合のみ、タグの出現をチェック
-                                    # これにより、"``" のような途中の状態を誤判定しないようにする
-                                    if len(streamed_text) >= 3:
-                                        # コードブロックの開始/終了タグを検出
-                                        if streamed_text.endswith("```"):
-                                            in_special_block = not in_special_block
-                                    if len(streamed_text) >= 12: # "【/Thoughts】" の文字数
-                                        # 思考ログの終了タグを検出
-                                        if streamed_text.endswith("【/Thoughts】"):
-                                            in_special_block = False
-                                    if len(streamed_text) >= 11: # "【Thoughts】" の文字数
-                                        # 思考ログの開始タグを検出
-                                        if streamed_text.endswith("【Thoughts】"):
-                                            in_special_block = True
 
-                                    # sleepを適用するかどうかを決定
-                                    apply_sleep = not in_special_block
-
-                                    # UIを更新
+                                    # 2. UIを更新
                                     chatbot_history[-1] = (None, streamed_text + "▌")
                                     yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                            gr.update(), gr.update(), gr.update(), gr.update(),
                                            gr.update(), gr.update(), current_console_content,
                                            gr.update(), gr.update(), gr.update())
-                                           
-                                    if apply_sleep and streaming_speed > 0:
+
+                                    # 3. 全文の末尾をチェックして、次の文字からの状態を決定
+                                    #    コードブロックの開始/終了
+                                    if streamed_text.endswith("```"):
+                                        in_special_block = not in_special_block
+                                    #    思考ログの終了
+                                    elif streamed_text.endswith("【/Thoughts】"):
+                                        in_special_block = False
+                                    #    思考ログの開始
+                                    elif streamed_text.endswith("【Thoughts】"):
+                                        in_special_block = True
+
+                                    # 4. 特殊ブロックの外側にいる場合のみ、待機時間を設ける
+                                    if not in_special_block:
                                         time.sleep(streaming_speed)
                             else:
-                                # --- タイプライター効果が無効な場合（従来通り） ---
+                                # --- タイプライター効果が無効、または最速の場合 ---
                                 streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
@@ -464,6 +456,7 @@ def _stream_and_handle_response(
 
                     elif mode == "values":
                         final_state = chunk
+            # --- ▲▲▲ 修正ブロックここまで ▲▲▲ ---
             # --- ▼▼▼ デバッグログを追加 ▼▼▼ ---
             print(f"--- [DEBUG] Captured output for {current_room}: ---", file=sys.stderr)
             print(captured_output.getvalue(), file=sys.stderr)
