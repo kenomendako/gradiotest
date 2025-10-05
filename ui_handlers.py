@@ -1115,59 +1115,62 @@ def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room
     history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, mapping_list, None, gr.update(visible=False)
 
-def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folder: str, add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None) -> Tuple[List[Tuple], List[int]]:
+def format_history_for_gradio(
+    messages: List[Dict[str, str]],
+    current_room_folder: str,
+    add_timestamp: bool,
+    screenshot_mode: bool = False,
+    redaction_rules: List[Dict] = None,
+    absolute_start_index: int = 0  # ★★★ この引数を追加 ★★★
+) -> Tuple[List[Tuple], List[int]]:
     """
-    (v22.1: The Final Peace Treaty with Parser)
-    話者名、思考ブロック、通常文の全てを空行で明確に分離し、
-    Gradioパーサーとの完全な和解を果たす最終版。
+    (v23: Absolute Indexing)
+    絶対座標インデックスを考慮して、UIとバックエンドのインデックスを完全に同期させる最終版。
     """
     if not messages:
         return [], []
 
     gradio_history, mapping_list = [], []
 
-    # 話者名やタイムスタンプ処理のための準備
     if not add_timestamp:
         timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
     user_display_name = current_room_config.get("user_display_name", "ユーザー")
     agent_name_cache = {}
 
-    # ステージ1: 生ログをUIで扱いやすい中間形式(proto_history)に分解する
     proto_history = []
-    for i, msg in enumerate(messages):
+    # --- ▼▼▼ ここからが修正の核心 ▼▼▼ ---
+    # enumerateの第二引数に、絶対座標の開始位置を指定する
+    for i, msg in enumerate(messages, start=absolute_start_index):
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
         role, content = msg.get("role"), msg.get("content", "").strip()
         responder_id = msg.get("responder")
         if not responder_id: continue
 
-        # タイムスタンプの除去（設定による）
         if not add_timestamp:
             content = timestamp_pattern.sub('', content)
 
-        # テキスト部分とメディア添付部分を分離
         text_part = re.sub(r"\[(?:Generated Image|ファイル添付):.*?\]", "", content, flags=re.DOTALL).strip()
         media_matches = list(re.finditer(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]", content))
 
-        # 分離したパーツをproto_historyに追加
         if text_part:
+            # "log_index" に絶対座標である `i` を格納する
             proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": text_part, "log_index": i})
         for match in media_matches:
             path = match.group(1).strip()
             if os.path.exists(path):
                 proto_history.append({"type": "media", "role": role, "responder": responder_id, "path": path, "log_index": i})
 
-        # テキストもメディアもない場合（空のメッセージ）も、元のインデックスを保持するために追加
         if not text_part and not media_matches:
             proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
 
-    # ステージ2: 中間形式(proto_history)をGradioが解釈できる形式に組み立てる
     for item in proto_history:
+        # ここで `mapping_list` に追加される `log_index` が絶対座標になる
         mapping_list.append(item["log_index"])
         role, responder_id = item["role"], item["responder"]
         is_user = (role == "USER")
 
         if item["type"] == "text":
-            # 話者名を取得
             speaker_name = ""
             if is_user:
                 speaker_name = user_display_name
@@ -1181,7 +1184,6 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
 
             content_to_parse = item['content']
 
-            # スクリーンショットモードの置換処理を、話者名と本文の両方に適用
             if screenshot_mode and redaction_rules:
                 for rule in redaction_rules:
                     find_str = rule.get("find")
@@ -1190,36 +1192,25 @@ def format_history_for_gradio(messages: List[Dict[str, str]], current_room_folde
                         speaker_name = speaker_name.replace(find_str, replace_str)
                         content_to_parse = content_to_parse.replace(find_str, replace_str)
 
-            # --- [最終アーキテクチャの核心] ---
-
-            # 1. AIの応答を「思考ログ」と「それ以外の部分」に分割
             thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
             parts = thoughts_pattern.split(content_to_parse)
 
             markdown_parts = []
-
-            # 2. 話者名が有る場合、最初のパーツとして追加
             if speaker_name:
                 markdown_parts.append(f"**{speaker_name}:**")
 
-            # 3. 各パーツを処理し、Markdownコードブロックに変換
             for part in parts:
                 if not part or not part.strip():
                     continue
 
                 if thoughts_pattern.match(part):
-                    # 【思考ログの処理】
                     inner_content_match = re.search(r"【Thoughts】([\s\S]*?)【/Thoughts】", part, re.IGNORECASE)
                     inner_content = inner_content_match.group(1).strip() if inner_content_match else ""
                     markdown_parts.append(f"```\n{inner_content}\n```")
                 else:
-                    # 【通常テキストの処理】
                     markdown_parts.append(part.strip())
 
-            # 4. 全てのパーツを「空行」で結合し、単一のMarkdown文字列を生成
             final_markdown = "\n\n".join(markdown_parts)
-            # --- [アーキテクチャここまで] ---
-
             gradio_history.append((final_markdown, None) if is_user else (None, final_markdown))
 
         elif item["type"] == "media":
@@ -1245,15 +1236,27 @@ def reload_chat_log(
         return [], []
 
     full_raw_history = utils.load_chat_log(log_f)
+
+    # --- ▼▼▼ ここからが修正の核心 ▼▼▼ ---
     display_turns = _get_display_history_count(api_history_limit_value)
-    visible_history = full_raw_history[-(display_turns * 2):]
+
+    # 1. ログ全体から、表示すべき部分の開始インデックス（絶対座標）を計算
+    absolute_start_index = max(0, len(full_raw_history) - (display_turns * 2))
+
+    # 2. そのインデックスを使って、表示用の履歴をスライス
+    visible_history = full_raw_history[absolute_start_index:]
+
+    # 3. format_history_for_gradioに、計算した絶対座標の開始位置を渡す
     history, mapping_list = format_history_for_gradio(
         messages=visible_history,
         current_room_folder=room_name,
         add_timestamp=add_timestamp,
         screenshot_mode=screenshot_mode,
-        redaction_rules=redaction_rules
+        redaction_rules=redaction_rules,
+        absolute_start_index=absolute_start_index # ★★★ 新しい引数を追加 ★★★
     )
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
     return history, mapping_list
 
 def handle_wb_add_place_button_click(area_selector_value: Optional[str]):
@@ -2936,7 +2939,6 @@ def handle_chatbot_edit(
 
     try:
         edited_ui_index = evt.index[0]
-        # Gradioから渡された、編集後のMarkdown文字列全体を取得
         edited_markdown_string = updated_chatbot_value[edited_ui_index][evt.index[1]]
 
         # 1. 安全装置: ログファイルのバックアップ
@@ -2945,13 +2947,13 @@ def handle_chatbot_edit(
             gr.Error("ログのバックアップに失敗したため、編集を中止しました。")
             return gr.update(), gr.update()
 
-        # 2. 編集対象の元のメッセージを取得
+        # 2. 編集対象の元のメッセージを取得 (ここが正しく動作するようになる)
         log_f, _, _, _, _ = get_room_files_paths(room_name)
         all_messages = utils.load_chat_log(log_f)
         original_log_index = mapping_list[edited_ui_index]
 
         if not (0 <= original_log_index < len(all_messages)):
-            gr.Error("編集対象のメッセージを特定できませんでした。")
+            gr.Error(f"編集対象のメッセージを特定できませんでした。(インデックス範囲外: {original_log_index})")
             return gr.update(), gr.update()
 
         original_message = all_messages[original_log_index]
@@ -2967,22 +2969,15 @@ def handle_chatbot_edit(
 
         new_thoughts_block = ""
         if thoughts_match:
-            # 思考ログ部分を抽出し、我々のログ形式【Thoughts】に戻す
             inner_thoughts = thoughts_match.group(1).strip()
             new_thoughts_block = f"【Thoughts】\n{inner_thoughts}\n【/Thoughts】"
 
-        # 思考ログと話者名のMarkdown記法を文字列から除去して、純粋な本文だけを抽出する
         temp_string = thoughts_pattern.sub("", edited_markdown_string)
         new_body_text = re.sub(r"^\*\*.*?\*\*\s*:\s*", "", temp_string, 1).strip()
 
         # 5. 【再構築】抽出したパーツと保持しておいたタイムスタンプを結合
-        final_parts = []
-        if new_thoughts_block:
-            final_parts.append(new_thoughts_block)
-        if new_body_text:
-            final_parts.append(new_body_text)
-
-        new_content_without_ts = "\n\n".join(part.strip() for part in final_parts if part.strip())
+        final_parts = [part.strip() for part in [new_thoughts_block, new_body_text] if part.strip()]
+        new_content_without_ts = "\n\n".join(final_parts)
         final_content = new_content_without_ts + preserved_timestamp
 
         # 6. ログの書き換え
