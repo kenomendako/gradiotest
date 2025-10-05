@@ -473,6 +473,33 @@ def is_character_name(name: str) -> bool:
     room_dir = os.path.join(constants.ROOMS_DIR, name)
     return os.path.isdir(room_dir)
 
+# ▼▼▼【ここからが新しく追加する関数】▼▼▼
+def _overwrite_log_file(file_path: str, messages: List[Dict]):
+    """
+    メッセージ辞書のリストからログファイルを完全に上書きする。
+    """
+    log_content_parts = []
+    for msg in messages:
+        # 新しいログ形式 `ROLE:NAME` に完全準拠して書き出す
+        role = msg.get("role", "AGENT").upper()
+        responder_id = msg.get("responder", "不明")
+        header = f"## {role}:{responder_id}"
+        content = msg.get('content', '').strip()
+        # contentが空でもヘッダーは記録されるべき場合があるため、
+        # responder_idが存在すればエントリを作成する
+        if responder_id:
+             log_content_parts.append(f"{header}\n{content}")
+
+    new_log_content = "\n\n".join(log_content_parts)
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(new_log_content)
+    # ファイルの末尾に追記用の改行を追加
+    if new_log_content:
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write("\n\n")
+
+# ▲▲▲【追加はここまで】▲▲▲
+
 def load_html_cache(room_name: str) -> Dict[str, str]:
     """指定されたルームのHTMLキャッシュを読み込む。"""
     if not room_name:

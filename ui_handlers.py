@@ -30,6 +30,8 @@ import time
 
 
 import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer
+# ★★★ 以下の1行を追加 ★★★
+from utils import _overwrite_log_file
 from tools import timer_tools, memory_tools
 from agent.graph import generate_scenery_context
 from room_manager import get_room_files_paths, get_world_settings_path
@@ -2956,7 +2958,16 @@ def handle_chatbot_edit(
             timestamp_match = re.search(r'(\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$)', original_content)
             timestamp = timestamp_match.group(1) if timestamp_match else ""
 
-            all_messages[original_log_index]['content'] = new_text.strip() + timestamp
+            # メッセージの役割（ROLE）と話者名（responder）を保持する
+            role = all_messages[original_log_index].get("role", "AGENT")
+            responder = all_messages[original_log_index].get("responder", room_name)
+
+            # 新しいメッセージ辞書を作成
+            all_messages[original_log_index] = {
+                'role': role,
+                'responder': responder,
+                'content': new_text.strip() + timestamp
+            }
 
             _overwrite_log_file(log_f, all_messages)
             gr.Info(f"メッセージを編集し、ログを更新しました。(バックアップ: {os.path.basename(backup_path)})")
