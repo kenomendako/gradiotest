@@ -684,7 +684,6 @@ def handle_rerun_button_click(*args: Any):
         soul_vessel_room=room_name,
         active_participants=active_participants or [],
         current_console_content=console_content,
-        streaming_speed=streaming_speed
     )
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
