@@ -1079,13 +1079,16 @@ def handle_chatbot_selection(room_name: str, api_history_limit_state: str, mappi
             return None, gr.update(visible=False), gr.update(interactive=True)
 
         log_f, _, _, _, _ = get_room_files_paths(room_name)
+        # 全ログをロードする
         raw_history = utils.load_chat_log(log_f)
-        display_turns = _get_display_history_count(api_history_limit_state)
-        visible_raw_history = raw_history[-(display_turns * 2):]
 
+        # マッピングリストから、ログ全体における「絶対インデックス」を取得
         original_log_index = mapping_list[clicked_ui_index]
-        if 0 <= original_log_index < len(visible_raw_history):
-            selected_msg = visible_raw_history[original_log_index]
+
+        # 絶対インデックスが、全ログの範囲内にあるかチェック
+        if 0 <= original_log_index < len(raw_history):
+            # 全ログに対して、絶対インデックスで直接アクセスする
+            selected_msg = raw_history[original_log_index]
             is_ai_message = selected_msg.get("responder") != "user"
             return (
                 selected_msg,
@@ -1093,7 +1096,8 @@ def handle_chatbot_selection(room_name: str, api_history_limit_state: str, mappi
                 gr.update(interactive=is_ai_message)
             )
         else:
-            gr.Warning(f"クリックされたメッセージを特定できませんでした (Original log index out of bounds).")
+            # こちらが本当の "out of bounds"
+            gr.Warning(f"クリックされたメッセージを特定できませんでした (Original log index out of bounds). Index: {original_log_index}, Log Length: {len(raw_history)}")
             return None, gr.update(visible=False), gr.update(interactive=True)
 
     except Exception as e:
@@ -2972,7 +2976,8 @@ def handle_chatbot_edit(
 
         # --- ▼▼▼ ここが最後の修正の核心 ▼▼▼ ---
         # re.MULTILINEフラグを追加し、行頭の話者名を確実に除去する
-        speaker_pattern = r"^\*\*.*?\*\*\s*:\s*"
+        # さらに、先頭のあらゆる空白文字を許容するように \s* を追加
+        speaker_pattern = r"^\s*\*\*.*?\*\*\s*:\s*"
         new_body_text = re.sub(speaker_pattern, "", temp_string, flags=re.MULTILINE).strip()
         # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
