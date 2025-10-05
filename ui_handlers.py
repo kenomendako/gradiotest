@@ -2981,6 +2981,7 @@ def handle_chatbot_edit(
         new_body_text = re.sub(speaker_pattern, "", temp_string, flags=re.MULTILINE).strip()
         # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
+
         final_parts = [part.strip() for part in [new_thoughts_block, new_body_text] if part.strip()]
         new_content_without_ts = "\n\n".join(final_parts)
         final_content = new_content_without_ts + preserved_timestamp
