@@ -16,7 +16,6 @@ import uuid
 from bs4 import BeautifulSoup
 import io
 import contextlib
-import room_manager
 
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"

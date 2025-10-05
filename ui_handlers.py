@@ -415,21 +415,29 @@ def _stream_and_handle_response(
                             new_text_chunk = message_chunk.content
 
                             if typewriter_enabled:
-                                # --- タイプライター効果が有効な場合（従来の処理） ---
+                                # --- タイプライター効果が有効な場合（改良版） ---
                                 for char in new_text_chunk:
                                     streamed_text += char
+
+                                    # 特殊ブロックの内側かどうかをリアルタイムで判定
+                                    is_in_thought_block = streamed_text.count("【Thoughts】") > streamed_text.count("【/Thoughts】")
+                                    is_in_code_block = streamed_text.count("```") % 2 != 0
+
+                                    # 通常テキストの場合のみ待機処理を適用する
+                                    apply_sleep = not (is_in_thought_block or is_in_code_block)
+
                                     chatbot_history[-1] = (None, streamed_text + "▌")
                                     yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                            gr.update(), gr.update(), gr.update(), gr.update(),
                                            gr.update(), gr.update(), current_console_content,
                                            gr.update(), gr.update(), gr.update())
-                                    if streaming_speed > 0:
+
+                                    if apply_sleep and streaming_speed > 0:
                                         time.sleep(streaming_speed)
                             else:
-                                # --- タイプライター効果が無効な場合（チャンク単位で一括表示） ---
+                                # --- タイプライター効果が無効な場合（従来通り） ---
                                 streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
-                                # UI更新はチャンクごとに行う
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                        gr.update(), gr.update(), gr.update(), gr.update(),
                                        gr.update(), gr.update(), current_console_content,
