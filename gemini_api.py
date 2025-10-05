@@ -372,24 +372,34 @@ def count_input_tokens(**kwargs):
         return "トークン数: (例外発生)"
 
 
-def correct_punctuation_with_ai(text_to_fix: str, api_key: str) -> Optional[str]:
+def correct_punctuation_with_ai(text_to_fix: str, api_key: str, context_type: str = "body") -> Optional[str]:
     """
     読点が除去されたテキストを受け取り、AIを使って適切な読点を再付与する。
-    【v3: 503エラー対応・最終版】
+    【v4: 分割処理対応版】
     """
     if not text_to_fix or not api_key:
         return None
 
     client = genai.Client(api_key=api_key)
     max_retries = 5
-    base_retry_delay = 5  # 指数バックオフの初期遅延（秒）
+    base_retry_delay = 5
+
+    # コンテキストタイプに応じた指示を生成
+    context_instruction = "これはユーザーへの応答文です。自然な会話になるように読点を付与してください。"
+    if context_type == "thoughts":
+        context_instruction = "これはAI自身の思考ログです。思考の流れや内省的なモノローグとして自然になるように読点を付与してください。"
 
     for attempt in range(max_retries):
         try:
+            # プロンプトを動的に組み立てる
             prompt = f"""あなたは、日本語の文章を校正する専門家です。あなたの唯一の任務は、以下の【読点除去済みテキスト】に対して、文脈が自然になるように読点（「、」）のみを追加することです。
+
+【コンテキスト】
+{context_instruction}
 
 【最重要ルール】
 - テキストの内容、漢字、ひらがな、カタカナ、句点（「。」）など、読点以外の文字は一切変更してはいけません。
+- `【` や `】` のような記号も、変更したり削除したりせず、そのまま保持してください。
 - あなた自身の意見や挨拶、思考などは一切含めず、読点を追加した後の完成したテキストのみを返答してください。
 
 【読点除去済みテキスト】
@@ -406,8 +416,8 @@ def correct_punctuation_with_ai(text_to_fix: str, api_key: str) -> Optional[str]
             return response.text.strip()
 
         except (google.genai.errors.ClientError, google.genai.errors.ServerError) as e:
+            # (エラーハンドリング部分は変更なしのため省略)
             wait_time = 0
-            # ClientError (429など) の場合は、推奨待機時間を抽出
             if isinstance(e, google.genai.errors.ClientError):
                 try:
                     match = re.search(r"({.*})", str(e))
@@ -422,11 +432,8 @@ def correct_punctuation_with_ai(text_to_fix: str, api_key: str) -> Optional[str]
                                     break
                 except Exception as parse_e:
                     print(f"--- 待機時間抽出エラー: {parse_e}。指数バックオフを使用します。 ---")
-
-            # 推奨時間がない場合 (ServerErrorなど) は、指数バックオフを適用
             if wait_time == 0:
                 wait_time = base_retry_delay * (2 ** attempt)
-
             if attempt < max_retries - 1:
                 print(f"--- APIエラー ({e.__class__.__name__})。{wait_time}秒待機してリトライします... ({attempt + 1}/{max_retries}) ---")
                 time.sleep(wait_time)
