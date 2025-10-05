@@ -143,13 +143,13 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
 
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v25: 安定性向上版)
+    LangGraphの思考プロセスをストリーミングで返す。(v26: スコープ修正版)
     """
     from agent.graph import app
     import time
     from google.api_core.exceptions import ResourceExhausted, InternalServerError
 
-    # --- 引数を辞書から展開 (変更なし) ---
+    # --- 引数を辞書から展開 ---
     room_to_respond = agent_args["room_to_respond"]
     api_key_name = agent_args["api_key_name"]
     api_history_limit = agent_args["api_history_limit"]
@@ -160,15 +160,13 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     active_participants = agent_args["active_participants"]
     shared_location_name = agent_args["shared_location_name"]
     shared_scenery_text = agent_args["shared_scenery_text"]
+    
+    # ui_handlersから渡された、このAI用の設定を取得
+    effective_settings = agent_args["effective_settings"] # ← この行を追加
 
     all_participants_list = [soul_vessel_room] + active_participants
-    global_model_from_ui = agent_args.get("global_model_from_ui")
-
-    effective_settings = config_manager.get_effective_settings(
-        room_to_respond,
-        global_model_from_ui=global_model_from_ui,
-        use_common_prompt=(len(all_participants_list) <= 1)
-    )
+    # global_model_from_ui は effective_settings に既に反映されているので不要
+    
     model_name = effective_settings["model_name"]
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
@@ -223,7 +221,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "messages": messages, "room_name": room_to_respond,
         "api_key": api_key,
         "model_name": model_name,
-        "generation_config": effective_settings,
+        "generation_config": effective_settings, # ← ここを直接 effective_settings に変更
         "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True),
         "send_notepad": effective_settings.get("send_notepad", True),
