@@ -2654,19 +2654,15 @@ def handle_log_punctuation_correction(
     api_key_name: str,
     api_history_limit: str,
     add_timestamp: bool
-# ▼▼▼ 修正点1: 戻り値の型ヒントを、Stateリセット用のstrを含む6つの要素に更新 ▼▼▼
 ) -> Tuple[gr.update, gr.update, gr.update, Optional[Dict], gr.update, str]:
     """
-    選択行以降のAGENT応答の読点をAIで修正し、ログを上書きする。
-    完了後、選択状態と確認状態を解除する。
+    【v3: 堅牢化版】
+    選択行以降のAGENT応答を「思考ログ」と「本文」に分離し、それぞれ安全に読点修正を行ってから再結合する。
     """
-    # ユーザーが確認ダイアログで「キャンセル」を押した場合
     if not str(confirmed).lower() == 'true':
-        # Stateをリセットするための空文字列を返す
         yield gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), ""
         return
 
-    # 1. 入力検証
     if not selected_message:
         gr.Warning("修正の起点となるメッセージをチャット履歴から選択してください。")
         yield gr.update(), gr.update(), gr.update(), None, gr.update(visible=False), ""
@@ -2682,27 +2678,19 @@ def handle_log_punctuation_correction(
         yield gr.update(), gr.update(), gr.update(), selected_message, gr.update(visible=True), ""
         return
 
-    # 2. 処理開始のUIフィードバック
     yield gr.update(), gr.update(), gr.update(value="準備中...", interactive=False), gr.update(), gr.update(), ""
 
     try:
-        # 3. バックアップ作成
         backup_path = room_manager.backup_log_file(room_name)
         if not backup_path:
             gr.Error("ログのバックアップ作成に失敗しました。処理を中断します。")
             yield gr.update(), gr.update(), gr.update(interactive=True), selected_message, gr.update(visible=True), ""
             return
 
-        # 4. 修正対象を特定
         log_f, _, _, _, _ = get_room_files_paths(room_name)
         all_messages = utils.load_chat_log(log_f)
 
-        start_index = -1
-        for i, msg in enumerate(all_messages):
-            # メッセージオブジェクト全体で比較
-            if msg == selected_message:
-                start_index = i
-                break
+        start_index = next((i for i, msg in enumerate(all_messages) if msg == selected_message), -1)
 
         if start_index == -1:
             gr.Warning("選択されたメッセージがログに見つかりませんでした。")
@@ -2719,7 +2707,6 @@ def handle_log_punctuation_correction(
             yield gr.update(), gr.update(), gr.update(interactive=True), None, gr.update(visible=False), ""
             return
 
-        # 5. メインの修正ループ
         total_targets = len(targets_with_indices)
         for i, (original_index, msg_to_fix) in enumerate(targets_with_indices):
             progress_text = f"修正中... ({i + 1}/{total_targets}件)"
@@ -2727,32 +2714,45 @@ def handle_log_punctuation_correction(
 
             original_content = msg_to_fix.get("content", "")
 
-            # ▼▼▼ 修正点2: 思考ログ分離ロジックを完全に撤廃し、タイムスタンプ分離ロジックに置換 ▼▼▼
-            # タイムスタンプ部分を保持し、コンテンツ全体を処理対象とする
-            timestamp_match = re.search(r'(\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$)', original_content)
+            # --- [新アーキテクチャ：分割・修正・再結合] ---
+
+            # 1. 【分割】コンテンツを3つのパーツに分離
+            thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
+            timestamp_pattern = re.compile(r'(\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$)')
+
+            thoughts_match = thoughts_pattern.search(original_content)
+            timestamp_match = timestamp_pattern.search(original_content)
+
+            thoughts_part = thoughts_match.group(1) if thoughts_match else ""
             timestamp_part = timestamp_match.group(1) if timestamp_match else ""
-            # タイムスタンプを除いた本文を取得
-            content_body = re.sub(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$', '', original_content)
 
-            # 本文全体の読点を除去
-            text_without_comma = content_body.replace("、", "").replace("､", "")
-            # ▲▲▲ 修正ここまで ▲▲▲
+            body_part = original_content
+            if thoughts_part: body_part = body_part.replace(thoughts_part, "")
+            if timestamp_part: body_part = body_part.replace(timestamp_part, "")
+            body_part = body_part.strip()
 
-            # AIに修正を依頼
-            corrected_text = gemini_api.correct_punctuation_with_ai(text_without_comma, api_key)
+            # 2. 【個別修正】各パーツをAIで修正
+            corrected_thoughts = ""
+            if thoughts_part:
+                # 思考ログからタグを除いた中身だけをAIに渡す
+                inner_thoughts = re.sub(r"【/?Thoughts】", "", thoughts_part, flags=re.IGNORECASE).strip()
+                text_to_fix = inner_thoughts.replace("、", "").replace("､", "")
+                result = gemini_api.correct_punctuation_with_ai(text_to_fix, api_key, context_type="thoughts")
+                # 安全装置：AIが失敗したら元のテキストを使う
+                corrected_thoughts = f"【Thoughts】\n{result.strip()}\n【/Thoughts】" if result and len(result) > len(inner_thoughts) * 0.5 else thoughts_part
 
-            if corrected_text is None:
-                gr.Error(f"AIによる修正に失敗しました (対象: {original_content[:30]}...)。処理を中断しますが、ここまでの進捗は保存されます。")
-                _overwrite_log_file(log_f, all_messages)
-                history, mapping = reload_chat_log(room_name, api_history_limit, add_timestamp)
-                yield history, mapping, gr.update(interactive=True), None, gr.update(visible=False), ""
-                return
+            corrected_body = ""
+            if body_part:
+                text_to_fix = body_part.replace("、", "").replace("､", "")
+                result = gemini_api.correct_punctuation_with_ai(text_to_fix, api_key, context_type="body")
+                # 安全装置：AIが失敗したら元のテキストを使う
+                corrected_body = result if result and len(result) > len(body_part) * 0.5 else body_part
 
-            # ▼▼▼ 修正点3: 修正後のテキストとタイムスタンプを結合して上書き ▼▼▼
-            all_messages[original_index]["content"] = (corrected_text + timestamp_part).strip()
-            # ▲▲▲ 修正ここまで ▲▲▲
+            # 3. 【再結合】パーツを結合してメッセージを更新
+            final_parts = [part for part in [corrected_thoughts, corrected_body, timestamp_part] if part]
+            all_messages[original_index]["content"] = "\n\n".join(final_parts).strip()
+            # --- [アーキテクチャここまで] ---
 
-        # 6. ログファイルの上書き
         _overwrite_log_file(log_f, all_messages)
         gr.Info(f"✅ {total_targets}件のAI応答の読点を修正し、ログを更新しました。")
 
@@ -2760,9 +2760,7 @@ def handle_log_punctuation_correction(
         gr.Error(f"ログ修正処理中に予期せぬエラーが発生しました: {e}")
         traceback.print_exc()
     finally:
-        # 7. 最終的なUI更新
         final_history, final_mapping = reload_chat_log(room_name, api_history_limit, add_timestamp)
-        # ▼▼▼ 修正点4: 最後に確認Stateをリセットするための空文字列 "" を返す ▼▼▼
         yield final_history, final_mapping, gr.update(value="選択発言以降の読点をAIで修正", interactive=True), None, gr.update(visible=False), ""
 
 # ▲▲▲【追加はここまで】▲▲▲
