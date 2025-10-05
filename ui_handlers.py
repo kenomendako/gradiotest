@@ -2929,51 +2929,72 @@ def handle_chatbot_edit(
     evt: gr.SelectData
 ):
     """
-    GradioのChatbot編集イベントを処理するハンドラ (v2: Gradio仕様準拠版)。
+    GradioのChatbot編集イベントを処理するハンドラ (v3: 再パース＆再構築ロジック版)。
     """
     if not room_name or evt.index is None or not mapping_list:
         return gr.update(), gr.update()
 
     try:
-        # evt.indexは (row, col) のタプル。rowがUI上の行番号。
         edited_ui_index = evt.index[0]
-        # colが0ならユーザー、1ならAI
-        edited_col_index = evt.index[1]
+        # Gradioから渡された、編集後のMarkdown文字列全体を取得
+        edited_markdown_string = updated_chatbot_value[edited_ui_index][evt.index[1]]
 
-        # Gradioから渡された更新後のChatbotのvalueから、編集後のテキストを直接取得
-        new_text = updated_chatbot_value[edited_ui_index][edited_col_index]
-
-        # 安全装置: ログファイルのバックアップ
+        # 1. 安全装置: ログファイルのバックアップ
         backup_path = room_manager.backup_log_file(room_name)
         if not backup_path:
             gr.Error("ログのバックアップに失敗したため、編集を中止しました。")
             return gr.update(), gr.update()
 
-        # 編集対象の特定
+        # 2. 編集対象の元のメッセージを取得
         log_f, _, _, _, _ = get_room_files_paths(room_name)
         all_messages = utils.load_chat_log(log_f)
         original_log_index = mapping_list[edited_ui_index]
 
-        # ログの書き換え
-        if 0 <= original_log_index < len(all_messages):
-            # タイムスタンプを保持しつつ、メインのコンテンツだけを更新する
-            original_content = all_messages[original_log_index].get('content', '')
-            timestamp_match = re.search(r'(\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$)', original_content)
-            timestamp = timestamp_match.group(1) if timestamp_match else ""
-
-            # メッセージ辞書を更新
-            all_messages[original_log_index]['content'] = new_text.strip() + timestamp
-
-            # 新しいヘルパー関数でログファイルを上書き
-            utils._overwrite_log_file(log_f, all_messages)
-            gr.Info(f"メッセージを編集し、ログを更新しました。(バックアップ: {os.path.basename(backup_path)})")
-        else:
+        if not (0 <= original_log_index < len(all_messages)):
             gr.Error("編集対象のメッセージを特定できませんでした。")
+            return gr.update(), gr.update()
+
+        original_message = all_messages[original_log_index]
+        original_content = original_message.get('content', '')
+
+        # 3. 元のコンテントからタイムスタンプだけを抽出して保持
+        timestamp_match = re.search(r'(\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$)', original_content)
+        preserved_timestamp = timestamp_match.group(1) if timestamp_match else ""
+
+        # 4. 【再パース】編集後のMarkdown文字列から、「思考ログ」と「本文」を抽出
+        thoughts_pattern = re.compile(r"```\n([\s\S]*?)\n```")
+        thoughts_match = thoughts_pattern.search(edited_markdown_string)
+
+        new_thoughts_block = ""
+        if thoughts_match:
+            # 思考ログ部分を抽出し、我々のログ形式【Thoughts】に戻す
+            inner_thoughts = thoughts_match.group(1).strip()
+            new_thoughts_block = f"【Thoughts】\n{inner_thoughts}\n【/Thoughts】"
+
+        # 思考ログと話者名のMarkdown記法を文字列から除去して、純粋な本文だけを抽出する
+        temp_string = thoughts_pattern.sub("", edited_markdown_string)
+        new_body_text = re.sub(r"^\*\*.*?\*\*\s*:\s*", "", temp_string, 1).strip()
+
+        # 5. 【再構築】抽出したパーツと保持しておいたタイムスタンプを結合
+        final_parts = []
+        if new_thoughts_block:
+            final_parts.append(new_thoughts_block)
+        if new_body_text:
+            final_parts.append(new_body_text)
+
+        new_content_without_ts = "\n\n".join(part.strip() for part in final_parts if part.strip())
+        final_content = new_content_without_ts + preserved_timestamp
+
+        # 6. ログの書き換え
+        original_message['content'] = final_content
+        utils._overwrite_log_file(log_f, all_messages)
+
+        gr.Info(f"メッセージを編集し、ログを更新しました。(バックアップ: {os.path.basename(backup_path)})")
 
     except Exception as e:
         gr.Error(f"メッセージの編集中にエラーが発生しました: {e}")
         traceback.print_exc()
 
-    # UIの再描画
+    # 7. UIの再描画
     history, new_mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, new_mapping_list
