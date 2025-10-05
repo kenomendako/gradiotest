@@ -416,19 +416,45 @@ def _stream_and_handle_response(
                             new_text_chunk = message_chunk.content
 
                             if typewriter_enabled:
+                                # --- タイプライター効果が有効な場合（最終修正版） ---
+                                
+                                # 現在、特殊ブロック（コード or 思考ログ）の内側にいるかどうかを追跡するフラグ
+                                in_special_block = False
+                                
+                                # チャンクごとに処理を行う
                                 for char in new_text_chunk:
                                     streamed_text += char
-                                    is_in_thought_block = streamed_text.count("【Thoughts】") > streamed_text.count("【/Thoughts】")
-                                    is_in_code_block = streamed_text.count("```") % 2 != 0
-                                    apply_sleep = not (is_in_thought_block or is_in_code_block)
+                                    
+                                    # --- 状態遷移の判定 ---
+                                    # 3文字以上のテキストが蓄積されている場合のみ、タグの出現をチェック
+                                    # これにより、"``" のような途中の状態を誤判定しないようにする
+                                    if len(streamed_text) >= 3:
+                                        # コードブロックの開始/終了タグを検出
+                                        if streamed_text.endswith("```"):
+                                            in_special_block = not in_special_block
+                                    if len(streamed_text) >= 12: # "【/Thoughts】" の文字数
+                                        # 思考ログの終了タグを検出
+                                        if streamed_text.endswith("【/Thoughts】"):
+                                            in_special_block = False
+                                    if len(streamed_text) >= 11: # "【Thoughts】" の文字数
+                                        # 思考ログの開始タグを検出
+                                        if streamed_text.endswith("【Thoughts】"):
+                                            in_special_block = True
+
+                                    # sleepを適用するかどうかを決定
+                                    apply_sleep = not in_special_block
+
+                                    # UIを更新
                                     chatbot_history[-1] = (None, streamed_text + "▌")
                                     yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                            gr.update(), gr.update(), gr.update(), gr.update(),
                                            gr.update(), gr.update(), current_console_content,
                                            gr.update(), gr.update(), gr.update())
+                                           
                                     if apply_sleep and streaming_speed > 0:
                                         time.sleep(streaming_speed)
                             else:
+                                # --- タイプライター効果が無効な場合（従来通り） ---
                                 streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
