@@ -768,7 +768,13 @@ try:
         # --- [ここから修正] ---
         chatbot_display.edit(
             fn=ui_handlers.handle_chatbot_edit,
-            inputs=[current_room_name, api_history_limit_state, current_log_map_state, room_add_timestamp_checkbox],
+            inputs=[
+                chatbot_display,  # ★★★ この行を追加 ★★★
+                current_room_name,
+                api_history_limit_state,
+                current_log_map_state,
+                room_add_timestamp_checkbox
+            ],
             outputs=[chatbot_display, current_log_map_state]
         )
         # --- [修正ここまで] ---

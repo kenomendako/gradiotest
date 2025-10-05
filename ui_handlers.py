@@ -30,7 +30,6 @@ import time
 
 
 import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer
-# ★★★ 以下の1行を追加 ★★★
 from utils import _overwrite_log_file
 from tools import timer_tools, memory_tools
 from agent.graph import generate_scenery_context
@@ -2922,6 +2921,7 @@ def handle_apply_theme(theme_settings, selected_theme_name):
 
 
 def handle_chatbot_edit(
+    updated_chatbot_value: list,
     room_name: str,
     api_history_limit: str,
     mapping_list: list,
@@ -2929,47 +2929,43 @@ def handle_chatbot_edit(
     evt: gr.SelectData
 ):
     """
-    GradioのChatbot編集イベントを処理するハンドラ。
+    GradioのChatbot編集イベントを処理するハンドラ (v2: Gradio仕様準拠版)。
     """
     if not room_name or evt.index is None or not mapping_list:
         return gr.update(), gr.update()
 
     try:
+        # evt.indexは (row, col) のタプル。rowがUI上の行番号。
         edited_ui_index = evt.index[0]
-        new_text = evt.value
+        # colが0ならユーザー、1ならAI
+        edited_col_index = evt.index[1]
 
-        # 1. 安全装置: ログファイルのバックアップ
+        # Gradioから渡された更新後のChatbotのvalueから、編集後のテキストを直接取得
+        new_text = updated_chatbot_value[edited_ui_index][edited_col_index]
+
+        # 安全装置: ログファイルのバックアップ
         backup_path = room_manager.backup_log_file(room_name)
         if not backup_path:
             gr.Error("ログのバックアップに失敗したため、編集を中止しました。")
             return gr.update(), gr.update()
 
-        # 2. 編集対象の特定
+        # 編集対象の特定
         log_f, _, _, _, _ = get_room_files_paths(room_name)
         all_messages = utils.load_chat_log(log_f)
-
-        # UIインデックスから元のログのインデックスを取得
         original_log_index = mapping_list[edited_ui_index]
 
-        # 3. ログの書き換え
+        # ログの書き換え
         if 0 <= original_log_index < len(all_messages):
             # タイムスタンプを保持しつつ、メインのコンテンツだけを更新する
-            original_content = all_messages[original_log_index]['content']
+            original_content = all_messages[original_log_index].get('content', '')
             timestamp_match = re.search(r'(\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$)', original_content)
             timestamp = timestamp_match.group(1) if timestamp_match else ""
 
-            # メッセージの役割（ROLE）と話者名（responder）を保持する
-            role = all_messages[original_log_index].get("role", "AGENT")
-            responder = all_messages[original_log_index].get("responder", room_name)
+            # メッセージ辞書を更新
+            all_messages[original_log_index]['content'] = new_text.strip() + timestamp
 
-            # 新しいメッセージ辞書を作成
-            all_messages[original_log_index] = {
-                'role': role,
-                'responder': responder,
-                'content': new_text.strip() + timestamp
-            }
-
-            _overwrite_log_file(log_f, all_messages)
+            # 新しいヘルパー関数でログファイルを上書き
+            utils._overwrite_log_file(log_f, all_messages)
             gr.Info(f"メッセージを編集し、ログを更新しました。(バックアップ: {os.path.basename(backup_path)})")
         else:
             gr.Error("編集対象のメッセージを特定できませんでした。")
@@ -2978,6 +2974,6 @@ def handle_chatbot_edit(
         gr.Error(f"メッセージの編集中にエラーが発生しました: {e}")
         traceback.print_exc()
 
-    # 4. UIの再描画
+    # UIの再描画
     history, new_mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, new_mapping_list
