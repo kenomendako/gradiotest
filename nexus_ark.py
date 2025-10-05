@@ -881,7 +881,7 @@ try:
         correction_confirmed_state.change(
             fn=ui_handlers.handle_log_punctuation_correction,
             inputs=[correction_confirmed_state, selected_message_state, current_room_name, current_api_key_name_state, api_history_limit_state, room_add_timestamp_checkbox],
-            outputs=[chatbot_display, current_log_map_state, correct_punctuation_button, selected_message_state, action_button_group]
+            outputs=[chatbot_display, current_log_map_state, correct_punctuation_button, selected_message_state, action_button_group, correction_confirmed_state]
         )
         gen_settings_inputs = [
             room_temperature_slider, room_top_p_slider,
