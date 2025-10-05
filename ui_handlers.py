@@ -2936,19 +2936,15 @@ def handle_chatbot_edit(
     evt: gr.SelectData
 ):
     """
-    GradioのChatbot編集イベントを処理するハンドラ (v6: 最終修正版)。
+    GradioのChatbot編集イベントを処理するハンドラ (v9: The Final Truth)。
     """
     if not room_name or evt.index is None or not mapping_list:
         return gr.update(), gr.update()
 
     try:
+        # --- [ステップ1: 必要な情報を取得] ---
         edited_ui_index = evt.index[0]
         edited_markdown_string = updated_chatbot_value[edited_ui_index][evt.index[1]]
-
-        backup_path = room_manager.backup_log_file(room_name)
-        if not backup_path:
-            gr.Error("ログのバックアップに失敗したため、編集を中止しました。")
-            return gr.update(), gr.update()
 
         log_f, _, _, _, _ = get_room_files_paths(room_name)
         all_messages = utils.load_chat_log(log_f)
@@ -2961,12 +2957,12 @@ def handle_chatbot_edit(
         original_message = all_messages[original_log_index]
         original_content = original_message.get('content', '')
 
+        # --- [ステップ2: タイムスタンプと思考ログを分離・保持] ---
         timestamp_match = re.search(r'(\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$)', original_content)
         preserved_timestamp = timestamp_match.group(1) if timestamp_match else ""
 
         thoughts_pattern = re.compile(r"```\n([\s\S]*?)\n```")
         thoughts_match = thoughts_pattern.search(edited_markdown_string)
-
         new_thoughts_block = ""
         if thoughts_match:
             inner_thoughts = thoughts_match.group(1).strip()
@@ -2974,22 +2970,32 @@ def handle_chatbot_edit(
 
         temp_string = thoughts_pattern.sub("", edited_markdown_string)
 
-        # --- ▼▼▼ ここが最後の修正の核心 ▼▼▼ ---
-        # re.MULTILINEフラグを追加し、行頭の話者名を確実に除去する
-        # さらに、先頭のあらゆる空白文字を許容するように \s* を追加
-        speaker_pattern = r"^\s*\*\*.*?\*\*\s*:\s*"
-        new_body_text = re.sub(speaker_pattern, "", temp_string, flags=re.MULTILINE).strip()
-        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+        # --- [ステップ3: 最終確定版 - 行ベースでの話者名除去] ---
+        new_body_text = ""
+        lines = temp_string.splitlines() # 文字列を行のリストに分割
 
+        if lines:
+            first_line = lines[0].strip()
+            # 最初の行が話者名行のパターン（**で始まり、:を含む）に一致するかチェック
+            if first_line.startswith('**') and ':' in first_line:
+                # 2行目以降を結合して本文とする
+                new_body_text = "\n".join(lines[1:]).strip()
+            else:
+                # パターンに一致しない場合、全行を本文とする
+                new_body_text = "\n".join(lines).strip()
+        else:
+             new_body_text = ""
 
+        # --- [ステップ4: 全てのパーツを再結合] ---
         final_parts = [part.strip() for part in [new_thoughts_block, new_body_text] if part.strip()]
         new_content_without_ts = "\n\n".join(final_parts)
         final_content = new_content_without_ts + preserved_timestamp
 
+        # --- [ステップ5: ログの上書きとUIの更新] ---
         original_message['content'] = final_content
         utils._overwrite_log_file(log_f, all_messages)
 
-        gr.Info(f"メッセージを編集し、ログを更新しました。(バックアップ: {os.path.basename(backup_path)})")
+        gr.Info(f"メッセージを編集し、ログを更新しました。")
 
     except Exception as e:
         gr.Error(f"メッセージの編集中にエラーが発生しました: {e}")
