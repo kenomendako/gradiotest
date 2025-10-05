@@ -2932,7 +2932,7 @@ def handle_chatbot_edit(
     evt: gr.SelectData
 ):
     """
-    GradioのChatbot編集イベントを処理するハンドラ (v3: 再パース＆再構築ロジック版)。
+    GradioのChatbot編集イベントを処理するハンドラ (v6: 最終修正版)。
     """
     if not room_name or evt.index is None or not mapping_list:
         return gr.update(), gr.update()
@@ -2941,13 +2941,11 @@ def handle_chatbot_edit(
         edited_ui_index = evt.index[0]
         edited_markdown_string = updated_chatbot_value[edited_ui_index][evt.index[1]]
 
-        # 1. 安全装置: ログファイルのバックアップ
         backup_path = room_manager.backup_log_file(room_name)
         if not backup_path:
             gr.Error("ログのバックアップに失敗したため、編集を中止しました。")
             return gr.update(), gr.update()
 
-        # 2. 編集対象の元のメッセージを取得 (ここが正しく動作するようになる)
         log_f, _, _, _, _ = get_room_files_paths(room_name)
         all_messages = utils.load_chat_log(log_f)
         original_log_index = mapping_list[edited_ui_index]
@@ -2959,11 +2957,9 @@ def handle_chatbot_edit(
         original_message = all_messages[original_log_index]
         original_content = original_message.get('content', '')
 
-        # 3. 元のコンテントからタイムスタンプだけを抽出して保持
         timestamp_match = re.search(r'(\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$)', original_content)
         preserved_timestamp = timestamp_match.group(1) if timestamp_match else ""
 
-        # 4. 【再パース】編集後のMarkdown文字列から、「思考ログ」と「本文」を抽出
         thoughts_pattern = re.compile(r"```\n([\s\S]*?)\n```")
         thoughts_match = thoughts_pattern.search(edited_markdown_string)
 
@@ -2973,14 +2969,17 @@ def handle_chatbot_edit(
             new_thoughts_block = f"【Thoughts】\n{inner_thoughts}\n【/Thoughts】"
 
         temp_string = thoughts_pattern.sub("", edited_markdown_string)
-        new_body_text = re.sub(r"^\*\*.*?\*\*\s*:\s*", "", temp_string, 1).strip()
 
-        # 5. 【再構築】抽出したパーツと保持しておいたタイムスタンプを結合
+        # --- ▼▼▼ ここが最後の修正の核心 ▼▼▼ ---
+        # re.MULTILINEフラグを追加し、行頭の話者名を確実に除去する
+        speaker_pattern = r"^\*\*.*?\*\*\s*:\s*"
+        new_body_text = re.sub(speaker_pattern, "", temp_string, flags=re.MULTILINE).strip()
+        # --- ▲▲▲ 修正ここまで ▲▲▲ ---
+
         final_parts = [part.strip() for part in [new_thoughts_block, new_body_text] if part.strip()]
         new_content_without_ts = "\n\n".join(final_parts)
         final_content = new_content_without_ts + preserved_timestamp
 
-        # 6. ログの書き換え
         original_message['content'] = final_content
         utils._overwrite_log_file(log_f, all_messages)
 
@@ -2990,6 +2989,5 @@ def handle_chatbot_edit(
         gr.Error(f"メッセージの編集中にエラーが発生しました: {e}")
         traceback.print_exc()
 
-    # 7. UIの再描画
     history, new_mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, new_mapping_list
