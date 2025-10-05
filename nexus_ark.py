@@ -427,7 +427,8 @@ try:
                             show_copy_button=True,
                             show_label=False,
                             render_markdown=True,
-                            group_consecutive_messages=False
+                            group_consecutive_messages=False,
+                            editable="all"  # ← ★★★ この行を追加 ★★★
                         )
 
                         with gr.Row():
@@ -764,13 +765,19 @@ try:
             outputs=[selected_message_state, action_button_group, play_audio_button],
             show_progress=False
         )
-        # --- [ここから追加] ---
+        # --- [ここから修正] ---
         chatbot_display.edit(
             fn=ui_handlers.handle_chatbot_edit,
-            inputs=[current_room_name, api_history_limit_state, current_log_map_state, room_add_timestamp_checkbox],
+            inputs=[
+                chatbot_display,  # ★★★ この行を追加 ★★★
+                current_room_name,
+                api_history_limit_state,
+                current_log_map_state,
+                room_add_timestamp_checkbox
+            ],
             outputs=[chatbot_display, current_log_map_state]
         )
-        # --- [追加ここまで] ---
+        # --- [修正ここまで] ---
         delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_room_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
         api_history_limit_dropdown.change(
             fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
