@@ -328,6 +328,7 @@ def update_token_count_on_input(
         api_history_limit=api_history_limit, parts=parts_for_api, **effective_settings
     )
 
+# ▼▼▼ 既存の _stream_and_handle_response 関数全体を、このコードで完全に置き換えてください ▼▼▼
 def _stream_and_handle_response(
     room_to_respond: str,
     full_user_log_entry: str,
@@ -341,52 +342,53 @@ def _stream_and_handle_response(
     current_console_content: str,
 ) -> Iterator[Tuple]:
     """
-    【v2: 再生成対応】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
+    【v4: 最終修正版】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
     """
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
-    # ▼▼▼ 関数内で effective_settings から直接取得する ▼▼▼
-    effective_settings = config_manager.get_effective_settings(soul_vessel_room)
-    streaming_speed = effective_settings.get("streaming_speed", 0.01)
-    add_timestamp = effective_settings.get("add_timestamp", False)
-    # ▲▲▲ 修正ここまで ▲▲▲
+    # この関数で最初に呼ばれるeffective_settingsは、タイムスタンプ設定の読み込みにのみ使用する
+    initial_effective_settings = config_manager.get_effective_settings(soul_vessel_room)
+    add_timestamp = initial_effective_settings.get("add_timestamp", False)
     chatbot_history, mapping_list = reload_chat_log(
         room_name=soul_vessel_room,
         api_history_limit_value=api_history_limit,
         add_timestamp=add_timestamp
     )
 
-    # 7. 処理完了後、または中断後の最終的なUI更新を行うための変数を初期化
     final_chatbot_history, final_mapping_list = chatbot_history, mapping_list
 
     try:
-        # 1. UIをストリーミングモードに移行
         chatbot_history.append((None, "▌"))
         yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                current_console_content, current_console_content,
                gr.update(visible=True, interactive=True),
                gr.update(interactive=False),
-               gr.update(visible=False) # ← action_button_groupを非表示にする
+               gr.update(visible=False)
         )
 
-        # 2. グループ会話と情景のコンテキストを準備
         all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
 
-        # 3. AIごとの応答生成ループ
         for current_room in all_rooms_in_scene:
+            # --- ▼▼▼ デバッグログを追加 ▼▼▼ ---
+            print(f"--- [DEBUG] Processing room: {current_room} ---", file=sys.stderr)
+            # --- ▲▲▲ デバッグログここまで ▲▲▲ ---
             chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
             yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(),
                    gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                    current_console_content, gr.update(), gr.update(),
-                   gr.update() # ← 14個目の値を返すために追加
+                   gr.update()
             )
 
-            # 4. APIに渡す引数を準備
-            # グループ会話では、最初のAI（魂の器）のみがファイルを受け取り、他のAIはテキストのみを参照する
-            final_user_prompt_parts = user_prompt_parts_for_api if current_room == soul_vessel_room else [{"type": "text", "text": full_user_log_entry}]
+            # --- ▼▼▼ ここからが修正の核心 ▼▼▼ ---
+            # ループの内側で、応答するAIごとにeffective_settingsを正しく取得する
+            effective_settings = config_manager.get_effective_settings(current_room)
+            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
+            final_user_prompt_parts = user_prompt_parts_for_api if current_room == soul_vessel_room else [{"type": "text", "text": full_user_log_entry}]
+            
+            # agent_args_dictに 'effective_settings' を追加で渡す
             agent_args_dict = {
                 "room_to_respond": current_room, "api_key_name": api_key_name,
                 "global_model_from_ui": global_model,
@@ -394,18 +396,17 @@ def _stream_and_handle_response(
                 "history_log_path": main_log_f, "user_prompt_parts": final_user_prompt_parts,
                 "soul_vessel_room": soul_vessel_room, "active_participants": active_participants,
                 "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
+                "effective_settings": effective_settings # ← この行を追加
             }
 
-            # 5. ストリーミング実行とUI更新
             streamed_text = ""
             final_state = None
             initial_message_count = 0
 
-            # ▼▼▼【ここからが全面的に書き換えるブロック】▼▼▼
-            # 設定に応じてタイプライター効果を適用するかどうかを取得
-            typewriter_enabled = effective_settings.get("enable_typewriter_effect", True)
-
             with utils.capture_prints() as captured_output:
+                typewriter_enabled = effective_settings.get("enable_typewriter_effect", True)
+                streaming_speed = effective_settings.get("streaming_speed", 0.01)
+
                 for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                     if mode == "initial_count":
                         initial_message_count = chunk
@@ -415,27 +416,19 @@ def _stream_and_handle_response(
                             new_text_chunk = message_chunk.content
 
                             if typewriter_enabled:
-                                # --- タイプライター効果が有効な場合（改良版） ---
                                 for char in new_text_chunk:
                                     streamed_text += char
-
-                                    # 特殊ブロックの内側かどうかをリアルタイムで判定
                                     is_in_thought_block = streamed_text.count("【Thoughts】") > streamed_text.count("【/Thoughts】")
                                     is_in_code_block = streamed_text.count("```") % 2 != 0
-
-                                    # 通常テキストの場合のみ待機処理を適用する
                                     apply_sleep = not (is_in_thought_block or is_in_code_block)
-
                                     chatbot_history[-1] = (None, streamed_text + "▌")
                                     yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                            gr.update(), gr.update(), gr.update(), gr.update(),
                                            gr.update(), gr.update(), current_console_content,
                                            gr.update(), gr.update(), gr.update())
-
                                     if apply_sleep and streaming_speed > 0:
                                         time.sleep(streaming_speed)
                             else:
-                                # --- タイプライター効果が無効な場合（従来通り） ---
                                 streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
@@ -445,53 +438,44 @@ def _stream_and_handle_response(
 
                     elif mode == "values":
                         final_state = chunk
-            # ▲▲▲【書き換えはここまで】▲▲▲
-
+            # --- ▼▼▼ デバッグログを追加 ▼▼▼ ---
+            print(f"--- [DEBUG] Captured output for {current_room}: ---", file=sys.stderr)
+            print(captured_output.getvalue(), file=sys.stderr)
+            print(f"--- [DEBUG] End of captured output for {current_room} ---", file=sys.stderr)
+            # --- ▲▲▲ デバッグログここまで ▲▲▲ ---
+            
             current_console_content += captured_output.getvalue()
 
-            # 6. 最終応答の処理とログ保存 (二幕構成アーキテクチャ)
             all_turn_popups = []
             if final_state:
-                # 6a. 今回のターンで追加された全メッセージを抽出
                 new_messages = final_state["messages"][initial_message_count:]
-
-                # 6b. 全メッセージを順番に処理し、ログに記録 & ポップアップを準備
                 for msg in new_messages:
                     if isinstance(msg, AIMessage):
-                        # AIMessageは思考ログも含めて、そのままの内容を保存
                         response_content = msg.content
                         if response_content and response_content.strip():
                             utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", response_content)
                     elif isinstance(msg, ToolMessage):
-                        # ToolMessageはUIポップアップ用に整形する
                         popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                         if popup_text:
                             all_turn_popups.append(popup_text)
-
-            # 6c. ストリーミング表示の最後の"▌"を消す
-            # streamed_textには最初のAIMessageの内容しか含まれないが、
-            # finallyブロックで全体が再描画されるため、一時的な表示として許容する。
+            
             chatbot_history[-1] = (None, streamed_text)
 
-        # 7. このターンで発生した全てのツール結果をまとめてポップアップ表示
         for popup_message in all_turn_popups:
             gr.Info(popup_message)
 
     except GeneratorExit:
         print("--- [ジェネレータ] ユーザーの操作により、ストリーミング処理が正常に中断されました。 ---")
-        # 中断した場合でも、finallyブロックでUIが正しく更新されるため、ここでは何もしない
 
     finally:
-        # 8. [最終防衛ライン] 処理完了・中断・エラーに関わらず、必ずログから最新の状態を再描画する
         final_chatbot_history, final_mapping_list = reload_chat_log(
             room_name=soul_vessel_room,
             api_history_limit_value=api_history_limit,
             add_timestamp=add_timestamp
         )
 
-        # 9. その他のUIコンポーネントを更新
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-        _, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key) # location_nameは不要に
+        _, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
         scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
         token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
         token_count_text = gemini_api.count_input_tokens(
@@ -501,13 +485,12 @@ def _stream_and_handle_response(
         final_df_with_ids = render_alarms_as_dataframe()
         final_df = get_display_df(final_df_with_ids)
 
-        # 最新の現在地を取得し、ドロップダウンの選択肢と選択値を更新する
         new_location_choices = _get_location_choices_for_ui(soul_vessel_room)
         latest_location_id = utils.get_current_location(soul_vessel_room)
         location_dropdown_update = gr.update(choices=new_location_choices, value=latest_location_id)
 
         yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
-               location_dropdown_update, # ← new_location_name の代わりにこれを返す
+               location_dropdown_update,
                new_scenery_text,
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
