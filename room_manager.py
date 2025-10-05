@@ -8,6 +8,7 @@ import traceback
 import datetime
 from typing import Optional, List, Tuple
 import constants
+import utils
 
 def generate_safe_folder_name(room_name: str) -> str:
     """
@@ -185,7 +186,6 @@ def get_all_personas_in_log(main_room_name: str, api_history_limit_key: str) -> 
     指定されたルームのログを解析し、指定された履歴範囲内に登場するすべての
     ペルソナ名（ユーザー含む）のユニークなリストを返す。
     """
-    import utils
     if not main_room_name:
         return []
 
