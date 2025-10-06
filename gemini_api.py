@@ -230,7 +230,8 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "debug_mode": debug_mode,
         "location_name": shared_location_name,
         "scenery_text": shared_scenery_text,
-        "all_participants": all_participants_list
+        "all_participants": all_participants_list,
+        "loop_count": 0 # ← この行を追加
     }
 
     # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
