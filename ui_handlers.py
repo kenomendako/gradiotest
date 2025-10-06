@@ -417,24 +417,38 @@ def _stream_and_handle_response(
                             new_text_chunk = message_chunk.content
 
                             if typewriter_enabled:
+                                # --- タイプライター効果が有効な場合（v5: 堅牢なタグ判定版） ---
                                 for char in new_text_chunk:
                                     streamed_text += char
+
+                                    # UIを更新
                                     chatbot_history[-1] = (None, streamed_text + "▌")
                                     yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                            gr.update(), gr.update(), gr.update(), gr.update(),
                                            gr.update(), gr.update(), current_console_content,
                                            gr.update(), gr.update(), gr.update())
 
+                                    # --- 堅牢化された状態判定ロジック ---
+                                    # 1. コードブロックの内外を判定
                                     in_code_block = streamed_text.count('```') % 2 != 0
+
+                                    # 2. 思考ログの内外を、AIの揺らぎを許容する正規表現で判定
+                                    #    - 開始タグの数を数える
                                     opening_tags = streamed_text.count('【Thoughts】')
+                                    #    - 終了タグの様々なパターンを正規表現で数える
                                     closing_tag_pattern = re.compile(r"【\s*/\s*-?\s*Thoughts\s*】", re.IGNORECASE)
                                     closing_tags = len(closing_tag_pattern.findall(streamed_text))
+                                    #    - 開始が多く、まだ閉じられていないなら、思考ログの内側と判断
                                     in_thoughts_block = opening_tags > closing_tags
+
+                                    # 3. どちらかの特殊ブロック内にいれば、待機しない
                                     in_special_block = in_code_block or in_thoughts_block
 
+                                    # 特殊ブロックの外側で、かつ速度が0より大きい場合のみ待機
                                     if not in_special_block and streaming_speed > 0:
                                         time.sleep(streaming_speed)
                             else:
+                                # --- タイプライター効果が無効な場合 ---
                                 streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),

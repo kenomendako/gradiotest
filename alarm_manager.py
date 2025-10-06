@@ -131,6 +131,9 @@ def trigger_alarm(alarm_config, current_api_key_name):
     from agent.graph import generate_scenery_context
     location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
 
+    # まず、対象ルームのAI設定一式を取得する
+    effective_settings = config_manager.get_effective_settings(room_name)
+
     agent_args_dict = {
         "room_to_respond": room_name,
         "api_key_name": current_api_key_name,
@@ -142,7 +145,7 @@ def trigger_alarm(alarm_config, current_api_key_name):
         "active_participants": [],
         "shared_location_name": location_name,
         "shared_scenery_text": scenery_text,
-        "use_common_prompt": False # ← この行を追加
+        "effective_settings": effective_settings # ← この行が重要です
     }
 
     # ▼▼▼【ここからが修正の核心】▼▼▼
