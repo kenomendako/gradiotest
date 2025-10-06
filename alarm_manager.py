@@ -149,22 +149,23 @@ def trigger_alarm(alarm_config, current_api_key_name):
     }
 
     # ▼▼▼【ここからが修正の核心】▼▼▼
-    # UIハンドラと同様の、正しいストリームデータ受け取りロジックに変更
-    final_response_text = ""
+    # LangGraphから送られてくる全ての断片(Chunk)と完成品(Message)を収集する
+    from langchain_core.messages import AIMessageChunk  # 必要ならインポート
+    all_response_parts = []
     final_state = None
-    initial_message_count = 0 # 履歴の初期数を保持
 
     for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-        if mode == "initial_count":
-            initial_message_count = chunk
+        if mode == "messages":
+            message_or_chunk, _ = chunk
+            # AIからの応答であれば、それが断片か完成品かに関わらず、その中身(.content)を収集する
+            if isinstance(message_or_chunk, (AIMessage, AIMessageChunk)):
+                if hasattr(message_or_chunk, 'content') and message_or_chunk.content:
+                    all_response_parts.append(message_or_chunk.content)
         elif mode == "values":
-            final_state = chunk # 最後のものが最終状態になる
+            final_state = chunk
 
-    # ストリーム完了後、最終状態からAIの応答を抽出
-    if final_state:
-        last_ai_message = final_state["messages"][-1]
-        if isinstance(last_ai_message, AIMessage):
-            final_response_text = last_ai_message.content
+    # 収集した全ての断片を結合して、最終的な応答テキストを生成する
+    final_response_text = "".join(all_response_parts).strip()
     # ▲▲▲【修正はここまで】▲▲▲
 
     # 思考ログを含む完全な応答を raw_response とする（ログ記録用）

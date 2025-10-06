@@ -328,24 +328,23 @@ def update_token_count_on_input(
         api_history_limit=api_history_limit, parts=parts_for_api, **effective_settings
     )
 
-# ▼▼▼ 既存の _stream_and_handle_response 関数全体を、このコードで完全に置き換えてください ▼▼▼
 def _stream_and_handle_response(
     room_to_respond: str,
     full_user_log_entry: str,
-    user_prompt_parts_for_api: List[Dict],
+    user_prompt_parts_for_api: list,
     api_key_name: str,
     global_model: str,
     api_history_limit: str,
     debug_mode: bool,
     soul_vessel_room: str,
-    active_participants: List[str],
+    active_participants: list,
     current_console_content: str,
-) -> Iterator[Tuple]:
+) -> iter:
     """
-    【v4: 最終修正版】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
+    【v6: 真の最終FIX版】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
+    応答消失、グループチャットでの応答混合、タイプライター表示の不具合を恒久的に解決する。
     """
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
-    # この関数で最初に呼ばれるeffective_settingsは、タイムスタンプ設定の読み込みにのみ使用する
     initial_effective_settings = config_manager.get_effective_settings(soul_vessel_room)
     add_timestamp = initial_effective_settings.get("add_timestamp", False)
     chatbot_history, mapping_list = reload_chat_log(
@@ -354,130 +353,94 @@ def _stream_and_handle_response(
         add_timestamp=add_timestamp
     )
 
-    final_chatbot_history, final_mapping_list = chatbot_history, mapping_list
-
     try:
         chatbot_history.append((None, "▌"))
         yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
-               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-               current_console_content, current_console_content,
-               gr.update(visible=True, interactive=True),
-               gr.update(interactive=False),
-               gr.update(visible=False)
-        )
+               *([gr.update()] * 11))
 
+        all_turn_popups = []
         all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
 
+        # --- グループ会話の各参加者についてループ ---
         for current_room in all_rooms_in_scene:
-            # --- ▼▼▼ デバッグログを追加 ▼▼▼ ---
-            print(f"--- [DEBUG] Processing room: {current_room} ---", file=sys.stderr)
-            # --- ▲▲▲ デバッグログここまで ▲▲▲ ---
-            chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
-            yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(),
-                   gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                   current_console_content, gr.update(), gr.update(),
-                   gr.update()
-            )
+            # ▼▼▼ 応答ごとの状態を、ループの内側で初期化（応答混合バグFIX）▼▼▼
+            streamed_text = ""
+            in_special_block = False
+            # ▲▲▲
 
-            # --- ▼▼▼ ここからが修正の核心 ▼▼▼ ---
-            # ループの内側で、応答するAIごとにeffective_settingsを正しく取得する
+            chatbot_history.append((None, f"思考中 ({current_room})... ▌"))
+            yield (chatbot_history, mapping_list, gr.update(), *([gr.update()] * 11))
+
             effective_settings = config_manager.get_effective_settings(current_room)
-            # --- ▲▲▲ 修正ここまで ▲▲▲ ---
-
             final_user_prompt_parts = user_prompt_parts_for_api if current_room == soul_vessel_room else [{"type": "text", "text": full_user_log_entry}]
-            
-            # agent_args_dictに 'effective_settings' を追加で渡す
             agent_args_dict = {
                 "room_to_respond": current_room, "api_key_name": api_key_name,
-                "global_model_from_ui": global_model,
-                "api_history_limit": api_history_limit, "debug_mode": debug_mode,
-                "history_log_path": main_log_f, "user_prompt_parts": final_user_prompt_parts,
-                "soul_vessel_room": soul_vessel_room, "active_participants": active_participants,
-                "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
-                "effective_settings": effective_settings # ← この行を追加
+                "global_model_from_ui": global_model, "api_history_limit": api_history_limit,
+                "debug_mode": debug_mode, "history_log_path": main_log_f,
+                "user_prompt_parts": final_user_prompt_parts, "soul_vessel_room": soul_vessel_room,
+                "active_participants": active_participants, "shared_location_name": shared_location_name,
+                "shared_scenery_text": shared_scenery_text, "effective_settings": effective_settings
             }
-
-            in_special_block = False
-            streamed_text = ""
-            final_state = None
-            initial_message_count = 0
 
             with utils.capture_prints() as captured_output:
                 typewriter_enabled = effective_settings.get("enable_typewriter_effect", True)
                 streaming_speed = effective_settings.get("streaming_speed", 0.01)
+                
+                # re.split用の正規表現（キャプチャグループで区切り文字も結果に含める）
+                delimiters = r"(```|【Thoughts】|【/Thoughts】)"
 
                 for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                    if mode == "initial_count":
-                        initial_message_count = chunk
-                    elif mode == "messages":
+                    if mode == "messages":
                         message_chunk, _ = chunk
                         if isinstance(message_chunk, AIMessageChunk):
                             new_text_chunk = message_chunk.content
+                            
+                            if typewriter_enabled and streaming_speed > 0:
+                                # --- 最終アーキテクチャ: re.splitによるチャンク内処理 ---
+                                parts = re.split(delimiters, new_text_chunk)
+                                for part in parts:
+                                    if not part: continue
 
-                            if typewriter_enabled:
-                                # --- タイプライター効果が有効な場合（v5: 堅牢なタグ判定版） ---
-                                for char in new_text_chunk:
-                                    streamed_text += char
+                                    # このパートを表示すべきかどうかの判定を先に行う
+                                    should_apply_typewriter = not in_special_block
 
-                                    # UIを更新
-                                    chatbot_history[-1] = (None, streamed_text + "▌")
-                                    yield (chatbot_history, mapping_list, gr.update(), gr.update(),
-                                           gr.update(), gr.update(), gr.update(), gr.update(),
-                                           gr.update(), gr.update(), current_console_content,
-                                           gr.update(), gr.update(), gr.update())
+                                    # パートが区切り文字自体の場合、状態を遷移させる
+                                    if part == "```":
+                                        in_special_block = not in_special_block
+                                    elif part == "【Thoughts】":
+                                        in_special_block = True
+                                    elif part == "【/Thoughts】":
+                                        in_special_block = False
 
-                                    # --- 堅牢化された状態判定ロジック ---
-                                    # 1. コードブロックの内外を判定
-                                    in_code_block = streamed_text.count('```') % 2 != 0
-
-                                    # 2. 思考ログの内外を、AIの揺らぎを許容する正規表現で判定
-                                    #    - 開始タグの数を数える
-                                    opening_tags = streamed_text.count('【Thoughts】')
-                                    #    - 終了タグの様々なパターンを正規表現で数える
-                                    closing_tag_pattern = re.compile(r"【\s*/\s*-?\s*Thoughts\s*】", re.IGNORECASE)
-                                    closing_tags = len(closing_tag_pattern.findall(streamed_text))
-                                    #    - 開始が多く、まだ閉じられていないなら、思考ログの内側と判断
-                                    in_thoughts_block = opening_tags > closing_tags
-
-                                    # 3. どちらかの特殊ブロック内にいれば、待機しない
-                                    in_special_block = in_code_block or in_thoughts_block
-
-                                    # 特殊ブロックの外側で、かつ速度が0より大きい場合のみ待機
-                                    if not in_special_block and streaming_speed > 0:
-                                        time.sleep(streaming_speed)
+                                    if should_apply_typewriter:
+                                        # タイプライター効果を適用
+                                        for char in part:
+                                            streamed_text += char
+                                            chatbot_history[-1] = (None, streamed_text + "▌")
+                                            yield (chatbot_history, mapping_list, gr.update(), *([gr.update()] * 11))
+                                            time.sleep(streaming_speed)
+                                    else:
+                                        # 一括表示
+                                        streamed_text += part
+                                        chatbot_history[-1] = (None, streamed_text + "▌")
+                                        yield (chatbot_history, mapping_list, gr.update(), *([gr.update()] * 11))
                             else:
-                                # --- タイプライター効果が無効な場合 ---
+                                # タイプライター無効時
                                 streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
-                                yield (chatbot_history, mapping_list, gr.update(), gr.update(),
-                                       gr.update(), gr.update(), gr.update(), gr.update(),
-                                       gr.update(), gr.update(), current_console_content,
-                                       gr.update(), gr.update(), gr.update())
+                                yield (chatbot_history, mapping_list, gr.update(), *([gr.update()] * 11))
 
-                    elif mode == "values":
-                        final_state = chunk
-
-            print(f"--- [DEBUG] Captured output for {current_room}: ---", file=sys.stderr)
-            print(captured_output.getvalue(), file=sys.stderr)
-            print(f"--- [DEBUG] End of captured output for {current_room} ---", file=sys.stderr)
+                        elif isinstance(message_chunk, ToolMessage):
+                            popup_text = utils.format_tool_result_for_ui(message_chunk.name, str(message_chunk.content))
+                            if popup_text: all_turn_popups.append(popup_text)
             
+            if streamed_text and streamed_text.strip():
+                utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", streamed_text)
+
             current_console_content += captured_output.getvalue()
-
-            all_turn_popups = []
-            if final_state:
-                new_messages = final_state["messages"][initial_message_count:]
-                for msg in new_messages:
-                    if isinstance(msg, AIMessage):
-                        response_content = msg.content
-                        if response_content and response_content.strip():
-                            utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", response_content)
-                    elif isinstance(msg, ToolMessage):
-                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                        if popup_text:
-                            all_turn_popups.append(popup_text)
-            
+            # 最後のAIの応答を、カーソルなしの最終版で更新
             chatbot_history[-1] = (None, streamed_text)
 
         for popup_message in all_turn_popups:
@@ -485,14 +448,12 @@ def _stream_and_handle_response(
 
     except GeneratorExit:
         print("--- [ジェネレータ] ユーザーの操作により、ストリーミング処理が正常に中断されました。 ---")
-
     finally:
         final_chatbot_history, final_mapping_list = reload_chat_log(
             room_name=soul_vessel_room,
             api_history_limit_value=api_history_limit,
             add_timestamp=add_timestamp
         )
-
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         _, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
         scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
@@ -503,19 +464,15 @@ def _stream_and_handle_response(
         )
         final_df_with_ids = render_alarms_as_dataframe()
         final_df = get_display_df(final_df_with_ids)
-
         new_location_choices = _get_location_choices_for_ui(soul_vessel_room)
         latest_location_id = utils.get_current_location(soul_vessel_room)
         location_dropdown_update = gr.update(choices=new_location_choices, value=latest_location_id)
 
         yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
-               location_dropdown_update,
-               new_scenery_text,
-               final_df_with_ids, final_df, scenery_image,
-               current_console_content, current_console_content,
+               location_dropdown_update, new_scenery_text, final_df_with_ids, final_df,
+               scenery_image, current_console_content, current_console_content,
                gr.update(visible=False, interactive=True), gr.update(interactive=True),
-               gr.update(visible=False)
-        )
+               gr.update(visible=False))
 
 def handle_message_submission(*args: Any):
     """
