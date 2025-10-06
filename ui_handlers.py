@@ -420,7 +420,7 @@ def _stream_and_handle_response(
 
                             # ▼▼▼ 既存の if typewriter_enabled: から else: までのブロック全体を、これで置き換えてください ▼▼▼
                             if typewriter_enabled:
-                                # --- タイプライター効果が有効な場合（v3: 速度0対応版） ---
+                                # --- タイプライター効果が有効な場合（v4: 出現回数カウント方式） ---
                                 for char in new_text_chunk:
                                     streamed_text += char
 
@@ -431,13 +431,10 @@ def _stream_and_handle_response(
                                            gr.update(), gr.update(), current_console_content,
                                            gr.update(), gr.update(), gr.update())
 
-                                    # 全文の末尾をチェックして、次の文字からの状態を決定
-                                    if streamed_text.endswith("```"):
-                                        in_special_block = not in_special_block
-                                    elif streamed_text.endswith("【/Thoughts】"):
-                                        in_special_block = False
-                                    elif streamed_text.endswith("【Thoughts】"):
-                                        in_special_block = True
+                                    # 開始・終了タグの出現回数を数えることで、特殊ブロックの内外を判定
+                                    in_code_block = streamed_text.count('```') % 2 != 0
+                                    in_thoughts_block = streamed_text.count('【Thoughts】') > streamed_text.count('【/Thoughts】')
+                                    in_special_block = in_code_block or in_thoughts_block
 
                                     # 特殊ブロックの外側で、かつ速度が0より大きい場合のみ待機
                                     if not in_special_block and streaming_speed > 0:
