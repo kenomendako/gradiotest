@@ -289,6 +289,8 @@ def agent_node(state: AgentState):
     loop_count += 1
     return {"messages": [response], "loop_count": loop_count}
 
+import room_manager # ← 関数の先頭でインポートを追加
+
 def safe_tool_executor(state: AgentState):
     """
     AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
@@ -313,6 +315,18 @@ def safe_tool_executor(state: AgentState):
     if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad or is_plan_world:
         try:
             print(f"  - ファイル編集プロセスを開始: {tool_name}")
+
+            # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+            # 実際のファイル操作の前にバックアップを作成
+            if is_plan_main_memory:
+                room_manager.create_backup(room_name, 'memory')
+            elif is_plan_secret_diary:
+                room_manager.create_backup(room_name, 'secret_diary')
+            elif is_plan_notepad:
+                room_manager.create_backup(room_name, 'notepad')
+            elif is_plan_world:
+                room_manager.create_backup(room_name, 'world_setting')
+            # ▲▲▲【追加はここまで】▲▲▲
 
             read_tool = None
             if is_plan_main_memory: read_tool = read_main_memory

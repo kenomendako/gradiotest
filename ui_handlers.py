@@ -938,6 +938,10 @@ def handle_save_core_memory(room_name: str, content: str) -> str:
     if not room_name:
         gr.Warning("ルームが選択されていません。")
         return content
+
+    # ▼▼▼【ここに追加】▼▼▼
+    room_manager.create_backup(room_name, 'core_memory')
+
     core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
     try:
         with open(core_memory_path, "w", encoding="utf-8") as f:
@@ -1271,6 +1275,10 @@ def handle_wb_add_place_button_click(area_selector_value: Optional[str]):
 
 def handle_save_memory_click(room_name, text_content):
     if not room_name: gr.Warning("ルームが選択されていません。"); return gr.update()
+
+    # ▼▼▼【ここに追加】▼▼▼
+    room_manager.create_backup(room_name, 'memory')
+
     _, _, _, memory_txt_path, _ = get_room_files_paths(room_name)
     if not memory_txt_path: gr.Error(f"「{room_name}」の記憶パス取得失敗。"); return gr.update()
     try:
@@ -1393,6 +1401,10 @@ def load_notepad_content(room_name: str) -> str:
 
 def handle_save_notepad_click(room_name: str, content: str) -> str:
     if not room_name: gr.Warning("ルームが選択されていません。"); return content
+
+    # ▼▼▼【ここに追加】▼▼▼
+    room_manager.create_backup(room_name, 'notepad')
+
     _, _, _, _, notepad_path = room_manager.get_room_files_paths(room_name)
     if not notepad_path: gr.Error(f"「{room_name}」のメモ帳パス取得失敗。"); return content
     lines = [f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}] {line.strip()}" if line.strip() and not re.match(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]", line.strip()) else line.strip() for line in content.strip().split('\n') if line.strip()]
@@ -2422,6 +2434,10 @@ def handle_save_world_settings_raw(room_name: str, raw_content: str):
     if not room_name:
         gr.Warning("ルームが選択されていません。")
         return raw_content, gr.update()
+
+    # ▼▼▼【ここに追加】▼▼▼
+    room_manager.create_backup(room_name, 'world_setting')
+
     world_settings_path = room_manager.get_world_settings_path(room_name)
     if not world_settings_path:
         gr.Error("世界設定ファイルのパスが取得できませんでした。")
@@ -2494,6 +2510,10 @@ def handle_save_system_prompt(room_name: str, content: str) -> None:
     if not room_name:
         gr.Warning("ルームが選択されていません。")
         return
+
+    # ▼▼▼【ここに追加】▼▼▼
+    room_manager.create_backup(room_name, 'system_prompt')
+
     _, system_prompt_path, _, _, _ = get_room_files_paths(room_name)
     if not system_prompt_path:
         gr.Error(f"「{room_name}」のプロンプトパス取得失敗。")
@@ -2689,7 +2709,10 @@ def handle_log_punctuation_correction(
     yield gr.update(), gr.update(), gr.update(value="準備中...", interactive=False), gr.update(), gr.update(), ""
 
     try:
-        backup_path = room_manager.backup_log_file(room_name)
+        # ▼▼▼【この try ブロックの先頭にある backup_path = ... の行を、これで置き換えてください】▼▼▼
+        backup_path = room_manager.create_backup(room_name, 'log')
+        # ▲▲▲【置き換えはここまで】▲▲▲
+
         if not backup_path:
             gr.Error("ログのバックアップ作成に失敗しました。処理を中断します。")
             yield gr.update(), gr.update(), gr.update(interactive=True), selected_message, gr.update(visible=True), ""
@@ -2942,6 +2965,9 @@ def handle_chatbot_edit(
         return gr.update(), gr.update()
 
     try:
+        # ▼▼▼【この try ブロックの先頭に追加】▼▼▼
+        room_manager.create_backup(room_name, 'log')
+
         # --- [ステップ1: 必要な情報を取得] ---
         edited_ui_index = evt.index[0]
         edited_markdown_string = updated_chatbot_value[edited_ui_index][evt.index[1]]
@@ -3003,3 +3029,26 @@ def handle_chatbot_edit(
 
     history, new_mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, new_mapping_list
+
+def handle_open_backup_folder(room_name: str):
+    """選択されたルームのバックアップフォルダをOSのファイルエクスプローラーで開く。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return
+
+    backup_path = os.path.join(constants.ROOMS_DIR, room_name, "backups")
+    # フォルダの存在を念のため確認
+    if not os.path.isdir(backup_path):
+        gr.Warning(f"バックアップフォルダが見つかりません: {backup_path}")
+        return
+
+    try:
+        if sys.platform == "win32":
+            os.startfile(os.path.normpath(backup_path))
+        elif sys.platform == "darwin": # macOS
+            subprocess.Popen(["open", backup_path])
+        else: # Linux
+            subprocess.Popen(["xdg-open", backup_path])
+        gr.Info(f"「{room_name}」のバックアップフォルダを開きました。")
+    except Exception as e:
+        gr.Error(f"フォルダを開けませんでした: {e}")

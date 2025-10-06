@@ -5,7 +5,7 @@ from langchain_core.tools import tool
 import json
 import datetime
 import room_manager
-from room_manager import get_room_files_paths, backup_memory_main_file
+from room_manager import get_room_files_paths
 from memory_manager import load_memory_data_safe
 from gemini_api import get_configured_llm
 from typing import List, Dict, Any
@@ -312,7 +312,7 @@ def archive_old_diary_entries(room_name: str, api_key: str, archive_until_date: 
     print(f"--- 日記アーカイブ処理開始 (ルーム: {room_name}, 日付: {archive_until_date}以前) ---")
 
     # 2. 安全装置：バックアップの実行
-    backup_path = room_manager.backup_memory_main_file(room_name)
+    backup_path = room_manager.create_backup(room_name, 'memory')
     if not backup_path:
         return "【致命的エラー】処理を開始する前に、記憶ファイルのバックアップに失敗しました。"
 

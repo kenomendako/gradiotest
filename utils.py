@@ -16,7 +16,6 @@ import uuid
 from bs4 import BeautifulSoup
 import io
 import contextlib
-import room_manager
 
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
@@ -134,6 +133,12 @@ def _perform_log_archiving(log_file_path: str, character_name: str, threshold_by
     try:
         if os.path.getsize(log_file_path) <= threshold_bytes:
             return None
+
+        # Import locally to avoid circular dependencies
+        import room_manager
+        # Create a backup before modifying the log file
+        room_manager.create_backup(character_name, 'log')
+
         print(f"--- [ログアーカイブ開始] {log_file_path} が {threshold_bytes / 1024 / 1024:.1f}MB を超えました ---")
         with open(log_file_path, "r", encoding="utf-8") as f: content = f.read()
         log_parts = re.split(r'^(## .*?:)$', content, flags=re.MULTILINE)
