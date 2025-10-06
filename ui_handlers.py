@@ -399,8 +399,6 @@ def _stream_and_handle_response(
                 "effective_settings": effective_settings # ← この行を追加
             }
 
-            # --- ▼▼▼ ここからが修正ブロック ▼▼▼ ---
-            # 状態フラグと、蓄積されたテキストを、ストリーミング処理ループの外側で初期化する
             in_special_block = False
             streamed_text = ""
             final_state = None
@@ -418,45 +416,38 @@ def _stream_and_handle_response(
                         if isinstance(message_chunk, AIMessageChunk):
                             new_text_chunk = message_chunk.content
 
-                            # ▼▼▼ 既存の if typewriter_enabled: から else: までのブロック全体を、これで置き換えてください ▼▼▼
                             if typewriter_enabled:
-                                # --- タイプライター効果が有効な場合（v4: 出現回数カウント方式） ---
                                 for char in new_text_chunk:
                                     streamed_text += char
-
-                                    # UIを更新
                                     chatbot_history[-1] = (None, streamed_text + "▌")
                                     yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                            gr.update(), gr.update(), gr.update(), gr.update(),
                                            gr.update(), gr.update(), current_console_content,
                                            gr.update(), gr.update(), gr.update())
 
-                                    # 開始・終了タグの出現回数を数えることで、特殊ブロックの内外を判定
                                     in_code_block = streamed_text.count('```') % 2 != 0
-                                    in_thoughts_block = streamed_text.count('【Thoughts】') > streamed_text.count('【/Thoughts】')
+                                    opening_tags = streamed_text.count('【Thoughts】')
+                                    closing_tag_pattern = re.compile(r"【\s*/\s*-?\s*Thoughts\s*】", re.IGNORECASE)
+                                    closing_tags = len(closing_tag_pattern.findall(streamed_text))
+                                    in_thoughts_block = opening_tags > closing_tags
                                     in_special_block = in_code_block or in_thoughts_block
 
-                                    # 特殊ブロックの外側で、かつ速度が0より大きい場合のみ待機
                                     if not in_special_block and streaming_speed > 0:
                                         time.sleep(streaming_speed)
                             else:
-                                # --- タイプライター効果が無効な場合 ---
                                 streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                        gr.update(), gr.update(), gr.update(), gr.update(),
                                        gr.update(), gr.update(), current_console_content,
                                        gr.update(), gr.update(), gr.update())
-                            # ▲▲▲ 置き換えここまで ▲▲▲
 
                     elif mode == "values":
                         final_state = chunk
-            # --- ▲▲▲ 修正ブロックここまで ▲▲▲ ---
-            # --- ▼▼▼ デバッグログを追加 ▼▼▼ ---
+
             print(f"--- [DEBUG] Captured output for {current_room}: ---", file=sys.stderr)
             print(captured_output.getvalue(), file=sys.stderr)
             print(f"--- [DEBUG] End of captured output for {current_room} ---", file=sys.stderr)
-            # --- ▲▲▲ デバッグログここまで ▲▲▲ ---
             
             current_console_content += captured_output.getvalue()
 

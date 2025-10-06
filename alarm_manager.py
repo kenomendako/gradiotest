@@ -131,9 +131,6 @@ def trigger_alarm(alarm_config, current_api_key_name):
     from agent.graph import generate_scenery_context
     location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
 
-    # まず、対象ルームのAI設定一式を取得する
-    effective_settings = config_manager.get_effective_settings(room_name)
-
     agent_args_dict = {
         "room_to_respond": room_name,
         "api_key_name": current_api_key_name,
@@ -145,26 +142,26 @@ def trigger_alarm(alarm_config, current_api_key_name):
         "active_participants": [],
         "shared_location_name": location_name,
         "shared_scenery_text": scenery_text,
-        "effective_settings": effective_settings # ← この行を追加
+        "use_common_prompt": False # ← この行を追加
     }
 
     # ▼▼▼【ここからが修正の核心】▼▼▼
     # UIハンドラと同様の、正しいストリームデータ受け取りロジックに変更
-    streamed_chunks = []
+    final_response_text = ""
     final_state = None
+    initial_message_count = 0 # 履歴の初期数を保持
 
-    # ストリームで流れてくるチャンクをすべて集める
     for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-        if mode == "messages":
-            message_chunk, _ = chunk
-            if isinstance(message_chunk, (AIMessage, AIMessageChunk)):
-                if message_chunk.content: # 空のチャンクは無視
-                    streamed_chunks.append(message_chunk.content)
+        if mode == "initial_count":
+            initial_message_count = chunk
         elif mode == "values":
             final_state = chunk # 最後のものが最終状態になる
 
-    # 集めたチャンクを結合して、最終的な応答テキストを生成する
-    final_response_text = "".join(streamed_chunks)
+    # ストリーム完了後、最終状態からAIの応答を抽出
+    if final_state:
+        last_ai_message = final_state["messages"][-1]
+        if isinstance(last_ai_message, AIMessage):
+            final_response_text = last_ai_message.content
     # ▲▲▲【修正はここまで】▲▲▲
 
     # 思考ログを含む完全な応答を raw_response とする（ログ記録用）
