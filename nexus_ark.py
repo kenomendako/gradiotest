@@ -422,7 +422,7 @@ try:
                     # --- 中央カラム ---
                     with gr.Column(scale=6): # ← scale=3 を 6 に変更
                         chatbot_display = gr.Chatbot(
-                            height=480, # ← height を 480 に変更
+                            height=490, # ← height を 490 に変更
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
@@ -449,7 +449,7 @@ try:
                         )
 
                         token_count_display = gr.Markdown(
-                            "入力トークン数: 0 / 0（Gemini2.5無料枠TPM:250,000）",
+                            "入力トークン数: 0 / 0",
                             elem_id="token_count_display"
                         )
 
