@@ -159,6 +159,7 @@ def load_config():
         "pushover_user_key": "",
         "log_archive_threshold_mb": 10,
         "log_keep_size_mb": 5,
+        "backup_rotation_count": 10, # ← この行を追加
         "theme_settings": {
             "active_theme": "Nexus Ark", # デフォルトテーマを "Nexus Ark" に変更
             "custom_themes": {

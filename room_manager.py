@@ -60,6 +60,22 @@ def ensure_room_files(room_name: str) -> bool:
             os.path.join(base_path, "memory", "backups"), # <-- この行を追加
             os.path.join(base_path, "private")
         ]
+        # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+        # バックアップ用のサブディレクトリを追加
+        backup_base_dir = os.path.join(base_path, "backups")
+        backup_sub_dirs = [
+            os.path.join(backup_base_dir, "logs"),
+            os.path.join(backup_base_dir, "memories"),
+            os.path.join(backup_base_dir, "notepads"),
+            os.path.join(backup_base_dir, "world_settings"),
+            os.path.join(backup_base_dir, "system_prompts"),
+            os.path.join(backup_base_dir, "core_memories"),
+            os.path.join(backup_base_dir, "secret_diaries"),
+        ]
+        dirs_to_create.append(backup_base_dir)
+        dirs_to_create.extend(backup_sub_dirs)
+        # ▲▲▲【追加はここまで】▲▲▲
+
         for path in dirs_to_create:
             os.makedirs(path, exist_ok=True)
 
@@ -221,63 +237,74 @@ def get_all_personas_in_log(main_room_name: str, api_history_limit_key: str) -> 
     return sorted([p for p in list(personas) if p != "ユーザー"])
 
 
-# ▼▼▼【ここからが新しく追加する関数】▼▼▼
-def backup_log_file(room_name: str) -> Optional[str]:
+# ▼▼▼【ここから下のブロックを、ファイルの末尾にまるごと追加してください】▼▼▼
+def create_backup(room_name: str, file_type: str) -> Optional[str]:
     """
-    指定されたルームのlog.txtを、タイムスタンプ付きでバックアップする。
-    成功した場合はバックアップ先のパスを、失敗した場合はNoneを返す。
+    指定されたファイルタイプのバックアップを作成し、古いバックアップをローテーションする汎用関数。
+    成功した場合はバックアップパスを、失敗した場合はNoneを返す。
     """
+    import config_manager
     if not room_name:
         return None
 
-    try:
-        log_file_path, _, _, _, _ = get_room_files_paths(room_name)
-        if not log_file_path or not os.path.exists(log_file_path):
-            print(f"警告: バックアップ対象のログファイルが見つかりません: {log_file_path}")
-            return None
+    file_map = {
+        'log': ("log.txt", os.path.join(constants.ROOMS_DIR, room_name, "log.txt")),
+        'memory': ("memory_main.txt", os.path.join(constants.ROOMS_DIR, room_name, "memory", "memory_main.txt")),
+        'notepad': (constants.NOTEPAD_FILENAME, os.path.join(constants.ROOMS_DIR, room_name, constants.NOTEPAD_FILENAME)),
+        'world_setting': ("world_settings.txt", get_world_settings_path(room_name)),
+        'system_prompt': ("SystemPrompt.txt", os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")),
+        'core_memory': ("core_memory.txt", os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")),
+        'secret_diary': ("secret_diary.txt", os.path.join(constants.ROOMS_DIR, room_name, "private", "secret_diary.txt"))
+    }
+    folder_map = {
+        'log': "logs", 'memory': "memories", 'notepad': "notepads",
+        'world_setting': "world_settings", 'system_prompt': "system_prompts",
+        'core_memory': "core_memories", 'secret_diary': "secret_diaries"
+    }
 
-        backup_dir = os.path.join(constants.ROOMS_DIR, room_name, "log_archives", "manual_backups")
+    if file_type not in file_map:
+        print(f"警告: 不明なバックアップファイルタイプです: {file_type}")
+        return None
+
+    original_filename, source_path = file_map[file_type]
+    backup_subdir = folder_map[file_type]
+    backup_dir = os.path.join(constants.ROOMS_DIR, room_name, "backups", backup_subdir)
+
+    try:
+        # ディレクトリの存在を確認・作成
         os.makedirs(backup_dir, exist_ok=True)
 
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file_name = f"log_{timestamp}.bak.txt"
-        backup_file_path = os.path.join(backup_dir, backup_file_name)
+        # ソースファイルが存在しない場合はバックアップを作成しない
+        if not source_path or not os.path.exists(source_path):
+            print(f"情報: バックアップ対象ファイルが見つかりません（初回作成時など）: {source_path}")
+            return None
 
-        shutil.copy2(log_file_path, backup_file_path)
-        print(f"--- ログファイルのバックアップを作成しました: {backup_file_path} ---")
-        return backup_file_path
+        # バックアップファイル名の生成
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"{timestamp}_{original_filename}.bak"
+        backup_path = os.path.join(backup_dir, backup_filename)
+
+        # バックアップの実行
+        shutil.copy2(source_path, backup_path)
+        print(f"--- バックアップを作成しました: {backup_path} ---")
+
+        # ローテーション処理
+        rotation_count = config_manager.CONFIG_GLOBAL.get("backup_rotation_count", 10)
+        existing_backups = sorted(
+            [f for f in os.listdir(backup_dir) if f.endswith(".bak")],
+            key=lambda f: os.path.getmtime(os.path.join(backup_dir, f))
+        )
+
+        if len(existing_backups) > rotation_count:
+            files_to_delete = existing_backups[:len(existing_backups) - rotation_count]
+            for f_del in files_to_delete:
+                os.remove(os.path.join(backup_dir, f_del))
+                print(f"--- 古いバックアップを削除しました: {f_del} ---")
+
+        return backup_path
 
     except Exception as e:
-        print(f"!!! エラー: ログファイルのバックアップ中にエラーが発生しました: {e}")
+        print(f"!!! エラー: バックアップ作成中にエラーが発生しました ({file_type}): {e}")
         traceback.print_exc()
         return None
 # ▲▲▲【追加はここまで】▲▲▲
-
-
-def backup_memory_main_file(room_name: str) -> Optional[str]:
-    """
-    指定されたルームのmemory_main.txtを、タイムスタンプ付きでバックアップする。
-    成功した場合はバックアップ先のパスを、失敗した場合はNoneを返す。
-    """
-    if not room_name:
-        return None
-    try:
-        _, _, _, memory_main_path, _ = get_room_files_paths(room_name)
-        if not memory_main_path or not os.path.exists(memory_main_path):
-            print(f"警告: バックアップ対象の記憶ファイルが見つかりません: {memory_main_path}")
-            return None
-
-        backup_dir = os.path.join(constants.ROOMS_DIR, room_name, "memory", "backups")
-        os.makedirs(backup_dir, exist_ok=True)
-
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file_name = f"memory_main_{timestamp}.bak.txt"
-        backup_file_path = os.path.join(backup_dir, backup_file_name)
-
-        shutil.copy2(memory_main_path, backup_file_path)
-        print(f"--- 記憶ファイルのバックアップを作成しました: {backup_file_path} ---")
-        return backup_file_path
-    except Exception as e:
-        print(f"!!! エラー: 記憶ファイルのバックアップ中にエラーが発生しました: {e}")
-        traceback.print_exc()
-        return None
