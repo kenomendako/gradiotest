@@ -107,7 +107,7 @@ def send_notification(room_name, message_text, alarm_config):
         _send_discord_notification(config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL, notification_message)
 
 def trigger_alarm(alarm_config, current_api_key_name):
-    from langchain_core.messages import AIMessage
+    from langchain_core.messages import AIMessage # 忘れずインポート
     room_name = alarm_config.get("character")
     alarm_id = alarm_config.get("id")
     context_to_use = alarm_config.get("context_memo", "時間になりました")
@@ -121,11 +121,9 @@ def trigger_alarm(alarm_config, current_api_key_name):
         print(f"警告: アラーム (ID:{alarm_id}) のルームファイルまたはAPIキーが見つからないため、処理をスキップします。")
         return
 
-    # ▼▼▼【ここからが修正ブロック】▼▼▼
     # アラームに設定された時刻を取得し、AIへの指示に含める
     scheduled_time = alarm_config.get("time", "指定時刻")
     synthesized_user_message = f"（システムアラーム：設定時刻 {scheduled_time} になりました。コンテキスト「{context_to_use}」について、アラームメッセージを伝えてください）"
-    # ▲▲▲【修正はここまで】▲▲▲
     message_for_log = f"（システムアラーム：{alarm_config.get('time', '指定時刻')}）"
 
     from agent.graph import generate_scenery_context
@@ -142,27 +140,32 @@ def trigger_alarm(alarm_config, current_api_key_name):
         "active_participants": [],
         "shared_location_name": location_name,
         "shared_scenery_text": scenery_text,
-        "use_common_prompt": False # ← この行を追加
+        "use_common_prompt": False # ← 思考をシンプルにするため、ツールプロンプトを無効化
     }
 
-    # ▼▼▼【ここからが修正の核心】▼▼▼
-    # UIハンドラと同様の、正しいストリームデータ受け取りロジックに変更
+    # ▼▼▼【ここから下のブロックを、既存のストリーム処理ロジックと完全に置き換えてください】▼▼▼
     final_response_text = ""
     final_state = None
     initial_message_count = 0 # 履歴の初期数を保持
 
+    # gemini_api.pyからストリームデータを受け取る
     for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
         if mode == "initial_count":
             initial_message_count = chunk
         elif mode == "values":
-            final_state = chunk # 最後のものが最終状態になる
+            final_state = chunk # valuesの最後のものが最終状態になる
 
-    # ストリーム完了後、最終状態からAIの応答を抽出
+    # ストリーム完了後、最終状態からAIの応答を再構築する
     if final_state:
-        last_ai_message = final_state["messages"][-1]
-        if isinstance(last_ai_message, AIMessage):
-            final_response_text = last_ai_message.content
-    # ▲▲▲【修正はここまで】▲▲▲
+        # 新しく追加されたメッセージ（AIの応答）のみを抽出
+        new_messages = final_state["messages"][initial_message_count:]
+        # AIMessageのcontentをすべて結合する
+        all_ai_contents = [
+            msg.content for msg in new_messages
+            if isinstance(msg, AIMessage) and msg.content and isinstance(msg.content, str)
+        ]
+        final_response_text = "\n\n".join(all_ai_contents).strip()
+    # ▲▲▲【置き換えはここまで】▲▲▲
 
     # 思考ログを含む完全な応答を raw_response とする（ログ記録用）
     raw_response = final_response_text
@@ -183,7 +186,7 @@ def trigger_alarm(alarm_config, current_api_key_name):
             except Exception as e:
                 print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
     else:
-        # raw_response を渡すように修正
+        # 失敗した場合でも、取得できた生の応答をログに出力する
         print(f"警告: アラーム応答の生成に失敗 (ID:{alarm_id}). AIからの生応答: '{raw_response}'")
 
 def check_alarms():

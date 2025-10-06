@@ -7,6 +7,8 @@ import gemini_api
 import alarm_manager
 import utils
 import constants
+import room_manager
+import config_manager
 
 # --- plyerのインポートと存在チェック ---
 try:
@@ -48,6 +50,8 @@ class UnifiedTimer:
 
     def _run_single_timer(self, duration: float, theme: str, timer_id: str):
         try:
+            from langchain_core.messages import AIMessage # 忘れずインポート
+
             print(f"--- [タイマー開始: {timer_id}] Duration: {duration}s, Theme: '{theme}' ---")
             self._stop_event.wait(duration)
 
@@ -70,32 +74,47 @@ class UnifiedTimer:
             location_name, _, scenery_text = generate_scenery_context(self.room_name, api_key)
 
             agent_args_dict = {
-                "character_to_respond": self.room_name,
+                "room_to_respond": self.room_name,
                 "api_key_name": self.api_key_name,
                 "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
                 "debug_mode": False,
                 "history_log_path": log_f,
                 "user_prompt_parts": [{"type": "text", "text": synthesized_user_message}],
-                "soul_vessel_character": self.room_name,
+                "soul_vessel_room": self.room_name,
                 "active_participants": [],
                 "shared_location_name": location_name,
                 "shared_scenery_text": scenery_text,
-                "use_common_prompt": False # ← この行を追加
+                "use_common_prompt": False # ← 思考をシンプルにするため、ツールプロンプトを無効化
             }
 
+            # ▼▼▼【ここから下のブロックを、既存のストリーム処理ロジックと完全に置き換えてください】▼▼▼
             final_response_text = ""
-            for update in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                if "final_output" in update:
-                    final_response_text = update["final_output"].get("response", "")
-                    break
+            final_state = None
+            initial_message_count = 0
+
+            for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                if mode == "initial_count":
+                    initial_message_count = chunk
+                elif mode == "values":
+                    final_state = chunk
+
+            if final_state:
+                new_messages = final_state["messages"][initial_message_count:]
+                all_ai_contents = [
+                    msg.content for msg in new_messages
+                    if isinstance(msg, AIMessage) and msg.content and isinstance(msg.content, str)
+                ]
+                final_response_text = "\n\n".join(all_ai_contents).strip()
+            # ▲▲▲【置き換えはここまで】▲▲▲
 
             raw_response = final_response_text
             response_text = utils.remove_thoughts_from_text(raw_response)
 
             if response_text and not response_text.startswith("[エラー"):
+                # ログヘッダーを新しい形式 `ROLE:NAME` に準拠させる
                 message_for_log = f"（システムタイマー：{theme}）"
-                utils.save_message_to_log(log_f, "## システム(タイマー):", message_for_log)
-                utils.save_message_to_log(log_f, f"## {self.room_name}:", raw_response)
+                utils.save_message_to_log(log_f, "## SYSTEM:timer", message_for_log)
+                utils.save_message_to_log(log_f, f"## AGENT:{self.room_name}", raw_response)
 
                 alarm_manager.send_notification(self.room_name, response_text, {})
 
