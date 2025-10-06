@@ -418,41 +418,39 @@ def _stream_and_handle_response(
                         if isinstance(message_chunk, AIMessageChunk):
                             new_text_chunk = message_chunk.content
 
-                            if typewriter_enabled and streaming_speed > 0:
-                                # --- タイプライター効果が有効な場合（新アーキテクチャ） ---
+                            # ▼▼▼ 既存の if typewriter_enabled: から else: までのブロック全体を、これで置き換えてください ▼▼▼
+                            if typewriter_enabled:
+                                # --- タイプライター効果が有効な場合（v3: 速度0対応版） ---
                                 for char in new_text_chunk:
-                                    # 1. これから表示する文字のために、まず全文を更新
                                     streamed_text += char
 
-                                    # 2. UIを更新
+                                    # UIを更新
                                     chatbot_history[-1] = (None, streamed_text + "▌")
                                     yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                            gr.update(), gr.update(), gr.update(), gr.update(),
                                            gr.update(), gr.update(), current_console_content,
                                            gr.update(), gr.update(), gr.update())
 
-                                    # 3. 全文の末尾をチェックして、次の文字からの状態を決定
-                                    #    コードブロックの開始/終了
+                                    # 全文の末尾をチェックして、次の文字からの状態を決定
                                     if streamed_text.endswith("```"):
                                         in_special_block = not in_special_block
-                                    #    思考ログの終了
                                     elif streamed_text.endswith("【/Thoughts】"):
                                         in_special_block = False
-                                    #    思考ログの開始
                                     elif streamed_text.endswith("【Thoughts】"):
                                         in_special_block = True
 
-                                    # 4. 特殊ブロックの外側にいる場合のみ、待機時間を設ける
-                                    if not in_special_block:
+                                    # 特殊ブロックの外側で、かつ速度が0より大きい場合のみ待機
+                                    if not in_special_block and streaming_speed > 0:
                                         time.sleep(streaming_speed)
                             else:
-                                # --- タイプライター効果が無効、または最速の場合 ---
+                                # --- タイプライター効果が無効な場合 ---
                                 streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                        gr.update(), gr.update(), gr.update(), gr.update(),
                                        gr.update(), gr.update(), current_console_content,
                                        gr.update(), gr.update(), gr.update())
+                            # ▲▲▲ 置き換えここまで ▲▲▲
 
                     elif mode == "values":
                         final_state = chunk
