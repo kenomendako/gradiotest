@@ -226,32 +226,6 @@ try:
                     with gr.Column(scale=2, min_width=300): # ← scale=1 を 2 に変更
                         room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="ルームを選択", interactive=True)
 
-                        with gr.Accordion("⏰ 時間管理", open=False):
-                            with gr.Tabs():
-                                with gr.TabItem("アラーム"):
-                                    gr.Markdown("ℹ️ **操作方法**: リストから操作したいアラームの行を選択し、下のボタンで操作します。")
-                                    alarm_dataframe = gr.Dataframe(headers=["状態", "時刻", "予定", "ルーム", "内容"], datatype=["bool", "str", "str", "str", "str"], interactive=True, row_count=(5, "dynamic"), col_count=5, wrap=True, elem_id="alarm_dataframe_display")
-                                    selection_feedback_markdown = gr.Markdown("アラームを選択してください", elem_id="selection_feedback")
-                                    with gr.Row():
-                                        enable_button = gr.Button("✔️ 選択を有効化"); disable_button = gr.Button("❌ 選択を無効化"); delete_alarm_button = gr.Button("🗑️ 選択したアラームを削除", variant="stop")
-                                    gr.Markdown("---"); gr.Markdown("#### 新規 / 更新")
-                                    alarm_hour_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(24)], label="時", value="08")
-                                    alarm_minute_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(60)], label="分", value="00")
-                                    alarm_room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="ルーム")
-                                    alarm_context_input = gr.Textbox(label="内容", placeholder="AIに伝える内容や目的を簡潔に記述します。\n例：朝の目覚まし、今日も一日頑張ろう！", lines=3)
-                                    alarm_emergency_checkbox = gr.Checkbox(label="緊急通知として送信 (マナーモードを貫通)", value=False, interactive=True)
-                                    alarm_days_checkboxgroup = gr.CheckboxGroup(choices=["月", "火", "水", "木", "金", "土", "日"], label="曜日", value=[])
-                                    with gr.Row():
-                                        alarm_add_button = gr.Button("アラーム追加")
-                                        cancel_edit_button = gr.Button("編集をキャンセル", visible=False)
-                                with gr.TabItem("タイマー"):
-                                    timer_type_radio = gr.Radio(["通常タイマー", "ポモドーロタイマー"], label="タイマー種別", value="通常タイマー")
-                                    with gr.Column(visible=True) as normal_timer_ui:
-                                        timer_duration_number = gr.Number(label="タイマー時間 (分)", value=10, minimum=1, step=1); normal_timer_theme_input = gr.Textbox(label="通常タイマーのテーマ", placeholder="例: タイマー終了！")
-                                    with gr.Column(visible=False) as pomo_timer_ui:
-                                        pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
-                                    timer_room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="通知ルーム", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
-
                         with gr.Accordion("⚙️ 設定", open=False):
                             with gr.Tabs() as settings_tabs:
                                 with gr.TabItem("共通") as common_settings_tab:
@@ -349,6 +323,32 @@ try:
                                     apply_theme_button = gr.Button("このテーマを適用（要再起動）", variant="primary")
                                     gr.Markdown("⚠️ **注意:** テーマの変更を完全に反映するには、コンソールを閉じて `nexus_ark.py` を再実行する必要があります。")
 
+                        with gr.Accordion("⏰ 時間管理", open=False):
+                            with gr.Tabs():
+                                with gr.TabItem("アラーム"):
+                                    gr.Markdown("ℹ️ **操作方法**: リストから操作したいアラームの行を選択し、下のボタンで操作します。")
+                                    alarm_dataframe = gr.Dataframe(headers=["状態", "時刻", "予定", "ルーム", "内容"], datatype=["bool", "str", "str", "str", "str"], interactive=True, row_count=(5, "dynamic"), col_count=5, wrap=True, elem_id="alarm_dataframe_display")
+                                    selection_feedback_markdown = gr.Markdown("アラームを選択してください", elem_id="selection_feedback")
+                                    with gr.Row():
+                                        enable_button = gr.Button("✔️ 選択を有効化"); disable_button = gr.Button("❌ 選択を無効化"); delete_alarm_button = gr.Button("🗑️ 選択したアラームを削除", variant="stop")
+                                    gr.Markdown("---"); gr.Markdown("#### 新規 / 更新")
+                                    alarm_hour_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(24)], label="時", value="08")
+                                    alarm_minute_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(60)], label="分", value="00")
+                                    alarm_room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="ルーム")
+                                    alarm_context_input = gr.Textbox(label="内容", placeholder="AIに伝える内容や目的を簡潔に記述します。\n例：朝の目覚まし、今日も一日頑張ろう！", lines=3)
+                                    alarm_emergency_checkbox = gr.Checkbox(label="緊急通知として送信 (マナーモードを貫通)", value=False, interactive=True)
+                                    alarm_days_checkboxgroup = gr.CheckboxGroup(choices=["月", "火", "水", "木", "金", "土", "日"], label="曜日", value=[])
+                                    with gr.Row():
+                                        alarm_add_button = gr.Button("アラーム追加")
+                                        cancel_edit_button = gr.Button("編集をキャンセル", visible=False)
+                                with gr.TabItem("タイマー"):
+                                    timer_type_radio = gr.Radio(["通常タイマー", "ポモドーロタイマー"], label="タイマー種別", value="通常タイマー")
+                                    with gr.Column(visible=True) as normal_timer_ui:
+                                        timer_duration_number = gr.Number(label="タイマー時間 (分)", value=10, minimum=1, step=1); normal_timer_theme_input = gr.Textbox(label="通常タイマーのテーマ", placeholder="例: タイマー終了！")
+                                    with gr.Column(visible=False) as pomo_timer_ui:
+                                        pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
+                                    timer_room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="通知ルーム", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
+
                         with gr.Accordion("🧑‍🤝‍🧑 グループ会話", open=False):
                             session_status_display = gr.Markdown("現在、1対1の会話モードです。")
                             participant_checkbox_group = gr.CheckboxGroup(
@@ -389,7 +389,7 @@ try:
 
                         with gr.Accordion("🛠️ チャット支援ツール", open=False):
                             with gr.Tabs():
-                                with gr.TabItem("📸 スクリーンショット支援"):
+                                with gr.TabItem("文字置き換え"):
                                     gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
                                     screenshot_mode_checkbox = gr.Checkbox(
                                         label="スクリーンショットモードを有効にする",
@@ -413,7 +413,7 @@ try:
                                                 interactive=False
                                             )
                                             delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
-                                with gr.TabItem("📝 ログ修正"):
+                                with gr.TabItem("ログ修正"):
                                     gr.Markdown("選択した**発言**以降の**AIの応答**に含まれる読点（、）を、AIを使って自動で修正し、自然な文章に校正します。")
                                     gr.Markdown("⚠️ **注意:** この操作はログファイルを直接上書きするため、元に戻せません。処理の前に、ログファイルのバックアップが自動的に作成されます。")
                                     correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
@@ -463,7 +463,7 @@ try:
 
                     # --- 右カラム ---
                     with gr.Column(scale=3, min_width=300): # ← scale=1.5 を 3 に変更
-                        with gr.Accordion("👤 プロフィール・情景", open=True):
+                        with gr.Accordion("🖼️ プロフィール・情景", open=True):
                             # --- プロフィール画像セクション ---
                             profile_image_display = gr.Image(
                                 height=200, interactive=False, show_label=False, elem_id="profile_image_display"
@@ -488,13 +488,13 @@ try:
                             location_dropdown = gr.Dropdown(label="現在地 / 移動先を選択", interactive=True) # ← label を変更
 
                             # --- 画像生成メニュー ---
-                            with gr.Accordion("🎨 情景ビジュアル生成", open=False):
+                            with gr.Accordion("情景画像・テキスト生成", open=False):
                                 generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
                                 scenery_style_radio = gr.Dropdown(
                                     choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
                                     label="画風を選択", value="写真風 (デフォルト)", interactive=True
                                 )
-                                refresh_scenery_button = gr.Button("情景を更新", variant="secondary") # ← ここに移動
+                                refresh_scenery_button = gr.Button("情景テキストを更新", variant="secondary") # ← ここに移動
 
                 # --- [3カラムレイアウトはここまで] ---
 
