@@ -235,6 +235,21 @@ try:
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
+
+                                    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+                                    gr.Markdown("---")
+                                    gr.Markdown("#### 💾 バックアップ設定")
+                                    backup_rotation_count_number = gr.Number(
+                                        label="バックアップの最大保存件数（世代数）",
+                                        value=lambda: config_manager.CONFIG_GLOBAL.get("backup_rotation_count", 10),
+                                        step=1,
+                                        minimum=1,
+                                        interactive=True,
+                                        info="ファイル（ログ、記憶など）ごとに、ここで指定した数だけ最新のバックアップが保持されます。"
+                                    )
+                                    open_backup_folder_button = gr.Button("現在のルームのバックアップフォルダを開く", variant="secondary")
+                                    # ▲▲▲【追加はここまで】▲▲▲
+
                                     gr.Markdown("---")
                                     gr.Markdown("#### 📢 通知サービス設定")
                                     notification_service_radio = gr.Radio(choices=["Discord", "Pushover"], label="アラーム通知に使用するサービス", value=config_manager.NOTIFICATION_SERVICE_GLOBAL.capitalize(), interactive=True)
@@ -1209,6 +1224,20 @@ try:
             inputs=[theme_settings_state, theme_selector],
             outputs=None # ポップアップ通知のみ
         )
+
+        # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+        backup_rotation_count_number.change(
+            fn=ui_handlers.handle_save_backup_rotation_count,
+            inputs=[backup_rotation_count_number],
+            outputs=None
+        )
+        
+        open_backup_folder_button.click(
+            fn=ui_handlers.handle_open_backup_folder,
+            inputs=[current_room_name],
+            outputs=None
+        )
+        # ▲▲▲【追加はここまで】▲▲▲
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])

@@ -3029,6 +3029,15 @@ def handle_chatbot_edit(
     history, new_mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
     return history, new_mapping_list
 
+def handle_save_backup_rotation_count(count: int):
+    """バックアップの最大保存件数をconfig.jsonに保存する。"""
+    if count is None or not isinstance(count, (int, float)) or count < 1:
+        gr.Warning("バックアップ保存件数は1以上の整数で指定してください。")
+        return
+
+    config_manager.save_config("backup_rotation_count", int(count))
+    gr.Info(f"バックアップの最大保存件数を {int(count)} 件に設定しました。")
+
 def handle_open_backup_folder(room_name: str):
     """選択されたルームのバックアップフォルダをOSのファイルエクスプローラーで開く。"""
     if not room_name:
@@ -3038,8 +3047,12 @@ def handle_open_backup_folder(room_name: str):
     backup_path = os.path.join(constants.ROOMS_DIR, room_name, "backups")
     # フォルダの存在を念のため確認
     if not os.path.isdir(backup_path):
-        gr.Warning(f"バックアップフォルダが見つかりません: {backup_path}")
-        return
+        # 存在しない場合は作成を試みる
+        try:
+            os.makedirs(backup_path, exist_ok=True)
+        except Exception as e:
+            gr.Warning(f"バックアップフォルダの作成に失敗しました: {backup_path}\n{e}")
+            return
 
     try:
         if sys.platform == "win32":
