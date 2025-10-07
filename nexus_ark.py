@@ -559,7 +559,7 @@ try:
                             save_core_memory_button = gr.Button("コアメモリを保存", variant="secondary")
                             reload_core_memory_button = gr.Button("再読込", variant="secondary")
 
-                    with gr.TabItem("知識グラフ管理"):
+                    with gr.TabItem("知識グラフ管理", visible=False):
                         gr.Markdown("## 知識グラフの管理")
                         gr.Markdown("過去の対話ログを分析し、エンティティ間の関係性を抽出して、AIの永続的な知識グラフを構築・更新します。")
                         with gr.Row():
