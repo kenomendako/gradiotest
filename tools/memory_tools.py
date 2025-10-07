@@ -29,15 +29,12 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
     try:
         # 1. 検索対象の特定
         base_path = Path(constants.ROOMS_DIR) / room_name
-        search_paths = [
-            str(base_path / "log.txt"),
-        ]
+        search_paths = [str(base_path / "log.txt")]
         search_paths.extend(glob.glob(str(base_path / "log_archives" / "*.txt")))
         search_paths.extend(glob.glob(str(base_path / "log_import_source" / "*.txt")))
 
-        # 2. キーワード検索と抽出
+        # 2. キーワード検索と抽出（search_memory と同じ堅牢なロジックを使用）
         found_blocks = []
-        header_pattern = re.compile(r'^## (?:USER|AGENT|SYSTEM):.*$', re.MULTILINE)
         date_patterns = [
             re.compile(r'(\d{4}-\d{2}-\d{2}) \(...\) \d{2}:\d{2}:\d{2}'), # タイムスタンプ
             re.compile(r'###\s*(\d{4}-\d{2}-\d{2})') # 日記形式の見出し
@@ -45,71 +42,60 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
 
         for file_path_str in search_paths:
             file_path = Path(file_path_str)
-            if not file_path.exists():
-                continue
+            if not file_path.exists(): continue
+
             with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+                lines = f.readlines()
 
-            # キーワードにヒットしたすべての位置を取得
-            hit_indices = [m.start() for m in re.finditer(re.escape(query), content, re.IGNORECASE)]
-            if not hit_indices:
-                continue
+            header_indices = [i for i, line in enumerate(lines) if re.match(r"^(## (?:USER|AGENT|SYSTEM):.*)$", line.strip())]
+            processed_blocks_content = set() # 同じ内容のブロックの重複を防ぐ
 
-            # ヘッダーの位置をすべて取得
-            header_indices = [m.start() for m in header_pattern.finditer(content)]
-            if not header_indices:
-                continue
+            for i, line in enumerate(lines):
+                # ★★★ ここが核心：単純な文字列 'in' 演算子による検索 ★★★
+                if query.lower() in line.lower():
+                    # ヒットした行を含むブロックを特定
+                    start_index = 0
+                    for h_idx in reversed(header_indices):
+                        if h_idx <= i:
+                            start_index = h_idx
+                            break
+                    
+                    end_index = len(lines)
+                    for h_idx in header_indices:
+                        if h_idx > start_index:
+                            end_index = h_idx
+                            break
+                    
+                    block_content = "".join(lines[start_index:end_index]).strip()
 
-            # ヒット箇所を含むブロックを抽出
-            processed_blocks = set() # 同じブロックの重複処理を防ぐ
-            for hit_index in hit_indices:
-                # ヒット位置の直前のヘッダーを探す
-                start_index = -1
-                for h_idx in reversed(header_indices):
-                    if h_idx <= hit_index:
-                        start_index = h_idx
-                        break
-                if start_index == -1:
-                    continue
-
-                # ブロックの終了位置を探す
-                end_index = len(content)
-                for h_idx in header_indices:
-                    if h_idx > start_index:
-                        end_index = h_idx
-                        break
-
-                block_content = content[start_index:end_index].strip()
-                if block_content in processed_blocks:
-                    continue
-                processed_blocks.add(block_content)
-
-                # 3. 日付情報の特定
-                block_date = None
-                for pattern in date_patterns:
-                    # ブロック全体から逆順に検索して、最も近い日付を採用
-                    matches = list(pattern.finditer(block_content))
-                    if matches:
-                        block_date = matches[-1].group(1)
-                        break
-
-                found_blocks.append({
-                    "content": block_content,
-                    "date": block_date,
-                    "source": file_path.name
-                })
+                    # 重複チェック
+                    if block_content not in processed_blocks_content:
+                        processed_blocks_content.add(block_content)
+                        
+                        # 日付情報の特定
+                        block_date = None
+                        for pattern in date_patterns:
+                            matches = list(pattern.finditer(block_content))
+                            if matches:
+                                block_date = matches[-1].group(1)
+                                break
+                        
+                        found_blocks.append({
+                            "content": block_content,
+                            "date": block_date,
+                            "source": file_path.name
+                        })
 
         if not found_blocks:
             return f"【検索結果】過去の会話ログから「{query}」に関する情報は見つかりませんでした。"
 
         # 4. 絞り込み
-        # 日付が特定できたものを優先し、新しい順にソート
         found_blocks.sort(key=lambda x: x.get('date') or '0000-00-00', reverse=True)
         limited_blocks = found_blocks[:5]
 
         # 5. 断片ごとの個別要約
         summarized_results = []
-        from gemini_api import get_configured_llm # 循環参照を避ける
+        from gemini_api import get_configured_llm
         summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
 
         for block in limited_blocks:
@@ -131,9 +117,8 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
                     })
             except Exception as e:
                 print(f"要約API呼び出し中にエラー: {e}")
-                # APIエラーが発生しても、生のブロックを結果に含めるなどのフォールバックも可能
                 continue
-
+        
         if not summarized_results:
              return f"【検索結果】「{query}」に関する情報を抽出できませんでした。"
 
@@ -142,13 +127,12 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
         for res in summarized_results:
             date_str = f"日付: {res['date']}頃" if res['date'] else "日付不明"
             result_parts.append(f"- [出典: {res['source']}, {date_str}]\n  {res['summary']}")
-
+        
         return "\n".join(result_parts)
 
     except Exception as e:
         traceback.print_exc()
         return f"【エラー】過去ログ検索中に予期せぬエラーが発生しました: {e}"
-
 # ▲▲▲ 追加はここまで ▲▲▲
 
 @tool
