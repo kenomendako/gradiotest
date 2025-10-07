@@ -27,64 +27,71 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
 
     print(f"--- 過去ログ検索実行 (ルーム: {room_name}, クエリ: '{query}') ---")
     try:
-        # 1. 検索対象の特定
         base_path = Path(constants.ROOMS_DIR) / room_name
         search_paths = [str(base_path / "log.txt")]
         search_paths.extend(glob.glob(str(base_path / "log_archives" / "*.txt")))
         search_paths.extend(glob.glob(str(base_path / "log_import_source" / "*.txt")))
 
-        # 2. キーワード検索と抽出（search_memory と同じ堅牢なロジックを使用）
         found_blocks = []
         date_patterns = [
-            re.compile(r'(\d{4}-\d{2}-\d{2}) \(...\) \d{2}:\d{2}:\d{2}'), # タイムスタンプ
-            re.compile(r'###\s*(\d{4}-\d{2}-\d{2})') # 日記形式の見出し
+            re.compile(r'(\d{4}-\d{2}-\d{2}) \(...\) \d{2}:\d{2}:\d{2}'),
+            re.compile(r'###\s*(\d{4}-\d{2}-\d{2})')
         ]
-
+        
+        # ▼▼▼【ここから下のブロックを、既存の検索ロジックと完全に置き換えてください】▼▼▼
         for file_path_str in search_paths:
             file_path = Path(file_path_str)
-            if not file_path.exists(): continue
-
+            if not file_path.exists() or file_path.stat().st_size == 0:
+                continue
+            
             with open(file_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+                content = f.read()
 
-            header_indices = [i for i, line in enumerate(lines) if re.match(r"^(## (?:USER|AGENT|SYSTEM):.*)$", line.strip())]
-            processed_blocks_content = set() # 同じ内容のブロックの重複を防ぐ
+            header_pattern = re.compile(r'^## (?:USER|AGENT|SYSTEM):.*$', re.MULTILINE)
+            header_matches = list(header_pattern.finditer(content))
+            if not header_matches:
+                continue
 
-            for i, line in enumerate(lines):
-                # ★★★ ここが核心：単純な文字列 'in' 演算子による検索 ★★★
-                if query.lower() in line.lower():
-                    # ヒットした行を含むブロックを特定
-                    start_index = 0
-                    for h_idx in reversed(header_indices):
-                        if h_idx <= i:
-                            start_index = h_idx
-                            break
-                    
-                    end_index = len(lines)
-                    for h_idx in header_indices:
-                        if h_idx > start_index:
-                            end_index = h_idx
-                            break
-                    
-                    block_content = "".join(lines[start_index:end_index]).strip()
+            # re.search を使うことで、より柔軟な検索が可能になる
+            if re.search(re.escape(query), content, re.IGNORECASE):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
 
-                    # 重複チェック
-                    if block_content not in processed_blocks_content:
-                        processed_blocks_content.add(block_content)
-                        
-                        # 日付情報の特定
-                        block_date = None
-                        for pattern in date_patterns:
-                            matches = list(pattern.finditer(block_content))
-                            if matches:
-                                block_date = matches[-1].group(1)
+                header_indices = [i for i, line in enumerate(lines) if header_pattern.match(line.strip())]
+                processed_blocks_content = set()
+
+                for i, line in enumerate(lines):
+                    # 大文字・小文字を区別しない正規表現検索
+                    if re.search(re.escape(query), line, re.IGNORECASE):
+                        start_index = 0
+                        for h_idx in reversed(header_indices):
+                            if h_idx <= i:
+                                start_index = h_idx
                                 break
                         
-                        found_blocks.append({
-                            "content": block_content,
-                            "date": block_date,
-                            "source": file_path.name
-                        })
+                        end_index = len(lines)
+                        for h_idx in header_indices:
+                            if h_idx > start_index:
+                                end_index = h_idx
+                                break
+                        
+                        block_content = "".join(lines[start_index:end_index]).strip()
+                        if block_content not in processed_blocks_content:
+                            processed_blocks_content.add(block_content)
+                            
+                            block_date = None
+                            for pattern in date_patterns:
+                                matches = list(pattern.finditer(block_content))
+                                if matches:
+                                    block_date = matches[-1].group(1)
+                                    break
+                            
+                            found_blocks.append({
+                                "content": block_content,
+                                "date": block_date,
+                                "source": file_path.name
+                            })
+        # ▲▲▲【置き換えはここまで】▲▲▲
 
         if not found_blocks:
             return f"【検索結果】過去の会話ログから「{query}」に関する情報は見つかりませんでした。"
