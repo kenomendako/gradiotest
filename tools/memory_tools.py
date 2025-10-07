@@ -125,7 +125,9 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
             date_str = f"日付: {res['date']}頃" if res['date'] else "日付不明"
             result_parts.append(f"- [出典: {res['source']}, {date_str}]\n  {res['summary']}")
         
-        return "\n".join(result_parts)
+        final_result = "\n".join(result_parts)
+        final_result += "\n\n**この検索タスクは完了しました。これから検索するというような前置きはせず、**見つかった情報を元にユーザーの質問に答えてください。"
+        return final_result
 
     except Exception as e:
         traceback.print_exc()
@@ -201,6 +203,7 @@ def search_memory(query: str, room_name: str) -> str:
         result_text += f"--- [出典: {block['file']}, 見出し: {block['header']}] ---\n"
         result_text += f"{block['content']}\n\n"
 
+    result_text += "\n\n**この記憶検索タスクは完了しました。これから思い出すというような前置きはせず、**見つかった記憶を元に会話を続けてください。"
     return result_text.strip()
 
 @tool

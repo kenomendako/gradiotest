@@ -87,4 +87,5 @@ def search_knowledge_graph(query: str, room_name: str) -> str:
         return f"【検索結果】「{', '.join(entities_in_query)}」に関する客観的な事実は、長期記憶の中に見つかりませんでした。"
 
     summary = f"【長期記憶からの検索結果】\n" + "\n".join(found_facts)
+    summary += "\n\n**この知識検索タスクは完了しました。これから思い出すというような前置きはせず、**見つかった事実を元に会話を続けてください。"
     return summary

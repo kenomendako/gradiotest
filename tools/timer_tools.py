@@ -28,7 +28,7 @@ def set_timer(duration_minutes: int, theme: str, room_name: str) -> str:
         )
         # バックグラウンドでタイマーを開始
         timer.start()
-        return f"Success: A timer has been set for {duration_minutes} minutes with the theme '{theme}'. You will be notified by {room_name}."
+        return f"Success: A timer has been set for {duration_minutes} minutes with the theme '{theme}'. You will be notified by {room_name}. **この設定タスクは完了しました。これから設定するというような前置きはせず、**設定が完了したことだけを簡潔にユーザーに報告してください。"
     except Exception as e:
         return f"Error: Failed to set the timer. Details: {e}"
 
@@ -58,6 +58,6 @@ def set_pomodoro_timer(work_minutes: int, break_minutes: int, cycles: int, work_
             api_key_name=api_key_name
         )
         timer.start()
-        return f"Success: A Pomodoro timer has been set for {cycles} cycles ({work_minutes} min work, {break_minutes} min break). You will be notified by {room_name}."
+        return f"Success: A Pomodoro timer has been set for {cycles} cycles ({work_minutes} min work, {break_minutes} min break). You will be notified by {room_name}. **この設定タスクは完了しました。これから設定するというような前置きはせず、**設定が完了したことだけを簡潔にユーザーに報告してください。"
     except Exception as e:
         return f"Error: Failed to set the Pomodoro timer. Details: {e}"

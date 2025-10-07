@@ -61,7 +61,7 @@ def generate_image(prompt: str, room_name: str, api_key: str) -> str:
         image.save(save_path, "PNG")
         print(f"  - 画像を保存しました: {save_path}")
 
-        return f"[Generated Image: {save_path}]"
+        return f"[Generated Image: {save_path}]\nSuccess: 画像が生成され、指定されたパスに保存されました。**このタスクは完了です。これから絵を描くといった前置きは不要です。**この画像タグ `[Generated Image: {save_path}]` を使って、生成された画像をユーザーに提示し、コメントを添えてください。"
 
     # ▼▼▼ ここからが修正箇所 ▼▼▼
     except httpx.RemoteProtocolError as e:

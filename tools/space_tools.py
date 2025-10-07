@@ -63,7 +63,7 @@ def set_current_location(location_id: str, room_name: str) -> str:
             location_file_path = os.path.join(base_path, "current_location.txt")
             with open(location_file_path, "w", encoding="utf-8") as f:
                 f.write(corrected_location_id)
-            return f"Success: 現在地は '{corrected_location_id}' に設定されました。この移動タスクは完了です。次に、この結果をユーザーに報告してください。"
+            return f"Success: 現在地は '{corrected_location_id}' に設定されました。この移動タスクは完了です。**このタスクの実行を宣言するような前置きは不要です。**完了したという事実と、移動後の情景などを簡潔にユーザーに報告してください。"
         except Exception as e:
             return f"【Error】現在地のファイル書き込みに失敗しました: {e}"
     else:
