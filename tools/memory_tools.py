@@ -13,6 +13,124 @@ import traceback
 import os
 import constants
 import utils # <-- 追加が必要な場合
+import glob
+from pathlib import Path
+
+# ▼▼▼ 既存の search_memory 関数の定義よりも前に、この新しいツール関数をまるごと追加してください ▼▼▼
+@tool
+def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
+    """
+    ユーザーとの過去の会話ログ全体（アーカイブやインポートされたものを含む）から、特定の出来事や話題について検索する場合に使用します。
+    """
+    if not query or not room_name or not api_key:
+        return "【エラー】検索クエリ、ルーム名、APIキーは必須です。"
+
+    print(f"--- 過去ログ検索実行 (ルーム: {room_name}, クエリ: '{query}') ---")
+    try:
+        base_path = Path(constants.ROOMS_DIR) / room_name
+        search_paths = [str(base_path / "log.txt")]
+        search_paths.extend(glob.glob(str(base_path / "log_archives" / "*.txt")))
+        search_paths.extend(glob.glob(str(base_path / "log_import_source" / "*.txt")))
+
+        found_blocks = []
+        date_patterns = [
+            re.compile(r'(\d{4}-\d{2}-\d{2}) \(...\) \d{2}:\d{2}:\d{2}'),
+            re.compile(r'###\s*(\d{4}-\d{2}-\d{2})')
+        ]
+        
+        # ▼▼▼【ここから下のブロックを、既存の検索ロジックと完全に置き換えてください】▼▼▼
+        for file_path_str in search_paths:
+            file_path = Path(file_path_str)
+            if not file_path.exists() or file_path.stat().st_size == 0:
+                continue
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            header_indices = [i for i, line in enumerate(lines) if re.match(r"^(## (?:USER|AGENT|SYSTEM):.*)$", line.strip())]
+            if not header_indices:
+                continue
+
+            processed_blocks_content = set()
+
+            for i, line in enumerate(lines):
+                # ★★★【実績のあるロジック】正規表現を避け、単純な小文字化と比較を行う ★★★
+                if query.lower() in line.lower():
+                    start_index = 0
+                    for h_idx in reversed(header_indices):
+                        if h_idx <= i:
+                            start_index = h_idx
+                            break
+                    
+                    end_index = len(lines)
+                    for h_idx in header_indices:
+                        if h_idx > start_index:
+                            end_index = h_idx
+                            break
+                    
+                    block_content = "".join(lines[start_index:end_index]).strip()
+                    if block_content not in processed_blocks_content:
+                        processed_blocks_content.add(block_content)
+                        
+                        block_date = None
+                        for pattern in date_patterns:
+                            matches = list(pattern.finditer(block_content))
+                            if matches:
+                                block_date = matches[-1].group(1)
+                                break
+                        
+                        found_blocks.append({
+                            "content": block_content,
+                            "date": block_date,
+                            "source": file_path.name
+                        })
+        # ▲▲▲【置き換えはここまで】▲▲▲
+
+        if not found_blocks:
+            return f"【検索結果】過去の会話ログから「{query}」に関する情報は見つかりませんでした。"
+
+        found_blocks.sort(key=lambda x: x.get('date') or '0000-00-00', reverse=True)
+        limited_blocks = found_blocks[:5]
+
+        summarized_results = []
+        from gemini_api import get_configured_llm
+        summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
+
+        for block in limited_blocks:
+            summarize_prompt = f"""あなたは、短い会話の記録から、指定されたキーワードに関する要点のみを抽出する専門家です。以下の会話ログから、「{query}」に関連する部分だけを、1〜2文で簡潔に要約してください。
+
+【会話ログ】
+---
+{block['content']}
+---
+
+【要約】"""
+            try:
+                summary = summarizer_llm.invoke(summarize_prompt).content.strip()
+                if summary:
+                     summarized_results.append({
+                        "summary": summary,
+                        "date": block.get('date'),
+                        "source": block.get('source')
+                    })
+            except Exception as e:
+                print(f"要約API呼び出し中にエラー: {e}")
+                continue
+        
+        if not summarized_results:
+             return f"【検索結果】「{query}」に関する情報を抽出できませんでした。"
+
+        result_parts = [f'【過去の会話ログからの検索結果：「{query}」】\n']
+        for res in summarized_results:
+            date_str = f"日付: {res['date']}頃" if res['date'] else "日付不明"
+            result_parts.append(f"- [出典: {res['source']}, {date_str}]\n  {res['summary']}")
+        
+        return "\n".join(result_parts)
+
+    except Exception as e:
+        traceback.print_exc()
+        return f"【エラー】過去ログ検索中に予期せぬエラーが発生しました: {e}"
+# ▲▲▲ 追加はここまで ▲▲▲
 
 @tool
 def search_memory(query: str, room_name: str) -> str:

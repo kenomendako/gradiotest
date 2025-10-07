@@ -17,6 +17,7 @@ from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, read_world_settings, plan_world_edit, _apply_world_edits
 from tools.memory_tools import (
     search_memory,
+    search_past_conversations,
     read_main_memory, plan_main_memory_edit, _apply_main_memory_edits,
     read_secret_diary, plan_secret_diary_edit, _apply_secret_diary_edits
 )
@@ -34,7 +35,9 @@ import pytz
 
 all_tools = [
     set_current_location, read_world_settings, plan_world_edit,
-    search_memory, read_main_memory, plan_main_memory_edit, read_secret_diary, plan_secret_diary_edit,
+    search_memory,
+    search_past_conversations,
+    read_main_memory, plan_main_memory_edit, read_secret_diary, plan_secret_diary_edit,
     read_full_notepad, plan_notepad_edit,
     web_search_tool, read_url_tool,
     generate_image,
@@ -484,7 +487,7 @@ def safe_tool_executor(state: AgentState):
     else:
         print(f"  - 通常ツール実行: {tool_name}")
         tool_args['room_name'] = room_name
-        if tool_name in ['generate_image']:
+        if tool_name in ['generate_image', 'search_past_conversations']:
             tool_args['api_key'] = api_key
 
         selected_tool = next((t for t in all_tools if t.name == tool_name), None)
@@ -497,7 +500,7 @@ def safe_tool_executor(state: AgentState):
                 output = f"Error executing tool '{tool_name}': {e}"
                 traceback.print_exc()
 
-    return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)]}
+    return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)], "loop_count": state.get("loop_count", 0)}
 
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node", "agent"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
