@@ -17,6 +17,7 @@ from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, read_world_settings, plan_world_edit, _apply_world_edits
 from tools.memory_tools import (
     search_memory,
+    search_past_conversations,
     read_main_memory, plan_main_memory_edit, _apply_main_memory_edits,
     read_secret_diary, plan_secret_diary_edit, _apply_secret_diary_edits
 )
@@ -34,7 +35,9 @@ import pytz
 
 all_tools = [
     set_current_location, read_world_settings, plan_world_edit,
-    search_memory, read_main_memory, plan_main_memory_edit, read_secret_diary, plan_secret_diary_edit,
+    search_memory,
+    search_past_conversations,
+    read_main_memory, plan_main_memory_edit, read_secret_diary, plan_secret_diary_edit,
     read_full_notepad, plan_notepad_edit,
     web_search_tool, read_url_tool,
     generate_image,

@@ -13,6 +13,143 @@ import traceback
 import os
 import constants
 import utils # <-- 追加が必要な場合
+import glob
+from pathlib import Path
+
+# ▼▼▼ 既存の search_memory 関数の定義よりも前に、この新しいツール関数をまるごと追加してください ▼▼▼
+@tool
+def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
+    """
+    ユーザーとの過去の会話ログ全体（アーカイブやインポートされたものを含む）から、特定の出来事や話題について検索する場合に使用します。
+    """
+    if not query or not room_name or not api_key:
+        return "【エラー】検索クエリ、ルーム名、APIキーは必須です。"
+
+    print(f"--- 過去ログ検索実行 (ルーム: {room_name}, クエリ: '{query}') ---")
+    try:
+        # 1. 検索対象の特定
+        base_path = Path(constants.ROOMS_DIR) / room_name
+        search_paths = [
+            str(base_path / "log.txt"),
+        ]
+        search_paths.extend(glob.glob(str(base_path / "log_archives" / "*.txt")))
+        search_paths.extend(glob.glob(str(base_path / "log_import_source" / "*.txt")))
+
+        # 2. キーワード検索と抽出
+        found_blocks = []
+        header_pattern = re.compile(r'^## (?:USER|AGENT|SYSTEM):.*$', re.MULTILINE)
+        date_patterns = [
+            re.compile(r'(\d{4}-\d{2}-\d{2}) \(...\) \d{2}:\d{2}:\d{2}'), # タイムスタンプ
+            re.compile(r'###\s*(\d{4}-\d{2}-\d{2})') # 日記形式の見出し
+        ]
+
+        for file_path_str in search_paths:
+            file_path = Path(file_path_str)
+            if not file_path.exists():
+                continue
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # キーワードにヒットしたすべての位置を取得
+            hit_indices = [m.start() for m in re.finditer(re.escape(query), content, re.IGNORECASE)]
+            if not hit_indices:
+                continue
+
+            # ヘッダーの位置をすべて取得
+            header_indices = [m.start() for m in header_pattern.finditer(content)]
+            if not header_indices:
+                continue
+
+            # ヒット箇所を含むブロックを抽出
+            processed_blocks = set() # 同じブロックの重複処理を防ぐ
+            for hit_index in hit_indices:
+                # ヒット位置の直前のヘッダーを探す
+                start_index = -1
+                for h_idx in reversed(header_indices):
+                    if h_idx <= hit_index:
+                        start_index = h_idx
+                        break
+                if start_index == -1:
+                    continue
+
+                # ブロックの終了位置を探す
+                end_index = len(content)
+                for h_idx in header_indices:
+                    if h_idx > start_index:
+                        end_index = h_idx
+                        break
+
+                block_content = content[start_index:end_index].strip()
+                if block_content in processed_blocks:
+                    continue
+                processed_blocks.add(block_content)
+
+                # 3. 日付情報の特定
+                block_date = None
+                for pattern in date_patterns:
+                    # ブロック全体から逆順に検索して、最も近い日付を採用
+                    matches = list(pattern.finditer(block_content))
+                    if matches:
+                        block_date = matches[-1].group(1)
+                        break
+
+                found_blocks.append({
+                    "content": block_content,
+                    "date": block_date,
+                    "source": file_path.name
+                })
+
+        if not found_blocks:
+            return f"【検索結果】過去の会話ログから「{query}」に関する情報は見つかりませんでした。"
+
+        # 4. 絞り込み
+        # 日付が特定できたものを優先し、新しい順にソート
+        found_blocks.sort(key=lambda x: x.get('date') or '0000-00-00', reverse=True)
+        limited_blocks = found_blocks[:5]
+
+        # 5. 断片ごとの個別要約
+        summarized_results = []
+        from gemini_api import get_configured_llm # 循環参照を避ける
+        summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
+
+        for block in limited_blocks:
+            summarize_prompt = f"""あなたは、短い会話の記録から、指定されたキーワードに関する要点のみを抽出する専門家です。以下の会話ログから、「{query}」に関連する部分だけを、1〜2文で簡潔に要約してください。
+
+【会話ログ】
+---
+{block['content']}
+---
+
+【要約】"""
+            try:
+                summary = summarizer_llm.invoke(summarize_prompt).content.strip()
+                if summary:
+                     summarized_results.append({
+                        "summary": summary,
+                        "date": block.get('date'),
+                        "source": block.get('source')
+                    })
+            except Exception as e:
+                print(f"要約API呼び出し中にエラー: {e}")
+                # APIエラーが発生しても、生のブロックを結果に含めるなどのフォールバックも可能
+                continue
+
+        if not summarized_results:
+             return f"【検索結果】「{query}」に関する情報を抽出できませんでした。"
+
+        # 6. 最終出力の整形
+        result_parts = [f'【過去の会話ログからの検索結果：「{query}」】\n']
+        for res in summarized_results:
+            date_str = f"日付: {res['date']}頃" if res['date'] else "日付不明"
+            result_parts.append(f"- [出典: {res['source']}, {date_str}]\n  {res['summary']}")
+
+        return "\n".join(result_parts)
+
+    except Exception as e:
+        traceback.print_exc()
+        return f"【エラー】過去ログ検索中に予期せぬエラーが発生しました: {e}"
+
+# ▲▲▲ 追加はここまで ▲▲▲
 
 @tool
 def search_memory(query: str, room_name: str) -> str:
