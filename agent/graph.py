@@ -1,6 +1,7 @@
 # agent/graph.py (v21: Smart Retry)
 
 import os
+import copy
 import re
 import traceback
 import json
@@ -284,7 +285,12 @@ def agent_node(state: AgentState):
     response = llm_with_tools.invoke(messages_for_agent)
 
     print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
-    pprint.pprint(response)
+    response_for_log = copy.deepcopy(response)
+    if hasattr(response_for_log, 'tool_calls') and response_for_log.tool_calls:
+        for tool_call in response_for_log.tool_calls:
+            if 'api_key' in tool_call.get('args', {}):
+                tool_call['args']['api_key'] = '<REDACTED>'
+    pprint.pprint(response_for_log)
     print("---------------------------------------\n")
 
     # ▼▼▼ return文の直前に、以下の2行を追加 ▼▼▼
@@ -489,6 +495,13 @@ def safe_tool_executor(state: AgentState):
             traceback.print_exc()
     else:
         print(f"  - 通常ツール実行: {tool_name}")
+        # 引数ログ用コピーにAPIキーがあればマスク
+        tool_args_for_log = tool_args.copy()
+        if 'api_key' in tool_args_for_log:
+            tool_args_for_log['api_key'] = '<REDACTED>'
+        # 必要に応じて以下のように利用
+        # print(f"    - 引数: {tool_args_for_log}")
+
         tool_args['room_name'] = room_name
         if tool_name in ['generate_image', 'search_past_conversations']:
             tool_args['api_key'] = api_key
@@ -512,7 +525,13 @@ def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node",
 
     if last_message.tool_calls:
         print("  - ツール呼び出しあり。ツール実行ノードへ。")
-        for tool_call in last_message.tool_calls: print(f"    🛠️ ツール呼び出し: {tool_call['name']} | 引数: {tool_call['args']}")
+        for tool_call in last_message.tool_calls:
+            # 引数ログのAPIキーをマスク
+            args_for_log = dict(tool_call['args']) if isinstance(tool_call.get('args'), dict) else tool_call.get('args')
+            if isinstance(args_for_log, dict) and 'api_key' in args_for_log:
+                args_for_log = args_for_log.copy()
+                args_for_log['api_key'] = '<REDACTED>'
+            print(f"    🛠️ ツール呼び出し: {tool_call['name']} | 引数: {args_for_log}")
         return "safe_tool_node"
 
     # 1回までの再思考を許容する
