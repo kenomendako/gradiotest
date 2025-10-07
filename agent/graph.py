@@ -500,7 +500,7 @@ def safe_tool_executor(state: AgentState):
                 output = f"Error executing tool '{tool_name}': {e}"
                 traceback.print_exc()
 
-    return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)]}
+    return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)], "loop_count": state.get("loop_count", 0)}
 
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node", "agent"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
