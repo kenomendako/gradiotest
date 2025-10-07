@@ -85,6 +85,6 @@ def read_url_tool(urls: list[str], room_name: str) -> str:
     if not urls:
         return "URLが指定されていません。"
     try:
-        return "URLの内容を読み取りました。（この機能は現在スタブです）"
+        return "Success: URLの内容を読み取りました。（この機能は現在スタブです）**このタスクは完了しました。これから読むというような前置きはせず、**読み取った情報を元に会話を続けてください。"
     except Exception as e:
         return f"URLの内容取得中に予期せぬシステムエラーが発生しました。URLが無効か、ページがアクセスできない可能性があります。詳細: {e}"

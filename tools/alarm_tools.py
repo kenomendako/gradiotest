@@ -81,7 +81,7 @@ def set_personal_alarm(
             schedule_info = f"for {alarm_date_str}"
 
         if alarm_manager.add_alarm_entry(new_alarm):
-            return f"Success: The alarm has been reliably set {schedule_info} at {time_str}. The memo is '{context_memo}'. There is no need to set it again."
+            return f"Success: The alarm has been reliably set {schedule_info} at {time_str}. The memo is '{context_memo}'. **この設定タスクは完了しました。これから設定するというような前置きはせず、**設定が完了したことだけを簡潔にユーザーに報告してください。"
         else:
             return "Error: Failed to save the alarm entry."
 

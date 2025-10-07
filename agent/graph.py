@@ -481,6 +481,9 @@ def safe_tool_executor(state: AgentState):
                 content_to_process = text_match.group(1).strip() if text_match else edited_content_document
                 output = _write_notepad_file(full_content=content_to_process, room_name=room_name, modification_request=tool_args.get('modification_request'))
 
+            if "成功" in output:
+                output += " **このファイル編集タスクは完了しました。これから編集するというような前置きはせず、**編集が完了したことや、その結果について簡潔にユーザーに報告してください。"
+
         except Exception as e:
             output = f"ファイル編集プロセス中にエラーが発生しました ('{tool_name}'): {e}"
             traceback.print_exc()
