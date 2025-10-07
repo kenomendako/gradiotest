@@ -2086,6 +2086,11 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
         )
 
 def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: str, style_choice: str) -> Optional[str]:
+    """
+    【v4: ユーザー資産保護版】
+    現在の時間と季節に一致するファイル名を事前に確定し、そのファイル名で画像を生成・上書き保存する。
+    他の季節や時間帯の画像には一切触れず、UIの表示更新を保証する。
+    """
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーを選択してください。")
         return None
@@ -2096,18 +2101,24 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
         return None
 
     location_id = utils.get_current_location(room_name)
-    existing_image_path = utils.find_scenery_image(room_name, location_id)
-
     if not location_id:
         gr.Warning("現在地が特定できません。")
-        return existing_image_path
+        return None
 
+    # 目的のファイル名を事前に確定
+    now = datetime.datetime.now()
+    current_season = utils.get_season(now.month)
+    current_time_of_day = utils.get_time_of_day(now.hour)
+
+    save_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
+    os.makedirs(save_dir, exist_ok=True)
+    final_filename = f"{location_id}_{current_season}_{current_time_of_day}.png"
+    final_path = os.path.join(save_dir, final_filename)
+
+    # プロンプト生成
     final_prompt = ""
     gr.Info("シーンディレクターAIがプロンプトを構成しています...")
     try:
-        now = datetime.datetime.now()
-        time_of_day = utils.get_time_of_day(now.hour)
-        season = utils.get_season(now.month)
         style_prompts = {
             "写真風 (デフォルト)": "An ultra-detailed, photorealistic masterpiece with cinematic lighting.",
             "イラスト風": "A beautiful and detailed anime-style illustration, pixiv contest winner.",
@@ -2120,7 +2131,7 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
         world_settings = utils.parse_world_file(world_settings_path)
         if not world_settings:
             gr.Error("世界設定の読み込みに失敗しました。")
-            return existing_image_path
+            return utils.find_scenery_image(room_name, location_id)
 
         space_text = None
         for area, places in world_settings.items():
@@ -2130,7 +2141,7 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
 
         if not space_text:
             gr.Error("現在の場所の定義が見つかりません。")
-            return existing_image_path
+            return utils.find_scenery_image(room_name, location_id)
 
         from agent.graph import get_configured_llm
         effective_settings = config_manager.get_effective_settings(room_name)
@@ -2140,13 +2151,13 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
 You are a master scene director AI for a high-end image generation model.
 Your sole purpose is to synthesize all available information into a single, cohesive, and flawless English prompt.
 
-**Objective:**
-Generate ONE final, masterful prompt for an image generation AI based on a strict hierarchy of information.
-
 **--- [Primary Directive: The Hierarchy of Truth] ---**
 1.  **Analyze the "Base Location Description" FIRST.** Look for any explicit or implicit descriptions of the **time of day, lighting, weather, or atmosphere** (e.g., "always night," "sunlight streaming through," "rainy," "gloomy").
 2.  **If such descriptions exist, they are the ABSOLUTE TRUTH.** You MUST base the visual atmosphere of the prompt on these descriptions. In this case, you MUST IGNORE the "Current Scene Conditions" regarding time and season, as the location's inherent properties override reality.
 3.  **If, and ONLY IF, the "Base Location Description" contains NO information about time or lighting,** you must then use the "Current Scene Conditions" to determine the time and season for the prompt.
+
+**--- [Critical Mandate: Window & Exterior Lighting] ---**
+If the scene has windows, portals, or any view to the outside, the lighting and scenery visible through them **MUST STRICTLY and ACCURATELY** reflect the final determined time of day. A `night` scene **MUST** have a dark exterior view with appropriate lighting (e.g., moonlight, city lights), and a `daytime` scene **MUST** have a bright exterior view. There are **NO EXCEPTIONS** to this rule.
 
 **--- [Core Principles] ---**
 -   **Foundation First:** The "Base Location Description" is the undeniable truth for all physical structures, objects, furniture, and materials. Your prompt MUST be a faithful visual representation of these elements.
@@ -2164,8 +2175,8 @@ Generate ONE final, masterful prompt for an image generation AI based on a stric
 ```
 
 **2. Current Scene Conditions (Use ONLY if time/lighting is NOT specified in the description above):**
-- Time of Day: {time_of_day}
-- Season: {season}
+- Time of Day: {current_time_of_day}
+- Season: {current_season}
 
 **3. Style Definition (Incorporate this aesthetic):**
 - {style_choice_text}
@@ -2184,39 +2195,34 @@ Generate ONE final, masterful prompt for an image generation AI based on a stric
     except Exception as e:
         gr.Error(f"シーンディレクターAIによるプロンプト生成中にエラーが発生しました: {e}")
         traceback.print_exc()
-        return existing_image_path
+        return utils.find_scenery_image(room_name, location_id)
 
     if not final_prompt:
         gr.Error("シーンディレクターAIが有効なプロンプトを生成できませんでした。")
-        return existing_image_path
+        return utils.find_scenery_image(room_name, location_id)
 
     gr.Info(f"「{style_choice}」で画像を生成します...")
     result = generate_image_tool_func.func(prompt=final_prompt, room_name=room_name, api_key=api_key)
 
+    # 確定パスで上書き保存し、そのパスを返す
     if "Generated Image:" in result:
         generated_path = result.replace("[Generated Image: ", "").replace("]", "").strip()
         if os.path.exists(generated_path):
-            save_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
-            now = datetime.datetime.now()
-
-            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
-            specific_filename = f"{cache_key}.png"
-            specific_path = os.path.join(save_dir, specific_filename)
-
-            if os.path.exists(specific_path):
-                os.remove(specific_path)
-
-            shutil.move(generated_path, specific_path)
-            print(f"--- 情景画像を生成し、保存しました: {specific_path} ---")
-
-            gr.Info("画像を生成/更新しました。")
-            return specific_path
+            try:
+                shutil.move(generated_path, final_path)
+                print(f"--- 情景画像を生成し、保存/上書きしました: {final_path} ---")
+                gr.Info("画像を生成/更新しました。")
+                return final_path
+            except Exception as move_e:
+                gr.Error(f"生成された画像の移動/上書きに失敗しました: {move_e}")
+                return utils.find_scenery_image(room_name, location_id)
         else:
             gr.Error("画像の生成には成功しましたが、一時ファイルの特定に失敗しました。")
-            return existing_image_path
     else:
         gr.Error(f"画像の生成/更新に失敗しました。AIの応答: {result}")
-        return existing_image_path
+
+    # フォールバック
+    return utils.find_scenery_image(room_name, location_id)
 
 def handle_api_connection_test(api_key_name: str):
     if not api_key_name:
