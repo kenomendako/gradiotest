@@ -45,62 +45,53 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
                 continue
             
             with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+                lines = f.readlines()
 
-            header_pattern = re.compile(r'^## (?:USER|AGENT|SYSTEM):.*$', re.MULTILINE)
-            header_matches = list(header_pattern.finditer(content))
-            if not header_matches:
+            header_indices = [i for i, line in enumerate(lines) if re.match(r"^(## (?:USER|AGENT|SYSTEM):.*)$", line.strip())]
+            if not header_indices:
                 continue
 
-            # re.search を使うことで、より柔軟な検索が可能になる
-            if re.search(re.escape(query), content, re.IGNORECASE):
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
+            processed_blocks_content = set()
 
-                header_indices = [i for i, line in enumerate(lines) if header_pattern.match(line.strip())]
-                processed_blocks_content = set()
-
-                for i, line in enumerate(lines):
-                    # 大文字・小文字を区別しない正規表現検索
-                    if re.search(re.escape(query), line, re.IGNORECASE):
-                        start_index = 0
-                        for h_idx in reversed(header_indices):
-                            if h_idx <= i:
-                                start_index = h_idx
+            for i, line in enumerate(lines):
+                # ★★★【実績のあるロジック】正規表現を避け、単純な小文字化と比較を行う ★★★
+                if query.lower() in line.lower():
+                    start_index = 0
+                    for h_idx in reversed(header_indices):
+                        if h_idx <= i:
+                            start_index = h_idx
+                            break
+                    
+                    end_index = len(lines)
+                    for h_idx in header_indices:
+                        if h_idx > start_index:
+                            end_index = h_idx
+                            break
+                    
+                    block_content = "".join(lines[start_index:end_index]).strip()
+                    if block_content not in processed_blocks_content:
+                        processed_blocks_content.add(block_content)
+                        
+                        block_date = None
+                        for pattern in date_patterns:
+                            matches = list(pattern.finditer(block_content))
+                            if matches:
+                                block_date = matches[-1].group(1)
                                 break
                         
-                        end_index = len(lines)
-                        for h_idx in header_indices:
-                            if h_idx > start_index:
-                                end_index = h_idx
-                                break
-                        
-                        block_content = "".join(lines[start_index:end_index]).strip()
-                        if block_content not in processed_blocks_content:
-                            processed_blocks_content.add(block_content)
-                            
-                            block_date = None
-                            for pattern in date_patterns:
-                                matches = list(pattern.finditer(block_content))
-                                if matches:
-                                    block_date = matches[-1].group(1)
-                                    break
-                            
-                            found_blocks.append({
-                                "content": block_content,
-                                "date": block_date,
-                                "source": file_path.name
-                            })
+                        found_blocks.append({
+                            "content": block_content,
+                            "date": block_date,
+                            "source": file_path.name
+                        })
         # ▲▲▲【置き換えはここまで】▲▲▲
 
         if not found_blocks:
             return f"【検索結果】過去の会話ログから「{query}」に関する情報は見つかりませんでした。"
 
-        # 4. 絞り込み
         found_blocks.sort(key=lambda x: x.get('date') or '0000-00-00', reverse=True)
         limited_blocks = found_blocks[:5]
 
-        # 5. 断片ごとの個別要約
         summarized_results = []
         from gemini_api import get_configured_llm
         summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
@@ -129,7 +120,6 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
         if not summarized_results:
              return f"【検索結果】「{query}」に関する情報を抽出できませんでした。"
 
-        # 6. 最終出力の整形
         result_parts = [f'【過去の会話ログからの検索結果：「{query}」】\n']
         for res in summarized_results:
             date_str = f"日付: {res['date']}頃" if res['date'] else "日付不明"

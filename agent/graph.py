@@ -487,7 +487,7 @@ def safe_tool_executor(state: AgentState):
     else:
         print(f"  - 通常ツール実行: {tool_name}")
         tool_args['room_name'] = room_name
-        if tool_name in ['generate_image']:
+        if tool_name in ['generate_image', 'search_past_conversations']:
             tool_args['api_key'] = api_key
 
         selected_tool = next((t for t in all_tools if t.name == tool_name), None)
