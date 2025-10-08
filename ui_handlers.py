@@ -75,17 +75,12 @@ def _create_redaction_df_from_rules(rules: List[Dict]) -> pd.DataFrame:
 
 def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     """
-    【修正】チャットタブと、それに付随する設定UIの更新のみを担当するヘルパー関数。
-    戻り値の数は `initial_load_chat_outputs` の38個と一致する。
+    【v3】チャットタブと、それに付随する設定UIの更新のみを担当するヘルパー関数。
+    戻り値の数は `initial_load_chat_outputs` の34個と一致する。
     """
     if not room_name:
         room_list = room_manager.get_room_list_for_ui()
         room_name = room_list[0][1] if room_list else "Default"
-
-    # --- [ここからが追加/修正箇所] ---
-    # 1. 関数の冒頭で、新しく追加したヘルパー関数を呼び出す
-    time_settings = _load_time_settings_for_room(room_name)
-    # --- [追加ここまで] ---
 
     effective_settings = config_manager.get_effective_settings(room_name)
     chat_history, mapping_list = reload_chat_log(
@@ -108,7 +103,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     if current_location_from_file and current_location_from_file not in valid_location_ids:
         gr.Warning(f"最後にいた場所「{current_location_from_file}」が見つかりません。移動先を選択し直してください。")
         location_dd_val = None
-    _, _, scenery_text = generate_scenery_context(room_name, api_key) # location_nameは不要に
+    _, _, scenery_text = generate_scenery_context(room_name, api_key)
     scenery_image_path = utils.find_scenery_image(room_name, location_dd_val)
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "iapetus"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
@@ -125,8 +120,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
     core_memory_content = load_core_memory_content(room_name)
 
-    # 2. 戻り値のタプルの最後に、時間設定UI用の4つの値を追加する
-    # このタプルの要素数は38個になる
+    # このタプルの要素数は34個になる
     chat_tab_updates = (
         room_name, chat_history, mapping_list,
         gr.update(value={'text': '', 'files': []}),
@@ -147,23 +141,16 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings["send_core_memory"], effective_settings["send_scenery"],
         effective_settings["auto_memory_enabled"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
-        scenery_image_path,
-        # --- [ここからが追加する行] ---
-        gr.update(value=time_settings.get("mode", "リアル連動")),
-        gr.update(value=time_settings.get("fixed_season_ja", "秋")),
-        gr.update(value=time_settings.get("fixed_time_of_day_ja", "夜")),
-        gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
-        # --- [追加はここまで] ---
+        scenery_image_path
     )
     return chat_tab_updates
 
 def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     """
-    【修正】ルーム切り替え時に、全ての関連タブのUIを更新する。
-    戻り値の数は `all_room_change_outputs` の41個と一致する。
+    【v3】ルーム切り替え時に、全ての関連タブのUIを更新する。
+    戻り値の数は `all_room_change_outputs` の46個と一致する。
     """
-    # 4a. `_update_chat_tab_for_room_change` の呼び出し部分を修正
-    #     戻り値が38個のタプルになる
+    # chat_tab_updatesは34個の更新値を持つ
     chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
 
     wb_state, wb_area_selector, wb_raw_editor = handle_world_builder_load(room_name)
@@ -182,24 +169,36 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     archive_dates = _get_date_choices_from_memory(room_name)
     archive_date_dropdown_update = gr.update(choices=archive_dates, value=archive_dates[0] if archive_dates else None)
 
-    # 4b. 最後の return 文を修正し、chat_tab_updates を正しく結合する
-    #     戻り値の総数は 38 + 3 + 3 + 2 = 46個となり、nexus_ark.py側の期待と一致する
-    return chat_tab_updates + world_builder_updates + session_management_updates + (rules_df_for_ui, archive_date_dropdown_update)
+    # 時間設定UIのための値を取得
+    time_settings = _load_time_settings_for_room(room_name)
+    time_settings_updates = (
+        gr.update(value=time_settings.get("mode", "リアル連動")),
+        gr.update(value=time_settings.get("fixed_season_ja", "秋")),
+        gr.update(value=time_settings.get("fixed_time_of_day_ja", "夜")),
+        gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
+    )
+
+    # 戻り値の総数: 34 + 3 + 3 + 1 + 1 + 4 = 46個
+    return (
+        chat_tab_updates +
+        world_builder_updates +
+        session_management_updates +
+        (rules_df_for_ui, archive_date_dropdown_update) +
+        time_settings_updates
+    )
 
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
-    【修正】UIの初期化処理。戻り値の数は `initial_load_outputs` の41個と一致する。
+    【v3】UIの初期化処理。戻り値の数は `initial_load_outputs` の45個と一致する。
     """
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
 
-    # 3a. `_update_chat_tab_for_room_change` の呼び出し部分を修正
-    #     戻り値が38個のタプルになる
+    # chat_tab_updatesは34個の更新値を持つ
     chat_tab_updates = _update_chat_tab_for_room_change(initial_room_to_load, initial_api_key_name)
 
-    # 置換ルール関連の1個の更新値を取得
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
 
@@ -210,19 +209,27 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
         parts=[], **token_calc_kwargs
     )
 
-    # 起動時にAPIキードロップダウンも正しく更新するための値を追加
     api_key_choices = list(config_manager.GEMINI_API_KEYS.keys())
     api_key_dd_update = gr.update(choices=api_key_choices, value=initial_api_key_name)
 
     world_data_for_state = get_world_data(initial_room_to_load)
 
-    # 3b. 最後の return 文を修正し、chat_tab_updates を正しく結合する
-    #     戻り値の総数は 3 + 38 + 3 + 1 = 45個となり、nexus_ark.py側の期待と一致する
+    # 時間設定UIのための値を取得
+    time_settings = _load_time_settings_for_room(initial_room_to_load)
+    time_settings_updates = (
+        gr.update(value=time_settings.get("mode", "リアル連動")),
+        gr.update(value=time_settings.get("fixed_season_ja", "秋")),
+        gr.update(value=time_settings.get("fixed_time_of_day_ja", "夜")),
+        gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
+    )
+
+    # 戻り値の総数: 3 + 34 + 3 + 1 + 4 = 45個
     return (
         (display_df, df_with_ids, feedback_text) +
         chat_tab_updates +
         (rules_df_for_ui, token_count_text, api_key_dd_update) +
-        (world_data_for_state,)
+        (world_data_for_state,) +
+        time_settings_updates
     )
 
 def handle_save_room_settings(
@@ -3108,11 +3115,9 @@ def _load_time_settings_for_room(room_name: str) -> Dict[str, Any]:
     room_config = room_manager.get_room_config(room_name)
     settings = (room_config or {}).get("time_settings", {})
 
-    # 日本語名への変換マップ
     season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
     time_map_en_to_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}
 
-    # デフォルト値と日本語への変換
     mode = settings.get("mode", "realtime")
     season_en = settings.get("fixed_season", "autumn")
     time_en = settings.get("fixed_time_of_day", "night")
@@ -3135,7 +3140,6 @@ def handle_save_time_settings(room_name: str, mode: str, season_ja: str, time_of
         gr.Warning("設定を保存するルームが選択されていません。")
         return
 
-    # 日本語名から内部的な英語名への変換
     season_map_ja_to_en = {"春": "spring", "夏": "summer", "秋": "autumn", "冬": "winter"}
     time_map_ja_to_en = {"朝": "morning", "昼": "daytime", "夕方": "evening", "夜": "night"}
 
