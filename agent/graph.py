@@ -62,6 +62,8 @@ class AgentState(TypedDict):
     debug_mode: bool
     all_participants: List[str]
     loop_count: int # ← この行を追加
+    season_en: str
+    time_of_day_en: str
 
 def get_location_list(room_name: str) -> List[str]:
     """
@@ -214,33 +216,49 @@ def context_generator_node(state: AgentState):
     if not state.get("send_scenery", True):
         final_system_prompt_text = (f"{formatted_core_prompt}\n\n---\n【現在の場所と情景】\n（空間描写は設定により無効化されています）\n---")
     else:
+        # 1. Stateから時間・季節情報を取得
+        season_en = state.get("season_en", "autumn")
+        time_of_day_en = state.get("time_of_day_en", "night")
+
+        # 2. 日本語名に変換
+        season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
+        time_map_en_to_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}
+        season_ja = season_map_en_to_ja.get(season_en, "不明な季節")
+        time_of_day_ja = time_map_en_to_ja.get(time_of_day_en, "不明な時間帯")
+
+        # 3. その他の情景関連情報を取得
         location_display_name = state.get("location_name", "（不明な場所）")
         scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
-        soul_vessel_room = all_participants[0] if all_participants else room_name
+
+        soul_vessel_room = state['all_participants'][0] if state['all_participants'] else state['room_name']
         space_def = "（場所の定義を取得できませんでした）"
         current_location_name = utils.get_current_location(soul_vessel_room)
         if current_location_name:
             world_settings_path = get_world_settings_path(soul_vessel_room)
             world_data = utils.parse_world_file(world_settings_path)
-            # 防御的プログラミング：space_def が巨大なデータにならないように保証する
             if isinstance(world_data, dict):
                 for area, places in world_data.items():
                     if isinstance(places, dict) and current_location_name in places:
                         space_def = places[current_location_name]
-                        # 念のため、予期せぬ長大なデータが混入することを防ぐ
                         if isinstance(space_def, str) and len(space_def) > 2000:
                             space_def = space_def[:2000] + "\n...（長すぎるため省略）"
                         break
             else:
-                # world_dataが予期せず辞書でない場合のエラーハンドリング
                 space_def = "（エラー：世界設定のデータ構造が不正です）"
 
-        available_locations = get_location_list(room_name)
+        available_locations = get_location_list(state['room_name'])
         location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
+
+        # 4. 新しい構造でシステムプロンプトを組み立てる
         final_system_prompt_text = (
             f"{formatted_core_prompt}\n\n---\n"
-            f"【現在の場所と情景】\n- 場所: {location_display_name}\n"
-            f"- 場所の設定（自由記述）: \n{space_def}\n- 今の情景: {scenery_text}\n"
+            f"【現在の状況】\n"
+            f"- 季節: {season_ja}\n"
+            f"- 時間帯: {time_of_day_ja}\n\n"
+            f"【現在の場所と情景】\n"
+            f"- 場所: {location_display_name}\n"
+            f"- 今の情景: {scenery_text}\n"
+            f"- 場所の設定（自由記述）: \n{space_def}\n\n"
             f"【移動可能な場所】\n{location_list_str}\n---"
         )
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}

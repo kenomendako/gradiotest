@@ -417,6 +417,10 @@ def _stream_and_handle_response(
                 "history_log_path": main_log_f, "user_prompt_parts": final_user_prompt_parts,
                 "soul_vessel_room": soul_vessel_room, "active_participants": active_participants,
                 "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
+                # --- [ここから追加] ---
+                "season_en": season_en,
+                "time_of_day_en": time_of_day_en
+                # --- [追加ここまで] ---
             }
 
             # 5. ストリーミング実行とUI更新

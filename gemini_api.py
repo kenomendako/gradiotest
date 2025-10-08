@@ -160,6 +160,10 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     active_participants = agent_args["active_participants"]
     shared_location_name = agent_args["shared_location_name"]
     shared_scenery_text = agent_args["shared_scenery_text"]
+    # --- [ここから追加] ---
+    season_en = agent_args["season_en"]
+    time_of_day_en = agent_args["time_of_day_en"]
+    # --- [追加ここまで] ---
 
     all_participants_list = [soul_vessel_room] + active_participants
     global_model_from_ui = agent_args.get("global_model_from_ui")
@@ -231,7 +235,11 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "location_name": shared_location_name,
         "scenery_text": shared_scenery_text,
         "all_participants": all_participants_list,
-        "loop_count": 0 # ← この行を追加
+        "loop_count": 0, # ← この行を追加
+        # --- [ここから追加] ---
+        "season_en": season_en,
+        "time_of_day_en": time_of_day_en
+        # --- [追加ここまで] ---
     }
 
     # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
