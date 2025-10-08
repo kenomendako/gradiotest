@@ -479,6 +479,28 @@ try:
                     # --- 右カラム ---
                     with gr.Column(scale=3, min_width=300): # ← scale=1.5 を 3 に変更
                         with gr.Accordion("🖼️ プロフィール・情景", open=True):
+                            # --- [ここからが追加するUIブロック] ---
+                            with gr.Accordion("🕰️ 季節・時間を指定", open=False) as time_control_accordion:
+                                gr.Markdown("（この設定はルームごとに保存されます）", elem_id="time_control_note")
+                                time_mode_radio = gr.Radio(
+                                    choices=["リアル連動", "選択する"],
+                                    label="モード選択",
+                                    interactive=True
+                                )
+                                with gr.Column(visible=False) as fixed_time_controls:
+                                    fixed_season_dropdown = gr.Dropdown(
+                                        label="季節を選択",
+                                        choices=["春", "夏", "秋", "冬"],
+                                        interactive=True
+                                    )
+                                    fixed_time_of_day_dropdown = gr.Dropdown(
+                                        label="時間帯を選択",
+                                        choices=["朝", "昼", "夕方", "夜"],
+                                        interactive=True
+                                    )
+                                    save_time_settings_button = gr.Button("このルームの時間設定を保存", variant="secondary")
+                            # --- [追加ブロックはここまで] ---
+
                             # --- プロフィール画像セクション ---
                             profile_image_display = gr.Image(
                                 height=200, interactive=False, show_label=False, elem_id="profile_image_display"
@@ -661,13 +683,28 @@ try:
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
         ] + initial_load_chat_outputs + [
             redaction_rules_df, token_count_display, api_key_dropdown,
-            world_data_state # ← この行を追加
+            world_data_state,
+            # --- [ここからが追加する行] ---
+            time_mode_radio,
+            fixed_season_dropdown,
+            fixed_time_of_day_dropdown,
+            fixed_time_controls
+            # --- [追加はここまで] ---
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
 
-        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df, archive_date_dropdown]
+        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [
+            redaction_rules_df,
+            archive_date_dropdown,
+            # --- [ここからが追加する行] ---
+            time_mode_radio,
+            fixed_season_dropdown,
+            fixed_time_of_day_dropdown,
+            fixed_time_controls
+            # --- [追加はここまで] ---
+        ]
 
         # The instruction was to modify the list definition, but the list is constructed from other lists.
         # I have already added 'core_memory_editor' to 'initial_load_chat_outputs'.
@@ -1238,6 +1275,20 @@ try:
             outputs=None
         )
         # ▲▲▲【追加はここまで】▲▲▲
+
+        # --- [ここからが追加するイベントハンドラ] ---
+        time_mode_radio.change(
+            fn=ui_handlers.handle_time_mode_change,
+            inputs=[time_mode_radio],
+            outputs=[fixed_time_controls]
+        )
+
+        save_time_settings_button.click(
+            fn=ui_handlers.handle_save_time_settings,
+            inputs=[current_room_name, time_mode_radio, fixed_season_dropdown, fixed_time_of_day_dropdown],
+            outputs=[] # ポップアップ通知のみ
+        )
+        # --- [追加はここまで] ---
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])
