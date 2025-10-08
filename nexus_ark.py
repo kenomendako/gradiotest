@@ -669,13 +669,12 @@ try:
             profile_image_display,
             memory_txt_editor, notepad_editor, system_prompt_editor,
             core_memory_editor,
+            room_dropdown, # This was the missing item
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
-            # current_location_display,  # ← この行を削除
             current_scenery_display, room_voice_dropdown,
-            room_voice_style_prompt_textbox, # ← この行を追記
+            room_voice_style_prompt_textbox,
             enable_typewriter_effect_checkbox,
             streaming_speed_slider,
-            # ▲▲▲ 追加ここまで ▲▲▲
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
@@ -734,26 +733,27 @@ try:
             outputs=[active_participants_state, session_status_display, participant_checkbox_group]
         )
 
-        # ▼▼▼ chat_inputs のリスト定義から streaming_speed_slider を削除 ▼▼▼
+        # ▼▼▼ chat_inputs のリスト定義から streaming_speed_slider を削除し、代わりに関連チェックボックスを追加 ▼▼▼
         chat_inputs = [
-            chat_input_multimodal, # 変更
+            chat_input_multimodal,
             current_room_name,
             current_api_key_name_state,
-            # file_upload_button は削除
             api_history_limit_state,
             debug_mode_checkbox,
             debug_console_state,
             active_participants_state,
             model_dropdown,
-            # streaming_speed_slider # ← この行を削除
+            enable_typewriter_effect_checkbox, # ← この行を追加
+            streaming_speed_slider,            # ← この行を追加
         ]
 
-        # ▼▼▼ rerun_inputs のリスト定義から streaming_speed_slider を削除 ▼▼▼
+# ▼▼▼ rerun_inputs のリスト定義から streaming_speed_slider を削除し、代わりに関連チェックボックスを追加 ▼▼▼
         rerun_inputs = [
             selected_message_state, current_room_name, current_api_key_name_state,
             api_history_limit_state, debug_mode_checkbox,
             debug_console_state, active_participants_state, model_dropdown,
-            # streaming_speed_slider # ← この行を削除
+            enable_typewriter_effect_checkbox, # ← この行を追加
+            streaming_speed_slider,            # ← この行を追加
         ]
 
         # 新規送信と再生成で、UI更新の対象（outputs）を完全に一致させる
@@ -774,12 +774,13 @@ try:
             outputs=unified_streaming_outputs
         )
 
+        # 戻り値の最後に token_count_display と current_room_name を追加
+        all_room_change_outputs.extend([token_count_display, current_room_name])
+
         room_dropdown.change(
             fn=ui_handlers.handle_room_change_for_all_tabs,
             inputs=[room_dropdown, api_key_dropdown],
             outputs=all_room_change_outputs
-        ).then(
-            fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
         chat_reload_button.click(
@@ -954,8 +955,8 @@ try:
             inputs=[
                 current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox
             ] + gen_settings_inputs + [
+                enable_typewriter_effect_checkbox, # ← enable_typewriter_effect と streaming_speed の順番を変更
                 streaming_speed_slider,
-                enable_typewriter_effect_checkbox, # ← この行を追加
             ] + context_checkboxes,
             outputs=None
         )

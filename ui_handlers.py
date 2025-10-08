@@ -147,8 +147,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
 def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     """
-    【v3】ルーム切り替え時に、全ての関連タブのUIを更新する。
-    戻り値の数は `all_room_change_outputs` の46個と一致する。
+    【v4】ルーム切り替え時に、全ての関連タブのUIを更新する。
+    戻り値の数は `all_room_change_outputs` の47個と一致する。
     """
     # chat_tab_updatesは34個の更新値を持つ
     chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
@@ -169,7 +169,6 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     archive_dates = _get_date_choices_from_memory(room_name)
     archive_date_dropdown_update = gr.update(choices=archive_dates, value=archive_dates[0] if archive_dates else None)
 
-    # 時間設定UIのための値を取得
     time_settings = _load_time_settings_for_room(room_name)
     time_settings_updates = (
         gr.update(value=time_settings.get("mode", "リアル連動")),
@@ -178,7 +177,10 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
         gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
     )
 
-    # 戻り値の総数: 34 + 3 + 3 + 1 + 1 + 4 = 46個
+    # 戻り値の総数: 34 + 3 + 3 + 1 + 1 + 4 = 46個 -> 47個に修正
+    # _update_chat_tab_for_room_change が返す profile_image を profile_image_display_update に変更
+    # chat_tab_updates の最初の要素は room_name ではないので、current_room_name を別途返す必要がある
+    # いや、_update_chat_tab_for_room_changeの最初の戻り値がroom_nameなので、それでStateが更新される
     return (
         chat_tab_updates +
         world_builder_updates +
@@ -235,11 +237,11 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
 def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
-    streaming_speed: float, # ← この引数を追加
+    enable_typewriter_effect: bool, # ← enable_typewriter_effect と streaming_speed の順番を変更
+    streaming_speed: float,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
-    auto_memory_enabled: bool,
-    enable_typewriter_effect: bool
+    auto_memory_enabled: bool
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -259,28 +261,27 @@ def handle_save_room_settings(
         "safety_block_threshold_hate_speech": safety_value_map.get(hate),
         "safety_block_threshold_sexually_explicit": safety_value_map.get(sexual),
         "safety_block_threshold_dangerous_content": safety_value_map.get(dangerous),
-        "add_timestamp": bool(add_timestamp), "send_thoughts": bool(send_thoughts), "send_notepad": bool(send_notepad),
-        "use_common_prompt": bool(use_common_prompt), "send_core_memory": bool(send_core_memory), "send_scenery": bool(send_scenery),
-        "auto_memory_enabled": bool(auto_memory_enabled),
         "enable_typewriter_effect": bool(enable_typewriter_effect),
-        "streaming_speed": float(streaming_speed) # ← この行を追加
+        "streaming_speed": float(streaming_speed),
+        "add_timestamp": bool(add_timestamp),
+        "send_thoughts": bool(send_thoughts),
+        "send_notepad": bool(send_notepad),
+        "use_common_prompt": bool(use_common_prompt),
+        "send_core_memory": bool(send_core_memory),
+        "send_scenery": bool(send_scenery),
+        "auto_memory_enabled": bool(auto_memory_enabled),
     }
     try:
-        # 正しくは room_config.json を参照する
         room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
         config = {}
-        # ファイルが存在しない場合も考慮（ensure_room_filesで作成されるはずだが念のため）
         if os.path.exists(room_config_path):
              if os.path.getsize(room_config_path) > 0:
                 with open(room_config_path, "r", encoding="utf-8") as f:
                     config = json.load(f)
         else:
-            # 万が一ファイルがない場合は、ここで基本的な構造を作成する
             gr.Warning(f"設定ファイルが見つからなかったため、新しく作成します: {room_config_path}")
             config = {
-                "version": 1,
-                "room_name": room_name,
-                "user_display_name": "ユーザー",
+                "version": 1, "room_name": room_name, "user_display_name": "ユーザー",
                 "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "description": "自動生成された設定ファイルです"
             }
@@ -356,16 +357,15 @@ def _stream_and_handle_response(
     soul_vessel_room: str,
     active_participants: List[str],
     current_console_content: str,
+    enable_typewriter_effect: bool, # ← この行を追加
+    streaming_speed: float,       # ← この行を追加
 ) -> Iterator[Tuple]:
     """
-    【v2: 再生成対応】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
+    【v3: タイプライター設定対応】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
     """
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
-    # ▼▼▼ 関数内で effective_settings から直接取得する ▼▼▼
     effective_settings = config_manager.get_effective_settings(soul_vessel_room)
-    streaming_speed = effective_settings.get("streaming_speed", 0.01)
     add_timestamp = effective_settings.get("add_timestamp", False)
-    # ▲▲▲ 修正ここまで ▲▲▲
     chatbot_history, mapping_list = reload_chat_log(
         room_name=soul_vessel_room,
         api_history_limit_value=api_history_limit,
@@ -429,10 +429,14 @@ def _stream_and_handle_response(
             initial_message_count = 0
 
             # ▼▼▼【ここからが全面的に書き換えるブロック】▼▼▼
-            # 設定に応じてタイプライター効果を適用するかどうかを取得
-            typewriter_enabled = effective_settings.get("enable_typewriter_effect", True)
+            # 引数で渡されたリアルタイムな設定値を優先する
+            typewriter_enabled = enable_typewriter_effect
 
             with utils.capture_prints() as captured_output:
+                # agent_args_dict に設定値を追加
+                agent_args_dict["enable_typewriter_effect"] = enable_typewriter_effect
+                agent_args_dict["streaming_speed"] = streaming_speed
+
                 for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                     if mode == "initial_count":
                         initial_message_count = chunk
@@ -441,8 +445,7 @@ def _stream_and_handle_response(
                         if isinstance(message_chunk, AIMessageChunk):
                             new_text_chunk = message_chunk.content
 
-                            if typewriter_enabled:
-                                # --- タイプライター効果が有効な場合（従来の処理） ---
+                            if typewriter_enabled and streaming_speed > 0:
                                 for char in new_text_chunk:
                                     streamed_text += char
                                     chatbot_history[-1] = (None, streamed_text + "▌")
@@ -450,13 +453,10 @@ def _stream_and_handle_response(
                                            gr.update(), gr.update(), gr.update(), gr.update(),
                                            gr.update(), gr.update(), current_console_content,
                                            gr.update(), gr.update(), gr.update())
-                                    if streaming_speed > 0:
-                                        time.sleep(streaming_speed)
+                                    time.sleep(streaming_speed)
                             else:
-                                # --- タイプライター効果が無効な場合（チャンク単位で一括表示） ---
                                 streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
-                                # UI更新はチャンクごとに行う
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                        gr.update(), gr.update(), gr.update(), gr.update(),
                                        gr.update(), gr.update(), current_console_content,
@@ -534,15 +534,15 @@ def _stream_and_handle_response(
                gr.update(visible=False)
         )
 
-def handle_message_submission(*args: Any):
+def handle_message_submission(
+    multimodal_input: dict, soul_vessel_room: str, api_key_name: str,
+    api_history_limit: str, debug_mode: bool,
+    console_content: str, active_participants: list, global_model: str,
+    enable_typewriter_effect: bool, streaming_speed: float # ← 2つの引数を追加
+):
     """
     【v4: ペースト挙動FIX】新規メッセージの送信を処理する司令塔。
     """
-    (multimodal_input, soul_vessel_room, api_key_name,
-     api_history_limit, debug_mode,
-     console_content, active_participants, global_model,
-     ) = args
-
     # 1. ユーザー入力を解析
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
     file_input_list = multimodal_input.get("files", []) if multimodal_input else []
@@ -645,17 +645,19 @@ def handle_message_submission(*args: Any):
         soul_vessel_room=soul_vessel_room,
         active_participants=active_participants or [],
         current_console_content=console_content,
+        enable_typewriter_effect=enable_typewriter_effect, # ← この行を追加
+        streaming_speed=streaming_speed,                   # ← この行を追加
     )
 
-def handle_rerun_button_click(*args: Any):
+def handle_rerun_button_click(
+    selected_message: Optional[Dict], room_name: str, api_key_name: str,
+    api_history_limit: str, debug_mode: bool,
+    console_content: str, active_participants: list, global_model: str,
+    enable_typewriter_effect: bool, streaming_speed: float # ← 2つの引数を追加
+):
     """
     【v2: ストリーミング対応】発言の再生成を処理する司令塔。
     """
-    (selected_message, room_name, api_key_name,
-     api_history_limit, debug_mode,
-     console_content, active_participants, global_model,
-     ) = args
-
     if not selected_message or not room_name:
         gr.Warning("再生成の起点となるメッセージが選択されていません。")
         yield (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
@@ -702,7 +704,9 @@ def handle_rerun_button_click(*args: Any):
         debug_mode=debug_mode,
         soul_vessel_room=room_name,
         active_participants=active_participants or [],
-        current_console_content=console_content
+        current_console_content=console_content,
+        enable_typewriter_effect=enable_typewriter_effect, # ← この行を追加
+        streaming_speed=streaming_speed,                   # ← この行を追加
     )
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
@@ -2343,13 +2347,40 @@ def handle_world_builder_load(room_name: str):
     return world_data, gr.update(choices=area_choices, value=None), raw_content
 
 def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
+    """
+    【v4: 司令塔アーキテクチャ】
+    ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
+    """
     print(f"--- UI司令塔(handle_room_change_for_all_tabs)実行: {room_name} ---")
 
     # 責務1: 設定をファイルに保存する
     config_manager.save_config("last_room", room_name)
 
-    # 責務2: 新しいヘルパーを呼び出してUIを更新する
-    return _update_all_tabs_for_room_change(room_name, api_key_name)
+    # 責務2: 新しいヘルパーを呼び出してUI更新値のタプルを取得する
+    all_ui_updates = _update_all_tabs_for_room_change(room_name, api_key_name)
+
+    # 責務3: トークン数を計算する
+    # _update_all_tabs_for_room_change の戻り値から、計算に必要な設定値を取得する
+    # (インデックスは _update_all_tabs_for_room_change / _update_chat_tab_for_room_change の戻り値の構造に依存)
+    add_timestamp_val = all_ui_updates[24]
+    send_thoughts_val = all_ui_updates[25]
+    send_notepad_val = all_ui_updates[26]
+    use_common_prompt_val = all_ui_updates[27]
+    send_core_memory_val = all_ui_updates[28]
+    send_scenery_val = all_ui_updates[29]
+    api_history_limit_key = config_manager.CONFIG_GLOBAL.get("last_api_history_limit_option", "all")
+
+    token_count_text = gemini_api.count_input_tokens(
+        room_name=room_name, api_key_name=api_key_name, parts=[],
+        api_history_limit=api_history_limit_key,
+        add_timestamp=add_timestamp_val, send_thoughts=send_thoughts_val,
+        send_notepad=send_notepad_val, use_common_prompt=use_common_prompt_val,
+        send_core_memory=send_core_memory_val, send_scenery=send_scenery_val
+    )
+
+    # 責務4: 全てのUI更新値と、トークン数の計算結果、そして新しいルーム名をStateに返す
+    # 戻り値の総数 = _update_all_tabs_for_room_change (47個) + token_count_text (1個) + room_name (1個) = 49個
+    return all_ui_updates + (token_count_text, room_name)
 
 def handle_start_session(main_room: str, participant_list: list) -> tuple:
     if not participant_list:

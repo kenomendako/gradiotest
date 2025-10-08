@@ -11,7 +11,6 @@ from typing import TypedDict, Annotated, List, Literal, Tuple
 
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage, HumanMessage
 from google.api_core import exceptions as google_exceptions
-from gemini_api import get_configured_llm
 from langgraph.graph import StateGraph, END, START, add_messages
 
 from agent.prompts import CORE_PROMPT_TEMPLATE
@@ -93,6 +92,7 @@ def generate_scenery_context(
     season_en: 'Optional[str]' = None, 
     time_of_day_en: 'Optional[str]' = None
 ) -> Tuple[str, str, str]:
+    from gemini_api import get_configured_llm
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
     location_display_name = "（不明な場所）"
@@ -213,20 +213,17 @@ def context_generator_node(state: AgentState):
         def __missing__(self, key): return f'{{{key}}}'
     prompt_vars = {'character_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
     formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+    situation_prompt_parts = []
     if not state.get("send_scenery", True):
-        final_system_prompt_text = (f"{formatted_core_prompt}\n\n---\n【現在の場所と情景】\n（空間描写は設定により無効化されています）\n---")
+        situation_prompt_parts.append("【現在の場所と情景】\n（空間描写は設定により無効化されています）")
     else:
-        # 1. Stateから時間・季節情報を取得
         season_en = state.get("season_en", "autumn")
         time_of_day_en = state.get("time_of_day_en", "night")
-
-        # 2. 日本語名に変換
         season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
         time_map_en_to_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}
         season_ja = season_map_en_to_ja.get(season_en, "不明な季節")
         time_of_day_ja = time_map_en_to_ja.get(time_of_day_en, "不明な時間帯")
 
-        # 3. その他の情景関連情報を取得
         location_display_name = state.get("location_name", "（不明な場所）")
         scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
 
@@ -249,21 +246,28 @@ def context_generator_node(state: AgentState):
         available_locations = get_location_list(state['room_name'])
         location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
 
-        # 4. 新しい構造でシステムプロンプトを組み立てる
-        final_system_prompt_text = (
-            f"{formatted_core_prompt}\n\n---\n"
-            f"【現在の状況】\n"
-            f"- 季節: {season_ja}\n"
-            f"- 時間帯: {time_of_day_ja}\n\n"
-            f"【現在の場所と情景】\n"
-            f"- 場所: {location_display_name}\n"
-            f"- 今の情景: {scenery_text}\n"
-            f"- 場所の設定（自由記述）: \n{space_def}\n\n"
-            f"【移動可能な場所】\n{location_list_str}\n---"
-        )
+        situation_prompt_parts.extend([
+            "【現在の状況】",
+            f"- 季節: {season_ja}",
+            f"- 時間帯: {time_of_day_ja}\n",
+            "【現在の場所と情景】",
+            f"- 場所: {location_display_name}",
+            f"- 今の情景: {scenery_text}",
+            f"- 場所の設定（自由記述）: \n{space_def}\n",
+            "【移動可能な場所】",
+            location_list_str
+        ])
+
+    situation_prompt = "\n".join(situation_prompt_parts)
+
+    # 新しい構造：まず状況を提示し、その後にAIの基本設定を記述
+    final_system_prompt_text = (
+        f"---\n{situation_prompt}\n---\n\n{formatted_core_prompt}"
+    )
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def agent_node(state: AgentState):
+    from gemini_api import get_configured_llm
     print("--- エージェントノード (agent_node) 実行 ---")
 
     # ▼▼▼ 新しいブロックをここに追加 ▼▼▼
@@ -349,6 +353,7 @@ def safe_tool_executor(state: AgentState):
     AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
     APIのレート制限エラーに対して、賢くリトライまたは中断を行う。
     """
+    from gemini_api import get_configured_llm
     print("--- ツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
