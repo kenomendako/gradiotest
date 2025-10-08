@@ -479,27 +479,6 @@ try:
                     # --- 右カラム ---
                     with gr.Column(scale=3, min_width=300): # ← scale=1.5 を 3 に変更
                         with gr.Accordion("🖼️ プロフィール・情景", open=True):
-                            # --- [ここからが追加するUIブロック] ---
-                            with gr.Accordion("🕰️ 季節・時間を指定", open=False) as time_control_accordion:
-                                gr.Markdown("（この設定はルームごとに保存されます）", elem_id="time_control_note")
-                                time_mode_radio = gr.Radio(
-                                    choices=["リアル連動", "選択する"],
-                                    label="モード選択",
-                                    interactive=True
-                                )
-                                with gr.Column(visible=False) as fixed_time_controls:
-                                    fixed_season_dropdown = gr.Dropdown(
-                                        label="季節を選択",
-                                        choices=["春", "夏", "秋", "冬"],
-                                        interactive=True
-                                    )
-                                    fixed_time_of_day_dropdown = gr.Dropdown(
-                                        label="時間帯を選択",
-                                        choices=["朝", "昼", "夕方", "夜"],
-                                        interactive=True
-                                    )
-                                    save_time_settings_button = gr.Button("このルームの時間設定を保存", variant="secondary")
-                            # --- [追加ブロックはここまで] ---
 
                             # --- プロフィール画像セクション ---
                             profile_image_display = gr.Image(
@@ -525,7 +504,30 @@ try:
                             location_dropdown = gr.Dropdown(label="現在地 / 移動先を選択", interactive=True) # ← label を変更
 
                             # --- 画像生成メニュー ---
-                            with gr.Accordion("情景画像・テキスト生成", open=False):
+                            with gr.Accordion("情景設定・生成", open=False):
+                                with gr.Accordion("🕰️ 季節・時間を指定", open=False) as time_control_accordion:
+                                    gr.Markdown("（この設定はルームごとに保存されます）", elem_id="time_control_note")
+                                    time_mode_radio = gr.Radio(
+                                        choices=["リアル連動", "選択する"],
+                                        label="モード選択",
+                                        interactive=True
+                                    )
+                                    with gr.Column(visible=False) as fixed_time_controls:
+                                        fixed_season_dropdown = gr.Dropdown(
+                                            label="季節を選択",
+                                            choices=["春", "夏", "秋", "冬"],
+                                            interactive=True
+                                        )
+                                        fixed_time_of_day_dropdown = gr.Dropdown(
+                                            label="時間帯を選択",
+                                            choices=["朝", "昼", "夕方", "夜"],
+                                            interactive=True
+                                        )
+                                    # --- [ここからが修正箇所] ---
+                                    # ボタンを fixed_time_controls の外に移動し、常に表示されるようにする
+                                    save_time_settings_button = gr.Button("このルームの時間設定を保存", variant="secondary")
+                                    # --- [修正はここまで] ---
+                                
                                 generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
                                 scenery_style_radio = gr.Dropdown(
                                     choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],

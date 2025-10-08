@@ -389,7 +389,13 @@ def _stream_and_handle_response(
         # 2. グループ会話と情景のコンテキストを準備
         all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-        shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
+
+        # --- [ここからが修正箇所] ---
+        season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
+        shared_location_name, _, shared_scenery_text = generate_scenery_context(
+            soul_vessel_room, api_key, season_en=season_en, time_of_day_en=time_of_day_en
+        )
+        # --- [修正はここまで] ---
 
         # 3. AIごとの応答生成ループ
         for current_room in all_rooms_in_scene:
@@ -704,9 +710,14 @@ def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str,
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return "（APIキーエラー）", "（APIキーエラー）", None
 
-    gr.Info(f"「{room_name}」の現在の情景を強制的に再生成しています...")
+    gr.Info(f"「{room_name}」の現在の情景を再生成しています...")
 
-    location_name, _, scenery_text = generate_scenery_context(room_name, api_key, force_regenerate=True)
+    # --- [ここからが修正箇所] ---
+    season_en, time_of_day_en = _get_current_time_context(room_name)
+    location_name, _, scenery_text = generate_scenery_context(
+        room_name, api_key, force_regenerate=True, season_en=season_en, time_of_day_en=time_of_day_en
+    )
+    # --- [修正はここまで] ---
 
     if not location_name.startswith("（"):
         gr.Info("情景を再生成しました。")
@@ -747,7 +758,12 @@ def handle_location_change(room_name: str, selected_value: str, api_key_name: st
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return "（APIキーエラー）", "（APIキーエラー）", None
 
-    _, _, new_scenery_text = generate_scenery_context(room_name, api_key)
+    # --- [ここからが修正箇所] ---
+    season_en, time_of_day_en = _get_current_time_context(room_name)
+    _, _, new_scenery_text = generate_scenery_context(
+        room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
+    )
+    # --- [修正はここまで] ---
     new_image_path = utils.find_scenery_image(room_name, location_id)
 
     return gr.update(value=location_id), new_scenery_text, new_image_path
@@ -2122,15 +2138,16 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
         gr.Warning("現在地が特定できません。")
         return None
 
-    # 目的のファイル名を事前に確定
-    now = datetime.datetime.now()
-    current_season = utils.get_season(now.month)
-    current_time_of_day = utils.get_time_of_day(now.hour)
+    # --- [ここからが修正の核心] ---
+    # 1. 適用すべき季節と時間帯を取得
+    season_en, time_of_day_en = _get_current_time_context(room_name)
 
+    # 2. 取得した値を使ってファイル名を確定
     save_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
     os.makedirs(save_dir, exist_ok=True)
-    final_filename = f"{location_id}_{current_season}_{current_time_of_day}.png"
+    final_filename = f"{location_id}_{season_en}_{time_of_day_en}.png"
     final_path = os.path.join(save_dir, final_filename)
+    # --- [修正はここまで] ---
 
     # フォールバック用に、現在の画像パスを先に探しておく
     fallback_image_path = utils.find_scenery_image(room_name, location_id)
@@ -2179,10 +2196,10 @@ This is the undeniable truth for all physical structures, objects, furniture, an
 {space_text}
 ```
 
-**--- [Source 2: Temporal Context] ---**
-This defines the atmosphere, lighting, and the world state *at this exact moment*.
-- Time of Day: {current_time_of_day}
-- Season: {current_season}
+**--- [Current Scene Conditions] ---**
+        # Use ONLY if time/lighting is NOT specified in the description above.
+        - Time of Day: {time_of_day_en}
+        - Season: {season_en}
 
 **--- [Your Task: The Fusion] ---**
 Your task is to **merge** these two sources into a single, coherent visual description, following the absolute rules below.
@@ -3128,6 +3145,27 @@ def _load_time_settings_for_room(room_name: str) -> Dict[str, Any]:
         "fixed_time_of_day_ja": time_map_en_to_ja.get(time_en, "夜"),
     }
 
+def _get_current_time_context(room_name: str) -> Tuple[str, str]:
+    """
+    ルームの時間設定を読み込み、現在適用すべき季節と時間帯の「英語名」を返す。
+    戻り値: (season_en, time_of_day_en)
+    """
+    room_config = room_manager.get_room_config(room_name)
+    settings = (room_config or {}).get("time_settings", {})
+    
+    mode = settings.get("mode", "realtime")
+
+    if mode == "fixed":
+        # 固定モードの場合は、設定ファイルから値を返す
+        season_en = settings.get("fixed_season", "autumn")
+        time_en = settings.get("fixed_time_of_day", "night")
+        return season_en, time_en
+    else:
+        # リアル連動モードの場合は、現在時刻から計算して返す
+        now = datetime.datetime.now()
+        season_en = utils.get_season(now.month)
+        time_en = utils.get_time_of_day(now.hour)
+        return season_en, time_en
 
 def handle_time_mode_change(mode: str) -> gr.update:
     """時間設定のモードが変更されたときに、詳細設定UIの表示/非表示を切り替える。"""
@@ -3140,24 +3178,25 @@ def handle_save_time_settings(room_name: str, mode: str, season_ja: str, time_of
         gr.Warning("設定を保存するルームが選択されていません。")
         return
 
-    season_map_ja_to_en = {"春": "spring", "夏": "summer", "秋": "autumn", "冬": "winter"}
-    time_map_ja_to_en = {"朝": "morning", "昼": "daytime", "夕方": "evening", "夜": "night"}
+    mode_en = "realtime" if mode == "リアル連動" else "fixed"
+    new_time_settings = {"mode": mode_en}
 
-    new_time_settings = {
-        "mode": "realtime" if mode == "リアル連動" else "fixed",
-        "fixed_season": season_map_ja_to_en.get(season_ja, "autumn"),
-        "fixed_time_of_day": time_map_ja_to_en.get(time_of_day_ja, "night")
-    }
+    # "選択する" モードの場合のみ、季節と時間帯の情報を保存する
+    if mode_en == "fixed":
+        season_map_ja_to_en = {"春": "spring", "夏": "summer", "秋": "autumn", "冬": "winter"}
+        time_map_ja_to_en = {"朝": "morning", "昼": "daytime", "夕方": "evening", "夜": "night"}
+        new_time_settings["fixed_season"] = season_map_ja_to_en.get(season_ja, "autumn")
+        new_time_settings["fixed_time_of_day"] = time_map_ja_to_en.get(time_of_day_ja, "night")
 
     try:
         config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
         config = room_manager.get_room_config(room_name) or {}
-
+        
         config["time_settings"] = new_time_settings
-
+        
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
-
+            
         gr.Info(f"ルーム「{room_name}」の時間設定を保存しました。")
 
     except Exception as e:
