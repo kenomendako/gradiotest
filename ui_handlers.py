@@ -75,7 +75,7 @@ def _create_redaction_df_from_rules(rules: List[Dict]) -> pd.DataFrame:
 
 def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     """
-    【修正】チャットタブと、それに付随する設定UIの更新のみを担当するヘルパー関数。
+    【v3】チャットタブと、それに付随する設定UIの更新のみを担当するヘルパー関数。
     戻り値の数は `initial_load_chat_outputs` の34個と一致する。
     """
     if not room_name:
@@ -103,8 +103,15 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     if current_location_from_file and current_location_from_file not in valid_location_ids:
         gr.Warning(f"最後にいた場所「{current_location_from_file}」が見つかりません。移動先を選択し直してください。")
         location_dd_val = None
-    _, _, scenery_text = generate_scenery_context(room_name, api_key) # location_nameは不要に
-    scenery_image_path = utils.find_scenery_image(room_name, location_dd_val)
+    season_en, time_of_day_en = _get_current_time_context(room_name)
+    _, _, scenery_text = generate_scenery_context(
+        room_name, api_key,
+        season_en=season_en, time_of_day_en=time_of_day_en
+    )
+    scenery_image_path = utils.find_scenery_image(
+        room_name, location_dd_val,
+        season_en=season_en, time_of_day_en=time_of_day_en
+    )
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "iapetus"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
     safety_display_map = {
@@ -121,22 +128,21 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     core_memory_content = load_core_memory_content(room_name)
 
     # このタプルの要素数は34個になる
-    chat_tab_updates = (
+    return (
         room_name, chat_history, mapping_list,
         gr.update(value={'text': '', 'files': []}),
         profile_image,
         memory_str, notepad_content, load_system_prompt_content(room_name),
         core_memory_content,
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
-        gr.update(choices=locations_for_ui, value=location_dd_val),
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # room_dropdown
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # alarm_room_dropdown
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # timer_room_dropdown
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # manage_room_selector ★★★ この行が追加された ★★★
+        gr.update(choices=locations_for_ui, value=location_dd_val), # location_dropdown
         scenery_text,
         voice_display_name, voice_style_prompt_val,
-        # ▼▼▼ 以下の1行の "enable_typewriter_effect" の直後に、streaming_speedを追加 ▼▼▼
         effective_settings["enable_typewriter_effect"],
         effective_settings["streaming_speed"],
-        # ▲▲▲ 修正ここまで ▲▲▲
         temp_val, top_p_val, harassment_val, hate_val, sexual_val, dangerous_val,
         effective_settings["add_timestamp"], effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
@@ -145,13 +151,13 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path
     )
-    return chat_tab_updates
 
 def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     """
-    【修正】ルーム切り替え時に、全ての関連タブのUIを更新する。
-    戻り値の数は `all_room_change_outputs` の41個と一致する。
+    【v4】ルーム切り替え時に、全ての関連タブのUIを更新する。
+    戻り値の数は `all_room_change_outputs` の47個と一致する。
     """
+    # chat_tab_updatesは34個の更新値を持つ
     chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
 
     wb_state, wb_area_selector, wb_raw_editor = handle_world_builder_load(room_name)
@@ -167,26 +173,38 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
 
-    # ▼▼▼ 新しく追加するロジック ▼▼▼
     archive_dates = _get_date_choices_from_memory(room_name)
     archive_date_dropdown_update = gr.update(choices=archive_dates, value=archive_dates[0] if archive_dates else None)
-    # ▲▲▲ 追加ここまで ▲▲▲
 
-    return chat_tab_updates + world_builder_updates + session_management_updates + (rules_df_for_ui, archive_date_dropdown_update)
+    time_settings = _load_time_settings_for_room(room_name)
+    time_settings_updates = (
+        gr.update(value=time_settings.get("mode", "リアル連動")),
+        gr.update(value=time_settings.get("fixed_season_ja", "秋")),
+        gr.update(value=time_settings.get("fixed_time_of_day_ja", "夜")),
+        gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
+    )
+
+    # 戻り値の総数: 34 + 3 + 3 + 1 + 1 + 4 = 47個
+    return (
+        chat_tab_updates +
+        world_builder_updates +
+        session_management_updates +
+        (rules_df_for_ui, archive_date_dropdown_update) +
+        time_settings_updates
+    )
 
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
-    【修正】UIの初期化処理。戻り値の数は `initial_load_outputs` の41個と一致する。
+    【v3】UIの初期化処理。戻り値の数は `initial_load_outputs` の46個と一致する。
     """
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
 
-    # チャットタブ関連の32個の更新値を取得
+    # chat_tab_updatesは34個の更新値を持つ
     chat_tab_updates = _update_chat_tab_for_room_change(initial_room_to_load, initial_api_key_name)
 
-    # 置換ルール関連の1個の更新値を取得
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
 
@@ -197,32 +215,37 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
         parts=[], **token_calc_kwargs
     )
 
-    # ▼▼▼【ここからが追加するブロック】▼▼▼
-    # 起動時にAPIキードロップダウンも正しく更新するための値を追加
     api_key_choices = list(config_manager.GEMINI_API_KEYS.keys())
     api_key_dd_update = gr.update(choices=api_key_choices, value=initial_api_key_name)
-    # ▲▲▲【追加はここまで】▲▲▲
 
-    # ▼▼▼ この関数の最後の return 文の直前に、以下の1行を追加 ▼▼▼
     world_data_for_state = get_world_data(initial_room_to_load)
-    # ▲▲▲ 追加ここまで ▲▲▲
 
-    # ▼▼▼ そして、最後の return 文を、以下のように修正 ▼▼▼
+    # 時間設定UIのための値を取得
+    time_settings = _load_time_settings_for_room(initial_room_to_load)
+    time_settings_updates = (
+        gr.update(value=time_settings.get("mode", "リアル連動")),
+        gr.update(value=time_settings.get("fixed_season_ja", "秋")),
+        gr.update(value=time_settings.get("fixed_time_of_day_ja", "夜")),
+        gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
+    )
+
+    # 戻り値の総数: 3 + 34 + 3 + 1 + 4 = 45個
     return (
         (display_df, df_with_ids, feedback_text) +
         chat_tab_updates +
         (rules_df_for_ui, token_count_text, api_key_dd_update) +
-        (world_data_for_state,) # ← world_data_state用の戻り値(タプル)を追加
+        (world_data_for_state,) +
+        time_settings_updates
     )
 
 def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
-    streaming_speed: float, # ← この引数を追加
+    enable_typewriter_effect: bool, # ← enable_typewriter_effect と streaming_speed の順番を変更
+    streaming_speed: float,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
-    auto_memory_enabled: bool,
-    enable_typewriter_effect: bool
+    auto_memory_enabled: bool
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -242,28 +265,27 @@ def handle_save_room_settings(
         "safety_block_threshold_hate_speech": safety_value_map.get(hate),
         "safety_block_threshold_sexually_explicit": safety_value_map.get(sexual),
         "safety_block_threshold_dangerous_content": safety_value_map.get(dangerous),
-        "add_timestamp": bool(add_timestamp), "send_thoughts": bool(send_thoughts), "send_notepad": bool(send_notepad),
-        "use_common_prompt": bool(use_common_prompt), "send_core_memory": bool(send_core_memory), "send_scenery": bool(send_scenery),
-        "auto_memory_enabled": bool(auto_memory_enabled),
         "enable_typewriter_effect": bool(enable_typewriter_effect),
-        "streaming_speed": float(streaming_speed) # ← この行を追加
+        "streaming_speed": float(streaming_speed),
+        "add_timestamp": bool(add_timestamp),
+        "send_thoughts": bool(send_thoughts),
+        "send_notepad": bool(send_notepad),
+        "use_common_prompt": bool(use_common_prompt),
+        "send_core_memory": bool(send_core_memory),
+        "send_scenery": bool(send_scenery),
+        "auto_memory_enabled": bool(auto_memory_enabled),
     }
     try:
-        # 正しくは room_config.json を参照する
         room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
         config = {}
-        # ファイルが存在しない場合も考慮（ensure_room_filesで作成されるはずだが念のため）
         if os.path.exists(room_config_path):
              if os.path.getsize(room_config_path) > 0:
                 with open(room_config_path, "r", encoding="utf-8") as f:
                     config = json.load(f)
         else:
-            # 万が一ファイルがない場合は、ここで基本的な構造を作成する
             gr.Warning(f"設定ファイルが見つからなかったため、新しく作成します: {room_config_path}")
             config = {
-                "version": 1,
-                "room_name": room_name,
-                "user_display_name": "ユーザー",
+                "version": 1, "room_name": room_name, "user_display_name": "ユーザー",
                 "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "description": "自動生成された設定ファイルです"
             }
@@ -339,16 +361,15 @@ def _stream_and_handle_response(
     soul_vessel_room: str,
     active_participants: List[str],
     current_console_content: str,
+    enable_typewriter_effect: bool, # ← この行を追加
+    streaming_speed: float,       # ← この行を追加
 ) -> Iterator[Tuple]:
     """
-    【v2: 再生成対応】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
+    【v3: タイプライター設定対応】AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
     """
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
-    # ▼▼▼ 関数内で effective_settings から直接取得する ▼▼▼
     effective_settings = config_manager.get_effective_settings(soul_vessel_room)
-    streaming_speed = effective_settings.get("streaming_speed", 0.01)
     add_timestamp = effective_settings.get("add_timestamp", False)
-    # ▲▲▲ 修正ここまで ▲▲▲
     chatbot_history, mapping_list = reload_chat_log(
         room_name=soul_vessel_room,
         api_history_limit_value=api_history_limit,
@@ -372,7 +393,13 @@ def _stream_and_handle_response(
         # 2. グループ会話と情景のコンテキストを準備
         all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-        shared_location_name, _, shared_scenery_text = generate_scenery_context(soul_vessel_room, api_key)
+
+        # --- [ここからが修正箇所] ---
+        season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
+        shared_location_name, _, shared_scenery_text = generate_scenery_context(
+            soul_vessel_room, api_key, season_en=season_en, time_of_day_en=time_of_day_en
+        )
+        # --- [修正はここまで] ---
 
         # 3. AIごとの応答生成ループ
         for current_room in all_rooms_in_scene:
@@ -394,6 +421,10 @@ def _stream_and_handle_response(
                 "history_log_path": main_log_f, "user_prompt_parts": final_user_prompt_parts,
                 "soul_vessel_room": soul_vessel_room, "active_participants": active_participants,
                 "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
+                # --- [ここから追加] ---
+                "season_en": season_en,
+                "time_of_day_en": time_of_day_en
+                # --- [追加ここまで] ---
             }
 
             # 5. ストリーミング実行とUI更新
@@ -402,10 +433,14 @@ def _stream_and_handle_response(
             initial_message_count = 0
 
             # ▼▼▼【ここからが全面的に書き換えるブロック】▼▼▼
-            # 設定に応じてタイプライター効果を適用するかどうかを取得
-            typewriter_enabled = effective_settings.get("enable_typewriter_effect", True)
+            # 引数で渡されたリアルタイムな設定値を優先する
+            typewriter_enabled = enable_typewriter_effect
 
             with utils.capture_prints() as captured_output:
+                # agent_args_dict に設定値を追加
+                agent_args_dict["enable_typewriter_effect"] = enable_typewriter_effect
+                agent_args_dict["streaming_speed"] = streaming_speed
+
                 for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                     if mode == "initial_count":
                         initial_message_count = chunk
@@ -414,8 +449,7 @@ def _stream_and_handle_response(
                         if isinstance(message_chunk, AIMessageChunk):
                             new_text_chunk = message_chunk.content
 
-                            if typewriter_enabled:
-                                # --- タイプライター効果が有効な場合（従来の処理） ---
+                            if typewriter_enabled and streaming_speed > 0:
                                 for char in new_text_chunk:
                                     streamed_text += char
                                     chatbot_history[-1] = (None, streamed_text + "▌")
@@ -423,13 +457,10 @@ def _stream_and_handle_response(
                                            gr.update(), gr.update(), gr.update(), gr.update(),
                                            gr.update(), gr.update(), current_console_content,
                                            gr.update(), gr.update(), gr.update())
-                                    if streaming_speed > 0:
-                                        time.sleep(streaming_speed)
+                                    time.sleep(streaming_speed)
                             else:
-                                # --- タイプライター効果が無効な場合（チャンク単位で一括表示） ---
                                 streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
-                                # UI更新はチャンクごとに行う
                                 yield (chatbot_history, mapping_list, gr.update(), gr.update(),
                                        gr.update(), gr.update(), gr.update(), gr.update(),
                                        gr.update(), gr.update(), current_console_content,
@@ -483,8 +514,15 @@ def _stream_and_handle_response(
 
         # 9. その他のUIコンポーネントを更新
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-        _, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key) # location_nameは不要に
-        scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
+        season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
+        _, _, new_scenery_text = generate_scenery_context(
+            soul_vessel_room, api_key,
+            season_en=season_en, time_of_day_en=time_of_day_en
+        )
+        scenery_image = utils.find_scenery_image(
+            soul_vessel_room, utils.get_current_location(soul_vessel_room),
+            season_en=season_en, time_of_day_en=time_of_day_en
+        )
         token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
         token_count_text = gemini_api.count_input_tokens(
             room_name=soul_vessel_room, api_key_name=api_key_name,
@@ -507,15 +545,15 @@ def _stream_and_handle_response(
                gr.update(visible=False)
         )
 
-def handle_message_submission(*args: Any):
+def handle_message_submission(
+    multimodal_input: dict, soul_vessel_room: str, api_key_name: str,
+    api_history_limit: str, debug_mode: bool,
+    console_content: str, active_participants: list, global_model: str,
+    enable_typewriter_effect: bool, streaming_speed: float # ← 2つの引数を追加
+):
     """
     【v4: ペースト挙動FIX】新規メッセージの送信を処理する司令塔。
     """
-    (multimodal_input, soul_vessel_room, api_key_name,
-     api_history_limit, debug_mode,
-     console_content, active_participants, global_model,
-     ) = args
-
     # 1. ユーザー入力を解析
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
     file_input_list = multimodal_input.get("files", []) if multimodal_input else []
@@ -618,17 +656,19 @@ def handle_message_submission(*args: Any):
         soul_vessel_room=soul_vessel_room,
         active_participants=active_participants or [],
         current_console_content=console_content,
+        enable_typewriter_effect=enable_typewriter_effect, # ← この行を追加
+        streaming_speed=streaming_speed,                   # ← この行を追加
     )
 
-def handle_rerun_button_click(*args: Any):
+def handle_rerun_button_click(
+    selected_message: Optional[Dict], room_name: str, api_key_name: str,
+    api_history_limit: str, debug_mode: bool,
+    console_content: str, active_participants: list, global_model: str,
+    enable_typewriter_effect: bool, streaming_speed: float # ← 2つの引数を追加
+):
     """
     【v2: ストリーミング対応】発言の再生成を処理する司令塔。
     """
-    (selected_message, room_name, api_key_name,
-     api_history_limit, debug_mode,
-     console_content, active_participants, global_model,
-     ) = args
-
     if not selected_message or not room_name:
         gr.Warning("再生成の起点となるメッセージが選択されていません。")
         yield (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
@@ -675,7 +715,9 @@ def handle_rerun_button_click(*args: Any):
         debug_mode=debug_mode,
         soul_vessel_room=room_name,
         active_participants=active_participants or [],
-        current_console_content=console_content
+        current_console_content=console_content,
+        enable_typewriter_effect=enable_typewriter_effect, # ← この行を追加
+        streaming_speed=streaming_speed,                   # ← この行を追加
     )
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
@@ -687,9 +729,14 @@ def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str,
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return "（APIキーエラー）", "（APIキーエラー）", None
 
-    gr.Info(f"「{room_name}」の現在の情景を強制的に再生成しています...")
+    gr.Info(f"「{room_name}」の現在の情景を再生成しています...")
 
-    location_name, _, scenery_text = generate_scenery_context(room_name, api_key, force_regenerate=True)
+    # --- [ここからが修正箇所] ---
+    season_en, time_of_day_en = _get_current_time_context(room_name)
+    location_name, _, scenery_text = generate_scenery_context(
+        room_name, api_key, force_regenerate=True, season_en=season_en, time_of_day_en=time_of_day_en
+    )
+    # --- [修正はここまで] ---
 
     if not location_name.startswith("（"):
         gr.Info("情景を再生成しました。")
@@ -730,7 +777,12 @@ def handle_location_change(room_name: str, selected_value: str, api_key_name: st
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
         return "（APIキーエラー）", "（APIキーエラー）", None
 
-    _, _, new_scenery_text = generate_scenery_context(room_name, api_key)
+    # --- [ここからが修正箇所] ---
+    season_en, time_of_day_en = _get_current_time_context(room_name)
+    _, _, new_scenery_text = generate_scenery_context(
+        room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
+    )
+    # --- [修正はここまで] ---
     new_image_path = utils.find_scenery_image(room_name, location_id)
 
     return gr.update(value=location_id), new_scenery_text, new_image_path
@@ -2105,15 +2157,16 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
         gr.Warning("現在地が特定できません。")
         return None
 
-    # 目的のファイル名を事前に確定
-    now = datetime.datetime.now()
-    current_season = utils.get_season(now.month)
-    current_time_of_day = utils.get_time_of_day(now.hour)
+    # --- [ここからが修正の核心] ---
+    # 1. 適用すべき季節と時間帯を取得
+    season_en, time_of_day_en = _get_current_time_context(room_name)
 
+    # 2. 取得した値を使ってファイル名を確定
     save_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
     os.makedirs(save_dir, exist_ok=True)
-    final_filename = f"{location_id}_{current_season}_{current_time_of_day}.png"
+    final_filename = f"{location_id}_{season_en}_{time_of_day_en}.png"
     final_path = os.path.join(save_dir, final_filename)
+    # --- [修正はここまで] ---
 
     # フォールバック用に、現在の画像パスを先に探しておく
     fallback_image_path = utils.find_scenery_image(room_name, location_id)
@@ -2162,10 +2215,10 @@ This is the undeniable truth for all physical structures, objects, furniture, an
 {space_text}
 ```
 
-**--- [Source 2: Temporal Context] ---**
-This defines the atmosphere, lighting, and the world state *at this exact moment*.
-- Time of Day: {current_time_of_day}
-- Season: {current_season}
+**--- [Current Scene Conditions] ---**
+        # Use ONLY if time/lighting is NOT specified in the description above.
+        - Time of Day: {time_of_day_en}
+        - Season: {season_en}
 
 **--- [Your Task: The Fusion] ---**
 Your task is to **merge** these two sources into a single, coherent visual description, following the absolute rules below.
@@ -2305,13 +2358,43 @@ def handle_world_builder_load(room_name: str):
     return world_data, gr.update(choices=area_choices, value=None), raw_content
 
 def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
+    """
+    【v4: 司令塔アーキテクチャ】
+    ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
+    """
     print(f"--- UI司令塔(handle_room_change_for_all_tabs)実行: {room_name} ---")
 
     # 責務1: 設定をファイルに保存する
     config_manager.save_config("last_room", room_name)
 
-    # 責務2: 新しいヘルパーを呼び出してUIを更新する
-    return _update_all_tabs_for_room_change(room_name, api_key_name)
+    # 責務2: 新しいヘルパーを呼び出してUI更新値のタプルを取得する
+    all_ui_updates = _update_all_tabs_for_room_change(room_name, api_key_name)
+
+    # 責務3: トークン数を計算する
+    # _update_all_tabs_for_room_change の戻り値から、計算に必要な設定値を取得する
+    # (インデックスは _update_all_tabs_for_room_change / _update_chat_tab_for_room_change の戻り値の構造に依存)
+
+    # ▼▼▼ 以下のインデックス番号を修正してください ▼▼▼
+    add_timestamp_val = all_ui_updates[24]
+    send_thoughts_val = all_ui_updates[25]
+    send_notepad_val = all_ui_updates[26]
+    use_common_prompt_val = all_ui_updates[27]
+    send_core_memory_val = all_ui_updates[28]
+    send_scenery_val = all_ui_updates[29]
+    # ▲▲▲ 修正ここまで ▲▲▲
+    api_history_limit_key = config_manager.CONFIG_GLOBAL.get("last_api_history_limit_option", "all")
+
+    token_count_text = gemini_api.count_input_tokens(
+        room_name=room_name, api_key_name=api_key_name, parts=[],
+        api_history_limit=api_history_limit_key,
+        add_timestamp=add_timestamp_val, send_thoughts=send_thoughts_val,
+        send_notepad=send_notepad_val, use_common_prompt=use_common_prompt_val,
+        send_core_memory=send_core_memory_val, send_scenery=send_scenery_val
+    )
+
+    # 責務4: 全てのUI更新値と、トークン数の計算結果、そして新しいルーム名をStateに返す
+    # 戻り値の総数 = _update_all_tabs_for_room_change (47個) + token_count_text (1個) + room_name (1個) = 49個
+    return all_ui_updates + (token_count_text, room_name)
 
 def handle_start_session(main_room: str, participant_list: list) -> tuple:
     if not participant_list:
@@ -3091,3 +3174,82 @@ def handle_open_backup_folder(room_name: str):
         gr.Info(f"「{room_name}」のバックアップフォルダを開きました。")
     except Exception as e:
         gr.Error(f"フォルダを開けませんでした: {e}")
+
+# --- [ここからが追加する関数] ---
+def _load_time_settings_for_room(room_name: str) -> Dict[str, Any]:
+    """ルームの設定ファイルから時間設定を読み込むヘルパー関数。"""
+    room_config = room_manager.get_room_config(room_name)
+    settings = (room_config or {}).get("time_settings", {})
+
+    season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
+    time_map_en_to_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}
+
+    mode = settings.get("mode", "realtime")
+    season_en = settings.get("fixed_season", "autumn")
+    time_en = settings.get("fixed_time_of_day", "night")
+
+    return {
+        "mode": "リアル連動" if mode == "realtime" else "選択する",
+        "fixed_season_ja": season_map_en_to_ja.get(season_en, "秋"),
+        "fixed_time_of_day_ja": time_map_en_to_ja.get(time_en, "夜"),
+    }
+
+def _get_current_time_context(room_name: str) -> Tuple[str, str]:
+    """
+    ルームの時間設定を読み込み、現在適用すべき季節と時間帯の「英語名」を返す。
+    戻り値: (season_en, time_of_day_en)
+    """
+    room_config = room_manager.get_room_config(room_name)
+    settings = (room_config or {}).get("time_settings", {})
+    
+    mode = settings.get("mode", "realtime")
+
+    if mode == "fixed":
+        # 固定モードの場合は、設定ファイルから値を返す
+        season_en = settings.get("fixed_season", "autumn")
+        time_en = settings.get("fixed_time_of_day", "night")
+        return season_en, time_en
+    else:
+        # リアル連動モードの場合は、現在時刻から計算して返す
+        now = datetime.datetime.now()
+        season_en = utils.get_season(now.month)
+        time_en = utils.get_time_of_day(now.hour)
+        return season_en, time_en
+
+def handle_time_mode_change(mode: str) -> gr.update:
+    """時間設定のモードが変更されたときに、詳細設定UIの表示/非表示を切り替える。"""
+    return gr.update(visible=(mode == "選択する"))
+
+
+def handle_save_time_settings(room_name: str, mode: str, season_ja: str, time_of_day_ja: str):
+    """ルームの時間設定を `room_config.json` に保存する。"""
+    if not room_name:
+        gr.Warning("設定を保存するルームが選択されていません。")
+        return
+
+    mode_en = "realtime" if mode == "リアル連動" else "fixed"
+    new_time_settings = {"mode": mode_en}
+
+    # "選択する" モードの場合のみ、季節と時間帯の情報を保存する
+    if mode_en == "fixed":
+        season_map_ja_to_en = {"春": "spring", "夏": "summer", "秋": "autumn", "冬": "winter"}
+        time_map_ja_to_en = {"朝": "morning", "昼": "daytime", "夕方": "evening", "夜": "night"}
+        new_time_settings["fixed_season"] = season_map_ja_to_en.get(season_ja, "autumn")
+        new_time_settings["fixed_time_of_day"] = time_map_ja_to_en.get(time_of_day_ja, "night")
+
+    try:
+        config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+        config = room_manager.get_room_config(room_name) or {}
+        
+        config["time_settings"] = new_time_settings
+        
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+            
+        gr.Info(f"ルーム「{room_name}」の時間設定を保存しました。")
+
+    except Exception as e:
+        gr.Error(f"時間設定の保存中にエラーが発生しました: {e}")
+        traceback.print_exc()
+
+# --- [追加はここまで] ---

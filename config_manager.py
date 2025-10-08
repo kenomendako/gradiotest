@@ -51,11 +51,21 @@ def _load_config_file() -> dict:
     return {}
 
 def _save_config_file(config_data: dict):
+    """
+    設定データを一時ファイルに書き込んでからリネームすることで、
+    書き込み中のクラッシュによるファイル破損を防ぐ、アトミックな保存処理。
+    """
+    temp_file_path = constants.CONFIG_FILE + ".tmp"
     try:
-        with open(constants.CONFIG_FILE, "w", encoding="utf-8") as f:
+        with open(temp_file_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=2, ensure_ascii=False)
+        # 書き込みが成功したら、一時ファイルを本番ファイルにリネーム（アトミック操作）
+        os.replace(temp_file_path, constants.CONFIG_FILE)
     except Exception as e:
         print(f"'{constants.CONFIG_FILE}' 保存エラー: {e}")
+        # エラーが発生した場合、一時ファイルを削除する
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
 
 def save_config(key: str, value: Any):
     """

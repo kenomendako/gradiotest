@@ -305,7 +305,7 @@ try:
                                     room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
                                     room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
                                     room_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
-                                    auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True)
+                                    auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True, visible=False)
                                     gr.Markdown("---")
                                     save_room_settings_button = gr.Button("このルームの設定を保存", variant="primary")
                                 with gr.TabItem("🎨 パレット") as theme_tab:
@@ -479,6 +479,7 @@ try:
                     # --- 右カラム ---
                     with gr.Column(scale=3, min_width=300): # ← scale=1.5 を 3 に変更
                         with gr.Accordion("🖼️ プロフィール・情景", open=True):
+
                             # --- プロフィール画像セクション ---
                             profile_image_display = gr.Image(
                                 height=200, interactive=False, show_label=False, elem_id="profile_image_display"
@@ -503,7 +504,30 @@ try:
                             location_dropdown = gr.Dropdown(label="現在地 / 移動先を選択", interactive=True) # ← label を変更
 
                             # --- 画像生成メニュー ---
-                            with gr.Accordion("情景画像・テキスト生成", open=False):
+                            with gr.Accordion("情景設定・生成", open=False):
+                                with gr.Accordion("🕰️ 季節・時間を指定", open=False) as time_control_accordion:
+                                    gr.Markdown("（この設定はルームごとに保存されます）", elem_id="time_control_note")
+                                    time_mode_radio = gr.Radio(
+                                        choices=["リアル連動", "選択する"],
+                                        label="モード選択",
+                                        interactive=True
+                                    )
+                                    with gr.Column(visible=False) as fixed_time_controls:
+                                        fixed_season_dropdown = gr.Dropdown(
+                                            label="季節を選択",
+                                            choices=["春", "夏", "秋", "冬"],
+                                            interactive=True
+                                        )
+                                        fixed_time_of_day_dropdown = gr.Dropdown(
+                                            label="時間帯を選択",
+                                            choices=["朝", "昼", "夕方", "夜"],
+                                            interactive=True
+                                        )
+                                    # --- [ここからが修正箇所] ---
+                                    # ボタンを fixed_time_controls の外に移動し、常に表示されるようにする
+                                    save_time_settings_button = gr.Button("このルームの時間設定を保存", variant="secondary")
+                                    # --- [修正はここまで] ---
+                                
                                 generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
                                 scenery_style_radio = gr.Dropdown(
                                     choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
@@ -645,13 +669,12 @@ try:
             profile_image_display,
             memory_txt_editor, notepad_editor, system_prompt_editor,
             core_memory_editor,
+            room_dropdown, # This was the missing item
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
-            # current_location_display,  # ← この行を削除
             current_scenery_display, room_voice_dropdown,
-            room_voice_style_prompt_textbox, # ← この行を追記
+            room_voice_style_prompt_textbox,
             enable_typewriter_effect_checkbox,
             streaming_speed_slider,
-            # ▲▲▲ 追加ここまで ▲▲▲
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
@@ -661,13 +684,28 @@ try:
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
         ] + initial_load_chat_outputs + [
             redaction_rules_df, token_count_display, api_key_dropdown,
-            world_data_state # ← この行を追加
+            world_data_state,
+            # --- [ここからが追加する行] ---
+            time_mode_radio,
+            fixed_season_dropdown,
+            fixed_time_of_day_dropdown,
+            fixed_time_controls
+            # --- [追加はここまで] ---
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
 
-        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [redaction_rules_df, archive_date_dropdown]
+        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [
+            redaction_rules_df,
+            archive_date_dropdown,
+            # --- [ここからが追加する行] ---
+            time_mode_radio,
+            fixed_season_dropdown,
+            fixed_time_of_day_dropdown,
+            fixed_time_controls
+            # --- [追加はここまで] ---
+        ]
 
         # The instruction was to modify the list definition, but the list is constructed from other lists.
         # I have already added 'core_memory_editor' to 'initial_load_chat_outputs'.
@@ -695,26 +733,27 @@ try:
             outputs=[active_participants_state, session_status_display, participant_checkbox_group]
         )
 
-        # ▼▼▼ chat_inputs のリスト定義から streaming_speed_slider を削除 ▼▼▼
+        # ▼▼▼ chat_inputs のリスト定義から streaming_speed_slider を削除し、代わりに関連チェックボックスを追加 ▼▼▼
         chat_inputs = [
-            chat_input_multimodal, # 変更
+            chat_input_multimodal,
             current_room_name,
             current_api_key_name_state,
-            # file_upload_button は削除
             api_history_limit_state,
             debug_mode_checkbox,
             debug_console_state,
             active_participants_state,
             model_dropdown,
-            # streaming_speed_slider # ← この行を削除
+            enable_typewriter_effect_checkbox, # ← この行を追加
+            streaming_speed_slider,            # ← この行を追加
         ]
 
-        # ▼▼▼ rerun_inputs のリスト定義から streaming_speed_slider を削除 ▼▼▼
+# ▼▼▼ rerun_inputs のリスト定義から streaming_speed_slider を削除し、代わりに関連チェックボックスを追加 ▼▼▼
         rerun_inputs = [
             selected_message_state, current_room_name, current_api_key_name_state,
             api_history_limit_state, debug_mode_checkbox,
             debug_console_state, active_participants_state, model_dropdown,
-            # streaming_speed_slider # ← この行を削除
+            enable_typewriter_effect_checkbox, # ← この行を追加
+            streaming_speed_slider,            # ← この行を追加
         ]
 
         # 新規送信と再生成で、UI更新の対象（outputs）を完全に一致させる
@@ -735,12 +774,13 @@ try:
             outputs=unified_streaming_outputs
         )
 
+        # 戻り値の最後に token_count_display と current_room_name を追加
+        all_room_change_outputs.extend([token_count_display, current_room_name])
+
         room_dropdown.change(
             fn=ui_handlers.handle_room_change_for_all_tabs,
             inputs=[room_dropdown, api_key_dropdown],
             outputs=all_room_change_outputs
-        ).then(
-            fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
         chat_reload_button.click(
@@ -915,8 +955,8 @@ try:
             inputs=[
                 current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox
             ] + gen_settings_inputs + [
+                enable_typewriter_effect_checkbox, # ← enable_typewriter_effect と streaming_speed の順番を変更
                 streaming_speed_slider,
-                enable_typewriter_effect_checkbox, # ← この行を追加
             ] + context_checkboxes,
             outputs=None
         )
@@ -1238,6 +1278,20 @@ try:
             outputs=None
         )
         # ▲▲▲【追加はここまで】▲▲▲
+
+        # --- [ここからが追加するイベントハンドラ] ---
+        time_mode_radio.change(
+            fn=ui_handlers.handle_time_mode_change,
+            inputs=[time_mode_radio],
+            outputs=[fixed_time_controls]
+        )
+
+        save_time_settings_button.click(
+            fn=ui_handlers.handle_save_time_settings,
+            inputs=[current_room_name, time_mode_radio, fixed_season_dropdown, fixed_time_of_day_dropdown],
+            outputs=[] # ポップアップ通知のみ
+        )
+        # --- [追加はここまで] ---
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])

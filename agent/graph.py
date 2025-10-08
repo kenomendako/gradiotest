@@ -11,7 +11,6 @@ from typing import TypedDict, Annotated, List, Literal, Tuple
 
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage, HumanMessage
 from google.api_core import exceptions as google_exceptions
-from gemini_api import get_configured_llm
 from langgraph.graph import StateGraph, END, START, add_messages
 
 from agent.prompts import CORE_PROMPT_TEMPLATE
@@ -62,6 +61,8 @@ class AgentState(TypedDict):
     debug_mode: bool
     all_participants: List[str]
     loop_count: int # ← この行を追加
+    season_en: str
+    time_of_day_en: str
 
 def get_location_list(room_name: str) -> List[str]:
     """
@@ -84,7 +85,14 @@ def get_location_list(room_name: str) -> List[str]:
 
     return sorted(list(locations))
 
-def generate_scenery_context(room_name: str, api_key: str, force_regenerate: bool = False) -> Tuple[str, str, str]:
+def generate_scenery_context(
+    room_name: str, 
+    api_key: str, 
+    force_regenerate: bool = False, 
+    season_en: 'Optional[str]' = None, 
+    time_of_day_en: 'Optional[str]' = None
+) -> Tuple[str, str, str]:
+    from gemini_api import get_configured_llm
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
     location_display_name = "（不明な場所）"
@@ -93,6 +101,7 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
         if not current_location_name:
             current_location_name = "リビング"
             location_display_name = "リビング"
+
         world_settings_path = get_world_settings_path(room_name)
         world_data = utils.parse_world_file(world_settings_path)
         found_location = False
@@ -104,29 +113,47 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
                 break
         if not found_location:
             space_def = f"（場所「{current_location_name}」の定義が見つかりません）"
+
         from utils import get_season, get_time_of_day, load_scenery_cache, save_scenery_cache
         import hashlib
+        import datetime
+
+        # --- [ここからが修正の核心] ---
+        # 1. 適用すべき季節と時間帯を決定する
+        now = datetime.datetime.now()
+        effective_season = season_en or get_season(now.month)
+        effective_time_of_day = time_of_day_en or get_time_of_day(now.hour)
+
+        # 2. 決定した値を使ってキャッシュキーを生成
         content_hash = hashlib.md5(space_def.encode('utf-8')).hexdigest()[:8]
-        now = datetime.now()
-        cache_key = f"{current_location_name}_{content_hash}_{get_season(now.month)}_{get_time_of_day(now.hour)}"
+        cache_key = f"{current_location_name}_{content_hash}_{effective_season}_{effective_time_of_day}"
+        # --- [修正はここまで] ---
+
         if not force_regenerate:
             scenery_cache = load_scenery_cache(room_name)
             if cache_key in scenery_cache:
                 cached_data = scenery_cache[cache_key]
                 print(f"--- [有効な情景キャッシュを発見] ({cache_key})。APIコールをスキップします ---")
                 return location_display_name, space_def, cached_data["scenery_text"]
+
         if not space_def.startswith("（"):
             log_message = "情景を強制的に再生成します" if force_regenerate else "情景をAPIで生成します"
             print(f"--- {log_message} ({cache_key}) ---")
+
             effective_settings = config_manager.get_effective_settings(room_name)
             llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
-            jst_now = datetime.now(pytz.timezone('Asia/Tokyo'))
-            from utils import get_time_of_day
-            time_str = jst_now.strftime('%H:%M')
-            time_of_day_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}.get(get_time_of_day(jst_now.hour), "不明な時間帯")
+
+            # --- [ここからが修正の核心] ---
+            # 3. AIへのプロンプトも、決定した値（日本語）を使って生成する
+            season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
+            time_map_en_to_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}
+
+            season_ja = season_map_en_to_ja.get(effective_season, "不明な季節")
+            time_of_day_ja = time_map_en_to_ja.get(effective_time_of_day, "不明な時間帯")
+
             scenery_prompt = (
                 "あなたは、与えられた二つの情報源から、一つのまとまった情景を描き出す、情景描写の専門家です。\n\n"
-                f"【情報源1：現実世界の状況】\n- 現在の時間帯: {time_of_day_ja}\n- 現在の季節: {jst_now.month}月\n\n"
+                f"【情報源1：適用すべき時間・季節】\n- 時間帯: {time_of_day_ja}\n- 季節: {season_ja}\n\n"
                 f"【情報源2：この空間が持つ固有の設定】\n---\n{space_def}\n---\n\n"
                 "【あなたのタスク】\n"
                 "まず、心の中で【情報源1】と【情報源2】を比較し、矛盾があるかないかを判断してください。\n"
@@ -141,6 +168,7 @@ def generate_scenery_context(room_name: str, api_key: str, force_regenerate: boo
                 "- 人物やキャラクターの描写は絶対に含めないでください。\n"
                 "- 五感に訴えかける、**空気感まで伝わるような**精緻で写実的な描写を重視してください。"
             )
+            # --- [修正はここまで] ---
             scenery_text = llm_flash.invoke(scenery_prompt).content
             save_scenery_cache(room_name, cache_key, location_display_name, scenery_text)
         else:
@@ -185,41 +213,61 @@ def context_generator_node(state: AgentState):
         def __missing__(self, key): return f'{{{key}}}'
     prompt_vars = {'character_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
     formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+    situation_prompt_parts = []
     if not state.get("send_scenery", True):
-        final_system_prompt_text = (f"{formatted_core_prompt}\n\n---\n【現在の場所と情景】\n（空間描写は設定により無効化されています）\n---")
+        situation_prompt_parts.append("【現在の場所と情景】\n（空間描写は設定により無効化されています）")
     else:
+        season_en = state.get("season_en", "autumn")
+        time_of_day_en = state.get("time_of_day_en", "night")
+        season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
+        time_map_en_to_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}
+        season_ja = season_map_en_to_ja.get(season_en, "不明な季節")
+        time_of_day_ja = time_map_en_to_ja.get(time_of_day_en, "不明な時間帯")
+
         location_display_name = state.get("location_name", "（不明な場所）")
         scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
-        soul_vessel_room = all_participants[0] if all_participants else room_name
+
+        soul_vessel_room = state['all_participants'][0] if state['all_participants'] else state['room_name']
         space_def = "（場所の定義を取得できませんでした）"
         current_location_name = utils.get_current_location(soul_vessel_room)
         if current_location_name:
             world_settings_path = get_world_settings_path(soul_vessel_room)
             world_data = utils.parse_world_file(world_settings_path)
-            # 防御的プログラミング：space_def が巨大なデータにならないように保証する
             if isinstance(world_data, dict):
                 for area, places in world_data.items():
                     if isinstance(places, dict) and current_location_name in places:
                         space_def = places[current_location_name]
-                        # 念のため、予期せぬ長大なデータが混入することを防ぐ
                         if isinstance(space_def, str) and len(space_def) > 2000:
                             space_def = space_def[:2000] + "\n...（長すぎるため省略）"
                         break
             else:
-                # world_dataが予期せず辞書でない場合のエラーハンドリング
                 space_def = "（エラー：世界設定のデータ構造が不正です）"
 
-        available_locations = get_location_list(room_name)
+        available_locations = get_location_list(state['room_name'])
         location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
-        final_system_prompt_text = (
-            f"{formatted_core_prompt}\n\n---\n"
-            f"【現在の場所と情景】\n- 場所: {location_display_name}\n"
-            f"- 場所の設定（自由記述）: \n{space_def}\n- 今の情景: {scenery_text}\n"
-            f"【移動可能な場所】\n{location_list_str}\n---"
-        )
+
+        situation_prompt_parts.extend([
+            "【現在の状況】",
+            f"- 季節: {season_ja}",
+            f"- 時間帯: {time_of_day_ja}\n",
+            "【現在の場所と情景】",
+            f"- 場所: {location_display_name}",
+            f"- 今の情景: {scenery_text}",
+            f"- 場所の設定（自由記述）: \n{space_def}\n",
+            "【移動可能な場所】",
+            location_list_str
+        ])
+
+    situation_prompt = "\n".join(situation_prompt_parts)
+
+    # 新しい構造：まず状況を提示し、その後にAIの基本設定を記述
+    final_system_prompt_text = (
+        f"---\n{situation_prompt}\n---\n\n{formatted_core_prompt}"
+    )
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def agent_node(state: AgentState):
+    from gemini_api import get_configured_llm
     print("--- エージェントノード (agent_node) 実行 ---")
 
     # ▼▼▼ 新しいブロックをここに追加 ▼▼▼
@@ -305,6 +353,7 @@ def safe_tool_executor(state: AgentState):
     AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
     APIのレート制限エラーに対して、賢くリトライまたは中断を行う。
     """
+    from gemini_api import get_configured_llm
     print("--- ツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
