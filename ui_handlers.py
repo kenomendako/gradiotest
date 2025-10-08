@@ -103,8 +103,15 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     if current_location_from_file and current_location_from_file not in valid_location_ids:
         gr.Warning(f"最後にいた場所「{current_location_from_file}」が見つかりません。移動先を選択し直してください。")
         location_dd_val = None
-    _, _, scenery_text = generate_scenery_context(room_name, api_key)
-    scenery_image_path = utils.find_scenery_image(room_name, location_dd_val)
+    season_en, time_of_day_en = _get_current_time_context(room_name)
+    _, _, scenery_text = generate_scenery_context(
+        room_name, api_key,
+        season_en=season_en, time_of_day_en=time_of_day_en
+    )
+    scenery_image_path = utils.find_scenery_image(
+        room_name, location_dd_val,
+        season_en=season_en, time_of_day_en=time_of_day_en
+    )
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "iapetus"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
     safety_display_map = {
@@ -507,8 +514,15 @@ def _stream_and_handle_response(
 
         # 9. その他のUIコンポーネントを更新
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-        _, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key) # location_nameは不要に
-        scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room))
+        season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
+        _, _, new_scenery_text = generate_scenery_context(
+            soul_vessel_room, api_key,
+            season_en=season_en, time_of_day_en=time_of_day_en
+        )
+        scenery_image = utils.find_scenery_image(
+            soul_vessel_room, utils.get_current_location(soul_vessel_room),
+            season_en=season_en, time_of_day_en=time_of_day_en
+        )
         token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
         token_count_text = gemini_api.count_input_tokens(
             room_name=soul_vessel_room, api_key_name=api_key_name,
@@ -2359,12 +2373,15 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
     # 責務3: トークン数を計算する
     # _update_all_tabs_for_room_change の戻り値から、計算に必要な設定値を取得する
     # (インデックスは _update_all_tabs_for_room_change / _update_chat_tab_for_room_change の戻り値の構造に依存)
+
+    # ▼▼▼ 以下のインデックス番号を修正してください ▼▼▼
     add_timestamp_val = all_ui_updates[24]
     send_thoughts_val = all_ui_updates[25]
     send_notepad_val = all_ui_updates[26]
     use_common_prompt_val = all_ui_updates[27]
     send_core_memory_val = all_ui_updates[28]
     send_scenery_val = all_ui_updates[29]
+    # ▲▲▲ 修正ここまで ▲▲▲
     api_history_limit_key = config_manager.CONFIG_GLOBAL.get("last_api_history_limit_option", "all")
 
     token_count_text = gemini_api.count_input_tokens(
