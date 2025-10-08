@@ -121,16 +121,17 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     core_memory_content = load_core_memory_content(room_name)
 
     # このタプルの要素数は34個になる
-    chat_tab_updates = (
+    return (
         room_name, chat_history, mapping_list,
         gr.update(value={'text': '', 'files': []}),
         profile_image,
         memory_str, notepad_content, load_system_prompt_content(room_name),
         core_memory_content,
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
-        gr.update(choices=locations_for_ui, value=location_dd_val),
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # room_dropdown
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # alarm_room_dropdown
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # timer_room_dropdown
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # manage_room_selector ★★★ この行が追加された ★★★
+        gr.update(choices=locations_for_ui, value=location_dd_val), # location_dropdown
         scenery_text,
         voice_display_name, voice_style_prompt_val,
         effective_settings["enable_typewriter_effect"],
@@ -143,7 +144,6 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path
     )
-    return chat_tab_updates
 
 def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     """
@@ -177,10 +177,7 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
         gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
     )
 
-    # 戻り値の総数: 34 + 3 + 3 + 1 + 1 + 4 = 46個 -> 47個に修正
-    # _update_chat_tab_for_room_change が返す profile_image を profile_image_display_update に変更
-    # chat_tab_updates の最初の要素は room_name ではないので、current_room_name を別途返す必要がある
-    # いや、_update_chat_tab_for_room_changeの最初の戻り値がroom_nameなので、それでStateが更新される
+    # 戻り値の総数: 34 + 3 + 3 + 1 + 1 + 4 = 47個
     return (
         chat_tab_updates +
         world_builder_updates +
@@ -192,7 +189,7 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
-    【v3】UIの初期化処理。戻り値の数は `initial_load_outputs` の45個と一致する。
+    【v3】UIの初期化処理。戻り値の数は `initial_load_outputs` の46個と一致する。
     """
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
