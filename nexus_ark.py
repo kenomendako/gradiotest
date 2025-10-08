@@ -777,7 +777,14 @@ try:
         # 戻り値の最後に token_count_display と current_room_name を追加
         all_room_change_outputs.extend([token_count_display, current_room_name])
 
+        # 【v5: 堅牢化】ルーム変更イベントを2段階に分離
+        # 1. まず、選択されたルーム名をconfig.jsonに即時保存するだけの小さな処理を実行
         room_dropdown.change(
+            fn=lambda room_name: config_manager.save_config("last_room", room_name),
+            inputs=[room_dropdown],
+            outputs=None
+        # 2. その後(.then)、UI全体を更新する重い処理を実行
+        ).then(
             fn=ui_handlers.handle_room_change_for_all_tabs,
             inputs=[room_dropdown, api_key_dropdown],
             outputs=all_room_change_outputs
