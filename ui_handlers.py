@@ -2201,7 +2201,7 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
             if fallback_image_path: return Image.open(fallback_image_path)
             return None
 
-        from agent.graph import get_configured_llm
+        from gemini_api import get_configured_llm
         effective_settings = config_manager.get_effective_settings(room_name)
         scene_director_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
 
