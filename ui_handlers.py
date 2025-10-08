@@ -2085,7 +2085,12 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
             gr.update(value="試聴", interactive=True)
         )
 
-def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: str, style_choice: str) -> Optional[str]:
+def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: str, style_choice: str) -> Optional[Image.Image]:
+    """
+    【v5: 最終FIX版】
+    現在の時間と季節に一致するファイル名を事前に確定し、そのファイル名で画像を生成・上書き保存する。
+    他の季節や時間帯の画像には一切触れず、UIの表示更新を保証する。
+    """
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーを選択してください。")
         return None
@@ -2093,21 +2098,30 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return None
+        return gr.update()
 
     location_id = utils.get_current_location(room_name)
-    existing_image_path = utils.find_scenery_image(room_name, location_id)
-
     if not location_id:
         gr.Warning("現在地が特定できません。")
-        return existing_image_path
+        return None
 
+    # 目的のファイル名を事前に確定
+    now = datetime.datetime.now()
+    current_season = utils.get_season(now.month)
+    current_time_of_day = utils.get_time_of_day(now.hour)
+
+    save_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
+    os.makedirs(save_dir, exist_ok=True)
+    final_filename = f"{location_id}_{current_season}_{current_time_of_day}.png"
+    final_path = os.path.join(save_dir, final_filename)
+
+    # フォールバック用に、現在の画像パスを先に探しておく
+    fallback_image_path = utils.find_scenery_image(room_name, location_id)
+
+    # プロンプト生成
     final_prompt = ""
     gr.Info("シーンディレクターAIがプロンプトを構成しています...")
     try:
-        now = datetime.datetime.now()
-        time_of_day = utils.get_time_of_day(now.hour)
-        season = utils.get_season(now.month)
         style_prompts = {
             "写真風 (デフォルト)": "An ultra-detailed, photorealistic masterpiece with cinematic lighting.",
             "イラスト風": "A beautiful and detailed anime-style illustration, pixiv contest winner.",
@@ -2120,7 +2134,8 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
         world_settings = utils.parse_world_file(world_settings_path)
         if not world_settings:
             gr.Error("世界設定の読み込みに失敗しました。")
-            return existing_image_path
+            if fallback_image_path: return Image.open(fallback_image_path)
+            return None
 
         space_text = None
         for area, places in world_settings.items():
@@ -2130,7 +2145,8 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
 
         if not space_text:
             gr.Error("現在の場所の定義が見つかりません。")
-            return existing_image_path
+            if fallback_image_path: return Image.open(fallback_image_path)
+            return None
 
         from agent.graph import get_configured_llm
         effective_settings = config_manager.get_effective_settings(room_name)
@@ -2138,42 +2154,51 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
 
         director_prompt = f"""
 You are a master scene director AI for a high-end image generation model.
-Your sole purpose is to synthesize all available information into a single, cohesive, and flawless English prompt.
+Your sole purpose is to synthesize information from two distinct sources into a single, cohesive, and flawless English prompt.
 
-**Objective:**
-Generate ONE final, masterful prompt for an image generation AI based on a strict hierarchy of information.
-
-**--- [Primary Directive: The Hierarchy of Truth] ---**
-1.  **Analyze the "Base Location Description" FIRST.** Look for any explicit or implicit descriptions of the **time of day, lighting, weather, or atmosphere** (e.g., "always night," "sunlight streaming through," "rainy," "gloomy").
-2.  **If such descriptions exist, they are the ABSOLUTE TRUTH.** You MUST base the visual atmosphere of the prompt on these descriptions. In this case, you MUST IGNORE the "Current Scene Conditions" regarding time and season, as the location's inherent properties override reality.
-3.  **If, and ONLY IF, the "Base Location Description" contains NO information about time or lighting,** you must then use the "Current Scene Conditions" to determine the time and season for the prompt.
-
-**--- [Core Principles] ---**
--   **Foundation First:** The "Base Location Description" is the undeniable truth for all physical structures, objects, furniture, and materials. Your prompt MUST be a faithful visual representation of these elements.
--   **Strictly Visual:** The output must be a purely visual and descriptive paragraph in English. Exclude any narrative, metaphors, sounds, or non-visual elements.
--   **Mandatory Inclusions:** Your prompt MUST incorporate the specified "Aspect Ratio" and adhere to the "Style Definition".
--   **Absolute Prohibitions:** Strictly enforce all "Negative Prompts".
--   **Output Format:** Output ONLY the final, single-paragraph prompt. Do not include any of your own thoughts or conversational text.
-
----
-**[Information Dossier]**
-
-**1. Base Location Description (Absolute truth for atmosphere if specified, otherwise for objects):**
+**--- [Source 1: Architectural Blueprint] ---**
+This is the undeniable truth for all physical structures, objects, furniture, and materials.
 ```
 {space_text}
 ```
 
-**2. Current Scene Conditions (Use ONLY if time/lighting is NOT specified in the description above):**
-- Time of Day: {time_of_day}
-- Season: {season}
+**--- [Source 2: Temporal Context] ---**
+This defines the atmosphere, lighting, and the world state *at this exact moment*.
+- Time of Day: {current_time_of_day}
+- Season: {current_season}
 
-**3. Style Definition (Incorporate this aesthetic):**
+**--- [Your Task: The Fusion] ---**
+Your task is to **merge** these two sources into a single, coherent visual description, following the absolute rules below.
+
+**--- [The Golden Rule for Windows & Exteriors] ---**
+**If the Architectural Blueprint mentions a window, door, or any view to the outside, you MUST explicitly describe the exterior view *as it would appear* within the Temporal Context.**
+-   **Example:** If the context is `night` and the blueprint mentions "a garden," you MUST describe a `dark garden under the moonlight` or `a rainy night landscape`, not just `a garden`.
+-   **This rule is absolute and overrides any ambiguity.**
+
+**--- [Core Principles & Hierarchy] ---**
+
+1.  **Architectural Fidelity:** Your prompt MUST be a faithful visual representation of the physical elements described in the "Architectural Blueprint" (Source 1).
+
+2.  **Atmospheric & Lighting Fidelity:** The overall lighting, weather, and the view seen through windows MUST be a direct and faithful representation of the "Temporal Context" (Source 2), unless the blueprint describes an absolute, unchangeable environmental property (e.g., "a cave with no natural light," "a dimension of perpetual twilight").
+
+3.  **Strictly Visual:** The output must be a purely visual paragraph in English. Exclude any narrative, metaphors, sounds, or non-visual elements.
+
+4.  **Mandatory Inclusions:** Your prompt MUST incorporate the specified "Aspect Ratio" and adhere to the "Style Definition".
+
+5.  **Absolute Prohibitions:** Strictly enforce all "Negative Prompts".
+
+6.  **Output Format:** Output ONLY the final, single-paragraph prompt. Do not include any of your own thoughts or conversational text.
+
+---
+**[Supporting Information]**
+
+**Style Definition (Incorporate this aesthetic):**
 - {style_choice_text}
 
-**4. Mandatory Technical Specs:**
+**Mandatory Technical Specs:**
 - Aspect Ratio: 16:9 landscape aspect ratio.
 
-**5. Negative Prompts (Strictly enforce these exclusions):**
+**Negative Prompts (Strictly enforce these exclusions):**
 - Absolutely no text, letters, characters, signatures, or watermarks. Do not include people.
 ---
 
@@ -2184,40 +2209,42 @@ Generate ONE final, masterful prompt for an image generation AI based on a stric
     except Exception as e:
         gr.Error(f"シーンディレクターAIによるプロンプト生成中にエラーが発生しました: {e}")
         traceback.print_exc()
-        return existing_image_path
+        if fallback_image_path: return Image.open(fallback_image_path)
+        return None
 
     if not final_prompt:
         gr.Error("シーンディレクターAIが有効なプロンプトを生成できませんでした。")
-        return existing_image_path
+        if fallback_image_path: return Image.open(fallback_image_path)
+        return None
 
     gr.Info(f"「{style_choice}」で画像を生成します...")
     result = generate_image_tool_func.func(prompt=final_prompt, room_name=room_name, api_key=api_key)
 
+    # 確定パスで上書き保存し、そのパスを返す
     if "Generated Image:" in result:
-        generated_path = result.replace("[Generated Image: ", "").replace("]", "").strip()
-        if os.path.exists(generated_path):
-            save_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
-            now = datetime.datetime.now()
+        # [修正] 正規表現を使って、改行を含む文字列からでも正確にパスを抽出する
+        match = re.search(r"\[Generated Image: (.*?)\]", result, re.DOTALL)
+        generated_path = match.group(1).strip() if match else None
 
-            cache_key = f"{location_id}_{utils.get_season(now.month)}_{utils.get_time_of_day(now.hour)}"
-            specific_filename = f"{cache_key}.png"
-            specific_path = os.path.join(save_dir, specific_filename)
-
-            if os.path.exists(specific_path):
-                os.remove(specific_path)
-
-            shutil.move(generated_path, specific_path)
-            print(f"--- 情景画像を生成し、保存しました: {specific_path} ---")
-
-            gr.Info("画像を生成/更新しました。")
-            return specific_path
+        if generated_path and os.path.exists(generated_path):
+            try:
+                shutil.move(generated_path, final_path)
+                print(f"--- 情景画像を生成し、保存/上書きしました: {final_path} ---")
+                gr.Info("画像を生成/更新しました。")
+                return Image.open(final_path)
+            except Exception as move_e:
+                gr.Error(f"生成された画像の移動/上書きに失敗しました: {move_e}")
+                if fallback_image_path: return Image.open(fallback_image_path)
+                return None
         else:
             gr.Error("画像の生成には成功しましたが、一時ファイルの特定に失敗しました。")
-            return existing_image_path
     else:
         gr.Error(f"画像の生成/更新に失敗しました。AIの応答: {result}")
-        return existing_image_path
 
+    # フォールバック
+    if fallback_image_path: return Image.open(fallback_image_path)
+    return None
+    
 def handle_api_connection_test(api_key_name: str):
     if not api_key_name:
         gr.Warning("テストするAPIキーが選択されていません。")

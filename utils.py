@@ -307,7 +307,7 @@ def get_season(month: int) -> str:
 def get_time_of_day(hour: int) -> str:
     if 5 <= hour < 10: return "morning"
     if 10 <= hour < 17: return "daytime"
-    if 17 <= hour < 21: return "evening"
+    if 17 <= hour < 19: return "evening"
     return "night"
 
 def find_scenery_image(room_name: str, location_id: str) -> Optional[str]:
