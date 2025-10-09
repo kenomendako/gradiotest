@@ -64,7 +64,17 @@ class UnifiedTimer:
             synthesized_user_message = f"（システムタイマー：時間です。テーマ「{theme}」について、メッセージを伝えてください）"
 
             log_f, _, _, _, _ = room_manager.get_room_files_paths(self.room_name)
-            api_key = config_manager.GEMINI_API_KEYS.get(self.api_key_name)
+
+            # ▼▼▼【このブロックを全面的に書き換え】▼▼▼
+            # タイマーセット時の古いAPIキー名(self.api_key_name)ではなく、
+            # 実行時の最新のAPIキー名を取得する
+            current_api_key_name = config_manager.get_latest_api_key_name_from_config()
+            if not current_api_key_name:
+                print(f"警告: タイマー ({timer_id}) の発火時に有効なAPIキーが見つからないため、処理をスキップします。")
+                return
+
+            api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name)
+            # ▲▲▲【書き換えはここまで】▲▲▲
 
             if not log_f or not api_key:
                 print(f"警告: タイマー ({timer_id}) のルームファイルまたはAPIキーが見つからないため、処理をスキップします。")
@@ -75,7 +85,7 @@ class UnifiedTimer:
 
             agent_args_dict = {
                 "room_to_respond": self.room_name,
-                "api_key_name": self.api_key_name,
+                "api_key_name": current_api_key_name, # ← 最新のキー名を使用
                 "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
                 "debug_mode": False,
                 "history_log_path": log_f,

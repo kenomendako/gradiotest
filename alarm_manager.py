@@ -192,7 +192,18 @@ def trigger_alarm(alarm_config, current_api_key_name):
 def check_alarms():
     now_dt = datetime.datetime.now()
     now_t, current_day_short = now_dt.strftime("%H:%M"), now_dt.strftime('%a').lower()
-    current_api_key = config_manager.initial_api_key_name_global
+
+    # ▼▼▼【このブロックを全面的に書き換え】▼▼▼
+    # 古いグローバル変数を参照するのをやめ、毎回config.jsonから最新の設定を読み込む
+    current_api_key = config_manager.get_latest_api_key_name_from_config()
+
+    # 安全装置：もし有効なAPIキーが一つもなければ、警告を出して処理を中断する
+    if not current_api_key:
+        # このメッセージは1分ごとに表示される可能性があるため、printで十分
+        print("警告 [アラーム]: 有効なAPIキーが設定されていないため、アラームチェックをスキップします。")
+        return
+    # ▲▲▲【書き換えはここまで】▲▲▲
+
     current_alarms = load_alarms()
     alarms_to_trigger, remaining_alarms = [], list(current_alarms)
 
@@ -220,9 +231,9 @@ def check_alarms():
         alarms_data_global = remaining_alarms
         save_alarms()
 
-    if current_api_key:
-        for alarm_to_run in alarms_to_trigger:
-            trigger_alarm(alarm_to_run, current_api_key)
+    # if current_api_key: # このif文は上の安全装置に統合されたので不要
+    for alarm_to_run in alarms_to_trigger:
+        trigger_alarm(alarm_to_run, current_api_key)
 
 def schedule_thread_function():
     global alarm_thread_stop_event

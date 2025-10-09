@@ -335,3 +335,33 @@ def save_theme_settings(active_theme: str, custom_themes: Dict):
     config["theme_settings"]["active_theme"] = active_theme
     config["theme_settings"]["custom_themes"] = custom_themes
     _save_config_file(config)
+
+from typing import Optional
+
+# ▼▼▼【この関数をファイルの末尾にまるごと追加】▼▼▼
+def get_latest_api_key_name_from_config() -> Optional[str]:
+    """
+    config.jsonを直接読み込み、最後に選択された有効なAPIキー名を返す。
+    UIの状態に依存しないため、バックグラウンドスレッドから安全に呼び出せる。
+    """
+    config = _load_config_file()
+    last_key_name = config.get("last_api_key_name")
+
+    # 有効な（値が設定されている）APIキーのリストを取得
+    api_keys_dict = config.get("gemini_api_keys", {})
+    valid_keys = [
+        k for k, v in api_keys_dict.items()
+        if v and isinstance(v, str) and not v.startswith("YOUR_API_KEY")
+    ]
+
+    # 最後に使ったキーが今も有効なら、それを返す
+    if last_key_name and last_key_name in valid_keys:
+        return last_key_name
+
+    # そうでなければ、有効なキーリストの最初のものを返す
+    if valid_keys:
+        return valid_keys[0]
+
+    # 有効なキーが一つもなければ、Noneを返す
+    return None
+# ▲▲▲【追加はここまで】▲▲▲
