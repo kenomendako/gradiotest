@@ -467,12 +467,23 @@ def _stream_and_handle_response(
 
             # 3d. 【新ロジック】このAIの応答をログファイルに即時保存
             if final_state:
+                # ▼▼▼【ここからが修正の核心】▼▼▼
+                # 応答したAI自身のログファイルパスを取得
+                current_log_f, _, _, _, _ = get_room_files_paths(current_room)
+                if not current_log_f:
+                    print(f"警告: ルーム '{current_room}' のログファイルパスを取得できず、保存をスキップします。")
+                    continue
+                # ▲▲▲【修正はここまで】▲▲▲
+
                 new_messages = final_state["messages"][initial_message_count:]
                 for msg in new_messages:
                     if isinstance(msg, AIMessage):
                         response_content = msg.content
                         if response_content and response_content.strip():
-                            utils.save_message_to_log(main_log_f, f"## AGENT:{current_room}", response_content)
+                            # ▼▼▼【ここが修正の核心】▼▼▼
+                            # 保存先として、main_log_f ではなく current_log_f を使用する
+                            utils.save_message_to_log(current_log_f, f"## AGENT:{current_room}", response_content)
+                            # ▲▲▲【修正はここまで】▲▲▲
                     elif isinstance(msg, ToolMessage):
                         popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                         if popup_text:
@@ -534,10 +545,10 @@ def handle_message_submission(
     multimodal_input: dict, soul_vessel_room: str, api_key_name: str,
     api_history_limit: str, debug_mode: bool,
     console_content: str, active_participants: list, global_model: str,
-    enable_typewriter_effect: bool, streaming_speed: float # ← 2つの引数を追加
+    enable_typewriter_effect: bool, streaming_speed: float
 ):
     """
-    【v4: ペースト挙動FIX】新規メッセージの送信を処理する司令塔。
+    【v5: グループ会話ログ分散対応】新規メッセージの送信を処理する司令塔。
     """
     # 1. ユーザー入力を解析
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
@@ -545,8 +556,6 @@ def handle_message_submission(
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
 
     log_message_parts = []
-    # タイムスタンプはUI設定(add_timestamp)に関わらず、常にログに記録する。
-    # UIでの表示/非表示は、表示用のフォーマッタ(format_history_for_gradio)が担当する。
     timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
 
     if user_prompt_from_textbox:
@@ -570,10 +579,17 @@ def handle_message_submission(
                gr.update(visible=False), gr.update(interactive=True))
         return
 
-    main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
-    utils.save_message_to_log(main_log_f, "## USER:user", full_user_log_entry)
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # 2. ユーザーの発言を、セッション参加者全員のログに書き込む
+    all_participants_in_session = [soul_vessel_room] + (active_participants or [])
+    for room_name in all_participants_in_session:
+        log_f, _, _, _, _ = get_room_files_paths(room_name)
+        if log_f:
+            utils.save_message_to_log(log_f, "## USER:user", full_user_log_entry)
+    # ▲▲▲【修正はここまで】▲▲▲
 
-    # 2. API用の入力パーツを準備
+
+    # 3. API用の入力パーツを準備
     user_prompt_parts_for_api = []
     if user_prompt_from_textbox:
         user_prompt_parts_for_api.append({"type": "text", "text": user_prompt_from_textbox})
@@ -581,17 +597,11 @@ def handle_message_submission(
     if file_input_list:
         for file_obj in file_input_list:
             try:
-                # -------------------------------------------------------------
-                # [最終版ロジック] Gradioから渡されるオブジェクトの型と内容で処理を分岐
-                # -------------------------------------------------------------
                 file_path = None
-                # ケース1: ファイルがアップロードされた場合 (gradio.FileDataオブジェクト)
                 if hasattr(file_obj, 'name') and os.path.exists(file_obj.name):
                     file_path = file_obj.name
-                # ケース2: テキストがペーストされ、それが有効なローカルファイルパスの場合
                 elif isinstance(file_obj, str) and os.path.exists(file_obj):
                     file_path = file_obj
-                # ケース3: それ以外の単なるテキストがペーストされた場合
                 else:
                     content = file_obj if isinstance(file_obj, str) else str(file_obj)
                     if not user_prompt_from_textbox and content:
@@ -600,13 +610,11 @@ def handle_message_submission(
                         user_prompt_parts_for_api.append({"type": "text", "text": f"添付されたテキストの内容:\n---\n{content}\n---"})
                     continue
 
-                # --- ファイルパスが特定できた場合の共通処理 ---
                 if file_path:
                     file_basename = os.path.basename(file_path)
                     kind = filetype.guess(file_path)
                     mime_type = kind.mime if kind else "application/octet-stream"
 
-                    # 画像ファイルはBase64エンコードしてAIに直接渡す
                     if mime_type.startswith('image/'):
                         with open(file_path, "rb") as f:
                             encoded_string = base64.b64encode(f.read()).decode("utf-8")
@@ -614,7 +622,6 @@ def handle_message_submission(
                             "type": "image_url",
                             "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
                         })
-                    # それ以外のファイルはテキストとして読み込みを試みる
                     else:
                         try:
                             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -629,7 +636,7 @@ def handle_message_submission(
                 user_prompt_parts_for_api.append({"type": "text", "text": f"（添付ファイルの処理中に致命的なエラーが発生しました）"})
 
 
-    # 3. 中核となるストリーミング関数を呼び出す
+    # 4. 中核となるストリーミング関数を呼び出す
     yield from _stream_and_handle_response(
         room_to_respond=soul_vessel_room,
         full_user_log_entry=full_user_log_entry,
@@ -641,8 +648,8 @@ def handle_message_submission(
         soul_vessel_room=soul_vessel_room,
         active_participants=active_participants or [],
         current_console_content=console_content,
-        enable_typewriter_effect=enable_typewriter_effect, # ← この行を追加
-        streaming_speed=streaming_speed,                   # ← この行を追加
+        enable_typewriter_effect=enable_typewriter_effect,
+        streaming_speed=streaming_speed,
     )
 
 def handle_rerun_button_click(
@@ -1274,13 +1281,16 @@ def format_history_for_gradio(
              proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
 
     for item in proto_history:
-        # ここで `mapping_list` に追加される `log_index` が絶対座標になる
         mapping_list.append(item["log_index"])
         role, responder_id = item["role"], item["responder"]
+
+        # ▼▼▼【このブロック全体を書き換え】▼▼▼
+        # is_user の判定を先に行う
         is_user = (role == "USER")
 
         if item["type"] == "text":
             speaker_name = ""
+            # ロールに基づいて話者名を設定
             if is_user:
                 speaker_name = user_display_name
             elif role == "AGENT":
@@ -1288,8 +1298,12 @@ def format_history_for_gradio(
                     agent_config = room_manager.get_room_config(responder_id) or {}
                     agent_name_cache[responder_id] = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
                 speaker_name = agent_name_cache[responder_id]
+            elif role == "SYSTEM":
+                # システムメッセージ用の話者名を設定
+                speaker_name = responder_id
             else:
                 speaker_name = responder_id
+        # ▲▲▲【書き換えはここまで】▲▲▲
 
             content_to_parse = item['content']
 
@@ -1320,7 +1334,14 @@ def format_history_for_gradio(
                     markdown_parts.append(part.strip())
 
             final_markdown = "\n\n".join(markdown_parts)
-            gradio_history.append((final_markdown, None) if is_user else (None, final_markdown))
+
+            # ▼▼▼【このif/elseブロックを書き換え】▼▼▼
+            # ユーザーメッセージは左側、それ以外（AGENTとSYSTEM）は右側に表示
+            if is_user:
+                gradio_history.append((final_markdown, None))
+            else:
+                gradio_history.append((None, final_markdown))
+            # ▲▲▲【書き換えはここまで】▲▲▲
 
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))
