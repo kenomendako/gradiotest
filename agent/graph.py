@@ -181,18 +181,59 @@ def generate_scenery_context(
     return location_display_name, space_def, scenery_text
 
 def context_generator_node(state: AgentState):
+    """
+    【v23: プロンプト工場アーキテクチャ】
+    マスターテンプレートの全てのプレースホルダを埋め、
+    完成された単一のシステムプロンプトを生成する責務を負う。
+    """
     room_name = state['room_name']
-    all_participants = state.get('all_participants', [])
+
+    # --- パート1: 状況プロンプト ({situation_prompt}) を生成 ---
+    situation_prompt_parts = []
+    if not state.get("send_scenery", True):
+        situation_prompt_parts.append("【現在の場所と情景】\n（空間描写は設定により無効化されています）")
+    else:
+        # (この部分は変更なし)
+        season_en = state.get("season_en", "autumn")
+        time_of_day_en = state.get("time_of_day_en", "night")
+        season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
+        time_map_en_to_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}
+        season_ja = season_map_en_to_ja.get(season_en, "不明な季節")
+        time_of_day_ja = time_map_en_to_ja.get(time_of_day_en, "不明な時間帯")
+        location_display_name = state.get("location_name", "（不明な場所）")
+        scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
+        soul_vessel_room = state['all_participants'][0] if state['all_participants'] else state['room_name']
+        space_def = "（場所の定義を取得できませんでした）"
+        current_location_name = utils.get_current_location(soul_vessel_room)
+        if current_location_name:
+            world_settings_path = get_world_settings_path(soul_vessel_room)
+            world_data = utils.parse_world_file(world_settings_path)
+            if isinstance(world_data, dict):
+                for area, places in world_data.items():
+                    if isinstance(places, dict) and current_location_name in places:
+                        space_def = places[current_location_name]
+                        if isinstance(space_def, str) and len(space_def) > 2000: space_def = space_def[:2000] + "\n...（長すぎるため省略）"
+                        break
+            else: space_def = "（エラー：世界設定のデータ構造が不正です）"
+        available_locations = get_location_list(state['room_name'])
+        location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
+        situation_prompt_parts.extend([
+            "【現在の状況】", f"- 季節: {season_ja}", f"- 時間帯: {time_of_day_ja}\n",
+            "【現在の場所と情景】", f"- 場所: {location_display_name}", f"- 今の情景: {scenery_text}",
+            f"- 場所の設定（自由記述）: \n{space_def}\n", "【移動可能な場所】", location_list_str
+        ])
+    situation_prompt = "\n".join(situation_prompt_parts)
+
+    # --- パート2: その他のプレースホルダを埋める ---
+    # (この部分は以前のロジックとほぼ同じ)
     char_prompt_path = os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")
     core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
-    character_prompt = ""
+    character_prompt = ""; core_memory = ""; notepad_section = ""
     if os.path.exists(char_prompt_path):
         with open(char_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
-    core_memory = ""
     if state.get("send_core_memory", True):
         if os.path.exists(core_memory_path):
             with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
-    notepad_section = ""
     if state.get("send_notepad", True):
         try:
             from room_manager import get_room_files_paths
@@ -206,90 +247,58 @@ def context_generator_node(state: AgentState):
         except Exception as e:
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
+    all_participants = state.get('all_participants', [])
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
-    if len(all_participants) > 1:
-        tools_list_str = "（グループ会話中はツールを使用できません）"
+    if len(all_participants) > 1: tools_list_str = "（グループ会話中はツールを使用できません）"
+
+    # --- パート3: 最終的なプロンプトを組み立てて返す ---
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
-    prompt_vars = {'character_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory, 'notepad_section': notepad_section, 'tools_list': tools_list_str}
-    formatted_core_prompt = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
-    situation_prompt_parts = []
-    if not state.get("send_scenery", True):
-        situation_prompt_parts.append("【現在の場所と情景】\n（空間描写は設定により無効化されています）")
-    else:
-        season_en = state.get("season_en", "autumn")
-        time_of_day_en = state.get("time_of_day_en", "night")
-        season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
-        time_map_en_to_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}
-        season_ja = season_map_en_to_ja.get(season_en, "不明な季節")
-        time_of_day_ja = time_map_en_to_ja.get(time_of_day_en, "不明な時間帯")
 
-        location_display_name = state.get("location_name", "（不明な場所）")
-        scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
+    prompt_vars = {
+        'situation_prompt': situation_prompt,
+        'character_prompt': character_prompt,
+        'core_memory': core_memory,
+        'notepad_section': notepad_section,
+        'tools_list': tools_list_str
+    }
+    final_system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
 
-        soul_vessel_room = state['all_participants'][0] if state['all_participants'] else state['room_name']
-        space_def = "（場所の定義を取得できませんでした）"
-        current_location_name = utils.get_current_location(soul_vessel_room)
-        if current_location_name:
-            world_settings_path = get_world_settings_path(soul_vessel_room)
-            world_data = utils.parse_world_file(world_settings_path)
-            if isinstance(world_data, dict):
-                for area, places in world_data.items():
-                    if isinstance(places, dict) and current_location_name in places:
-                        space_def = places[current_location_name]
-                        if isinstance(space_def, str) and len(space_def) > 2000:
-                            space_def = space_def[:2000] + "\n...（長すぎるため省略）"
-                        break
-            else:
-                space_def = "（エラー：世界設定のデータ構造が不正です）"
-
-        available_locations = get_location_list(state['room_name'])
-        location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
-
-        situation_prompt_parts.extend([
-            "【現在の状況】",
-            f"- 季節: {season_ja}",
-            f"- 時間帯: {time_of_day_ja}\n",
-            "【現在の場所と情景】",
-            f"- 場所: {location_display_name}",
-            f"- 今の情景: {scenery_text}",
-            f"- 場所の設定（自由記述）: \n{space_def}\n",
-            "【移動可能な場所】",
-            location_list_str
-        ])
-
-    situation_prompt = "\n".join(situation_prompt_parts)
-
-    # 新しい構造：まず状況を提示し、その後にAIの基本設定を記述
-    final_system_prompt_text = (
-        f"---\n{situation_prompt}\n---\n\n{formatted_core_prompt}"
-    )
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def agent_node(state: AgentState):
     from gemini_api import get_configured_llm
     print("--- エージェントノード (agent_node) 実行 ---")
-
-    # ▼▼▼ 新しいブロックをここに追加 ▼▼▼
-    # ループカウンターを初期化または取得
     loop_count = state.get("loop_count", 0)
     print(f"  - 現在の再思考ループカウント: {loop_count}")
-    # ▲▲▲ 追加ここまで ▲▲▲
 
-    base_system_prompt = state['system_prompt'].content
+    # --- [v23] 新アーキテクチャ対応 ---
+    # 1. 完成済みのシステムプロンプトを取得
+    base_system_prompt_text = state['system_prompt'].content
+    final_system_prompt_text = base_system_prompt_text
+
+    # 2. グループ会話用のペルソナロックプロンプトを注入（必要な場合）
     all_participants = state.get('all_participants', [])
     current_room = state['room_name']
-    final_system_prompt_text = base_system_prompt
     if len(all_participants) > 1:
         other_participants = [p for p in all_participants if p != current_room]
         persona_lock_prompt = (
-            f"【最重要指示】あなたはこのルームのペルソナです (ルーム名: {current_room})。"
+            f"<persona_lock>\n【最重要指示】あなたはこのルームのペルソナです (ルーム名: {current_room})。"
             f"他の参加者（{', '.join(other_participants)}、そしてユーザー）の発言を参考に、必ずあなた自身の言葉で応答してください。"
-            "他のキャラクターの応答を代弁したり、生成してはいけません。\n\n---\n\n"
+            "他のキャラクターの応答を代弁したり、生成してはいけません。\n</persona_lock>\n\n"
         )
-        final_system_prompt_text = persona_lock_prompt + base_system_prompt
+        final_system_prompt_text = final_system_prompt_text.replace(
+            "<system_prompt>", f"<system_prompt>\n{persona_lock_prompt}"
+        )
 
     final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
+
+    # 3. 履歴を取得 (state['messages'] は純粋な会話履歴)
+    history_messages = state['messages']
+
+    # 4. 最終的なメッセージリストを構築
+    messages_for_agent = [final_system_prompt_message] + history_messages
+    # --- [v23] 修正ここまで ---
 
     print(f"  - 使用モデル: {state['model_name']}")
     print(f"  - 最終システムプロンプト長: {len(final_system_prompt_text)} 文字")
@@ -301,48 +310,36 @@ def agent_node(state: AgentState):
     llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
     llm_with_tools = llm.bind_tools(all_tools)
 
-    history_messages = [msg for msg in state['messages'] if not isinstance(msg, SystemMessage)]
-    messages_for_agent = [final_system_prompt_message] + history_messages
-
     import pprint
     print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
     for i, msg in enumerate(messages_for_agent):
         msg_type = type(msg).__name__
         content_for_length_check = ""
         if hasattr(msg, 'content'):
-            if isinstance(msg.content, str):
-                content_for_length_check = msg.content
-            elif isinstance(msg.content, list):
-                content_for_length_check = "".join(
-                    part.get('text', '') if isinstance(part, dict) else str(part)
-                    for part in msg.content
-                )
+            if isinstance(msg.content, str): content_for_length_check = msg.content
+            elif isinstance(msg.content, list): content_for_length_check = "".join(part.get('text', '') if isinstance(part, dict) else str(part) for part in msg.content)
         print(f"[{i}] {msg_type} (Content Length: {len(content_for_length_check)})")
         if isinstance(msg, SystemMessage):
             print(f"  - Content (Head): {msg.content[:300]}...")
             print(f"  - Content (Tail): ...{msg.content[-300:]}")
         elif hasattr(msg, 'content'):
-            print("  - Content:")
-            pprint.pprint(msg.content, indent=4)
+            print("  - Content:"); pprint.pprint(msg.content, indent=4)
         if hasattr(msg, 'tool_calls') and msg.tool_calls:
-            print("  - Tool Calls:")
-            pprint.pprint(msg.tool_calls, indent=4)
+            print("  - Tool Calls:"); pprint.pprint(msg.tool_calls, indent=4)
         print("-" * 20)
     print("--------------------------------------------------\n")
 
     response = llm_with_tools.invoke(messages_for_agent)
 
     print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
+    import copy
     response_for_log = copy.deepcopy(response)
     if hasattr(response_for_log, 'tool_calls') and response_for_log.tool_calls:
         for tool_call in response_for_log.tool_calls:
-            if 'api_key' in tool_call.get('args', {}):
-                tool_call['args']['api_key'] = '<REDACTED>'
+            if 'api_key' in tool_call.get('args', {}): tool_call['args']['api_key'] = '<REDACTED>'
     pprint.pprint(response_for_log)
     print("---------------------------------------\n")
 
-    # ▼▼▼ return文の直前に、以下の2行を追加 ▼▼▼
-    # 実行後にループカウンターを1増やす
     loop_count += 1
     return {"messages": [response], "loop_count": loop_count}
 
