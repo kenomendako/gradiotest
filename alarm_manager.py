@@ -14,6 +14,7 @@ import constants
 import room_manager
 import gemini_api
 import utils
+import ui_handlers # ← この行を追加
 
 try:
     from plyer import notification
@@ -127,7 +128,13 @@ def trigger_alarm(alarm_config, current_api_key_name):
     message_for_log = f"（システムアラーム：{alarm_config.get('time', '指定時刻')}）"
 
     from agent.graph import generate_scenery_context
-    location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
+    # ▼▼▼【ここから下のブロックを書き換え】▼▼▼
+    # 1. 適用すべき時間コンテキストを取得
+    season_en, time_of_day_en = ui_handlers._get_current_time_context(room_name)
+    # 2. 情景生成時に時間コンテキストを渡す
+    location_name, _, scenery_text = generate_scenery_context(
+        room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
+    )
 
     agent_args_dict = {
         "room_to_respond": room_name,
@@ -140,8 +147,13 @@ def trigger_alarm(alarm_config, current_api_key_name):
         "active_participants": [],
         "shared_location_name": location_name,
         "shared_scenery_text": scenery_text,
-        "use_common_prompt": False # ← 思考をシンプルにするため、ツールプロンプトを無効化
+        "use_common_prompt": False, # ← 思考をシンプルにするため、ツールプロンプトを無効化
+        # 3. AIの引数にも時間コンテキストを追加
+        "season_en": season_en,
+        "time_of_day_en": time_of_day_en
     }
+    # ▲▲▲【書き換えはここまで】▲▲▲
+
 
     # ▼▼▼【ここから下のブロックを、既存のストリーム処理ロジックと完全に置き換えてください】▼▼▼
     final_response_text = ""
@@ -192,7 +204,18 @@ def trigger_alarm(alarm_config, current_api_key_name):
 def check_alarms():
     now_dt = datetime.datetime.now()
     now_t, current_day_short = now_dt.strftime("%H:%M"), now_dt.strftime('%a').lower()
-    current_api_key = config_manager.initial_api_key_name_global
+
+    # ▼▼▼【このブロックを全面的に書き換え】▼▼▼
+    # 古いグローバル変数を参照するのをやめ、毎回config.jsonから最新の設定を読み込む
+    current_api_key = config_manager.get_latest_api_key_name_from_config()
+
+    # 安全装置：もし有効なAPIキーが一つもなければ、警告を出して処理を中断する
+    if not current_api_key:
+        # このメッセージは1分ごとに表示される可能性があるため、printで十分
+        print("警告 [アラーム]: 有効なAPIキーが設定されていないため、アラームチェックをスキップします。")
+        return
+    # ▲▲▲【書き換えはここまで】▲▲▲
+
     current_alarms = load_alarms()
     alarms_to_trigger, remaining_alarms = [], list(current_alarms)
 
@@ -220,9 +243,9 @@ def check_alarms():
         alarms_data_global = remaining_alarms
         save_alarms()
 
-    if current_api_key:
-        for alarm_to_run in alarms_to_trigger:
-            trigger_alarm(alarm_to_run, current_api_key)
+    # if current_api_key: # このif文は上の安全装置に統合されたので不要
+    for alarm_to_run in alarms_to_trigger:
+        trigger_alarm(alarm_to_run, current_api_key)
 
 def schedule_thread_function():
     global alarm_thread_stop_event
