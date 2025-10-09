@@ -127,7 +127,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
     core_memory_content = load_core_memory_content(room_name)
 
-    # このタプルの要素数は34個になる
+    # このタプルの要素数は36個になる
     return (
         room_name, chat_history, mapping_list,
         gr.update(value={'text': '', 'files': []}),
@@ -137,7 +137,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # room_dropdown
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # alarm_room_dropdown
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # timer_room_dropdown
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # manage_room_selector ★★★ この行が追加された ★★★
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # manage_room_selector
         gr.update(choices=locations_for_ui, value=location_dd_val), # location_dropdown
         scenery_text,
         voice_display_name, voice_style_prompt_val,
@@ -146,18 +146,22 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         temp_val, top_p_val, harassment_val, hate_val, sexual_val, dangerous_val,
         effective_settings["add_timestamp"], effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
-        effective_settings["send_core_memory"], effective_settings["send_scenery"],
+        effective_settings["send_core_memory"],
+        effective_settings["send_scenery"], # room_send_scenery_checkbox の値
         effective_settings["auto_memory_enabled"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
-        scenery_image_path
+        scenery_image_path,
+        # --- 新しい戻り値 ---
+        effective_settings.get("enable_scenery_system", True), # enable_scenery_system_checkbox の値
+        gr.update(visible=effective_settings.get("enable_scenery_system", True)) # profile_scenery_accordion の表示状態
     )
 
 def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     """
     【v4】ルーム切り替え時に、全ての関連タブのUIを更新する。
-    戻り値の数は `all_room_change_outputs` の47個と一致する。
+    戻り値の数は `all_room_change_outputs` の49個と一致する。
     """
-    # chat_tab_updatesは34個の更新値を持つ
+    # chat_tab_updatesは36個の更新値を持つ
     chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
 
     wb_state, wb_area_selector, wb_raw_editor = handle_world_builder_load(room_name)
@@ -196,13 +200,13 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
-    【v3】UIの初期化処理。戻り値の数は `initial_load_outputs` の46個と一致する。
+    【v3】UIの初期化処理。戻り値の数は `initial_load_outputs` の47個と一致する。
     """
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
 
-    # chat_tab_updatesは34個の更新値を持つ
+    # chat_tab_updatesは36個の更新値を持つ
     chat_tab_updates = _update_chat_tab_for_room_change(initial_room_to_load, initial_api_key_name)
 
     rules = config_manager.load_redaction_rules()
@@ -241,10 +245,11 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
 def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
-    enable_typewriter_effect: bool, # ← enable_typewriter_effect と streaming_speed の順番を変更
+    enable_typewriter_effect: bool,
     streaming_speed: float,
     add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
-    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
+    use_common_prompt: bool, send_core_memory: bool,
+    enable_scenery_system: bool, # room_send_scenery_checkbox から変更
     auto_memory_enabled: bool
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
@@ -272,7 +277,9 @@ def handle_save_room_settings(
         "send_notepad": bool(send_notepad),
         "use_common_prompt": bool(use_common_prompt),
         "send_core_memory": bool(send_core_memory),
-        "send_scenery": bool(send_scenery),
+        # ここで2つの設定を連動させる
+        "enable_scenery_system": bool(enable_scenery_system),
+        "send_scenery": bool(enable_scenery_system),
         "auto_memory_enabled": bool(auto_memory_enabled),
     }
     try:
@@ -298,13 +305,14 @@ def handle_save_room_settings(
         gr.Info(f"「{room_name}」の個別設定を保存しました。")
     except Exception as e: gr.Error(f"個別設定の保存中にエラーが発生しました: {e}"); traceback.print_exc()
 
-def handle_context_settings_change(room_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, send_scenery: bool, *args, **kwargs):
+def handle_context_settings_change(room_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, enable_scenery_system: bool, *args, **kwargs):
     if not room_name or not api_key_name: return "入力トークン数: -"
     return gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name, parts=[],
         api_history_limit=api_history_limit,
         add_timestamp=add_timestamp, send_thoughts=send_thoughts, send_notepad=send_notepad,
-        use_common_prompt=use_common_prompt, send_core_memory=send_core_memory, send_scenery=send_scenery
+        use_common_prompt=use_common_prompt, send_core_memory=send_core_memory,
+        send_scenery=enable_scenery_system # ここで連動させる
     )
 
 def update_token_count_on_input(
@@ -722,12 +730,15 @@ def handle_rerun_button_click(
 
 def _get_updated_scenery_and_image(room_name: str, api_key_name: str, force_text_regenerate: bool = False) -> Tuple[str, Optional[str]]:
     """
-    【v6: 情景更新オーケストレーター】
-    現在の時間設定に基づき、情景テキストと画像を更新する中央集権的な関数。
-    対応する画像キャッシュがない場合は、その場で画像を自動生成する。
-
-    戻り値: (scenery_text, scenery_image_path)
+    【v7: 機能OFF対応】
+    ...
     """
+    # --- 新しいガード節 ---
+    effective_settings = config_manager.get_effective_settings(room_name)
+    if not effective_settings.get("enable_scenery_system", True):
+        return "（情景描写システムは、このルームでは無効です）", None
+    # --- ここまで ---
+
     if not room_name or not api_key_name:
         return "（ルームまたはAPIキーが未選択です）", None
 
@@ -3298,3 +3309,13 @@ def handle_time_settings_change_and_update_scenery(
     return new_scenery_text, new_image_path
 
 # --- [追加はここまで] ---
+
+
+def handle_enable_scenery_system_change(is_enabled: bool) -> Tuple[gr.update, gr.update]:
+    """
+    【v7】情景描写システムの有効/無効スイッチが変更されたときのイベントハンドラ。
+    """
+    return (
+        gr.update(visible=is_enabled), # 「プロフィール・情景」アコーディオンの表示/非表示
+        gr.update(value=is_enabled)    # 「空間描写を送信」チェックボックスの値を連動
+    )
