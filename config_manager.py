@@ -270,10 +270,12 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         "model_name": DEFAULT_MODEL_GLOBAL, "voice_id": "iapetus", "voice_style_prompt": "",
         "add_timestamp": False, "send_thoughts": initial_send_thoughts_to_api_global,
         "send_notepad": True, "use_common_prompt": False,
-        "send_core_memory": True, "send_scenery": True,
+        "send_core_memory": True,
+        "enable_scenery_system": True, # この行を追加
+        "send_scenery": True,
         "auto_memory_enabled": False,
         "enable_typewriter_effect": True,
-        "streaming_speed": 0.01, # ← この行を追加
+        "streaming_speed": 0.01,
         "temperature": 0.8, "top_p": 0.95,
         "safety_block_threshold_harassment": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_hate_speech": "BLOCK_ONLY_HIGH",
