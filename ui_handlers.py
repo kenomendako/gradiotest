@@ -431,9 +431,29 @@ def _stream_and_handle_response(
             initial_message_count = 0
             typewriter_enabled = enable_typewriter_effect
             with utils.capture_prints() as captured_output:
+                agent_args_dict["enable_typewriter_effect"] = enable_typewriter_effect
+                agent_args_dict["streaming_speed"] = streaming_speed
+
                 for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                    if mode == "initial_count": initial_message_count = chunk
+                    if mode == "retry_info":
+                        retry_info = chunk
+                        attempt = retry_info.get("attempt", 0)
+                        max_retries = retry_info.get("max_retries", 5)
+                        wait_time = retry_info.get("wait_time", 5)
+                        retry_message = (
+                            f"⏳ APIの応答が遅延しています。{wait_time}秒待機して再試行します... "
+                            f"({attempt}/{max_retries}回目)"
+                        )
+                        chatbot_history[-1] = (None, retry_message)
+                        yield (chatbot_history, mapping_list, gr.update(), gr.update(),
+                               gr.update(), gr.update(), gr.update(), gr.update(),
+                               gr.update(), gr.update(), current_console_content,
+                               gr.update(), gr.update(), gr.update())
+                        continue # このイベントでは後続の処理は不要
+                    elif mode == "initial_count":
+                        initial_message_count = chunk
                     elif mode == "messages":
+                        # (このelifブロックの中身は変更なし)
                         message_chunk, _ = chunk
                         if isinstance(message_chunk, AIMessageChunk):
                             new_text_chunk = message_chunk.content
@@ -447,7 +467,9 @@ def _stream_and_handle_response(
                                 streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
                                 yield (chatbot_history, mapping_list, *([gr.update()] * 12))
-                    elif mode == "values": final_state = chunk
+
+                    elif mode == "values":
+                        final_state = chunk
             current_console_content += captured_output.getvalue()
 
             # ▼▼▼【ここからが修正の核心】▼▼▼

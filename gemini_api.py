@@ -484,6 +484,6 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
 
     return ChatGoogleGenerativeAI(
         model=model_name, google_api_key=api_key, convert_system_message_to_human=False,
-        max_retries=5, temperature=config.get("temperature", 0.8), # ← ここの値を 5 に変更
+        max_retries=6, temperature=config.get("temperature", 0.8),
         top_p=config.get("top_p", 0.95), safety_settings=safety_settings
     )
