@@ -1286,19 +1286,52 @@ try:
         )
         # ▲▲▲【追加はここまで】▲▲▲
 
-        # --- [ここからが追加するイベントハンドラ] ---
+        # --- [v6: 時間連動情景更新イベント] ---
+        # 時間設定UIのいずれかの値が変更されたら、新しい統合ハンドラを呼び出す
+        time_setting_inputs = [
+            current_room_name,
+            current_api_key_name_state,
+            time_mode_radio,
+            fixed_season_dropdown,
+            fixed_time_of_day_dropdown
+        ]
+        time_setting_outputs = [
+            current_scenery_display,
+            scenery_image_display
+        ]
+
+        # 1. モードが切り替わった時
         time_mode_radio.change(
+            fn=ui_handlers.handle_time_settings_change_and_update_scenery,
+            inputs=time_setting_inputs,
+            outputs=time_setting_outputs
+        ).then(
+            # その後、UIの表示/非表示を切り替える
             fn=ui_handlers.handle_time_mode_change,
             inputs=[time_mode_radio],
             outputs=[fixed_time_controls]
         )
 
-        save_time_settings_button.click(
-            fn=ui_handlers.handle_save_time_settings,
-            inputs=[current_room_name, time_mode_radio, fixed_season_dropdown, fixed_time_of_day_dropdown],
-            outputs=[] # ポップアップ通知のみ
+        # 2. 固定モードの季節が変更された時
+        fixed_season_dropdown.change(
+            fn=ui_handlers.handle_time_settings_change_and_update_scenery,
+            inputs=time_setting_inputs,
+            outputs=time_setting_outputs
         )
-        # --- [追加はここまで] ---
+
+        # 3. 固定モードの時間帯が変更された時
+        fixed_time_of_day_dropdown.change(
+            fn=ui_handlers.handle_time_settings_change_and_update_scenery,
+            inputs=time_setting_inputs,
+            outputs=time_setting_outputs
+        )
+
+        # 4. 保存ボタンが押された時（念のため残すが、主役はchangeイベント）
+        save_time_settings_button.click(
+            fn=ui_handlers.handle_time_settings_change_and_update_scenery,
+            inputs=time_setting_inputs,
+            outputs=time_setting_outputs
+        )
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])

@@ -720,70 +720,102 @@ def handle_rerun_button_click(
         streaming_speed=streaming_speed,                   # ← この行を追加
     )
 
-def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[str, str, Optional[str]]:
+def _get_updated_scenery_and_image(room_name: str, api_key_name: str, force_text_regenerate: bool = False) -> Tuple[str, Optional[str]]:
+    """
+    【v6: 情景更新オーケストレーター】
+    現在の時間設定に基づき、情景テキストと画像を更新する中央集権的な関数。
+    対応する画像キャッシュがない場合は、その場で画像を自動生成する。
+
+    戻り値: (scenery_text, scenery_image_path)
+    """
     if not room_name or not api_key_name:
-        return "（ルームまたはAPIキーが未選択です）", "（ルームまたはAPIキーが未選択です）", None
+        return "（ルームまたはAPIキーが未選択です）", None
 
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key:
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return "（APIキーエラー）", "（APIキーエラー）", None
+        return "（APIキーエラー）", None
 
-    gr.Info(f"「{room_name}」の現在の情景を再生成しています...")
+    current_location = utils.get_current_location(room_name)
+    if not current_location:
+        return "（現在地が設定されていません）", None
 
-    # --- [ここからが修正箇所] ---
+    # 1. 時間の源から、適用すべき時間コンテキストを取得
     season_en, time_of_day_en = _get_current_time_context(room_name)
-    location_name, _, scenery_text = generate_scenery_context(
-        room_name, api_key, force_regenerate=True, season_en=season_en, time_of_day_en=time_of_day_en
+
+    # 2. 情景テキストを生成（またはキャッシュから取得）
+    _, _, scenery_text = generate_scenery_context(
+        room_name, api_key,
+        force_regenerate=force_text_regenerate,
+        season_en=season_en, time_of_day_en=time_of_day_en
     )
-    # --- [修正はここまで] ---
 
-    if not location_name.startswith("（"):
-        gr.Info("情景を再生成しました。")
-        scenery_image_path = utils.find_scenery_image(room_name, utils.get_current_location(room_name))
-    else:
-        gr.Error("情景の再生成に失敗しました。")
-        scenery_image_path = None
+    # 3. 対応する情景画像を検索
+    scenery_image_path = utils.find_scenery_image(
+        room_name, current_location, season_en, time_of_day_en
+    )
 
+    # 4. 【キャッシュ・ミス時の自動生成】画像が見つからなかった場合
+    if scenery_image_path is None:
+        gr.Info(f"情景画像キャッシュが見つかりません。新しい画像を自動生成します... (場所: {current_location}, 時期: {season_en}/{time_of_day_en})")
+        # handle_generate_or_regenerate_scenery_image はPIL Imageを返すため、
+        # ここでは直接呼び出さず、その中の画像生成部分のロジックを再利用する。
+        # 今後のリファクタリングで、画像生成部分だけを切り出すのが望ましい。
+        try:
+            # handle_generate_or_regenerate_scenery_imageを呼び出し、PIL Imageオブジェクトを受け取る
+            pil_image = handle_generate_or_regenerate_scenery_image(
+                room_name=room_name,
+                api_key_name=api_key_name,
+                style_choice="写真風 (デフォルト)" # 自動生成時はデフォルトスタイルを使用
+            )
+            if pil_image:
+                # 戻り値はPIL Imageなので、再度パスを検索する必要がある
+                scenery_image_path = utils.find_scenery_image(
+                    room_name, current_location, season_en, time_of_day_en
+                )
+            else:
+                 gr.Warning("情景画像の自動生成に失敗しました。")
+        except Exception as e:
+            gr.Error(f"情景画像の自動生成中にエラーが発生しました: {e}")
+            traceback.print_exc()
+
+
+    return scenery_text, scenery_image_path
+
+def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[gr.update, str, Optional[str]]:
+    """「情景テキストを更新」ボタンのハンドラ。新しい司令塔を呼び出す。"""
+    gr.Info(f"「{room_name}」の現在の情景を再生成しています...")
+    # 新しい司令塔を呼び出し、テキストの強制再生成フラグを立てる
+    new_scenery_text, new_image_path = _get_updated_scenery_and_image(
+        room_name, api_key_name, force_text_regenerate=True
+    )
     latest_location_id = utils.get_current_location(room_name)
-    return gr.update(value=latest_location_id), scenery_text, scenery_image_path
+    return gr.update(value=latest_location_id), new_scenery_text, new_image_path
 
 def handle_location_change(room_name: str, selected_value: str, api_key_name: str) -> Tuple[gr.update, str, Optional[str]]:
+    """場所が変更されたときのハンドラ。移動処理後、新しい司令塔を呼び出す。"""
     if not selected_value or selected_value.startswith("__AREA_HEADER_"):
-        # ▼▼▼ 戻り値を修正 ▼▼▼
-        # location_name, _, scenery_text = ... を削除
-        _, _, scenery_text = generate_scenery_context(room_name, config_manager.GEMINI_API_KEYS.get(api_key_name))
-        scenery_image_path = utils.find_scenery_image(room_name, utils.get_current_location(room_name))
+        # ドロップダウンのヘッダーがクリックされた場合は何もしない
         latest_location_id = utils.get_current_location(room_name)
-        return gr.update(value=latest_location_id), scenery_text, scenery_image_path
+        new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
+        return gr.update(value=latest_location_id), new_scenery_text, new_image_path
 
     location_id = selected_value
-
-    from tools.space_tools import set_current_location
     print(f"--- UIからの場所変更処理開始: ルーム='{room_name}', 移動先ID='{location_id}' ---")
 
+    from tools.space_tools import set_current_location
     result = set_current_location.func(location_id=location_id, room_name=room_name)
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
         latest_location_id = utils.get_current_location(room_name)
-        _, _, scenery_text = generate_scenery_context(room_name, config_manager.GEMINI_API_KEYS.get(api_key_name))
-        scenery_image_path = utils.find_scenery_image(room_name, latest_location_id)
-        return gr.update(value=latest_location_id), scenery_text, scenery_image_path
+        # 失敗した場合でも、現在の場所の情景を司令塔から取得してUIを更新する
+        new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
+        return gr.update(value=latest_location_id), new_scenery_text, new_image_path
 
     gr.Info(f"場所を「{location_id}」に移動しました。情景を更新します...")
 
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-    if not api_key:
-        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return "（APIキーエラー）", "（APIキーエラー）", None
-
-    # --- [ここからが修正箇所] ---
-    season_en, time_of_day_en = _get_current_time_context(room_name)
-    _, _, new_scenery_text = generate_scenery_context(
-        room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
-    )
-    # --- [修正はここまで] ---
-    new_image_path = utils.find_scenery_image(room_name, location_id)
+    # 移動成功後、新しい司令塔を呼び出して情景を更新
+    new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
 
     return gr.update(value=location_id), new_scenery_text, new_image_path
 
@@ -3242,5 +3274,27 @@ def handle_save_time_settings(room_name: str, mode: str, season_ja: str, time_of
     except Exception as e:
         gr.Error(f"時間設定の保存中にエラーが発生しました: {e}")
         traceback.print_exc()
+
+def handle_time_settings_change_and_update_scenery(
+    room_name: str,
+    api_key_name: str,
+    mode: str,
+    season_ja: str,
+    time_of_day_ja: str
+) -> Tuple[str, Optional[str]]:
+    """
+    【v6: 時間連動情景更新】
+    時間設定UIが変更されたときに呼び出される。
+    1. 設定を保存する。
+    2. 新しい司令塔を呼び出して、情景テキストと画像を更新する。
+    """
+    # 1. 設定を保存
+    handle_save_time_settings(room_name, mode, season_ja, time_of_day_ja)
+
+    # 2. 司令塔を呼び出して情景を更新
+    # メッセージは司令塔側が出すので、ここではInfoを出さない
+    new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
+
+    return new_scenery_text, new_image_path
 
 # --- [追加はここまで] ---
