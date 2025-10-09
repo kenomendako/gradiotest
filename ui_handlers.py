@@ -3241,7 +3241,6 @@ def handle_save_time_settings(room_name: str, mode: str, season_ja: str, time_of
     mode_en = "realtime" if mode == "リアル連動" else "fixed"
     new_time_settings = {"mode": mode_en}
 
-    # "選択する" モードの場合のみ、季節と時間帯の情報を保存する
     if mode_en == "fixed":
         season_map_ja_to_en = {"春": "spring", "夏": "summer", "秋": "autumn", "冬": "winter"}
         time_map_ja_to_en = {"朝": "morning", "昼": "daytime", "夕方": "evening", "夜": "night"}
@@ -3252,6 +3251,11 @@ def handle_save_time_settings(room_name: str, mode: str, season_ja: str, time_of
         config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
         config = room_manager.get_room_config(room_name) or {}
         
+        # 現在の設定と比較し、変更がなければ何もしない
+        current_time_settings = config.get("time_settings", {})
+        if current_time_settings == new_time_settings:
+            return # 変更がないので終了
+
         config["time_settings"] = new_time_settings
         
         with open(config_path, "w", encoding="utf-8") as f:
