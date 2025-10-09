@@ -155,7 +155,7 @@ def load_config():
     # ▼▼▼ 既存の default_config の定義を、これで完全に置き換え ▼▼▼
     default_config = {
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
-        "available_models": ["gemini-2.5-pro", "gemini-2.5-flash-latest"],
+        "available_models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
         "default_model": "gemini-2.5-pro",
         "last_room": "Default",
         "last_model": "gemini-2.5-pro",

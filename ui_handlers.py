@@ -379,33 +379,28 @@ def _stream_and_handle_response(
     streaming_speed: float,
 ) -> Iterator[Tuple]:
     """
-    【v4: グループ会話ストリーミングFIX】
-    AIへのリクエスト送信とストリーミング応答処理を担う、中核となる内部ジェネレータ関数。
-    グループ会話時に、各AIの応答が完了するたびにログに保存し、UIに確定表示する。
+    【v7: ハイブリッド配布モデル】
+    各AIの応答を、セッション参加者全員に配布（ログ書き込み）する。
     """
+    # UI表示の基準となるメインログ
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
     effective_settings = config_manager.get_effective_settings(soul_vessel_room)
     add_timestamp = effective_settings.get("add_timestamp", False)
     chatbot_history, mapping_list = reload_chat_log(
-        room_name=soul_vessel_room,
-        api_history_limit_value=api_history_limit,
-        add_timestamp=add_timestamp
+        room_name=soul_vessel_room, api_history_limit_value=api_history_limit, add_timestamp=add_timestamp
     )
-
-    final_chatbot_history, final_mapping_list = chatbot_history, mapping_list
     all_turn_popups = []
 
     try:
-        # 1. UIをストリーミングモードに移行（送信ボタンなどを無効化）
+        # 1. UIをストリーミングモードに移行 (変更なし)
         yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
-               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-               current_console_content, current_console_content,
-               gr.update(visible=True, interactive=True),
-               gr.update(interactive=False),
-               gr.update(visible=False)
+               *([gr.update()] * 8), # token, loc, scenery, df_orig, df, scenery_img, console_state, console_out
+               gr.update(visible=True, interactive=True), # stop_btn
+               gr.update(interactive=False), # reload_btn
+               gr.update(visible=False) # action_group
         )
 
-        # 2. グループ会話と情景のコンテキストを準備
+        # 2. コンテキスト準備
         all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
@@ -415,37 +410,29 @@ def _stream_and_handle_response(
 
         # 3. AIごとの応答生成ループ
         for current_room in all_rooms_in_scene:
-            # 3a. 【新ロジック】このAIのための新しい応答スロットをUIに追加
             chatbot_history.append((None, f"思考中 ({current_room})... ▌"))
-            mapping_list.append(mapping_list[-1] + 1 if mapping_list else 0) # ダミーのマッピングを追加
-            yield (chatbot_history, mapping_list, gr.update(), gr.update(), gr.update(),
-                   gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                   current_console_content, gr.update(), gr.update(),
-                   gr.update()
-            )
+            mapping_list.append(mapping_list[-1] + 1 if mapping_list else 0)
+            yield (chatbot_history, mapping_list, *([gr.update()] * 12))
 
-            # 3b. APIに渡す引数を準備
+            # API呼び出し (変更なし)
             final_user_prompt_parts = user_prompt_parts_for_api if current_room == soul_vessel_room else [{"type": "text", "text": full_user_log_entry}]
+            # history_log_pathには、常に全参加者の最新の会話が含まれるメインログを渡す
             agent_args_dict = {
                 "room_to_respond": current_room, "api_key_name": api_key_name,
-                "global_model_from_ui": global_model,
-                "api_history_limit": api_history_limit, "debug_mode": debug_mode,
-                "history_log_path": main_log_f, "user_prompt_parts": final_user_prompt_parts,
-                "soul_vessel_room": soul_vessel_room, "active_participants": active_participants,
-                "shared_location_name": shared_location_name, "shared_scenery_text": shared_scenery_text,
-                "season_en": season_en, "time_of_day_en": time_of_day_en
+                "global_model_from_ui": global_model, "api_history_limit": api_history_limit, 
+                "debug_mode": debug_mode, "history_log_path": main_log_f, 
+                "user_prompt_parts": final_user_prompt_parts, "soul_vessel_room": soul_vessel_room,
+                "active_participants": active_participants, "shared_location_name": shared_location_name,
+                "shared_scenery_text": shared_scenery_text, "season_en": season_en, "time_of_day_en": time_of_day_en
             }
-
-            # 3c. ストリーミング実行とUI更新
+            
             streamed_text = ""
             final_state = None
             initial_message_count = 0
             typewriter_enabled = enable_typewriter_effect
-
             with utils.capture_prints() as captured_output:
                 for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                    if mode == "initial_count":
-                        initial_message_count = chunk
+                    if mode == "initial_count": initial_message_count = chunk
                     elif mode == "messages":
                         message_chunk, _ = chunk
                         if isinstance(message_chunk, AIMessageChunk):
@@ -460,53 +447,41 @@ def _stream_and_handle_response(
                                 streamed_text += new_text_chunk
                                 chatbot_history[-1] = (None, streamed_text + "▌")
                                 yield (chatbot_history, mapping_list, *([gr.update()] * 12))
-                    elif mode == "values":
-                        final_state = chunk
-
+                    elif mode == "values": final_state = chunk
             current_console_content += captured_output.getvalue()
 
-            # 3d. 【新ロジック】このAIの応答をログファイルに即時保存
+            # ▼▼▼【ここからが修正の核心】▼▼▼
+            # 3d. このAIの応答を「参加者全員」のログに配布
             if final_state:
-                # ▼▼▼【ここからが修正の核心】▼▼▼
-                # 応答したAI自身のログファイルパスを取得
-                current_log_f, _, _, _, _ = get_room_files_paths(current_room)
-                if not current_log_f:
-                    print(f"警告: ルーム '{current_room}' のログファイルパスを取得できず、保存をスキップします。")
-                    continue
-                # ▲▲▲【修正はここまで】▲▲▲
-
                 new_messages = final_state["messages"][initial_message_count:]
                 for msg in new_messages:
                     if isinstance(msg, AIMessage):
                         response_content = msg.content
                         if response_content and response_content.strip():
-                            # ▼▼▼【ここが修正の核心】▼▼▼
-                            # 保存先として、main_log_f ではなく current_log_f を使用する
-                            utils.save_message_to_log(current_log_f, f"## AGENT:{current_room}", response_content)
-                            # ▲▲▲【修正はここまで】▲▲▲
+                            # 全参加者にこのAIの発言を書き込む
+                            for participant_room in all_rooms_in_scene:
+                                participant_log_f, _, _, _, _ = get_room_files_paths(participant_room)
+                                if participant_log_f:
+                                    utils.save_message_to_log(participant_log_f, f"## AGENT:{current_room}", response_content)
                     elif isinstance(msg, ToolMessage):
                         popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                        if popup_text:
-                            all_turn_popups.append(popup_text)
+                        if popup_text: all_turn_popups.append(popup_text)
+            # ▲▲▲【修正はここまで】▲▲▲
 
-            # 3e. 【新ロジック】UI上の表示を確定させる（カーソルを消す）
             chatbot_history[-1] = (None, streamed_text)
             yield (chatbot_history, mapping_list, *([gr.update()] * 12))
 
-
-        # 4. このターンで発生した全てのツール結果をまとめてポップアップ表示
+        # 4. ツール結果のポップアップ表示 (変更なし)
         for popup_message in all_turn_popups:
             gr.Info(popup_message)
 
     except GeneratorExit:
         print("--- [ジェネレータ] ユーザーの操作により、ストリーミング処理が正常に中断されました。 ---")
-
+    
     finally:
-        # 5. [最終防衛ライン] 処理完了・中断・エラーに関わらず、必ずログから最新の状態を再描画する
+        # 5. 最終的なUI再描画 (変更なし)
         final_chatbot_history, final_mapping_list = reload_chat_log(
-            room_name=soul_vessel_room,
-            api_history_limit_value=api_history_limit,
-            add_timestamp=add_timestamp
+            room_name=soul_vessel_room, api_history_limit_value=api_history_limit, add_timestamp=add_timestamp
         )
 
         # 6. その他のUIコンポーネントを更新
@@ -548,9 +523,9 @@ def handle_message_submission(
     enable_typewriter_effect: bool, streaming_speed: float
 ):
     """
-    【v5: グループ会話ログ分散対応】新規メッセージの送信を処理する司令塔。
+    【v7: ハイブリッド配布モデル】新規メッセージの送信を処理する司令塔。
     """
-    # 1. ユーザー入力を解析
+    # 1. ユーザー入力を解析 (変更なし)
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
     file_input_list = multimodal_input.get("files", []) if multimodal_input else []
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
@@ -574,9 +549,8 @@ def handle_message_submission(
         effective_settings = config_manager.get_effective_settings(soul_vessel_room)
         add_timestamp = effective_settings.get("add_timestamp", False)
         history, mapping = reload_chat_log(soul_vessel_room, api_history_limit, add_timestamp)
-        yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(),
-               gr.update(), gr.update(), gr.update(), console_content, console_content,
-               gr.update(visible=False), gr.update(interactive=True))
+        # 戻り値の数を14個に合わせる
+        yield (history, mapping, *([gr.update()] * 10), gr.update(visible=False), gr.update(interactive=True))
         return
 
     # ▼▼▼【ここからが修正の核心】▼▼▼
@@ -588,8 +562,7 @@ def handle_message_submission(
             utils.save_message_to_log(log_f, "## USER:user", full_user_log_entry)
     # ▲▲▲【修正はここまで】▲▲▲
 
-
-    # 3. API用の入力パーツを準備
+    # 3. API用の入力パーツを準備 (変更なし)
     user_prompt_parts_for_api = []
     if user_prompt_from_textbox:
         user_prompt_parts_for_api.append({"type": "text", "text": user_prompt_from_textbox})
@@ -597,55 +570,39 @@ def handle_message_submission(
     if file_input_list:
         for file_obj in file_input_list:
             try:
-                # -------------------------------------------------------------
-                # [最終版ロジック] Gradioから渡されるオブジェクトの型と内容で処理を分岐
-                # -------------------------------------------------------------
                 file_path = None
-                # ケース1: ファイルがアップロードされた場合 (gradio.FileDataオブジェクト)
                 if hasattr(file_obj, 'name') and os.path.exists(file_obj.name):
                     file_path = file_obj.name
-                # ケース2: テキストがペーストされ、それが有効なローカルファイルパスの場合
                 elif isinstance(file_obj, str) and os.path.exists(file_obj):
                     file_path = file_obj
-                # ケース3: それ以外の単なるテキストがペーストされた場合
                 else:
                     content = file_obj if isinstance(file_obj, str) else str(file_obj)
-                    if not user_prompt_from_textbox and content:
-                        user_prompt_parts_for_api.append({"type": "text", "text": content})
-                    else:
-                        user_prompt_parts_for_api.append({"type": "text", "text": f"添付されたテキストの内容:\n---\n{content}\n---"})
+                    user_prompt_parts_for_api.append({"type": "text", "text": f"添付されたテキストの内容:\n---\n{content}\n---"})
                     continue
 
-                # --- ファイルパスが特定できた場合の共通処理 ---
                 if file_path:
                     file_basename = os.path.basename(file_path)
                     kind = filetype.guess(file_path)
                     mime_type = kind.mime if kind else "application/octet-stream"
 
-                    # 画像ファイルはBase64エンコードしてAIに直接渡す
                     if mime_type.startswith('image/'):
                         with open(file_path, "rb") as f:
                             encoded_string = base64.b64encode(f.read()).decode("utf-8")
                         user_prompt_parts_for_api.append({
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
+                            "type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
                         })
-                    # それ以外のファイルはテキストとして読み込みを試みる
                     else:
                         try:
-                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                content = f.read()
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f: content = f.read()
                             user_prompt_parts_for_api.append({"type": "text", "text": f"添付ファイル「{file_basename}」の内容:\n---\n{content}\n---"})
                         except Exception as read_e:
                             user_prompt_parts_for_api.append({"type": "text", "text": f"（ファイル「{file_basename}」の読み込み中にエラーが発生しました: {read_e}）"})
-
             except Exception as e:
                 print(f"--- ファイル処理中に致命的なエラー: {e} ---")
                 traceback.print_exc()
                 user_prompt_parts_for_api.append({"type": "text", "text": f"（添付ファイルの処理中に致命的なエラーが発生しました）"})
 
-
-    # 3. 中核となるストリーミング関数を呼び出す
+    # 4. 中核となるストリーミング関数を呼び出す (変更なし)
     yield from _stream_and_handle_response(
         room_to_respond=soul_vessel_room,
         full_user_log_entry=full_user_log_entry,
@@ -657,8 +614,8 @@ def handle_message_submission(
         soul_vessel_room=soul_vessel_room,
         active_participants=active_participants or [],
         current_console_content=console_content,
-        enable_typewriter_effect=enable_typewriter_effect, # ← この行を追加
-        streaming_speed=streaming_speed,                   # ← この行を追加
+        enable_typewriter_effect=enable_typewriter_effect,
+        streaming_speed=streaming_speed,
     )
 
 def handle_rerun_button_click(
@@ -1219,9 +1176,7 @@ def format_history_for_gradio(
     absolute_start_index: int = 0
 ) -> Tuple[List[Tuple], List[int]]:
     """
-    (v24: System Message Display FIX)
-    絶対座標インデックスを考慮し、UIとバックエンドのインデックスを完全に同期させ、
-    SYSTEMロールのメッセージを独立して表示する最終版。
+    (v25: System Message Display Final FIX)
     """
     if not messages:
         return [], []
@@ -1246,7 +1201,7 @@ def format_history_for_gradio(
         text_part = re.sub(r"\[(?:Generated Image|ファイル添付):.*?\]", "", content, flags=re.DOTALL).strip()
         media_matches = list(re.finditer(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]", content))
 
-        if text_part:
+        if text_part or (role == "SYSTEM" and not media_matches): # システムメッセージは空でも追加
             proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": text_part, "log_index": i})
 
         for match in media_matches:
@@ -1274,7 +1229,7 @@ def format_history_for_gradio(
             else:
                 print(f"--- [警告] 無効または安全でない画像パスをスキップしました: {path_str} ---")
 
-        if not text_part and not media_matches:
+        if not text_part and not media_matches and role != "SYSTEM":
              proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
 
     for item in proto_history:
@@ -1284,7 +1239,6 @@ def format_history_for_gradio(
 
         if item["type"] == "text":
             speaker_name = ""
-            # ▼▼▼【ここからが修正の核心】▼▼▼
             if is_user:
                 speaker_name = user_display_name
             elif role == "AGENT":
@@ -1293,11 +1247,9 @@ def format_history_for_gradio(
                     agent_name_cache[responder_id] = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
                 speaker_name = agent_name_cache[responder_id]
             elif role == "SYSTEM":
-                # SYSTEMロールの場合の話者名を設定
+                speaker_name = "" # responder_id を話者名として使わない
+            else:
                 speaker_name = responder_id
-            else: # フォールバック
-                speaker_name = responder_id
-            # ▲▲▲【修正はここまで】▲▲▲
 
             content_to_parse = item['content']
 
@@ -1306,7 +1258,8 @@ def format_history_for_gradio(
                     find_str = rule.get("find")
                     if find_str:
                         replace_str = rule.get("replace", "")
-                        speaker_name = speaker_name.replace(find_str, replace_str)
+                        if speaker_name:
+                            speaker_name = speaker_name.replace(find_str, replace_str)
                         content_to_parse = content_to_parse.replace(find_str, replace_str)
 
             thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
@@ -1315,6 +1268,11 @@ def format_history_for_gradio(
             markdown_parts = []
             if speaker_name:
                 markdown_parts.append(f"**{speaker_name}:**")
+            
+            # システムメッセージで内容が空の場合でも、話者名（例：(セッション管理)）を表示するため
+            if role == "SYSTEM" and not speaker_name:
+                 markdown_parts.append(f"**{responder_id}:**")
+
 
             for part in parts:
                 if not part or not part.strip():
@@ -1329,13 +1287,10 @@ def format_history_for_gradio(
 
             final_markdown = "\n\n".join(markdown_parts)
 
-            # ▼▼▼【ここからが修正の核心】▼▼▼
-            # ユーザーのメッセージは左側、それ以外（AGENTとSYSTEM）は右側に表示
             if is_user:
                 gradio_history.append((final_markdown, None))
             else:
                 gradio_history.append((None, final_markdown))
-            # ▲▲▲【修正はここまで】▲▲▲
 
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))
@@ -2465,7 +2420,7 @@ def handle_start_session(main_room: str, participant_list: list) -> tuple:
     for room_name in all_participants:
         log_f, _, _, _, _ = get_room_files_paths(room_name)
         if log_f:
-            utils.save_message_to_log(log_f, "## システム(セッション管理):", session_start_message)
+            utils.save_message_to_log(log_f, "## SYSTEM:(セッション管理)", session_start_message)
 
     gr.Info(f"複数人対話セッションを開始しました。参加者: {participants_text}")
     return participant_list, status_text
@@ -2482,7 +2437,7 @@ def handle_end_session(main_room: str, active_participants: list) -> tuple:
     for room_name in all_participants:
         log_f, _, _, _, _ = get_room_files_paths(room_name)
         if log_f:
-            utils.save_message_to_log(log_f, "## システム(セッション管理):", session_end_message)
+            utils.save_message_to_log(log_f, "## SYSTEM:(セッション管理)", session_end_message)
 
     gr.Info("複数人対話セッションを終了し、1対1の会話モードに戻りました。")
     return [], "現在、1対1の会話モードです。", gr.update(value=[])
