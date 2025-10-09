@@ -660,44 +660,52 @@ try:
                 clear_debug_console_button = gr.Button("コンソールをクリア", variant="secondary")
 
         # --- イベントハンドラ定義 ---
-        # ▼▼▼ context_checkboxes のリスト定義を修正 ▼▼▼
         context_checkboxes = [
             room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
             room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
-            enable_scenery_system_checkbox, # ここでは room_send_scenery_checkbox の代わりに入れる
+            enable_scenery_system_checkbox,
             auto_memory_enabled_checkbox,
         ]
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
 
-        # ▼▼▼ initial_load_chat_outputs のリスト定義を修正 ▼▼▼
         initial_load_chat_outputs = [
             current_room_name, chatbot_display, current_log_map_state,
             chat_input_multimodal,
             profile_image_display,
             memory_txt_editor, notepad_editor, system_prompt_editor,
             core_memory_editor,
-            room_dropdown, # This was the missing item
-            alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
+            room_dropdown,
+            alarm_room_dropdown, timer_room_dropdown, manage_room_selector,
+            location_dropdown,
             current_scenery_display, room_voice_dropdown,
             room_voice_style_prompt_textbox,
             enable_typewriter_effect_checkbox,
             streaming_speed_slider,
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
-            room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
-        ] + context_checkboxes + [room_settings_info, scenery_image_display]
+            room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown,
+            # --- context_checkboxes の中身を展開してここに追加 ---
+            room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
+            room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
+            room_send_scenery_checkbox, # 連動される非表示チェックボックス
+            auto_memory_enabled_checkbox,
+            # --- ここまでが context_checkboxes ---
+            room_settings_info,
+            scenery_image_display,
+            # --- 新しい部品をリストの末尾に追加 ---
+            enable_scenery_system_checkbox, # マスタースイッチ
+            profile_scenery_accordion       # 表示/非表示を切り替えるアコーディオン
+        ]
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
         ] + initial_load_chat_outputs + [
             redaction_rules_df, token_count_display, api_key_dropdown,
             world_data_state,
-            # --- [ここからが追加する行] ---
             time_mode_radio,
             fixed_season_dropdown,
             fixed_time_of_day_dropdown,
             fixed_time_controls
-            # --- [追加はここまで] ---
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
@@ -706,27 +714,11 @@ try:
         all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [
             redaction_rules_df,
             archive_date_dropdown,
-            # --- [ここからが追加する行] ---
             time_mode_radio,
             fixed_season_dropdown,
             fixed_time_of_day_dropdown,
             fixed_time_controls
-            # --- [追加はここまで] ---
         ]
-
-        # ▼▼▼ all_room_change_outputs のリストに、新しいUIコンポーネントを追加 ▼▼▼
-        all_room_change_outputs.extend([
-            enable_scenery_system_checkbox, # マスタースイッチ
-            profile_scenery_accordion # 表示/非表示を切り替えるアコーディオン
-        ])
-        # ▲▲▲ 追加ここまで ▲▲▲
-
-        # ▼▼▼ initial_load_outputs のリストに、新しいUIコンポーネントを追加 ▼▼▼
-        initial_load_outputs.extend([
-            enable_scenery_system_checkbox,
-            profile_scenery_accordion
-        ])
-        # ▲▲▲ 追加ここまで ▲▲▲
 
         demo.load(
             fn=ui_handlers.handle_initial_load,

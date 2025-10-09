@@ -76,7 +76,7 @@ def _create_redaction_df_from_rules(rules: List[Dict]) -> pd.DataFrame:
 def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     """
     【v3】チャットタブと、それに付随する設定UIの更新のみを担当するヘルパー関数。
-    戻り値の数は `initial_load_chat_outputs` の34個と一致する。
+    戻り値の数は `initial_load_chat_outputs` の36個と一致する。
     """
     if not room_name:
         room_list = room_manager.get_room_list_for_ui()
@@ -159,7 +159,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     """
     【v4】ルーム切り替え時に、全ての関連タブのUIを更新する。
-    戻り値の数は `all_room_change_outputs` の49個と一致する。
+    戻り値の数は `all_room_change_outputs` の51個と一致する。
     """
     # chat_tab_updatesは36個の更新値を持つ
     chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
@@ -188,7 +188,7 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
         gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
     )
 
-    # 戻り値の総数: 34 + 3 + 3 + 1 + 1 + 4 = 47個
+    # 戻り値の総数: 36 + 3 + 3 + 1 + 1 + 4 = 48個 -> 49個
     return (
         chat_tab_updates +
         world_builder_updates +
@@ -200,7 +200,7 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
-    【v3】UIの初期化処理。戻り値の数は `initial_load_outputs` の47個と一致する。
+    【v3】UIの初期化処理。戻り値の数は `initial_load_outputs` の49個と一致する。
     """
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
@@ -233,7 +233,7 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
         gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
     )
 
-    # 戻り値の総数: 3 + 34 + 3 + 1 + 4 = 45個
+    # 戻り値の総数: 3 + 36 + 3 + 1 + 4 = 47個
     return (
         (display_df, df_with_ids, feedback_text) +
         chat_tab_updates +
