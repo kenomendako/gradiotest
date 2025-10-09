@@ -2359,29 +2359,21 @@ def handle_world_builder_load(room_name: str):
 
 def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
     """
-    【v4: 司令塔アーキテクチャ】
+    【v5: 堅牢化】
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     print(f"--- UI司令塔(handle_room_change_for_all_tabs)実行: {room_name} ---")
 
-    # 責務1: 設定をファイルに保存する
-    config_manager.save_config("last_room", room_name)
-
-    # 責務2: 新しいヘルパーを呼び出してUI更新値のタプルを取得する
+    # 責務1: 新しいヘルパーを呼び出してUI更新値のタプルを取得する
     all_ui_updates = _update_all_tabs_for_room_change(room_name, api_key_name)
 
-    # 責務3: トークン数を計算する
-    # _update_all_tabs_for_room_change の戻り値から、計算に必要な設定値を取得する
-    # (インデックスは _update_all_tabs_for_room_change / _update_chat_tab_for_room_change の戻り値の構造に依存)
-
-    # ▼▼▼ 以下のインデックス番号を修正してください ▼▼▼
+    # 責務2: トークン数を計算する
     add_timestamp_val = all_ui_updates[24]
     send_thoughts_val = all_ui_updates[25]
     send_notepad_val = all_ui_updates[26]
     use_common_prompt_val = all_ui_updates[27]
     send_core_memory_val = all_ui_updates[28]
     send_scenery_val = all_ui_updates[29]
-    # ▲▲▲ 修正ここまで ▲▲▲
     api_history_limit_key = config_manager.CONFIG_GLOBAL.get("last_api_history_limit_option", "all")
 
     token_count_text = gemini_api.count_input_tokens(
@@ -2392,8 +2384,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
         send_core_memory=send_core_memory_val, send_scenery=send_scenery_val
     )
 
-    # 責務4: 全てのUI更新値と、トークン数の計算結果、そして新しいルーム名をStateに返す
-    # 戻り値の総数 = _update_all_tabs_for_room_change (47個) + token_count_text (1個) + room_name (1個) = 49個
+    # 責務3: 全てのUI更新値と、トークン数の計算結果、そして新しいルーム名をStateに返す
     return all_ui_updates + (token_count_text, room_name)
 
 def handle_start_session(main_room: str, participant_list: list) -> tuple:
