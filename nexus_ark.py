@@ -271,16 +271,19 @@ try:
                                         gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
                                 with gr.TabItem("個別") as individual_settings_tab:
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
-                                    with gr.Accordion("📜 ストリーミング表示設定", open=False):
-                                        enable_typewriter_effect_checkbox = gr.Checkbox(label="タイプライター風の逐次表示を有効化", interactive=True)
-                                        streaming_speed_slider = gr.Slider(
-                                            minimum=0.0,
-                                            maximum=0.1,
-                                            step=0.005,
-                                            label="表示速度",
-                                            info="値が小さいほど速く、大きいほどゆっくり表示されます。(0.0で最速)",
+                                    with gr.Accordion("📜 基本設定", open=True):
+                                        enable_scenery_system_checkbox = gr.Checkbox(
+                                            label="🖼️ このルームで情景描写システムを有効にする",
+                                            info="有効にすると、チャット画面右側に情景が表示され、AIもそれを認識します。",
                                             interactive=True
                                         )
+                                        with gr.Accordion("📜 ストリーミング表示設定", open=False):
+                                            enable_typewriter_effect_checkbox = gr.Checkbox(label="タイプライター風の逐次表示を有効化", interactive=True)
+                                            streaming_speed_slider = gr.Slider(
+                                                minimum=0.0, maximum=0.1, step=0.005,
+                                                label="表示速度", info="値が小さいほど速く、大きいほどゆっくり表示されます。(0.0で最速)",
+                                                interactive=True
+                                            )
                                     with gr.Accordion("🎤 音声設定", open=False):
                                         room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
                                         room_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
@@ -304,7 +307,11 @@ try:
                                     room_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
                                     room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
                                     room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
-                                    room_send_scenery_checkbox = gr.Checkbox(label="空間描写・設定をAPIに送信", interactive=True)
+                                    room_send_scenery_checkbox = gr.Checkbox(
+                                        label="空間描写・設定をAPIに送信 (情景システムと連動)",
+                                        interactive=False,
+                                        visible=True
+                                    )
                                     auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True, visible=False)
                                     gr.Markdown("---")
                                     save_room_settings_button = gr.Button("このルームの設定を保存", variant="primary")
@@ -478,8 +485,7 @@ try:
 
                     # --- 右カラム ---
                     with gr.Column(scale=3, min_width=300): # ← scale=1.5 を 3 に変更
-                        with gr.Accordion("🖼️ プロフィール・情景", open=True):
-
+                        with gr.Accordion("🖼️ プロフィール・情景", open=True, elem_id="profile_scenery_accordion") as profile_scenery_accordion:
                             # --- プロフィール画像セクション ---
                             profile_image_display = gr.Image(
                                 height=200, interactive=False, show_label=False, elem_id="profile_image_display"
@@ -654,43 +660,52 @@ try:
                 clear_debug_console_button = gr.Button("コンソールをクリア", variant="secondary")
 
         # --- イベントハンドラ定義 ---
-        # ▼▼▼ context_checkboxes のリスト定義を修正 ▼▼▼
         context_checkboxes = [
             room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
-            room_use_common_prompt_checkbox, room_send_core_memory_checkbox, room_send_scenery_checkbox,
+            room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
+            enable_scenery_system_checkbox,
             auto_memory_enabled_checkbox,
         ]
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
 
-        # ▼▼▼ initial_load_chat_outputs のリスト定義を修正 ▼▼▼
         initial_load_chat_outputs = [
             current_room_name, chatbot_display, current_log_map_state,
             chat_input_multimodal,
             profile_image_display,
             memory_txt_editor, notepad_editor, system_prompt_editor,
             core_memory_editor,
-            room_dropdown, # This was the missing item
-            alarm_room_dropdown, timer_room_dropdown, manage_room_selector, location_dropdown,
+            room_dropdown,
+            alarm_room_dropdown, timer_room_dropdown, manage_room_selector,
+            location_dropdown,
             current_scenery_display, room_voice_dropdown,
             room_voice_style_prompt_textbox,
             enable_typewriter_effect_checkbox,
             streaming_speed_slider,
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
-            room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
-        ] + context_checkboxes + [room_settings_info, scenery_image_display]
+            room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown,
+            # --- context_checkboxes の中身を展開してここに追加 ---
+            room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
+            room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
+            room_send_scenery_checkbox, # 連動される非表示チェックボックス
+            auto_memory_enabled_checkbox,
+            # --- ここまでが context_checkboxes ---
+            room_settings_info,
+            scenery_image_display,
+            # --- 新しい部品をリストの末尾に追加 ---
+            enable_scenery_system_checkbox, # マスタースイッチ
+            profile_scenery_accordion       # 表示/非表示を切り替えるアコーディオン
+        ]
 
         initial_load_outputs = [
             alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
         ] + initial_load_chat_outputs + [
             redaction_rules_df, token_count_display, api_key_dropdown,
             world_data_state,
-            # --- [ここからが追加する行] ---
             time_mode_radio,
             fixed_season_dropdown,
             fixed_time_of_day_dropdown,
             fixed_time_controls
-            # --- [追加はここまで] ---
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
@@ -699,19 +714,11 @@ try:
         all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [
             redaction_rules_df,
             archive_date_dropdown,
-            # --- [ここからが追加する行] ---
             time_mode_radio,
             fixed_season_dropdown,
             fixed_time_of_day_dropdown,
             fixed_time_controls
-            # --- [追加はここまで] ---
         ]
-
-        # The instruction was to modify the list definition, but the list is constructed from other lists.
-        # I have already added 'core_memory_editor' to 'initial_load_chat_outputs'.
-        # The line above correctly concatenates the lists, so no change is actually needed here.
-        # The previous review was mistaken about this specific point.
-        # I will now proceed to request the code review again, as all my changes are now complete.
 
         demo.load(
             fn=ui_handlers.handle_initial_load,
@@ -964,7 +971,14 @@ try:
             ] + gen_settings_inputs + [
                 enable_typewriter_effect_checkbox, # ← enable_typewriter_effect と streaming_speed の順番を変更
                 streaming_speed_slider,
-            ] + context_checkboxes,
+            ] + [
+                # ▼▼▼ context_checkboxes に合わせて inputs を修正 ▼▼▼
+                room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
+                room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
+                enable_scenery_system_checkbox, # 新しいマスタースイッチを渡す
+                auto_memory_enabled_checkbox
+                # ▲▲▲ 修正ここまで ▲▲▲
+            ],
             outputs=None
         )
         room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
@@ -1331,6 +1345,13 @@ try:
             fn=ui_handlers.handle_time_settings_change_and_update_scenery,
             inputs=time_setting_inputs,
             outputs=time_setting_outputs
+        )
+
+        # --- [v7: 情景システム ON/OFF イベント] ---
+        enable_scenery_system_checkbox.change(
+            fn=ui_handlers.handle_enable_scenery_system_change,
+            inputs=[enable_scenery_system_checkbox],
+            outputs=[profile_scenery_accordion, room_send_scenery_checkbox]
         )
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
