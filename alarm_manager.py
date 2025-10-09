@@ -14,6 +14,7 @@ import constants
 import room_manager
 import gemini_api
 import utils
+import ui_handlers # ← この行を追加
 
 try:
     from plyer import notification
@@ -127,7 +128,13 @@ def trigger_alarm(alarm_config, current_api_key_name):
     message_for_log = f"（システムアラーム：{alarm_config.get('time', '指定時刻')}）"
 
     from agent.graph import generate_scenery_context
-    location_name, _, scenery_text = generate_scenery_context(room_name, api_key)
+    # ▼▼▼【ここから下のブロックを書き換え】▼▼▼
+    # 1. 適用すべき時間コンテキストを取得
+    season_en, time_of_day_en = ui_handlers._get_current_time_context(room_name)
+    # 2. 情景生成時に時間コンテキストを渡す
+    location_name, _, scenery_text = generate_scenery_context(
+        room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
+    )
 
     agent_args_dict = {
         "room_to_respond": room_name,
@@ -140,8 +147,13 @@ def trigger_alarm(alarm_config, current_api_key_name):
         "active_participants": [],
         "shared_location_name": location_name,
         "shared_scenery_text": scenery_text,
-        "use_common_prompt": False # ← 思考をシンプルにするため、ツールプロンプトを無効化
+        "use_common_prompt": False, # ← 思考をシンプルにするため、ツールプロンプトを無効化
+        # 3. AIの引数にも時間コンテキストを追加
+        "season_en": season_en,
+        "time_of_day_en": time_of_day_en
     }
+    # ▲▲▲【書き換えはここまで】▲▲▲
+
 
     # ▼▼▼【ここから下のブロックを、既存のストリーム処理ロジックと完全に置き換えてください】▼▼▼
     final_response_text = ""

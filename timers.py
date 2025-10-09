@@ -9,6 +9,7 @@ import utils
 import constants
 import room_manager
 import config_manager
+import ui_handlers # ← この行を追加
 
 # --- plyerのインポートと存在チェック ---
 try:
@@ -65,27 +66,29 @@ class UnifiedTimer:
 
             log_f, _, _, _, _ = room_manager.get_room_files_paths(self.room_name)
 
-            # ▼▼▼【このブロックを全面的に書き換え】▼▼▼
-            # タイマーセット時の古いAPIキー名(self.api_key_name)ではなく、
-            # 実行時の最新のAPIキー名を取得する
             current_api_key_name = config_manager.get_latest_api_key_name_from_config()
             if not current_api_key_name:
                 print(f"警告: タイマー ({timer_id}) の発火時に有効なAPIキーが見つからないため、処理をスキップします。")
                 return
 
             api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name)
-            # ▲▲▲【書き換えはここまで】▲▲▲
 
             if not log_f or not api_key:
                 print(f"警告: タイマー ({timer_id}) のルームファイルまたはAPIキーが見つからないため、処理をスキップします。")
                 return
 
             from agent.graph import generate_scenery_context
-            location_name, _, scenery_text = generate_scenery_context(self.room_name, api_key)
+            # ▼▼▼【ここから下のブロックを書き換え】▼▼▼
+            # 1. 適用すべき時間コンテキストを取得
+            season_en, time_of_day_en = ui_handlers._get_current_time_context(self.room_name)
+            # 2. 情景生成時に時間コンテキストを渡す
+            location_name, _, scenery_text = generate_scenery_context(
+                self.room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
+            )
 
             agent_args_dict = {
                 "room_to_respond": self.room_name,
-                "api_key_name": current_api_key_name, # ← 最新のキー名を使用
+                "api_key_name": current_api_key_name,
                 "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
                 "debug_mode": False,
                 "history_log_path": log_f,
@@ -94,8 +97,12 @@ class UnifiedTimer:
                 "active_participants": [],
                 "shared_location_name": location_name,
                 "shared_scenery_text": scenery_text,
-                "use_common_prompt": False # ← 思考をシンプルにするため、ツールプロンプトを無効化
+                "use_common_prompt": False, # ← 思考をシンプルにするため、ツールプロンプトを無効化
+                # 3. AIの引数にも時間コンテキストを追加
+                "season_en": season_en,
+                "time_of_day_en": time_of_day_en
             }
+            # ▲▲▲【書き換えはここまで】▲▲▲
 
             # ▼▼▼【ここから下のブロックを、既存のストリーム処理ロジックと完全に置き換えてください】▼▼▼
             final_response_text = ""
