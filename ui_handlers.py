@@ -13,6 +13,8 @@ import re
 import sys
 import locale
 import subprocess
+from pathlib import Path
+import tempfile
 from typing import List, Optional, Dict, Any, Tuple, Iterator
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 import gradio as gr
@@ -97,11 +99,15 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     notepad_content = load_notepad_content(room_name)
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     locations_for_ui = _get_location_choices_for_ui(room_name)
-    valid_location_ids = [value for _name, value in locations_for_ui]
+    # ドロップダウンの選択肢に有効な場所IDのみを抽出（ヘッダーを除外）
+    valid_location_ids = [value for _name, value in locations_for_ui if not value.startswith("__AREA_HEADER_")]
     current_location_from_file = utils.get_current_location(room_name)
+
     location_dd_val = current_location_from_file
+    # ファイルから読み込んだ現在地が、有効な選択肢リストに存在しない場合
     if current_location_from_file and current_location_from_file not in valid_location_ids:
-        gr.Warning(f"最後にいた場所「{current_location_from_file}」が見つかりません。移動先を選択し直してください。")
+        gr.Warning(f"最後にいた場所「{current_location_from_file}」が世界設定に見つかりません。移動先を選択し直してください。")
+        # UI上は未選択状態にする
         location_dd_val = None
     season_en, time_of_day_en = _get_current_time_context(room_name)
     _, _, scenery_text = generate_scenery_context(
@@ -1256,15 +1262,45 @@ def format_history_for_gradio(
         media_matches = list(re.finditer(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]", content))
 
         if text_part:
-            # "log_index" に絶対座標である `i` を格納する
             proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": text_part, "log_index": i})
+
+        # ▼▼▼ 以下の for ループブロックで、既存の media_matches のループを完全に置き換えてください ▼▼▼
         for match in media_matches:
-            path = match.group(1).strip()
-            if os.path.exists(path):
-                proto_history.append({"type": "media", "role": role, "responder": responder_id, "path": path, "log_index": i})
+            path_str = match.group(1).strip()
+            path_obj = Path(path_str)
+
+            # --- 安全装置：パスの有効性チェック ---
+            # 1. ファイルが存在するか？
+            # 2. Gradioがアクセスを許可しているパスか？ (CWD または TEMP)
+            is_allowed = False
+            try:
+                # Path.resolve() はシンボリックリンクを解決し、絶対パスを取得する
+                abs_path = path_obj.resolve()
+                cwd = Path.cwd().resolve()
+                temp_dir = Path(tempfile.gettempdir()).resolve()
+
+                # CWD またはそのサブディレクトリにあるか、TEMPまたはそのサブディレクトリにあるか
+                if abs_path.is_relative_to(cwd) or abs_path.is_relative_to(temp_dir):
+                    is_allowed = True
+            except (OSError, ValueError): # Python 3.9以前の is_relative_to のためのフォールバック
+                try:
+                    abs_path_str = str(path_obj.resolve())
+                    cwd_str = str(Path.cwd().resolve())
+                    temp_dir_str = str(Path(tempfile.gettempdir()).resolve())
+                    if abs_path_str.startswith(cwd_str) or abs_path_str.startswith(temp_dir_str):
+                        is_allowed = True
+                except Exception:
+                    pass # resolve()自体が失敗するケース
+
+            if path_obj.exists() and is_allowed:
+                proto_history.append({"type": "media", "role": role, "responder": responder_id, "path": path_str, "log_index": i})
+            else:
+                # ログには残すが、UIには表示しない
+                print(f"--- [警告] 無効または安全でない画像パスをスキップしました: {path_str} ---")
+        # ▲▲▲ 置き換えここまで ▲▲▲
 
         if not text_part and not media_matches:
-            proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
+             proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
 
     for item in proto_history:
         # ここで `mapping_list` に追加される `log_index` が絶対座標になる
