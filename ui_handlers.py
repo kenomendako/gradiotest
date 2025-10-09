@@ -1216,11 +1216,12 @@ def format_history_for_gradio(
     add_timestamp: bool,
     screenshot_mode: bool = False,
     redaction_rules: List[Dict] = None,
-    absolute_start_index: int = 0  # ★★★ この引数を追加 ★★★
+    absolute_start_index: int = 0
 ) -> Tuple[List[Tuple], List[int]]:
     """
-    (v23: Absolute Indexing)
-    絶対座標インデックスを考慮して、UIとバックエンドのインデックスを完全に同期させる最終版。
+    (v24: System Message Display FIX)
+    絶対座標インデックスを考慮し、UIとバックエンドのインデックスを完全に同期させ、
+    SYSTEMロールのメッセージを独立して表示する最終版。
     """
     if not messages:
         return [], []
@@ -1234,10 +1235,7 @@ def format_history_for_gradio(
     agent_name_cache = {}
 
     proto_history = []
-    # --- ▼▼▼ ここからが修正の核心 ▼▼▼ ---
-    # enumerateの第二引数に、絶対座標の開始位置を指定する
     for i, msg in enumerate(messages, start=absolute_start_index):
-    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
         role, content = msg.get("role"), msg.get("content", "").strip()
         responder_id = msg.get("responder")
         if not responder_id: continue
@@ -1251,25 +1249,17 @@ def format_history_for_gradio(
         if text_part:
             proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": text_part, "log_index": i})
 
-        # ▼▼▼ 以下の for ループブロックで、既存の media_matches のループを完全に置き換えてください ▼▼▼
         for match in media_matches:
             path_str = match.group(1).strip()
             path_obj = Path(path_str)
-
-            # --- 安全装置：パスの有効性チェック ---
-            # 1. ファイルが存在するか？
-            # 2. Gradioがアクセスを許可しているパスか？ (CWD または TEMP)
             is_allowed = False
             try:
-                # Path.resolve() はシンボリックリンクを解決し、絶対パスを取得する
                 abs_path = path_obj.resolve()
                 cwd = Path.cwd().resolve()
                 temp_dir = Path(tempfile.gettempdir()).resolve()
-
-                # CWD またはそのサブディレクトリにあるか、TEMPまたはそのサブディレクトリにあるか
                 if abs_path.is_relative_to(cwd) or abs_path.is_relative_to(temp_dir):
                     is_allowed = True
-            except (OSError, ValueError): # Python 3.9以前の is_relative_to のためのフォールバック
+            except (OSError, ValueError):
                 try:
                     abs_path_str = str(path_obj.resolve())
                     cwd_str = str(Path.cwd().resolve())
@@ -1277,14 +1267,12 @@ def format_history_for_gradio(
                     if abs_path_str.startswith(cwd_str) or abs_path_str.startswith(temp_dir_str):
                         is_allowed = True
                 except Exception:
-                    pass # resolve()自体が失敗するケース
+                    pass
 
             if path_obj.exists() and is_allowed:
                 proto_history.append({"type": "media", "role": role, "responder": responder_id, "path": path_str, "log_index": i})
             else:
-                # ログには残すが、UIには表示しない
                 print(f"--- [警告] 無効または安全でない画像パスをスキップしました: {path_str} ---")
-        # ▲▲▲ 置き換えここまで ▲▲▲
 
         if not text_part and not media_matches:
              proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
@@ -1292,14 +1280,11 @@ def format_history_for_gradio(
     for item in proto_history:
         mapping_list.append(item["log_index"])
         role, responder_id = item["role"], item["responder"]
-
-        # ▼▼▼【このブロック全体を書き換え】▼▼▼
-        # is_user の判定を先に行う
         is_user = (role == "USER")
 
         if item["type"] == "text":
             speaker_name = ""
-            # ロールに基づいて話者名を設定
+            # ▼▼▼【ここからが修正の核心】▼▼▼
             if is_user:
                 speaker_name = user_display_name
             elif role == "AGENT":
@@ -1308,11 +1293,11 @@ def format_history_for_gradio(
                     agent_name_cache[responder_id] = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
                 speaker_name = agent_name_cache[responder_id]
             elif role == "SYSTEM":
-                # システムメッセージ用の話者名を設定
+                # SYSTEMロールの場合の話者名を設定
                 speaker_name = responder_id
-            else:
+            else: # フォールバック
                 speaker_name = responder_id
-        # ▲▲▲【書き換えはここまで】▲▲▲
+            # ▲▲▲【修正はここまで】▲▲▲
 
             content_to_parse = item['content']
 
@@ -1344,13 +1329,13 @@ def format_history_for_gradio(
 
             final_markdown = "\n\n".join(markdown_parts)
 
-            # ▼▼▼【このif/elseブロックを書き換え】▼▼▼
-            # ユーザーメッセージは左側、それ以外（AGENTとSYSTEM）は右側に表示
+            # ▼▼▼【ここからが修正の核心】▼▼▼
+            # ユーザーのメッセージは左側、それ以外（AGENTとSYSTEM）は右側に表示
             if is_user:
                 gradio_history.append((final_markdown, None))
             else:
                 gradio_history.append((None, final_markdown))
-            # ▲▲▲【書き換えはここまで】▲▲▲
+            # ▲▲▲【修正はここまで】▲▲▲
 
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))
