@@ -216,6 +216,26 @@ try:
         archivist_pid_state = gr.State(None) # 記憶アーキビストのプロセスIDを保持
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
+        redaction_rule_color_state = gr.State("#62827e")
+        imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
+
+        # --- Stateの定義 ---
+        world_data_state = gr.State({})
+        current_room_name = gr.State(effective_initial_room)
+        current_model_name = gr.State(config_manager.initial_model_global)
+        current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
+        api_history_limit_state = gr.State(config_manager.initial_api_history_limit_option_global)
+        alarm_dataframe_original_data = gr.State(pd.DataFrame())
+        selected_alarm_ids_state = gr.State([])
+        editing_alarm_id_state = gr.State(None)
+        selected_message_state = gr.State(None)
+        current_log_map_state = gr.State([])
+        active_participants_state = gr.State([]) # 現在アクティブな複数人対話の参加者リスト
+        debug_console_state = gr.State("")
+        chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
+        archivist_pid_state = gr.State(None) # 記憶アーキビストのプロセスIDを保持
+        redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
+        selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
         imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
 
         with gr.Tabs():
@@ -238,52 +258,54 @@ try:
 
                                     # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
                                     gr.Markdown("---")
-                                    gr.Markdown("#### 💾 バックアップ設定")
-                                    backup_rotation_count_number = gr.Number(
-                                        label="バックアップの最大保存件数（世代数）",
-                                        value=lambda: config_manager.CONFIG_GLOBAL.get("backup_rotation_count", 10),
-                                        step=1,
-                                        minimum=1,
-                                        interactive=True,
-                                        info="ファイル（ログ、記憶など）ごとに、ここで指定した数だけ最新のバックアップが保持されます。"
-                                    )
-                                    open_backup_folder_button = gr.Button("現在のルームのバックアップフォルダを開く", variant="secondary")
+                                    with gr.Accordion("💾 バックアップ設定", open=False):
+                                        backup_rotation_count_number = gr.Number(
+                                            label="バックアップの最大保存件数（世代数）",
+                                            value=lambda: config_manager.CONFIG_GLOBAL.get("backup_rotation_count", 10),
+                                            step=1,
+                                            minimum=1,
+                                            interactive=True,
+                                            info="ファイル（ログ、記憶など）ごとに、ここで指定した数だけ最新のバックアップが保持されます。"
+                                        )
+                                        open_backup_folder_button = gr.Button("現在のルームのバックアップフォルダを開く", variant="secondary")
                                     # ▲▲▲【追加はここまで】▲▲▲
 
                                     gr.Markdown("---")
-                                    gr.Markdown("#### 📢 通知サービス設定")
-                                    notification_service_radio = gr.Radio(choices=["Discord", "Pushover"], label="アラーム通知に使用するサービス", value=config_manager.NOTIFICATION_SERVICE_GLOBAL.capitalize(), interactive=True)
-                                    gr.Markdown("---")
-                                    with gr.Accordion("🔑 APIキー / Webhook管理", open=False):
-                                        with gr.Accordion("Gemini APIキー", open=True):
-                                            gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
-                                            gemini_key_value_input = gr.Textbox(label="APIキーの値", type="password")
-                                            with gr.Row():
-                                                save_gemini_key_button = gr.Button("Geminiキーを保存", variant="primary")
-                                                delete_gemini_key_button = gr.Button("削除")
-                                        with gr.Accordion("Pushover", open=False):
-                                            pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("user_key"))
-                                            pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("app_token"))
-                                            save_pushover_config_button = gr.Button("Pushover設定を保存", variant="primary")
-                                        with gr.Accordion("Discord", open=False):
-                                            discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL or "")
-                                            save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
-                                        gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
+                                    with gr.Accordion("📢 通知サービス設定", open=False):
+                                        notification_service_radio = gr.Radio(choices=["Discord", "Pushover"], label="アラーム通知に使用するサービス", value=config_manager.NOTIFICATION_SERVICE_GLOBAL.capitalize(), interactive=True)
+                                        gr.Markdown("---")
+                                        with gr.Accordion("🔑 APIキー / Webhook管理", open=False):
+                                            with gr.Accordion("Gemini APIキー", open=True):
+                                                gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
+                                                gemini_key_value_input = gr.Textbox(label="APIキーの値", type="password")
+                                                with gr.Row():
+                                                    save_gemini_key_button = gr.Button("Geminiキーを保存", variant="primary")
+                                                    delete_gemini_key_button = gr.Button("削除")
+                                            with gr.Accordion("Pushover", open=False):
+                                                pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("user_key"))
+                                                pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("app_token"))
+                                                save_pushover_config_button = gr.Button("Pushover設定を保存", variant="primary")
+                                            with gr.Accordion("Discord", open=False):
+                                                discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL or "")
+                                                save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
+                                            gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
                                 with gr.TabItem("個別") as individual_settings_tab:
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
-                                    with gr.Accordion("📜 基本設定", open=True):
+                                    save_room_settings_button = gr.Button("このルームの個別設定を保存", variant="primary")
+
+                                    with gr.Accordion("🖼️ 情景描写設定", open=False):
                                         enable_scenery_system_checkbox = gr.Checkbox(
                                             label="🖼️ このルームで情景描写システムを有効にする",
                                             info="有効にすると、チャット画面右側に情景が表示され、AIもそれを認識します。",
                                             interactive=True
                                         )
-                                        with gr.Accordion("📜 ストリーミング表示設定", open=False):
-                                            enable_typewriter_effect_checkbox = gr.Checkbox(label="タイプライター風の逐次表示を有効化", interactive=True)
-                                            streaming_speed_slider = gr.Slider(
-                                                minimum=0.0, maximum=0.1, step=0.005,
-                                                label="表示速度", info="値が小さいほど速く、大きいほどゆっくり表示されます。(0.0で最速)",
-                                                interactive=True
-                                            )
+                                    with gr.Accordion("📜 ストリーミング表示設定", open=False):
+                                        enable_typewriter_effect_checkbox = gr.Checkbox(label="タイプライター風の逐次表示を有効化", interactive=True)
+                                        streaming_speed_slider = gr.Slider(
+                                            minimum=0.0, maximum=0.1, step=0.005,
+                                            label="表示速度", info="値が小さいほど速く、大きいほどゆっくり表示されます。(0.0で最速)",
+                                            interactive=True
+                                        )
                                     with gr.Accordion("🎤 音声設定", open=False):
                                         room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
                                         room_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
@@ -301,20 +323,18 @@ try:
                                         with gr.Row():
                                             room_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
                                             room_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
-                                    gr.Markdown("#### APIコンテキスト設定")
-                                    room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
-                                    room_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
-                                    room_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
-                                    room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
-                                    room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
-                                    room_send_scenery_checkbox = gr.Checkbox(
-                                        label="空間描写・設定をAPIに送信 (情景システムと連動)",
-                                        interactive=False,
-                                        visible=True
-                                    )
-                                    auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True, visible=False)
-                                    gr.Markdown("---")
-                                    save_room_settings_button = gr.Button("このルームの設定を保存", variant="primary")
+                                    with gr.Accordion("📡 APIコンテキスト設定", open=False):
+                                        room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
+                                        room_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
+                                        room_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
+                                        room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
+                                        room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
+                                        room_send_scenery_checkbox = gr.Checkbox(
+                                            label="空間描写・設定をAPIに送信 (情景システムと連動)",
+                                            interactive=False,
+                                            visible=True
+                                        )
+                                        auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True, visible=False)
                                 with gr.TabItem("🎨 パレット") as theme_tab:
                                     theme_settings_state = gr.State({})
                                     theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
@@ -387,6 +407,8 @@ try:
                                 with gr.TabItem("新規作成") as create_room_tab:
                                     new_room_name = gr.Textbox(label="ルーム名（必須）", info="UIやグループ会話で表示される名前です。フォルダ名は自動で生成されます。")
                                     new_user_display_name = gr.Textbox(label="あなたの表示名（任意）", placeholder="デフォルト: ユーザー")
+                                    new_agent_display_name = gr.Textbox(label="Agentの表示名（任意）", placeholder="AIのデフォルト表示名。未設定の場合はルーム名が使われます。")
+                                    new_room_description = gr.Textbox(label="ルームの説明（任意）", lines=3, placeholder="このルームがどのような場所かをメモしておけます。")
                                     initial_system_prompt = gr.Textbox(label="初期システムプロンプト（任意）", lines=5, placeholder="このルームの基本的なルールやAIの役割などを設定します。")
                                     create_room_button = gr.Button("ルームを作成", variant="primary")
                                 with gr.TabItem("管理") as manage_room_tab:
@@ -422,16 +444,17 @@ try:
                                             gr.Markdown("**ルールの編集**")
                                             redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)")
                                             redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)")
+                                            redaction_color_picker = gr.ColorPicker(label="背景色", value="#FFFF00")
                                             with gr.Row():
                                                 add_rule_button = gr.Button("ルールを追加/更新", variant="primary")
                                                 clear_rule_form_button = gr.Button("フォームをクリア")
                                         with gr.Column(scale=3):
                                             gr.Markdown("**現在のルールリスト**")
                                             redaction_rules_df = gr.Dataframe(
-                                                headers=["元の文字列 (Find)", "置換後の文字列 (Replace)"],
-                                                datatype=["str", "str"],
+                                                headers=["元の文字列 (Find)", "置換後の文字列 (Replace)", "背景色"],
+                                                datatype=["str", "str", "str"],
                                                 row_count=(5, "dynamic"),
-                                                col_count=(2, "fixed"),
+                                                col_count=(3, "fixed"),
                                                 interactive=False
                                             )
                                             delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
@@ -440,6 +463,7 @@ try:
                                     gr.Markdown("⚠️ **注意:** この操作はログファイルを直接上書きするため、元に戻せません。処理の前に、ログファイルのバックアップが自動的に作成されます。")
                                     correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
                                     correction_confirmed_state = gr.Textbox(visible=False)
+
 
                     # --- 中央カラム ---
                     with gr.Column(scale=6): # ← scale=3 を 6 に変更
@@ -482,7 +506,6 @@ try:
                         with gr.Row():
                             add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1, visible=False)
 
-
                     # --- 右カラム ---
                     with gr.Column(scale=3, min_width=300): # ← scale=1.5 を 3 に変更
                         with gr.Accordion("🖼️ プロフィール・情景", open=True, elem_id="profile_scenery_accordion") as profile_scenery_accordion:
@@ -510,8 +533,8 @@ try:
                             location_dropdown = gr.Dropdown(label="現在地 / 移動先を選択", interactive=True) # ← label を変更
 
                             # --- 画像生成メニュー ---
-                            with gr.Accordion("情景設定・生成", open=False):
-                                with gr.Accordion("🕰️ 季節・時間を指定", open=False) as time_control_accordion:
+                            with gr.Accordion("🌄情景設定・生成", open=False):
+                                with gr.Accordion("季節・時間を指定", open=False) as time_control_accordion:
                                     gr.Markdown("（この設定はルームごとに保存されます）", elem_id="time_control_note")
                                     time_mode_radio = gr.Radio(
                                         choices=["リアル連動", "選択する"],
@@ -534,12 +557,12 @@ try:
                                     save_time_settings_button = gr.Button("このルームの時間設定を保存", variant="secondary")
                                     # --- [修正はここまで] ---
                                 
-                                generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
                                 scenery_style_radio = gr.Dropdown(
                                     choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
                                     label="画風を選択", value="写真風 (デフォルト)", interactive=True
                                 )
-                                refresh_scenery_button = gr.Button("情景テキストを更新", variant="secondary") # ← ここに移動
+                                generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
+                                refresh_scenery_button = gr.Button("情景テキストを更新", variant="secondary")
 
                 # --- [3カラムレイアウトはここまで] ---
 
@@ -708,7 +731,7 @@ try:
             fixed_time_controls
         ]
 
-        world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
+        world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
 
         all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [
@@ -867,7 +890,7 @@ try:
 
         create_room_button.click(
             fn=ui_handlers.handle_create_room,
-            inputs=[new_room_name, new_user_display_name, initial_system_prompt],
+            inputs=[new_room_name, new_user_display_name, new_agent_display_name, new_room_description, initial_system_prompt],
             outputs=[
                 room_dropdown,
                 manage_room_selector,
@@ -875,6 +898,8 @@ try:
                 timer_room_dropdown,
                 new_room_name,
                 new_user_display_name,
+                new_agent_display_name,
+                new_room_description,
                 initial_system_prompt
             ]
         )
@@ -931,21 +956,26 @@ try:
         redaction_rules_df.select(
             fn=ui_handlers.handle_redaction_rule_select,
             inputs=[redaction_rules_df],
-            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_color_picker]
+        )
+        redaction_color_picker.change(
+            fn=lambda color: color,
+            inputs=[redaction_color_picker],
+            outputs=[redaction_rule_color_state]
         )
         add_rule_button.click(
             fn=ui_handlers.handle_add_or_update_redaction_rule,
-            inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox],
-            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+            inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_rule_color_state],
+            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_color_picker]
         )
         clear_rule_form_button.click(
-            fn=lambda: (None, "", ""),
-            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+            fn=lambda: (None, "", "", "#62827e"),
+            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_color_picker, redaction_rule_color_state]
         )
         delete_rule_button.click(
             fn=ui_handlers.handle_delete_redaction_rule,
             inputs=[redaction_rules_state, selected_redaction_rule_state],
-            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox]
+            outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_color_picker]
         )
         screenshot_mode_checkbox.change(
             fn=ui_handlers.reload_chat_log,
@@ -1162,7 +1192,7 @@ try:
         world_builder_tab.select(
             fn=ui_handlers.handle_world_builder_load,
             inputs=[current_room_name],
-            outputs=[world_data_state, area_selector, world_settings_raw_editor]
+            outputs=[world_data_state, area_selector, world_settings_raw_editor, place_selector]
         )
         area_selector.change(
             fn=ui_handlers.handle_wb_area_select,

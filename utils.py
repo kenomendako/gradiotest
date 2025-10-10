@@ -130,12 +130,12 @@ def load_chat_log(file_path: str) -> List[Dict[str, str]]:
 
 
 def _perform_log_archiving(log_file_path: str, character_name: str, threshold_bytes: int, keep_bytes: int) -> Optional[str]:
+    # Import locally to avoid circular dependencies
+    import room_manager
     try:
         if os.path.getsize(log_file_path) <= threshold_bytes:
             return None
 
-        # Import locally to avoid circular dependencies
-        import room_manager
         # Create a backup before modifying the log file
         room_manager.create_backup(character_name, 'log')
 

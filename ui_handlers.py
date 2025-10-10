@@ -37,7 +37,7 @@ from tools import timer_tools, memory_tools
 from agent.graph import generate_scenery_context
 from room_manager import get_room_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
-from world_builder import get_world_data, save_world_data
+
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
@@ -71,8 +71,14 @@ def _create_redaction_df_from_rules(rules: List[Dict]) -> pd.DataFrame:
     この関数で、キーと列名のマッピングを完結させる。
     """
     if not rules:
-        return pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"])
-    df_data = [{"元の文字列 (Find)": r.get("find", ""), "置換後の文字列 (Replace)": r.get("replace", "")} for r in rules]
+        return pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)", "背景色"])
+    df_data = [
+        {
+            "元の文字列 (Find)": r.get("find", ""),
+            "置換後の文字列 (Replace)": r.get("replace", ""),
+            "背景色": r.get("color", "#FFFF00")
+        } for r in rules
+    ]
     return pd.DataFrame(df_data)
 
 def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
@@ -170,8 +176,8 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     # chat_tab_updatesは36個の更新値を持つ
     chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
 
-    wb_state, wb_area_selector, wb_raw_editor = handle_world_builder_load(room_name)
-    world_builder_updates = (wb_state, wb_area_selector, wb_raw_editor)
+    wb_state, wb_area_selector, wb_raw_editor, wb_place_selector = handle_world_builder_load(room_name)
+    world_builder_updates = (wb_state, wb_area_selector, wb_raw_editor, wb_place_selector)
 
     all_rooms = room_manager.get_room_list_for_ui()
     other_rooms_for_checkbox = sorted(
@@ -208,6 +214,7 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
     【v3】UIの初期化処理。戻り値の数は `initial_load_outputs` の49個と一致する。
     """
+    from world_builder import get_world_data
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
@@ -860,7 +867,7 @@ def handle_location_change(room_name: str, selected_value: str, api_key_name: st
 # --- Room Management Handlers ---
 #
 
-def handle_create_room(new_room_name: str, new_user_display_name: str, initial_system_prompt: str):
+def handle_create_room(new_room_name: str, new_user_display_name: str, new_agent_display_name: str, new_room_description: str, initial_system_prompt: str):
     """
     「新規作成」タブのロジック。
     新しいチャットルームを作成し、関連ファイルと設定を初期化する。
@@ -868,8 +875,8 @@ def handle_create_room(new_room_name: str, new_user_display_name: str, initial_s
     # 1. 入力検証
     if not new_room_name or not new_room_name.strip():
         gr.Warning("ルーム名は必須です。")
-        # nexus_ark.pyのoutputsは7つ
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        # nexus_ark.pyのoutputsは9つ
+        return (gr.update(),) * 9
 
     try:
         # 2. 安全なフォルダ名生成
@@ -878,7 +885,7 @@ def handle_create_room(new_room_name: str, new_user_display_name: str, initial_s
         # 3. ルームファイル群の作成
         if not room_manager.ensure_room_files(safe_folder_name):
             gr.Error("ルームの基本ファイル作成に失敗しました。詳細はターミナルを確認してください。")
-            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+            return (gr.update(),) * 9
 
         # 4. 設定の書き込み
         config_path = os.path.join(constants.ROOMS_DIR, safe_folder_name, "room_config.json")
@@ -887,6 +894,12 @@ def handle_create_room(new_room_name: str, new_user_display_name: str, initial_s
             config["room_name"] = new_room_name.strip()
             if new_user_display_name and new_user_display_name.strip():
                 config["user_display_name"] = new_user_display_name.strip()
+            # 新しいフィールドを追加
+            if new_agent_display_name and new_agent_display_name.strip():
+                config["agent_display_name"] = new_agent_display_name.strip()
+            if new_room_description and new_room_description.strip():
+                config["description"] = new_room_description.strip()
+
             f.seek(0)
             json.dump(config, f, indent=2, ensure_ascii=False)
             f.truncate()
@@ -900,8 +913,8 @@ def handle_create_room(new_room_name: str, new_user_display_name: str, initial_s
         gr.Info(f"新しいルーム「{new_room_name}」を作成しました。")
         updated_room_list = room_manager.get_room_list_for_ui()
 
-        # フォームのクリア
-        clear_form = (gr.update(value=""), gr.update(value=""), gr.update(value=""))
+        # フォームのクリア（5つのフィールド分）
+        clear_form = (gr.update(value=""), gr.update(value=""), gr.update(value=""), gr.update(value=""), gr.update(value=""))
 
         # 全てのドロップダウンを更新し、新しいルームを選択状態にする
         main_dd = gr.update(choices=updated_room_list, value=safe_folder_name)
@@ -914,7 +927,7 @@ def handle_create_room(new_room_name: str, new_user_display_name: str, initial_s
     except Exception as e:
         gr.Error(f"ルームの作成に失敗しました。詳細はターミナルを確認してください。: {e}")
         traceback.print_exc()
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        return (gr.update(),) * 9
 
 def handle_manage_room_select(selected_folder_name: str):
     """
@@ -1252,7 +1265,11 @@ def format_history_for_gradio(
     absolute_start_index: int = 0
 ) -> Tuple[List[Tuple], List[int]]:
     """
-    (v25: System Message Display Final FIX)
+    (v26: Colored Text Replacement)
+    スクリーンショットモードが有効な場合、redaction_rulesに 'color' が定義されていれば、
+    置換後の文字列は <span style="background-color: ..."> タグで囲まれる。
+    この際、GradioのMarkdownレンダラによる意図しない解釈を防ぐために、
+    ユーザー入力（find/replace 文字列）は html.escape() で適切にエスケープ処理される。
     """
     if not messages:
         return [], []
@@ -1334,9 +1351,18 @@ def format_history_for_gradio(
                     find_str = rule.get("find")
                     if find_str:
                         replace_str = rule.get("replace", "")
+                        color = rule.get("color")
+                        escaped_find = html.escape(find_str)
+                        escaped_replace = html.escape(replace_str)
+
                         if speaker_name:
-                            speaker_name = speaker_name.replace(find_str, replace_str)
-                        content_to_parse = content_to_parse.replace(find_str, replace_str)
+                            speaker_name = speaker_name.replace(find_str, replace_str) # 話者名はHTMLエスケープ不要
+
+                        if color:
+                            replacement_html = f'<span style="background-color: {color};">{escaped_replace}</span>'
+                            content_to_parse = content_to_parse.replace(escaped_find, replacement_html)
+                        else:
+                            content_to_parse = content_to_parse.replace(escaped_find, escaped_replace)
 
             thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
             parts = thoughts_pattern.split(content_to_parse)
@@ -2047,31 +2073,33 @@ def handle_core_memory_update_click(room_name: str, api_key_name: str):
 
 # --- Screenshot Redaction Rules Handlers ---
 
-def handle_redaction_rule_select(rules_df: pd.DataFrame, evt: gr.SelectData) -> Tuple[Optional[int], str, str]:
+def handle_redaction_rule_select(rules_df: pd.DataFrame, evt: gr.SelectData) -> Tuple[Optional[int], str, str, str]:
     """DataFrameの行が選択されたときに、その内容を編集フォームに表示する。"""
     if not evt.index:
         # 選択が解除された場合
-        return None, "", ""
+        return None, "", "", "#FFFF00"
     try:
         selected_index = evt.index[0]
         if rules_df is None or not (0 <= selected_index < len(rules_df)):
-             return None, "", ""
+             return None, "", "", "#FFFF00"
 
         selected_row = rules_df.iloc[selected_index]
         find_text = selected_row.get("元の文字列 (Find)", "")
         replace_text = selected_row.get("置換後の文字列 (Replace)", "")
+        color = selected_row.get("背景色", "#FFFF00")
         # 選択された行のインデックスを返す
-        return selected_index, str(find_text), str(replace_text)
+        return selected_index, str(find_text), str(replace_text), str(color)
     except (IndexError, KeyError) as e:
         print(f"ルール選択エラー: {e}")
-        return None, "", ""
+        return None, "", "", "#FFFF00"
 
 def handle_add_or_update_redaction_rule(
     current_rules: List[Dict],
     selected_index: Optional[int],
     find_text: str,
-    replace_text: str
-) -> Tuple[pd.DataFrame, List[Dict], None, str, str]:
+    replace_text: str,
+    color: str
+) -> Tuple[pd.DataFrame, List[Dict], None, str, str, str]:
     """ルールを追加または更新し、ファイルに保存してUIを更新する。"""
     find_text = find_text.strip()
     replace_text = replace_text.strip()
@@ -2079,10 +2107,12 @@ def handle_add_or_update_redaction_rule(
     if not find_text:
         gr.Warning("「元の文字列」は必須です。")
         df = _create_redaction_df_from_rules(current_rules)
-        return df, current_rules, selected_index, find_text, replace_text
+        return df, current_rules, selected_index, find_text, replace_text, color
 
     if current_rules is None:
         current_rules = []
+
+    new_rule = {"find": find_text, "replace": replace_text, "color": color}
 
     # 更新モード
     if selected_index is not None and 0 <= selected_index < len(current_rules):
@@ -2091,32 +2121,28 @@ def handle_add_or_update_redaction_rule(
             if i != selected_index and rule["find"] == find_text:
                 gr.Warning(f"ルール「{find_text}」は既に存在します。")
                 df = _create_redaction_df_from_rules(current_rules)
-                return df, current_rules, selected_index, find_text, replace_text
-        current_rules[selected_index] = {"find": find_text, "replace": replace_text}
+                return df, current_rules, selected_index, find_text, replace_text, color
+        current_rules[selected_index] = new_rule
         gr.Info(f"ルール「{find_text}」を更新しました。")
     # 新規追加モード
     else:
         if any(rule["find"] == find_text for rule in current_rules):
             gr.Warning(f"ルール「{find_text}」は既に存在します。更新する場合はリストから選択してください。")
             df = _create_redaction_df_from_rules(current_rules)
-            return df, current_rules, selected_index, find_text, replace_text
-        current_rules.append({"find": find_text, "replace": replace_text})
+            return df, current_rules, selected_index, find_text, replace_text, color
+        current_rules.append(new_rule)
         gr.Info(f"新しいルール「{find_text}」を追加しました。")
 
     config_manager.save_redaction_rules(current_rules)
 
-    # ▼▼▼【ここが修正の核心】▼▼▼
-    # 古い、間違ったDataFrame生成ロジックを、
-    # 正しいヘルパー関数の呼び出しに置き換える。
     df_for_ui = _create_redaction_df_from_rules(current_rules)
-    # ▲▲▲【修正ここまで】▲▲▲
 
-    return df_for_ui, current_rules, None, "", ""
+    return df_for_ui, current_rules, None, "", "", "#FFFF00"
 
 def handle_delete_redaction_rule(
     current_rules: List[Dict],
     selected_index: Optional[int]
-) -> Tuple[pd.DataFrame, List[Dict], None, str, str]:
+) -> Tuple[pd.DataFrame, List[Dict], None, str, str, str]:
     """選択されたルールを削除する。"""
     if current_rules is None:
         current_rules = []
@@ -2124,13 +2150,11 @@ def handle_delete_redaction_rule(
     if selected_index is None or not (0 <= selected_index < len(current_rules)):
         gr.Warning("削除するルールをリストから選択してください。")
         df = _create_redaction_df_from_rules(current_rules)
-        return df, current_rules, selected_index, "", ""
+        return df, current_rules, selected_index, "", "", "#FFFF00"
 
-    # ▼▼▼【ここからが修正の核心】▼▼▼
     # Pandasの.dropではなく、Pythonのdel文でリストの要素を直接削除する
     deleted_rule_name = current_rules[selected_index]["find"]
     del current_rules[selected_index]
-    # ▲▲▲【修正ここまで】▲▲▲
 
     config_manager.save_redaction_rules(current_rules)
     gr.Info(f"ルール「{deleted_rule_name}」を削除しました。")
@@ -2138,7 +2162,7 @@ def handle_delete_redaction_rule(
     df_for_ui = _create_redaction_df_from_rules(current_rules)
 
     # フォームと選択状態をリセット
-    return df_for_ui, current_rules, None, "", ""
+    return df_for_ui, current_rules, None, "", "", "#FFFF00"
 
 
 def update_model_state(model): config_manager.save_config("last_model", model); return model
@@ -2439,8 +2463,9 @@ def handle_api_connection_test(api_key_name: str):
 from world_builder import get_world_data, save_world_data
 
 def handle_world_builder_load(room_name: str):
+    from world_builder import get_world_data
     if not room_name:
-        return {}, gr.update(choices=[], value=None), ""
+        return {}, gr.update(choices=[], value=None), "", gr.update(choices=[], value=None)
 
     world_data = get_world_data(room_name)
     area_choices = sorted(world_data.keys())
@@ -2451,7 +2476,23 @@ def handle_world_builder_load(room_name: str):
         with open(world_settings_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
 
-    return world_data, gr.update(choices=area_choices, value=None), raw_content
+    current_location = utils.get_current_location(room_name)
+    selected_area = None
+    place_choices_for_selected_area = []
+
+    if current_location:
+        for area_name, places in world_data.items():
+            if current_location in places:
+                selected_area = area_name
+                place_choices_for_selected_area = sorted(places.keys())
+                break
+
+    return (
+        world_data,
+        gr.update(choices=area_choices, value=selected_area),
+        raw_content,
+        gr.update(choices=place_choices_for_selected_area, value=current_location)
+    )
 
 def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
     """
@@ -2523,7 +2564,7 @@ def handle_wb_area_select(world_data: Dict, area_name: str):
     if not area_name or area_name not in world_data:
         return gr.update(choices=[], value=None)
     places = sorted(world_data[area_name].keys())
-    return gr.update(choices=places, value=None)
+    return gr.update(choices=places)
 
 def handle_wb_place_select(world_data: Dict, area_name: str, place_name: str):
     if not area_name or not place_name:
@@ -2536,6 +2577,7 @@ def handle_wb_place_select(world_data: Dict, area_name: str, place_name: str):
     )
 
 def handle_wb_save(room_name: str, world_data: Dict, area_name: str, place_name: str, content: str):
+    from world_builder import save_world_data
     if not room_name or not area_name or not place_name:
         gr.Warning("保存するにはエリアと場所を選択してください。")
         return world_data, gr.update()
@@ -2555,6 +2597,7 @@ def handle_wb_save(room_name: str, world_data: Dict, area_name: str, place_name:
     return world_data, raw_content
 
 def handle_wb_delete_place(room_name: str, world_data: Dict, area_name: str, place_name: str):
+    from world_builder import save_world_data
     if not area_name or not place_name:
         gr.Warning("削除するエリアと場所を選択してください。")
         return world_data, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
@@ -2584,6 +2627,7 @@ def handle_wb_delete_place(room_name: str, world_data: Dict, area_name: str, pla
     )
 
 def handle_wb_confirm_add(room_name: str, world_data: Dict, selected_area: str, item_type: str, item_name: str):
+    from world_builder import save_world_data
     if not room_name or not item_name:
         gr.Warning("ルームが選択されていないか、名前が入力されていません。")
         return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
@@ -2627,6 +2671,7 @@ def handle_wb_confirm_add(room_name: str, world_data: Dict, selected_area: str, 
         return world_data, gr.update(), gr.update(), gr.update(visible=False), "", gr.update()
 
 def handle_save_world_settings_raw(room_name: str, raw_content: str):
+    from world_builder import get_world_data
     if not room_name:
         gr.Warning("ルームが選択されていません。")
         return raw_content, gr.update()
