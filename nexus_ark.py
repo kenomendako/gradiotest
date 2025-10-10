@@ -750,17 +750,24 @@ try:
             debug_console_state,
             active_participants_state,
             model_dropdown,
-            enable_typewriter_effect_checkbox, # ← この行を追加
-            streaming_speed_slider,            # ← この行を追加
+            enable_typewriter_effect_checkbox,
+            streaming_speed_slider,
+            current_scenery_display,
         ]
 
 # ▼▼▼ rerun_inputs のリスト定義から streaming_speed_slider を削除し、代わりに関連チェックボックスを追加 ▼▼▼
         rerun_inputs = [
-            selected_message_state, current_room_name, current_api_key_name_state,
-            api_history_limit_state, debug_mode_checkbox,
-            debug_console_state, active_participants_state, model_dropdown,
-            enable_typewriter_effect_checkbox, # ← この行を追加
-            streaming_speed_slider,            # ← この行を追加
+            selected_message_state,
+            current_room_name,
+            current_api_key_name_state,
+            api_history_limit_state,
+            debug_mode_checkbox,
+            debug_console_state,
+            active_participants_state,
+            model_dropdown,
+            enable_typewriter_effect_checkbox,
+            streaming_speed_slider,
+            current_scenery_display,
         ]
 
         # 新規送信と再生成で、UI更新の対象（outputs）を完全に一致させる

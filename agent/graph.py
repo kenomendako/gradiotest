@@ -7,7 +7,7 @@ import traceback
 import json
 import time
 from datetime import datetime
-from typing import TypedDict, Annotated, List, Literal, Tuple
+from typing import TypedDict, Annotated, List, Literal, Tuple, Optional
 
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage, HumanMessage
 from google.api_core import exceptions as google_exceptions
@@ -67,6 +67,8 @@ class AgentState(TypedDict):
     loop_count: int # ← この行を追加
     season_en: str
     time_of_day_en: str
+    last_successful_response: Optional[AIMessage] # 最後の成功したAI応答を保持
+    force_end: bool # グラフの実行を強制的に終了させるためのフラグ
 
 def get_location_list(room_name: str) -> List[str]:
     """
@@ -334,63 +336,50 @@ def agent_node(state: AgentState):
     print("--------------------------------------------------\n")
 
     response = None
-    max_retries = 5
-    base_delay = 5
-    for attempt in range(max_retries):
-        try:
-            response = llm_with_tools.invoke(messages_for_agent)
-            break # 成功したらループを抜ける
-        except google_exceptions.ResourceExhausted as e:
-            error_str = str(e)
-            if "PerDay" in error_str or "Daily" in error_str:
-                print(f"  - 致命的エラー: 回復不能なAPI上限（日間など）に達しました。処理を中断します。")
-                response = AIMessage(content=f"[エラー: APIの1日あたりの利用上限に達したため、応答を生成できません。]\n{e}")
-                break
+    try:
+        response = llm_with_tools.invoke(messages_for_agent)
+        
+        print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
+        import copy
+        response_for_log = copy.deepcopy(response)
+        if hasattr(response_for_log, 'tool_calls') and response_for_log.tool_calls:
+            for tool_call in response_for_log.tool_calls:
+                if 'api_key' in tool_call.get('args', {}): tool_call['args']['api_key'] = '<REDACTED>'
+        pprint.pprint(response_for_log)
+        print("---------------------------------------\n")
 
-            wait_time = base_delay * (2 ** attempt)
-            match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
-            if match:
-                wait_time = int(match.group(1)) + 1
-                print(f"  - APIレート制限: APIの推奨に従い {wait_time}秒 待機します...")
-            else:
-                print(f"  - APIレート制限: 指数バックオフで {wait_time}秒 待機します...")
+        loop_count += 1
+        # ツール呼び出しを含まない、純粋なテキスト応答の場合のみ、
+        # 「最後の成功応答」として保存する
+        if not getattr(response, "tool_calls", None):
+            return {
+                "messages": [response],
+                "loop_count": loop_count,
+                "last_successful_response": response
+            }
+        else:
+            # ツール呼び出しの場合は、last_successful_response を更新しない
+            return {
+                "messages": [response],
+                "loop_count": loop_count
+            }
 
-            if attempt < max_retries - 1:
-                time.sleep(wait_time)
-            else:
-                print(f"  - APIレート制限: 最大リトライ回数({max_retries})に達しました。")
-                response = AIMessage(content=f"[エラー: APIのレート制限が頻発しています。時間をおいて再試行してください。]\n{e}")
-                break # ループを抜ける
-        except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
-            if attempt < max_retries - 1:
-                wait_time = base_delay * (2 ** attempt)
-                print(f"  - 警告: AIサーバーが応答不能です ({e.args[0]})。{wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries})")
-                time.sleep(wait_time)
-            else:
-                print(f"  - AIサーバーが応答不能: 最大リトライ回数({max_retries})に達しました。")
-                response = AIMessage(content=f"[エラー: AIサーバーが応答しません。時間をおいて再試行してください。]\n{e}")
-                break # ループを抜ける
-        except Exception as e:
-             # その他の予期せぬエラー
-            print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
-            traceback.print_exc()
-            response = AIMessage(content=f"[エラー: 内部処理で問題が発生しました。詳細はターミナルを確認してください。]\nエラー: {e}")
-            break
-
-    if response is None:
-        response = AIMessage(content="[エラー: 不明な問題により、AIからの応答を生成できませんでした。]")
-
-    print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
-    import copy
-    response_for_log = copy.deepcopy(response)
-    if hasattr(response_for_log, 'tool_calls') and response_for_log.tool_calls:
-        for tool_call in response_for_log.tool_calls:
-            if 'api_key' in tool_call.get('args', {}): tool_call['args']['api_key'] = '<REDACTED>'
-    pprint.pprint(response_for_log)
-    print("---------------------------------------\n")
-
-    loop_count += 1
-    return {"messages": [response], "loop_count": loop_count}
+    except (google_exceptions.ResourceExhausted, google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
+        print(f"--- [警告] agent_nodeでAPIエラーを捕捉しました: {e} ---")
+        # 再思考中(2ループ目)の失敗か？
+        if loop_count > 0:
+            last_successful_response = state.get("last_successful_response")
+            if last_successful_response:
+                print("  - 再思考中にエラーが発生。前回の成功した応答を復元し、グラフを終了します。")
+                # 前回の成功応答を復元し、強制終了フラグを立てる
+                return {
+                    "messages": [last_successful_response],
+                    "force_end": True
+                }
+        
+        # 1ループ目の失敗、または復元対象がない場合は、例外を再送出してUIハンドラに処理を任せる
+        print("  - 1ループ目でのエラー、または復元可能な応答がないため、例外を上位に伝播させます。")
+        raise e
 
 import room_manager # ← 関数の先頭でインポートを追加
 
@@ -615,6 +604,11 @@ def safe_tool_executor(state: AgentState):
 
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node", "agent"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
+
+    if state.get("force_end"):
+        print("  - force_endフラグを検出。グラフの実行を強制終了します。")
+        return "__end__"
+
     last_message = state["messages"][-1]
     loop_count = state.get("loop_count", 0)
 
