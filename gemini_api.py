@@ -143,13 +143,12 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
 
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     """
-    LangGraphの思考プロセスをストリーミングで返す。(v25: 安定性向上版)
+    LangGraphの思考プロセスをストリーミングで返す。(v27: 責務一元化版)
+    APIエラーは捕捉せず、呼び出し元に例外をスローする。
     """
     from agent.graph import app
-    import time
-    from google.api_core.exceptions import ResourceExhausted, InternalServerError
 
-    # --- 引数を辞書から展開 (変更なし) ---
+    # --- 引数展開と初期設定 (変更なし) ---
     room_to_respond = agent_args["room_to_respond"]
     api_key_name = agent_args["api_key_name"]
     api_history_limit = agent_args["api_history_limit"]
@@ -160,11 +159,8 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     active_participants = agent_args["active_participants"]
     shared_location_name = agent_args["shared_location_name"]
     shared_scenery_text = agent_args["shared_scenery_text"]
-    # --- [ここから追加] ---
     season_en = agent_args["season_en"]
     time_of_day_en = agent_args["time_of_day_en"]
-    # --- [追加ここまで] ---
-
     all_participants_list = [soul_vessel_room] + active_participants
     global_model_from_ui = agent_args.get("global_model_from_ui")
 
@@ -177,11 +173,11 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        error_message = f"[エラー: APIキー '{api_key_name}' が有効ではありません。]"
-        yield ("values", {"messages": [AIMessage(content=error_message)]})
+        # エラーメッセージをAIMessageとして持つ最終状態をyieldする
+        yield ("values", {"messages": [AIMessage(content=f"[エラー: APIキー '{api_key_name}' が無効です。]")]})
         return
 
-    # --- ハイブリッド履歴構築ロジック ---
+    # --- ハイブリッド履歴構築 (変更なし) ---
     messages = []
     add_timestamp = effective_settings.get("add_timestamp", False)
     responding_ai_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
@@ -245,39 +241,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
     yield ("initial_count", len(messages))
 
-    # ▼▼▼【ここからが修正箇所】▼▼▼
-    max_retries = 3
-    retry_delay = 5  # seconds
-    for attempt in range(max_retries):
-        try:
-            # LangGraphのストリーム処理を試行
-            for update in app.stream(initial_state, stream_mode=["messages", "values"]):
-                yield update
-            return # 成功したら関数を抜ける
-
-        except (google.api_core.exceptions.ResourceExhausted,
-                google.api_core.exceptions.ServiceUnavailable,
-                google.api_core.exceptions.InternalServerError) as e:
-            # 再試行可能なAPIエラーを捕捉
-            print(f"--- APIエラー (試行 {attempt + 1}/{max_retries}): {e} ---")
-            if attempt < max_retries - 1:
-                print(f"    - {retry_delay}秒待機してリトライします...")
-                time.sleep(retry_delay)
-                retry_delay *= 2  # 次の待機時間を倍にする（Exponential Backoff）
-            else:
-                # 全てのリトライが失敗した場合
-                error_message = f"[エラー: APIサーバーが応答しませんでした。時間をおいて再試行してください。詳細: {e}]"
-                yield ("values", {"messages": [AIMessage(content=error_message)]})
-                return
-
-        except Exception as e:
-            # その他の予期せぬエラー（コードのバグなど）
-            print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
-            traceback.print_exc()
-            error_message = f"[エラー: 内部処理で問題が発生しました。詳細はターミナルを確認してください。エラー: {e}]"
-            yield ("values", {"messages": [AIMessage(content=error_message)]})
-            return
-    # ▲▲▲【修正はここまで】▲▲▲
+    yield from app.stream(initial_state, stream_mode=["messages", "values"])
 
 def count_input_tokens(**kwargs):
     room_name = kwargs.get("room_name")
@@ -484,6 +448,6 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
 
     return ChatGoogleGenerativeAI(
         model=model_name, google_api_key=api_key, convert_system_message_to_human=False,
-        max_retries=6, temperature=config.get("temperature", 0.8),
+        max_retries=0, temperature=config.get("temperature", 0.8),
         top_p=config.get("top_p", 0.95), safety_settings=safety_settings
     )

@@ -379,10 +379,11 @@ def _stream_and_handle_response(
     streaming_speed: float,
 ) -> Iterator[Tuple]:
     """
-    【v7: ハイブリッド配布モデル】
-    各AIの応答を、セッション参加者全員に配布（ログ書き込み）する。
+    【v8: 責務一元化版】AIへのリクエスト送信とストリーミング応答処理、
+    そしてAPIリトライの全責務を担う、中核となる内部ジェネレータ関数。
     """
-    # UI表示の基準となるメインログ
+    from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InternalServerError
+
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
     effective_settings = config_manager.get_effective_settings(soul_vessel_room)
     add_timestamp = effective_settings.get("add_timestamp", False)
@@ -390,14 +391,16 @@ def _stream_and_handle_response(
         room_name=soul_vessel_room, api_history_limit_value=api_history_limit, add_timestamp=add_timestamp
     )
     all_turn_popups = []
+    final_error_message = None
 
     try:
-        # 1. UIをストリーミングモードに移行 (変更なし)
+        # 1. UIをストリーミングモードに移行
+        chatbot_history.append((None, "▌"))
         yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
-               *([gr.update()] * 8), # token, loc, scenery, df_orig, df, scenery_img, console_state, console_out
-               gr.update(visible=True, interactive=True), # stop_btn
-               gr.update(interactive=False), # reload_btn
-               gr.update(visible=False) # action_group
+               *([gr.update()] * 8),
+               gr.update(visible=True, interactive=True),
+               gr.update(interactive=False),
+               gr.update(visible=False)
         )
 
         # 2. コンテキスト準備
@@ -410,77 +413,123 @@ def _stream_and_handle_response(
 
         # 3. AIごとの応答生成ループ
         for current_room in all_rooms_in_scene:
-            chatbot_history.append((None, f"思考中 ({current_room})... ▌"))
-            mapping_list.append(mapping_list[-1] + 1 if mapping_list else 0)
+            chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
             yield (chatbot_history, mapping_list, *([gr.update()] * 12))
 
-            # API呼び出し (変更なし)
             final_user_prompt_parts = user_prompt_parts_for_api if current_room == soul_vessel_room else [{"type": "text", "text": full_user_log_entry}]
-            # history_log_pathには、常に全参加者の最新の会話が含まれるメインログを渡す
             agent_args_dict = {
                 "room_to_respond": current_room, "api_key_name": api_key_name,
-                "global_model_from_ui": global_model, "api_history_limit": api_history_limit, 
-                "debug_mode": debug_mode, "history_log_path": main_log_f, 
+                "global_model_from_ui": global_model, "api_history_limit": api_history_limit,
+                "debug_mode": debug_mode, "history_log_path": main_log_f,
                 "user_prompt_parts": final_user_prompt_parts, "soul_vessel_room": soul_vessel_room,
                 "active_participants": active_participants, "shared_location_name": shared_location_name,
                 "shared_scenery_text": shared_scenery_text, "season_en": season_en, "time_of_day_en": time_of_day_en
             }
-            
+
             streamed_text = ""
             final_state = None
             initial_message_count = 0
             typewriter_enabled = enable_typewriter_effect
-            with utils.capture_prints() as captured_output:
-                agent_args_dict["enable_typewriter_effect"] = enable_typewriter_effect
-                agent_args_dict["streaming_speed"] = streaming_speed
+            
+            # ▼▼▼【ここからが新しいリトライロジック】▼▼▼
+            max_retries = 5
+            base_delay = 5
+            for attempt in range(max_retries):
+                try:
+                    # ▼▼▼【ここから下の "with utils.capture_prints()..." ブロック全体を、置き換えてください】▼▼▼
+                    with utils.capture_prints() as captured_output:
+                        agent_args_dict["enable_typewriter_effect"] = enable_typewriter_effect
+                        agent_args_dict["streaming_speed"] = streaming_speed
 
-                for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                    if mode == "retry_info":
-                        retry_info = chunk
-                        attempt = retry_info.get("attempt", 0)
-                        max_retries = retry_info.get("max_retries", 5)
-                        wait_time = retry_info.get("wait_time", 5)
+                        # ★★★【ここが修正の核心：フラグをループの開始前に初期化】★★★
+                        is_new_response_stream = True 
+
+                        for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                            if mode == "retry_info":
+                                retry_info = chunk
+                                attempt = retry_info.get("attempt", 0)
+                                max_retries = retry_info.get("max_retries", 5)
+                                wait_time = retry_info.get("wait_time", 5)
+                                retry_message = (
+                                    f"⏳ APIの応答が遅延しています。{wait_time}秒待機して再試行します... "
+                                    f"({attempt + 1}/{max_retries}回目)"
+                                )
+                                chatbot_history[-1] = (None, retry_message)
+                                is_new_response_stream = True 
+                                yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                                continue
+                            elif mode == "initial_count":
+                                initial_message_count = chunk
+                            elif mode == "messages":
+                                message_chunk, _ = chunk
+                                if isinstance(message_chunk, AIMessageChunk):
+                                    new_text_chunk = message_chunk.content
+
+                                    if is_new_response_stream and new_text_chunk.strip():
+                                        chatbot_history.append((None, "▌"))
+                                        mapping_list.append(mapping_list[-1] if mapping_list else 0)
+                                        is_new_response_stream = False
+
+                                    if typewriter_enabled and streaming_speed > 0:
+                                        for char in new_text_chunk:
+                                            streamed_text += char
+                                            chatbot_history[-1] = (None, streamed_text + "▌")
+                                            yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                                            time.sleep(streaming_speed)
+                                    else:
+                                        streamed_text += new_text_chunk
+                                        chatbot_history[-1] = (None, streamed_text + "▌")
+                                        yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                            elif mode == "values":
+                                final_state = chunk
+                    # ▲▲▲【置き換えはここまでです】▲▲▲
+                    
+                    current_console_content += captured_output.getvalue()
+                    break # 成功したらリトライループを抜ける
+
+                except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
+                    error_str = str(e)
+                    if "PerDay" in error_str or "Daily" in error_str:
+                        final_error_message = f"[エラー: APIの1日あたりの利用上限に達したため、応答を生成できません。]\n{e}"
+                        break 
+
+                    wait_time = base_delay * (2 ** attempt)
+                    match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
+                    if match:
+                        wait_time = int(match.group(1)) + 1
+
+                    if attempt < max_retries - 1:
                         retry_message = (
                             f"⏳ APIの応答が遅延しています。{wait_time}秒待機して再試行します... "
-                            f"({attempt}/{max_retries}回目)"
+                            f"({attempt + 1}/{max_retries}回目)"
                         )
                         chatbot_history[-1] = (None, retry_message)
-                        yield (chatbot_history, mapping_list, gr.update(), gr.update(),
-                               gr.update(), gr.update(), gr.update(), gr.update(),
-                               gr.update(), gr.update(), current_console_content,
-                               gr.update(), gr.update(), gr.update())
-                        continue # このイベントでは後続の処理は不要
-                    elif mode == "initial_count":
-                        initial_message_count = chunk
-                    elif mode == "messages":
-                        # (このelifブロックの中身は変更なし)
-                        message_chunk, _ = chunk
-                        if isinstance(message_chunk, AIMessageChunk):
-                            new_text_chunk = message_chunk.content
-                            if typewriter_enabled and streaming_speed > 0:
-                                for char in new_text_chunk:
-                                    streamed_text += char
-                                    chatbot_history[-1] = (None, streamed_text + "▌")
-                                    yield (chatbot_history, mapping_list, *([gr.update()] * 12))
-                                    time.sleep(streaming_speed)
-                            else:
-                                streamed_text += new_text_chunk
-                                chatbot_history[-1] = (None, streamed_text + "▌")
-                                yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                        yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                        time.sleep(wait_time)
+                        # 次の試行のために思考中メッセージに戻す
+                        chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
+                        yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                    else:
+                        final_error_message = f"[エラー: APIのレート制限が頻発しています。時間をおいて再試行してください。]\n{e}"
+                        break 
+                
+                except Exception as e:
+                    print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
+                    traceback.print_exc()
+                    final_error_message = f"[エラー: 内部処理で問題が発生しました。詳細はターミナルを確認してください。エラー: {e}]"
+                    break
+            
+            if final_error_message:
+                break # AIごとのループを中断
 
-                    elif mode == "values":
-                        final_state = chunk
-            current_console_content += captured_output.getvalue()
+            # ▲▲▲【リトライロジックはここまで】▲▲▲
 
-            # ▼▼▼【ここからが修正の核心】▼▼▼
-            # 3d. このAIの応答を「参加者全員」のログに配布
             if final_state:
                 new_messages = final_state["messages"][initial_message_count:]
                 for msg in new_messages:
                     if isinstance(msg, AIMessage):
                         response_content = msg.content
                         if response_content and response_content.strip():
-                            # 全参加者にこのAIの発言を書き込む
                             for participant_room in all_rooms_in_scene:
                                 participant_log_f, _, _, _, _ = get_room_files_paths(participant_room)
                                 if participant_log_f:
@@ -488,12 +537,14 @@ def _stream_and_handle_response(
                     elif isinstance(msg, ToolMessage):
                         popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                         if popup_text: all_turn_popups.append(popup_text)
-            # ▲▲▲【修正はここまで】▲▲▲
+            
+            if streamed_text:
+                chatbot_history[-1] = (None, streamed_text)
+        
+        if final_error_message:
+            chatbot_history[-1] = (None, final_error_message)
+            utils.save_message_to_log(main_log_f, f"## AGENT:{soul_vessel_room}", final_error_message)
 
-            chatbot_history[-1] = (None, streamed_text)
-            yield (chatbot_history, mapping_list, *([gr.update()] * 12))
-
-        # 4. ツール結果のポップアップ表示 (変更なし)
         for popup_message in all_turn_popups:
             gr.Info(popup_message)
 
@@ -501,30 +552,43 @@ def _stream_and_handle_response(
         print("--- [ジェネレータ] ユーザーの操作により、ストリーミング処理が正常に中断されました。 ---")
     
     finally:
-        # 5. 最終的なUI再描画 (変更なし)
+        # 8. [最終防衛ライン] 処理完了・中断・エラーに関わらず、必ずログから最新の状態を再描画する
         final_chatbot_history, final_mapping_list = reload_chat_log(
-            room_name=soul_vessel_room, api_history_limit_value=api_history_limit, add_timestamp=add_timestamp
+            room_name=soul_vessel_room,
+            api_history_limit_value=api_history_limit,
+            add_timestamp=add_timestamp
         )
 
-        # 6. その他のUIコンポーネントを更新
+        # 9. その他のUIコンポーネントを更新
+        # --- API呼び出しを伴う処理を、UIをブロックしないように安全に実行 ---
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-        season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
-        _, _, new_scenery_text = generate_scenery_context(
-            soul_vessel_room, api_key,
-            season_en=season_en, time_of_day_en=time_of_day_en
-        )
-        scenery_image = utils.find_scenery_image(
-            soul_vessel_room, utils.get_current_location(soul_vessel_room),
-            season_en=season_en, time_of_day_en=time_of_day_en
-        )
-        token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
-        token_count_text = gemini_api.count_input_tokens(
-            room_name=soul_vessel_room, api_key_name=api_key_name,
-            api_history_limit=api_history_limit, parts=[], **token_calc_kwargs
-        )
+        new_scenery_text, scenery_image, token_count_text = "（更新失敗）", None, "トークン数: (更新失敗)"
+
+        try:
+            season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
+            _, _, new_scenery_text = generate_scenery_context(
+                soul_vessel_room, api_key,
+                season_en=season_en, time_of_day_en=time_of_day_en
+            )
+            scenery_image = utils.find_scenery_image(
+                soul_vessel_room, utils.get_current_location(soul_vessel_room),
+                season_en=season_en, time_of_day_en=time_of_day_en
+            )
+        except Exception as e:
+            print(f"--- 警告: 応答後の情景更新に失敗しました (API制限の可能性): {e} ---")
+
+        try:
+            token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
+            token_count_text = gemini_api.count_input_tokens(
+                room_name=soul_vessel_room, api_key_name=api_key_name,
+                api_history_limit=api_history_limit, parts=[], **token_calc_kwargs
+            )
+        except Exception as e:
+            print(f"--- 警告: 応答後のトークン数更新に失敗しました (API制限の可能性): {e} ---")
+
+        # --- API呼び出しを伴わない、高速な処理 ---
         final_df_with_ids = render_alarms_as_dataframe()
         final_df = get_display_df(final_df_with_ids)
-
         new_location_choices = _get_location_choices_for_ui(soul_vessel_room)
         latest_location_id = utils.get_current_location(soul_vessel_room)
         location_dropdown_update = gr.update(choices=new_location_choices, value=latest_location_id)
@@ -537,6 +601,7 @@ def _stream_and_handle_response(
                gr.update(visible=False, interactive=True), gr.update(interactive=True),
                gr.update(visible=False)
         )
+    # ▲▲▲【置き換えはここまで】▲▲▲
 
 def handle_message_submission(
     multimodal_input: dict, soul_vessel_room: str, api_key_name: str,

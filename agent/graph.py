@@ -333,52 +333,10 @@ def agent_node(state: AgentState):
         print("-" * 20)
     print("--------------------------------------------------\n")
 
-    response = None
-    max_retries = 5
-    base_delay = 5
-    for attempt in range(max_retries):
-        try:
-            response = llm_with_tools.invoke(messages_for_agent)
-            break # 成功したらループを抜ける
-        except google_exceptions.ResourceExhausted as e:
-            error_str = str(e)
-            if "PerDay" in error_str or "Daily" in error_str:
-                print(f"  - 致命的エラー: 回復不能なAPI上限（日間など）に達しました。処理を中断します。")
-                response = AIMessage(content=f"[エラー: APIの1日あたりの利用上限に達したため、応答を生成できません。]\n{e}")
-                break
-
-            wait_time = base_delay * (2 ** attempt)
-            match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
-            if match:
-                wait_time = int(match.group(1)) + 1
-                print(f"  - APIレート制限: APIの推奨に従い {wait_time}秒 待機します...")
-            else:
-                print(f"  - APIレート制限: 指数バックオフで {wait_time}秒 待機します...")
-
-            if attempt < max_retries - 1:
-                time.sleep(wait_time)
-            else:
-                print(f"  - APIレート制限: 最大リトライ回数({max_retries})に達しました。")
-                response = AIMessage(content=f"[エラー: APIのレート制限が頻発しています。時間をおいて再試行してください。]\n{e}")
-                break # ループを抜ける
-        except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
-            if attempt < max_retries - 1:
-                wait_time = base_delay * (2 ** attempt)
-                print(f"  - 警告: AIサーバーが応答不能です ({e.args[0]})。{wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries})")
-                time.sleep(wait_time)
-            else:
-                print(f"  - AIサーバーが応答不能: 最大リトライ回数({max_retries})に達しました。")
-                response = AIMessage(content=f"[エラー: AIサーバーが応答しません。時間をおいて再試行してください。]\n{e}")
-                break # ループを抜ける
-        except Exception as e:
-             # その他の予期せぬエラー
-            print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
-            traceback.print_exc()
-            response = AIMessage(content=f"[エラー: 内部処理で問題が発生しました。詳細はターミナルを確認してください。]\nエラー: {e}")
-            break
-
-    if response is None:
-        response = AIMessage(content="[エラー: 不明な問題により、AIからの応答を生成できませんでした。]")
+    # ▼▼▼【ここから下のブロックを、既存のリトライロジック全体と完全に置き換えてください】▼▼▼
+    # 内部のリトライ機構を撤廃し、例外を上位の gemini_api.py にスローさせる
+    response = llm_with_tools.invoke(messages_for_agent)
+    # ▲▲▲【置き換えはここまで】▲▲▲
 
     print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
     import copy
