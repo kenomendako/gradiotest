@@ -7,7 +7,7 @@ import traceback
 import json
 import time
 from datetime import datetime
-from typing import TypedDict, Annotated, List, Literal, Tuple
+from typing import TypedDict, Annotated, List, Literal, Tuple, Optional
 
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage, HumanMessage
 from google.api_core import exceptions as google_exceptions
@@ -67,6 +67,8 @@ class AgentState(TypedDict):
     loop_count: int # ← この行を追加
     season_en: str
     time_of_day_en: str
+    last_successful_response: Optional[AIMessage] # 最後の成功したAI応答を保持
+    force_end: bool # グラフの実行を強制的に終了させるためのフラグ
 
 def get_location_list(room_name: str) -> List[str]:
     """
@@ -333,22 +335,51 @@ def agent_node(state: AgentState):
         print("-" * 20)
     print("--------------------------------------------------\n")
 
-    # ▼▼▼【ここから下のブロックを、既存のリトライロジック全体と完全に置き換えてください】▼▼▼
-    # 内部のリトライ機構を撤廃し、例外を上位の gemini_api.py にスローさせる
-    response = llm_with_tools.invoke(messages_for_agent)
-    # ▲▲▲【置き換えはここまで】▲▲▲
+    response = None
+    try:
+        response = llm_with_tools.invoke(messages_for_agent)
+        
+        print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
+        import copy
+        response_for_log = copy.deepcopy(response)
+        if hasattr(response_for_log, 'tool_calls') and response_for_log.tool_calls:
+            for tool_call in response_for_log.tool_calls:
+                if 'api_key' in tool_call.get('args', {}): tool_call['args']['api_key'] = '<REDACTED>'
+        pprint.pprint(response_for_log)
+        print("---------------------------------------\n")
 
-    print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
-    import copy
-    response_for_log = copy.deepcopy(response)
-    if hasattr(response_for_log, 'tool_calls') and response_for_log.tool_calls:
-        for tool_call in response_for_log.tool_calls:
-            if 'api_key' in tool_call.get('args', {}): tool_call['args']['api_key'] = '<REDACTED>'
-    pprint.pprint(response_for_log)
-    print("---------------------------------------\n")
+        loop_count += 1
+        # ツール呼び出しを含まない、純粋なテキスト応答の場合のみ、
+        # 「最後の成功応答」として保存する
+        if not getattr(response, "tool_calls", None):
+            return {
+                "messages": [response],
+                "loop_count": loop_count,
+                "last_successful_response": response
+            }
+        else:
+            # ツール呼び出しの場合は、last_successful_response を更新しない
+            return {
+                "messages": [response],
+                "loop_count": loop_count
+            }
 
-    loop_count += 1
-    return {"messages": [response], "loop_count": loop_count}
+    except (google_exceptions.ResourceExhausted, google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
+        print(f"--- [警告] agent_nodeでAPIエラーを捕捉しました: {e} ---")
+        # 再思考中(2ループ目)の失敗か？
+        if loop_count > 0:
+            last_successful_response = state.get("last_successful_response")
+            if last_successful_response:
+                print("  - 再思考中にエラーが発生。前回の成功した応答を復元し、グラフを終了します。")
+                # 前回の成功応答を復元し、強制終了フラグを立てる
+                return {
+                    "messages": [last_successful_response],
+                    "force_end": True
+                }
+        
+        # 1ループ目の失敗、または復元対象がない場合は、例外を再送出してUIハンドラに処理を任せる
+        print("  - 1ループ目でのエラー、または復元可能な応答がないため、例外を上位に伝播させます。")
+        raise e
 
 import room_manager # ← 関数の先頭でインポートを追加
 
@@ -573,6 +604,11 @@ def safe_tool_executor(state: AgentState):
 
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node", "agent"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
+
+    if state.get("force_end"):
+        print("  - force_endフラグを検出。グラフの実行を強制終了します。")
+        return "__end__"
+
     last_message = state["messages"][-1]
     loop_count = state.get("loop_count", 0)
 
