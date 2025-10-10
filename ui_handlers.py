@@ -176,8 +176,8 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     # chat_tab_updatesは36個の更新値を持つ
     chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
 
-    wb_state, wb_area_selector, wb_raw_editor = handle_world_builder_load(room_name)
-    world_builder_updates = (wb_state, wb_area_selector, wb_raw_editor)
+    wb_state, wb_area_selector, wb_raw_editor, wb_place_selector = handle_world_builder_load(room_name)
+    world_builder_updates = (wb_state, wb_area_selector, wb_raw_editor, wb_place_selector)
 
     all_rooms = room_manager.get_room_list_for_ui()
     other_rooms_for_checkbox = sorted(
@@ -1265,7 +1265,11 @@ def format_history_for_gradio(
     absolute_start_index: int = 0
 ) -> Tuple[List[Tuple], List[int]]:
     """
-    (v25: System Message Display Final FIX)
+    (v26: Colored Text Replacement)
+    スクリーンショットモードが有効な場合、redaction_rulesに 'color' が定義されていれば、
+    置換後の文字列は <span style="background-color: ..."> タグで囲まれる。
+    この際、GradioのMarkdownレンダラによる意図しない解釈を防ぐために、
+    ユーザー入力（find/replace 文字列）は html.escape() で適切にエスケープ処理される。
     """
     if not messages:
         return [], []
@@ -1348,15 +1352,17 @@ def format_history_for_gradio(
                     if find_str:
                         replace_str = rule.get("replace", "")
                         color = rule.get("color")
-                        if speaker_name:
-                            speaker_name = speaker_name.replace(find_str, replace_str)
+                        escaped_find = html.escape(find_str)
+                        escaped_replace = html.escape(replace_str)
 
-                        # カラーが指定されていればspanタグで囲む
+                        if speaker_name:
+                            speaker_name = speaker_name.replace(find_str, replace_str) # 話者名はHTMLエスケープ不要
+
                         if color:
-                            replacement_html = f'<span style="background-color: {color};">{html.escape(replace_str)}</span>'
-                            content_to_parse = content_to_parse.replace(html.escape(find_str), replacement_html)
+                            replacement_html = f'<span style="background-color: {color};">{escaped_replace}</span>'
+                            content_to_parse = content_to_parse.replace(escaped_find, replacement_html)
                         else:
-                            content_to_parse = content_to_parse.replace(html.escape(find_str), html.escape(replace_str))
+                            content_to_parse = content_to_parse.replace(escaped_find, escaped_replace)
 
             thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
             parts = thoughts_pattern.split(content_to_parse)
@@ -2470,7 +2476,6 @@ def handle_world_builder_load(room_name: str):
         with open(world_settings_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
 
-    # キャラクターの現在地を取得して、対応するエリアと場所を特定する
     current_location = utils.get_current_location(room_name)
     selected_area = None
     place_choices_for_selected_area = []
@@ -2480,9 +2485,8 @@ def handle_world_builder_load(room_name: str):
             if current_location in places:
                 selected_area = area_name
                 place_choices_for_selected_area = sorted(places.keys())
-                break # エリアが見つかったらループを抜ける
+                break
 
-    # 戻り値の数を4つに合わせる
     return (
         world_data,
         gr.update(choices=area_choices, value=selected_area),
@@ -2560,7 +2564,7 @@ def handle_wb_area_select(world_data: Dict, area_name: str):
     if not area_name or area_name not in world_data:
         return gr.update(choices=[], value=None)
     places = sorted(world_data[area_name].keys())
-    return gr.update(choices=places, value=None)
+    return gr.update(choices=places)
 
 def handle_wb_place_select(world_data: Dict, area_name: str, place_name: str):
     if not area_name or not place_name:

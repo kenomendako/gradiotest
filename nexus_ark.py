@@ -216,6 +216,7 @@ try:
         archivist_pid_state = gr.State(None) # 記憶アーキビストのプロセスIDを保持
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
+        redaction_rule_color_state = gr.State("#62827e")
         imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
 
         # --- Stateの定義 ---
@@ -463,47 +464,6 @@ try:
                                     correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
                                     correction_confirmed_state = gr.Textbox(visible=False)
 
-                    # --- 中央カラム ---
-                    with gr.Column(scale=6): # ← scale=3 を 6 に変更
-                        chatbot_display = gr.Chatbot(
-                            height=490, # ← height を 490 に変更
-                            elem_id="chat_output_area",
-                            show_copy_button=True,
-                            show_label=False,
-                            render_markdown=True,
-                            group_consecutive_messages=False,
-                            editable="all"  # ← ★★★ この行を追加 ★★★
-                        )
-
-                        with gr.Row():
-                            audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
-                        with gr.Row(visible=False) as action_button_group:
-                            rerun_button = gr.Button("🔄 再生成")
-                            play_audio_button = gr.Button("🔊 選択した発言を再生")
-                            delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
-                            cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
-
-                        chat_input_multimodal = gr.MultimodalTextbox(
-                            file_types=["image", "audio", "video", "text", ".pdf", ".md", ".py", ".json", ".html", ".css", ".js"],
-                            max_plain_text_length=100000,
-                            placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...",
-                            show_label=False,
-                            lines=3,
-                            interactive=True
-                        )
-
-                        token_count_display = gr.Markdown(
-                            "入力トークン数: 0 / 0",
-                            elem_id="token_count_display"
-                        )
-
-                        with gr.Row():
-                            stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
-                            chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
-
-                        with gr.Row():
-                            add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1, visible=False)
-
 
                     # --- 中央カラム ---
                     with gr.Column(scale=6): # ← scale=3 を 6 に変更
@@ -573,8 +533,8 @@ try:
                             location_dropdown = gr.Dropdown(label="現在地 / 移動先を選択", interactive=True) # ← label を変更
 
                             # --- 画像生成メニュー ---
-                            with gr.Accordion("情景設定・生成", open=False):
-                                with gr.Accordion("🕰️ 季節・時間を指定", open=False) as time_control_accordion:
+                            with gr.Accordion("🌄情景設定・生成", open=False):
+                                with gr.Accordion("季節・時間を指定", open=False) as time_control_accordion:
                                     gr.Markdown("（この設定はルームごとに保存されます）", elem_id="time_control_note")
                                     time_mode_radio = gr.Radio(
                                         choices=["リアル連動", "選択する"],
@@ -722,7 +682,6 @@ try:
                 )
                 clear_debug_console_button = gr.Button("コンソールをクリア", variant="secondary")
 
-        print("--- [DEBUG] UI Component definitions complete. Starting event handler definitions. ---")
         # --- イベントハンドラ定義 ---
         context_checkboxes = [
             room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
@@ -730,9 +689,7 @@ try:
             enable_scenery_system_checkbox,
             auto_memory_enabled_checkbox,
         ]
-        print("--- [DEBUG] context_checkboxes list created. ---")
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
-        print("--- [DEBUG] context_token_calc_inputs list created. ---")
 
         initial_load_chat_outputs = [
             current_room_name, chatbot_display, current_log_map_state,
@@ -773,12 +730,9 @@ try:
             fixed_time_of_day_dropdown,
             fixed_time_controls
         ]
-        print("--- [DEBUG] initial_load_outputs list created. ---")
 
-        world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor]
-        print("--- [DEBUG] world_builder_outputs list created. ---")
+        world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
-        print("--- [DEBUG] session_management_outputs list created. ---")
 
         all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [
             redaction_rules_df,
@@ -788,9 +742,7 @@ try:
             fixed_time_of_day_dropdown,
             fixed_time_controls
         ]
-        print("--- [DEBUG] all_room_change_outputs list created. ---")
 
-        print("--- [DEBUG] Starting demo.load()... ---")
         demo.load(
             fn=ui_handlers.handle_initial_load,
             inputs=[gr.State(effective_initial_room), current_api_key_name_state],
@@ -1006,14 +958,19 @@ try:
             inputs=[redaction_rules_df],
             outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_color_picker]
         )
+        redaction_color_picker.change(
+            fn=lambda color: color,
+            inputs=[redaction_color_picker],
+            outputs=[redaction_rule_color_state]
+        )
         add_rule_button.click(
             fn=ui_handlers.handle_add_or_update_redaction_rule,
-            inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_color_picker],
+            inputs=[redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_rule_color_state],
             outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_color_picker]
         )
         clear_rule_form_button.click(
-            fn=lambda: (None, "", "", "#FFFF00"),
-            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_color_picker]
+            fn=lambda: (None, "", "", "#62827e"),
+            outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_color_picker, redaction_rule_color_state]
         )
         delete_rule_button.click(
             fn=ui_handlers.handle_delete_redaction_rule,
