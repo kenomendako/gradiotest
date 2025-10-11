@@ -1,3 +1,5 @@
+import sys
+import subprocess
 import gradio as gr
 import shutil
 import psutil
@@ -1241,7 +1243,10 @@ def handle_chatbot_selection(room_name: str, api_history_limit_state: str, mappi
         print(f"チャットボット選択中のエラー: {e}"); traceback.print_exc()
         return None, gr.update(visible=False), gr.update(interactive=True)
 
-def handle_delete_button_click(message_to_delete: Optional[Dict[str, str]], room_name: str, api_history_limit: str):
+def handle_delete_button_click(confirmed: bool, message_to_delete: Optional[Dict[str, str]], room_name: str, api_history_limit: str):
+    if not confirmed or not message_to_delete:
+        return gr.update(), gr.update(), gr.update(), gr.update()
+
     if not message_to_delete:
         return gr.update(), gr.update(), None, gr.update(visible=False)
 
@@ -2137,7 +2142,7 @@ def handle_add_or_update_redaction_rule(
 
     df_for_ui = _create_redaction_df_from_rules(current_rules)
 
-    return df_for_ui, current_rules, None, "", "", "#FFFF00"
+    return df_for_ui, current_rules, None, "", "", "#62827e"
 
 def handle_delete_redaction_rule(
     current_rules: List[Dict],
@@ -2150,7 +2155,7 @@ def handle_delete_redaction_rule(
     if selected_index is None or not (0 <= selected_index < len(current_rules)):
         gr.Warning("削除するルールをリストから選択してください。")
         df = _create_redaction_df_from_rules(current_rules)
-        return df, current_rules, selected_index, "", "", "#FFFF00"
+        return df, current_rules, None, "", "", "#62827e"
 
     # Pandasの.dropではなく、Pythonのdel文でリストの要素を直接削除する
     deleted_rule_name = current_rules[selected_index]["find"]
@@ -2162,7 +2167,7 @@ def handle_delete_redaction_rule(
     df_for_ui = _create_redaction_df_from_rules(current_rules)
 
     # フォームと選択状態をリセット
-    return df_for_ui, current_rules, None, "", "", "#FFFF00"
+    return df_for_ui, current_rules, None, "", "", "#62827e"
 
 
 def update_model_state(model): config_manager.save_config("last_model", model); return model
@@ -2206,7 +2211,7 @@ def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], r
 
         from audio_manager import generate_audio_from_text
         gr.Info(f"「{room_name}」の声で音声を生成しています...")
-        audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
+        audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, room_name, voice_style_prompt)
 
         if audio_filepath:
             gr.Info("再生します。")
@@ -2221,7 +2226,7 @@ def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], r
             gr.update(interactive=True)
         )
 
-def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text_to_speak: str, api_key_name: str):
+def handle_voice_preview(room_name: str, selected_voice_name: str, voice_style_prompt: str, text_to_speak: str, api_key_name: str):
     if not selected_voice_name or not text_to_speak or not api_key_name:
         gr.Warning("声、テキスト、APIキーがすべて選択されている必要があります。")
         yield gr.update(visible=False), gr.update(interactive=True), gr.update(interactive=True)
@@ -2242,7 +2247,7 @@ def handle_voice_preview(selected_voice_name: str, voice_style_prompt: str, text
 
         from audio_manager import generate_audio_from_text
         gr.Info(f"声「{selected_voice_name}」で音声を生成しています...")
-        audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, voice_style_prompt)
+        audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, room_name, voice_style_prompt)
 
         if audio_filepath:
             gr.Info("プレビューを再生します。")
@@ -2797,34 +2802,6 @@ def handle_save_redaction_rules(rules_df: pd.DataFrame) -> Tuple[List[Dict[str, 
     updated_df = pd.DataFrame(updated_df_data)
 
     return rules, updated_df
-
-def handle_delete_redaction_rule(
-    current_rules: List[Dict],
-    selected_index: Optional[int]
-) -> Tuple[pd.DataFrame, List[Dict], None, str, str]:
-    """選択されたルールを削除する。"""
-    if current_rules is None:
-        current_rules = []
-
-    if selected_index is None or not (0 <= selected_index < len(current_rules)):
-        gr.Warning("削除するルールをリストから選択してください。")
-        df = _create_redaction_df_from_rules(current_rules)
-        return df, current_rules, selected_index, "", ""
-
-    # ▼▼▼【ここからが修正の核心】▼▼▼
-    # Pandasの.dropではなく、Pythonのdel文でリストの要素を直接削除する
-    deleted_rule_name = current_rules[selected_index]["find"]
-    del current_rules[selected_index]
-    # ▲▲▲【修正ここまで】▲▲▲
-
-    config_manager.save_redaction_rules(current_rules)
-    gr.Info(f"ルール「{deleted_rule_name}」を削除しました。")
-
-    df_for_ui = _create_redaction_df_from_rules(current_rules)
-
-    # フォームと選択状態をリセット
-    return df_for_ui, current_rules, None, "", ""
-
 
 def handle_visualize_graph(room_name: str):
     """
@@ -3421,3 +3398,64 @@ def handle_enable_scenery_system_change(is_enabled: bool) -> Tuple[gr.update, gr
         gr.update(visible=is_enabled), # 「プロフィール・情景」アコーディオンの表示/非表示
         gr.update(value=is_enabled)    # 「空間描写を送信」チェックボックスの値を連動
     )
+
+def handle_open_room_folder(folder_name: str):
+    """選択されたルームのフォルダをOSのファイルエクスプローラーで開く。"""
+    if not folder_name:
+        gr.Warning("ルームが選択されていません。")
+        return
+
+    folder_path = os.path.join(constants.ROOMS_DIR, folder_name)
+    if not os.path.isdir(folder_path):
+        gr.Warning(f"ルームフォルダが見つかりません: {folder_path}")
+        return
+
+    try:
+        if sys.platform == "win32":
+            os.startfile(os.path.normpath(folder_path))
+        elif sys.platform == "darwin": # macOS
+            subprocess.Popen(["open", folder_path])
+        else: # Linux
+            subprocess.Popen(["xdg-open", folder_path])
+    except Exception as e:
+        gr.Error(f"フォルダを開けませんでした: {e}")
+
+def handle_open_audio_folder(room_name: str):
+    """現在のルームの音声キャッシュフォルダを開く。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return
+
+    folder_path = os.path.join(constants.ROOMS_DIR, room_name, "audio_cache")
+    # フォルダがなければ作成する
+    os.makedirs(folder_path, exist_ok=True)
+
+    try:
+        if sys.platform == "win32":
+            os.startfile(os.path.normpath(folder_path))
+        elif sys.platform == "darwin": # macOS
+            subprocess.Popen(["open", folder_path])
+        else: # Linux
+            subprocess.Popen(["xdg-open", folder_path])
+    except Exception as e:
+        gr.Error(f"フォルダを開けませんでした: {e}")
+def handle_open_backup_folder(room_name: str):
+    """現在のルームのバックアップ用フォルダ（memory_backupsなど）を開く。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return
+
+    # メモリバックアップフォルダのパスを組み立てる（room_name/memory_backups）
+    backup_folder_path = os.path.join(constants.ROOMS_DIR, room_name, "memory_backups")
+    # フォルダがなければ作成する
+    os.makedirs(backup_folder_path, exist_ok=True)
+
+    try:
+        if sys.platform == "win32":
+            os.startfile(os.path.normpath(backup_folder_path))
+        elif sys.platform == "darwin":  # macOS
+            subprocess.Popen(["open", backup_folder_path])
+        else:  # Linux
+            subprocess.Popen(["xdg-open", backup_folder_path])
+    except Exception as e:
+        gr.Error(f"フォルダを開けませんでした: {e}")

@@ -50,6 +50,7 @@ def ensure_room_files(room_name: str) -> bool:
         # 必須ディレクトリのリスト
         dirs_to_create = [
             base_path,
+            os.path.join(base_path, "audio_cache"), # ← この行を追加
             os.path.join(base_path, "generated_images"),
             spaces_dir,
             os.path.join(spaces_dir, "images"),

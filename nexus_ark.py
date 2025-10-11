@@ -209,6 +209,7 @@ try:
         selected_alarm_ids_state = gr.State([])
         editing_alarm_id_state = gr.State(None)
         selected_message_state = gr.State(None)
+        delete_confirmed_state = gr.State(False)
         current_log_map_state = gr.State([])
         active_participants_state = gr.State([]) # 現在アクティブな複数人対話の参加者リスト
         debug_console_state = gr.State("")
@@ -218,26 +219,6 @@ try:
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
         redaction_rule_color_state = gr.State("#62827e")
         imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
-
-        # --- Stateの定義 ---
-        world_data_state = gr.State({})
-        current_room_name = gr.State(effective_initial_room)
-        current_model_name = gr.State(config_manager.initial_model_global)
-        current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
-        api_history_limit_state = gr.State(config_manager.initial_api_history_limit_option_global)
-        alarm_dataframe_original_data = gr.State(pd.DataFrame())
-        selected_alarm_ids_state = gr.State([])
-        editing_alarm_id_state = gr.State(None)
-        selected_message_state = gr.State(None)
-        current_log_map_state = gr.State([])
-        active_participants_state = gr.State([]) # 現在アクティブな複数人対話の参加者リスト
-        debug_console_state = gr.State("")
-        chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
-        archivist_pid_state = gr.State(None) # 記憶アーキビストのプロセスIDを保持
-        redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
-        selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
-        imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
-
         with gr.Tabs():
             with gr.TabItem("チャット"):
                 # --- [ここからが新しい3カラムレイアウト] ---
@@ -254,10 +235,28 @@ try:
                                     api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
+                                    with gr.Accordion("🔑 APIキー / Webhook管理", open=False):
+                                        with gr.Accordion("Gemini APIキー", open=True):
+                                            gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
+                                            gemini_key_value_input = gr.Textbox(label="APIキーの値", type="password")
+                                            with gr.Row():
+                                                save_gemini_key_button = gr.Button("Geminiキーを保存", variant="primary")
+                                                delete_gemini_key_button = gr.Button("削除")
+                                        with gr.Accordion("Pushover", open=False):
+                                            pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("user_key"))
+                                            pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("app_token"))
+                                            save_pushover_config_button = gr.Button("Pushover設定を保存", variant="primary")
+                                        with gr.Accordion("Discord", open=False):
+                                            discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL or "")
+                                            save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
+                                        gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
 
-                                    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
                                     gr.Markdown("---")
+                                    with gr.Accordion("📢 通知サービス設定", open=False):
+                                        notification_service_radio = gr.Radio(choices=["Discord", "Pushover"], label="アラーム通知に使用するサービス", value=config_manager.NOTIFICATION_SERVICE_GLOBAL.capitalize(), interactive=True)
+                                        gr.Markdown("---")
+
                                     with gr.Accordion("💾 バックアップ設定", open=False):
                                         backup_rotation_count_number = gr.Number(
                                             label="バックアップの最大保存件数（世代数）",
@@ -268,27 +267,6 @@ try:
                                             info="ファイル（ログ、記憶など）ごとに、ここで指定した数だけ最新のバックアップが保持されます。"
                                         )
                                         open_backup_folder_button = gr.Button("現在のルームのバックアップフォルダを開く", variant="secondary")
-                                    # ▲▲▲【追加はここまで】▲▲▲
-
-                                    gr.Markdown("---")
-                                    with gr.Accordion("📢 通知サービス設定", open=False):
-                                        notification_service_radio = gr.Radio(choices=["Discord", "Pushover"], label="アラーム通知に使用するサービス", value=config_manager.NOTIFICATION_SERVICE_GLOBAL.capitalize(), interactive=True)
-                                        gr.Markdown("---")
-                                        with gr.Accordion("🔑 APIキー / Webhook管理", open=False):
-                                            with gr.Accordion("Gemini APIキー", open=True):
-                                                gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
-                                                gemini_key_value_input = gr.Textbox(label="APIキーの値", type="password")
-                                                with gr.Row():
-                                                    save_gemini_key_button = gr.Button("Geminiキーを保存", variant="primary")
-                                                    delete_gemini_key_button = gr.Button("削除")
-                                            with gr.Accordion("Pushover", open=False):
-                                                pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("user_key"))
-                                                pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("app_token"))
-                                                save_pushover_config_button = gr.Button("Pushover設定を保存", variant="primary")
-                                            with gr.Accordion("Discord", open=False):
-                                                discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL or "")
-                                                save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
-                                            gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
                                 with gr.TabItem("個別") as individual_settings_tab:
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
                                     save_room_settings_button = gr.Button("このルームの個別設定を保存", variant="primary")
@@ -307,11 +285,13 @@ try:
                                             interactive=True
                                         )
                                     with gr.Accordion("🎤 音声設定", open=False):
+                                        gr.Markdown("チャットの発言を選択して、ここで設定した声で再生できます。")
                                         room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
                                         room_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
                                         with gr.Row():
                                             room_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
                                             room_preview_voice_button = gr.Button("試聴", scale=1)
+                                        open_audio_folder_button = gr.Button("📂 現在のルームの音声フォルダを開く", variant="secondary")
                                     with gr.Accordion("🔬 AI生成パラメータ調整", open=False):
                                         gr.Markdown("このルームの応答の「創造性」と「安全性」を調整します。")
                                         room_temperature_slider = gr.Slider(minimum=0.0, maximum=2.0, step=0.05, label="Temperature", info="値が高いほど、AIの応答がより創造的で多様になります。(推奨: 0.7 ~ 0.9)")
@@ -404,7 +384,15 @@ try:
 
                         with gr.Accordion("🗨️ チャットルームの作成・管理", open=False) as manage_room_accordion:
                             with gr.Tabs() as room_management_tabs:
-                                with gr.TabItem("新規作成") as create_room_tab:
+                                with gr.TabItem("インポート") as import_chatgpt_tab:
+                                    gr.Markdown("### ChatGPTデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
+                                    chatgpt_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
+                                    with gr.Column(visible=False) as chatgpt_import_form:
+                                        chatgpt_thread_dropdown = gr.Dropdown(label="インポートする会話スレッドを選択", interactive=True)
+                                        chatgpt_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
+                                        chatgpt_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
+                                        chatgpt_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
+                                with gr.TabItem("作成") as create_room_tab:
                                     new_room_name = gr.Textbox(label="ルーム名（必須）", info="UIやグループ会話で表示される名前です。フォルダ名は自動で生成されます。")
                                     new_user_display_name = gr.Textbox(label="あなたの表示名（任意）", placeholder="デフォルト: ユーザー")
                                     new_agent_display_name = gr.Textbox(label="Agentの表示名（任意）", placeholder="AIのデフォルト表示名。未設定の場合はルーム名が使われます。")
@@ -414,7 +402,9 @@ try:
                                 with gr.TabItem("管理") as manage_room_tab:
                                     manage_room_selector = gr.Dropdown(label="管理するルームを選択", choices=room_list_on_startup, interactive=True)
                                     with gr.Column(visible=False) as manage_room_details:
-                                        delete_confirmed_state = gr.Textbox(visible=False)
+                                        open_room_folder_button = gr.Button("📂 ルームフォルダを開く", variant="secondary")
+                                        # delete_confirmed_state はチャット削除用に移動したので、こちらは不要
+                                        # delete_confirmed_state = gr.Textbox(visible=False)
                                         manage_room_name = gr.Textbox(label="ルーム名")
                                         manage_user_display_name = gr.Textbox(label="あなたの表示名")
                                         manage_agent_display_name = gr.Textbox(label="Agentの表示名")
@@ -422,14 +412,6 @@ try:
                                         manage_folder_name_display = gr.Textbox(label="フォルダ名（編集不可）", interactive=False)
                                         save_room_config_button = gr.Button("変更を保存", variant="primary")
                                         delete_room_button = gr.Button("このルームを削除", variant="stop")
-                                with gr.TabItem("ChatGPTからインポート") as import_chatgpt_tab:
-                                    gr.Markdown("### ChatGPTデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
-                                    chatgpt_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
-                                    with gr.Column(visible=False) as chatgpt_import_form:
-                                        chatgpt_thread_dropdown = gr.Dropdown(label="インポートする会話スレッドを選択", interactive=True)
-                                        chatgpt_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
-                                        chatgpt_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
-                                        chatgpt_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
 
                         with gr.Accordion("🛠️ チャット支援ツール", open=False):
                             with gr.Tabs():
@@ -440,14 +422,6 @@ try:
                                         info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。"
                                     )
                                     with gr.Row():
-                                        with gr.Column(scale=2):
-                                            gr.Markdown("**ルールの編集**")
-                                            redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)")
-                                            redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)")
-                                            redaction_color_picker = gr.ColorPicker(label="背景色", value="#FFFF00")
-                                            with gr.Row():
-                                                add_rule_button = gr.Button("ルールを追加/更新", variant="primary")
-                                                clear_rule_form_button = gr.Button("フォームをクリア")
                                         with gr.Column(scale=3):
                                             gr.Markdown("**現在のルールリスト**")
                                             redaction_rules_df = gr.Dataframe(
@@ -457,6 +431,14 @@ try:
                                                 col_count=(3, "fixed"),
                                                 interactive=False
                                             )
+                                        with gr.Column(scale=2):
+                                            gr.Markdown("**ルールの編集**")
+                                            redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)")
+                                            redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)")
+                                            redaction_color_picker = gr.ColorPicker(label="背景色", value="#62827e")
+                                            with gr.Row():
+                                                add_rule_button = gr.Button("ルールを追加/更新", variant="primary")
+                                                clear_rule_form_button = gr.Button("フォームをクリア")
                                             delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
                                 with gr.TabItem("ログ修正"):
                                     gr.Markdown("選択した**発言**以降の**AIの応答**に含まれる読点（、）を、AIを使って自動で修正し、自然な文章に校正します。")
@@ -877,7 +859,17 @@ try:
             outputs=[chatbot_display, current_log_map_state]
         )
         # --- [修正ここまで] ---
-        delete_selection_button.click(fn=ui_handlers.handle_delete_button_click, inputs=[selected_message_state, current_room_name, api_history_limit_state], outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group])
+        delete_selection_button.click(
+            fn=None,
+            inputs=None,
+            outputs=[delete_confirmed_state],
+            js="() => confirm('本当にこのメッセージを削除しますか？この操作は元に戻せません。')"
+        )
+        delete_confirmed_state.change(
+            fn=ui_handlers.handle_delete_button_click,
+            inputs=[delete_confirmed_state, selected_message_state, current_room_name, api_history_limit_state],
+            outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group]
+        )
         api_history_limit_dropdown.change(
             fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
             inputs=[api_history_limit_dropdown, current_room_name, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
@@ -969,7 +961,7 @@ try:
             outputs=[redaction_rules_df, redaction_rules_state, selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_color_picker]
         )
         clear_rule_form_button.click(
-            fn=lambda: (None, "", "", "#62827e"),
+            fn=lambda: (None, "", "", "#62827e", "#62827e"),
             outputs=[selected_redaction_rule_state, redaction_find_textbox, redaction_replace_textbox, redaction_color_picker, redaction_rule_color_state]
         )
         delete_rule_button.click(
@@ -1018,7 +1010,7 @@ try:
             ],
             outputs=None
         )
-        room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
+        room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
         for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         # streaming_speed_slider.change(fn=ui_handlers.handle_streaming_speed_change, inputs=[streaming_speed_slider], outputs=None)
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
@@ -1389,6 +1381,18 @@ try:
             fn=ui_handlers.handle_enable_scenery_system_change,
             inputs=[enable_scenery_system_checkbox],
             outputs=[profile_scenery_accordion, room_send_scenery_checkbox]
+        )
+
+        # フォルダを開くボタンのイベント
+        open_room_folder_button.click(
+            fn=ui_handlers.handle_open_room_folder,
+            inputs=[manage_folder_name_display], # 管理タブで選択されているルームのフォルダ名
+            outputs=None
+        )
+        open_audio_folder_button.click(
+            fn=ui_handlers.handle_open_audio_folder,
+            inputs=[current_room_name], # 現在チャット中のルーム名
+            outputs=None
         )
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
