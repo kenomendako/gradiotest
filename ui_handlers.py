@@ -2142,7 +2142,7 @@ def handle_add_or_update_redaction_rule(
 
     df_for_ui = _create_redaction_df_from_rules(current_rules)
 
-    return df_for_ui, current_rules, None, "", "", "#FFFF00"
+    return df_for_ui, current_rules, None, "", "", "#62827e"
 
 def handle_delete_redaction_rule(
     current_rules: List[Dict],
@@ -2155,7 +2155,7 @@ def handle_delete_redaction_rule(
     if selected_index is None or not (0 <= selected_index < len(current_rules)):
         gr.Warning("削除するルールをリストから選択してください。")
         df = _create_redaction_df_from_rules(current_rules)
-        return df, current_rules, selected_index, "", "", "#FFFF00"
+        return df, current_rules, None, "", "", "#62827e"
 
     # Pandasの.dropではなく、Pythonのdel文でリストの要素を直接削除する
     deleted_rule_name = current_rules[selected_index]["find"]
@@ -2167,7 +2167,7 @@ def handle_delete_redaction_rule(
     df_for_ui = _create_redaction_df_from_rules(current_rules)
 
     # フォームと選択状態をリセット
-    return df_for_ui, current_rules, None, "", "", "#FFFF00"
+    return df_for_ui, current_rules, None, "", "", "#62827e"
 
 
 def update_model_state(model): config_manager.save_config("last_model", model); return model
@@ -2803,34 +2803,6 @@ def handle_save_redaction_rules(rules_df: pd.DataFrame) -> Tuple[List[Dict[str, 
 
     return rules, updated_df
 
-def handle_delete_redaction_rule(
-    current_rules: List[Dict],
-    selected_index: Optional[int]
-) -> Tuple[pd.DataFrame, List[Dict], None, str, str]:
-    """選択されたルールを削除する。"""
-    if current_rules is None:
-        current_rules = []
-
-    if selected_index is None or not (0 <= selected_index < len(current_rules)):
-        gr.Warning("削除するルールをリストから選択してください。")
-        df = _create_redaction_df_from_rules(current_rules)
-        return df, current_rules, selected_index, "", ""
-
-    # ▼▼▼【ここからが修正の核心】▼▼▼
-    # Pandasの.dropではなく、Pythonのdel文でリストの要素を直接削除する
-    deleted_rule_name = current_rules[selected_index]["find"]
-    del current_rules[selected_index]
-    # ▲▲▲【修正ここまで】▲▲▲
-
-    config_manager.save_redaction_rules(current_rules)
-    gr.Info(f"ルール「{deleted_rule_name}」を削除しました。")
-
-    df_for_ui = _create_redaction_df_from_rules(current_rules)
-
-    # フォームと選択状態をリセット
-    return df_for_ui, current_rules, None, "", ""
-
-
 def handle_visualize_graph(room_name: str):
     """
     【新規作成】
@@ -3465,5 +3437,25 @@ def handle_open_audio_folder(room_name: str):
             subprocess.Popen(["open", folder_path])
         else: # Linux
             subprocess.Popen(["xdg-open", folder_path])
+    except Exception as e:
+        gr.Error(f"フォルダを開けませんでした: {e}")
+def handle_open_backup_folder(room_name: str):
+    """現在のルームのバックアップ用フォルダ（memory_backupsなど）を開く。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return
+
+    # メモリバックアップフォルダのパスを組み立てる（room_name/memory_backups）
+    backup_folder_path = os.path.join(constants.ROOMS_DIR, room_name, "memory_backups")
+    # フォルダがなければ作成する
+    os.makedirs(backup_folder_path, exist_ok=True)
+
+    try:
+        if sys.platform == "win32":
+            os.startfile(os.path.normpath(backup_folder_path))
+        elif sys.platform == "darwin":  # macOS
+            subprocess.Popen(["open", backup_folder_path])
+        else:  # Linux
+            subprocess.Popen(["xdg-open", backup_folder_path])
     except Exception as e:
         gr.Error(f"フォルダを開けませんでした: {e}")

@@ -219,6 +219,7 @@ try:
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
         redaction_rule_color_state = gr.State("#62827e")
         imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
+        with gr.Tabs():
             with gr.TabItem("チャット"):
                 # --- [ここからが新しい3カラムレイアウト] ---
                 with gr.Row(equal_height=False):
@@ -284,6 +285,7 @@ try:
                                             interactive=True
                                         )
                                     with gr.Accordion("🎤 音声設定", open=False):
+                                        gr.Markdown("チャットの発言を選択して、ここで設定した声で再生できます。")
                                         room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
                                         room_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
                                         with gr.Row():
@@ -420,14 +422,6 @@ try:
                                         info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。"
                                     )
                                     with gr.Row():
-                                        with gr.Column(scale=2):
-                                            gr.Markdown("**ルールの編集**")
-                                            redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)")
-                                            redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)")
-                                            redaction_color_picker = gr.ColorPicker(label="背景色", value="#62827e")
-                                            with gr.Row():
-                                                add_rule_button = gr.Button("ルールを追加/更新", variant="primary")
-                                                clear_rule_form_button = gr.Button("フォームをクリア")
                                         with gr.Column(scale=3):
                                             gr.Markdown("**現在のルールリスト**")
                                             redaction_rules_df = gr.Dataframe(
@@ -437,6 +431,14 @@ try:
                                                 col_count=(3, "fixed"),
                                                 interactive=False
                                             )
+                                        with gr.Column(scale=2):
+                                            gr.Markdown("**ルールの編集**")
+                                            redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)")
+                                            redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)")
+                                            redaction_color_picker = gr.ColorPicker(label="背景色", value="#62827e")
+                                            with gr.Row():
+                                                add_rule_button = gr.Button("ルールを追加/更新", variant="primary")
+                                                clear_rule_form_button = gr.Button("フォームをクリア")
                                             delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
                                 with gr.TabItem("ログ修正"):
                                     gr.Markdown("選択した**発言**以降の**AIの応答**に含まれる読点（、）を、AIを使って自動で修正し、自然な文章に校正します。")
