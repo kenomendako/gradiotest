@@ -702,16 +702,6 @@ try:
             profile_scenery_accordion       # 表示/非表示を切り替えるアコーディオン
         ]
 
-        initial_load_outputs = [
-            alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
-        ] + initial_load_chat_outputs + [
-            redaction_rules_df, token_count_display, api_key_dropdown,
-            world_data_state,
-            time_mode_radio,
-            fixed_season_dropdown,
-            fixed_time_of_day_dropdown,
-            fixed_time_controls
-        ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
@@ -723,6 +713,13 @@ try:
             fixed_season_dropdown,
             fixed_time_of_day_dropdown,
             fixed_time_controls
+        ]
+
+        initial_load_outputs = [
+            alarm_dataframe, alarm_dataframe_original_data, selection_feedback_markdown
+        ] + all_room_change_outputs + [
+            token_count_display,
+            api_key_dropdown,
         ]
 
         demo.load(
@@ -792,9 +789,6 @@ try:
             inputs=rerun_inputs,
             outputs=unified_streaming_outputs
         )
-
-        # 戻り値の最後に token_count_display と current_room_name を追加
-        all_room_change_outputs.extend([token_count_display, current_room_name])
 
         # 【v5: 堅牢化】ルーム変更イベントを2段階に分離
         # 1. まず、選択されたルーム名をconfig.jsonに即時保存するだけの小さな処理を実行

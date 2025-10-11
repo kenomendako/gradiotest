@@ -170,63 +170,22 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(visible=effective_settings.get("enable_scenery_system", True)) # profile_scenery_accordion の表示状態
     )
 
-def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
-    """
-    【v4】ルーム切り替え時に、全ての関連タブのUIを更新する。
-    戻り値の数は `all_room_change_outputs` の51個と一致する。
-    """
-    # chat_tab_updatesは36個の更新値を持つ
-    chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
-
-    wb_state, wb_area_selector, wb_raw_editor, wb_place_selector = handle_world_builder_load(room_name)
-    world_builder_updates = (wb_state, wb_area_selector, wb_raw_editor, wb_place_selector)
-
-    all_rooms = room_manager.get_room_list_for_ui()
-    other_rooms_for_checkbox = sorted(
-        [(display, folder) for display, folder in all_rooms if folder != room_name]
-    )
-    participant_checkbox_update = gr.update(choices=other_rooms_for_checkbox, value=[])
-    session_management_updates = ([], "現在、1対1の会話モードです。", participant_checkbox_update)
-
-    rules = config_manager.load_redaction_rules()
-    rules_df_for_ui = _create_redaction_df_from_rules(rules)
-
-    archive_dates = _get_date_choices_from_memory(room_name)
-    archive_date_dropdown_update = gr.update(choices=archive_dates, value=archive_dates[0] if archive_dates else None)
-
-    time_settings = _load_time_settings_for_room(room_name)
-    time_settings_updates = (
-        gr.update(value=time_settings.get("mode", "リアル連動")),
-        gr.update(value=time_settings.get("fixed_season_ja", "秋")),
-        gr.update(value=time_settings.get("fixed_time_of_day_ja", "夜")),
-        gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
-    )
-
-    # 戻り値の総数: 36 + 3 + 3 + 1 + 1 + 4 = 48個 -> 49個
-    return (
-        chat_tab_updates +
-        world_builder_updates +
-        session_management_updates +
-        (rules_df_for_ui, archive_date_dropdown_update) +
-        time_settings_updates
-    )
-
-
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
-    【v3】UIの初期化処理。戻り値の数は `initial_load_outputs` の49個と一致する。
+    【v4】UIの初期化処理。起動時に一度だけ実行される処理と、
+    UI更新の司令塔の呼び出しを行う。
     """
-    from world_builder import get_world_data
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
+
+    # 1. 起動時固有の処理
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
 
-    # chat_tab_updatesは36個の更新値を持つ
-    chat_tab_updates = _update_chat_tab_for_room_change(initial_room_to_load, initial_api_key_name)
+    # 2. UI更新の司令塔を呼び出して、共通の更新処理を行わせる
+    # (戻り値の数は all_room_change_outputs と同じ)
+    all_other_updates = handle_room_change_for_all_tabs(initial_room_to_load, initial_api_key_name)
 
-    rules = config_manager.load_redaction_rules()
-    rules_df_for_ui = _create_redaction_df_from_rules(rules)
-
+    # 3. トークン数を計算
     token_calc_kwargs = config_manager.get_effective_settings(initial_room_to_load)
     token_count_text = gemini_api.count_input_tokens(
         room_name=initial_room_to_load, api_key_name=initial_api_key_name,
@@ -234,27 +193,19 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
         parts=[], **token_calc_kwargs
     )
 
+    # 4. APIキーのドロップダウンを更新
     api_key_choices = list(config_manager.GEMINI_API_KEYS.keys())
     api_key_dd_update = gr.update(choices=api_key_choices, value=initial_api_key_name)
 
-    world_data_for_state = get_world_data(initial_room_to_load)
+    # 5. ワールドビルダーの初期Stateを取得 (司令塔が返した値を使う)
+    world_data_for_state = all_other_updates[36] # handle_room_change_for_all_tabs が返すタプルの37番目の要素
 
-    # 時間設定UIのための値を取得
-    time_settings = _load_time_settings_for_room(initial_room_to_load)
-    time_settings_updates = (
-        gr.update(value=time_settings.get("mode", "リアル連動")),
-        gr.update(value=time_settings.get("fixed_season_ja", "秋")),
-        gr.update(value=time_settings.get("fixed_time_of_day_ja", "夜")),
-        gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
-    )
-
-    # 戻り値の総数: 3 + 36 + 3 + 1 + 4 = 47個
+    # 6. 全ての戻り値を nexus_ark.py の initial_load_outputs の順番に合わせて結合
     return (
-        (display_df, df_with_ids, feedback_text) +
-        chat_tab_updates +
-        (rules_df_for_ui, token_count_text, api_key_dd_update) +
-        (world_data_for_state,) +
-        time_settings_updates
+        display_df, df_with_ids, feedback_text,
+        *all_other_updates, # 司令塔が返したUI更新値を展開
+        token_count_text,
+        api_key_dd_update
     )
 
 def handle_save_room_settings(
@@ -2501,33 +2452,52 @@ def handle_world_builder_load(room_name: str):
 
 def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
     """
-    【v5: 堅牢化】
-    ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
+    【v6: UI更新の司令塔】
+    ルーム変更時に、全ての関連タブのUIを更新する。
+    戻り値の数は nexus_ark.py の `all_room_change_outputs` と一致する。
     """
-    print(f"--- UI司令塔(handle_room_change_for_all_tabs)実行: {room_name} ---")
+    print(f"--- UI更新司令塔 実行: {room_name} ---")
+    if not room_name:
+        # フォールバック処理
+        room_list = room_manager.get_room_list_for_ui()
+        room_name = room_list[0][1] if room_list else "Default"
 
-    # 責務1: 新しいヘルパーを呼び出してUI更新値のタプルを取得する
-    all_ui_updates = _update_all_tabs_for_room_change(room_name, api_key_name)
+    # 1. チャットタブ関連の更新値を取得 (36個)
+    chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
 
-    # 責務2: トークン数を計算する
-    add_timestamp_val = all_ui_updates[24]
-    send_thoughts_val = all_ui_updates[25]
-    send_notepad_val = all_ui_updates[26]
-    use_common_prompt_val = all_ui_updates[27]
-    send_core_memory_val = all_ui_updates[28]
-    send_scenery_val = all_ui_updates[29]
-    api_history_limit_key = config_manager.CONFIG_GLOBAL.get("last_api_history_limit_option", "all")
+    # 2. ワールド・ビルダータブ関連の更新値を取得 (4個)
+    wb_state, wb_area_selector, wb_raw_editor, wb_place_selector = handle_world_builder_load(room_name)
+    world_builder_updates = (wb_state, wb_area_selector, wb_raw_editor, wb_place_selector)
 
-    token_count_text = gemini_api.count_input_tokens(
-        room_name=room_name, api_key_name=api_key_name, parts=[],
-        api_history_limit=api_history_limit_key,
-        add_timestamp=add_timestamp_val, send_thoughts=send_thoughts_val,
-        send_notepad=send_notepad_val, use_common_prompt=use_common_prompt_val,
-        send_core_memory=send_core_memory_val, send_scenery=send_scenery_val
+    # 3. グループ会話タブ関連の更新値を取得 (3個)
+    all_rooms = room_manager.get_room_list_for_ui()
+    other_rooms_for_checkbox = sorted(
+        [(display, folder) for display, folder in all_rooms if folder != room_name]
+    )
+    participant_checkbox_update = gr.update(choices=other_rooms_for_checkbox, value=[])
+    session_management_updates = ([], "現在、1対1の会話モードです。", participant_checkbox_update)
+
+    # 4. その他のUIの更新値を取得 (5個)
+    rules = config_manager.load_redaction_rules()
+    rules_df_for_ui = _create_redaction_df_from_rules(rules)
+    archive_dates = _get_date_choices_from_memory(room_name)
+    archive_date_dropdown_update = gr.update(choices=archive_dates, value=archive_dates[0] if archive_dates else None)
+    time_settings = _load_time_settings_for_room(room_name)
+    time_settings_updates = (
+        gr.update(value=time_settings.get("mode", "リアル連動")),
+        gr.update(value=time_settings.get("fixed_season_ja", "秋")),
+        gr.update(value=time_settings.get("fixed_time_of_day_ja", "夜")),
+        gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
     )
 
-    # 責務3: 全てのUI更新値と、トークン数の計算結果、そして新しいルーム名をStateに返す
-    return all_ui_updates + (token_count_text, room_name)
+    # 5. 全ての更新値を結合して返す
+    return (
+        chat_tab_updates +
+        world_builder_updates +
+        session_management_updates +
+        (rules_df_for_ui, archive_date_dropdown_update) +
+        time_settings_updates
+    )
 
 def handle_start_session(main_room: str, participant_list: list) -> tuple:
     if not participant_list:
