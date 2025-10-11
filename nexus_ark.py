@@ -173,6 +173,13 @@ try:
     #token_count_display { text-align: right; font-size: 0.85em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
     #chat_container { position: relative; }
+    #app_version_display {
+        text-align: center;
+        font-size: 0.85em;                  /* infoテキストに合わせてサイズを調整 */
+        color: var(--text-color-secondary); /* 副次テキスト用のテーマカラーを維持 */
+        margin-top: 8px;                    /* 上の要素との間隔を調整 */
+        font-weight: 300;                   /* フォントを少し細くして控えめな印象に */
+    }
     """
     custom_js = """
     function() {
@@ -446,6 +453,7 @@ try:
                                     correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
                                     correction_confirmed_state = gr.Textbox(visible=False)
 
+                        gr.Markdown(f"Nexus Ark {constants.APP_VERSION} (Beta)", elem_id="app_version_display")
 
                     # --- 中央カラム ---
                     with gr.Column(scale=6): # ← scale=3 を 6 に変更
