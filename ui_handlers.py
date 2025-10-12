@@ -422,7 +422,17 @@ def _stream_and_handle_response(
         shared_scenery_text = scenery_text_from_ui 
 
         # 3. AIごとの応答生成ループ
-        for current_room in all_rooms_in_scene:
+        # ▼▼▼【ここから下のブロックを変更】▼▼▼
+        for i, current_room in enumerate(all_rooms_in_scene):
+            # 2番目以降のAIの応答の前に、新しいバブルを追加する
+            if i > 0:
+                chatbot_history.append((None, "▌"))
+                # ストリーミング中のUI表示の整合性を保つため、マッピングリストにもダミーの値を追加
+                if mapping_list:
+                    mapping_list.append(mapping_list[-1])
+                else:
+                    mapping_list.append(0) # 万が一空だった場合のフォールバック
+
             # --- ステータス更新: 「思考中」メッセージで最後のバブルを上書き ---
             chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
             yield (chatbot_history, mapping_list, *([gr.update()] * 12))
@@ -524,15 +534,15 @@ def _stream_and_handle_response(
                     elif isinstance(msg, ToolMessage):
                         popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                         if popup_text: all_turn_popups.append(popup_text)
-            
+
+            # ▼▼▼【ここから下のブロックを変更】▼▼▼
             if streamed_text:
                 chatbot_history[-1] = (None, streamed_text)
-            elif not final_error_message: # エラーがなく、テキストも空の場合
-                 # 思考中バブルが残らないように、最後の要素を削除
-                 # これにより、何も応答しないAIがいた場合に空のバブルが残るのを防ぐ
-                if chatbot_history and chatbot_history[-1] == (None, f"思考中 ({current_room})... ▌"):
-                    chatbot_history.pop()
-                    if mapping_list: mapping_list.pop()
+            elif not final_error_message:
+                # 応答がなかったので、このターンのために追加したプレースホルダバブルを削除する
+                chatbot_history.pop()
+                if mapping_list: mapping_list.pop()
+            # ▲▲▲【変更ここまで】▲▲▲
 
 
         if final_error_message:
@@ -1243,12 +1253,12 @@ def handle_chatbot_selection(room_name: str, api_history_limit_state: str, mappi
         print(f"チャットボット選択中のエラー: {e}"); traceback.print_exc()
         return None, gr.update(visible=False), gr.update(interactive=True)
 
-def handle_delete_button_click(confirmed: bool, message_to_delete: Optional[Dict[str, str]], room_name: str, api_history_limit: str):
-    if not confirmed or not message_to_delete:
-        return gr.update(), gr.update(), gr.update(), gr.update()
-
-    if not message_to_delete:
+def handle_delete_button_click(confirmed: str, message_to_delete: Optional[Dict[str, str]], room_name: str, api_history_limit: str):
+    # ▼▼▼【ここから下のブロックを書き換え】▼▼▼
+    if str(confirmed).lower() != 'true' or not message_to_delete:
+        # ユーザーがキャンセルしたか、対象メッセージがない場合は選択状態を解除してボタンを非表示にする
         return gr.update(), gr.update(), None, gr.update(visible=False)
+    # ▲▲▲【書き換えここまで】▲▲▲
 
     log_f, _, _, _, _ = get_room_files_paths(room_name)
     if utils.delete_message_from_log(log_f, message_to_delete):
