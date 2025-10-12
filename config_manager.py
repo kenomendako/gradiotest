@@ -382,3 +382,15 @@ def get_latest_api_key_name_from_config() -> Optional[str]:
     # 有効なキーが一つもなければ、Noneを返す
     return None
 # ▲▲▲【追加はここまで】▲▲▲
+
+
+def has_valid_api_key() -> bool:
+    """
+    設定ファイルに、有効な（プレースホルダではない）Gemini APIキーが一つでも存在するかどうかを返す。
+    """
+    if not GEMINI_API_KEYS:
+        return False
+    for key, value in GEMINI_API_KEYS.items():
+        if value and isinstance(value, str) and value != "YOUR_API_KEY_HERE":
+            return True
+    return False
