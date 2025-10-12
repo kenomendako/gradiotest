@@ -1014,9 +1014,9 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
 def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name: str):
 
     # nexus_ark.pyで定義されている戻り値の総数と一致させる
-    NUM_ALL_ROOM_CHANGE_OUTPUTS = 40
+    NUM_ALL_ROOM_CHANGE_OUTPUTS = 51 # 40 から 51 に変更
 
-    if not confirmed:
+    if str(confirmed).lower() != 'true': # 判定ロジックも念のため堅牢化
         return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
 
     if not folder_name_to_delete:
@@ -1257,7 +1257,7 @@ def handle_delete_button_click(confirmed: str, message_to_delete: Optional[Dict[
     # ▼▼▼【ここから下のブロックを書き換え】▼▼▼
     if str(confirmed).lower() != 'true' or not message_to_delete:
         # ユーザーがキャンセルしたか、対象メッセージがない場合は選択状態を解除してボタンを非表示にする
-        return gr.update(), gr.update(), None, gr.update(visible=False)
+        return gr.update(), gr.update(), None, gr.update(visible=False), "" # 最後にリセット用の "" を追加
     # ▲▲▲【書き換えここまで】▲▲▲
 
     log_f, _, _, _, _ = get_room_files_paths(room_name)
@@ -1269,7 +1269,7 @@ def handle_delete_button_click(confirmed: str, message_to_delete: Optional[Dict[
     effective_settings = config_manager.get_effective_settings(room_name)
     add_timestamp = effective_settings.get("add_timestamp", False)
     history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
-    return history, mapping_list, None, gr.update(visible=False)
+    return history, mapping_list, None, gr.update(visible=False), "" # 最後にリセット用の "" を追加
 
 def format_history_for_gradio(
     messages: List[Dict[str, str]],
@@ -2547,14 +2547,14 @@ def handle_start_session(main_room: str, participant_list: list) -> tuple:
     all_participants = [main_room] + participant_list
     participants_text = "、".join(all_participants)
     status_text = f"現在、**{participants_text}** を招待して会話中です。"
-    session_start_message = f"（システム通知：{participants_text} との複数人対話セッションが開始されました。）"
+    session_start_message = f"（システム通知：{participants_text} とのグループ会話が開始されました。）"
 
     for room_name in all_participants:
         log_f, _, _, _, _ = get_room_files_paths(room_name)
         if log_f:
             utils.save_message_to_log(log_f, "## SYSTEM:(セッション管理)", session_start_message)
 
-    gr.Info(f"複数人対話セッションを開始しました。参加者: {participants_text}")
+    gr.Info(f"グループ会話を開始しました。参加者: {participants_text}")
     return participant_list, status_text
 
 
@@ -2564,14 +2564,14 @@ def handle_end_session(main_room: str, active_participants: list) -> tuple:
         return [], "現在、1対1の会話モードです。", gr.update(value=[])
 
     all_participants = [main_room] + active_participants
-    session_end_message = "（システム通知：複数人対話セッションが終了しました。）"
+    session_end_message = "（システム通知：グループ会話が終了しました。）"
 
     for room_name in all_participants:
         log_f, _, _, _, _ = get_room_files_paths(room_name)
         if log_f:
             utils.save_message_to_log(log_f, "## SYSTEM:(セッション管理)", session_end_message)
 
-    gr.Info("複数人対話セッションを終了し、1対1の会話モードに戻りました。")
+    gr.Info("グループ会話を終了し、1対1の会話モードに戻りました。")
     return [], "現在、1対1の会話モードです。", gr.update(value=[])
 
 

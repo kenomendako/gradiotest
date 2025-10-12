@@ -35,7 +35,7 @@ print("--- [Nexus Ark] ロギング設定を完全に掌握しました ---")
 # --- [ここまでが新しいブロック] ---
 
 
-# nexus_ark.py (v18: 複数人対話セッションFIX・最終版)
+# nexus_ark.py (v18: グループ会話FIX・最終版)
 
 import os
 import sys
@@ -216,9 +216,10 @@ try:
         selected_alarm_ids_state = gr.State([])
         editing_alarm_id_state = gr.State(None)
         selected_message_state = gr.State(None)
-        delete_confirmed_state = gr.State(False)
+        message_delete_confirmed_state = gr.Textbox(visible=False) # delete_confirmed_state から改名
         current_log_map_state = gr.State([])
-        active_participants_state = gr.State([]) # 現在アクティブな複数人対話の参加者リスト
+        room_delete_confirmed_state = gr.Textbox(visible=False) # ルーム削除専用
+        active_participants_state = gr.State([]) # 現在アクティブなグループ会話の参加者リスト
         debug_console_state = gr.State("")
         chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
         archivist_pid_state = gr.State(None) # 記憶アーキビストのプロセスIDを保持
@@ -410,8 +411,6 @@ try:
                                     manage_room_selector = gr.Dropdown(label="管理するルームを選択", choices=room_list_on_startup, interactive=True)
                                     with gr.Column(visible=False) as manage_room_details:
                                         open_room_folder_button = gr.Button("📂 ルームフォルダを開く", variant="secondary")
-                                        # delete_confirmed_state はチャット削除用に移動したので、こちらは不要
-                                        # delete_confirmed_state = gr.Textbox(visible=False)
                                         manage_room_name = gr.Textbox(label="ルーム名")
                                         manage_user_display_name = gr.Textbox(label="あなたの表示名")
                                         manage_agent_display_name = gr.Textbox(label="Agentの表示名")
@@ -566,7 +565,7 @@ try:
                             reload_prompt_button = gr.Button("再読込", variant="secondary")
                     with gr.TabItem("記憶 (テキスト)"):
                         memory_txt_editor = gr.Textbox(
-                            label="主観的記憶（日記） - memory.txt",
+                            label="主観的記憶（日記） - memory_main.txt",
                             interactive=True,
                             elem_id="memory_txt_editor_code",
                             lines=20,
@@ -866,18 +865,19 @@ try:
             ],
             outputs=[chatbot_display, current_log_map_state]
         )
-        # --- [修正ここまで] ---
+
         delete_selection_button.click(
             fn=None,
             inputs=None,
-            outputs=[delete_confirmed_state],
+            outputs=[message_delete_confirmed_state], # 出力先を新しい名前に変更
             js="() => confirm('本当にこのメッセージを削除しますか？この操作は元に戻せません。')"
         )
-        delete_confirmed_state.change(
+        message_delete_confirmed_state.change( # 監視対象を新しい名前に変更
             fn=ui_handlers.handle_delete_button_click,
-            inputs=[delete_confirmed_state, selected_message_state, current_room_name, api_history_limit_state],
-            outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group]
+            inputs=[message_delete_confirmed_state, selected_message_state, current_room_name, api_history_limit_state], # 引数を正しいものに
+            outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group, message_delete_confirmed_state]
         )
+
         api_history_limit_dropdown.change(
             fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
             inputs=[api_history_limit_dropdown, current_room_name, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
@@ -940,17 +940,19 @@ try:
             outputs=[room_dropdown, manage_room_selector]
         )
 
+        # ▼▼▼【ルーム削除のイベントハンドラを、以下のように完全に書き換え】▼▼.
         delete_room_button.click(
             fn=None,
             inputs=None,
-            outputs=delete_confirmed_state,
+            outputs=[room_delete_confirmed_state], # 出力先をルーム削除専用の名前に変更
             js="() => confirm('本当にこのルームを削除しますか？この操作は取り消せません。')"
         )
-        delete_confirmed_state.change(
+        room_delete_confirmed_state.change( # 監視対象をルーム削除専用の名前に変更
             fn=ui_handlers.handle_delete_room,
-            inputs=[manage_folder_name_display, delete_confirmed_state, api_key_dropdown],
-            outputs=all_room_change_outputs
+            inputs=[manage_folder_name_display, room_delete_confirmed_state, api_key_dropdown], # 引数を正しいものに
+            outputs=all_room_change_outputs # 出力を正しいものに
         )
+        # ▲▲▲【書き換えここまで】▲▲▲
 
         # --- Screenshot Helper Event Handlers ---
         redaction_rules_df.select(
