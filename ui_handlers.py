@@ -85,9 +85,33 @@ def _create_redaction_df_from_rules(rules: List[Dict]) -> pd.DataFrame:
 
 def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     """
-    【v3】チャットタブと、それに付随する設定UIの更新のみを担当するヘルパー関数。
-    戻り値の数は `initial_load_chat_outputs` の36個と一致する。
+    【v4: オンボーディング対応最終版】
+    チャットタブ関連のUIを更新する。APIキーの有効性を確認し、無効な場合はAPIコールを完全にスキップする。
     """
+    # --- APIキーの有効性をまずチェック ---
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    has_valid_key = api_key and not api_key.startswith("YOUR_API_KEY")
+
+    if not has_valid_key:
+        # --- 【オンボーディングモード】有効なAPIキーがない場合、安全な値を返す ---
+        # この戻り値の構造は、handle_initial_loadのオンボーディングモードと完全に一致させる
+        return (
+            room_name, [], [], gr.update(interactive=False, placeholder="まず、左の「設定」からAPIキーを設定してください。"),
+            None, "", "", "", "",
+            gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
+            gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
+            gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
+            gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
+            gr.update(choices=[], value=None),
+            "（APIキーが設定されていません）",
+            list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,
+            0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
+            False, True, True, False, True, False, False,
+            f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", None,
+            False, gr.update(visible=False)
+        )
+
+    # --- 【通常モード】有効なAPIキーがある場合、通常の更新処理を行う ---
     if not room_name:
         room_list = room_manager.get_room_list_for_ui()
         room_name = room_list[0][1] if room_list else "Default"
@@ -105,26 +129,20 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             memory_str = f.read()
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(room_name)
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     locations_for_ui = _get_location_choices_for_ui(room_name)
-    # ドロップダウンの選択肢に有効な場所IDのみを抽出（ヘッダーを除外）
     valid_location_ids = [value for _name, value in locations_for_ui if not value.startswith("__AREA_HEADER_")]
     current_location_from_file = utils.get_current_location(room_name)
-
     location_dd_val = current_location_from_file
-    # ファイルから読み込んだ現在地が、有効な選択肢リストに存在しない場合
     if current_location_from_file and current_location_from_file not in valid_location_ids:
         gr.Warning(f"最後にいた場所「{current_location_from_file}」が世界設定に見つかりません。移動先を選択し直してください。")
-        # UI上は未選択状態にする
         location_dd_val = None
+
     season_en, time_of_day_en = _get_current_time_context(room_name)
     _, _, scenery_text = generate_scenery_context(
-        room_name, api_key,
-        season_en=season_en, time_of_day_en=time_of_day_en
+        room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
     )
     scenery_image_path = utils.find_scenery_image(
-        room_name, location_dd_val,
-        season_en=season_en, time_of_day_en=time_of_day_en
+        room_name, location_dd_val, season_en=season_en, time_of_day_en=time_of_day_en
     )
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "iapetus"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
@@ -138,13 +156,11 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     hate_val = safety_display_map.get(effective_settings.get("safety_block_threshold_hate_speech"))
     sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
     dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
-
     core_memory_content = load_core_memory_content(room_name)
 
-    # このタプルの要素数は36個になる
     return (
         room_name, chat_history, mapping_list,
-        gr.update(value={'text': '', 'files': []}),
+        gr.update(interactive=True, placeholder="改行はShift+Enter。添付するにはファイルをドロップまたはクリップボタンを押してください..."), # Chat input
         profile_image,
         memory_str, notepad_content, load_system_prompt_content(room_name),
         core_memory_content,
@@ -161,13 +177,12 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings["add_timestamp"], effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
         effective_settings["send_core_memory"],
-        effective_settings["send_scenery"], # room_send_scenery_checkbox の値
+        effective_settings["send_scenery"],
         effective_settings["auto_memory_enabled"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path,
-        # --- 新しい戻り値 ---
-        effective_settings.get("enable_scenery_system", True), # enable_scenery_system_checkbox の値
-        gr.update(visible=effective_settings.get("enable_scenery_system", True)) # profile_scenery_accordion の表示状態
+        effective_settings.get("enable_scenery_system", True),
+        gr.update(open=effective_settings.get("enable_scenery_system", True)) # visible から open に変更
     )
 
 def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
@@ -214,32 +229,22 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
-    【v3】UIの初期化処理。戻り値の数は `initial_load_outputs` の49個と一致する。
+    【v4: オンボーディングモード対応】
+    UIの初期化処理。有効なAPIキーがない場合は、APIコールを抑制し、案内を表示する。
     """
-    from world_builder import get_world_data
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
+
+    # --- APIキーの有効性をチェック ---
+    has_valid_key = config_manager.has_valid_api_key()
+
+    # --- 共通の初期化処理 ---
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
-
-    # chat_tab_updatesは36個の更新値を持つ
-    chat_tab_updates = _update_chat_tab_for_room_change(initial_room_to_load, initial_api_key_name)
-
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
-
-    token_calc_kwargs = config_manager.get_effective_settings(initial_room_to_load)
-    token_count_text = gemini_api.count_input_tokens(
-        room_name=initial_room_to_load, api_key_name=initial_api_key_name,
-        api_history_limit=config_manager.initial_api_history_limit_option_global,
-        parts=[], **token_calc_kwargs
-    )
-
     api_key_choices = list(config_manager.GEMINI_API_KEYS.keys())
     api_key_dd_update = gr.update(choices=api_key_choices, value=initial_api_key_name)
-
     world_data_for_state = get_world_data(initial_room_to_load)
-
-    # 時間設定UIのための値を取得
     time_settings = _load_time_settings_for_room(initial_room_to_load)
     time_settings_updates = (
         gr.update(value=time_settings.get("mode", "リアル連動")),
@@ -248,13 +253,47 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
         gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
     )
 
-    # 戻り値の総数: 3 + 36 + 3 + 1 + 4 = 47個
+    if has_valid_key:
+        # --- 【通常モード】APIキーが存在する場合 ---
+        chat_tab_updates = _update_chat_tab_for_room_change(initial_room_to_load, initial_api_key_name)
+        token_calc_kwargs = config_manager.get_effective_settings(initial_room_to_load)
+        token_count_text = gemini_api.count_input_tokens(
+            room_name=initial_room_to_load, api_key_name=initial_api_key_name,
+            api_history_limit=config_manager.initial_api_history_limit_option_global,
+            parts=[], **token_calc_kwargs
+        )
+        onboarding_guide_update = gr.update(visible=False)
+    else:
+        # --- 【オンボーディングモード】有効なAPIキーが存在しない場合 ---
+        # APIコールを伴わない、安全なUI更新値を構築
+        chat_tab_updates = (
+            initial_room_to_load, [], [], gr.update(interactive=False, placeholder="まず、左の「設定」からAPIキーを設定してください。"),
+            None, "", "", "", "",
+            gr.update(choices=room_manager.get_room_list_for_ui(), value=initial_room_to_load), # room_dropdown
+            gr.update(choices=room_manager.get_room_list_for_ui(), value=initial_room_to_load), # alarm_room_dropdown
+            gr.update(choices=room_manager.get_room_list_for_ui(), value=initial_room_to_load), # timer_room_dropdown
+            gr.update(choices=room_manager.get_room_list_for_ui(), value=initial_room_to_load), # manage_room_selector
+            gr.update(choices=[], value=None), # location_dropdown
+            "（APIキーが設定されていません）", # scenery_text
+            list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01, # voice and streaming settings
+            0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", # AI params
+            # --- ここから下が修正箇所です ---
+            # add_timestamp, send_thoughts, send_notepad, use_common_prompt, send_core_memory, send_scenery, auto_memory_enabled
+            False, True, True, False, True, True, False, # Context checkboxes (send_sceneryをTrueに変更)
+            f"ℹ️ *現在選択中のルーム「{initial_room_to_load}」にのみ適用される設定です。*", None, # room_settings_info, scenery_image
+            True, gr.update(open=True) # enable_scenery_systemをTrueに、アコーディオンをopen=Trueに変更
+        )
+        token_count_text = "トークン数: (APIキー未設定)"
+        onboarding_guide_update = gr.update(visible=True)
+
+    # nexus_ark.py の demo.load の outputs と同じ数の戻り値を返す
     return (
         (display_df, df_with_ids, feedback_text) +
         chat_tab_updates +
         (rules_df_for_ui, token_count_text, api_key_dd_update) +
         (world_data_for_state,) +
-        time_settings_updates
+        time_settings_updates +
+        (onboarding_guide_update,) # 末尾に追加
     )
 
 def handle_save_room_settings(
@@ -813,7 +852,6 @@ def _get_updated_scenery_and_image(room_name: str, api_key_name: str, force_text
 
     # 4. 【キャッシュ・ミス時の自動生成】画像が見つからなかった場合
     if scenery_image_path is None:
-        gr.Info(f"情景画像キャッシュが見つかりません。新しい画像を自動生成します... (場所: {current_location}, 時期: {season_en}/{time_of_day_en})")
         # handle_generate_or_regenerate_scenery_image はPIL Imageを返すため、
         # ここでは直接呼び出さず、その中の画像生成部分のロジックを再利用する。
         # 今後のリファクタリングで、画像生成部分だけを切り出すのが望ましい。
@@ -829,8 +867,6 @@ def _get_updated_scenery_and_image(room_name: str, api_key_name: str, force_text
                 scenery_image_path = utils.find_scenery_image(
                     room_name, current_location, season_en, time_of_day_en
                 )
-            else:
-                 gr.Warning("情景画像の自動生成に失敗しました。")
         except Exception as e:
             gr.Error(f"情景画像の自動生成中にエラーが発生しました: {e}")
             traceback.print_exc()
@@ -2721,15 +2757,50 @@ def handle_reload_world_settings_raw(room_name: str) -> str:
     gr.Info("世界設定ファイルを再読み込みしました。")
     return raw_content
 
-def handle_save_gemini_key(key_name, key_value):
-    if not key_name or not key_value:
-        gr.Warning("キーの名前と値の両方を入力してください。")
-        return gr.update()
-    config_manager.add_or_update_gemini_key(key_name.strip(), key_value.strip())
-    gr.Info(f"Gemini APIキー「{key_name.strip()}」を保存しました。")
+def handle_save_gemini_key(key_name: str, key_value: str, current_room_name: str):
+    """
+    【v8: 戻り値の数FIX版】
+    APIキーを保存し、オンボーディングモードを解除し、UI全体を完全にリフレッシュする。
+    """
+    # nexus_ark.pyで定義されているoutputsの総数 = 3 + 51 = 54
+    EXPECTED_OUTPUT_COUNT = 54
+    # all_room_change_outputsの要素数 = 51
+    ALL_ROOM_CHANGE_OUTPUTS_COUNT = 51
+
+    if not key_name or not key_value or not re.match(r"^[a-zA-Z0-9_]+$", key_name.strip()):
+        if key_name and not re.match(r"^[a-zA-Z0-9_]+$", key_name.strip()):
+            gr.Warning("「キーの名前」は半角の英数字とアンダースコア(_)のみ使用できます。")
+        else:
+            gr.Warning("キーの名前と値の両方を入力してください。")
+        return (gr.update(),) * EXPECTED_OUTPUT_COUNT
+
+    key_name = key_name.strip()
+    key_value = key_value.strip()
+
+    was_onboarding = not config_manager.has_valid_api_key()
+
+    config_manager.add_or_update_gemini_key(key_name, key_value)
+    gr.Info(f"Gemini APIキー「{key_name}」を保存しました。")
     new_keys = list(config_manager.GEMINI_API_KEYS.keys())
-    # 正しい作法： choicesとvalueの両方を更新する、ただ一つのgr.update()を返す
-    return gr.update(choices=new_keys, value=key_name.strip())
+    api_key_dd_update = gr.update(choices=new_keys, value=key_name)
+
+    if was_onboarding and config_manager.has_valid_api_key():
+        gr.Info("APIキーが設定されました。アプリケーションを初期化します...")
+        
+        config_manager.initial_api_key_name_global = key_name
+        
+        # handle_room_change_for_all_tabs は51個の値を返す
+        all_updates_tuple = handle_room_change_for_all_tabs(current_room_name, key_name)
+        
+        # 先頭の3つの更新値と、司令塔からの51個の値を結合して、合計54個の値を返す
+        return (
+            api_key_dd_update, 
+            gr.update(visible=False), 
+            gr.update(interactive=True, placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...")
+        ) + all_updates_tuple
+    else:
+        # 通常時は、期待される数だけ空のgr.update()を返す
+        return (api_key_dd_update, gr.update(), gr.update()) + (gr.update(),) * ALL_ROOM_CHANGE_OUTPUTS_COUNT
 
 def handle_delete_gemini_key(key_name):
     if not key_name:
@@ -3383,11 +3454,17 @@ def handle_time_settings_change_and_update_scenery(
     time_of_day_ja: str
 ) -> Tuple[str, Optional[str]]:
     """
-    【v6: 時間連動情景更新】
+    【v7: オンボーディング対応】
     時間設定UIが変更されたときに呼び出される。
-    1. 設定を保存する。
-    2. 新しい司令塔を呼び出して、情景テキストと画像を更新する。
+    APIキーが無効な場合は、APIコールを行わずに即座に処理を終了する。
     """
+    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+    # --- [APIキーの有効性チェック] ---
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        # オンボーディングモード中は何もせず、現在の表示を維持する
+        return "（APIキーが設定されていません）", None
+    # ▲▲▲【追加ここまで】▲▲▲
     # 1. 設定を保存
     handle_save_time_settings(room_name, mode, season_ja, time_of_day_ja)
 
@@ -3402,11 +3479,12 @@ def handle_time_settings_change_and_update_scenery(
 
 def handle_enable_scenery_system_change(is_enabled: bool) -> Tuple[gr.update, gr.update]:
     """
-    【v7】情景描写システムの有効/無効スイッチが変更されたときのイベントハンドラ。
+    【v8】情景描写システムの有効/無効スイッチが変更されたときのイベントハンドラ。
+    アコーディオンの開閉状態を制御する。
     """
     return (
-        gr.update(visible=is_enabled), # 「プロフィール・情景」アコーディオンの表示/非表示
-        gr.update(value=is_enabled)    # 「空間描写を送信」チェックボックスの値を連動
+        gr.update(open=is_enabled),    # visible=is_enabled から open=is_enabled に変更
+        gr.update(value=is_enabled)
     )
 
 def handle_open_room_folder(folder_name: str):

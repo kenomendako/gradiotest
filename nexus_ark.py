@@ -238,11 +238,6 @@ try:
                         with gr.Accordion("⚙️ 設定", open=False):
                             with gr.Tabs() as settings_tabs:
                                 with gr.TabItem("共通") as common_settings_tab:
-                                    gr.Markdown("#### ⚙️ 一般設定")
-                                    model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
-                                    api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
-                                    api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
-                                    debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
                                     with gr.Accordion("🔑 APIキー / Webhook管理", open=False):
                                         with gr.Accordion("Gemini APIキー", open=True):
                                             gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
@@ -258,6 +253,12 @@ try:
                                             discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL or "")
                                             save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
                                         gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
+
+                                    gr.Markdown("#### ⚙️ 一般設定")
+                                    model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
+                                    api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
+                                    api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
+                                    debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (ターミナルにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
 
                                     gr.Markdown("---")
@@ -456,6 +457,23 @@ try:
 
                     # --- 中央カラム ---
                     with gr.Column(scale=6): # ← scale=3 を 6 に変更
+                        # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+                        onboarding_guide = gr.Markdown(
+                            """
+                            ## Nexus Arkへようこそ！
+                            **まずはAIと対話するための準備をしましょう。**
+                            1.  **Google AI Studio** などで **Gemini APIキー** を取得してください。
+                            2.  左カラムの **「⚙️ 設定」** を開きます。
+                            3.  **「共通」** タブ内の **「🔑 APIキー / Webhook管理」** を開きます。
+                            4.  **「Gemini APIキー」** の項目に、キーの名前（管理用のあだ名）と、取得したAPIキーの値を入力し、**「Geminiキーを保存」** ボタンを押してください。
+
+                            設定が完了すると、このメッセージは消え、チャットが利用可能になります。
+                            """,
+                            visible=False, # 初期状態では非表示
+                            elem_id="onboarding_guide"
+                        )
+                        # ▲▲▲【追加ここまで】▲▲▲
+
                         chatbot_display = gr.Chatbot(
                             height=490, # ← height を 490 に変更
                             elem_id="chat_output_area",
@@ -706,7 +724,7 @@ try:
             scenery_image_display,
             # --- 新しい部品をリストの末尾に追加 ---
             enable_scenery_system_checkbox, # マスタースイッチ
-            profile_scenery_accordion       # 表示/非表示を切り替えるアコーディオン
+            profile_scenery_accordion # gr.update() から元のコンポーネント名に戻す
         ]
 
         initial_load_outputs = [
@@ -717,7 +735,8 @@ try:
             time_mode_radio,
             fixed_season_dropdown,
             fixed_time_of_day_dropdown,
-            fixed_time_controls
+            fixed_time_controls,
+            onboarding_guide # <<<<<<< この行を追加
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
@@ -736,8 +755,6 @@ try:
             fn=ui_handlers.handle_initial_load,
             inputs=[gr.State(effective_initial_room), current_api_key_name_state],
             outputs=initial_load_outputs
-        ).then(
-            fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display
         )
 
 
@@ -1024,7 +1041,15 @@ try:
         for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         # streaming_speed_slider.change(fn=ui_handlers.handle_streaming_speed_change, inputs=[streaming_speed_slider], outputs=None)
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-        api_key_dropdown.change(fn=ui_handlers.update_api_key_state, inputs=[api_key_dropdown], outputs=[current_api_key_name_state]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
+        api_key_dropdown.change(
+            fn=ui_handlers.update_api_key_state,
+            inputs=[api_key_dropdown],
+            outputs=[current_api_key_name_state],
+        ).then(
+            fn=ui_handlers.handle_context_settings_change,
+            inputs=context_token_calc_inputs,
+            outputs=token_count_display
+        )
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
         # ▼▼▼【送信と停止のイベント定義を全面的に更新】▼▼▼
         # chat_submit_outputs の定義を削除し、代わりに unified_streaming_outputs を使用
@@ -1119,7 +1144,16 @@ try:
         timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_room_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
 
         notification_service_radio.change(fn=ui_handlers.handle_notification_service_change, inputs=[notification_service_radio], outputs=[])
-        save_gemini_key_button.click(fn=ui_handlers.handle_save_gemini_key, inputs=[gemini_key_name_input, gemini_key_value_input], outputs=[api_key_dropdown])
+        save_gemini_key_button.click(
+            fn=ui_handlers.handle_save_gemini_key,
+            # ▼▼▼【inputs に current_room_name を再度追加】▼▼▼
+            inputs=[gemini_key_name_input, gemini_key_value_input, current_room_name],
+            # ▼▼▼【outputs を UI全体を更新するリストに変更】▼▼▼
+            outputs=[
+                api_key_dropdown, onboarding_guide, chat_input_multimodal
+            ] + all_room_change_outputs
+            # ▲▲▲【変更ここまで】▲▲▲
+        )
         delete_gemini_key_button.click(fn=ui_handlers.handle_delete_gemini_key, inputs=[gemini_key_name_input], outputs=[api_key_dropdown])
         save_pushover_config_button.click(fn=ui_handlers.handle_save_pushover_config, inputs=[pushover_user_key_input, pushover_app_token_input], outputs=[])
         save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
