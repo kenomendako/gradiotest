@@ -1,6 +1,7 @@
 import sys
 import subprocess
 import gradio as gr
+import tempfile
 import shutil
 import psutil
 import ast
@@ -3759,13 +3760,23 @@ def handle_knowledge_reindex(room_name: str, api_key_name: str):
 
         yield "処理中: 作成した索引を保存しています...", gr.update()
 
-        # 4. 索引の保存
-        index_path = Path(constants.ROOMS_DIR) / room_name / "rag_data" / "faiss_index"
-        if index_path.exists():
-            shutil.rmtree(str(index_path))
-        index_path.mkdir(parents=True, exist_ok=True)
+        # 4. 索引の保存 (日本語パス対応版)
+        final_index_path = Path(constants.ROOMS_DIR) / room_name / "rag_data" / "faiss_index"
 
-        db.save_local(str(index_path))
+        # tempfileを使って、ASCII文字のみの一時ディレクトリを安全に作成
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_index_path = Path(temp_dir)
+            
+            # FAISSには、この安全な一時ディレクトリに書き込ませる
+            db.save_local(str(temp_index_path))
+            
+            # 書き込みが完了したら、古い索引ディレクトリを削除
+            if final_index_path.exists():
+                shutil.rmtree(str(final_index_path))
+            
+            # 完成した索引を、一時ディレクトリから本来の場所へ移動させる
+            # shutil.moveは、Pythonレベルで動作するため、日本語パスを正しく扱える
+            shutil.move(str(temp_index_path), str(final_index_path))
 
         gr.Info("✅ 知識ベースの索引作成が完了しました。")
 
