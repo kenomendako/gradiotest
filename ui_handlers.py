@@ -293,7 +293,8 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
         (rules_df_for_ui, token_count_text, api_key_dd_update) +
         (world_data_for_state,) +
         time_settings_updates +
-        (onboarding_guide_update,) # 末尾に追加
+        (onboarding_guide_update,) +
+        (False,) # <<<<<<< この行を追加 (app_is_loading_stateをFalseに設定)
     )
 
 def handle_save_room_settings(
@@ -3406,8 +3407,11 @@ def _get_current_time_context(room_name: str) -> Tuple[str, str]:
         time_en = utils.get_time_of_day(now.hour)
         return season_en, time_en
 
-def handle_time_mode_change(mode: str) -> gr.update:
+def handle_time_mode_change(mode: str, app_is_loading: bool) -> gr.update:
     """時間設定のモードが変更されたときに、詳細設定UIの表示/非表示を切り替える。"""
+    if app_is_loading:
+        # 起動時は handle_initial_load の結果にUIの表示状態を任せる
+        return gr.update()
     return gr.update(visible=(mode == "選択する"))
 
 
@@ -3451,20 +3455,23 @@ def handle_time_settings_change_and_update_scenery(
     api_key_name: str,
     mode: str,
     season_ja: str,
-    time_of_day_ja: str
+    time_of_day_ja: str,
+    app_is_loading: bool # <<<<<<< この引数を追加
 ) -> Tuple[str, Optional[str]]:
     """
-    【v7: オンボーディング対応】
+    【v8: 起動時連鎖防止対応】
     時間設定UIが変更されたときに呼び出される。
-    APIキーが無効な場合は、APIコールを行わずに即座に処理を終了する。
+    起動処理中は、APIコールを伴う情景更新を実行しない。
     """
-    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+    if app_is_loading:
+        # 起動時はイベントを無視し、UIの状態を変更しない
+        return gr.update(), gr.update()
+
     # --- [APIキーの有効性チェック] ---
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         # オンボーディングモード中は何もせず、現在の表示を維持する
         return "（APIキーが設定されていません）", None
-    # ▲▲▲【追加ここまで】▲▲▲
     # 1. 設定を保存
     handle_save_time_settings(room_name, mode, season_ja, time_of_day_ja)
 

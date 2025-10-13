@@ -188,6 +188,7 @@ try:
     """
 
     with gr.Blocks(theme=active_theme_object, css=custom_css, js=custom_js) as demo:
+        app_is_loading_state = gr.State(True)  # 起動中フラグを追加
         room_list_on_startup = room_manager.get_room_list_for_ui()
         if not room_list_on_startup:
             print("--- 有効なルームが見つからないため、'Default'ルームを作成します。 ---")
@@ -736,7 +737,8 @@ try:
             fixed_season_dropdown,
             fixed_time_of_day_dropdown,
             fixed_time_controls,
-            onboarding_guide # <<<<<<< この行を追加
+            onboarding_guide, # <<<<<<< この行を追加
+            app_is_loading_state # <<<<<<< この行を追加
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
@@ -1380,7 +1382,8 @@ try:
             current_api_key_name_state,
             time_mode_radio,
             fixed_season_dropdown,
-            fixed_time_of_day_dropdown
+            fixed_time_of_day_dropdown,
+            app_is_loading_state # <<<<<<< この行を追加
         ]
         time_setting_outputs = [
             current_scenery_display,
@@ -1395,7 +1398,7 @@ try:
         ).then(
             # その後、UIの表示/非表示を切り替える
             fn=ui_handlers.handle_time_mode_change,
-            inputs=[time_mode_radio],
+            inputs=[time_mode_radio, app_is_loading_state], # <<<<<<< ここに app_is_loading_state を追加
             outputs=[fixed_time_controls]
         )
 
