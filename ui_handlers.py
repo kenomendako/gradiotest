@@ -165,7 +165,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
     return (
         room_name, chat_history, mapping_list,
-        gr.update(interactive=True, placeholder="改行はShift+Enter。添付するにはファイルをドロップまたはクリップボタンを押してください..."), # Chat input
+        gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)。添付するにはファイルをドロップまたはクリップボタンを押してください..."), # Chat input
         profile_image,
         memory_str, notepad_content, load_system_prompt_content(room_name),
         core_memory_content,
