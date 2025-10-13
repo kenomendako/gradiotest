@@ -361,7 +361,7 @@ def parse_world_file(file_path: str) -> dict:
     if not os.path.exists(file_path): return {}
     with open(file_path, "r", encoding="utf-8") as f: content = f.read()
     world_data = {}; current_area_key = None; current_place_key = None
-    lines = content.split('\n')
+    lines = content.splitlines()
     for line in lines:
         line_strip = line.strip()
         if line_strip.startswith("## "):

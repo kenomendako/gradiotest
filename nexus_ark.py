@@ -64,14 +64,14 @@ try:
     # characters ディレクトリが存在しない、または空の場合にサンプルペルソナをコピー
     if not os.path.exists(constants.ROOMS_DIR) or not os.listdir(constants.ROOMS_DIR):
         print("--- [初回起動] charactersディレクトリが空のため、サンプルペルソナを展開します ---")
-        sample_persona_path = os.path.join(constants.SAMPLE_PERSONA_DIR, "Oliviers_Room")
-        target_path = os.path.join(constants.ROOMS_DIR, "Oliviers_Room")
+        sample_persona_path = os.path.join(constants.SAMPLE_PERSONA_DIR, "Olivie")
+        target_path = os.path.join(constants.ROOMS_DIR, "Olivie")
         if os.path.isdir(sample_persona_path):
             try:
                 shutil.copytree(sample_persona_path, target_path)
                 print(f"--- サンプルペルソナ「オリヴェ」を {target_path} にコピーしました ---")
                 # 初回起動時、configのデフォルトルームをオリヴェに設定
-                config_manager.save_config("last_room", "Oliviers_Room")
+                config_manager.save_config("last_room", "Olivie")
                 config_manager.load_config() # 設定を再読み込み
             except Exception as e:
                 print(f"!!! [致命的エラー] サンプルペルソナのコピーに失敗しました: {e}")
@@ -252,7 +252,7 @@ try:
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
         redaction_rule_color_state = gr.State("#62827e")
         imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
-        knowledge_selected_file_state = gr.State(None) # RAGで選択されたファイル名を保持
+        selected_knowledge_file_index_state = gr.State(None)
         with gr.Tabs():
             with gr.TabItem("チャット"):
                 # --- [ここからが新しい3カラムレイアウト] ---
@@ -1508,15 +1508,16 @@ try:
         )
 
         knowledge_file_df.select(
-            fn=lambda evt: evt.value,
+            fn=ui_handlers.handle_knowledge_file_select,
             inputs=[knowledge_file_df],
-            outputs=[knowledge_selected_file_state]
+            outputs=[selected_knowledge_file_index_state],
+            show_progress=False
         )
 
         knowledge_delete_button.click(
             fn=ui_handlers.handle_knowledge_file_delete,
-            inputs=[current_room_name, knowledge_selected_file_state],
-            outputs=[knowledge_file_df, knowledge_status_output, knowledge_selected_file_state]
+            inputs=[current_room_name, selected_knowledge_file_index_state],
+            outputs=[knowledge_file_df, knowledge_status_output, selected_knowledge_file_index_state]
         )
 
         knowledge_reindex_button.click(

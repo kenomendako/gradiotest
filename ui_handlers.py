@@ -3639,29 +3639,52 @@ def handle_knowledge_file_upload(room_name: str, files: List[Any]):
     files_df = pd.DataFrame(_get_knowledge_files(room_name))
     return files_df, "⚠️ 索引の更新が必要です。「索引を作成 / 更新」ボタンを押してください。"
 
-def handle_knowledge_file_delete(room_name: str, selected_filename: Optional[str]):
+def handle_knowledge_file_select(df: pd.DataFrame, evt: gr.SelectData) -> Optional[int]:
+    """
+    knowledge_file_dfで項目が選択されたときに、そのインデックスを返す。
+    デバッグ用のprint文も含む。
+    """
+    if evt.index is None:
+        selected_index = None
+    else:
+        selected_index = evt.index[0]
+    
+    print(f"--- [DEBUG .select] Stateに設定されるインデックス: {selected_index} ---")
+    return selected_index
+
+
+def handle_knowledge_file_delete(room_name: str, selected_index: Optional[int]):
     """選択された知識ベースのファイルを削除する処理。"""
+    print(f"--- [DEBUG .click] ハンドラが受け取ったインデックス: {selected_index} ---")
+    
     if not room_name:
         gr.Warning("ルームが選択されていません。")
-        return gr.update(), gr.update(), gr.update()
-    if not selected_filename:
+        return gr.update(), gr.update(), None
+
+    # ▼▼▼【evt.index を selected_index に変更】▼▼▼
+    if selected_index is None:
         gr.Warning("削除するファイルをリストから選択してください。")
-        return gr.update(), gr.update(), gr.update()
+        return gr.update(), gr.update(), None # 3つの値を返す
+    # ▲▲▲【変更はここまで】▲▲▲
 
     try:
-        file_path_to_delete = Path(constants.ROOMS_DIR) / room_name / "knowledge" / selected_filename
+        # ▼▼▼【evt.index[0] を selected_index に変更】▼▼▼
+        filename_to_delete = files_df.iloc[selected_index]["ファイル名"]
+        # ▲▲▲【変更はここまで】▲▲▲
+        file_path_to_delete = Path(constants.ROOMS_DIR) / room_name / "knowledge" / filename_to_delete
 
         if file_path_to_delete.exists():
             file_path_to_delete.unlink()
-            gr.Info(f"ファイル「{selected_filename}」を削除しました。索引の更新が必要です。")
+            gr.Info(f"ファイル「{filename_to_delete}」を削除しました。索引の更新が必要です。")
         else:
-            gr.Warning(f"ファイル「{selected_filename}」が見つかりませんでした。")
+            gr.Warning(f"ファイル「{filename_to_delete}」が見つかりませんでした。")
+            
+    except (IndexError, KeyError) as e:
+        gr.Error(f"ファイルの特定に失敗しました: {e}")
 
-    except Exception as e:
-        gr.Error(f"ファイルの削除中にエラーが発生しました: {e}")
-
+    # 処理後、再度ファイルリストを読み込んでUIを更新
     updated_files_df = pd.DataFrame(_get_knowledge_files(room_name))
-    # 戻り値は3つ (df, status, selected_file_state)
+    # 削除後は選択状態を解除するために None を返す
     return updated_files_df, "⚠️ 索引の更新が必要です。「索引を作成 / 更新」ボタンを押してください。", None
 
 def handle_knowledge_reindex(room_name: str, api_key_name: str):

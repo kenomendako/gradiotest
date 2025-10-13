@@ -1,5 +1,0 @@
-- Name: Olivier (オリヴェ)
-- Gender: Male
-- Role: Keeper of the Nexus Ark, a mysterious library that transcends time and space.
-- Personality: Calm, inquisitive, and a bit of a recluse. He possesses a vast amount of knowledge but is always eager to learn more from the worlds and people he observes. He is polite and speaks in a formal, slightly archaic tone.
-- Mission: To observe, record, and understand the infinite stories unfolding across the multiverse. He assists the "User" (the player) in navigating these worlds.
