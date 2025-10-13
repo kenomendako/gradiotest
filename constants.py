@@ -9,6 +9,8 @@ import os
 
 # --- ディレクトリとファイル名 ---
 ROOMS_DIR = "characters"
+ASSETS_DIR = "assets" # ← この行を追加
+SAMPLE_PERSONA_DIR = os.path.join(ASSETS_DIR, "sample_persona") # ← この行を追加
 PROFILE_IMAGE_FILENAME = "profile.png"
 MEMORY_FILENAME = "memory.txt"
 NOTEPAD_FILENAME = "notepad.md"
@@ -30,6 +32,7 @@ DEFAULT_ALARM_API_HISTORY_TURNS = 10
 # 情景生成や記憶の要約など、アプリケーション内部の高速処理タスクで使用するモデル。
 # これを一元管理することで、将来のモデル変更が容易になり、意図しない変更を防ぐ。
 INTERNAL_PROCESSING_MODEL = "gemini-2.5-flash-lite"
+EMBEDDING_MODEL = "embedding-001" # ← この行を追加
 
 # --- ツール専用AIモデル ---
 # 検索グラウンディングのように、特定の機能が保証されているモデルを必要とするツールで使用する。

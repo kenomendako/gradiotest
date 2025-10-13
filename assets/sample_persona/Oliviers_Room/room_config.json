@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "room_name": "オリヴェの部屋",
+    "user_display_name": "ユーザー",
+    "agent_display_name": "オリヴェ",
+    "created_at": "2024-01-01T00:00:00Z",
+    "description": "サンプルペルソナ「オリヴェ」の部屋です。",
+    "override_settings": {}
+}
