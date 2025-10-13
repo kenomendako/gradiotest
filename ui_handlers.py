@@ -3658,13 +3658,11 @@ def handle_knowledge_file_select(df: pd.DataFrame, evt: gr.SelectData) -> Option
     else:
         selected_index = evt.index[0]
     
-    print(f"--- [DEBUG .select] Stateに設定されるインデックス: {selected_index} ---")
     return selected_index
 
 
 def handle_knowledge_file_delete(room_name: str, selected_index: Optional[int]):
     """選択された知識ベースのファイルを削除する処理。"""
-    print(f"--- [DEBUG .click] ハンドラが受け取ったインデックス: {selected_index} ---")
     
     if not room_name:
         gr.Warning("ルームが選択されていません。")
@@ -3677,9 +3675,14 @@ def handle_knowledge_file_delete(room_name: str, selected_index: Optional[int]):
     # ▲▲▲【変更はここまで】▲▲▲
 
     try:
-        # ▼▼▼【evt.index[0] を selected_index に変更】▼▼▼
-        filename_to_delete = files_df.iloc[selected_index]["ファイル名"]
-        # ▲▲▲【変更はここまで】▲▲▲
+        current_files = _get_knowledge_files(room_name)
+        if not (0 <= selected_index < len(current_files)):
+            gr.Error("選択されたファイルが見つかりません。リストが古い可能性があります。")
+            # 失敗した場合でも、最新のリストでUIを更新して終了
+            return pd.DataFrame(current_files), _get_knowledge_status(room_name), None
+
+        filename_to_delete = current_files[selected_index]["ファイル名"]
+
         file_path_to_delete = Path(constants.ROOMS_DIR) / room_name / "knowledge" / filename_to_delete
 
         if file_path_to_delete.exists():
