@@ -293,7 +293,7 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
         (rules_df_for_ui, token_count_text, api_key_dd_update) +
         (world_data_for_state,) +
         time_settings_updates +
-        (onboarding_guide_update,) # 末尾に追加
+        (onboarding_guide_update,)
     )
 
 def handle_save_room_settings(
@@ -884,14 +884,25 @@ def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[gr.update
     latest_location_id = utils.get_current_location(room_name)
     return gr.update(value=latest_location_id), new_scenery_text, new_image_path
 
-def handle_location_change(room_name: str, selected_value: str, api_key_name: str) -> Tuple[gr.update, str, Optional[str]]:
-    """場所が変更されたときのハンドラ。移動処理後、新しい司令塔を呼び出す。"""
-    if not selected_value or selected_value.startswith("__AREA_HEADER_"):
-        # ドロップダウンのヘッダーがクリックされた場合は何もしない
-        latest_location_id = utils.get_current_location(room_name)
-        new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
-        return gr.update(value=latest_location_id), new_scenery_text, new_image_path
+def handle_location_change(
+    room_name: str,
+    selected_value: str,
+    api_key_name: str
+) -> Tuple[gr.update, str, Optional[str]]:
+    """【v9: 冪等性ガード版】場所が変更されたときのハンドラ。"""
 
+    # --- [冪等性ガード] ---
+    # ファイルに記録されている現在の場所と比較し、変更がなければ何もしない
+    current_location_from_file = utils.get_current_location(room_name)
+    if selected_value == current_location_from_file:
+        return gr.update(), gr.update(), gr.update() # UIの状態を何も変更しない
+
+    if not selected_value or selected_value.startswith("__AREA_HEADER_"):
+        # ヘッダーがクリックされた場合、現在の値でUIを更新するだけ
+        new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
+        return gr.update(value=current_location_from_file), new_scenery_text, new_image_path
+
+    # --- ここから下は、本当に場所が変更された場合のみ実行される ---
     location_id = selected_value
     print(f"--- UIからの場所変更処理開始: ルーム='{room_name}', 移動先ID='{location_id}' ---")
 
@@ -899,16 +910,11 @@ def handle_location_change(room_name: str, selected_value: str, api_key_name: st
     result = set_current_location.func(location_id=location_id, room_name=room_name)
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
-        latest_location_id = utils.get_current_location(room_name)
-        # 失敗した場合でも、現在の場所の情景を司令塔から取得してUIを更新する
         new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
-        return gr.update(value=latest_location_id), new_scenery_text, new_image_path
+        return gr.update(value=current_location_from_file), new_scenery_text, new_image_path
 
     gr.Info(f"場所を「{location_id}」に移動しました。情景を更新します...")
-
-    # 移動成功後、新しい司令塔を呼び出して情景を更新
     new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
-
     return gr.update(value=location_id), new_scenery_text, new_image_path
 
 #
@@ -3453,23 +3459,43 @@ def handle_time_settings_change_and_update_scenery(
     season_ja: str,
     time_of_day_ja: str
 ) -> Tuple[str, Optional[str]]:
-    """
-    【v7: オンボーディング対応】
-    時間設定UIが変更されたときに呼び出される。
-    APIキーが無効な場合は、APIコールを行わずに即座に処理を終了する。
-    """
-    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
-    # --- [APIキーの有効性チェック] ---
+    """【v9: 冪等性ガード版】時間設定UIが変更されたときに呼び出されるハンドラ。"""
+
+    # --- [冪等性ガード] ---
+    # まず、UIからの入力値を内部的な英語名に変換する
+    mode_en = "realtime" if mode == "リアル連動" else "fixed"
+    season_map_ja_to_en = {"春": "spring", "夏": "summer", "秋": "autumn", "冬": "winter"}
+    time_map_ja_to_en = {"朝": "morning", "昼": "daytime", "夕方": "evening", "夜": "night"}
+    season_en = season_map_ja_to_en.get(season_ja, "autumn")
+    time_en = time_map_ja_to_en.get(time_of_day_ja, "night")
+
+    # 次に、configファイルから現在の設定を読み込む
+    current_config = room_manager.get_room_config(room_name) or {}
+    current_settings = current_config.get("time_settings", {})
+    current_mode = current_settings.get("mode", "realtime")
+    current_season = current_settings.get("fixed_season", "autumn")
+    current_time = current_settings.get("fixed_time_of_day", "night")
+
+    # 最後に、現在の設定とUIからの入力値を比較する
+    is_unchanged = (
+        current_mode == mode_en and
+        (mode_en == "realtime" or (current_season == season_en and current_time == time_en))
+    )
+    if is_unchanged:
+        return gr.update(), gr.update() # 変更がなければ何もしない
+
+    # --- ここから下は、本当に設定が変更された場合のみ実行される ---
+    print(f"--- UIからの時間設定変更処理開始: ルーム='{room_name}' ---")
+    
+    # APIキーの有効性チェック
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        # オンボーディングモード中は何もせず、現在の表示を維持する
         return "（APIキーが設定されていません）", None
-    # ▲▲▲【追加ここまで】▲▲▲
-    # 1. 設定を保存
+        
+    # 1. 設定を保存 (内部で差分をチェックするので冗長ではない)
     handle_save_time_settings(room_name, mode, season_ja, time_of_day_ja)
 
     # 2. 司令塔を呼び出して情景を更新
-    # メッセージは司令塔側が出すので、ここではInfoを出さない
     new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
 
     return new_scenery_text, new_image_path
