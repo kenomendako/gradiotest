@@ -39,6 +39,9 @@ print("--- [Nexus Ark] ロギング設定を完全に掌握しました ---")
 
 import os
 import sys
+# ▼▼▼【以下のimportを追加】▼▼▼
+import shutil
+# ▲▲▲【追加はここまで】▲▲▲
 import utils
 import json
 import gradio as gr
@@ -55,6 +58,28 @@ os.environ["MEM0_TELEMETRY_ENABLED"] = "false"
 
 try:
     config_manager.load_config()
+
+    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+    # --- [初回起動シーケSン] ---
+    # characters ディレクトリが存在しない、または空の場合にサンプルペルソナをコピー
+    if not os.path.exists(constants.ROOMS_DIR) or not os.listdir(constants.ROOMS_DIR):
+        print("--- [初回起動] charactersディレクトリが空のため、サンプルペルソナを展開します ---")
+        sample_persona_path = os.path.join(constants.SAMPLE_PERSONA_DIR, "Olivie")
+        target_path = os.path.join(constants.ROOMS_DIR, "Olivie")
+        if os.path.isdir(sample_persona_path):
+            try:
+                shutil.copytree(sample_persona_path, target_path)
+                print(f"--- サンプルペルソナ「オリヴェ」を {target_path} にコピーしました ---")
+                # 初回起動時、configのデフォルトルームをオリヴェに設定
+                config_manager.save_config("last_room", "Olivie")
+                config_manager.load_config() # 設定を再読み込み
+            except Exception as e:
+                print(f"!!! [致命的エラー] サンプルペルソナのコピーに失敗しました: {e}")
+        else:
+            print(f"!!! [警告] サンプルペルソナのディレクトリが見つかりません: {sample_persona_path}")
+    # --- [初回起動シーケンス ここまで] ---
+    # ▲▲▲【追加はここまで】▲▲▲
+
 
     # ▼▼▼【ここから追加：テーマ適用ロジック】▼▼▼
     def get_active_theme() -> gr.themes.Base:
@@ -227,6 +252,7 @@ try:
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
         redaction_rule_color_state = gr.State("#62827e")
         imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
+        selected_knowledge_file_index_state = gr.State(None)
         with gr.Tabs():
             with gr.TabItem("チャット"):
                 # --- [ここからが新しい3カラムレイアウト] ---
@@ -638,6 +664,31 @@ try:
                             save_notepad_button = gr.Button("メモ帳を保存", variant="secondary")
                             reload_notepad_button = gr.Button("再読込", variant="secondary")
                             clear_notepad_button = gr.Button("メモ帳を全削除", variant="stop")
+
+                    # ▼▼▼【ここから下のブロックを「メモ帳」タブの直後に追加】▼▼▼
+                    with gr.TabItem("知識") as knowledge_tab:
+                        gr.Markdown("## 知識ベース (RAG)\nこのルームのAIが参照する知識ドキュメントを管理します。")
+
+                        knowledge_file_df = gr.DataFrame(
+                            headers=["ファイル名", "サイズ (KB)", "最終更新日時"],
+                            datatype=["str", "str", "str"],
+                            row_count=(5, "dynamic"),
+                            col_count=(3, "fixed"),
+                            interactive=True # 行を選択可能にする
+                        )
+
+                        with gr.Row():
+                            knowledge_upload_button = gr.UploadButton(
+                                "ファイルをアップロード",
+                                file_types=[".txt", ".md"],
+                                file_count="multiple"
+                            )
+                            knowledge_delete_button = gr.Button("選択したファイルを削除", variant="stop")
+
+                        gr.Markdown("---")
+                        knowledge_reindex_button = gr.Button("索引を作成 / 更新", variant="primary")
+                        knowledge_status_output = gr.Textbox(label="ステータス", interactive=False)
+                    # ▲▲▲【追加はここまで】▲▲▲
 
             with gr.TabItem("ワールド・ビルダー") as world_builder_tab:
                 gr.Markdown("## ワールド・ビルダー\n`world_settings.txt` の内容を、直感的に、または直接的に編集・確認できます。")
@@ -1441,6 +1492,40 @@ try:
             inputs=[current_room_name], # 現在チャット中のルーム名
             outputs=None
         )
+
+        # ▼▼▼【ここから下のブロックをイベントハンドラ定義の末尾に追加】▼▼▼
+        # --- Knowledge Tab Event Handlers ---
+        knowledge_tab.select(
+            fn=ui_handlers.handle_knowledge_tab_load,
+            inputs=[current_room_name],
+            outputs=[knowledge_file_df, knowledge_status_output]
+        )
+
+        knowledge_upload_button.upload(
+            fn=ui_handlers.handle_knowledge_file_upload,
+            inputs=[current_room_name, knowledge_upload_button],
+            outputs=[knowledge_file_df, knowledge_status_output]
+        )
+
+        knowledge_file_df.select(
+            fn=ui_handlers.handle_knowledge_file_select,
+            inputs=[knowledge_file_df],
+            outputs=[selected_knowledge_file_index_state],
+            show_progress=False
+        )
+
+        knowledge_delete_button.click(
+            fn=ui_handlers.handle_knowledge_file_delete,
+            inputs=[current_room_name, selected_knowledge_file_index_state],
+            outputs=[knowledge_file_df, knowledge_status_output, selected_knowledge_file_index_state]
+        )
+
+        knowledge_reindex_button.click(
+            fn=ui_handlers.handle_knowledge_reindex,
+            inputs=[current_room_name, current_api_key_name_state],
+            outputs=[knowledge_status_output, knowledge_reindex_button]
+        )
+        # ▲▲▲【追加はここまで】▲▲▲
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])

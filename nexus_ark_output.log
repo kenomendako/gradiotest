@@ -1,1 +1,14 @@
 --- [Nexus Ark] ロギング設定を完全に掌握しました ---
+--- [分離思考型] グラフがコンパイルされました ---
+--- グローバル・ロックの取得を試みます ---
+--- ロックを取得しました (新規作成) ---
+--- [テーマ] カスタムテーマ 'Nexus Ark' を適用します ---
+アラームスケジューラスレッドを開始します.
+アラームスケジューラスレッドを起動しました.
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+!!! [致命的エラー] アプリケーションの起動中に、予期せぬ例外が発生しました。
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+--- グローバル・ロックを解放しました ---
+続行するにはEnterキーを押してください...

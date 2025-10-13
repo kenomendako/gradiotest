@@ -30,7 +30,7 @@ from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from tools.timer_tools import set_timer, set_pomodoro_timer
-from tools.knowledge_tools import search_knowledge_graph
+from tools.knowledge_tools import search_knowledge_base
 from room_manager import get_world_settings_path, get_room_files_paths
 import utils
 import config_manager
@@ -47,7 +47,7 @@ all_tools = [
     generate_image,
     set_personal_alarm,
     set_timer, set_pomodoro_timer,
-    search_knowledge_graph
+    search_knowledge_base # ← この行を追加
 ]
 
 class AgentState(TypedDict):

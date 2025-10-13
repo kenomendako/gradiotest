@@ -32,6 +32,11 @@ import pytz
 import ijson
 import time
 
+from pathlib import Path
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_community.docstore.document import Document
 
 import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer
 from utils import _overwrite_log_file
@@ -3573,3 +3578,193 @@ def handle_open_backup_folder(room_name: str):
             subprocess.Popen(["xdg-open", backup_folder_path])
     except Exception as e:
         gr.Error(f"フォルダを開けませんでした: {e}")
+
+# ▼▼▼【ここから下のブロックをファイルの末尾にまるごと追加】▼▼▼
+
+# --- Knowledge Base (RAG) UI Handlers ---
+
+def _get_knowledge_files(room_name: str) -> List[Dict]:
+    """指定されたルームのknowledgeフォルダ内のファイル情報をリストで取得する。"""
+    knowledge_dir = Path(constants.ROOMS_DIR) / room_name / "knowledge"
+    knowledge_dir.mkdir(parents=True, exist_ok=True)
+
+    files_info = []
+    for file_path in knowledge_dir.iterdir():
+        if file_path.is_file():
+            stat = file_path.stat()
+            files_info.append({
+                "ファイル名": file_path.name,
+                "サイズ (KB)": f"{stat.st_size / 1024:.2f}",
+                "最終更新日時": datetime.datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+            })
+    # ファイル名でソートして返す
+    return sorted(files_info, key=lambda x: x["ファイル名"])
+
+def _get_knowledge_status(room_name: str) -> str:
+    """知識ベースの現在の状態（索引の有無など）を示す文字列を返す。"""
+    index_path = Path(constants.ROOMS_DIR) / room_name / "rag_data" / "faiss_index"
+    if index_path.exists() and any(index_path.iterdir()):
+        return "✅ 索引は作成済みです。ドキュメントを変更した場合は、索引の更新を推奨します。"
+    else:
+        return "⚠️ 索引がまだ作成されていません。「索引を作成 / 更新」ボタンを押してください。"
+
+def handle_knowledge_tab_load(room_name: str):
+    """「知識」タブが選択されたときの初期化処理。"""
+    if not room_name:
+        return pd.DataFrame(), "ルームが選択されていません。"
+
+    files_df = pd.DataFrame(_get_knowledge_files(room_name))
+    status_text = _get_knowledge_status(room_name)
+
+    return files_df, status_text
+
+def handle_knowledge_file_upload(room_name: str, files: List[Any]):
+    """知識ベースにファイルをアップロードする処理。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(), gr.update()
+    if not files:
+        return gr.update(), gr.update()
+
+    knowledge_dir = Path(constants.ROOMS_DIR) / room_name / "knowledge"
+
+    for temp_file in files:
+        original_filename = Path(temp_file.name).name
+        target_path = knowledge_dir / original_filename
+        shutil.move(temp_file.name, str(target_path))
+        print(f"--- [Knowledge] ファイルをアップロードしました: {target_path} ---")
+
+    gr.Info(f"{len(files)}個のファイルを知識ベースに追加しました。索引の更新が必要です。")
+
+    files_df = pd.DataFrame(_get_knowledge_files(room_name))
+    return files_df, "⚠️ 索引の更新が必要です。「索引を作成 / 更新」ボタンを押してください。"
+
+def handle_knowledge_file_select(df: pd.DataFrame, evt: gr.SelectData) -> Optional[int]:
+    """
+    knowledge_file_dfで項目が選択されたときに、そのインデックスを返す。
+    デバッグ用のprint文も含む。
+    """
+    if evt.index is None:
+        selected_index = None
+    else:
+        selected_index = evt.index[0]
+    
+    print(f"--- [DEBUG .select] Stateに設定されるインデックス: {selected_index} ---")
+    return selected_index
+
+
+def handle_knowledge_file_delete(room_name: str, selected_index: Optional[int]):
+    """選択された知識ベースのファイルを削除する処理。"""
+    print(f"--- [DEBUG .click] ハンドラが受け取ったインデックス: {selected_index} ---")
+    
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(), gr.update(), None
+
+    # ▼▼▼【evt.index を selected_index に変更】▼▼▼
+    if selected_index is None:
+        gr.Warning("削除するファイルをリストから選択してください。")
+        return gr.update(), gr.update(), None # 3つの値を返す
+    # ▲▲▲【変更はここまで】▲▲▲
+
+    try:
+        # ▼▼▼【evt.index[0] を selected_index に変更】▼▼▼
+        filename_to_delete = files_df.iloc[selected_index]["ファイル名"]
+        # ▲▲▲【変更はここまで】▲▲▲
+        file_path_to_delete = Path(constants.ROOMS_DIR) / room_name / "knowledge" / filename_to_delete
+
+        if file_path_to_delete.exists():
+            file_path_to_delete.unlink()
+            gr.Info(f"ファイル「{filename_to_delete}」を削除しました。索引の更新が必要です。")
+        else:
+            gr.Warning(f"ファイル「{filename_to_delete}」が見つかりませんでした。")
+            
+    except (IndexError, KeyError) as e:
+        gr.Error(f"ファイルの特定に失敗しました: {e}")
+
+    # 処理後、再度ファイルリストを読み込んでUIを更新
+    updated_files_df = pd.DataFrame(_get_knowledge_files(room_name))
+    # 削除後は選択状態を解除するために None を返す
+    return updated_files_df, "⚠️ 索引の更新が必要です。「索引を作成 / 更新」ボタンを押してください。", None
+
+def handle_knowledge_reindex(room_name: str, api_key_name: str):
+    """知識ベースの索引を作成/更新する。時間がかかる可能性がある処理。"""
+    if not room_name or not api_key_name:
+        gr.Warning("ルームとAPIキーを選択してください。")
+        return gr.update(), gr.update()
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Error(f"APIキー「{api_key_name}」が無効です。")
+        return gr.update(), gr.update()
+
+    yield "処理中: 知識ベースのドキュメントを読み込んでいます...", gr.update(interactive=False)
+
+    try:
+        knowledge_dir = Path(constants.ROOMS_DIR) / room_name / "knowledge"
+
+        # 1. ドキュメントの読み込み
+        documents = []
+        files_to_process = list(knowledge_dir.glob("*.txt")) + list(knowledge_dir.glob("*.md"))
+        if not files_to_process:
+            gr.Info("索引を作成するドキュメントがありません。")
+            # 索引ディレクトリが存在する場合はクリアする
+            index_path = Path(constants.ROOMS_DIR) / room_name / "rag_data" / "faiss_index"
+            if index_path.exists():
+                shutil.rmtree(str(index_path))
+            yield _get_knowledge_status(room_name), gr.update(interactive=True)
+            return
+
+        for file_path in files_to_process:
+            content = file_path.read_text(encoding="utf-8")
+            documents.append(Document(page_content=content, metadata={"source": str(file_path)}))
+
+        yield f"処理中: {len(documents)}個のドキュメントをチャンクに分割しています...", gr.update()
+
+        # 2. チャンク分割
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        splits = text_splitter.split_documents(documents)
+
+        yield f"処理中: {len(splits)}個のチャンクをベクトル化しています (この処理には時間がかかります)...", gr.update()
+
+        # 3. エンベディングとFAISSインデックス作成
+        embeddings = GoogleGenerativeAIEmbeddings(
+            model=constants.EMBEDDING_MODEL,
+            google_api_key=api_key,
+            task_type="retrieval_document" # ドキュメント埋め込み用のタスクタイプを指定
+        )
+
+        # FAISSは一度に100件までのエンベディングを推奨
+        batch_size = 100
+        db = None
+        for i in range(0, len(splits), batch_size):
+            batch_splits = splits[i:i+batch_size]
+            yield f"処理中: チャンク {i+1}〜{i+len(batch_splits)} / {len(splits)} をベクトル化中...", gr.update()
+            if db is None:
+                db = FAISS.from_documents(batch_splits, embeddings)
+            else:
+                db.add_documents(batch_splits)
+
+        yield "処理中: 作成した索引を保存しています...", gr.update()
+
+        # 4. 索引の保存
+        index_path = Path(constants.ROOMS_DIR) / room_name / "rag_data" / "faiss_index"
+        if index_path.exists():
+            shutil.rmtree(str(index_path))
+        index_path.mkdir(parents=True, exist_ok=True)
+
+        db.save_local(str(index_path))
+
+        gr.Info("✅ 知識ベースの索引作成が完了しました。")
+
+    except Exception as e:
+        error_msg = f"索引の作成中にエラーが発生しました: {e}"
+        gr.Error(error_msg)
+        print(f"--- [索引作成エラー] ---")
+        traceback.print_exc()
+        yield error_msg, gr.update(interactive=True)
+        return
+
+    yield _get_knowledge_status(room_name), gr.update(interactive=True)
+
+# ▲▲▲【追加はここまで】▲▲▲
