@@ -666,6 +666,15 @@ def handle_message_submission(
     file_input_list = multimodal_input.get("files", []) if multimodal_input else []
     user_prompt_from_textbox = textbox_content.strip() if textbox_content else ""
 
+    # --- [v9: 空送信ガード] ---
+    # テキスト入力がなく、かつファイルも添付されていない場合は、何もせずに終了する
+    if not user_prompt_from_textbox and not file_input_list:
+        # 戻り値の数は unified_streaming_outputs の要素数と一致させる必要がある (14個)
+        # 既存のUIの状態を維持するため、全て gr.update() を返す
+        yield (gr.update(),) * 14
+        return
+    # --- [ガードここまで] ---
+
     log_message_parts = []
     timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
 

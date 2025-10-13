@@ -31,7 +31,7 @@ LOGGING_CONFIG = {
 logging.config.dictConfig(LOGGING_CONFIG)
 # この一行が、他のライブラリによる設定の上書きを完全に禁止する
 logging.config.dictConfig = lambda *args, **kwargs: None
-print("--- [Nexus Ark] ロギング設定を完全に掌握しました ---")
+print("--- [Nexus Ark] アプリケーション固有のロギング設定を適用しました ---")
 # --- [ここまでが新しいブロック] ---
 
 
@@ -521,7 +521,7 @@ try:
                         chat_input_multimodal = gr.MultimodalTextbox(
                             file_types=["image", "audio", "video", "text", ".pdf", ".md", ".py", ".json", ".html", ".css", ".js"],
                             max_plain_text_length=100000,
-                            placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...",
+                            placeholder="メッセージを入力してください (Shift+Enterで送信)",
                             show_label=False,
                             lines=3,
                             interactive=True

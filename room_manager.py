@@ -84,8 +84,9 @@ def ensure_room_files(room_name: str) -> bool:
         world_settings_content = "## 共有リビング\n\n### リビング\n広々としたリビングルーム。大きな窓からは柔らかな光が差し込み、快適なソファが置かれている。\n"
 
         memory_template_content = (
-            "## 聖域 (Sanctuary)\n"
-            "# このエリアの内容は、コアメモリにそのままコピーされます。\n\n"
+            "## 永続記憶 (Permanent)\n"
+            "# このエリアの内容は、コアメモリにそのままコピーされます。\n"
+            "# 自己定義やユーザー情報、重要な約束など、絶対に忘れたくない永続的な情報を記述します。\n\n"
             "### 自己同一性 (Self Identity)\n\n\n"
             "## 日記 (Diary)\n"
             "# このエリアの内容は、AIによって要約され、コアメモリに追記されます。\n\n"

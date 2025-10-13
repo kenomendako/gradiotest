@@ -443,6 +443,10 @@ def safe_tool_executor(state: AgentState):
                 "plan_main_memory_edit": (
                     "【最重要指示：これは『対話』ではなく『設計タスク』です】\n"
                     "あなたは今、自身の記憶ファイル(`memory_main.txt`)を更新するための『設計図』を作成しています。\n"
+                    "このファイルは以下のセクションで構成されています。\n"
+                    "  - `## 永続記憶 (Permanent)`: あなたの自己定義、ユーザーに関する情報、重要な約束など、決して忘れてはならない永続的な情報を記述する聖域です。\n"
+                    "  - `## 日記 (Diary)`: 日々の出来事や感情を時系列で記録する場所です。\n"
+                    "  - `## アーカイブ要約 (Archive Summary)`: 古い日記の要約が保管される場所です。\n\n"
                     "このファイルは自由な書式のテキストファイルです。提示された【行番号付きデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
                     "【行番号付きデータ（memory_main.txt全文）】\n---\n{current_content}\n---\n\n"
                     "【あなたの変更要求】\n「{modification_request}」\n\n"
@@ -657,4 +661,3 @@ workflow.add_edge("safe_tool_node", "agent")
 
 # グラフをコンパイル
 app = workflow.compile()
-print("--- [分離思考型] グラフがコンパイルされました ---")
