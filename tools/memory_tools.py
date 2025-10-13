@@ -326,7 +326,7 @@ def _apply_secret_diary_edits(instructions, room_name):
 @tool
 def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
     """
-    現在の主観的記憶（memory_main.txt）を読み込み、## Sanctuary, ## Diary, ## Archive Summary を解析し、
+    現在の主観的記憶（memory_main.txt）を読み込み、## Permanent, ## Diary, ## Archive Summary を解析し、
     コアメモリ（core_memory.txt）を更新する。
     """
     if not room_name or not api_key:
@@ -343,9 +343,9 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
 
         sections = re.split(r'^##\s+', memory_content, flags=re.MULTILINE)
 
-        sanctuary_text = ""
+        permanent_text = "" # sanctuary_text から改名
         diary_text_to_summarize = ""
-        archive_summary_text = "" # <-- 新しく追加
+        archive_summary_text = ""
 
         for section in sections:
             section_content = section.strip()
@@ -353,11 +353,10 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
                 continue
 
             header_lower = section_content.lower()
-            if header_lower.startswith("聖域") or header_lower.startswith("sanctuary"):
-                sanctuary_text = '\n'.join(section.split('\n')[1:]).strip()
+            if "永続記憶" in header_lower or "permanent" in header_lower:
+                permanent_text = '\n'.join(section.split('\n')[1:]).strip()
             elif header_lower.startswith("日記") or header_lower.startswith("diary"):
                 diary_text_to_summarize = '\n'.join(section.split('\n')[1:]).strip()
-            # ▼▼▼ アーカイブ要約を抽出するロジックを追加 ▼▼▼
             elif "アーカイブ要約" in header_lower or "archive summary" in header_lower:
                 archive_summary_text = '\n'.join(section.split('\n')[1:]).strip()
 
@@ -393,9 +392,8 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         else:
             history_summary_text = "（日記に記載された、共有された歴史や感情の記録はまだありません）"
 
-        # ▼▼▼ 最終的なテキストの組み立て部分を修正 ▼▼▼
         final_core_memory_parts = [
-            f"--- [聖域 (Sanctuary) - 要約せずそのまま記載] ---\n{sanctuary_text}"
+            f"--- [永続記憶 (Permanent) - 要約せずそのまま記載] ---\n{permanent_text}"
         ]
 
         if history_summary_text:
@@ -405,7 +403,6 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
             final_core_memory_parts.append(f"--- [アーカイブ要約 (Archive Summary)] ---\n{archive_summary_text}")
 
         final_core_memory_text = "\n\n".join(final_core_memory_parts).strip()
-        # ▲▲▲ 修正ここまで ▲▲▲
 
         core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
         with open(core_memory_path, 'w', encoding='utf-8') as f:

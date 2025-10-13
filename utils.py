@@ -21,11 +21,11 @@ _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
 
 def acquire_lock() -> bool:
-    print("--- グローバル・ロックの取得を試みます ---")
+    print("--- アプリケーションの単一起動をチェックしています... ---")
     try:
         if not LOCK_FILE_PATH.exists():
             _create_lock_file()
-            print("--- ロックを取得しました (新規作成) ---")
+            print("--- ロックファイルを新規作成しました。起動処理を続行します。 ---")
             return True
         with open(LOCK_FILE_PATH, "r", encoding="utf-8") as f:
             lock_info = json.load(f)
@@ -48,7 +48,7 @@ def acquire_lock() -> bool:
             LOCK_FILE_PATH.unlink()
             time.sleep(0.5)
             _create_lock_file()
-            print("--- ロックを取得しました (自動クリーンアップ後) ---")
+            print("--- 古いロックファイルを削除し、新しいロックを作成しました。 ---")
             return True
     except (json.JSONDecodeError, IOError) as e:
         print(f"警告: ロックファイル '{LOCK_FILE_PATH}' が破損しているようです。エラー: {e}")
