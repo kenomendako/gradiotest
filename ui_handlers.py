@@ -3943,24 +3943,28 @@ def handle_attachment_tab_load(room_name: str) -> pd.DataFrame:
     
     return _get_attachments_df(room_name)
 
-def handle_delete_attachment(room_name: str, selected_index: Optional[int]):
-    """選択された添付ファイルを削除する。"""
+def handle_delete_attachment(
+    room_name: str,
+    selected_index: Optional[int],
+    current_active_paths: list  # type: ignore
+) -> tuple:
+    """選択された添付ファイルを削除し、アクティブリストも更新する。"""
     if not room_name:
         gr.Warning("ルームが選択されていません。")
-        return gr.update(), None
+        return gr.update(), None, current_active_paths, gr.update()
 
     if selected_index is None:
         gr.Warning("削除するファイルをリストから選択してください。")
-        return gr.update(), None
+        return gr.update(), None, current_active_paths, gr.update()
 
     latest_df = _get_attachments_df(room_name)
 
     if not (0 <= selected_index < len(latest_df)):
         gr.Error("選択されたファイルが見つかりません。リストを更新してください。")
-        return latest_df, None
-        
+        return latest_df, None, current_active_paths, gr.update()
+
     try:
-        # 添付日時でソートされているので、インデックスでファイル名を取得する
+        # 添付日時でソートされているので、インデックスでファイルパスを特定する
         sorted_files = sorted(
             [p for p in (Path(constants.ROOMS_DIR) / room_name / "attachments").iterdir() if p.is_file()],
             key=lambda p: p.stat().st_mtime,
@@ -3970,12 +3974,14 @@ def handle_delete_attachment(room_name: str, selected_index: Optional[int]):
 
         if file_to_delete_path.exists():
             display_name = '_'.join(file_to_delete_path.name.split('_')[1:]) or file_to_delete_path.name
-            os.remove(file_to_delete_path)
-            gr.Info(f"添付ファイル「{display_name}」を削除しました。")
+
             # アクティブリストからも削除する
             str_path = str(file_to_delete_path)
             if str_path in current_active_paths:
                 current_active_paths.remove(str_path)
+
+            os.remove(file_to_delete_path)
+            gr.Info(f"添付ファイル「{display_name}」を削除しました。")
         else:
             gr.Warning(f"削除しようとしたファイルが見つかりませんでした: {file_to_delete_path}")
 
@@ -3991,5 +3997,5 @@ def handle_delete_attachment(room_name: str, selected_index: Optional[int]):
         display_text = f"**現在アクティブ:** {', '.join(filenames)}"
 
     final_df = _get_attachments_df(room_name)
-    # 4つの値を返すように変更
+    # 4つの値を返す
     return final_df, None, current_active_paths, display_text
