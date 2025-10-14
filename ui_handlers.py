@@ -434,8 +434,9 @@ def _stream_and_handle_response(
     scenery_text_from_ui: str
 ) -> Iterator[Tuple]:
     """
-    【v9: 遅延解消・最終版】AIへのリクエスト送信とストリーミング応答処理、
-    そしてAPIリトライの全責務を担う、中核となる内部ジェネレータ関数。
+    【v14: 二幕構成ストリーミング・最終版】
+    AIへのリクエスト送信とストリーミング応答処理、そしてAPIリトライの全責務を担う。
+    ツール使用時の「第一幕（意気込み）」と「第二幕（最終報告）」を正しく分離して表示する。
     """
     from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InternalServerError
 
@@ -461,24 +462,16 @@ def _stream_and_handle_response(
         # 2. コンテキスト準備
         all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
         season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
-        
-        # ボトルネックだったAPI呼び出しを削除し、UIから渡されたテキストをそのまま使用
         shared_location_name = utils.get_current_location(soul_vessel_room)
-        shared_scenery_text = scenery_text_from_ui 
+        shared_scenery_text = scenery_text_from_ui
 
         # 3. AIごとの応答生成ループ
-        # ▼▼▼【ここから下のブロックを変更】▼▼▼
         for i, current_room in enumerate(all_rooms_in_scene):
-            # 2番目以降のAIの応答の前に、新しいバブルを追加する
             if i > 0:
                 chatbot_history.append((None, "▌"))
-                # ストリーミング中のUI表示の整合性を保つため、マッピングリストにもダミーの値を追加
-                if mapping_list:
-                    mapping_list.append(mapping_list[-1])
-                else:
-                    mapping_list.append(0) # 万が一空だった場合のフォールバック
+                if mapping_list: mapping_list.append(mapping_list[-1])
+                else: mapping_list.append(0)
 
-            # --- ステータス更新: 「思考中」メッセージで最後のバブルを上書き ---
             chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
             yield (chatbot_history, mapping_list, *([gr.update()] * 12))
 
@@ -492,51 +485,29 @@ def _stream_and_handle_response(
                 "shared_scenery_text": shared_scenery_text, "season_en": season_en, "time_of_day_en": time_of_day_en
             }
 
+            # --- [v14: 二幕構成ストリーミング・アーキテクチャ] ---
             streamed_text = ""
             final_state = None
             initial_message_count = 0
-            typewriter_enabled = enable_typewriter_effect
-            
+
             max_retries = 5
             base_delay = 5
             for attempt in range(max_retries):
                 try:
                     with utils.capture_prints() as captured_output:
-                        is_new_response_stream = True 
-
                         for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                             if mode == "initial_count":
                                 initial_message_count = chunk
-                            elif mode == "messages":
-                                message_chunk, _ = chunk
-                                if isinstance(message_chunk, AIMessageChunk):
-                                    new_text_chunk = message_chunk.content
-
-                                    if is_new_response_stream and new_text_chunk:
-                                        streamed_text = "" 
-                                        is_new_response_stream = False
-
-                                    if typewriter_enabled and streaming_speed > 0:
-                                        for char in new_text_chunk:
-                                            streamed_text += char
-                                            chatbot_history[-1] = (None, streamed_text + "▌")
-                                            yield (chatbot_history, mapping_list, *([gr.update()] * 12))
-                                            time.sleep(streaming_speed)
-                                    else:
-                                        streamed_text += new_text_chunk
-                                        chatbot_history[-1] = (None, streamed_text + "▌")
-                                        yield (chatbot_history, mapping_list, *([gr.update()] * 12))
                             elif mode == "values":
                                 final_state = chunk
-                    
-                    current_console_content += captured_output.getvalue()
-                    break 
 
+                    current_console_content += captured_output.getvalue()
+                    break
                 except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
                     error_str = str(e)
                     if "PerDay" in error_str or "Daily" in error_str:
                         final_error_message = "[エラー] APIの1日あたりの利用上限に達したため、本日の応答はこれ以上生成できません。"
-                        break 
+                        break
 
                     wait_time = base_delay * (2 ** attempt)
                     match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
@@ -550,44 +521,70 @@ def _stream_and_handle_response(
                         chatbot_history[-1] = (None, retry_message)
                         yield (chatbot_history, mapping_list, *([gr.update()] * 12))
                         time.sleep(wait_time)
-                        
+
                         chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
                         yield (chatbot_history, mapping_list, *([gr.update()] * 12))
                     else:
                         final_error_message = f"[エラー] APIのレート制限が頻発しています。時間をおいて再試行してください。"
-                        break 
-                
+                        break
                 except Exception as e:
                     print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
                     traceback.print_exc()
                     final_error_message = f"[エラー] 内部処理で問題が発生しました。詳細はターミナルを確認してください。"
                     break
-            
-            if final_error_message:
-                break 
 
+            if final_error_message:
+                break
+
+            # --- 応答の解析とログ記録 ---
+            has_tool_calls_in_turn = False
             if final_state:
                 new_messages = final_state["messages"][initial_message_count:]
+                last_ai_message = next((msg for msg in reversed(new_messages) if isinstance(msg, AIMessage)), None)
+                has_tool_calls_in_turn = bool(last_ai_message and last_ai_message.tool_calls)
+
+                # 全てのAIメッセージをログに記録
                 for msg in new_messages:
                     if isinstance(msg, AIMessage):
                         response_content = msg.content
                         if response_content and response_content.strip():
                             for participant_room in all_rooms_in_scene:
-                                participant_log_f, _, _, _, _ = get_room_files_paths(participant_room)
-                                if participant_log_f:
-                                    utils.save_message_to_log(participant_log_f, f"## AGENT:{current_room}", response_content)
+                                log_f, _, _, _, _ = get_room_files_paths(participant_room)
+                                if log_f:
+                                    utils.save_message_to_log(log_f, f"## AGENT:{current_room}", response_content)
                     elif isinstance(msg, ToolMessage):
                         popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                         if popup_text: all_turn_popups.append(popup_text)
 
-            # ▼▼▼【ここから下のブロックを変更】▼▼▼
+                # --- 表示処理 ---
+                # "第一幕の意気込み" または "最終応答" を取得
+                text_to_display = ""
+                if has_tool_calls_in_turn:
+                    text_to_display = last_ai_message.content if last_ai_message else ""
+                else:
+                    all_ai_contents = [msg.content for msg in new_messages if isinstance(msg, AIMessage) and msg.content and isinstance(msg.content, str)]
+                    text_to_display = "\n\n".join(all_ai_contents)
+
+                # 取得したテキストをストリーミング表示
+                if text_to_display and text_to_display.strip():
+                    if enable_typewriter_effect and streaming_speed > 0:
+                        for char in text_to_display:
+                            streamed_text += char
+                            chatbot_history[-1] = (None, streamed_text + "▌")
+                            yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                            time.sleep(streaming_speed)
+                    else:
+                        streamed_text = text_to_display
+                        chatbot_history[-1] = (None, streamed_text + "▌")
+                        yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+
+            # --- 後処理 ---
             if streamed_text:
                 chatbot_history[-1] = (None, streamed_text)
             elif not final_error_message:
-                # 応答がなかったので、このターンのために追加したプレースホルダバブルを削除する
                 chatbot_history.pop()
                 if mapping_list: mapping_list.pop()
-            # ▲▲▲【変更ここまで】▲▲▲
+        # ▲▲▲【書き換えはここまで】▲▲▲
 
 
         if final_error_message:
