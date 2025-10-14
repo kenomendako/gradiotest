@@ -432,6 +432,7 @@ def _stream_and_handle_response(
     debug_mode: bool,
     soul_vessel_room: str,
     active_participants: List[str],
+    active_attachments: List[str],
     current_console_content: str,
     enable_typewriter_effect: bool,
     streaming_speed: float,
@@ -486,6 +487,7 @@ def _stream_and_handle_response(
                 "debug_mode": debug_mode, "history_log_path": main_log_f,
                 "user_prompt_parts": final_user_prompt_parts, "soul_vessel_room": soul_vessel_room,
                 "active_participants": active_participants, "shared_location_name": shared_location_name,
+                "active_attachments": active_attachments,
                 "shared_scenery_text": shared_scenery_text, "season_en": season_en, "time_of_day_en": time_of_day_en
             }
 
@@ -656,7 +658,8 @@ def _stream_and_handle_response(
 def handle_message_submission(
     multimodal_input: dict, soul_vessel_room: str, api_key_name: str,
     api_history_limit: str, debug_mode: bool,
-    console_content: str, active_participants: list, global_model: str,
+    console_content: str, active_participants: list, active_attachments: list,
+    global_model: str,
     enable_typewriter_effect: bool, streaming_speed: float,
     scenery_text_from_ui: str
 ):
@@ -812,6 +815,7 @@ def handle_message_submission(
         debug_mode=debug_mode,
         soul_vessel_room=soul_vessel_room,
         active_participants=active_participants or [],
+        active_attachments=active_attachments or [],
         current_console_content=console_content,
         enable_typewriter_effect=enable_typewriter_effect,
         streaming_speed=streaming_speed,
@@ -821,8 +825,9 @@ def handle_message_submission(
 def handle_rerun_button_click(
     selected_message: Optional[Dict], room_name: str, api_key_name: str,
     api_history_limit: str, debug_mode: bool,
-    console_content: str, active_participants: list, global_model: str,
-    enable_typewriter_effect: bool, streaming_speed: float, # ← 2つの引数を追加
+    console_content: str, active_participants: list, active_attachments: list, # ← active_attachments を追加
+    global_model: str,
+    enable_typewriter_effect: bool, streaming_speed: float,
     scenery_text_from_ui: str
 ):
     """
@@ -874,6 +879,7 @@ def handle_rerun_button_click(
         debug_mode=debug_mode,
         soul_vessel_room=room_name,
         active_participants=active_participants or [],
+        active_attachments=active_attachments or [],
         current_console_content=console_content,
         enable_typewriter_effect=enable_typewriter_effect, # ← この行を追加
         streaming_speed=streaming_speed,                   # ← この行を追加

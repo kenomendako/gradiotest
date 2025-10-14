@@ -15,6 +15,8 @@ import google.api_core.exceptions
 import filetype
 import httpx
 import time
+from pathlib import Path
+
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InternalServerError
 import re
 import google.genai.errors
@@ -157,6 +159,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     user_prompt_parts = agent_args["user_prompt_parts"]
     soul_vessel_room = agent_args["soul_vessel_room"]
     active_participants = agent_args["active_participants"]
+    active_attachments = agent_args["active_attachments"]
     shared_location_name = agent_args["shared_location_name"]
     shared_scenery_text = agent_args["shared_scenery_text"]
     season_en = agent_args["season_en"]
@@ -208,10 +211,63 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     # テキストのみの不完全なバージョンである。
     # これを一度リストから削除し、UIハンドラから渡された、画像データを含む
     # 完全な`user_prompt_parts`で置き換える。
+    # 1. ログから読み込んだ不完全な最新ユーザーメッセージを一旦削除
     if messages and isinstance(messages[-1], HumanMessage):
-        messages.pop() # 最後の不完全なメッセージを削除
+        messages.pop()
+    
+    # 2. アクティブな添付ファイルの情報をプロンプトパーツとして構築
+    final_prompt_parts = []
+    if active_attachments:
+        # 時系列計算のために、最新の完全なログを読み込む
+        full_raw_history = utils.load_chat_log(responding_ai_log_f)
+        total_messages = len(full_raw_history)
+        
+        header_added = False
+        for file_path_str in active_attachments:
+            try:
+                # ターン差を計算
+                turn_diff = 0
+                for i in range(total_messages - 1, -1, -1):
+                    if file_path_str in full_raw_history[i].get('content', ''):
+                        # メッセージ数での差を計算し、2で割ってターン数に近似
+                        turn_diff = (total_messages - 1 - i) // 2
+                        break
+                
+                if not header_added:
+                    final_prompt_parts.append({"type": "text", "text": "【現在アクティブな添付ファイルリスト】\n"})
+                    header_added = True
+
+                file_path = Path(file_path_str)
+                display_name = '_'.join(file_path.name.split('_')[1:]) or file_path.name
+                turn_text = "このターンで添付" if turn_diff == 0 else f"{turn_diff}ターン前に添付"
+                
+                final_prompt_parts.append({"type": "text", "text": f"- [{display_name} ({turn_text})]"})
+
+                # ファイルの中身を判定して追加
+                kind = filetype.guess(file_path_str)
+                if kind and kind.mime.startswith('image/'):
+                    with open(file_path_str, "rb") as f:
+                        encoded_string = base64.b64encode(f.read()).decode("utf-8")
+                    final_prompt_parts.append({
+                        "type": "image_url", "image_url": {"url": f"data:{kind.mime};base64,{encoded_string}"}
+                    })
+                else: # 画像以外はテキストとして扱う
+                    content = file_path.read_text(encoding='utf-8', errors='ignore')
+                    final_prompt_parts.append({"type": "text", "text": f"---\n{content}\n---"})
+
+            except Exception as e:
+                print(f"--- [プロンプト注入エラー] 添付ファイルの処理中にエラー: {e} ---")
+        
+        if header_added:
+             final_prompt_parts.append({"type": "text", "text": "\n（ここから下のメッセージ本文）\n---\n"})
+
+    # 3. ユーザーの現在の入力を追加
     if user_prompt_parts:
-        messages.append(HumanMessage(content=user_prompt_parts))
+        final_prompt_parts.extend(user_prompt_parts)
+
+    # 4. 最終的なプロンプトパーツでメッセージリストを更新
+    if final_prompt_parts:
+        messages.append(HumanMessage(content=final_prompt_parts))
     # ▲▲▲【追加・修正はここまで】▲▲▲
 
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0

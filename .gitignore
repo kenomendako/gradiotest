@@ -18,11 +18,11 @@ __pycache__/
 # これらのファイルは個人の環境に依存するため、リポジトリに含めません。
 config.json
 alarms.json
+redaction_rules.json
 
 # Character Data (All character-specific files are ignored)
 # キャラクターの全データ（ログ、設定、画像、キャッシュ等）はリポジトリに含めません。
 /characters/
-/assets/sample_persona/
 
 # Application Generated Caches & Logs
 # アプリケーションが実行時に自動生成する一時ファイルやログ。
@@ -42,3 +42,6 @@ retry_success.log
 jules-scratch/
 *_backup.py
 *.bak
+
+pipインストール.bat
+仮想環境.bat
