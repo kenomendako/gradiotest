@@ -485,6 +485,9 @@ try:
                                         "過去に添付したファイルの一覧です。\n\n"
                                         "**⚠️注意:** ここでファイルを削除すると、チャット履歴の画像表示なども含めて、ファイルへのすべての参照が失われます。"
                                     )
+                                    active_attachments_display = gr.Markdown("現在アクティブな添付ファイルはありません。")
+                                    gr.Markdown("---") # 区切り線
+
                                     attachments_df = gr.Dataframe(
                                         headers=["ファイル名", "種類", "サイズ(KB)", "添付日時"],
                                         datatype=["str", "str", "str", "str"],
@@ -816,7 +819,8 @@ try:
             fixed_season_dropdown,
             fixed_time_of_day_dropdown,
             fixed_time_controls,
-            attachments_df 
+            attachments_df,
+            active_attachments_display 
         ]
 
         demo.load(
@@ -1378,16 +1382,16 @@ try:
         )
 
         attachments_df.select(
-            fn=ui_handlers.handle_row_selection,  # 汎用ハンドラ
-            inputs=[attachments_df],              # ★ Gradio契約: 自分自身をinputsに
-            outputs=[selected_attachment_index_state],
+            fn=ui_handlers.handle_attachment_selection, 
+            inputs=[current_room_name, attachments_df, active_attachments_state], 
+            outputs=[active_attachments_state, active_attachments_display, selected_attachment_index_state], 
             show_progress=False
         )
 
         delete_attachment_button.click(
             fn=ui_handlers.handle_delete_attachment,
-            inputs=[current_room_name, selected_attachment_index_state],
-            outputs=[attachments_df, selected_attachment_index_state]
+            inputs=[current_room_name, selected_attachment_index_state, active_attachments_state], 
+            outputs=[attachments_df, selected_attachment_index_state, active_attachments_state, active_attachments_display] 
         )
 
         # --- ChatGPT Importer Event Handlers ---

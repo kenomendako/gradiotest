@@ -2647,11 +2647,13 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
     )
 
     ui_attachments_df = _get_attachments_df(room_name)
+    initial_active_attachments_display = "現在アクティブな添付ファイルはありません。"
 
     # 責務3: 全てのUI更新値と、トークン数の計算結果、そして新しいルーム名をStateに返す
     return (
         *all_ui_updates,
         ui_attachments_df,
+        initial_active_attachments_display, # ← この行を追加
         token_count_text,
         room_name
     )
@@ -3888,6 +3890,52 @@ def _get_attachments_df(room_name: str) -> pd.DataFrame:
     df = df.sort_values(by="添付日時", ascending=False)
     return df
 
+def handle_attachment_selection(
+    room_name: str,
+    df: pd.DataFrame,
+    current_active_paths: list,
+    evt: "gr.SelectData"
+) -> tuple:
+    """
+    DataFrameの行が選択されたときに、アクティブな添付ファイルのリストを更新するハンドラ。
+
+    Returns:
+        (updated_active_paths, active_display_text, selected_row_index)
+    """
+    if evt.index is None:
+        # 選択が解除された場合、何も変更しない
+        return current_active_paths, gr.update(), None
+
+    selected_index = evt.index[0]
+    try:
+        # 添付日時でソートされているので、インデックスでファイルパスを特定できる
+        sorted_files = sorted(
+            [p for p in (Path(constants.ROOMS_DIR) / room_name / "attachments").iterdir() if p.is_file()],
+            key=lambda p: p.stat().st_mtime,
+            reverse=True
+        )
+        selected_file_path = str(sorted_files[selected_index])
+    except (IndexError, Exception) as e:
+        gr.Warning("選択されたファイルの特定に失敗しました。")
+        print(f"Error identifying selected attachment: {e}")
+        return current_active_paths, gr.update(), selected_index
+
+    # アクティブリストを更新
+    if selected_file_path in current_active_paths:
+        current_active_paths = [p for p in current_active_paths if p != selected_file_path]  # 既にアクティブなら解除
+    else:
+        current_active_paths = current_active_paths + [selected_file_path]  # アクティブでなければ追加
+
+    # UI表示用のテキストを生成
+    if not current_active_paths:
+        display_text = "現在アクティブな添付ファイルはありません。"
+    else:
+        filenames = [Path(p).name for p in current_active_paths]
+        display_text = f"**現在アクティブ:** {', '.join(filenames)}"
+
+    return current_active_paths, display_text, selected_index
+
+
 def handle_attachment_tab_load(room_name: str) -> pd.DataFrame:
     """「添付ファイル」タブが選択されたときにファイルリストを読み込んで表示する。"""
     if not room_name:
@@ -3924,6 +3972,10 @@ def handle_delete_attachment(room_name: str, selected_index: Optional[int]):
             display_name = '_'.join(file_to_delete_path.name.split('_')[1:]) or file_to_delete_path.name
             os.remove(file_to_delete_path)
             gr.Info(f"添付ファイル「{display_name}」を削除しました。")
+            # アクティブリストからも削除する
+            str_path = str(file_to_delete_path)
+            if str_path in current_active_paths:
+                current_active_paths.remove(str_path)
         else:
             gr.Warning(f"削除しようとしたファイルが見つかりませんでした: {file_to_delete_path}")
 
@@ -3931,5 +3983,13 @@ def handle_delete_attachment(room_name: str, selected_index: Optional[int]):
         gr.Error(f"ファイルの削除中にエラーが発生しました: {e}")
         traceback.print_exc()
 
+    # UI表示用のテキストを再生成
+    if not current_active_paths:
+        display_text = "現在アクティブな添付ファイルはありません。"
+    else:
+        filenames = [Path(p).name for p in current_active_paths]
+        display_text = f"**現在アクティブ:** {', '.join(filenames)}"
+
     final_df = _get_attachments_df(room_name)
-    return final_df, None
+    # 4つの値を返すように変更
+    return final_df, None, current_active_paths, display_text
