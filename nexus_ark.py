@@ -250,6 +250,8 @@ try:
         archivist_pid_state = gr.State(None) # 記憶アーキビストのプロセスIDを保持
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
+        active_attachments_state = gr.State([]) # アクティブな添付ファイルパスのリストを保持
+        selected_attachment_index_state = gr.State(None) # Dataframeで選択された行のインデックスを保持
         redaction_rule_color_state = gr.State("#62827e")
         imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
         selected_knowledge_file_index_state = gr.State(None)
@@ -478,6 +480,20 @@ try:
                                     gr.Markdown("⚠️ **注意:** この操作はログファイルを直接上書きするため、元に戻せません。処理の前に、ログファイルのバックアップが自動的に作成されます。")
                                     correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
                                     correction_confirmed_state = gr.Textbox(visible=False)
+                                with gr.TabItem("添付ファイル") as attachment_tab:
+                                    gr.Markdown(
+                                        "過去に添付したファイルの一覧です。\n\n"
+                                        "**⚠️注意:** ここでファイルを削除すると、チャット履歴の画像表示なども含めて、ファイルへのすべての参照が失われます。"
+                                    )
+                                    attachments_df = gr.Dataframe(
+                                        headers=["ファイル名", "種類", "サイズ(KB)", "添付日時"],
+                                        datatype=["str", "str", "str", "str"],
+                                        row_count=(5, "dynamic"),
+                                        col_count=(4, "fixed"),
+                                        interactive=True,  # 行選択を有効にする
+                                        wrap=True
+                                    )
+                                    delete_attachment_button = gr.Button("選択したファイルを削除", variant="stop")
 
                         gr.Markdown(f"Nexus Ark {constants.APP_VERSION} (Beta)", elem_id="app_version_display")
 
@@ -799,7 +815,8 @@ try:
             time_mode_radio,
             fixed_season_dropdown,
             fixed_time_of_day_dropdown,
-            fixed_time_controls
+            fixed_time_controls,
+            attachments_df 
         ]
 
         demo.load(
@@ -1353,6 +1370,25 @@ try:
             fn=lambda: ("", ""),
             outputs=[debug_console_state, debug_console_output]
         )
+        # --- Attachment Management Event Handlers ---
+        attachment_tab.select(
+            fn=ui_handlers.handle_attachment_tab_load,
+            inputs=[current_room_name],
+            outputs=[attachments_df]
+        )
+
+        attachments_df.select(
+            fn=ui_handlers.handle_row_selection,  # 汎用ハンドラ
+            inputs=[attachments_df],              # ★ Gradio契約: 自分自身をinputsに
+            outputs=[selected_attachment_index_state],
+            show_progress=False
+        )
+
+        delete_attachment_button.click(
+            fn=ui_handlers.handle_delete_attachment,
+            inputs=[current_room_name, selected_attachment_index_state],
+            outputs=[attachments_df, selected_attachment_index_state]
+        )
 
         # --- ChatGPT Importer Event Handlers ---
         chatgpt_import_file.upload(
@@ -1366,6 +1402,7 @@ try:
             inputs=[chatgpt_thread_choices_state],
             outputs=[chatgpt_room_name_textbox]
         )
+
 
         chatgpt_import_button.click(
             fn=ui_handlers.handle_chatgpt_import_button_click,

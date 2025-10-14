@@ -228,11 +228,12 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
 
     # 戻り値の総数: 36 + 3 + 3 + 1 + 1 + 4 = 48個 -> 49個
     return (
-        chat_tab_updates +
-        world_builder_updates +
-        session_management_updates +
-        (rules_df_for_ui, archive_date_dropdown_update) +
-        time_settings_updates
+        *chat_tab_updates,
+        *world_builder_updates,
+        *session_management_updates,
+        rules_df_for_ui,
+        archive_date_dropdown_update,
+        *time_settings_updates
     )
 
 
@@ -2645,8 +2646,15 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
         send_core_memory=send_core_memory_val, send_scenery=send_scenery_val
     )
 
+    ui_attachments_df = _get_attachments_df(room_name)
+
     # 責務3: 全てのUI更新値と、トークン数の計算結果、そして新しいルーム名をStateに返す
-    return all_ui_updates + (token_count_text, room_name)
+    return (
+        *all_ui_updates,
+        ui_attachments_df,
+        token_count_text,
+        room_name
+    )
 
 def handle_start_session(main_room: str, participant_list: list) -> tuple:
     if not participant_list:
@@ -3842,4 +3850,86 @@ def handle_knowledge_reindex(room_name: str, api_key_name: str):
 
     yield _get_knowledge_status(room_name), gr.update(interactive=True)
 
-# ▲▲▲【追加はここまで】▲▲▲
+def handle_row_selection(df: pd.DataFrame, evt: gr.SelectData) -> Optional[int]:
+    """【教訓21】DataFrameの行選択イベントを処理し、選択された行のインデックスを返す汎用ハンドラ。"""
+    return evt.index[0] if evt.index else None
+
+# --- Attachment Management Handlers ---
+
+def _get_attachments_df(room_name: str) -> pd.DataFrame:
+    """指定されたルームのattachmentsフォルダをスキャンし、UI表示用のDataFrameを作成する。"""
+    attachments_dir = Path(constants.ROOMS_DIR) / room_name / "attachments"
+    attachments_dir.mkdir(parents=True, exist_ok=True)
+
+    files_info = []
+    for file_path in attachments_dir.iterdir():
+        if file_path.is_file():
+            try:
+                stat = file_path.stat()
+                kind = filetype.guess(str(file_path))
+                file_type = kind.mime if kind else "不明"
+                
+                parts = file_path.name.split('_', 1)
+                display_name = parts[1] if len(parts) > 1 else file_path.name
+                
+                files_info.append({
+                    "ファイル名": display_name,
+                    "種類": file_type,
+                    "サイズ(KB)": f"{stat.st_size / 1024:.2f}",
+                    "添付日時": datetime.datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
+                })
+            except Exception as e:
+                print(f"添付ファイルのスキャン中にエラー: {e}")
+
+    if not files_info:
+        return pd.DataFrame(columns=["ファイル名", "種類", "サイズ(KB)", "添付日時"])
+
+    df = pd.DataFrame(files_info)
+    df = df.sort_values(by="添付日時", ascending=False)
+    return df
+
+def handle_attachment_tab_load(room_name: str) -> pd.DataFrame:
+    """「添付ファイル」タブが選択されたときにファイルリストを読み込んで表示する。"""
+    if not room_name:
+        return pd.DataFrame(columns=["ファイル名", "種類", "サイズ(KB)", "添付日時"])
+    
+    return _get_attachments_df(room_name)
+
+def handle_delete_attachment(room_name: str, selected_index: Optional[int]):
+    """選択された添付ファイルを削除する。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(), None
+
+    if selected_index is None:
+        gr.Warning("削除するファイルをリストから選択してください。")
+        return gr.update(), None
+
+    latest_df = _get_attachments_df(room_name)
+
+    if not (0 <= selected_index < len(latest_df)):
+        gr.Error("選択されたファイルが見つかりません。リストを更新してください。")
+        return latest_df, None
+        
+    try:
+        # 添付日時でソートされているので、インデックスでファイル名を取得する
+        sorted_files = sorted(
+            [p for p in (Path(constants.ROOMS_DIR) / room_name / "attachments").iterdir() if p.is_file()],
+            key=lambda p: p.stat().st_mtime,
+            reverse=True
+        )
+        file_to_delete_path = sorted_files[selected_index]
+
+        if file_to_delete_path.exists():
+            display_name = '_'.join(file_to_delete_path.name.split('_')[1:]) or file_to_delete_path.name
+            os.remove(file_to_delete_path)
+            gr.Info(f"添付ファイル「{display_name}」を削除しました。")
+        else:
+            gr.Warning(f"削除しようとしたファイルが見つかりませんでした: {file_to_delete_path}")
+
+    except (IndexError, KeyError, Exception) as e:
+        gr.Error(f"ファイルの削除中にエラーが発生しました: {e}")
+        traceback.print_exc()
+
+    final_df = _get_attachments_df(room_name)
+    return final_df, None
