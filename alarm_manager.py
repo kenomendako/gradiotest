@@ -145,6 +145,7 @@ def trigger_alarm(alarm_config, current_api_key_name):
         "user_prompt_parts": [{"type": "text", "text": synthesized_user_message}],
         "soul_vessel_room": room_name,
         "active_participants": [],
+        "active_attachments": [], # ← この行を追加
         "shared_location_name": location_name,
         "shared_scenery_text": scenery_text,
         "use_common_prompt": False, # ← 思考をシンプルにするため、ツールプロンプトを無効化
