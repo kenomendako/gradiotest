@@ -1149,18 +1149,27 @@ try:
                 streaming_speed_slider,
             ] + [
                 # ▼▼▼ context_checkboxes に合わせて inputs を修正 ▼▼▼
-                room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
+                room_add_timestamp_checkbox, room_send_current_time_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
                 room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
                 enable_scenery_system_checkbox, # 新しいマスタースイッチを渡す
                 auto_memory_enabled_checkbox
-                # ▲▲▲ 修正ここまで ▲▲▲
             ],
             outputs=None
         )
-        room_preview_voice_button.click(fn=ui_handlers.handle_voice_preview, inputs=[current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], outputs=[audio_player, play_audio_button, room_preview_voice_button])
+        preview_event = room_preview_voice_button.click(
+            fn=ui_handlers.handle_voice_preview, 
+            inputs=[current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], 
+            outputs=[audio_player, play_audio_button, room_preview_voice_button]
+        )
+        preview_event.failure(
+            fn=ui_handlers._reset_preview_on_failure, 
+            inputs=None, 
+            outputs=[audio_player, play_audio_button, room_preview_voice_button]
+        )
         for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         # streaming_speed_slider.change(fn=ui_handlers.handle_streaming_speed_change, inputs=[streaming_speed_slider], outputs=None)
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
+        
         api_key_dropdown.change(
             fn=ui_handlers.update_api_key_state,
             inputs=[api_key_dropdown],
@@ -1691,7 +1700,13 @@ try:
             inputs=[current_room_name, current_api_key_name_state],
             outputs=[knowledge_status_output, knowledge_reindex_button]
         )
-        # ▲▲▲【追加はここまで】▲▲▲
+
+        play_audio_event = play_audio_button.click(
+            fn=ui_handlers.handle_play_audio_button_click,
+            inputs=[selected_message_state, current_room_name, api_key_dropdown],
+            outputs=[audio_player, play_audio_button, rerun_button]
+        )
+        play_audio_event.failure(fn=ui_handlers._reset_play_audio_on_failure, inputs=None, outputs=[audio_player, play_audio_button, rerun_button])
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."])

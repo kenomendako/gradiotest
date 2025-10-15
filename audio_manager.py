@@ -7,6 +7,9 @@ import google.genai as genai
 from google.genai import types
 import traceback
 import wave
+from google.api_core import exceptions as google_exceptions
+import google.genai.errors
+import time
 
 # この変数はもう使わないのでコメントアウトまたは削除
 # AUDIO_CACHE_DIR = os.path.join("temp", "audio_cache")
@@ -90,7 +93,24 @@ def generate_audio_from_text(text: str, api_key: str, voice_id: str, room_name: 
         print(f"  - 音声ファイル(WAV)を生成しました: {filepath}")
         return filepath
 
+    except google.genai.errors.ClientError as e:
+        # ClientErrorの内容を精査し、より具体的なエラーメッセージを返す
+        if "RESOURCE_EXHAUSTED" in str(e):
+            error_message = "【エラー】音声生成APIの利用上限に達しました。しばらく待ってから再試行してください。"
+            print(f"--- {error_message} 詳細: {e} ---")
+            return error_message
+        else:
+            error_message = "【エラー】APIリクエストが無効です。プロンプトが不適切だった可能性があります。"
+            print(f"--- {error_message} 詳細: {e} ---")
+            return error_message
+    except google.genai.errors.ServerError as e:
+        # 5xx系のサーバーエラーを捕捉
+        error_message = "【エラー】APIサーバー側で内部エラーが発生しました。一時的な問題の可能性があります。"
+        print(f"--- {error_message} 詳細: {e} ---")
+        return error_message
     except Exception as e:
-        print(f"--- 音声生成中に予期せぬエラーが発生しました: {e} ---")
+        # その他の予期せぬエラーを捕捉
+        error_message = "【エラー】音声生成中に予期せぬエラーが発生しました。"
+        print(f"--- {error_message} 詳細: {e} ---")
         traceback.print_exc()
-        return None
+        return error_message  
