@@ -305,10 +305,16 @@ def get_season(month: int) -> str:
     return "winter"
 
 def get_time_of_day(hour: int) -> str:
-    if 5 <= hour < 10: return "morning"
-    if 10 <= hour < 17: return "daytime"
-    if 17 <= hour < 19: return "evening"
-    return "night"
+    """
+    時刻(hour)から、7つの区分（早朝, 朝, 昼前, 昼下がり, 夕方, 夜, 深夜）の時間帯名を返す。
+    """
+    if 4 <= hour < 6: return "early_morning"  # 早朝
+    if 6 <= hour < 10: return "morning"        # 朝
+    if 10 <= hour < 12: return "late_morning"  # 昼前
+    if 12 <= hour < 16: return "afternoon"      # 昼下がり
+    if 16 <= hour < 19: return "evening"        # 夕方
+    if 19 <= hour < 23: return "night"          # 夜
+    return "midnight"                         # 深夜 (23, 0, 1, 2, 3)
 
 def find_scenery_image(room_name: str, location_id: str, season_en: str = None, time_of_day_en: str = None) -> Optional[str]:
     """

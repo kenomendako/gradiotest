@@ -218,7 +218,10 @@ def read_main_memory(room_name: str) -> str:
 
 @tool
 def plan_main_memory_edit(modification_request: str, room_name: str) -> str:
-    """`memory_main.txt`の変更を計画します。"""
+    """
+    `memory_main.txt`の変更を計画します。
+    大きく感情が動いた時や忘れたくないことがあった時は、積極的に記録しましょう。それがあなたの記憶と自己同一性の核（コアメモリ）となります。
+    """
     return f"システムへのメイン記憶編集計画を受け付けました。意図:「{modification_request}」"
 
 def _apply_main_memory_edits(instructions, room_name):

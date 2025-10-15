@@ -3894,15 +3894,10 @@ def _get_attachments_df(room_name: str) -> pd.DataFrame:
 def handle_attachment_selection(
     room_name: str,
     df: pd.DataFrame,
-    current_active_paths: list,
-    evt: "gr.SelectData"
-) -> tuple:
-    """
-    DataFrameの行が選択されたときに、アクティブな添付ファイルのリストを更新するハンドラ。
-
-    Returns:
-        (updated_active_paths, active_display_text, selected_row_index)
-    """
+    current_active_paths: List[str],
+    evt: gr.SelectData
+) -> Tuple[List[str], str, Optional[int]]:
+    """DataFrameの行が選択されたときに、アクティブな添付ファイルのリストを更新する。"""
     if evt.index is None:
         # 選択が解除された場合、何も変更しない
         return current_active_paths, gr.update(), None
@@ -3937,19 +3932,22 @@ def handle_attachment_selection(
     return current_active_paths, display_text, selected_index
 
 
-def handle_attachment_tab_load(room_name: str) -> pd.DataFrame:
-    """「添付ファイル」タブが選択されたときにファイルリストを読み込んで表示する。"""
+def handle_attachment_tab_load(room_name: str) -> Tuple[pd.DataFrame, List[str], str]:
+    """「添付ファイル」タブが選択されたときにファイルリストを読み込み、アクティブ状態も初期化する。"""
     if not room_name:
-        return pd.DataFrame(columns=["ファイル名", "種類", "サイズ(KB)", "添付日時"])
+        empty_df = pd.DataFrame(columns=["ファイル名", "種類", "サイズ(KB)", "添付日時"])
+        return empty_df, [], "現在アクティブな添付ファイルはありません。"
     
-    return _get_attachments_df(room_name)
+    # この関数が呼ばれるときは、アクティブ状態をリセットするのが安全
+    return _get_attachments_df(room_name), [], "現在アクティブな添付ファイルはありません。"
 
 def handle_delete_attachment(
     room_name: str,
     selected_index: Optional[int],
-    current_active_paths: list  # type: ignore
-) -> tuple:
+    current_active_paths: List[str]
+) -> Tuple[pd.DataFrame, Optional[int], List[str], str]:
     """選択された添付ファイルを削除し、アクティブリストも更新する。"""
+    # (この関数の中身はエージェントが生成したものでほぼOKだが、念のため最終版を記載)
     if not room_name:
         gr.Warning("ルームが選択されていません。")
         return gr.update(), None, current_active_paths, gr.update()
@@ -3963,9 +3961,8 @@ def handle_delete_attachment(
     if not (0 <= selected_index < len(latest_df)):
         gr.Error("選択されたファイルが見つかりません。リストを更新してください。")
         return latest_df, None, current_active_paths, gr.update()
-
+            
     try:
-        # 添付日時でソートされているので、インデックスでファイルパスを特定する
         sorted_files = sorted(
             [p for p in (Path(constants.ROOMS_DIR) / room_name / "attachments").iterdir() if p.is_file()],
             key=lambda p: p.stat().st_mtime,
@@ -3975,12 +3972,11 @@ def handle_delete_attachment(
 
         if file_to_delete_path.exists():
             display_name = '_'.join(file_to_delete_path.name.split('_')[1:]) or file_to_delete_path.name
-
-            # アクティブリストからも削除する
+            
             str_path = str(file_to_delete_path)
             if str_path in current_active_paths:
                 current_active_paths.remove(str_path)
-
+            
             os.remove(file_to_delete_path)
             gr.Info(f"添付ファイル「{display_name}」を削除しました。")
         else:
@@ -3990,7 +3986,6 @@ def handle_delete_attachment(
         gr.Error(f"ファイルの削除中にエラーが発生しました: {e}")
         traceback.print_exc()
 
-    # UI表示用のテキストを再生成
     if not current_active_paths:
         display_text = "現在アクティブな添付ファイルはありません。"
     else:
@@ -3998,7 +3993,6 @@ def handle_delete_attachment(
         display_text = f"**現在アクティブ:** {', '.join(filenames)}"
 
     final_df = _get_attachments_df(room_name)
-    # 4つの値を返す
     return final_df, None, current_active_paths, display_text
 
 def handle_open_attachments_folder(room_name: str):
@@ -4021,3 +4015,72 @@ def handle_open_attachments_folder(room_name: str):
         gr.Info(f"「{room_name}」の添付ファイルフォルダを開きました。")
     except Exception as e:
         gr.Error(f"フォルダを開けませんでした: {e}")
+
+def update_token_count_after_attachment_change(
+    room_name: str,
+    api_key_name: str,
+    api_history_limit: str,
+    multimodal_input: dict,
+    active_attachments: list, # active_attachments_state から渡される
+    add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
+    use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
+    *args, **kwargs
+):
+    """
+    添付ファイルの選択が変更された後にトークン数を更新する専用ハンドラ。
+    """
+
+    if not room_name or not api_key_name:
+        return "トークン数: -"
+
+    parts_for_api = []
+
+    # 1. テキスト入力欄の現在の内容を追加
+    textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
+    if textbox_content:
+        parts_for_api.append(textbox_content)
+
+    # 2. テキスト入力欄に「添付されているがまだ送信されていない」ファイルを追加
+    file_list_in_textbox = multimodal_input.get("files", []) if multimodal_input else []
+    if file_list_in_textbox:
+        for file_obj in file_list_in_textbox:
+            try:
+                if hasattr(file_obj, 'name') and file_obj.name and os.path.exists(file_obj.name):
+                    file_path = file_obj.name
+                    kind = filetype.guess(file_path)
+                    if kind and kind.mime.startswith('image/'):
+                        parts_for_api.append(Image.open(file_path))
+                    else:
+                        file_basename = os.path.basename(file_path)
+                        file_size = os.path.getsize(file_path)
+                        parts_for_api.append(f"[ファイル添付: {file_basename}, サイズ: {file_size} bytes]")
+            except Exception as e:
+                print(f"トークン計算中のテキストボックス内ファイル処理エラー: {e}")
+                parts_for_api.append(f"[ファイル処理エラー]")
+
+    # 3. active_attachments_state から渡された「アクティブな添付ファイル」のリストを処理
+    if active_attachments:
+        for file_path in active_attachments:
+            try:
+                kind = filetype.guess(file_path)
+                if kind and kind.mime.startswith('image/'):
+                    parts_for_api.append(Image.open(file_path))
+                else: # 画像以外はテキストとして内容を読み込む
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                    parts_for_api.append(content)
+            except Exception as e:
+                print(f"トークン計算中のアクティブ添付ファイル処理エラー: {e}")
+                parts_for_api.append(f"[添付ファイル処理エラー: {os.path.basename(file_path)}]")
+
+    # 4. 最終的なトークン数を計算
+    effective_settings = config_manager.get_effective_settings(
+        room_name,
+        add_timestamp=add_timestamp, send_thoughts=send_thoughts,
+        send_notepad=send_notepad, use_common_prompt=use_common_prompt,
+        send_core_memory=send_core_memory, send_scenery=send_scenery
+    )
+    return gemini_api.count_input_tokens(
+        room_name=room_name, api_key_name=api_key_name,
+        api_history_limit=api_history_limit, parts=parts_for_api, **effective_settings
+    )

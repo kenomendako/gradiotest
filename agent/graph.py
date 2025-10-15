@@ -155,6 +155,10 @@ def generate_scenery_context(
             time_map_en_to_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}
 
             season_ja = season_map_en_to_ja.get(effective_season, "不明な季節")
+            time_map_en_to_ja = {
+                "early_morning": "早朝", "morning": "朝", "late_morning": "昼前",
+                "afternoon": "昼下がり", "evening": "夕方", "night": "夜", "midnight": "深夜"
+            }
             time_of_day_ja = time_map_en_to_ja.get(effective_time_of_day, "不明な時間帯")
 
             scenery_prompt = (

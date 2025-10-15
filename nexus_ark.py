@@ -771,6 +771,14 @@ try:
         ]
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
 
+        attachment_change_token_calc_inputs = [
+            current_room_name,
+            current_api_key_name_state,
+            api_history_limit_state,
+            chat_input_multimodal,
+            active_attachments_state,
+        ] + context_checkboxes
+
         initial_load_chat_outputs = [
             current_room_name, chatbot_display, current_log_map_state,
             chat_input_multimodal,
@@ -1383,20 +1391,28 @@ try:
         attachment_tab.select(
             fn=ui_handlers.handle_attachment_tab_load,
             inputs=[current_room_name],
-            outputs=[attachments_df]
+            outputs=[attachments_df, active_attachments_state, active_attachments_display]
         )
 
         attachments_df.select(
-            fn=ui_handlers.handle_attachment_selection, 
-            inputs=[current_room_name, attachments_df, active_attachments_state], 
-            outputs=[active_attachments_state, active_attachments_display, selected_attachment_index_state], 
+            fn=ui_handlers.handle_attachment_selection,
+            inputs=[current_room_name, attachments_df, active_attachments_state],
+            outputs=[active_attachments_state, active_attachments_display, selected_attachment_index_state],
             show_progress=False
+        ).then(
+            fn=ui_handlers.update_token_count_after_attachment_change,
+            inputs=attachment_change_token_calc_inputs,
+            outputs=token_count_display
         )
 
         delete_attachment_button.click(
             fn=ui_handlers.handle_delete_attachment,
-            inputs=[current_room_name, selected_attachment_index_state, active_attachments_state], 
-            outputs=[attachments_df, selected_attachment_index_state, active_attachments_state, active_attachments_display] 
+            inputs=[current_room_name, selected_attachment_index_state, active_attachments_state],
+            outputs=[attachments_df, selected_attachment_index_state, active_attachments_state, active_attachments_display]
+        ).then(
+            fn=ui_handlers.update_token_count_after_attachment_change,
+            inputs=attachment_change_token_calc_inputs,
+            outputs=token_count_display
         )
 
         open_attachments_folder_button.click(
