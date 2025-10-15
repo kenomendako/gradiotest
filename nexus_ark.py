@@ -421,14 +421,6 @@ try:
 
                         with gr.Accordion("🗨️ チャットルームの作成・管理", open=False) as manage_room_accordion:
                             with gr.Tabs() as room_management_tabs:
-                                with gr.TabItem("インポート") as import_chatgpt_tab:
-                                    gr.Markdown("### ChatGPTデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
-                                    chatgpt_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
-                                    with gr.Column(visible=False) as chatgpt_import_form:
-                                        chatgpt_thread_dropdown = gr.Dropdown(label="インポートする会話スレッドを選択", interactive=True)
-                                        chatgpt_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
-                                        chatgpt_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
-                                        chatgpt_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
                                 with gr.TabItem("作成") as create_room_tab:
                                     new_room_name = gr.Textbox(label="ルーム名（必須）", info="UIやグループ会話で表示される名前です。フォルダ名は自動で生成されます。")
                                     new_user_display_name = gr.Textbox(label="あなたの表示名（任意）", placeholder="デフォルト: ユーザー")
@@ -436,6 +428,7 @@ try:
                                     new_room_description = gr.Textbox(label="ルームの説明（任意）", lines=3, placeholder="このルームがどのような場所かをメモしておけます。")
                                     initial_system_prompt = gr.Textbox(label="初期システムプロンプト（任意）", lines=5, placeholder="このルームの基本的なルールやAIの役割などを設定します。")
                                     create_room_button = gr.Button("ルームを作成", variant="primary")
+                                
                                 with gr.TabItem("管理") as manage_room_tab:
                                     manage_room_selector = gr.Dropdown(label="管理するルームを選択", choices=room_list_on_startup, interactive=True)
                                     with gr.Column(visible=False) as manage_room_details:
@@ -447,6 +440,21 @@ try:
                                         manage_folder_name_display = gr.Textbox(label="フォルダ名（編集不可）", interactive=False)
                                         save_room_config_button = gr.Button("変更を保存", variant="primary")
                                         delete_room_button = gr.Button("このルームを削除", variant="stop")
+                                
+                                with gr.TabItem("インポート") as import_tab:
+                                    with gr.Accordion("🔵 ChatGPT (公式)", open=True):
+                                        gr.Markdown("### ChatGPTデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
+                                        chatgpt_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
+                                        with gr.Column(visible=False) as chatgpt_import_form:
+                                            chatgpt_thread_dropdown = gr.Dropdown(label="インポートする会話スレッドを選択", interactive=True)
+                                            chatgpt_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
+                                            chatgpt_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
+                                            chatgpt_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
+                                    with gr.Accordion("🟠 Claude (公式)", open=False):
+                                        gr.Markdown("（今後のアップデートで対応予定）")
+                                    with gr.Accordion("📄 その他テキスト/JSON", open=False):
+                                        gr.Markdown("（今後のアップデートで対応予定）")
+
 
                         with gr.Accordion("🛠️ チャット支援ツール", open=False):
                             with gr.Tabs():
