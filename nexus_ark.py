@@ -483,6 +483,7 @@ try:
                                 with gr.TabItem("添付ファイル") as attachment_tab:
                                     gr.Markdown(
                                         "過去に添付したファイルの一覧です。\n\n"
+                                        "リストを選択してアクティブにすることで、解除するまで送信に含められます。\n\n"
                                         "**⚠️注意:** ここでファイルを削除すると、チャット履歴の画像表示なども含めて、ファイルへのすべての参照が失われます。"
                                     )
                                     active_attachments_display = gr.Markdown("現在アクティブな添付ファイルはありません。")
@@ -496,7 +497,9 @@ try:
                                         interactive=True,  # 行選択を有効にする
                                         wrap=True
                                     )
-                                    delete_attachment_button = gr.Button("選択したファイルを削除", variant="stop")
+                                    with gr.Row():
+                                        open_attachments_folder_button = gr.Button("📂 添付ファイルフォルダを開く", variant="secondary")
+                                        delete_attachment_button = gr.Button("選択したファイルを削除", variant="stop")
 
                         gr.Markdown(f"Nexus Ark {constants.APP_VERSION} (Beta)", elem_id="app_version_display")
 
@@ -1396,6 +1399,12 @@ try:
             outputs=[attachments_df, selected_attachment_index_state, active_attachments_state, active_attachments_display] 
         )
 
+        open_attachments_folder_button.click(
+            fn=ui_handlers.handle_open_attachments_folder,
+            inputs=[current_room_name],
+            outputs=None
+        )
+
         # --- ChatGPT Importer Event Handlers ---
         chatgpt_import_file.upload(
             fn=ui_handlers.handle_chatgpt_file_upload,
@@ -1579,3 +1588,24 @@ finally:
     utils.release_lock()
     if os.name == "nt": os.system("pause")
     else: input("続行するにはEnterキーを押してください...")
+
+def handle_open_attachments_folder(room_name: str):
+    """現在のルームの添付ファイルフォルダを開く。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return
+
+    folder_path = os.path.join(constants.ROOMS_DIR, room_name, "attachments")
+    # フォルダがなければ作成する
+    os.makedirs(folder_path, exist_ok=True)
+
+    try:
+        if sys.platform == "win32":
+            os.startfile(os.path.normpath(folder_path))
+        elif sys.platform == "darwin": # macOS
+            subprocess.Popen(["open", folder_path])
+        else: # Linux
+            subprocess.Popen(["xdg-open", folder_path])
+        gr.Info(f"「{room_name}」の添付ファイルフォルダを開きました。")
+    except Exception as e:
+        gr.Error(f"フォルダを開けませんでした: {e}")
