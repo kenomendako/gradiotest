@@ -4000,3 +4000,24 @@ def handle_delete_attachment(
     final_df = _get_attachments_df(room_name)
     # 4つの値を返す
     return final_df, None, current_active_paths, display_text
+
+def handle_open_attachments_folder(room_name: str):
+    """現在のルームの添付ファイルフォルダを開く。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return
+
+    folder_path = os.path.join(constants.ROOMS_DIR, room_name, "attachments")
+    # フォルダがなければ作成する
+    os.makedirs(folder_path, exist_ok=True)
+
+    try:
+        if sys.platform == "win32":
+            os.startfile(os.path.normpath(folder_path))
+        elif sys.platform == "darwin": # macOS
+            subprocess.Popen(["open", folder_path])
+        else: # Linux
+            subprocess.Popen(["xdg-open", folder_path])
+        gr.Info(f"「{room_name}」の添付ファイルフォルダを開きました。")
+    except Exception as e:
+        gr.Error(f"フォルダを開けませんでした: {e}")
