@@ -42,7 +42,7 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.docstore.document import Document
 
-import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer
+import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer, claude_importer
 from utils import _overwrite_log_file
 from tools import timer_tools, memory_tools
 from agent.graph import generate_scenery_context
@@ -1217,6 +1217,83 @@ def handle_reload_core_memory(room_name: str) -> str:
     gr.Info(f"「{room_name}」のコアメモリを再読み込みしました。")
     return content
 
+#
+# --- Claude Importer Handlers ---
+#
+
+def handle_claude_file_upload(file_obj: Optional[Any]) -> Tuple[gr.update, gr.update, list]:
+    """
+    Claudeのconversations.jsonファイルがアップロードされたときの処理。
+    """
+    if file_obj is None:
+        return gr.update(choices=[], value=None), gr.update(visible=False), []
+
+    try:
+        choices = claude_importer.get_claude_thread_list(file_obj.name)
+
+        if not choices:
+            gr.Warning("これは有効なClaudeエクスポートファイルではないか、会話が含まれていません。")
+            return gr.update(choices=[], value=None), gr.update(visible=False), []
+
+        # UIを更新し、選択肢リストをStateに渡す
+        return gr.update(choices=choices, value=None), gr.update(visible=True), choices
+
+    except Exception as e:
+        gr.Warning("Claudeエクスポートファイルの処理中にエラーが発生しました。")
+        print(f"Error processing Claude export file: {e}")
+        traceback.print_exc()
+        return gr.update(choices=[], value=None), gr.update(visible=False), []
+
+def handle_claude_thread_selection(choices_list: list, evt: gr.SelectData) -> gr.update:
+    """
+    Claudeの会話スレッドが選択されたとき、そのタイトルをルーム名テキストボックスにコピーする。
+    """
+    if not evt or not choices_list or evt.value is None:
+        return gr.update()
+    
+    selected_uuid = evt.value
+    for name, uuid in choices_list:
+        if uuid == selected_uuid:
+            return gr.update(value=name)
+    return gr.update()
+
+def handle_claude_import_button_click(
+    file_obj: Optional[Any],
+    conversation_uuid: str,
+    room_name: str,
+    user_display_name: str
+) -> Tuple[gr.update, gr.update, gr.update, gr.update, gr.update, gr.update]:
+    """
+    Claudeインポートボタンがクリックされたときの処理。
+    """
+    if not all([file_obj, conversation_uuid, room_name]):
+        gr.Warning("ファイル、会話スレッド、新しいルーム名はすべて必須です。")
+        return tuple(gr.update() for _ in range(6))
+
+    try:
+        safe_folder_name = claude_importer.import_from_claude_export(
+            file_path=file_obj.name,
+            conversation_uuid=conversation_uuid,
+            room_name=room_name,
+            user_display_name=user_display_name
+        )
+
+        if safe_folder_name:
+            gr.Info(f"会話「{room_name}」のインポートに成功しました。")
+            updated_room_list = room_manager.get_room_list_for_ui()
+            reset_file = gr.update(value=None)
+            hide_form = gr.update(visible=False, value=None)
+            dd_update = gr.update(choices=updated_room_list, value=safe_folder_name)
+            return reset_file, hide_form, dd_update, dd_update, dd_update, dd_update
+        else:
+            gr.Error("Claudeのインポート処理中にエラーが発生しました。詳細はターミナルを確認してください。")
+            return tuple(gr.update() for _ in range(6))
+
+    except Exception as e:
+        gr.Error(f"Claudeのインポート処理中に予期せぬエラーが発生しました。")
+        print(f"Error during Claude import button click: {e}")
+        traceback.print_exc()
+        return tuple(gr.update() for _ in range(6))
 
 #
 # --- ChatGPT Importer Handlers ---

@@ -247,6 +247,7 @@ try:
         active_participants_state = gr.State([]) # 現在アクティブなグループ会話の参加者リスト
         debug_console_state = gr.State("")
         chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
+        claude_thread_choices_state = gr.State([]) # Claudeインポート用のスレッド選択肢を保持
         archivist_pid_state = gr.State(None) # 記憶アーキビストのプロセスIDを保持
         redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
@@ -451,7 +452,14 @@ try:
                                             chatgpt_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
                                             chatgpt_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
                                     with gr.Accordion("🟠 Claude (公式)", open=False):
-                                        gr.Markdown("（今後のアップデートで対応予定）")
+                                        gr.Markdown("### Claudeデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
+                                        claude_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
+                                        with gr.Column(visible=False) as claude_import_form:
+                                            claude_thread_dropdown = gr.Dropdown(label="インポートする会話スレッドを選択", interactive=True)
+                                            claude_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
+                                            claude_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
+                                            claude_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
+
                                     with gr.Accordion("📄 その他テキスト/JSON", open=False):
                                         gr.Markdown("（今後のアップデートで対応予定）")
 
@@ -1458,6 +1466,37 @@ try:
                 manage_room_selector,
                 alarm_room_dropdown,
                 timer_room_dropdown
+            ]
+        )
+
+        # --- Claude Importer Event Handlers ---
+        claude_import_file.upload(
+            fn=ui_handlers.handle_claude_file_upload,
+            inputs=[claude_import_file],
+            outputs=[claude_thread_dropdown, claude_import_form, claude_thread_choices_state]
+        )
+
+        claude_thread_dropdown.select(
+            fn=ui_handlers.handle_claude_thread_selection,
+            inputs=[claude_thread_choices_state],
+            outputs=[claude_room_name_textbox]
+        )
+
+        claude_import_button.click(
+            fn=ui_handlers.handle_claude_import_button_click,
+            inputs=[
+            claude_import_file,
+            claude_thread_dropdown,
+            claude_room_name_textbox,
+            claude_user_name_textbox
+            ],
+            outputs=[
+            claude_import_file,
+            claude_import_form,
+            room_dropdown,
+            manage_room_selector,
+            alarm_room_dropdown,
+            timer_room_dropdown
             ]
         )
 
