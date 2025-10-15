@@ -183,7 +183,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings["enable_typewriter_effect"],
         effective_settings["streaming_speed"],
         temp_val, top_p_val, harassment_val, hate_val, sexual_val, dangerous_val,
-        effective_settings["add_timestamp"], effective_settings["send_thoughts"],
+        effective_settings["add_timestamp"], effective_settings.get("send_current_time", False), effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
         effective_settings["send_core_memory"],
         effective_settings["send_scenery"],
@@ -311,7 +311,7 @@ def handle_save_room_settings(
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
     enable_typewriter_effect: bool,
     streaming_speed: float,
-    add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
+    add_timestamp: bool, send_current_time: bool, send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool,
     enable_scenery_system: bool, # room_send_scenery_checkbox から変更
     auto_memory_enabled: bool
@@ -337,6 +337,7 @@ def handle_save_room_settings(
         "enable_typewriter_effect": bool(enable_typewriter_effect),
         "streaming_speed": float(streaming_speed),
         "add_timestamp": bool(add_timestamp),
+        "send_current_time": bool(send_current_time),
         "send_thoughts": bool(send_thoughts),
         "send_notepad": bool(send_notepad),
         "use_common_prompt": bool(use_common_prompt),
@@ -369,14 +370,29 @@ def handle_save_room_settings(
         gr.Info(f"「{room_name}」の個別設定を保存しました。")
     except Exception as e: gr.Error(f"個別設定の保存中にエラーが発生しました: {e}"); traceback.print_exc()
 
-def handle_context_settings_change(room_name: str, api_key_name: str, api_history_limit: str, add_timestamp: bool, send_thoughts: bool, send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, enable_scenery_system: bool, *args, **kwargs):
-    if not room_name or not api_key_name: return "入力トークン数: -"
+def handle_context_settings_change(
+    room_name: str, api_key_name: str, api_history_limit: str, 
+    add_timestamp: bool, send_current_time: bool, send_thoughts: bool, 
+    send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, 
+    enable_scenery_system: bool, *args, **kwargs
+):
+    """
+    【v2: 修正版】
+    個別設定のチェックボックスが変更されたときにトークン数を再計算する。
+    """
+    if not room_name or not api_key_name: 
+        return "入力トークン数: -"
+    
     return gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name, parts=[],
         api_history_limit=api_history_limit,
-        add_timestamp=add_timestamp, send_thoughts=send_thoughts, send_notepad=send_notepad,
-        use_common_prompt=use_common_prompt, send_core_memory=send_core_memory,
-        send_scenery=enable_scenery_system # ここで連動させる
+        add_timestamp=add_timestamp, 
+        send_current_time=send_current_time, # ◀◀◀ ここが修正点
+        send_thoughts=send_thoughts, 
+        send_notepad=send_notepad,
+        use_common_prompt=use_common_prompt, 
+        send_core_memory=send_core_memory,
+        send_scenery=enable_scenery_system
     )
 
 def update_token_count_on_input(
@@ -384,11 +400,18 @@ def update_token_count_on_input(
     api_key_name: str,
     api_history_limit: str,
     multimodal_input: dict,
-    add_timestamp: bool, send_thoughts: bool, send_notepad: bool,
+    add_timestamp: bool, 
+    send_current_time: bool, # ◀◀◀ ここが修正点
+    send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
     *args, **kwargs
 ):
+    """
+    【v2: 修正版】
+    チャット入力欄の内容が変更されたときにトークン数を再計算する。
+    """
     if not room_name or not api_key_name: return "トークン数: -"
+    # ... (この関数内の以降のロジックは変更なし) ...
     textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
     file_list = multimodal_input.get("files", []) if multimodal_input else []
     parts_for_api = []
@@ -413,7 +436,9 @@ def update_token_count_on_input(
                 parts_for_api.append(f"[ファイル処理エラー: {error_source}]")
     effective_settings = config_manager.get_effective_settings(
         room_name,
-        add_timestamp=add_timestamp, send_thoughts=send_thoughts,
+        add_timestamp=add_timestamp, 
+        send_current_time=send_current_time, # ◀◀◀ ここが修正点
+        send_thoughts=send_thoughts,
         send_notepad=send_notepad, use_common_prompt=use_common_prompt,
         send_core_memory=send_core_memory, send_scenery=send_scenery
     )

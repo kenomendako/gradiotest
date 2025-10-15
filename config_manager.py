@@ -290,6 +290,7 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         "send_core_memory": True,
         "enable_scenery_system": True, # この行を追加
         "send_scenery": True,
+        "send_current_time": False,
         "auto_memory_enabled": False,
         "enable_typewriter_effect": True,
         "streaming_speed": 0.01,

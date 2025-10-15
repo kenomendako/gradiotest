@@ -283,6 +283,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True),
         "send_notepad": effective_settings.get("send_notepad", True),
+        "send_current_time": effective_settings.get("send_current_time", False),
         "debug_mode": debug_mode,
         "location_name": shared_location_name,
         "scenery_text": shared_scenery_text,

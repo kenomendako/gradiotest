@@ -343,9 +343,14 @@ try:
                                             room_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
                                     with gr.Accordion("📡 APIコンテキスト設定", open=False):
                                         room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
+                                        room_send_current_time_checkbox = gr.Checkbox(
+                                            label="現在時刻をAPIに送信",
+                                            info="挨拶の自然さを向上させますが、特定の時間帯を演じたい場合はOFFにしてください。",
+                                            interactive=True
+                                        )
                                         room_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
                                         room_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
-                                        room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを注入", interactive=True)
+                                        room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを送信", interactive=True)
                                         room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
                                         room_send_scenery_checkbox = gr.Checkbox(
                                             label="空間描写・設定をAPIに送信 (情景システムと連動)",
@@ -796,7 +801,7 @@ try:
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [
-            room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
+            room_add_timestamp_checkbox, room_send_current_time_checkbox,room_send_thoughts_checkbox, room_send_notepad_checkbox,
             room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
             enable_scenery_system_checkbox,
             auto_memory_enabled_checkbox,
@@ -828,7 +833,7 @@ try:
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown,
             # --- context_checkboxes の中身を展開してここに追加 ---
-            room_add_timestamp_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
+            room_add_timestamp_checkbox, room_send_current_time_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
             room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
             room_send_scenery_checkbox, # 連動される非表示チェックボックス
             auto_memory_enabled_checkbox,

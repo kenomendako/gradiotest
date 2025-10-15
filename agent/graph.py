@@ -60,11 +60,12 @@ class AgentState(TypedDict):
     send_core_memory: bool
     send_scenery: bool
     send_notepad: bool
+    send_current_time: bool 
     location_name: str
     scenery_text: str
     debug_mode: bool
     all_participants: List[str]
-    loop_count: int # ← この行を追加
+    loop_count: int 
     season_en: str
     time_of_day_en: str
     last_successful_response: Optional[AIMessage] # 最後の成功したAI応答を保持
@@ -200,7 +201,21 @@ def context_generator_node(state: AgentState):
 
     # --- パート1: 状況プロンプト ({situation_prompt}) を生成 ---
     situation_prompt_parts = []
+     # 現在時刻の情報をプロンプトに追加
+    send_time = state.get("send_current_time", False)
+    if send_time:
+        # タイムゾーンを東京に設定
+        tokyo_tz = pytz.timezone('Asia/Tokyo')
+        now_tokyo = datetime.now(tokyo_tz)
+        # %Aで英語の曜日名を取得し、日本語に変換
+        day_map = {"Monday": "月", "Tuesday": "火", "Wednesday": "水", "Thursday": "木", "Friday": "金", "Saturday": "土", "Sunday": "日"}
+        day_ja = day_map.get(now_tokyo.strftime('%A'), "")
+        current_datetime_str = now_tokyo.strftime(f'%Y-%m-%d({day_ja}) %H:%M:%S')
+    else:
+        current_datetime_str = "（現在時刻は非表示に設定されています）"
+
     if not state.get("send_scenery", True):
+        situation_prompt_parts.append(f"【現在の状況】\n- 現在時刻: {current_datetime_str}")
         situation_prompt_parts.append("【現在の場所と情景】\n（空間描写は設定により無効化されています）")
     else:
         # (この部分は変更なし)
@@ -209,7 +224,12 @@ def context_generator_node(state: AgentState):
         season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
         time_map_en_to_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}
         season_ja = season_map_en_to_ja.get(season_en, "不明な季節")
+        time_map_en_to_ja = {
+            "early_morning": "早朝", "morning": "朝", "late_morning": "昼前",
+            "afternoon": "昼下がり", "evening": "夕方", "night": "夜", "midnight": "深夜"
+        }
         time_of_day_ja = time_map_en_to_ja.get(time_of_day_en, "不明な時間帯")
+        
         location_display_name = state.get("location_name", "（不明な場所）")
         scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
         soul_vessel_room = state['all_participants'][0] if state['all_participants'] else state['room_name']
@@ -228,12 +248,12 @@ def context_generator_node(state: AgentState):
         available_locations = get_location_list(state['room_name'])
         location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
         situation_prompt_parts.extend([
-            "【現在の状況】", f"- 季節: {season_ja}", f"- 時間帯: {time_of_day_ja}\n",
+            "【現在の状況】", f"- 現在時刻: {current_datetime_str}", f"- 季節: {season_ja}", f"- 時間帯: {time_of_day_ja}\n",
             "【現在の場所と情景】", f"- 場所: {location_display_name}", f"- 今の情景: {scenery_text}",
             f"- 場所の設定（自由記述）: \n{space_def}\n", "【移動可能な場所】", location_list_str
         ])
     situation_prompt = "\n".join(situation_prompt_parts)
-
+    
     # --- パート2: その他のプレースホルダを埋める ---
     # (この部分は以前のロジックとほぼ同じ)
     char_prompt_path = os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")
