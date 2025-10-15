@@ -14,28 +14,28 @@ def parse_metadata_from_file(file_path: str) -> Dict[str, str]:
     アップロードされたファイルから、メタ情報（タイトル、ユーザー名など）を自動抽出する。
     ChatGPT ExporterのJSON, MD形式に対応。
     """
-    metadata = {"title": "", "user": "ユーザー"}
+    metadata = {"title": os.path.basename(file_path), "user": "ユーザー"}
     file_content = ""
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             file_content = f.read()
     except Exception:
-        return metadata # 読めなければデフォルトを返す
+        return metadata
 
-    # JSON形式のメタデータ解析
     if file_path.endswith(".json"):
         try:
             data = json.loads(file_content)
-            if "metadata" in data:
+            if "metadata" in data and isinstance(data["metadata"], dict):
                 meta = data["metadata"]
-                metadata["title"] = meta.get("title", "")
-                if "user" in meta and "name" in meta["user"]:
+                metadata["title"] = meta.get("title", metadata["title"])
+                if "user" in meta and isinstance(meta["user"], dict) and "name" in meta["user"]:
                     metadata["user"] = meta["user"]["name"]
-                return metadata
+            elif "title" in data: # ChatGPT公式エクスポート形式
+                 metadata["title"] = data.get("title", metadata["title"])
+            return metadata
         except json.JSONDecodeError:
-            pass # JSONでなければ次のMD形式へ
+            pass
 
-    # Markdown形式のメタデータ解析
     title_match = re.search(r"^#\s+(.+)$", file_content, re.MULTILINE)
     user_match = re.search(r"^\*\*User:\*\*\s+(.+?)\s*\(", file_content, re.MULTILINE)
     if title_match:
@@ -45,6 +45,27 @@ def parse_metadata_from_file(file_path: str) -> Dict[str, str]:
 
     return metadata
 
+def _import_chatgpt_exporter_json(
+    file_path: str, safe_folder_name: str
+) -> List[str]:
+    """ChatGPT ExporterのJSONファイル形式を特別に処理する。"""
+    log_entries = []
+    with open(file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    
+    messages = data.get("messages", [])
+    for message in messages:
+        role = message.get("role")
+        content = message.get("say", "").strip()
+        if not content:
+            continue
+        
+        if role == "Prompt":
+            log_entries.append(f"## USER:user\n{content}")
+        elif role == "Response":
+            log_entries.append(f"## AGENT:{safe_folder_name}\n{content}")
+    return log_entries
+
 def import_from_generic_text(
     file_path: str, room_name: str, user_display_name: str, user_header: str, agent_header: str
 ) -> Optional[str]:
@@ -53,46 +74,50 @@ def import_from_generic_text(
     """
     print(f"--- [Generic Importer] Starting import for file: {os.path.basename(file_path)} ---")
     if not all([file_path, room_name, user_display_name, user_header, agent_header]):
-        print("[Generic Importer] ERROR: Missing required arguments.")
-        return None
+        return "ERROR: MISSING_ARGS"
         
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
         # ルームの骨格を作成
         safe_folder_name = room_manager.generate_safe_folder_name(room_name)
         if not room_manager.ensure_room_files(safe_folder_name):
-            return None
+            return "ERROR: ROOM_CREATION_FAILED"
         print(f"--- [Generic Importer] Created room skeleton: {safe_folder_name} ---")
 
-        # ログ形式への変換
         log_entries = []
-        # ユーザー指定のヘッダーをエスケープして正規表現パターンを作成
-        user_h = re.escape(user_header)
-        agent_h = re.escape(agent_header)
-        # ^ は行頭を示す
-        pattern = re.compile(f"(^{user_h}|^{agent_h})", re.MULTILINE)
         
-        parts = pattern.split(content)
-        if len(parts) <= 1:
-             print("[Generic Importer] ERROR: No speaker headers found in the file.")
-             return None
+        # --- [新ロジック] ChatGPT ExporterのJSON形式を特別扱い ---
+        if file_path.endswith('.json') and user_header == "role:Prompt" and agent_header == "role:Response":
+            print("--- [Generic Importer] Detected ChatGPT Exporter JSON format. ---")
+            log_entries = _import_chatgpt_exporter_json(file_path, safe_folder_name)
+        else:
+            # --- 既存のテキストベースの処理 ---
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
 
-        # 最初の要素はヘッダーより前のテキストなので無視
-        for i in range(1, len(parts), 2):
-            header = parts[i]
-            text = parts[i+1].strip()
+            user_h = re.escape(user_header)
+            agent_h = re.escape(agent_header)
+            pattern = re.compile(f"(^{user_h}|^{agent_h})", re.MULTILINE)
             
-            if not text:
-                continue
+            parts = pattern.split(content)
+            if len(parts) <= 1:
+                print("[Generic Importer] ERROR: No speaker headers found in the file.")
+                # UIにフィードバックするための特別なエラーコードを返す
+                return "ERROR: NO_HEADERS"
 
-            if header == user_header:
-                log_entries.append(f"## USER:user\n{text}")
-            elif header == agent_header:
-                log_entries.append(f"## AGENT:{safe_folder_name}\n{text}")
+            for i in range(1, len(parts), 2):
+                header = parts[i]
+                text = parts[i+1].strip()
+                if not text: continue
 
-        # ファイルへの書き込み
+                if header == user_header:
+                    log_entries.append(f"## USER:user\n{text}")
+                elif header == agent_header:
+                    log_entries.append(f"## AGENT:{safe_folder_name}\n{text}")
+
+        if not log_entries:
+            return "ERROR: NO_MESSAGES"
+
+        # ファイルへの書き込み (共通処理)
         log_file_path = os.path.join(constants.ROOMS_DIR, safe_folder_name, "log.txt")
         full_log_content = "\n\n".join(log_entries)
         if full_log_content:
@@ -101,7 +126,7 @@ def import_from_generic_text(
             f.write(full_log_content)
         print(f"--- [Generic Importer] Wrote {len(log_entries)} entries to log.txt ---")
 
-        # room_config.json の更新
+        # room_config.json の更新 (共通処理)
         config_path = os.path.join(constants.ROOMS_DIR, safe_folder_name, "room_config.json")
         with open(config_path, "r+", encoding="utf-8") as f:
             config = json.load(f)
@@ -119,4 +144,4 @@ def import_from_generic_text(
     except Exception as e:
         print(f"[Generic Importer] An unexpected error occurred: {e}")
         traceback.print_exc()
-        return None
+        return "ERROR: UNEXPECTED"

@@ -1125,20 +1125,20 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
 def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name: str):
 
     # nexus_ark.pyで定義されている戻り値の総数と一致させる
-    NUM_ALL_ROOM_CHANGE_OUTPUTS = 51 # 40 から 51 に変更
+    NUM_ALL_ROOM_CHANGE_OUTPUTS = 51 
 
-    if str(confirmed).lower() != 'true': # 判定ロジックも念のため堅牢化
-        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
+    if str(confirmed).lower() != 'true': 
+        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS + ("",)
 
     if not folder_name_to_delete:
         gr.Warning("削除するルームが選択されていません。")
-        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
+        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS + ("",)
 
     try:
         room_path_to_delete = os.path.join(constants.ROOMS_DIR, folder_name_to_delete)
         if not os.path.isdir(room_path_to_delete):
             gr.Error(f"削除対象のフォルダが見つかりません: {room_path_to_delete}")
-            return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
+            return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS + ("",)
 
         shutil.rmtree(room_path_to_delete)
         gr.Info(f"ルーム「{folder_name_to_delete}」を完全に削除しました。")
@@ -1159,17 +1159,18 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
             empty_session_outputs = ([], "ルームがありません", gr.update(choices=[]),)
             # This is the "empty" state for redaction_rules_df and archive_date_dropdown
             empty_extra_outputs = (pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"]), gr.update(choices=[]),)
-            return empty_chat_outputs + empty_wb_outputs + empty_session_outputs + empty_extra_outputs
+            return empty_chat_outputs + empty_wb_outputs + empty_session_outputs + empty_extra_outputs + empty_time_outputs + empty_attachment_outputs + empty_token_count + empty_room_name_state + ("",)
 
         new_main_room_folder = new_room_list[0][1]
 
-        # handle_room_change_for_all_tabs を呼び出す
-        return handle_room_change_for_all_tabs(new_main_room_folder, api_key_name)
-
+        # handle_room_change_for_all_tabs を呼び出し、最後に "" を追加
+        all_updates = handle_room_change_for_all_tabs(new_main_room_folder, api_key_name)
+        return all_updates + ("",)
+    
     except Exception as e:
         gr.Error(f"ルームの削除中にエラーが発生しました: {e}")
         traceback.print_exc()
-        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS
+        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS + ("",)
 
 
 def load_core_memory_content(room_name: str) -> str:
@@ -1222,18 +1223,47 @@ def handle_reload_core_memory(room_name: str) -> str:
 def handle_generic_file_upload(file_obj: Optional[Any]):
     """
     汎用インポーターにファイルがアップロードされたときの処理。
-    メタデータを抽出し、フォームに設定する。
+    メタデータを抽出し、ヘッダーを自動検出してフォームに設定する。
     """
     if file_obj is None:
         return gr.update(visible=False), "", "", "", ""
     
     try:
+        # メタデータ抽出（変更なし）
         metadata = generic_importer.parse_metadata_from_file(file_obj.name)
         
-        # ChatGPT Exporterのデフォルトヘッダーを推奨値として設定
-        user_header = "Prompt:" if file_obj.name.endswith(('.json', '.md', '.txt')) else "## USER:"
-        agent_header = "Response:" if file_obj.name.endswith(('.json', '.md', '.txt')) else "## AGENT:"
+        # --- [新ロジック] ヘッダー自動検出 ---
+        user_header = "## USER:"
+        agent_header = "## AGENT:"
         
+        try:
+            with open(file_obj.name, "r", encoding="utf-8", errors='ignore') as f:
+                # ファイルの先頭部分だけ読んで効率的にチェック
+                content_head = f.read(4096) 
+            
+            # JSONファイルの場合 (例: ChatGPT Exporter)
+            if file_obj.name.endswith(".json"):
+                # "role": "user" や "author": {"role": "user"} のような一般的なパターンをチェック
+                # ここではより具体的なChatGPT Exporterの形式を仮定
+                if '"role": "Prompt"' in content_head and '"role": "Response"' in content_head:
+                    user_header = "role:Prompt"
+                    agent_header = "role:Response"
+                elif '"from": "human"' in content_head and '"from": "gpt"' in content_head:
+                    user_header = "from:human"
+                    agent_header = "from:gpt"
+
+            # テキスト/マークダウンファイルの場合
+            elif file_obj.name.endswith((".md", ".txt")):
+                if "## Prompt:" in content_head and "## Response:" in content_head:
+                    user_header = "## Prompt:"
+                    agent_header = "## Response:"
+                elif "Human:" in content_head and "Assistant:" in content_head:
+                    user_header = "Human:"
+                    agent_header = "Assistant:"
+
+        except Exception as e:
+            print(f"Header auto-detection failed: {e}")
+
         return (
             gr.update(visible=True),
             metadata.get("title", os.path.basename(file_obj.name)),
@@ -1263,7 +1293,8 @@ def handle_generic_import_button_click(
         return tuple(gr.update() for _ in range(6))
 
     try:
-        safe_folder_name = generic_importer.import_from_generic_text(
+        # --- [新ロジック] エラーコードに対応したUI通知 ---
+        result = generic_importer.import_from_generic_text(
             file_path=file_obj.name,
             room_name=room_name,
             user_display_name=user_display_name,
@@ -1271,15 +1302,21 @@ def handle_generic_import_button_click(
             agent_header=agent_header
         )
 
-        if safe_folder_name:
+        if result and not result.startswith("ERROR:"):
             gr.Info(f"会話「{room_name}」のインポートに成功しました。")
             updated_room_list = room_manager.get_room_list_for_ui()
             reset_file = gr.update(value=None)
-            hide_form = gr.update(visible=False) # フォーム全体を非表示に
-            dd_update = gr.update(choices=updated_room_list, value=safe_folder_name)
+            hide_form = gr.update(visible=False)
+            dd_update = gr.update(choices=updated_room_list, value=result)
             return reset_file, hide_form, dd_update, dd_update, dd_update, dd_update
         else:
-            gr.Error("汎用インポート処理中にエラーが発生しました。詳細はターミナルを確認してください。")
+            # エラーコードに応じたメッセージを表示
+            if result == "ERROR: NO_HEADERS":
+                gr.Warning("指定された話者ヘッダーがファイル内で見つかりませんでした。入力内容を確認してください。")
+            elif result == "ERROR: NO_MESSAGES":
+                gr.Warning("ファイルから有効なメッセージを抽出できませんでした。ファイル形式やヘッダーを確認してください。")
+            else:
+                gr.Error("汎用インポート処理中にエラーが発生しました。詳細はターミナルを確認してください。")
             return tuple(gr.update() for _ in range(6))
     except Exception as e:
         gr.Error(f"汎用インポート処理中に予期せぬエラーが発生しました。")

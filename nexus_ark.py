@@ -1074,19 +1074,17 @@ try:
             outputs=[room_dropdown, manage_room_selector]
         )
 
-        # ▼▼▼【ルーム削除のイベントハンドラを、以下のように完全に書き換え】▼▼.
         delete_room_button.click(
             fn=None,
             inputs=None,
-            outputs=[room_delete_confirmed_state], # 出力先をルーム削除専用の名前に変更
+            outputs=[room_delete_confirmed_state],
             js="() => confirm('本当にこのルームを削除しますか？この操作は取り消せません。')"
         )
-        room_delete_confirmed_state.change( # 監視対象をルーム削除専用の名前に変更
+        room_delete_confirmed_state.change(
             fn=ui_handlers.handle_delete_room,
-            inputs=[manage_folder_name_display, room_delete_confirmed_state, api_key_dropdown], # 引数を正しいものに
-            outputs=all_room_change_outputs # 出力を正しいものに
+            inputs=[manage_folder_name_display, room_delete_confirmed_state, api_key_dropdown],
+            outputs=all_room_change_outputs + [room_delete_confirmed_state] # ★★★ ここにトリガー自身を追加 ★★★
         )
-        # ▲▲▲【書き換えここまで】▲▲▲
 
         # --- Screenshot Helper Event Handlers ---
         redaction_rules_df.select(
