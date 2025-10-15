@@ -86,15 +86,12 @@ def ensure_room_files(room_name: str) -> bool:
 
         memory_template_content = (
             "## 永続記憶 (Permanent)\n"
-            "# このエリアの内容は、コアメモリにそのままコピーされます。\n"
-            "# 自己定義やユーザー情報、重要な約束など、絶対に忘れたくない永続的な情報を記述します。\n\n"
             "### 自己同一性 (Self Identity)\n\n\n"
             "## 日記 (Diary)\n"
-            "# このエリアの内容は、AIによって要約され、コアメモリに追記されます。\n\n"
             f"### {datetime.datetime.now().strftime('%Y-%m-%d')}\n\n\n"
             "## アーカイブ要約 (Archive Summary)\n"
-            "# このセクションには、アーカイブされた古い日記の要約が蓄積されます。\n\n"
         )
+
         text_files_to_create = {
             os.path.join(base_path, "SystemPrompt.txt"): "",
             os.path.join(base_path, "log.txt"): "",
