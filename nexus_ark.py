@@ -443,7 +443,7 @@ try:
                                         delete_room_button = gr.Button("このルームを削除", variant="stop")
                                 
                                 with gr.TabItem("インポート") as import_tab:
-                                    with gr.Accordion("🔵 ChatGPT (公式)", open=True):
+                                    with gr.Accordion("🔵 ChatGPT (公式)", open=False):
                                         gr.Markdown("### ChatGPTデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
                                         chatgpt_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
                                         with gr.Column(visible=False) as chatgpt_import_form:
@@ -461,7 +461,23 @@ try:
                                             claude_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
 
                                     with gr.Accordion("📄 その他テキスト/JSON", open=False):
-                                        gr.Markdown("（今後のアップデートで対応予定）")
+                                        gr.Markdown(
+                                            "### 汎用インポーター\n"
+                                            "ChatGPT Exporter形式のファイルや、任意の話者ヘッダーを持つテキストログをインポートします。"
+                                        )
+                                        generic_import_file = gr.File(label="JSON, MD, TXT ファイルをアップロード", file_types=[".json", ".md", ".txt"])
+                                        with gr.Column(visible=False) as generic_import_form:
+                                            generic_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
+                                            generic_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", interactive=True)
+                                            gr.Markdown("---")
+                                            gr.Markdown(
+                                                "**話者ヘッダーの指定**\n"
+                                                "ファイル内の、誰の発言かを示す行頭の文字列を正確に入力してください。"
+                                            )
+                                            generic_user_header_textbox = gr.Textbox(label="あなたの発言ヘッダー", placeholder="例: Prompt:")
+                                            generic_agent_header_textbox = gr.Textbox(label="AIの発言ヘッダー", placeholder="例: Response:")
+                                            generic_import_button = gr.Button("このファイルをインポートする", variant="primary")
+
 
 
                         with gr.Accordion("🛠️ チャット支援ツール", open=False):
@@ -1493,6 +1509,38 @@ try:
             outputs=[
             claude_import_file,
             claude_import_form,
+            room_dropdown,
+            manage_room_selector,
+            alarm_room_dropdown,
+            timer_room_dropdown
+            ]
+        )
+
+        # --- Generic Importer Event Handlers ---
+        generic_import_file.upload(
+            fn=ui_handlers.handle_generic_file_upload,
+            inputs=[generic_import_file],
+            outputs=[
+            generic_import_form,
+            generic_room_name_textbox,
+            generic_user_name_textbox,
+            generic_user_header_textbox,
+            generic_agent_header_textbox
+            ]
+        )
+
+        generic_import_button.click(
+            fn=ui_handlers.handle_generic_import_button_click,
+            inputs=[
+            generic_import_file,
+            generic_room_name_textbox,
+            generic_user_name_textbox,
+            generic_user_header_textbox,
+            generic_agent_header_textbox
+            ],
+            outputs=[
+            generic_import_file,
+            generic_import_form,
             room_dropdown,
             manage_room_selector,
             alarm_room_dropdown,

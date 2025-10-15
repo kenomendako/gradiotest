@@ -42,7 +42,7 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.docstore.document import Document
 
-import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer, claude_importer
+import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer, claude_importer, generic_importer
 from utils import _overwrite_log_file
 from tools import timer_tools, memory_tools
 from agent.graph import generate_scenery_context
@@ -1216,6 +1216,76 @@ def handle_reload_core_memory(room_name: str) -> str:
     content = load_core_memory_content(room_name)
     gr.Info(f"「{room_name}」のコアメモリを再読み込みしました。")
     return content
+
+# --- Generic Importer Handlers ---
+
+def handle_generic_file_upload(file_obj: Optional[Any]):
+    """
+    汎用インポーターにファイルがアップロードされたときの処理。
+    メタデータを抽出し、フォームに設定する。
+    """
+    if file_obj is None:
+        return gr.update(visible=False), "", "", "", ""
+    
+    try:
+        metadata = generic_importer.parse_metadata_from_file(file_obj.name)
+        
+        # ChatGPT Exporterのデフォルトヘッダーを推奨値として設定
+        user_header = "Prompt:" if file_obj.name.endswith(('.json', '.md', '.txt')) else "## USER:"
+        agent_header = "Response:" if file_obj.name.endswith(('.json', '.md', '.txt')) else "## AGENT:"
+        
+        return (
+            gr.update(visible=True),
+            metadata.get("title", os.path.basename(file_obj.name)),
+            metadata.get("user", "ユーザー"),
+            user_header,
+            agent_header
+        )
+    except Exception as e:
+        gr.Warning("ファイルの解析中にエラーが発生しました。手動で情報を入力してください。")
+        print(f"Error parsing metadata: {e}")
+        return (
+            gr.update(visible=True),
+            os.path.basename(file_obj.name),
+            "ユーザー",
+            "## USER:",
+            "## AGENT:"
+        )
+
+def handle_generic_import_button_click(
+    file_obj: Optional[Any], room_name: str, user_display_name: str, user_header: str, agent_header: str
+) -> Tuple[gr.update, gr.update, gr.update, gr.update, gr.update, gr.update]:
+    """
+    汎用インポートボタンがクリックされたときの処理。
+    """
+    if not all([file_obj, room_name, user_display_name, user_header, agent_header]):
+        gr.Warning("すべてのフィールドを入力してください。")
+        return tuple(gr.update() for _ in range(6))
+
+    try:
+        safe_folder_name = generic_importer.import_from_generic_text(
+            file_path=file_obj.name,
+            room_name=room_name,
+            user_display_name=user_display_name,
+            user_header=user_header,
+            agent_header=agent_header
+        )
+
+        if safe_folder_name:
+            gr.Info(f"会話「{room_name}」のインポートに成功しました。")
+            updated_room_list = room_manager.get_room_list_for_ui()
+            reset_file = gr.update(value=None)
+            hide_form = gr.update(visible=False) # フォーム全体を非表示に
+            dd_update = gr.update(choices=updated_room_list, value=safe_folder_name)
+            return reset_file, hide_form, dd_update, dd_update, dd_update, dd_update
+        else:
+            gr.Error("汎用インポート処理中にエラーが発生しました。詳細はターミナルを確認してください。")
+            return tuple(gr.update() for _ in range(6))
+    except Exception as e:
+        gr.Error(f"汎用インポート処理中に予期せぬエラーが発生しました。")
+        print(f"Error during generic import button click: {e}")
+        traceback.print_exc()
+        return tuple(gr.update() for _ in range(6))
 
 #
 # --- Claude Importer Handlers ---
