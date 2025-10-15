@@ -692,59 +692,54 @@ def handle_message_submission(
 
         for file_obj in file_input_list:
             try:
+                permanent_path = None
                 temp_file_path = None
-                original_filename = "pasted_file" # ペーストされた際のデフォルト名
+                original_filename = None
 
-                # --- ステップ1: 一時ファイルパスの取得 ---
-                # ケースA: ファイルアップロード (FileDataオブジェクト)
+                # --- ステップ1: 一時ファイルパスと元のファイル名を取得 ---
+                # ケースA: ファイルアップロード or ドラッグ＆ドロップ (FileDataオブジェクト)
                 if hasattr(file_obj, 'name') and file_obj.name and os.path.exists(file_obj.name):
                     temp_file_path = file_obj.name
+                    # Gradioが作る一時ファイル名から元のファイル名を取り出す
                     original_filename = os.path.basename(temp_file_path)
-                # ケースB: 画像ペースト (パス文字列)
+
+                # ケースB: 画像などのクリップボードからのペースト (パス文字列)
                 elif isinstance(file_obj, str) and os.path.exists(file_obj):
                     temp_file_path = file_obj
-                # ケースC: テキストペースト (テキスト文字列そのもの)
+                    # ★★★ ここが新しいロジック ★★★
+                    # 元のファイル名が存在しないため、タイムスタンプから生成する
+                    kind = filetype.guess(temp_file_path)
+                    ext = kind.extension if kind else 'tmp'
+                    timestamp_fname = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    original_filename = f"pasted_image_{timestamp_fname}.{ext}"
+
+                # ケースC: テキストのペースト (テキスト文字列そのもの)
                 elif isinstance(file_obj, str):
-                    unique_filename = f"{uuid.uuid4().hex}.txt"
+                    unique_filename = f"{uuid.uuid4().hex}_pasted_text.txt"
                     permanent_path = os.path.join(attachments_dir, unique_filename)
                     with open(permanent_path, "w", encoding="utf-8") as f:
                         f.write(file_obj)
                     print(f"--- [ファイル永続化] ペーストされたテキストを保存しました: {permanent_path} ---")
                     log_message_parts.append(f"[ファイル添付: {permanent_path}]")
-                    continue # このループは終了
+                    continue # このファイルの処理は完了
+
+                # --- ステップ2: ファイルのコピーとログへの記録 ---
+                if temp_file_path and original_filename:
+                    # ファイル名の衝突を避けるための最終的なファイル名を生成
+                    unique_filename = f"{uuid.uuid4().hex}_{original_filename}"
+                    permanent_path = os.path.join(attachments_dir, unique_filename)
+
+                    shutil.copy(temp_file_path, permanent_path)
+                    print(f"--- [ファイル永続化] 添付ファイルをコピーしました: {permanent_path} ---")
+                    log_message_parts.append(f"[ファイル添付: {permanent_path}]")
                 else:
                     print(f"--- [ファイル永続化警告] 未知または無効な添付ファイルオブジェクトです: {file_obj} ---")
-                    continue
-
-                if not temp_file_path:
-                    continue
-
-                # --- ステップ2: ファイルの中身を判定 ---
-                kind = filetype.guess(temp_file_path)
-                is_image = kind and kind.mime.startswith('image/')
-
-                # --- ステップ3: 判定結果に基づき、永続ファイル名とパスを決定 ---
-                if is_image:
-                    ext = kind.extension
-                    # 元のファイル名から拡張子を除いた部分を使う
-                    base_name = os.path.splitext(original_filename)[0]
-                    unique_filename = f"{uuid.uuid4().hex}_{base_name}.{ext}"
-                else:
-                    # 画像でないものはすべて.txtとして扱う
-                    unique_filename = f"{uuid.uuid4().hex}.txt"
-
-                permanent_path = os.path.join(attachments_dir, unique_filename)
-
-                # --- ステップ4: ファイルのコピーとログへの記録 ---
-                shutil.copy(temp_file_path, permanent_path)
-                print(f"--- [ファイル永続化] 添付ファイルをコピーしました: {permanent_path} ---")
-                log_message_parts.append(f"[ファイル添付: {permanent_path}]")
 
             except Exception as e:
                 print(f"--- [ファイル永続化エラー] 添付ファイルの処理中にエラーが発生しました: {e} ---")
                 traceback.print_exc()
                 log_message_parts.append(f"[ファイル添付エラー: {e}]")
-
+                
     full_user_log_entry = "\n".join(log_message_parts).strip()
 
     if not full_user_log_entry:
