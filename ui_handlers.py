@@ -1123,55 +1123,79 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
         return gr.update(), gr.update()
 
 def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name: str):
+    """
+    【v4: 戻り値の数FIX・最終版】
+    「管理」タブからルームを削除する処理。
+    最後のルームが削除された場合にも対応し、常に正しい数の戻り値を返す。
+    """
+    # all_room_change_outputs(53) + room_delete_confirmed_state(1) = 54
+    EXPECTED_OUTPUT_COUNT = 54
 
-    # nexus_ark.pyで定義されている戻り値の総数と一致させる
-    NUM_ALL_ROOM_CHANGE_OUTPUTS = 51 
-
-    if str(confirmed).lower() != 'true': 
-        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS + ("",)
+    # ユーザーが確認ダイアログで「キャンセル」を押した場合
+    if str(confirmed).lower() != 'true':
+        return (gr.update(),) * (EXPECTED_OUTPUT_COUNT - 1) + ("",)
 
     if not folder_name_to_delete:
         gr.Warning("削除するルームが選択されていません。")
-        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS + ("",)
+        return (gr.update(),) * (EXPECTED_OUTPUT_COUNT - 1) + ("",)
 
     try:
         room_path_to_delete = os.path.join(constants.ROOMS_DIR, folder_name_to_delete)
         if not os.path.isdir(room_path_to_delete):
             gr.Error(f"削除対象のフォルダが見つかりません: {room_path_to_delete}")
-            return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS + ("",)
+            return (gr.update(),) * (EXPECTED_OUTPUT_COUNT - 1) + ("",)
 
         shutil.rmtree(room_path_to_delete)
         gr.Info(f"ルーム「{folder_name_to_delete}」を完全に削除しました。")
 
         new_room_list = room_manager.get_room_list_for_ui()
-        if not new_room_list:
+
+        if new_room_list:
+            # ケース1: まだ他のルームが残っている場合
+            new_main_room_folder = new_room_list[0][1]
+            all_updates = handle_room_change_for_all_tabs(new_main_room_folder, api_key_name)
+            return all_updates + ("",) # handle_room_change_for_all_tabsは53個の値を返す
+        else:
+            # ケース2: これが最後のルームだった場合
             gr.Warning("全てのルームが削除されました。新しいルームを作成してください。")
-            # This is the "empty" state for `initial_load_chat_outputs`
-            empty_chat_outputs = (
-                None, [], [], gr.update(value={'text': '', 'files': []}), None, "", "", "", "",
-                gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=[], value=None),
-                "", "", gr.update(value=None), "", 0.8, 0.95, "高リスク以上をブロック", "高リスク以上をブロック", "高リスク以上をブロック", "高リスク以上をブロック",
-                False, True, True, False, True, True, True, "ℹ️ *ルームを選択してください*", None
+            
+            # UIを「空の状態」にするための戻り値のタプルを作成する (合計53個)
+            empty_updates = (
+                # initial_load_chat_outputs (36個)
+                None, [], [], gr.update(interactive=False, placeholder="ルームを作成してください。"), 
+                None, "", "", "", "",
+                gr.update(choices=[], value=None), gr.update(choices=[], value=None), 
+                gr.update(choices=[], value=None), gr.update(choices=[], value=None),
+                gr.update(choices=[], value=None), 
+                "（ルームがありません）", 
+                list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,
+                0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
+                False, True, True, False, True, False, False, 
+                "ℹ️ *ルームを選択してください*", None,
+                True, gr.update(open=True),
+                # world_builder_outputs (4個)
+                {}, gr.update(choices=[], value=None), "", gr.update(choices=[], value=None),
+                # session_management_outputs (3個)
+                [], "ルームがありません", gr.update(choices=[]),
+                # redaction_rules_df (1個)
+                pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)", "背景色"]),
+                # archive_date_dropdown (1個)
+                gr.update(choices=[]),
+                # time_settings_updates (4個)
+                gr.update(), gr.update(), gr.update(), gr.update(visible=False),
+                # attachments_df, active_attachments_display (2個)
+                pd.DataFrame(columns=["ファイル名", "種類", "サイズ(KB)", "添付日時"]), "現在アクティブな添付ファイルはありません。",
+                # ★★★ ここに不足していた2つの戻り値を追加 ★★★
+                "トークン数: -", # token_count_display
+                None             # current_room_name
             )
-            # This is the "empty" state for `world_builder_outputs`
-            empty_wb_outputs = ({}, gr.update(choices=[]), "",)
-            # This is the "empty" state for `session_management_outputs`
-            empty_session_outputs = ([], "ルームがありません", gr.update(choices=[]),)
-            # This is the "empty" state for redaction_rules_df and archive_date_dropdown
-            empty_extra_outputs = (pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)"]), gr.update(choices=[]),)
-            return empty_chat_outputs + empty_wb_outputs + empty_session_outputs + empty_extra_outputs + empty_time_outputs + empty_attachment_outputs + empty_token_count + empty_room_name_state + ("",)
+            # 53個の「空の状態」と、Stateリセット用の "" を結合して54個にする
+            return empty_updates + ("",)
 
-        new_main_room_folder = new_room_list[0][1]
-
-        # handle_room_change_for_all_tabs を呼び出し、最後に "" を追加
-        all_updates = handle_room_change_for_all_tabs(new_main_room_folder, api_key_name)
-        return all_updates + ("",)
-    
     except Exception as e:
         gr.Error(f"ルームの削除中にエラーが発生しました: {e}")
         traceback.print_exc()
-        return (gr.update(),) * NUM_ALL_ROOM_CHANGE_OUTPUTS + ("",)
-
+        return (gr.update(),) * (EXPECTED_OUTPUT_COUNT - 1) + ("",)
 
 def load_core_memory_content(room_name: str) -> str:
     """core_memory.txtの内容を安全に読み込むヘルパー関数。"""

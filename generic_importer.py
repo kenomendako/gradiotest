@@ -94,6 +94,11 @@ def import_from_generic_text(
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
 
+            # --- [新ロジック] ChatGPT Exporterのフッターを除去 ---
+            exporter_footer = "Powered by ChatGPT Exporter (https://www.chatgptexporter.com)"
+            if exporter_footer in content:
+                content = content.split(exporter_footer)[0].strip()
+
             user_h = re.escape(user_header)
             agent_h = re.escape(agent_header)
             pattern = re.compile(f"(^{user_h}|^{agent_h})", re.MULTILINE)
