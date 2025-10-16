@@ -394,10 +394,8 @@ def agent_node(state: AgentState):
         if loop_count > 0:
             last_successful_response = state.get("last_successful_response")
             if last_successful_response:
-                print("  - 再思考中にエラーが発生。前回の成功した応答を復元し、グラフを終了します。")
-                # 前回の成功応答を復元し、強制終了フラグを立てる
+                print("  - 再思考中にエラーが発生。1ループ目の応答は既に存在するため、グラフを安全に終了します。")
                 return {
-                    "messages": [last_successful_response],
                     "force_end": True
                 }
         
