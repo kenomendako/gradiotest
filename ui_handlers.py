@@ -2538,53 +2538,52 @@ def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, room_name:
     return key, history, mapping_list
 
 def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], room_name: str, api_key_name: str):
+    """
+    【最終FIX版 v2】チャット履歴で選択されたAIの発言を音声合成して再生する。
+    try...except を削除し、Gradioの例外処理に完全に委ねる。
+    """
     if not selected_message:
-        gr.Warning("再生するメッセージが選択されていません。")
-        yield gr.update(visible=False), gr.update(interactive=True), gr.update(interactive=True)
-        return
+        raise gr.Error("再生するメッセージが選択されていません。")
 
+    # 処理中はボタンを無効化
     yield (
         gr.update(visible=False),
         gr.update(value="音声生成中... ▌", interactive=False),
         gr.update(interactive=False)
     )
 
-    try:
-        raw_text = utils.extract_raw_text_from_html(selected_message.get("content"))
-        text_to_speak = utils.remove_thoughts_from_text(raw_text)
-        if not text_to_speak:
-            gr.Info("このメッセージには音声で再生できるテキストがありません。")
-            return
+    raw_text = utils.extract_raw_text_from_html(selected_message.get("content"))
+    text_to_speak = utils.remove_thoughts_from_text(raw_text)
 
-        effective_settings = config_manager.get_effective_settings(room_name)
-        voice_id, voice_style_prompt = effective_settings.get("voice_id", "iapetus"), effective_settings.get("voice_style_prompt", "")
-        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-        if not api_key:
-            gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-            return
+    if not text_to_speak:
+        gr.Info("このメッセージには音声で再生できるテキストがありません。")
+        yield gr.update(), gr.update(value="🔊 選択した発言を再生", interactive=True), gr.update(interactive=True)
+        return
 
-        from audio_manager import generate_audio_from_text
-        gr.Info(f"「{room_name}」の声で音声を生成しています...")
-        audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, room_name, voice_style_prompt)
+    effective_settings = config_manager.get_effective_settings(room_name)
+    voice_id, voice_style_prompt = effective_settings.get("voice_id", "iapetus"), effective_settings.get("voice_style_prompt", "")
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
-        if audio_filepath:
-            gr.Info("再生します。")
-            yield gr.update(value=audio_filepath, visible=True), gr.update(), gr.update()
-        else:
-            gr.Error("音声の生成に失敗しました。")
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        raise gr.Error(f"APIキー '{api_key_name}' が無効です。")
 
-    finally:
-        yield (
-            gr.update(),
-            gr.update(value="🔊 選択した発言を再生", interactive=True),
-            gr.update(interactive=True)
-        )
+    from audio_manager import generate_audio_from_text
+    gr.Info(f"「{room_name}」の声で音声を生成しています...")
+    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, room_name, voice_style_prompt)
+
+    if audio_filepath and not audio_filepath.startswith("【エラー】"):
+        gr.Info("再生します。")
+        yield gr.update(value=audio_filepath, visible=True), gr.update(value="🔊 選択した発言を再生", interactive=True), gr.update(interactive=True)
+    else:
+        raise gr.Error(audio_filepath or "音声の生成に失敗しました。")
 
 def handle_voice_preview(room_name: str, selected_voice_name: str, voice_style_prompt: str, text_to_speak: str, api_key_name: str):
-    if not selected_voice_name or not text_to_speak or not api_key_name:
-        gr.Warning("声、テキスト、APIキーがすべて選択されている必要があります。")
-        yield gr.update(visible=False), gr.update(interactive=True), gr.update(interactive=True)
-        return
+    """
+    【最終FIX版 v2】音声をプレビュー再生する。
+    try...except を削除し、Gradioの例外処理に完全に委ねる。
+    """
+    if not all([selected_voice_name, text_to_speak, api_key_name]):
+        raise gr.Error("声、テキスト、APIキーがすべて選択されている必要があります。")
 
     yield (
         gr.update(visible=False),
@@ -2592,29 +2591,21 @@ def handle_voice_preview(room_name: str, selected_voice_name: str, voice_style_p
         gr.update(value="生成中...", interactive=False)
     )
 
-    try:
-        voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
-        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-        if not voice_id or not api_key:
-            gr.Warning("声またはAPIキーが無効です。")
-            return
+    voice_id = next((key for key, value in config_manager.SUPPORTED_VOICES.items() if value == selected_voice_name), None)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
-        from audio_manager import generate_audio_from_text
-        gr.Info(f"声「{selected_voice_name}」で音声を生成しています...")
-        audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, room_name, voice_style_prompt)
+    if not voice_id or not api_key:
+        raise gr.Error("声またはAPIキーが無効です。")
 
-        if audio_filepath:
-            gr.Info("プレビューを再生します。")
-            yield gr.update(value=audio_filepath, visible=True), gr.update(), gr.update()
-        else:
-            gr.Error("音声の生成に失敗しました。")
+    from audio_manager import generate_audio_from_text
+    gr.Info(f"声「{selected_voice_name}」で音声を生成しています...")
+    audio_filepath = generate_audio_from_text(text_to_speak, api_key, voice_id, room_name, voice_style_prompt)
 
-    finally:
-        yield (
-            gr.update(),
-            gr.update(interactive=True),
-            gr.update(value="試聴", interactive=True)
-        )
+    if audio_filepath and not audio_filepath.startswith("【エラー】"):
+        gr.Info("プレビューを再生します。")
+        yield gr.update(value=audio_filepath, visible=True), gr.update(interactive=True), gr.update(value="試聴", interactive=True)
+    else:
+        raise gr.Error(audio_filepath or "音声の生成に失敗しました。")
 
 def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: str, style_choice: str) -> Optional[Image.Image]:
     """
@@ -4316,4 +4307,20 @@ def update_token_count_after_attachment_change(
     return gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name,
         api_history_limit=api_history_limit, parts=parts_for_api, **effective_settings
+    )
+
+def _reset_play_audio_on_failure():
+    """「選択した発言を再生」ボタンが失敗したときに、UIを元の状態に戻す。"""
+    return (
+        gr.update(visible=False), # audio_player
+        gr.update(value="🔊 選択した発言を再生", interactive=True), # play_audio_button
+        gr.update(interactive=True) # rerun_button
+    )
+
+def _reset_preview_on_failure():
+    """「試聴」ボタンが失敗したときに、UIを元の状態に戻す。"""
+    return (
+        gr.update(visible=False), # audio_player
+        gr.update(interactive=True), # play_audio_button
+        gr.update(value="試聴", interactive=True) # room_preview_voice_button
     )
