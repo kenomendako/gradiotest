@@ -1375,12 +1375,12 @@ try:
         save_button.click(
             fn=ui_handlers.handle_wb_save,
             inputs=[current_room_name, world_data_state, area_selector, place_selector, content_editor],
-            outputs=[world_data_state, world_settings_raw_editor]
+            outputs=[world_data_state, world_settings_raw_editor, location_dropdown]
         )
         delete_place_button.click(
             fn=ui_handlers.handle_wb_delete_place,
             inputs=[current_room_name, world_data_state, area_selector, place_selector],
-            outputs=[world_data_state, area_selector, place_selector, content_editor, save_button_row, delete_place_button, world_settings_raw_editor]
+            outputs=[world_data_state, area_selector, place_selector, content_editor, save_button_row, delete_place_button, world_settings_raw_editor, location_dropdown]
         )
         add_area_button.click(
             fn=lambda: ("area", gr.update(visible=True), "#### 新しいエリアの作成"),
@@ -1394,7 +1394,7 @@ try:
         confirm_add_button.click(
             fn=ui_handlers.handle_wb_confirm_add,
             inputs=[current_room_name, world_data_state, area_selector, new_item_type, new_item_name],
-            outputs=[world_data_state, area_selector, place_selector, new_item_form, new_item_name, world_settings_raw_editor]
+            outputs=[world_data_state, area_selector, place_selector, new_item_form, new_item_name, world_settings_raw_editor, location_dropdown]
         )
         cancel_add_button.click(
             fn=lambda: (gr.update(visible=False), ""),
@@ -1416,17 +1416,24 @@ try:
             inputs=[current_room_name, staged_image_state, cropper_image_preview],
             outputs=[profile_image_display, cropper_image_preview, save_cropped_image_button]
         )
+        world_builder_raw_outputs = [
+            world_data_state,
+            area_selector,
+            place_selector,
+            world_settings_raw_editor,
+            location_dropdown
+        ]
+
         save_raw_button.click(
             fn=ui_handlers.handle_save_world_settings_raw,
             inputs=[current_room_name, world_settings_raw_editor],
-            outputs=[world_data_state, area_selector, place_selector]
+            outputs=world_builder_raw_outputs
         )
         reload_raw_button.click(
             fn=ui_handlers.handle_reload_world_settings_raw,
             inputs=[current_room_name],
-            outputs=[world_settings_raw_editor]
+            outputs=world_builder_raw_outputs
         )
-
         clear_debug_console_button.click(
             fn=lambda: ("", ""),
             outputs=[debug_console_state, debug_console_output]

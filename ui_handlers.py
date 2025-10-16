@@ -2953,7 +2953,9 @@ def handle_wb_save(room_name: str, world_data: Dict, area_name: str, place_name:
     if world_settings_path and os.path.exists(world_settings_path):
         with open(world_settings_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
-    return world_data, raw_content
+    new_location_choices = _get_location_choices_for_ui(room_name)
+    location_dropdown_update = gr.update(choices=new_location_choices)
+    return world_data, raw_content, location_dropdown_update
 
 def handle_wb_delete_place(room_name: str, world_data: Dict, area_name: str, place_name: str):
     from world_builder import save_world_data
@@ -2975,6 +2977,10 @@ def handle_wb_delete_place(room_name: str, world_data: Dict, area_name: str, pla
     if world_settings_path and os.path.exists(world_settings_path):
         with open(world_settings_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
+    
+    new_location_choices = _get_location_choices_for_ui(room_name)
+    location_dropdown_update = gr.update(choices=new_location_choices)
+    
     return (
         world_data,
         gr.update(choices=area_choices, value=area_name),
@@ -2989,81 +2995,127 @@ def handle_wb_confirm_add(room_name: str, world_data: Dict, selected_area: str, 
     from world_builder import save_world_data
     if not room_name or not item_name:
         gr.Warning("ルームが選択されていないか、名前が入力されていません。")
-        return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+        # outputsの数(7)に合わせてgr.update()を返す
+        return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update(), gr.update()
 
     item_name = item_name.strip()
     if not item_name:
         gr.Warning("名前が空です。")
-        return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+        # outputsの数(7)に合わせてgr.update()を返す
+        return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update(), gr.update()
 
     raw_content = ""
     if item_type == "area":
         if item_name in world_data:
             gr.Warning(f"エリア '{item_name}' は既に存在します。")
-            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update(), gr.update()
         world_data[item_name] = {}
         save_world_data(room_name, world_data)
         gr.Info(f"新しいエリア '{item_name}' を追加しました。")
+
         area_choices = sorted(world_data.keys())
         world_settings_path = room_manager.get_world_settings_path(room_name)
         if world_settings_path and os.path.exists(world_settings_path):
             with open(world_settings_path, "r", encoding="utf-8") as f: raw_content = f.read()
-        return world_data, gr.update(choices=area_choices, value=item_name), gr.update(choices=[], value=None), gr.update(visible=False), "", raw_content
+        
+        # ▼▼▼【ここが修正箇所】▼▼▼
+        new_location_choices = _get_location_choices_for_ui(room_name)
+        location_dropdown_update = gr.update(choices=new_location_choices)
+        return world_data, gr.update(choices=area_choices, value=item_name), gr.update(choices=[], value=None), gr.update(visible=False), "", raw_content, location_dropdown_update
 
     elif item_type == "place":
         if not selected_area:
             gr.Warning("場所を追加するエリアを選択してください。")
-            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update(), gr.update()
         if item_name in world_data.get(selected_area, {}):
             gr.Warning(f"場所 '{item_name}' はエリア '{selected_area}' に既に存在します。")
-            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update()
+            return world_data, gr.update(), gr.update(), gr.update(visible=True), item_name, gr.update(), gr.update()
+        
         world_data[selected_area][item_name] = "新しい場所です。説明を記述してください。"
         save_world_data(room_name, world_data)
         gr.Info(f"エリア '{selected_area}' に新しい場所 '{item_name}' を追加しました。")
+        
         place_choices = sorted(world_data[selected_area].keys())
         world_settings_path = room_manager.get_world_settings_path(room_name)
         if world_settings_path and os.path.exists(world_settings_path):
             with open(world_settings_path, "r", encoding="utf-8") as f: raw_content = f.read()
-        return world_data, gr.update(), gr.update(choices=place_choices, value=item_name), gr.update(visible=False), "", raw_content
+
+        # ▼▼▼【ここが修正箇所】▼▼▼
+        new_location_choices = _get_location_choices_for_ui(room_name)
+        location_dropdown_update = gr.update(choices=new_location_choices)
+        return world_data, gr.update(), gr.update(choices=place_choices, value=item_name), gr.update(visible=False), "", raw_content, location_dropdown_update
+    
     else:
         gr.Error(f"不明なアイテムタイプです: {item_type}")
-        return world_data, gr.update(), gr.update(), gr.update(visible=False), "", gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(visible=False), "", gr.update(), gr.update()
 
 def handle_save_world_settings_raw(room_name: str, raw_content: str):
-    from world_builder import get_world_data
+    """
+    【v2: 司令塔アーキテクチャ版】
+    RAWテキストを保存し、関連する全てのUIコンポーネントの更新値を返す。
+    """
     if not room_name:
         gr.Warning("ルームが選択されていません。")
-        return raw_content, gr.update()
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
-    # ▼▼▼【ここに追加】▼▼▼
     room_manager.create_backup(room_name, 'world_setting')
 
     world_settings_path = room_manager.get_world_settings_path(room_name)
     if not world_settings_path:
         gr.Error("世界設定ファイルのパスが取得できませんでした。")
-        return raw_content, gr.update()
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+    
     try:
         with open(world_settings_path, "w", encoding="utf-8") as f:
             f.write(raw_content)
-        gr.Info("RAWテキストとして世界設定を保存しました。構造化エディタに反映されます。")
+        gr.Info("RAWテキストとして世界設定を保存しました。")
+        
+        # 成功した場合、関連する全てのUI更新値を生成して返す
         new_world_data = get_world_data(room_name)
         new_area_choices = sorted(new_world_data.keys())
-        return new_world_data, gr.update(choices=new_area_choices, value=None), gr.update(choices=[], value=None)
+        new_location_choices = _get_location_choices_for_ui(room_name)
+        
+        return (
+            new_world_data,                                        # world_data_state
+            gr.update(choices=new_area_choices, value=None),       # area_selector
+            gr.update(choices=[], value=None),                     # place_selector
+            gr.update(value=raw_content),                          # world_settings_raw_editor
+            gr.update(choices=new_location_choices)                # location_dropdown
+        )
     except Exception as e:
         gr.Error(f"世界設定のRAW保存中にエラーが発生しました: {e}")
-        return gr.update(), gr.update(), gr.update()
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
-def handle_reload_world_settings_raw(room_name: str) -> str:
+# ui_handlers.py の handle_reload_world_settings_raw 関数を、以下で完全に置き換えてください。
+
+def handle_reload_world_settings_raw(room_name: str):
+    """
+    【v2: 司令塔アーキテクチャ版】
+    RAWテキストを再読込し、関連する全てのUIコンポーネントの更新値を返す。
+    """
     if not room_name:
         gr.Warning("ルームが選択されていません。")
-        return ""
+        return "", {}, gr.update(choices=[]), gr.update(choices=[]), gr.update(choices=[])
+
     world_settings_path = room_manager.get_world_settings_path(room_name)
     raw_content = ""
     if world_settings_path and os.path.exists(world_settings_path):
         with open(world_settings_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
     gr.Info("世界設定ファイルを再読み込みしました。")
-    return raw_content
+
+    # 保存時と同様に、関連する全てのUI更新値を生成して返す
+    new_world_data = get_world_data(room_name)
+    new_area_choices = sorted(new_world_data.keys())
+    new_location_choices = _get_location_choices_for_ui(room_name)
+    
+    return (
+        new_world_data,                                        # world_data_state
+        gr.update(choices=new_area_choices, value=None),       # area_selector
+        gr.update(choices=[], value=None),                     # place_selector
+        gr.update(value=raw_content),                          # world_settings_raw_editor
+        gr.update(choices=new_location_choices)                # location_dropdown
+    )
 
 def handle_save_gemini_key(key_name: str, key_value: str, current_room_name: str):
     """
