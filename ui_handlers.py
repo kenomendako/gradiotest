@@ -464,23 +464,24 @@ def _stream_and_handle_response(
     scenery_text_from_ui: str
 ) -> Iterator[Tuple]:
     """
-    【v14: 二幕構成ストリーミング・最終版】
-    AIへのリクエスト送信とストリーミング応答処理、そしてAPIリトライの全責務を担う。
-    ツール使用時の「第一幕（意気込み）」と「第二幕（最終報告）」を正しく分離して表示する。
+    【v15: グループ会話・逐次表示FIX】
+    AIへのリクエスト送信、ストリーミング、APIリトライ、そしてグループ会話のターン管理の全責務を担う。
+    一人応答するごとにログを保存・UIを再描画し、各AIの思考コンテキストの完全な独立性を保証する。
     """
     from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InternalServerError
 
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
-    effective_settings = config_manager.get_effective_settings(soul_vessel_room)
-    add_timestamp = effective_settings.get("add_timestamp", False)
-    chatbot_history, mapping_list = reload_chat_log(
-        room_name=soul_vessel_room, api_history_limit_value=api_history_limit, add_timestamp=add_timestamp
-    )
     all_turn_popups = []
     final_error_message = None
 
     try:
-        # 1. UIをストリーミングモードに移行
+        # UIをストリーミングモードに移行
+        # この時点の履歴を一度取得
+        effective_settings_initial = config_manager.get_effective_settings(soul_vessel_room)
+        add_timestamp_initial = effective_settings_initial.get("add_timestamp", False)
+        chatbot_history, mapping_list = reload_chat_log(
+            room_name=soul_vessel_room, api_history_limit_value=api_history_limit, add_timestamp=add_timestamp_initial
+        )
         chatbot_history.append((None, "▌"))
         yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
                *([gr.update()] * 8),
@@ -489,40 +490,45 @@ def _stream_and_handle_response(
                gr.update(visible=False)
         )
 
-        # 2. コンテキスト準備
+        # AIごとの応答生成ループ
         all_rooms_in_scene = [soul_vessel_room] + (active_participants or [])
-        season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
-        shared_location_name = utils.get_current_location(soul_vessel_room)
-        shared_scenery_text = scenery_text_from_ui
-
-        # 3. AIごとの応答生成ループ
         for i, current_room in enumerate(all_rooms_in_scene):
-            if i > 0:
-                chatbot_history.append((None, "▌"))
-                if mapping_list: mapping_list.append(mapping_list[-1])
-                else: mapping_list.append(0)
-
-            chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
+            
+            # --- [最重要] ターンごとに思考の前提をゼロから構築 ---
+            is_first_responder = (i == 0)
+            
+            # UIに思考中であることを表示
+            chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit, add_timestamp_initial)
+            chatbot_history.append((None, f"思考中 ({current_room})... ▌"))
             yield (chatbot_history, mapping_list, *([gr.update()] * 12))
 
-            final_user_prompt_parts = user_prompt_parts_for_api if current_room == soul_vessel_room else [{"type": "text", "text": full_user_log_entry}]
+            # APIに渡す引数を、現在のAI（current_room）のために完全に再構築
+            season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
+            shared_location_name = utils.get_current_location(soul_vessel_room)
+            
             agent_args_dict = {
-                "room_to_respond": current_room, "api_key_name": api_key_name,
-                "global_model_from_ui": global_model, "api_history_limit": api_history_limit,
-                "debug_mode": debug_mode, "history_log_path": main_log_f,
-                "user_prompt_parts": final_user_prompt_parts, "soul_vessel_room": soul_vessel_room,
-                "active_participants": active_participants, "shared_location_name": shared_location_name,
+                "room_to_respond": current_room, 
+                "api_key_name": api_key_name,
+                "global_model_from_ui": global_model, 
+                "api_history_limit": api_history_limit,
+                "debug_mode": debug_mode, 
+                "history_log_path": main_log_f,
+                "user_prompt_parts": user_prompt_parts_for_api if is_first_responder else [],
+                "soul_vessel_room": soul_vessel_room,
+                "active_participants": active_participants, 
+                "shared_location_name": shared_location_name,
                 "active_attachments": active_attachments,
-                "shared_scenery_text": shared_scenery_text, "season_en": season_en, "time_of_day_en": time_of_day_en
+                "shared_scenery_text": scenery_text_from_ui, 
+                "season_en": season_en, 
+                "time_of_day_en": time_of_day_en
             }
 
-            # --- [v14: 二幕構成ストリーミング・アーキテクチャ] ---
             streamed_text = ""
             final_state = None
             initial_message_count = 0
-
             max_retries = 5
             base_delay = 5
+            
             for attempt in range(max_retries):
                 try:
                     with utils.capture_prints() as captured_output:
@@ -531,28 +537,22 @@ def _stream_and_handle_response(
                                 initial_message_count = chunk
                             elif mode == "values":
                                 final_state = chunk
-
                     current_console_content += captured_output.getvalue()
                     break
                 except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
+                    # (リトライ処理は変更なし)
                     error_str = str(e)
                     if "PerDay" in error_str or "Daily" in error_str:
                         final_error_message = "[エラー] APIの1日あたりの利用上限に達したため、本日の応答はこれ以上生成できません。"
                         break
-
                     wait_time = base_delay * (2 ** attempt)
                     match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
                     if match: wait_time = int(match.group(1)) + 1
-
                     if attempt < max_retries - 1:
-                        retry_message = (
-                            f"⏳ APIの応答が遅延しています。{wait_time}秒待機して再試行します... "
-                            f"({attempt + 1}/{max_retries}回目)"
-                        )
+                        retry_message = (f"⏳ APIの応答が遅延しています。{wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries}回目)")
                         chatbot_history[-1] = (None, retry_message)
                         yield (chatbot_history, mapping_list, *([gr.update()] * 12))
                         time.sleep(wait_time)
-
                         chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
                         yield (chatbot_history, mapping_list, *([gr.update()] * 12))
                     else:
@@ -563,32 +563,34 @@ def _stream_and_handle_response(
                     traceback.print_exc()
                     final_error_message = f"[エラー] 内部処理で問題が発生しました。詳細はターミナルを確認してください。"
                     break
+            
+            if final_error_message: break
 
-            if final_error_message:
-                break
-
-            # --- 応答の解析とログ記録 ---
-            has_tool_calls_in_turn = False
             if final_state:
                 new_messages = final_state["messages"][initial_message_count:]
                 last_ai_message = next((msg for msg in reversed(new_messages) if isinstance(msg, AIMessage)), None)
                 has_tool_calls_in_turn = bool(last_ai_message and last_ai_message.tool_calls)
 
-                # 全てのAIメッセージをログに記録
+                # --- 応答の記録 ---
+                # このAIが生成した全てのメッセージを、参加者全員のログに書き込む
                 for msg in new_messages:
-                    if isinstance(msg, AIMessage):
-                        response_content = msg.content
-                        if response_content and response_content.strip():
+                    if isinstance(msg, (AIMessage, ToolMessage)):
+                        content_to_log = ""
+                        header = ""
+                        if isinstance(msg, AIMessage) and msg.content and msg.content.strip():
+                            content_to_log = msg.content
+                            header = f"## AGENT:{current_room}"
+                        elif isinstance(msg, ToolMessage):
+                            content_to_log = utils.format_tool_result_for_ui(msg.name, str(msg.content)) or f"ツール「{msg.name}」を実行しました。"
+                            header = f"## SYSTEM:tool_result"
+                            all_turn_popups.append(content_to_log)
+                        
+                        if header and content_to_log:
                             for participant_room in all_rooms_in_scene:
                                 log_f, _, _, _, _ = get_room_files_paths(participant_room)
-                                if log_f:
-                                    utils.save_message_to_log(log_f, f"## AGENT:{current_room}", response_content)
-                    elif isinstance(msg, ToolMessage):
-                        popup_text = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                        if popup_text: all_turn_popups.append(popup_text)
-
+                                if log_f: utils.save_message_to_log(log_f, header, content_to_log)
+                
                 # --- 表示処理 ---
-                # "第一幕の意気込み" または "最終応答" を取得
                 text_to_display = ""
                 if has_tool_calls_in_turn:
                     text_to_display = last_ai_message.content if last_ai_message else ""
@@ -596,7 +598,6 @@ def _stream_and_handle_response(
                     all_ai_contents = [msg.content for msg in new_messages if isinstance(msg, AIMessage) and msg.content and isinstance(msg.content, str)]
                     text_to_display = "\n\n".join(all_ai_contents)
 
-                # 取得したテキストをストリーミング表示
                 if text_to_display and text_to_display.strip():
                     if enable_typewriter_effect and streaming_speed > 0:
                         for char in text_to_display:
@@ -606,20 +607,18 @@ def _stream_and_handle_response(
                             time.sleep(streaming_speed)
                     else:
                         streamed_text = text_to_display
-                        chatbot_history[-1] = (None, streamed_text + "▌")
-                        yield (chatbot_history, mapping_list, *([gr.update()] * 12))
-
-            # --- 後処理 ---
-            if streamed_text:
+                
+                # ストリーミング完了後、最終的なテキストで一度更新
                 chatbot_history[-1] = (None, streamed_text)
-            elif not final_error_message:
-                chatbot_history.pop()
-                if mapping_list: mapping_list.pop()
-        # ▲▲▲【書き換えはここまで】▲▲▲
+                yield (chatbot_history, mapping_list, *([gr.update()] * 12))
 
+            # --- UIの再描画と確定 ---
+            # このAIのターンが完了したので、ログから完全に再描画して表示を「確定」させる
+            chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit, add_timestamp_initial)
+            yield (chatbot_history, mapping_list, *([gr.update()] * 12))
 
         if final_error_message:
-            chatbot_history[-1] = (None, final_error_message)
+            chatbot_history.append((None, final_error_message))
             utils.save_message_to_log(main_log_f, f"## AGENT:{soul_vessel_room}", final_error_message)
 
         for popup_message in all_turn_popups:
@@ -629,56 +628,39 @@ def _stream_and_handle_response(
         print("--- [ジェネレータ] ユーザーの操作により、ストリーミング処理が正常に中断されました。 ---")
     
     finally:
-        # 8. [最終防衛ライン] 処理完了・中断・エラーに関わらず、必ずログから最新の状態を再描画する
+        # (finallyブロックの中身は変更なし)
+        # 処理完了・中断・エラーに関わらず、必ずログから最新の状態を再描画する
         final_chatbot_history, final_mapping_list = reload_chat_log(
             room_name=soul_vessel_room,
             api_history_limit_value=api_history_limit,
-            add_timestamp=add_timestamp
+            add_timestamp=add_timestamp_initial
         )
-
-        # 9. その他のUIコンポーネントを更新
-        # --- API呼び出しを伴う処理を、UIをブロックしないように安全に実行 ---
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         new_scenery_text, scenery_image, token_count_text = "（更新失敗）", None, "トークン数: (更新失敗)"
-
         try:
             season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
-            _, _, new_scenery_text = generate_scenery_context(
-                soul_vessel_room, api_key,
-                season_en=season_en, time_of_day_en=time_of_day_en
-            )
-            scenery_image = utils.find_scenery_image(
-                soul_vessel_room, utils.get_current_location(soul_vessel_room),
-                season_en=season_en, time_of_day_en=time_of_day_en
-            )
+            _, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key, season_en=season_en, time_of_day_en=time_of_day_en)
+            scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room), season_en=season_en, time_of_day_en=time_of_day_en)
         except Exception as e:
             print(f"--- 警告: 応答後の情景更新に失敗しました (API制限の可能性): {e} ---")
-
         try:
             token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
-            token_count_text = gemini_api.count_input_tokens(
-                room_name=soul_vessel_room, api_key_name=api_key_name,
-                api_history_limit=api_history_limit, parts=[], **token_calc_kwargs
-            )
+            token_count_text = gemini_api.count_input_tokens(room_name=soul_vessel_room, api_key_name=api_key_name, api_history_limit=api_history_limit, parts=[], **token_calc_kwargs)
         except Exception as e:
             print(f"--- 警告: 応答後のトークン数更新に失敗しました (API制限の可能性): {e} ---")
 
-        # --- API呼び出しを伴わない、高速な処理 ---
         final_df_with_ids = render_alarms_as_dataframe()
         final_df = get_display_df(final_df_with_ids)
         new_location_choices = _get_location_choices_for_ui(soul_vessel_room)
         latest_location_id = utils.get_current_location(soul_vessel_room)
         location_dropdown_update = gr.update(choices=new_location_choices, value=latest_location_id)
-
         yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
-               location_dropdown_update,
-               new_scenery_text,
+               location_dropdown_update, new_scenery_text,
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
                gr.update(visible=False, interactive=True), gr.update(interactive=True),
                gr.update(visible=False)
         )
-    # ▲▲▲【置き換えはここまで】▲▲▲
 
 def handle_message_submission(
     multimodal_input: dict, soul_vessel_room: str, api_key_name: str,

@@ -206,17 +206,20 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         elif snapshot_messages:
             messages = snapshot_messages
 
-    # ▼▼▼【ここからが新しく追加・修正するブロック】▼▼▼
-    # ログファイルから読み込んだ最新のユーザーメッセージは、画像データが欠落した
-    # テキストのみの不完全なバージョンである。
-    # これを一度リストから削除し、UIハンドラから渡された、画像データを含む
-    # 完全な`user_prompt_parts`で置き換える。
-    # 1. ログから読み込んだ不完全な最新ユーザーメッセージを一旦削除
-    if messages and isinstance(messages[-1], HumanMessage):
-        messages.pop()
-    
-    # 2. アクティブな添付ファイルの情報をプロンプトパーツとして構築
+    # グループ会話と1対1会話の両方に対応する、堅牢な履歴構築ロジック
+
+    # ユーザー入力に直接応答する最初のAI（魂の器）かどうかを判定
+    is_first_responder = (room_to_respond == soul_vessel_room)
+
+    # 最初のAIの場合のみ、ログから読み込んだ不完全なユーザーメッセージを削除
+    if is_first_responder:
+        if messages and isinstance(messages[-1], HumanMessage):
+            messages.pop()
+
+    # 添付ファイル情報と、最初のAIの場合はユーザー入力を結合するためのリスト
     final_prompt_parts = []
+    
+    # 全員共通で、アクティブな添付ファイルの情報を構築
     if active_attachments:
         # 時系列計算のために、最新の完全なログを読み込む
         full_raw_history = utils.load_chat_log(responding_ai_log_f)
@@ -261,11 +264,11 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         if header_added:
              final_prompt_parts.append({"type": "text", "text": "\n（ここから下のメッセージ本文）\n---\n"})
 
-    # 3. ユーザーの現在の入力を追加
-    if user_prompt_parts:
+    # 最初のAIの場合のみ、ユーザーのテキスト入力とファイルをパーツに追加
+    if is_first_responder and user_prompt_parts:
         final_prompt_parts.extend(user_prompt_parts)
 
-    # 4. 最終的なプロンプトパーツでメッセージリストを更新
+    # 何か追加するパーツがあれば、新しいHumanMessageとして履歴に追加
     if final_prompt_parts:
         messages.append(HumanMessage(content=final_prompt_parts))
     # ▲▲▲【追加・修正はここまで】▲▲▲
