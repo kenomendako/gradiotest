@@ -4,7 +4,8 @@ import os
 from pathlib import Path
 from langchain_core.tools import tool
 import traceback
-
+import shutil
+import tempfile
 # 循環参照を避けるため、必要なモジュールは関数内でインポートする
 import constants
 import config_manager
@@ -44,13 +45,25 @@ def search_knowledge_base(query: str, room_name: str) -> str:
             task_type="retrieval_query"
         )
 
-        # 4. FAISSインデックスをロードして検索を実行
-        db = FAISS.load_local(str(index_path), embeddings, allow_dangerous_deserialization=True)
-        docs = db.similarity_search(query, k=3) # 上位3件を取得
+        # 4. FAISSインデックスをロードして検索を実行 (日本語パス対応)
+        docs = []
+        # 日本語パス問題を回避するため、ASCIIパスの一時ディレクトリにインデックスをコピーして読み込む
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_index_path = Path(temp_dir) / "faiss_index"
+            shutil.copytree(str(index_path), str(temp_index_path))
+
+            # 一時ディレクトリからFAISSインデックスをロード
+            db = FAISS.load_local(
+                str(temp_index_path),
+                embeddings,
+                allow_dangerous_deserialization=True
+            )
+            docs = db.similarity_search(query, k=3) # 上位3件を取得
+        # ▲▲▲【置き換えはここまで】▲▲▲
 
         if not docs:
             return f"【検索結果】知識ベースから「{query}」に関連する情報は見つかりませんでした。"
-
+        
         # 5. 結果を整形して返す
         result_parts = [f'【知識ベースからの検索結果：「{query}」】\n']
         for doc in docs:
