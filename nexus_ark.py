@@ -666,7 +666,7 @@ try:
                         with gr.Row():
                             save_prompt_button = gr.Button("プロンプトを保存", variant="secondary")
                             reload_prompt_button = gr.Button("再読込", variant="secondary")
-                    with gr.TabItem("記憶 (テキスト)"):
+                    with gr.TabItem("記憶"):
                         memory_txt_editor = gr.Textbox(
                             label="主観的記憶（日記） - memory_main.txt",
                             interactive=True,
@@ -717,7 +717,7 @@ try:
                         gr.Markdown("---")
                         gr.Markdown("### 索引管理（旧機能）")
                         rag_update_button = gr.Button("手帳の索引を更新", variant="secondary", visible=False)
-                    with gr.TabItem("メモ帳 (Markdown)"):
+                    with gr.TabItem("メモ帳"):
                         notepad_editor = gr.Textbox(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code", lines=20, autoscroll=True)
                         with gr.Row():
                             save_notepad_button = gr.Button("メモ帳を保存", variant="secondary")
