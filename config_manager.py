@@ -285,12 +285,12 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
     """
     effective_settings = {
         "model_name": DEFAULT_MODEL_GLOBAL, "voice_id": "iapetus", "voice_style_prompt": "",
-        "add_timestamp": False, "send_thoughts": initial_send_thoughts_to_api_global,
-        "send_notepad": True, "use_common_prompt": False,
+        "add_timestamp": True, "send_thoughts": initial_send_thoughts_to_api_global,
+        "send_notepad": True, "use_common_prompt": True,
         "send_core_memory": True,
         "enable_scenery_system": True, # この行を追加
         "send_scenery": True,
-        "send_current_time": False,
+        "send_current_time": True,
         "auto_memory_enabled": False,
         "enable_typewriter_effect": True,
         "streaming_speed": 0.01,
