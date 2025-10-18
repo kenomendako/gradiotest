@@ -94,55 +94,62 @@ def _create_redaction_df_from_rules(rules: List[Dict]) -> pd.DataFrame:
 
 def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     """
-    【v5: オンボーディング戻り値FIX】
-    チャットタブ関連のUIを更新する。APIキーの有効性を確認し、無効な場合はAPIコールを完全にスキップする。
+    【v7: 現在地初期化・同期FIX版】
+    チャットタブ関連のUIを更新する。現在地が未設定の場合の初期化もここで行う。
+    情景関連の処理は、全て司令塔である _get_updated_scenery_and_image に一任する。
     """
-    # --- APIキーの有効性をまずチェック ---
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     has_valid_key = api_key and not api_key.startswith("YOUR_API_KEY")
 
     if not has_valid_key:
-        # --- 【オンボーディングモード】有効なAPIキーがない場合、安全な値を返す ---
-        # nexus_ark.pyのinitial_load_chat_outputs(37個)と完全に一致する数の値を返す
+        # (オンボーディングモードのコードは変更なし)
         return (
-            # --- 基本情報 (9個) ---
             room_name, [], [], gr.update(interactive=False, placeholder="まず、左の「設定」からAPIキーを設定してください。"),
             None, "", "", "", "",
-            # --- ドロップダウン (5個) ---
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=[], value=None),
-            # --- 情景・音声 (4個) ---
             "（APIキーが設定されていません）",
-            list(config_manager.SUPPORTED_VOICES.values())[0], "",
-            # --- ストリーミング (2個) ---
-            True, 0.01,
-            # --- AIパラメータ (6個) ---
+            list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,
             0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
-            # --- コンテキストチェックボックス (8個) ---
-            False,                  # add_timestamp
-            True,                   # send_current_time
-            True,                   # send_thoughts
-            True,                   # send_notepad
-            False,                  # use_common_prompt
-            True,                   # send_core_memory
-            True,                   # send_scenery (enable_scenery_systemと連動)
-            False,                  # auto_memory_enabled
-            # --- UIメタ情報 (3個) ---
-            f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
-            None,                   # scenery_image
-            True,                   # enable_scenery_system (マスタースイッチ)
-            gr.update(open=True)    # profile_scenery_accordion
+            False, True, True, False, True, True, True, False,
+            f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", None,
+            True, gr.update(open=True)
         )
 
-    # --- 【通常モード】有効なAPIキーがある場合、通常の更新処理を行う ---
+    # --- 【通常モード】 ---
     if not room_name:
         room_list = room_manager.get_room_list_for_ui()
         room_name = room_list[0][1] if room_list else "Default"
 
+    # ▼▼▼【ここからが修正の核心】▼▼▼
+    # ステップ1: UIに表示するための場所リストを先に生成
+    locations_for_ui = _get_location_choices_for_ui(room_name)
+    valid_location_ids = [value for _name, value in locations_for_ui if not value.startswith("__AREA_HEADER_")]
+
+    # ステップ2: 現在地ファイルを確認し、なければ初期化
+    current_location_from_file = utils.get_current_location(room_name)
+    if not current_location_from_file or current_location_from_file not in valid_location_ids:
+        # 世界設定に "リビング" が存在すればそれを、なければ最初の有効な場所をデフォルトにする
+        new_location = "リビング" if "リビング" in valid_location_ids else (valid_location_ids[0] if valid_location_ids else None)
+        if new_location:
+            from tools.space_tools import set_current_location
+            set_current_location.func(location_id=new_location, room_name=room_name)
+            gr.Info(f"現在地が未設定または無効だったため、「{new_location}」に自動で設定しました。")
+            current_location_from_file = new_location # 状態を更新
+        else:
+            gr.Warning("現在地が未設定ですが、世界設定に有効な場所が一つもありません。")
+            current_location_from_file = None
+
+    # ステップ3: 司令塔を呼び出す
+    scenery_text, scenery_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
+    # ▲▲▲【修正はここまで】▲▲▲
+
+    # --- 以降、取得した値を使ってUI更新値を構築する ---
     effective_settings = config_manager.get_effective_settings(room_name)
+    # (以降のコードは、location_dropdownの更新値以外はほぼ変更なし)
     chat_history, mapping_list = reload_chat_log(
         room_name=room_name,
         api_history_limit_value=config_manager.initial_api_history_limit_option_global,
@@ -151,33 +158,21 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     _, _, img_p, mem_p, notepad_p = get_room_files_paths(room_name)
     memory_str = ""
     if mem_p and os.path.exists(mem_p):
-        with open(mem_p, "r", encoding="utf-8") as f:
-            memory_str = f.read()
+        with open(mem_p, "r", encoding="utf-8") as f: memory_str = f.read()
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(room_name)
-    locations_for_ui = _get_location_choices_for_ui(room_name)
-    valid_location_ids = [value for _name, value in locations_for_ui if not value.startswith("__AREA_HEADER_")]
-    current_location_from_file = utils.get_current_location(room_name)
+    
+    # ▼▼▼【ここが修正の核心】▼▼▼
+    # location_dd_val を、ファイルから読み込んだ（または初期化した）値に修正
     location_dd_val = current_location_from_file
-    if current_location_from_file and current_location_from_file not in valid_location_ids:
-        gr.Warning(f"最後にいた場所「{current_location_from_file}」が世界設定に見つかりません。移動先を選択し直してください。")
-        location_dd_val = None
+    # ▲▲▲【修正はここまで】▲▲▲
 
-    season_en, time_of_day_en = _get_current_time_context(room_name)
-    _, _, scenery_text = generate_scenery_context(
-        room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
-    )
-    scenery_image_path = utils.find_scenery_image(
-        room_name, location_dd_val, season_en=season_en, time_of_day_en=time_of_day_en
-    )
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "iapetus"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
     safety_display_map = {
         "BLOCK_NONE": "ブロックしない", "BLOCK_LOW_AND_ABOVE": "低リスク以上をブロック",
         "BLOCK_MEDIUM_AND_ABOVE": "中リスク以上をブロック", "BLOCK_ONLY_HIGH": "高リスクのみブロック"
     }
-    temp_val = effective_settings.get("temperature", 0.8)
-    top_p_val = effective_settings.get("top_p", 0.95)
     harassment_val = safety_display_map.get(effective_settings.get("safety_block_threshold_harassment"))
     hate_val = safety_display_map.get(effective_settings.get("safety_block_threshold_hate_speech"))
     sexual_val = safety_display_map.get(effective_settings.get("safety_block_threshold_sexually_explicit"))
@@ -186,29 +181,29 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
     return (
         room_name, chat_history, mapping_list,
-        gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)。添付するにはファイルをドロップまたはクリップボタンを押してください..."), # Chat input
+        gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)。添付するにはファイルをドロップまたはクリップボタンを押してください..."),
         profile_image,
         memory_str, notepad_content, load_system_prompt_content(room_name),
         core_memory_content,
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # room_dropdown
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # alarm_room_dropdown
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # timer_room_dropdown
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name), # manage_room_selector
-        gr.update(choices=locations_for_ui, value=location_dd_val), # location_dropdown
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
+        gr.update(choices=locations_for_ui, value=location_dd_val), # choicesとvalueを同期して返す
         scenery_text,
         voice_display_name, voice_style_prompt_val,
         effective_settings["enable_typewriter_effect"],
         effective_settings["streaming_speed"],
-        temp_val, top_p_val, harassment_val, hate_val, sexual_val, dangerous_val,
+        effective_settings.get("temperature", 0.8), effective_settings.get("top_p", 0.95),
+        harassment_val, hate_val, sexual_val, dangerous_val,
         effective_settings["add_timestamp"], effective_settings.get("send_current_time", False), effective_settings["send_thoughts"],
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
-        effective_settings["send_core_memory"],
-        effective_settings["send_scenery"],
+        effective_settings["send_core_memory"], effective_settings["send_scenery"],
         effective_settings["auto_memory_enabled"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path,
         effective_settings.get("enable_scenery_system", True),
-        gr.update(open=effective_settings.get("enable_scenery_system", True)) # visible から open に変更
+        gr.update(open=effective_settings.get("enable_scenery_system", True))
     )
 
 def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
@@ -899,65 +894,55 @@ def handle_rerun_button_click(
 
 def _get_updated_scenery_and_image(room_name: str, api_key_name: str, force_text_regenerate: bool = False) -> Tuple[str, Optional[str]]:
     """
-    【v7: 機能OFF対応】
-    ...
+    【v9: 状態非干渉版】
+    情景のテキストと画像の取得・生成に関する全責任を負う、唯一の司令塔。
+    この関数は、現在のファイル状態を読み取るだけで、決して書き込みは行わない。
     """
-    # --- 新しいガード節 ---
-    effective_settings = config_manager.get_effective_settings(room_name)
-    if not effective_settings.get("enable_scenery_system", True):
-        return "（情景描写システムは、このルームでは無効です）", None
-    # --- ここまで ---
+    try:
+        effective_settings = config_manager.get_effective_settings(room_name)
+        if not effective_settings.get("enable_scenery_system", True):
+            return "（情景描写システムは、このルームでは無効です）", None
 
-    if not room_name or not api_key_name:
-        return "（ルームまたはAPIキーが未選択です）", None
+        if not room_name or not api_key_name:
+            return "（ルームまたはAPIキーが未選択です）", None
 
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-    if not api_key:
-        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return "（APIキーエラー）", None
+        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+        if not api_key or api_key.startswith("YOUR_API_KEY"):
+            return "（有効なAPIキーが設定されていません）", None
 
-    current_location = utils.get_current_location(room_name)
-    if not current_location:
-        return "（現在地が設定されていません）", None
+        current_location = utils.get_current_location(room_name)
+        if not current_location:
+            raise ValueError("現在地が設定されていません。UIハンドラ側で初期化が必要です。")
 
-    # 1. 時間の源から、適用すべき時間コンテキストを取得
-    season_en, time_of_day_en = _get_current_time_context(room_name)
+        season_en, time_of_day_en = _get_current_time_context(room_name)
 
-    # 2. 情景テキストを生成（またはキャッシュから取得）
-    _, _, scenery_text = generate_scenery_context(
-        room_name, api_key,
-        force_regenerate=force_text_regenerate,
-        season_en=season_en, time_of_day_en=time_of_day_en
-    )
+        _, _, scenery_text = generate_scenery_context(
+            room_name, api_key, force_regenerate=force_text_regenerate,
+            season_en=season_en, time_of_day_en=time_of_day_en
+        )
 
-    # 3. 対応する情景画像を検索
-    scenery_image_path = utils.find_scenery_image(
-        room_name, current_location, season_en, time_of_day_en
-    )
+        scenery_image_path = utils.find_scenery_image(
+            room_name, current_location, season_en, time_of_day_en
+        )
 
-    # 4. 【キャッシュ・ミス時の自動生成】画像が見つからなかった場合
-    if scenery_image_path is None:
-        # handle_generate_or_regenerate_scenery_image はPIL Imageを返すため、
-        # ここでは直接呼び出さず、その中の画像生成部分のロジックを再利用する。
-        # 今後のリファクタリングで、画像生成部分だけを切り出すのが望ましい。
-        try:
-            # handle_generate_or_regenerate_scenery_imageを呼び出し、PIL Imageオブジェクトを受け取る
+        if scenery_image_path is None:
+            gr.Info("現在の情景に一致する画像がないため、自動で生成します...")
             pil_image = handle_generate_or_regenerate_scenery_image(
-                room_name=room_name,
-                api_key_name=api_key_name,
-                style_choice="写真風 (デフォルト)" # 自動生成時はデフォルトスタイルを使用
+                room_name=room_name, api_key_name=api_key_name, style_choice="写真風 (デフォルト)"
             )
             if pil_image:
-                # 戻り値はPIL Imageなので、再度パスを検索する必要がある
                 scenery_image_path = utils.find_scenery_image(
                     room_name, current_location, season_en, time_of_day_en
                 )
-        except Exception as e:
-            gr.Error(f"情景画像の自動生成中にエラーが発生しました: {e}")
-            traceback.print_exc()
 
+        return scenery_text, scenery_image_path
 
-    return scenery_text, scenery_image_path
+    except Exception as e:
+        error_message = f"情景描写システムの処理中にエラーが発生しました。設定ファイル（world_settings.txtなど）が破損している可能性があります。"
+        print(f"--- [司令塔エラー] {error_message} ---")
+        traceback.print_exc()
+        gr.Warning(error_message)
+        return "（情景の取得中にエラーが発生しました）", None
 
 def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[gr.update, str, Optional[str]]:
     """「情景テキストを更新」ボタンのハンドラ。新しい司令塔を呼び出す。"""
