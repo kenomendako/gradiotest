@@ -6,8 +6,7 @@
 > **これはベータ版です**
 > 現在公開している Nexus Ark は、開発中のベータ版です。予期せぬ不具合が発生する可能性があります。機能は今後、予告なく変更・追加・削除されることがありますので、ご了承ください。
 
-<!-- アプリケーションのスクリーンショットをここに挿入 -->
-<!-- ![App Screenshot](path/to/your/screenshot.png) -->
+![Nexus Ark Main UI](./assets/images/main-ui.png)
 
 ## Nexus Arkとは？
 
