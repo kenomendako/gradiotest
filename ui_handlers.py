@@ -94,7 +94,7 @@ def _create_redaction_df_from_rules(rules: List[Dict]) -> pd.DataFrame:
 
 def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     """
-    【v4: オンボーディング対応最終版】
+    【v5: オンボーディング戻り値FIX】
     チャットタブ関連のUIを更新する。APIキーの有効性を確認し、無効な場合はAPIコールを完全にスキップする。
     """
     # --- APIキーの有効性をまずチェック ---
@@ -103,21 +103,38 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
     if not has_valid_key:
         # --- 【オンボーディングモード】有効なAPIキーがない場合、安全な値を返す ---
-        # この戻り値の構造は、handle_initial_loadのオンボーディングモードと完全に一致させる
+        # nexus_ark.pyのinitial_load_chat_outputs(37個)と完全に一致する数の値を返す
         return (
+            # --- 基本情報 (9個) ---
             room_name, [], [], gr.update(interactive=False, placeholder="まず、左の「設定」からAPIキーを設定してください。"),
             None, "", "", "", "",
+            # --- ドロップダウン (5個) ---
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=[], value=None),
+            # --- 情景・音声 (4個) ---
             "（APIキーが設定されていません）",
-            list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,
+            list(config_manager.SUPPORTED_VOICES.values())[0], "",
+            # --- ストリーミング (2個) ---
+            True, 0.01,
+            # --- AIパラメータ (6個) ---
             0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
-            False, True, True, False, True, False, False,
-            f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", None,
-            False, gr.update(visible=False)
+            # --- コンテキストチェックボックス (8個) ---
+            False,                  # add_timestamp
+            True,                   # send_current_time
+            True,                   # send_thoughts
+            True,                   # send_notepad
+            False,                  # use_common_prompt
+            True,                   # send_core_memory
+            True,                   # send_scenery (enable_scenery_systemと連動)
+            False,                  # auto_memory_enabled
+            # --- UIメタ情報 (3個) ---
+            f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
+            None,                   # scenery_image
+            True,                   # enable_scenery_system (マスタースイッチ)
+            gr.update(open=True)    # profile_scenery_accordion
         )
 
     # --- 【通常モード】有効なAPIキーがある場合、通常の更新処理を行う ---
@@ -239,15 +256,18 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
 
 def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     """
-    【v4: オンボーディングモード対応】
-    UIの初期化処理。有効なAPIキーがない場合は、APIコールを抑制し、案内を表示する。
+    【v5: 司令塔アーキテクチャ最終版】
+    UIの初期化処理。司令塔アーキテクチャに基づき、戻り値の生成パスを完全に一元化し、
+    いかなる条件分岐でも戻り値の数が変わらないことを保証する。
     """
     print("--- UI初期化処理(handle_initial_load)を開始します ---")
 
-    # --- APIキーの有効性をチェック ---
-    has_valid_key = config_manager.has_valid_api_key()
+    # --- ステップ1: 司令塔アーキテクチャへの変更 ---
+    # まず、APIキーの有無を内部で判断してくれるヘルパー関数を呼び出し、
+    # チャットタブ関連の更新値(37個)を確定させる。
+    chat_tab_updates = _update_chat_tab_for_room_change(initial_room_to_load, initial_api_key_name)
 
-    # --- 共通の初期化処理 ---
+    # --- ステップ2: チャットタブ以外の共通UIコンポーネントの更新値を生成 ---
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
     rules = config_manager.load_redaction_rules()
@@ -263,9 +283,9 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
         gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
     )
 
+    # --- ステップ3: オンボーディング状態によってのみ変化する部分を条件分岐で決定 ---
+    has_valid_key = config_manager.has_valid_api_key()
     if has_valid_key:
-        # --- 【通常モード】APIキーが存在する場合 ---
-        chat_tab_updates = _update_chat_tab_for_room_change(initial_room_to_load, initial_api_key_name)
         token_calc_kwargs = config_manager.get_effective_settings(initial_room_to_load)
         token_count_text = gemini_api.count_input_tokens(
             room_name=initial_room_to_load, api_key_name=initial_api_key_name,
@@ -274,29 +294,18 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
         )
         onboarding_guide_update = gr.update(visible=False)
     else:
-        # --- 【オンボーディングモード】有効なAPIキーが存在しない場合 ---
-        # APIコールを伴わない、安全なUI更新値を構築
-        chat_tab_updates = (
-            initial_room_to_load, [], [], gr.update(interactive=False, placeholder="まず、左の「設定」からAPIキーを設定してください。"),
-            None, "", "", "", "",
-            gr.update(choices=room_manager.get_room_list_for_ui(), value=initial_room_to_load), # room_dropdown
-            gr.update(choices=room_manager.get_room_list_for_ui(), value=initial_room_to_load), # alarm_room_dropdown
-            gr.update(choices=room_manager.get_room_list_for_ui(), value=initial_room_to_load), # timer_room_dropdown
-            gr.update(choices=room_manager.get_room_list_for_ui(), value=initial_room_to_load), # manage_room_selector
-            gr.update(choices=[], value=None), # location_dropdown
-            "（APIキーが設定されていません）", # scenery_text
-            list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01, # voice and streaming settings
-            0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", # AI params
-            # --- ここから下が修正箇所です ---
-            # add_timestamp, send_thoughts, send_notepad, use_common_prompt, send_core_memory, send_scenery, auto_memory_enabled
-            False, True, True, False, True, True, False, # Context checkboxes (send_sceneryをTrueに変更)
-            f"ℹ️ *現在選択中のルーム「{initial_room_to_load}」にのみ適用される設定です。*", None, # room_settings_info, scenery_image
-            True, gr.update(open=True) # enable_scenery_systemをTrueに、アコーディオンをopen=Trueに変更
-        )
         token_count_text = "トークン数: (APIキー未設定)"
         onboarding_guide_update = gr.update(visible=True)
 
-    # nexus_ark.py の demo.load の outputs と同じ数の戻り値を返す
+    # --- ステップ4: 全ての更新値を結合し、ただ一つのreturn文で返す ---
+    # 戻り値の総数: 49個
+    # (display_df, df_with_ids, feedback_text) : 3個
+    # chat_tab_updates : 37個
+    # (rules_df_for_ui, token_count_text, api_key_dd_update) : 3個
+    # (world_data_for_state,) : 1個
+    # time_settings_updates : 4個
+    # (onboarding_guide_update,) : 1個
+    # = 3 + 37 + 3 + 1 + 4 + 1 = 49個
     return (
         (display_df, df_with_ids, feedback_text) +
         chat_tab_updates +
