@@ -233,19 +233,42 @@ def get_current_location(character_name: str) -> Optional[str]:
     return None
 
 def extract_raw_text_from_html(html_content: Union[str, tuple, None]) -> str:
+    """
+    (v3: Stable Thought Log Compatible)
+    GradioのChatbotが表示するHTML文字列から、元の構造化されたテキストを復元する。
+    新しいコードブロックベースの思考ログ表示と、<br>タグによる改行に対応。
+    思考ログは、編集時の互換性を維持するため、常に古い【Thoughts】形式で復元する。
+    """
     if not html_content or not isinstance(html_content, str): return ""
+    
+    # BeautifulSoupは<br>を改行として扱わないため、手動で置換
+    html_content = html_content.replace("<br>", "\n")
+    
     soup = BeautifulSoup(html_content, 'html.parser')
+    
     thoughts_text = ""
-    thoughts_div = soup.find('div', class_='thoughts')
-    if thoughts_div:
-        for br in thoughts_div.find_all("br"): br.replace_with("\n")
-        thoughts_content = thoughts_div.get_text()
-        if thoughts_content: thoughts_text = f"【Thoughts】\n{thoughts_content.strip()}\n【/Thoughts】\n\n"
-        thoughts_div.decompose()
+    # 思考ログは<pre><code>ブロックとしてレンダリングされる
+    code_block = soup.find('code')
+    if code_block:
+        thoughts_content = code_block.get_text()
+        if thoughts_content:
+            # 常に古い【Thoughts】形式で復元することで、編集時の互換性を最大化する
+            thoughts_text = f"【Thoughts】\n{thoughts_content.strip()}\n【/Thoughts】\n\n"
+        
+        # パース済みなので削除 (親の<pre>ごと消すのが安全)
+        if code_block.parent and code_block.parent.name == 'pre':
+            code_block.parent.decompose()
+        else:
+            code_block.decompose()
+
     for nav_div in soup.find_all('div', style=lambda v: v and 'text-align: right' in v): nav_div.decompose()
     for anchor_span in soup.find_all('span', id=lambda v: v and v.startswith('msg-anchor-')): anchor_span.decompose()
     for br in soup.find_all("br"): br.replace_with("\n")
     main_text = soup.get_text()
+    
+    # 話者名を除去
+    main_text = re.sub(r"^\*\*.*?\*\*\s*", "", main_text.strip()).strip()
+
     return (thoughts_text + main_text).strip()
 
 def load_scenery_cache(room_name: str) -> dict:

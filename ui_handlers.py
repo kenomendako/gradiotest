@@ -547,7 +547,7 @@ def _stream_and_handle_response(
                     # (リトライ処理は変更なし)
                     error_str = str(e)
                     if "PerDay" in error_str or "Daily" in error_str:
-                        final_error_message = "[エラー] APIの1日あたりの利用上限に達したため、本日の応答はこれ以上生成できません。"
+                        final_error_message = "[エラー] APIの1日あたりの利用上限に達したため、本日の応答はこれ以上生成できません。モデルかキーを変更するか、上限解除までお待ちください。"
                         break
                     wait_time = base_delay * (2 ** attempt)
                     match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
@@ -1600,11 +1600,10 @@ def format_history_for_gradio(
     absolute_start_index: int = 0
 ) -> Tuple[List[Tuple], List[int]]:
     """
-    (v26: Colored Text Replacement)
-    スクリーンショットモードが有効な場合、redaction_rulesに 'color' が定義されていれば、
-    置換後の文字列は <span style="background-color: ..."> タグで囲まれる。
-    この際、GradioのMarkdownレンダラによる意図しない解釈を防ぐために、
-    ユーザー入力（find/replace 文字列）は html.escape() で適切にエスケープ処理される。
+    (v27: Stable Thought Log with Backward Compatibility)
+    ログ辞書のリストをGradioのChatbotコンポーネントが要求する形式に変換する。
+    新しい 'THOUGHT:' プレフィックス形式と、古い '【Thoughts】' ブロック形式の両方を
+    正しく解釈して、同じスタイルで表示する後方互換性を持つパーサーを実装。
     """
     if not messages:
         return [], []
@@ -1613,6 +1612,7 @@ def format_history_for_gradio(
 
     if not add_timestamp:
         timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
+    
     current_room_config = room_manager.get_room_config(current_room_folder) or {}
     user_display_name = current_room_config.get("user_display_name", "ユーザー")
     agent_name_cache = {}
@@ -1629,7 +1629,7 @@ def format_history_for_gradio(
         text_part = re.sub(r"\[(?:Generated Image|ファイル添付):.*?\]", "", content, flags=re.DOTALL).strip()
         media_matches = list(re.finditer(r"\[(?:Generated Image|ファイル添付): ([^\]]+?)\]", content))
 
-        if text_part or (role == "SYSTEM" and not media_matches): # システムメッセージは空でも追加
+        if text_part or (role == "SYSTEM" and not media_matches):
             proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": text_part, "log_index": i})
 
         for match in media_matches:
@@ -1675,7 +1675,7 @@ def format_history_for_gradio(
                     agent_name_cache[responder_id] = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
                 speaker_name = agent_name_cache[responder_id]
             elif role == "SYSTEM":
-                speaker_name = "" # responder_id を話者名として使わない
+                speaker_name = ""
             else:
                 speaker_name = responder_id
 
@@ -1691,7 +1691,7 @@ def format_history_for_gradio(
                         escaped_replace = html.escape(replace_str)
 
                         if speaker_name:
-                            speaker_name = speaker_name.replace(find_str, replace_str) # 話者名はHTMLエスケープ不要
+                            speaker_name = speaker_name.replace(find_str, replace_str)
 
                         if color:
                             replacement_html = f'<span style="background-color: {color};">{escaped_replace}</span>'
@@ -1699,30 +1699,59 @@ def format_history_for_gradio(
                         else:
                             content_to_parse = content_to_parse.replace(escaped_find, escaped_replace)
 
-            thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
-            parts = thoughts_pattern.split(content_to_parse)
+            # --- [新ロジック v2: 後方互換性対応パーサー] ---
+            if "THOUGHT:" in content_to_parse.upper():
+                lines = content_to_parse.split('\n')
+                final_html_parts = []
+                thought_buffer = []
 
-            markdown_parts = []
-            if speaker_name:
-                markdown_parts.append(f"**{speaker_name}:**")
-            
-            # システムメッセージで内容が空の場合でも、話者名（例：(セッション管理)）を表示するため
-            if role == "SYSTEM" and not speaker_name:
-                 markdown_parts.append(f"**{responder_id}:**")
+                def flush_thought_buffer():
+                    if thought_buffer:
+                        inner_content = "\n".join(thought_buffer)
+                        final_html_parts.append(f"```\n{html.escape(inner_content)}\n```")
+                        thought_buffer.clear()
 
+                for line in lines:
+                    if line.strip().upper().startswith("THOUGHT:"):
+                        thought_content = line.split(":", 1)[1] if ":" in line else line
+                        thought_buffer.append(thought_content.strip())
+                    else:
+                        flush_thought_buffer()
+                        final_html_parts.append(line)
+                
+                flush_thought_buffer()
 
-            for part in parts:
-                if not part or not part.strip():
-                    continue
+                if speaker_name:
+                    final_html_parts.insert(0, f"**{speaker_name}:**")
+                elif role == "SYSTEM":
+                    final_html_parts.insert(0, f"**{responder_id}:**")
 
-                if thoughts_pattern.match(part):
-                    inner_content_match = re.search(r"【Thoughts】([\s\S]*?)【/Thoughts】", part, re.IGNORECASE)
-                    inner_content = inner_content_match.group(1).strip() if inner_content_match else ""
-                    markdown_parts.append(f"```\n{inner_content}\n```")
-                else:
-                    markdown_parts.append(part.strip())
+                final_markdown = "\n\n".join(final_html_parts).strip()
 
-            final_markdown = "\n\n".join(markdown_parts)
+            else:
+                thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
+                parts = thoughts_pattern.split(content_to_parse)
+
+                markdown_parts = []
+                if speaker_name:
+                    markdown_parts.append(f"**{speaker_name}:**")
+                
+                if role == "SYSTEM" and not speaker_name:
+                    markdown_parts.append(f"**{responder_id}:**")
+
+                for part in parts:
+                    if not part or not part.strip():
+                        continue
+
+                    if thoughts_pattern.match(part):
+                        inner_content_match = re.search(r"【Thoughts】([\s\S]*?)【/Thoughts】", part, re.IGNORECASE)
+                        inner_content = inner_content_match.group(1).strip() if inner_content_match else ""
+                        markdown_parts.append(f"```\n{inner_content}\n```")
+                    else:
+                        markdown_parts.append(part.strip())
+
+                final_markdown = "\n\n".join(markdown_parts)
+            # --- [新ロジックここまで] ---
 
             if is_user:
                 gradio_history.append((final_markdown, None))
