@@ -1143,8 +1143,8 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     「管理」タブからルームを削除する処理。
     最後のルームが削除された場合にも対応し、常に正しい数の戻り値を返す。
     """
-    # all_room_change_outputs(53) + room_delete_confirmed_state(1) = 54
-    EXPECTED_OUTPUT_COUNT = 54
+    # nexus_ark.pyのoutputsリストは all_room_change_outputs(54) + room_delete_confirmed_state(1) = 55個
+    EXPECTED_OUTPUT_COUNT = 55
 
     # ユーザーが確認ダイアログで「キャンセル」を押した場合
     if str(confirmed).lower() != 'true':
@@ -1169,7 +1169,8 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
             # ケース1: まだ他のルームが残っている場合
             new_main_room_folder = new_room_list[0][1]
             all_updates = handle_room_change_for_all_tabs(new_main_room_folder, api_key_name)
-            return all_updates + ("",) # handle_room_change_for_all_tabsは53個の値を返す
+            # all_updates (54個) に、確認Stateをリセットするための空文字列 "" (1個) を追加して、合計55個の値を返す
+            return all_updates + ("",)
         else:
             # ケース2: これが最後のルームだった場合
             gr.Warning("全てのルームが削除されました。新しいルームを作成してください。")
