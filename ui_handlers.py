@@ -547,7 +547,7 @@ def _stream_and_handle_response(
                     # (リトライ処理は変更なし)
                     error_str = str(e)
                     if "PerDay" in error_str or "Daily" in error_str:
-                        final_error_message = "[エラー] APIの1日あたりの利用上限に達したため、本日の応答はこれ以上生成できません。モデルかキーを変更するか、上限解除までお待ちください。"
+                        final_error_message = "[エラー] APIの1日あたりの利用上限に達したため、本日の応答はこれ以上生成できません。モデルかキーを変更するか、制限解除までお待ちください。"
                         break
                     wait_time = base_delay * (2 ** attempt)
                     match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
@@ -622,8 +622,13 @@ def _stream_and_handle_response(
             yield (chatbot_history, mapping_list, *([gr.update()] * 12))
 
         if final_error_message:
-            chatbot_history.append((None, final_error_message))
-            utils.save_message_to_log(main_log_f, f"## AGENT:{soul_vessel_room}", final_error_message)
+            # エラーメッセージを、AIの応答ではなく「システムエラー」として全員のログに記録する
+            error_header = "## SYSTEM:システムエラー"
+            for room_name in all_rooms_in_scene:
+                log_f, _, _, _, _ = get_room_files_paths(room_name)
+                if log_f:
+                    utils.save_message_to_log(log_f, error_header, final_error_message)
+            # この時点ではUIに直接書き込まず、finallyブロックのreload_chat_logに表示を任せる
 
         for popup_message in all_turn_popups:
             gr.Info(popup_message)
@@ -2529,7 +2534,10 @@ def handle_delete_redaction_rule(
     return df_for_ui, current_rules, None, "", "", "#62827e"
 
 
-def update_model_state(model): config_manager.save_config("last_model", model); return model
+def update_model_state(model):
+    config_manager.save_config("last_model", model)
+    gr.Info(f"デフォルトAIモデルを「{model}」に設定しました。")
+    return model
 
 def update_api_key_state(api_key_name):
     config_manager.save_config("last_api_key_name", api_key_name)
