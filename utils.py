@@ -218,10 +218,23 @@ def delete_message_from_log(log_file_path: str, message_to_delete: Dict[str, str
         return False
 
 def remove_thoughts_from_text(text: str) -> str:
-    if not text: return ""
-    # 新しい <thinking> タグに対応
-    thoughts_pattern = re.compile(r"<thinking>.*?</thinking>\s*", re.DOTALL | re.IGNORECASE)
-    return thoughts_pattern.sub("", text).strip()
+    """
+    (v2: The Definitive Thought Remover)
+    テキストから、新しい `THOUGHT:` プレフィックス形式と、古い `【Thoughts】` ブロック形式の
+    両方の思考ログを除去する。
+    """
+    if not text:
+        return ""
+
+    # 1. 古い【Thoughts】ブロックを除去
+    # 新しい思考ログ形式（`THOUGHT:`）も誤って除去しないように、より厳密な正規表現に変更
+    text_no_blocks = re.sub(r"【Thoughts】[\s\S]*?【/Thoughts】\s*|\[THOUGHT\][\s\S]*?\[/THOUGHT\]\s*", "", text, flags=re.IGNORECASE).strip()
+
+    # 2. 新しい THOUGHT: プレフィックス行を除去
+    lines = text_no_blocks.split('\n')
+    cleaned_lines = [line for line in lines if not line.strip().upper().startswith("THOUGHT:")]
+
+    return "\n".join(cleaned_lines).strip()
 
 def get_current_location(character_name: str) -> Optional[str]:
     try:

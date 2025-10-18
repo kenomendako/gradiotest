@@ -113,7 +113,7 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     # ループが正常に終了することは理論上ないが、念のためフォールバック
     return 0
 
-def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str, add_timestamp: bool) -> list:
+def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str, add_timestamp: bool, send_thoughts: bool) -> list:
     from langchain_core.messages import HumanMessage, AIMessage
     lc_messages = []
     timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
@@ -124,7 +124,6 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
             content = timestamp_pattern.sub('', content)
         responder_id = h_item.get('responder', '')
         role = h_item.get('role', '')
-        # This was `if not content...`, but empty content is a valid message (header-only)
         if not responder_id or not role:
             continue
         is_user = (role == 'USER')
@@ -134,7 +133,11 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
             if text_only_content:
                 lc_messages.append(HumanMessage(content=text_only_content))
         elif is_self:
-            lc_messages.append(AIMessage(content=content, name=responder_id))
+            content_for_api = content
+            if not send_thoughts:
+                content_for_api = utils.remove_thoughts_from_text(content)
+            if content_for_api:
+                lc_messages.append(AIMessage(content=content_for_api, name=responder_id))
         else:
             other_agent_config = room_manager.get_room_config(responder_id)
             display_name = other_agent_config.get("room_name", responder_id) if other_agent_config else responder_id
@@ -186,11 +189,13 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     responding_ai_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
         own_history_raw = utils.load_chat_log(responding_ai_log_f)
-        messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond, add_timestamp)
+        add_timestamp = effective_settings.get("add_timestamp", False)
+        send_thoughts = effective_settings.get("send_thoughts", True) # この行を追加
+        messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond, add_timestamp, send_thoughts)
 
     if history_log_path and os.path.exists(history_log_path):
         snapshot_history_raw = utils.load_chat_log(history_log_path)
-        snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond, add_timestamp)
+        snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond, add_timestamp, send_thoughts)
         if snapshot_messages and messages:
             first_snapshot_user_message_content = None
             for msg in snapshot_messages:
@@ -324,7 +329,7 @@ def count_input_tokens(**kwargs):
         model_name = effective_settings.get("model_name") or config_manager.DEFAULT_MODEL_GLOBAL
         messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
-        # --- システムプロンプトの構築 ---
+        # --- システムプロンプトの構築 (変更なし) ---
         from agent.prompts import CORE_PROMPT_TEMPLATE
         from agent.graph import all_tools
         room_prompt_path = os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")
@@ -357,22 +362,31 @@ def count_input_tokens(**kwargs):
             system_prompt_text += "\n\n---\n【現在の場所と情景】\n（トークン計算ではAPIコールを避けるため、実際の情景は含めず、存在することを示すプレースホルダのみ考慮）\n- 場所の名前: サンプル\n- 場所の定義: サンプル\n- 今の情景: サンプル\n---"
         messages.append(SystemMessage(content=system_prompt_text))
 
-        # --- 履歴の構築 ---
+        # --- 履歴の構築 (ここからが修正箇所) ---
         log_file, _, _, _, _ = room_manager.get_room_files_paths(room_name)
         raw_history = utils.load_chat_log(log_file)
         limit = int(api_history_limit) if api_history_limit and api_history_limit.isdigit() else 0
         if limit > 0 and len(raw_history) > limit * 2:
             raw_history = raw_history[-(limit * 2):]
-
+        
+        # --- 思考過程を送信するかの設定値を取得 ---
+        send_thoughts = effective_settings.get("send_thoughts", True)
+        
         for h_item in raw_history:
             content = h_item.get('content', '').strip()
             if not content: continue
+            
             if h_item.get('responder', 'model') != 'user':
-                 messages.append(AIMessage(content=content))
+                content_for_api = content
+                if not send_thoughts:
+                    content_for_api = utils.remove_thoughts_from_text(content)
+                if content_for_api: # 思考ログ除去後に空でなければ追加
+                    messages.append(AIMessage(content=content_for_api))
             else:
                  messages.append(HumanMessage(content=content))
+        # --- 履歴の構築 (ここまでが修正箇所) ---
 
-        # --- 現在の入力の構築 ---
+        # --- 現在の入力の構築 (変更なし) ---
         if parts:
             formatted_parts = []
             for part in parts:
@@ -386,7 +400,7 @@ def count_input_tokens(**kwargs):
                     except Exception as img_e: print(f"画像変換エラー（トークン計算中）: {img_e}"); formatted_parts.append({"type": "text", "text": "[画像変換エラー]"})
             if formatted_parts: messages.append(HumanMessage(content=formatted_parts))
 
-        # --- トークン数の計算 ---
+        # --- トークン数の計算 (変更なし) ---
         total_tokens = count_tokens_from_lc_messages(messages, model_name, api_key)
 
         limit_info = get_model_token_limits(model_name, api_key)
