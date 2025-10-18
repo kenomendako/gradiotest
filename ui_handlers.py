@@ -2534,7 +2534,10 @@ def handle_delete_redaction_rule(
     return df_for_ui, current_rules, None, "", "", "#62827e"
 
 
-def update_model_state(model): config_manager.save_config("last_model", model); return model
+def update_model_state(model):
+    config_manager.save_config("last_model", model)
+    gr.Info(f"デフォルトAIモデルを「{model}」に設定しました。")
+    return model
 
 def update_api_key_state(api_key_name):
     config_manager.save_config("last_api_key_name", api_key_name)
