@@ -535,13 +535,22 @@ def _stream_and_handle_response(
             
             for attempt in range(max_retries):
                 try:
-                    with utils.capture_prints() as captured_output:
+                    if debug_mode:
+                        # デバッグモードがONの場合のみ、標準出力をキャプチャする
+                        with utils.capture_prints() as captured_output:
+                            for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                                if mode == "initial_count":
+                                    initial_message_count = chunk
+                                elif mode == "values":
+                                    final_state = chunk
+                        current_console_content += captured_output.getvalue()
+                    else:
+                        # デバッグモードがOFFの場合は、キャプチャせず直接実行する
                         for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                             if mode == "initial_count":
                                 initial_message_count = chunk
                             elif mode == "values":
                                 final_state = chunk
-                    current_console_content += captured_output.getvalue()
                     break
                 except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
                     # (リトライ処理は変更なし)
