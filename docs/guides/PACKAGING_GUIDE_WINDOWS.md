@@ -1,8 +1,8 @@
-# **Nexus Ark 配布用パッケージ作成手順書 (v2.1: RAG対応・最終版)**
+# **Nexus Ark 配布用パッケージ作成手順書 (v2.2: 最終版)**
 
 ## 1. はじめに
 
-本文書は、Python/Gradioアプリケーション「Nexus Ark」のWindowsユーザー向け配布パッケージを作成するための、**最新版の手順書**です。
+本文書は、Python/Gradioアプリケーション「Nexus Ark」のWindowsユーザー向け配布パッケージを作成するための、**最新版の公式手順書**です。
 
 この手順は、ユーザーのPC環境に一切依存せず、追加のインストール作業を要求しない**「完全事前パッケージング方式」**を採用しています。開発者の手元で必要なライブラリを全てインストール済みのPython環境を同梱することで、絶対的な動作の信頼性を確保することを目的とします。
 
@@ -34,26 +34,24 @@
 - constants.py
 - gemini_api.py
 - generic_importer.py
-- memory_archivist.py
 - memory_manager.py
 - nexus_ark.py
 - README.md
-- requirements.txt
+- requirements.txt  (※配布用に最適化済みのもの)
 - room_manager.py
 - timers.py
 - ui_handlers.py
 - utils.py
 - world_builder.py
-- visualize_graph.py
-- ネクサスアーク.bat
 - .gitignore
 ```
 
 **【重要】コピーしてはいけないファイル/フォルダ:**
 *   `docs/` (開発ドキュメント)
+*   `batch_importer.py`, `soul_injector.py`, `retry_importer.py`, `visualize_graph.py` (知識グラフ関連)
+*   `ネクサスアーク.bat` (開発リポジトリのものは開発用のため、コピーしない)
 *   `characters/` (個人データ)
 *   `config.json`, `alarms.json` (個人設定)
-*   `batch_importer.py`, `soul_injector.py`, `retry_importer.py` (知識グラフ関連)
 *   その他、`.venv` や `__pycache__` などの一時ファイル
 
 ### **手順1-2: 公開リポジトリへのプッシュ**
@@ -65,7 +63,8 @@
 git add .
 
 # 2. コミットメッセージを付けて変更を記録します
-git commit -m "chore: Release vX.X.X"
+# (例: v0.1.0 のリリースの場合)
+git commit -m "chore: Release v0.1.0"
 
 # 3. GitHub上のmainブランチに変更をプッシュします
 git push origin main
@@ -79,11 +78,38 @@ git push origin main
 
 ### **手順2-1: 作業フォルダの作成**
 
-*   デスクトップなど、分かりやすい場所に配布用の新しいフォルダを作成します。（例: `Nexus-Ark-Release-vX.X.X`）
+*   デスクトップなど、分かりやすい場所に配布用の新しいフォルダを作成します。（例: `Nexus-Ark-Release-v0.1.0`）
 
 ### **手順2-2: 配布用ファイルのコピー**
 
 *   手順1-1で選別した**公開用ファイル一式**を、この新しい作業フォルダ内にコピーします。
+
+### **手順2-3: 配布用バッチファイルの作成**
+
+*   作業フォルダ内に `ネクサスアーク.bat` という名前で**新しいファイルを作成**し、以下の内容を貼り付けます。
+*   **重要:** メモ帳で保存する際は、文字コードを**「ANSI」**に指定してください。
+
+```bat
+@echo off
+rem --- Nexus Ark Launcher (For Packaged Distribution) ---
+chcp 65001 > nul
+set PYTHONIOENCODING=utf-8
+title Nexus Ark
+
+echo Starting Nexus Ark...
+echo If the browser does not open automatically, please open it and navigate to: http://127.0.0.1:7860
+echo Please keep this window open while the application is running.
+
+rem --- Change directory to the script's own location ---
+cd /d "%~dp0"
+
+rem --- Execute python from the embedded environment ---
+python\python.exe nexus_ark.py
+
+echo.
+echo The application has been closed. You can now close this window.
+pause
+```
 
 ---
 
@@ -102,8 +128,7 @@ git push origin main
 3.  **`.pth`ファイルの最終修正:**
     *   `python`フォルダ内にある`python311._pth`をメモ帳で開きます。
     *   **ファイルの中身を、以下の正しい順番の3行で完全に置き換えてください。** この順番が極めて重要です。
-    ```
-    python311.zip
+    ```    python311.zip
     import site
     .
     ```
@@ -148,7 +173,3 @@ git push origin main
     *   テストに問題がなければ、作業フォルダ全体（`python`フォルダや`nexus_ark.py`などが含まれるフォルダ）をZIP形式で圧縮します。
 
 **これで、ユーザーに配布する最終的なパッケージが完成です。**
-
----
-
-この手順書が、今後のNexus Arkの発展の一助となることを心より願っております。
