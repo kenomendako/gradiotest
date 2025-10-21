@@ -3147,19 +3147,19 @@ def handle_reload_world_settings_raw(room_name: str):
 
 def handle_save_gemini_key(key_name: str, key_value: str, current_room_name: str):
     """
-    【v8: 戻り値の数FIX版】
+    【v9: 戻り値の数FIX・司令塔アーキテクチャ準拠版】
     APIキーを保存し、オンボーディングモードを解除し、UI全体を完全にリフレッシュする。
+    Gradioが必要とする正確な数の戻り値を返すことを保証する。
     """
-    # nexus_ark.pyで定義されているoutputsの総数 = 3 + 51 = 54
-    EXPECTED_OUTPUT_COUNT = 54
-    # all_room_change_outputsの要素数 = 51
-    ALL_ROOM_CHANGE_OUTPUTS_COUNT = 51
+    # nexus_ark.pyで定義されているoutputsの総数
+    EXPECTED_OUTPUT_COUNT = 57
 
     if not key_name or not key_value or not re.match(r"^[a-zA-Z0-9_]+$", key_name.strip()):
         if key_name and not re.match(r"^[a-zA-Z0-9_]+$", key_name.strip()):
             gr.Warning("「キーの名前」は半角の英数字とアンダースコア(_)のみ使用できます。")
         else:
             gr.Warning("キーの名前と値の両方を入力してください。")
+        # 早期リターンの場合でも、期待される数の空の更新を返す
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
     key_name = key_name.strip()
@@ -3177,18 +3177,19 @@ def handle_save_gemini_key(key_name: str, key_value: str, current_room_name: str
         
         config_manager.initial_api_key_name_global = key_name
         
-        # handle_room_change_for_all_tabs は51個の値を返す
+        # 司令塔関数を呼び出す (戻り値は54個)
         all_updates_tuple = handle_room_change_for_all_tabs(current_room_name, key_name)
         
-        # 先頭の3つの更新値と、司令塔からの51個の値を結合して、合計54個の値を返す
+        # 司令塔が返さない3つのUIコンポーネントの更新値を先頭に追加する
         return (
-            api_key_dd_update, 
-            gr.update(visible=False), 
-            gr.update(interactive=True, placeholder="メッセージを入力し、ファイルをドラッグ＆ドロップまたは添付してください...")
+            api_key_dd_update,
+            gr.update(visible=False), # onboarding_guide
+            gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)") # chat_input_multimodal
         ) + all_updates_tuple
     else:
-        # 通常時は、期待される数だけ空のgr.update()を返す
-        return (api_key_dd_update, gr.update(), gr.update()) + (gr.update(),) * ALL_ROOM_CHANGE_OUTPUTS_COUNT
+        # オンボーディング後でない場合は、APIキードロップダウンの更新のみを行い、
+        # 残りは空の更新を返すことで契約数を満たす
+        return (api_key_dd_update,) + (gr.update(),) * (EXPECTED_OUTPUT_COUNT - 1)
 
 def handle_delete_gemini_key(key_name):
     if not key_name:
