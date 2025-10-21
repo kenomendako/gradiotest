@@ -1719,69 +1719,65 @@ def format_history_for_gradio(
                         else:
                             content_to_parse = content_to_parse.replace(escaped_find, escaped_replace)
 
-            # --- [新ロジック v2: 後方互換性対応パーサー] ---
-            if "THOUGHT:" in content_to_parse.upper():
+            # --- [新ロジック v3: [THOUGHT]タグ対応・最終版パーサー] ---
+            final_markdown = ""
+            speaker_prefix = f"**{speaker_name}:**\n\n" if speaker_name else (f"**{responder_id}:**\n\n" if role == "SYSTEM" else "")
+
+            # 1. 新しい [THOUGHT]...[/THOUGHT] タグを最優先で処理
+            new_thought_pattern = re.compile(r"(\[THOUGHT\][\s\S]*?\[/THOUGHT\])", re.IGNORECASE)
+            new_thought_match = new_thought_pattern.search(content_to_parse)
+            
+            if new_thought_match:
+                thought_block = new_thought_match.group(1)
+                body_text = new_thought_pattern.sub("", content_to_parse).strip()
+                
+                inner_thought_content = re.sub(r"\[/?THOUGHT\]", "", thought_block, flags=re.IGNORECASE).strip()
+                
+                # 文字置き換え用のHTMLが含まれているかチェック
+                has_replacement_html = "<span style=" in inner_thought_content
+                if has_replacement_html:
+                    thought_html = f'<div class="code_wrap"><pre><code>{inner_thought_content}</code></pre></div>'
+                else:
+                    thought_html = f"```\n{html.escape(inner_thought_content)}\n```"
+
+                final_markdown = f"{speaker_prefix}{thought_html}\n\n{body_text}".strip()
+
+            # 2. [THOUGHT]タグがない場合、現在の THOUGHT: プレフィックス方式を処理
+            elif "THOUGHT:" in content_to_parse.upper():
                 lines = content_to_parse.split('\n')
-                final_html_parts = []
-                thought_buffer = []
-
-                def flush_thought_buffer():
-                    if thought_buffer:
-                        inner_content = "\n".join(thought_buffer)
-                        
-                        # --- [新ロジック] HTMLタグが含まれているかチェック ---
-                        has_replacement_html = "<span style=" in inner_content
-                        
-                        if has_replacement_html:
-                            # HTMLタグがある場合は、Markdownパーサーを避け、CSSが期待する完全なHTML構造を構築する
-                            formatted_block = f'<div class="code_wrap"><pre><code>{inner_content}</code></pre></div>'
-                        else:
-                            # HTMLタグがない場合は、従来通り安全にエスケープしてコードブロックとして扱う
-                            formatted_block = f"```\n{html.escape(inner_content)}\n```"
-                        
-                        final_html_parts.append(formatted_block)
-                        thought_buffer.clear()
-
+                body_parts, thought_parts = [], []
                 for line in lines:
                     if line.strip().upper().startswith("THOUGHT:"):
                         thought_content = line.split(":", 1)[1] if ":" in line else line
-                        thought_buffer.append(thought_content.strip())
+                        thought_parts.append(thought_content.strip())
                     else:
-                        flush_thought_buffer()
-                        final_html_parts.append(line)
+                        body_parts.append(line)
                 
-                flush_thought_buffer()
+                body_text = "\n".join(body_parts).strip()
+                thought_text = "\n".join(thought_parts).strip()
+                
+                has_replacement_html = "<span style=" in thought_text
+                if has_replacement_html:
+                    thought_html = f'<div class="code_wrap"><pre><code>{thought_text}</code></pre></div>'
+                else:
+                    thought_html = f"```\n{html.escape(thought_text)}\n```"
 
-                if speaker_name:
-                    final_html_parts.insert(0, f"**{speaker_name}:**")
-                elif role == "SYSTEM":
-                    final_html_parts.insert(0, f"**{responder_id}:**")
-
-                final_markdown = "\n\n".join(final_html_parts).strip()
-
+                final_markdown = f"{speaker_prefix}{thought_html}\n\n{body_text}".strip()
+            
+            # 3. どちらでもない場合、古い【Thoughts】...【/Thoughts】方式を処理
             else:
-                thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
-                parts = thoughts_pattern.split(content_to_parse)
-
-                markdown_parts = []
-                if speaker_name:
-                    markdown_parts.append(f"**{speaker_name}:**")
-                
-                if role == "SYSTEM" and not speaker_name:
-                    markdown_parts.append(f"**{responder_id}:**")
-
+                old_thought_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
+                parts = old_thought_pattern.split(content_to_parse)
+                markdown_parts = [speaker_prefix]
                 for part in parts:
-                    if not part or not part.strip():
-                        continue
-
-                    if thoughts_pattern.match(part):
+                    if not part or not part.strip(): continue
+                    if old_thought_pattern.match(part):
                         inner_content_match = re.search(r"【Thoughts】([\s\S]*?)【/Thoughts】", part, re.IGNORECASE)
                         inner_content = inner_content_match.group(1).strip() if inner_content_match else ""
                         markdown_parts.append(f"```\n{inner_content}\n```")
                     else:
                         markdown_parts.append(part.strip())
-
-                final_markdown = "\n\n".join(markdown_parts)
+                final_markdown = "\n\n".join(markdown_parts).strip()
             # --- [新ロジックここまで] ---
 
             if is_user:
