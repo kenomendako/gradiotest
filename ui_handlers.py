@@ -1733,9 +1733,8 @@ def format_history_for_gradio(
                         has_replacement_html = "<span style=" in inner_content
                         
                         if has_replacement_html:
-                            # HTMLタグがある場合は、Markdownパーサーを避け、直接HTMLを構築する
-                            # 既存のCSSが適用されるように、<pre><code>で囲む
-                            formatted_block = f"<pre><code>{inner_content}</code></pre>"
+                            # HTMLタグがある場合は、Markdownパーサーを避け、CSSが期待する完全なHTML構造を構築する
+                            formatted_block = f'<div class="code_wrap"><pre><code>{inner_content}</code></pre></div>'
                         else:
                             # HTMLタグがない場合は、従来通り安全にエスケープしてコードブロックとして扱う
                             formatted_block = f"```\n{html.escape(inner_content)}\n```"
