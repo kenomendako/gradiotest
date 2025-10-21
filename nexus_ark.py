@@ -263,7 +263,7 @@ try:
         chatgpt_thread_choices_state = gr.State([]) # ChatGPTインポート用のスレッド選択肢を保持
         claude_thread_choices_state = gr.State([]) # Claudeインポート用のスレッド選択肢を保持
         archivist_pid_state = gr.State(None) # 記憶アーキビストのプロセスIDを保持
-        redaction_rules_state = gr.State(lambda: config_manager.load_redaction_rules())
+        redaction_rules_state = gr.State(config_manager.load_redaction_rules())
         selected_redaction_rule_state = gr.State(None) # 編集中のルールのインデックスを保持
         active_attachments_state = gr.State([]) # アクティブな添付ファイルパスのリストを保持
         selected_attachment_index_state = gr.State(None) # Dataframeで選択された行のインデックスを保持
