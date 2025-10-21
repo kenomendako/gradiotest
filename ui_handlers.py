@@ -1728,7 +1728,19 @@ def format_history_for_gradio(
                 def flush_thought_buffer():
                     if thought_buffer:
                         inner_content = "\n".join(thought_buffer)
-                        final_html_parts.append(f"```\n{html.escape(inner_content)}\n```")
+                        
+                        # --- [新ロジック] HTMLタグが含まれているかチェック ---
+                        has_replacement_html = "<span style=" in inner_content
+                        
+                        if has_replacement_html:
+                            # HTMLタグがある場合は、Markdownパーサーを避け、直接HTMLを構築する
+                            # 既存のCSSが適用されるように、<pre><code>で囲む
+                            formatted_block = f"<pre><code>{inner_content}</code></pre>"
+                        else:
+                            # HTMLタグがない場合は、従来通り安全にエスケープしてコードブロックとして扱う
+                            formatted_block = f"```\n{html.escape(inner_content)}\n```"
+                        
+                        final_html_parts.append(formatted_block)
                         thought_buffer.clear()
 
                 for line in lines:
