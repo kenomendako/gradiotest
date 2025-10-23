@@ -13,7 +13,6 @@ import hashlib
 import os
 import html
 import re
-import sys
 import locale
 import subprocess
 from pathlib import Path
@@ -28,9 +27,10 @@ import filetype
 import base64
 import io
 import uuid
-import shutil
 import base64 
 import io      
+from pathlib import Path
+import textwrap
 from tools.image_tools import generate_image as generate_image_tool_func
 import pytz
 import ijson
@@ -4412,3 +4412,181 @@ def _reset_preview_on_failure():
         gr.update(interactive=True), # play_audio_button
         gr.update(value="試聴", interactive=True) # room_preview_voice_button
     )
+
+# --- Theme Management Handlers (v2) ---
+
+def _get_theme_previews(theme_name: str) -> Tuple[Optional[str], Optional[str]]:
+    """指定されたテーマ名のライト/ダーク両方のプレビュー画像パスを返す。なければNoneを返す。"""
+    base_path = Path("assets/theme_previews")
+    placeholder = str(base_path / "no_preview.png")
+    
+    light_path = base_path / f"{theme_name}_light.png"
+    dark_path = base_path / f"{theme_name}_dark.png"
+
+    light_preview = str(light_path) if light_path.exists() else placeholder
+    dark_preview = str(dark_path) if dark_path.exists() else placeholder
+    
+    return light_preview, dark_preview
+
+def handle_theme_tab_load():
+    """テーマタブが選択されたときに、設定を読み込んでUIを初期化する。"""
+    all_themes_map = config_manager.get_all_themes()
+    
+    # UIドロップダウン用の選択肢リストを作成
+    choices = []
+    if any(src == "file" for src in all_themes_map.values()):
+        choices.append(gr.Markdown("--- ファイルベース ---"))
+        choices.extend([name for name, src in all_themes_map.items() if src == "file"])
+    if any(src == "json" for src in all_themes_map.values()):
+        choices.append(gr.Markdown("--- カスタム (JSON) ---"))
+        choices.extend([name for name, src in all_themes_map.items() if src == "json"])
+    if any(src == "preset" for src in all_themes_map.values()):
+        choices.append(gr.Markdown("--- プリセット ---"))
+        choices.extend([name for name, src in all_themes_map.items() if src == "preset"])
+        
+    active_theme_name = config_manager.CONFIG_GLOBAL.get("theme_settings", {}).get("active_theme", "nexus_ark_theme")
+    
+    # 最初のプレビュー画像
+    light_preview, dark_preview = _get_theme_previews(active_theme_name)
+    
+    return gr.update(choices=choices, value=active_theme_name), light_preview, dark_preview
+
+def handle_theme_selection(selected_theme_name: str):
+    """ドロップダウンでテーマが選択されたときに、プレビューUIとカスタマイズUIを更新する。"""
+    if not selected_theme_name or selected_theme_name.startswith("---"):
+        # 区切り線が選択された場合は、何も更新しない
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(interactive=False)
+
+    all_themes_map = config_manager.get_all_themes()
+    theme_source = all_themes_map.get(selected_theme_name, "preset")
+
+    # サムネイルを更新
+    light_preview, dark_preview = _get_theme_previews(selected_theme_name)
+    
+    # カスタマイズUIの値を更新
+    params = {}
+    is_editable = True
+
+    # プリセットテーマの定義
+    preset_params = {
+        "Soft": {"primary_hue": "blue", "secondary_hue": "sky", "neutral_hue": "slate", "font": ["Source Sans Pro"]},
+        "Default": {"primary_hue": "orange", "secondary_hue": "amber", "neutral_hue": "gray", "font": ["Noto Sans"]},
+        "Monochrome": {"primary_hue": "neutral", "secondary_hue": "neutral", "neutral_hue": "neutral", "font": ["IBM Plex Mono"]},
+        "Glass": {"primary_hue": "teal", "secondary_hue": "cyan", "neutral_hue": "gray", "font": ["Quicksand"]},
+    }
+
+    if theme_source == "preset":
+        params = preset_params.get(selected_theme_name, {})
+    elif theme_source == "json":
+        params = config_manager.CONFIG_GLOBAL.get("theme_settings", {}).get("custom_themes", {}).get(selected_theme_name, {})
+    elif theme_source == "file":
+        is_editable = False # ファイルベースのテーマは直接編集不可
+        gr.Info("ファイルベースのテーマは直接編集できません。カスタマイズして新しいテーマとして保存してください。")
+        # ファイルからパラメータを逆引きするのは複雑なため、UIはデフォルト値のまま無効化する
+        params = preset_params["Soft"]
+
+    font_name = params.get("font", ["Source Sans Pro"])[0]
+
+    return (
+        light_preview, dark_preview,
+        gr.update(value=params.get("primary_hue"), interactive=is_editable),
+        gr.update(value=params.get("secondary_hue"), interactive=is_editable),
+        gr.update(value=params.get("neutral_hue"), interactive=is_editable),
+        gr.update(value=font_name, interactive=is_editable),
+        gr.update(interactive=is_editable) # Save button
+    )
+
+def handle_save_custom_theme(new_name, primary_hue, secondary_hue, neutral_hue, font):
+    """「カスタムテーマとして保存」ボタンのロジック。config.jsonに保存する。"""
+    if not new_name or not new_name.strip():
+        gr.Warning("新しいテーマ名を入力してください。")
+        return gr.update(), gr.update()
+
+    new_name = new_name.strip()
+    if new_name.startswith("---") or new_name in ["Soft", "Default", "Monochrome", "Glass"]:
+        gr.Warning("その名前はプリセットテーマ用に予約されています。")
+        return gr.update(), gr.update(value="")
+        
+    current_config = config_manager._load_config_file()
+    theme_settings = current_config.get("theme_settings", {})
+    custom_themes = theme_settings.get("custom_themes", {})
+    
+    custom_themes[new_name] = {
+        "primary_hue": primary_hue, "secondary_hue": secondary_hue,
+        "neutral_hue": neutral_hue, "font": [font]
+    }
+    theme_settings["custom_themes"] = custom_themes
+    config_manager.save_config("theme_settings", theme_settings)
+    
+    # グローバル変数を更新して即時反映
+    config_manager.load_config()
+    
+    gr.Info(f"カスタムテーマ「{new_name}」をJSONとして保存しました。")
+    
+    # ドロップダウンの選択肢を再生成して更新
+    updated_choices, _, _ = handle_theme_tab_load()
+    
+    return updated_choices, gr.update(value="") # フォームをクリア
+
+def handle_export_theme_to_file(new_name, primary_hue, secondary_hue, neutral_hue, font):
+    """「ファイルにエクスポート」ボタンのロジック。"""
+    if not new_name or not new_name.strip():
+        gr.Warning("ファイル名として使用するテーマ名を入力してください。")
+        return gr.update()
+
+    file_name = new_name.strip().replace(" ", "_").lower()
+    file_name = re.sub(r'[^a-z0-9_]', '', file_name) # 安全なファイル名に
+    if not file_name:
+        gr.Warning("有効なファイル名を生成できませんでした。")
+        return gr.update()
+
+    themes_dir = Path("themes")
+    themes_dir.mkdir(exist_ok=True)
+    file_path = themes_dir / f"{file_name}.py"
+
+    if file_path.exists():
+        gr.Warning(f"テーマファイル '{file_path.name}' は既に存在します。")
+        return gr.update()
+
+    # Pythonファイルの内容を生成
+    # Gradioのテーマオブジェクトを正しく構築するためのテンプレート
+    content = textwrap.dedent(f"""
+        import gradio as gr
+
+        def load():
+            \"\"\"Gradioテーマオブジェクトを返す。この関数は必須です。\"\"\"
+            theme = gr.themes.Default(
+                primary_hue="{primary_hue}",
+                secondary_hue="{secondary_hue}",
+                neutral_hue="{neutral_hue}",
+                font=[gr.themes.GoogleFont("{font}")]
+            ).set(
+                # ここに他の.set()パラメータを追加できます
+            )
+            return theme
+    """)
+    
+    try:
+        file_path.write_text(content.strip(), encoding="utf-8")
+        gr.Info(f"テーマをファイル '{file_path.name}' としてエクスポートしました。")
+        # グローバルキャッシュをクリアして次回タブを開いたときに再読み込みさせる
+        config_manager._file_based_themes_cache.clear()
+        return "" # テキストボックスをクリア
+    except Exception as e:
+        gr.Error(f"テーマファイルのエクスポート中にエラーが発生しました: {e}")
+        return gr.update()
+
+
+def handle_apply_theme(selected_theme_name: str):
+    """「このテーマを適用」ボタンのロジック。"""
+    if not selected_theme_name or selected_theme_name.startswith("---"):
+        gr.Warning("適用する有効なテーマを選択してください。")
+        return
+
+    current_config = config_manager._load_config_file()
+    theme_settings = current_config.get("theme_settings", {})
+    theme_settings["active_theme"] = selected_theme_name
+    
+    config_manager.save_config("theme_settings", theme_settings)
+    
+    gr.Info(f"テーマ「{selected_theme_name}」を適用設定にしました。アプリケーションを再起動してください。")
