@@ -112,6 +112,103 @@ def update_pushover_config(user_key: str, app_token: str):
     _save_config_file(config)
 
 
+# --- Theme Management Helpers ---
+
+_file_based_themes_cache = {}
+
+def load_file_based_themes() -> Dict[str, "gr.themes.Base"]:
+    """
+    `themes/` ディレクトリをスキャンし、有効なテーマファイルを読み込んでキャッシュする。
+    """
+    global _file_based_themes_cache
+    if _file_based_themes_cache:
+        return _file_based_themes_cache
+
+    from pathlib import Path
+    import importlib.util
+
+    themes_dir = Path("themes")
+    if not themes_dir.is_dir():
+        return {}
+
+    loaded_themes = {}
+    for file_path in themes_dir.glob("*.py"):
+        theme_name = file_path.stem
+        try:
+            spec = importlib.util.spec_from_file_location(theme_name, str(file_path))
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                if hasattr(module, "load") and callable(module.load):
+                    theme_object = module.load()
+                    import gradio as gr
+                    if isinstance(theme_object, gr.themes.Base):
+                        loaded_themes[theme_name] = theme_object
+        except Exception as e:
+            print(f"警告: テーマファイル '{file_path.name}' の読み込みに失敗しました: {e}")
+
+    _file_based_themes_cache = loaded_themes
+    return loaded_themes
+
+def get_all_themes() -> Dict[str, str]:
+    """UIのドロップダウン用に、すべての利用可能なテーマ名とソースの辞書を返す。"""
+    themes = {}
+    
+    # 1. ファイルベースのテーマ
+    file_themes = load_file_based_themes()
+    for name in sorted(file_themes.keys()):
+        themes[name] = "file"
+        
+    # 2. JSONベースのカスタムテーマ
+    custom_themes_from_json = CONFIG_GLOBAL.get("theme_settings", {}).get("custom_themes", {})
+    for name in sorted(custom_themes_from_json.keys()):
+        if name not in themes: # ファイルテーマを優先
+            themes[name] = "json"
+            
+    # 3. プリセットテーマ
+    for name in ["Soft", "Default", "Monochrome", "Glass"]:
+        if name not in themes:
+            themes[name] = "preset"
+            
+    return themes
+
+def get_theme_object(theme_name: str):
+    """指定された名前のテーマオブジェクトを取得する。"""
+    import gradio as gr
+    # 1. ファイルベースのテーマから検索
+    file_themes = load_file_based_themes()
+    if theme_name in file_themes:
+        return file_themes[theme_name]
+
+    # 2. JSONベースのカスタムテーマから検索・構築
+    custom_themes_from_json = CONFIG_GLOBAL.get("theme_settings", {}).get("custom_themes", {})
+    if theme_name in custom_themes_from_json:
+        params = custom_themes_from_json[theme_name]
+        try:
+            default_arg_keys = ["primary_hue", "secondary_hue", "neutral_hue", "text_size", "spacing_size", "radius_size", "font", "font_mono"]
+            default_args = {k: v for k, v in params.items() if k in default_arg_keys}
+            set_args = {k: v for k, v in params.items() if k not in default_args}
+
+            if 'font' in default_args and isinstance(default_args['font'], list):
+                 default_args['font'] = [gr.themes.GoogleFont(name) if isinstance(name, str) and ' ' in name else name for name in default_args['font']]
+
+            theme_obj = gr.themes.Default(**default_args)
+            if set_args:
+                theme_obj = theme_obj.set(**set_args)
+            return theme_obj
+        except Exception as e:
+            print(f"警告: カスタムテーマ '{theme_name}' の構築に失敗しました: {e}")
+
+    # 3. プリセットテーマから検索
+    preset_map = {"Soft": gr.themes.Soft, "Default": gr.themes.Default, "Monochrome": gr.themes.Monochrome, "Glass": gr.themes.Glass}
+    if theme_name in preset_map:
+        return preset_map[theme_name]()
+
+    # 4. フォールバック
+    print(f"警告: テーマ '{theme_name}' が見つかりません。デフォルトのSoftテーマを使用します。")
+    return gr.themes.Soft()
+
+
 # --- メインの読み込み関数 (真・最終版) ---
 def load_config():
     global CONFIG_GLOBAL, GEMINI_API_KEYS, initial_api_key_name_global, initial_room_global, initial_model_global
@@ -121,55 +218,6 @@ def load_config():
 
     # ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
 
-    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
-    # 新しいデフォルトテーマ「Nexus Ark」のパラメータ定義
-    # 新しいデフォルトテーマ「Nexus Ark」のパラメータ定義
-    nexus_ark_theme_params = {
-        # gr.themes.Default の引数
-        "primary_hue": "neutral",
-        "secondary_hue": "neutral",  # 新しいテーマに合わせて neutral に変更
-        "neutral_hue": "neutral",
-        "font": ['Source Sans Pro', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        "font_mono": ['IBM Plex Mono', 'ui-monospace', 'Consolas', 'monospace'],
-        # .set() で設定する引数
-        "body_background_fill": '*neutral_200',
-        "body_background_fill_dark": '*neutral_900',
-        "body_text_color": '*neutral_600',
-        "body_text_color_dark": '*neutral_300',
-        "background_fill_primary": '*neutral_100',
-        "background_fill_secondary": '*neutral_100',
-        "background_fill_secondary_dark": '*neutral_800',
-        "border_color_primary": '*neutral_400',
-        "block_background_fill": '*neutral_100',
-        "block_label_text_size": '*text_xxs',
-        "section_header_text_weight": '100',
-        "chatbot_text_size": '*text_md',
-        "button_large_padding": '*spacing_md',
-        "button_large_radius": '*radius_xs',
-        "button_large_text_size": '*text_md',
-        "button_large_text_weight": '400',
-        "button_small_radius": '*radius_xs',
-        "button_medium_radius": '*radius_xs',
-        "button_medium_text_weight": '300',
-        "button_cancel_background_fill": '#eb4d63',
-        "button_cancel_background_fill_dark": '#901124',
-        "button_cancel_background_fill_hover": '#fe7385',
-        "button_cancel_background_fill_hover_dark": '#b8152d',
-        "button_primary_background_fill": '*primary_400',
-        "button_primary_background_fill_dark": '*primary_700',
-        "button_primary_background_fill_hover": '*primary_500',
-        "button_primary_background_fill_hover_dark": '*primary_500',
-        "button_primary_border_color_dark": '*primary_50',
-        "button_secondary_background_fill": '*neutral_300',
-        "button_secondary_background_fill_hover": '*neutral_400',
-        "button_secondary_background_fill_hover_dark": '*neutral_500',
-        "block_title_text_size": '*text_sm',
-        "section_header_text_size": '*text_sm',
-        "checkbox_label_text_size": '*text_sm'
-    }
-    # ▲▲▲【追加ここまで】▲▲▲
-
-    # ▼▼▼ 既存の default_config の定義を、これで完全に置き換え ▼▼▼
     default_config = {
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
         "available_models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
@@ -186,37 +234,24 @@ def load_config():
         "pushover_user_key": "",
         "log_archive_threshold_mb": 10,
         "log_keep_size_mb": 5,
-        "backup_rotation_count": 10, # ← この行を追加
+        "backup_rotation_count": 10,
         "theme_settings": {
-            "active_theme": "Nexus Ark", # デフォルトテーマを "Nexus Ark" に変更
-            "custom_themes": {
-                "Nexus Ark": nexus_ark_theme_params # 新テーマをカスタムテーマとして追加
-            }
+            "active_theme": "nexus_ark_theme", # デフォルトテーマをファイル名に変更
+            "custom_themes": {} # config.jsonで管理するカスタムテーマは最初は空
         }
     }
-    # ▲▲▲【置き換えここまで】▲▲▲
 
     # ステップ2：ユーザーの設定ファイルを読み込む
     user_config = _load_config_file()
 
-    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
     # ステップ3：【賢いマージ】テーマ設定をディープマージする
     default_theme_settings = default_config["theme_settings"]
     user_theme_settings = user_config.get("theme_settings", {})
-
-    # ユーザーのカスタムテーマとデフォルトのカスタムテーマを結合（ユーザー設定優先）
-    merged_custom_themes = default_theme_settings["custom_themes"].copy()
-    merged_custom_themes.update(user_theme_settings.get("custom_themes", {}))
-
-    # 最終的なテーマ設定を決定（アクティブテーマはユーザー設定を優先）
+    # ユーザーのカスタムテーマのみを尊重する（ファイルベースのテーマはjsonにマージしない）
     final_theme_settings = {
         "active_theme": user_theme_settings.get("active_theme", default_theme_settings["active_theme"]),
-        "custom_themes": merged_custom_themes
+        "custom_themes": user_theme_settings.get("custom_themes", {})
     }
-    # ▲▲▲【追加ここまで】▲▲▲
-
-    # ▼▼▼ 既存の "ステップ3：【賢いマージ】available_modelsを統合する" ブロックを、
-    # "ステップ4" に変更し、その下のロジックをこれで置き換える ▼▼▼
 
     # ステップ4：【賢いマージ】available_modelsを統合する
     default_models_set = set(default_config["available_models"])
@@ -356,7 +391,6 @@ def save_theme_settings(active_theme: str, custom_themes: Dict):
 
 from typing import Optional
 
-# ▼▼▼【この関数をファイルの末尾にまるごと追加】▼▼▼
 def get_latest_api_key_name_from_config() -> Optional[str]:
     """
     config.jsonを直接読み込み、最後に選択された有効なAPIキー名を返す。
@@ -382,7 +416,6 @@ def get_latest_api_key_name_from_config() -> Optional[str]:
 
     # 有効なキーが一つもなければ、Noneを返す
     return None
-# ▲▲▲【追加はここまで】▲▲▲
 
 
 def has_valid_api_key() -> bool:
