@@ -1602,31 +1602,43 @@ try:
         theme_tab.select(
             fn=ui_handlers.handle_theme_tab_load,
             inputs=None,
-            outputs=[theme_settings_state, theme_selector]
+            outputs=[theme_selector, theme_preview_light, theme_preview_dark]
         )
 
         theme_selector.change(
             fn=ui_handlers.handle_theme_selection,
-            inputs=[theme_settings_state, theme_selector],
-            outputs=[primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown]
+            inputs=[theme_selector],
+            outputs=[
+                theme_preview_light, theme_preview_dark,
+                primary_hue_picker, secondary_hue_picker, neutral_hue_picker,
+                font_dropdown, save_theme_button, export_theme_button
+            ]
         )
 
         save_theme_button.click(
             fn=ui_handlers.handle_save_custom_theme,
             inputs=[
-                theme_settings_state, custom_theme_name_input,
-                primary_hue_picker, secondary_hue_picker, neutral_hue_picker, font_dropdown
+                custom_theme_name_input, primary_hue_picker, 
+                secondary_hue_picker, neutral_hue_picker, font_dropdown
             ],
-            outputs=[theme_settings_state, theme_selector, custom_theme_name_input]
+            outputs=[theme_selector, custom_theme_name_input]
+        )
+        
+        export_theme_button.click(
+            fn=ui_handlers.handle_export_theme_to_file,
+            inputs=[
+                custom_theme_name_input, primary_hue_picker,
+                secondary_hue_picker, neutral_hue_picker, font_dropdown
+            ],
+            outputs=[custom_theme_name_input]
         )
 
         apply_theme_button.click(
             fn=ui_handlers.handle_apply_theme,
-            inputs=[theme_settings_state, theme_selector],
-            outputs=None # ポップアップ通知のみ
+            inputs=[theme_selector],
+            outputs=None
         )
 
-        # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
         backup_rotation_count_number.change(
             fn=ui_handlers.handle_save_backup_rotation_count,
             inputs=[backup_rotation_count_number],
@@ -1638,7 +1650,6 @@ try:
             inputs=[current_room_name],
             outputs=None
         )
-        # ▲▲▲【追加はここまで】▲▲▲
 
         # --- [v6: 時間連動情景更新イベント] ---
         # 時間設定UIのいずれかの値が変更されたら、新しい統合ハンドラを呼び出す

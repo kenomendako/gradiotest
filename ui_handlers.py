@@ -4418,8 +4418,10 @@ def _reset_preview_on_failure():
 def _get_theme_previews(theme_name: str) -> Tuple[Optional[str], Optional[str]]:
     """指定されたテーマ名のライト/ダーク両方のプレビュー画像パスを返す。なければNoneを返す。"""
     base_path = Path("assets/theme_previews")
-    placeholder = str(base_path / "no_preview.png")
-    
+    # プレースホルダー画像が存在しない場合も考慮
+    placeholder_path = base_path / "no_preview.png"
+    placeholder = str(placeholder_path) if placeholder_path.exists() else None
+
     light_path = base_path / f"{theme_name}_light.png"
     dark_path = base_path / f"{theme_name}_dark.png"
 
@@ -4434,14 +4436,15 @@ def handle_theme_tab_load():
     
     # UIドロップダウン用の選択肢リストを作成
     choices = []
+    # カテゴリごとに区切り線と項目を追加
     if any(src == "file" for src in all_themes_map.values()):
-        choices.append(gr.Markdown("--- ファイルベース ---"))
+        choices.append("--- ファイルベース ---")
         choices.extend([name for name, src in all_themes_map.items() if src == "file"])
     if any(src == "json" for src in all_themes_map.values()):
-        choices.append(gr.Markdown("--- カスタム (JSON) ---"))
+        choices.append("--- カスタム (JSON) ---")
         choices.extend([name for name, src in all_themes_map.items() if src == "json"])
     if any(src == "preset" for src in all_themes_map.values()):
-        choices.append(gr.Markdown("--- プリセット ---"))
+        choices.append("--- プリセット ---")
         choices.extend([name for name, src in all_themes_map.items() if src == "preset"])
         
     active_theme_name = config_manager.CONFIG_GLOBAL.get("theme_settings", {}).get("active_theme", "nexus_ark_theme")
@@ -4488,12 +4491,14 @@ def handle_theme_selection(selected_theme_name: str):
     font_name = params.get("font", ["Source Sans Pro"])[0]
 
     return (
-        light_preview, dark_preview,
+        light_preview,
+        dark_preview,
         gr.update(value=params.get("primary_hue"), interactive=is_editable),
         gr.update(value=params.get("secondary_hue"), interactive=is_editable),
         gr.update(value=params.get("neutral_hue"), interactive=is_editable),
         gr.update(value=font_name, interactive=is_editable),
-        gr.update(interactive=is_editable) # Save button
+        gr.update(interactive=is_editable), # Save button
+        gr.update(interactive=is_editable)  # Export button
     )
 
 def handle_save_custom_theme(new_name, primary_hue, secondary_hue, neutral_hue, font):
@@ -4503,8 +4508,10 @@ def handle_save_custom_theme(new_name, primary_hue, secondary_hue, neutral_hue, 
         return gr.update(), gr.update()
 
     new_name = new_name.strip()
-    if new_name.startswith("---") or new_name in ["Soft", "Default", "Monochrome", "Glass"]:
-        gr.Warning("その名前はプリセットテーマ用に予約されています。")
+    # プリセットテーマ名やファイルベースのテーマ名との重複もチェック
+    all_themes_map = config_manager.get_all_themes()
+    if new_name in all_themes_map and all_themes_map[new_name] != "json":
+        gr.Warning(f"名前「{new_name}」はファイルテーマまたはプリセットテーマとして既に存在します。")
         return gr.update(), gr.update(value="")
         
     current_config = config_manager._load_config_file()
