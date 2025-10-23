@@ -15,7 +15,6 @@ if script_dir not in sys.path:
 # --- [ロギング設定の強制上書き] ---
 import logging
 import logging.config
-import os
 from pathlib import Path
 from sys import stdout
 
@@ -51,11 +50,7 @@ print("--- [Nexus Ark] アプリケーション固有のロギング設定を適
 
 # nexus_ark.py (v18: グループ会話FIX・最終版)
 
-import os
-import sys
-# ▼▼▼【以下のimportを追加】▼▼▼
 import shutil
-# ▲▲▲【追加はここまで】▲▲▲
 import utils
 import json
 import gradio as gr
@@ -226,6 +221,12 @@ try:
     }
     """
 
+    # --- [テーマ適用ロジック] ---
+    # 新しいconfig_managerの関数を呼び出すように変更
+    active_theme_object = config_manager.get_theme_object(
+        config_manager.CONFIG_GLOBAL.get("theme_settings", {}).get("active_theme", "nexus_ark_theme")
+    )
+
     with gr.Blocks(theme=active_theme_object, css=custom_css, js=custom_js) as demo:
         room_list_on_startup = room_manager.get_room_list_for_ui()
         if not room_list_on_startup:
@@ -375,6 +376,16 @@ try:
                                 with gr.TabItem("🎨 パレット") as theme_tab:
                                     theme_settings_state = gr.State({})
                                     theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
+                                    
+                                    # --- [サムネイル表示エリア] ---
+                                    with gr.Row():
+                                        with gr.Column():
+                                            gr.Markdown("#### ライトモード プレビュー")
+                                            theme_preview_light = gr.Image(label="Light Mode Preview", interactive=False, height=200)
+                                        with gr.Column():
+                                            gr.Markdown("#### ダークモード プレビュー")
+                                            theme_preview_dark = gr.Image(label="Dark Mode Preview", interactive=False, height=200)
+
                                     gr.Markdown("---")
                                     gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
                                     AVAILABLE_HUES = [
@@ -386,6 +397,7 @@ try:
                                         primary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="プライマリカラー系統", value="blue")
                                         secondary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="セカンダリカラー系統", value="sky")
                                         neutral_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="ニュートラルカラー系統", value="slate")
+                                    
                                     AVAILABLE_FONTS = sorted([
                                         "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
                                         "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "IBM Plex Mono", "Inconsolata", "Inter",
@@ -396,9 +408,14 @@ try:
                                         "Space Mono", "Spectral", "Sriracha", "Titillium Web", "Ubuntu", "Work Sans"
                                     ])
                                     font_dropdown = gr.Dropdown(choices=AVAILABLE_FONTS, label="メインフォント", value="Noto Sans JP", interactive=True)
+                                    
                                     gr.Markdown("---")
                                     custom_theme_name_input = gr.Textbox(label="新しいテーマ名として保存", placeholder="例: My Cool Theme")
-                                    save_theme_button = gr.Button("カスタムテーマとして保存", variant="secondary")
+                                    
+                                    with gr.Row():
+                                        save_theme_button = gr.Button("カスタムテーマとして保存", variant="secondary")
+                                        export_theme_button = gr.Button("ファイルにエクスポート", variant="secondary") # <-- 新規追加
+
                                     apply_theme_button = gr.Button("このテーマを適用（要再起動）", variant="primary")
                                     gr.Markdown("⚠️ **注意:** テーマの変更を完全に反映するには、コンソールを閉じて `nexus_ark.py` を再実行する必要があります。")
 
