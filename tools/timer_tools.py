@@ -22,7 +22,7 @@ def set_timer(duration_minutes: int, theme: str, room_name: str) -> str:
         timer = UnifiedTimer(
             timer_type="通常タイマー",
             duration=float(duration_minutes),
-            character_name=room_name,
+            room_name=room_name,
             api_key_name=api_key_name,
             normal_timer_theme=theme
         )
@@ -52,7 +52,7 @@ def set_pomodoro_timer(work_minutes: int, break_minutes: int, cycles: int, work_
             work_duration=float(work_minutes),
             break_duration=float(break_minutes),
             cycles=int(cycles),
-            character_name=room_name,
+            room_name=room_name,
             work_theme=work_theme,
             break_theme=break_theme,
             api_key_name=api_key_name

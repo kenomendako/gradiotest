@@ -59,7 +59,6 @@ def ensure_room_files(room_name: str) -> bool:
             os.path.join(base_path, "log_archives", "processed"),
             os.path.join(base_path, "log_import_source", "processed"),
             os.path.join(base_path, "memory"),
-            os.path.join(base_path, "memory", "backups"), # <-- この行を追加
             os.path.join(base_path, "private")
         ]
         # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼

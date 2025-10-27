@@ -3943,28 +3943,7 @@ def handle_open_audio_folder(room_name: str):
             subprocess.Popen(["xdg-open", folder_path])
     except Exception as e:
         gr.Error(f"フォルダを開けませんでした: {e}")
-def handle_open_backup_folder(room_name: str):
-    """現在のルームのバックアップ用フォルダ（memory_backupsなど）を開く。"""
-    if not room_name:
-        gr.Warning("ルームが選択されていません。")
-        return
 
-    # メモリバックアップフォルダのパスを組み立てる（room_name/memory_backups）
-    backup_folder_path = os.path.join(constants.ROOMS_DIR, room_name, "memory_backups")
-    # フォルダがなければ作成する
-    os.makedirs(backup_folder_path, exist_ok=True)
-
-    try:
-        if sys.platform == "win32":
-            os.startfile(os.path.normpath(backup_folder_path))
-        elif sys.platform == "darwin":  # macOS
-            subprocess.Popen(["open", backup_folder_path])
-        else:  # Linux
-            subprocess.Popen(["xdg-open", backup_folder_path])
-    except Exception as e:
-        gr.Error(f"フォルダを開けませんでした: {e}")
-
-# ▼▼▼【ここから下のブロックをファイルの末尾にまるごと追加】▼▼▼
 
 # --- Knowledge Base (RAG) UI Handlers ---
 
