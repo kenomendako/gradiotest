@@ -41,6 +41,7 @@ anyio==4.11.0
 fastapi==0.117.1
 httpx==0.28.1
 numpy==2.3.3
+matplotlib==3.9.1 
 orjson==3.11.3
 pydantic==2.11.9
 PyYAML==6.0.2
