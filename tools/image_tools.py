@@ -10,7 +10,7 @@ import httpx
 from langchain_core.tools import tool
 from google.genai import types
 
-IMAGE_GEN_MODEL = "gemini-2.0-flash-preview-image-generation"
+IMAGE_GEN_MODEL = "gemini-2.5-flash-image"
 
 @tool
 def generate_image(prompt: str, room_name: str, api_key: str) -> str:
@@ -29,16 +29,9 @@ def generate_image(prompt: str, room_name: str, api_key: str) -> str:
 
         client = genai.Client(api_key=api_key)
 
-        # ▼▼▼ configパラメータは、response_modalitiesを指定するためだけに使用する ▼▼▼
-        generation_config = types.GenerateContentConfig(
-            response_modalities=['IMAGE', 'TEXT']
-        )
-        # ▲▲▲ 修正ここまで ▲▲▲
-
         response = client.models.generate_content(
             model=IMAGE_GEN_MODEL,
             contents=prompt,
-            config=generation_config
         )
 
         image_data = None
