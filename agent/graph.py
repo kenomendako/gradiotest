@@ -277,8 +277,28 @@ def context_generator_node(state: AgentState):
         except Exception as e:
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
+    
+    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+    # --- [v24] 画像生成モードに応じた動的プロンプト生成 ---
+    image_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
+    
+    current_tools = all_tools
+    image_generation_manual_text = ""
+
+    if image_gen_mode == "disabled":
+        # モードが無効の場合、ツールリストから generate_image を除外
+        current_tools = [t for t in all_tools if t.name != "generate_image"]
+    else:
+        # モードが有効の場合、作法書のテキストを定義
+        image_generation_manual_text = (
+            "### 1. ツール呼び出しの共通作法\n"
+            "`generate_image`, `plan_..._edit`, `set_current_location` を含む全てのツール呼び出しは、以下の作法に従います。\n"
+            "- **手順1（ツール呼び出し）:** 対応するツールを**無言で**呼び出します。この応答には、思考ブロックや会話テキストを一切含めてはなりません。\n"
+            "- **手順2（テキスト応答）:** ツール成功後、システムからの結果報告を受け、それを元にした**思考 (`[THOUGHT]`)** と**会話**を生成し、ユーザーに報告します."
+        )
+    # ▲▲▲【追加はここまで】▲▲▲
     all_participants = state.get('all_participants', [])
-    tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
+    tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in current_tools]) # <<< 修正: all_tools から current_tools に変更
     if len(all_participants) > 1: tools_list_str = "（グループ会話中はツールを使用できません）"
 
     # --- パート3: 最終的なプロンプトを組み立てて返す ---
@@ -290,6 +310,7 @@ def context_generator_node(state: AgentState):
         'character_prompt': character_prompt,
         'core_memory': core_memory,
         'notepad_section': notepad_section,
+        'image_generation_manual': image_generation_manual_text, # <<< この行を追加
         'tools_list': tools_list_str
     }
     final_system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
@@ -614,6 +635,17 @@ def safe_tool_executor(state: AgentState):
         tool_args['room_name'] = room_name
         if tool_name in ['generate_image', 'search_past_conversations']:
             tool_args['api_key'] = api_key
+            # Try to infer api_key_name by reverse lookup from configured keys
+            api_key_name = None
+            try:
+                for k, v in config_manager.GEMINI_API_KEYS.items():
+                    if v == api_key:
+                        api_key_name = k
+                        break
+            except Exception:
+                api_key_name = None
+            # attach api_key_name for tools that need it
+            tool_args['api_key_name'] = api_key_name
 
         selected_tool = next((t for t in all_tools if t.name == tool_name), None)
         if not selected_tool:

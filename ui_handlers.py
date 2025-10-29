@@ -153,7 +153,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     chat_history, mapping_list = reload_chat_log(
         room_name=room_name,
         api_history_limit_value=config_manager.initial_api_history_limit_option_global,
-        add_timestamp=effective_settings.get("add_timestamp", False)
+        add_timestamp=effective_settings.get("add_timestamp", False),
+        display_thoughts=effective_settings.get("display_thoughts", True)
     )
     _, _, img_p, mem_p, notepad_p = get_room_files_paths(room_name)
     memory_str = ""
@@ -267,7 +268,7 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
-    api_key_choices = list(config_manager.GEMINI_API_KEYS.keys())
+    api_key_choices = config_manager.get_api_key_choices_for_ui()  # (表示名, 値) のタプルリストを取得し、(Paid)ラベルを反映する
     api_key_dd_update = gr.update(choices=api_key_choices, value=initial_api_key_name)
     world_data_for_state = get_world_data(initial_room_to_load)
     time_settings = _load_time_settings_for_room(initial_room_to_load)
@@ -315,6 +316,7 @@ def handle_save_room_settings(
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
     enable_typewriter_effect: bool,
     streaming_speed: float,
+    display_thoughts: bool, # <<< この引数を追加
     add_timestamp: bool, send_current_time: bool, send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool,
     enable_scenery_system: bool, # room_send_scenery_checkbox から変更
@@ -340,6 +342,7 @@ def handle_save_room_settings(
         "safety_block_threshold_dangerous_content": safety_value_map.get(dangerous),
         "enable_typewriter_effect": bool(enable_typewriter_effect),
         "streaming_speed": float(streaming_speed),
+    "display_thoughts": bool(display_thoughts), # <<< この行を追加
         "add_timestamp": bool(add_timestamp),
         "send_current_time": bool(send_current_time),
         "send_thoughts": bool(send_thoughts),
@@ -977,19 +980,19 @@ def handle_location_change(
     room_name: str,
     selected_value: str,
     api_key_name: str
-) -> Tuple[gr.update, str, Optional[str]]:
+) -> Tuple[gr.update, str, Optional[str], gr.update]:
     """【v9: 冪等性ガード版】場所が変更されたときのハンドラ。"""
 
     # --- [冪等性ガード] ---
     # ファイルに記録されている現在の場所と比較し、変更がなければ何もしない
     current_location_from_file = utils.get_current_location(room_name)
     if selected_value == current_location_from_file:
-        return gr.update(), gr.update(), gr.update() # UIの状態を何も変更しない
+        return gr.update(), gr.update(), gr.update(), gr.update() # UIの状態を何も変更しない
 
     if not selected_value or selected_value.startswith("__AREA_HEADER_"):
         # ヘッダーがクリックされた場合、現在の値でUIを更新するだけ
         new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
-        return gr.update(value=current_location_from_file), new_scenery_text, new_image_path
+        return gr.update(value=current_location_from_file), new_scenery_text, new_image_path, gr.update(value=current_location_from_file)
 
     # --- ここから下は、本当に場所が変更された場合のみ実行される ---
     location_id = selected_value
@@ -1000,11 +1003,11 @@ def handle_location_change(
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
         new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
-        return gr.update(value=current_location_from_file), new_scenery_text, new_image_path
+        return gr.update(value=current_location_from_file), new_scenery_text, new_image_path, gr.update(value=current_location_from_file)
 
     gr.Info(f"場所を「{location_id}」に移動しました。情景を更新します...")
     new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
-    return gr.update(value=location_id), new_scenery_text, new_image_path
+    return gr.update(value=location_id), new_scenery_text, new_image_path, gr.update(value=location_id)
 
 #
 # --- Room Management Handlers ---
@@ -1615,6 +1618,7 @@ def format_history_for_gradio(
     messages: List[Dict[str, str]],
     current_room_folder: str,
     add_timestamp: bool,
+    display_thoughts: bool = True, # <<< この引数を追加
     screenshot_mode: bool = False,
     redaction_rules: List[Dict] = None,
     absolute_start_index: int = 0
@@ -1730,15 +1734,16 @@ def format_history_for_gradio(
             if new_thought_match:
                 thought_block = new_thought_match.group(1)
                 body_text = new_thought_pattern.sub("", content_to_parse).strip()
-                
                 inner_thought_content = re.sub(r"\[/?THOUGHT\]", "", thought_block, flags=re.IGNORECASE).strip()
-                
-                # 文字置き換え用のHTMLが含まれているかチェック
-                has_replacement_html = "<span style=" in inner_thought_content
-                if has_replacement_html:
-                    thought_html = f'<div class="code_wrap"><pre><code>{inner_thought_content}</code></pre></div>'
-                else:
-                    thought_html = f"```\n{html.escape(inner_thought_content)}\n```"
+
+                thought_html = ""
+                if display_thoughts: # <<< 条件分岐を追加
+                    # 文字置き換え用のHTMLが含まれているかチェック
+                    has_replacement_html = '<span style' in inner_thought_content
+                    if has_replacement_html:
+                        thought_html = f'<div class="code_wrap"><pre><code>{inner_thought_content}</code></pre></div>'
+                    else:
+                        thought_html = f"```\n{html.escape(inner_thought_content)}\n```"
 
                 final_markdown = f"{speaker_prefix}{thought_html}\n\n{body_text}".strip()
 
@@ -1756,11 +1761,13 @@ def format_history_for_gradio(
                 body_text = "\n".join(body_parts).strip()
                 thought_text = "\n".join(thought_parts).strip()
                 
-                has_replacement_html = "<span style=" in thought_text
-                if has_replacement_html:
-                    thought_html = f'<div class="code_wrap"><pre><code>{thought_text}</code></pre></div>'
-                else:
-                    thought_html = f"```\n{html.escape(thought_text)}\n```"
+                thought_html = ""
+                if display_thoughts: # <<< 条件分岐を追加
+                    has_replacement_html = "<span style=" in thought_text
+                    if has_replacement_html:
+                        thought_html = f'<div class="code_wrap"><pre><code>{thought_text}</code></pre></div>'
+                    else:
+                        thought_html = f"```\n{html.escape(thought_text)}\n```"
 
                 final_markdown = f"{speaker_prefix}{thought_html}\n\n{body_text}".strip()
             
@@ -1770,11 +1777,13 @@ def format_history_for_gradio(
                 parts = old_thought_pattern.split(content_to_parse)
                 markdown_parts = [speaker_prefix]
                 for part in parts:
-                    if not part or not part.strip(): continue
+                    if not part or not part.strip():
+                        continue
                     if old_thought_pattern.match(part):
                         inner_content_match = re.search(r"【Thoughts】([\s\S]*?)【/Thoughts】", part, re.IGNORECASE)
                         inner_content = inner_content_match.group(1).strip() if inner_content_match else ""
-                        markdown_parts.append(f"```\n{inner_content}\n```")
+                        if display_thoughts: # <<< 条件分岐を追加
+                            markdown_parts.append(f"```\n{inner_content}\n```")
                     else:
                         markdown_parts.append(part.strip())
                 final_markdown = "\n\n".join(markdown_parts).strip()
@@ -1796,6 +1805,7 @@ def reload_chat_log(
     room_name: Optional[str],
     api_history_limit_value: str,
     add_timestamp: bool,
+    display_thoughts: bool = True,
     screenshot_mode: bool = False,
     redaction_rules: List[Dict] = None,
     *args, **kwargs
@@ -1823,6 +1833,7 @@ def reload_chat_log(
         messages=visible_history,
         current_room_folder=room_name,
         add_timestamp=add_timestamp,
+        display_thoughts=display_thoughts,
         screenshot_mode=screenshot_mode,
         redaction_rules=redaction_rules,
         absolute_start_index=absolute_start_index # ★★★ 新しい引数を追加 ★★★
@@ -2648,33 +2659,64 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
     現在の時間と季節に一致するファイル名を事前に確定し、そのファイル名で画像を生成・上書き保存する。
     他の季節や時間帯の画像には一切触れず、UIの表示更新を保証する。
     """
+    # --- [究極ガード要塞:一本道ルール] ---
+    latest_config = config_manager.load_config_file()
+    image_gen_mode = latest_config.get("image_generation_mode", "new")
+    paid_key_names = latest_config.get("paid_api_key_names", [])
+
+    # 第1の門: 機能が無効化されているか？
+    if image_gen_mode == "disabled":
+        gr.Info("画像生成機能は、現在「共通設定」で無効化されています。")
+        location_id_fb = utils.get_current_location(room_name)
+        if location_id_fb:
+            fallback_image_path_fb = utils.find_scenery_image(room_name, location_id_fb)
+            if fallback_image_path_fb:
+                return Image.open(fallback_image_path_fb)
+        return None
+
+    # 第2の門: そもそもAPIキーが有効か？
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーを選択してください。")
         return None
-
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-    if not api_key:
+    if not api_key or (isinstance(api_key, str) and api_key.startswith("YOUR_API_KEY")):
         gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return gr.update()
+        return None
 
+    # 第3の門: 有料モデルを無料キーで使おうとしていないか？
+    if image_gen_mode == "new" and api_key_name not in paid_key_names:
+        gr.Warning(f"選択中のAPIキー「{api_key_name}」は有料プランとして登録されていません。新しい画像生成モデルは利用できません。「共通設定」からキーの設定を確認してください。")
+        location_id_fb = utils.get_current_location(room_name)
+        if location_id_fb:
+            fallback_image_path_fb = utils.find_scenery_image(room_name, location_id_fb)
+            if fallback_image_path_fb:
+                return Image.open(fallback_image_path_fb)
+        return None
+
+    # ガードを通過したので、利用するモデルについて情報を表示
+    if image_gen_mode == "new":
+        gr.Info("新しい画像生成モデル(有料)を使用して情景を生成します。")
+    elif image_gen_mode == "old":
+        gr.Info("古い画像生成モデル(無料・廃止予定)を使用して情景を生成します。")
+
+    # 1. 適用すべき季節と時間帯を取得
+    season_en, time_of_day_en = _get_current_time_context(room_name)
+
+    # 2. 取得した値を使ってファイル名を確定
     location_id = utils.get_current_location(room_name)
     if not location_id:
         gr.Warning("現在地が特定できません。")
         return None
 
-    # --- [ここからが修正の核心] ---
-    # 1. 適用すべき季節と時間帯を取得
-    season_en, time_of_day_en = _get_current_time_context(room_name)
-
-    # 2. 取得した値を使ってファイル名を確定
     save_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
     os.makedirs(save_dir, exist_ok=True)
     final_filename = f"{location_id}_{season_en}_{time_of_day_en}.png"
     final_path = os.path.join(save_dir, final_filename)
-    # --- [修正はここまで] ---
 
     # フォールバック用に、現在の画像パスを先に探しておく
     fallback_image_path = utils.find_scenery_image(room_name, location_id)
+
+    # --- [ガード完了、生成へ進む] ---
 
     # プロンプト生成
     final_prompt = ""
@@ -2776,7 +2818,8 @@ Your task is to **merge** these two sources into a single, coherent visual descr
         return None
 
     gr.Info(f"「{style_choice}」で画像を生成します...")
-    result = generate_image_tool_func.func(prompt=final_prompt, room_name=room_name, api_key=api_key)
+    # 二重防御のため、api_key_name も渡す
+    result = generate_image_tool_func.func(prompt=final_prompt, room_name=room_name, api_key=api_key, api_key_name=api_key_name)
 
     # 確定パスで上書き保存し、そのパスを返す
     if "Generated Image:" in result:
@@ -3152,65 +3195,67 @@ def handle_reload_world_settings_raw(room_name: str):
         gr.update(choices=new_location_choices)                # location_dropdown
     )
 
-def handle_save_gemini_key(key_name: str, key_value: str, current_room_name: str):
-    """
-    【v9: 戻り値の数FIX・司令塔アーキテクチャ準拠版】
-    APIキーを保存し、オンボーディングモードを解除し、UI全体を完全にリフレッシュする。
-    Gradioが必要とする正確な数の戻り値を返すことを保証する。
-    """
-    # nexus_ark.pyで定義されているoutputsの総数
-    EXPECTED_OUTPUT_COUNT = 57
-
+def handle_save_gemini_key(key_name: str, key_value: str):
+    """【v13: 警告修正版】新しいAPIキーを保存し、関連UIをリフレッシュする。"""
+    # 入力検証：キー名は半角英数字とアンダースコアのみ許可
     if not key_name or not key_value or not re.match(r"^[a-zA-Z0-9_]+$", key_name.strip()):
-        if key_name and not re.match(r"^[a-zA-Z0-9_]+$", key_name.strip()):
-            gr.Warning("「キーの名前」は半角の英数字とアンダースコア(_)のみ使用できます。")
-        else:
-            gr.Warning("キーの名前と値の両方を入力してください。")
-        # 早期リターンの場合でも、期待される数の空の更新を返す
-        return (gr.update(),) * EXPECTED_OUTPUT_COUNT
+        gr.Warning("キーの名前（半角英数字とアンダースコアのみ）と値を両方入力してください。")
+        return gr.update(), gr.update(), gr.update(), gr.update()
 
     key_name = key_name.strip()
-    key_value = key_value.strip()
-
-    was_onboarding = not config_manager.has_valid_api_key()
-
+    # キーを保存
     config_manager.add_or_update_gemini_key(key_name, key_value)
     gr.Info(f"Gemini APIキー「{key_name}」を保存しました。")
-    new_keys = list(config_manager.GEMINI_API_KEYS.keys())
-    api_key_dd_update = gr.update(choices=new_keys, value=key_name)
 
-    if was_onboarding and config_manager.has_valid_api_key():
-        gr.Info("APIキーが設定されました。アプリケーションを初期化します...")
-        
-        config_manager.initial_api_key_name_global = key_name
-        
-        # 司令塔関数を呼び出す (戻り値は54個)
-        all_updates_tuple = handle_room_change_for_all_tabs(current_room_name, key_name)
-        
-        # 司令塔が返さない3つのUIコンポーネントの更新値を先頭に追加する
-        return (
-            api_key_dd_update,
-            gr.update(visible=False), # onboarding_guide
-            gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)") # chat_input_multimodal
-        ) + all_updates_tuple
-    else:
-        # オンボーディング後でない場合は、APIキードロップダウンの更新のみを行い、
-        # 残りは空の更新を返すことで契約数を満たす
-        return (api_key_dd_update,) + (gr.update(),) * (EXPECTED_OUTPUT_COUNT - 1)
+    # configを再読み込みして最新の状態を取得
+    config_manager.load_config()
+
+    # 関連UIを全て更新
+    new_choices_for_ui = config_manager.get_api_key_choices_for_ui()
+    new_key_names = [key for _, key in new_choices_for_ui]
+    paid_keys = config_manager.CONFIG_GLOBAL.get("paid_api_key_names", [])
+
+    return (
+        gr.update(choices=new_choices_for_ui, value=key_name), # api_key_dropdown
+        gr.update(choices=new_key_names, value=paid_keys),     # paid_keys_checkbox_group
+        gr.update(value=""),                                   # gemini_key_name_input
+        gr.update(value="")                                    # gemini_key_value_input
+    )
 
 def handle_delete_gemini_key(key_name):
     if not key_name:
         gr.Warning("削除するキーの名前を入力してください。")
-        return gr.update()
+        return gr.update(), gr.update()
     config_manager.delete_gemini_key(key_name)
     gr.Info(f"Gemini APIキー「{key_name}」を削除しました。")
-    new_keys = list(config_manager.GEMINI_API_KEYS.keys())
-    # 正しい作法： choicesを更新し、valueはリストの先頭かNoneに設定する
-    return gr.update(choices=new_keys, value=new_keys[0] if new_keys else None)
+    # configを再読み込みして最新の状態を反映
+    config_manager.load_config()
+    new_choices_for_ui = config_manager.get_api_key_choices_for_ui()
+    new_key_names = [pair[1] for pair in new_choices_for_ui]
+    paid_keys = config_manager.CONFIG_GLOBAL.get("paid_api_key_names", [])
+
+    api_key_dd_update = gr.update(choices=new_choices_for_ui, value=new_key_names[0] if new_key_names else None)
+    paid_keys_cb_update = gr.update(choices=new_key_names, value=paid_keys)
+    return (api_key_dd_update, paid_keys_cb_update)
 
 def handle_save_pushover_config(user_key, app_token):
     config_manager.update_pushover_config(user_key, app_token)
     gr.Info("Pushover設定を保存しました。")
+
+
+def handle_paid_keys_change(paid_key_names: List[str]):
+    """有料キーチェックボックスが変更されたら即時保存する。"""
+    if not isinstance(paid_key_names, list):
+        gr.Warning("有料キーリストの更新に失敗しました。")
+        return gr.update()
+    # 保存して config を再読み込み
+    config_manager.save_config("paid_api_key_names", paid_key_names)
+    config_manager.load_config()
+    gr.Info("有料APIキーの設定を更新しました。")
+
+    # ドロップダウンの表示も(Paid)ラベル付きで更新するために、新しい選択肢リストを返す
+    new_choices_for_ui = config_manager.get_api_key_choices_for_ui()
+    return gr.update(choices=new_choices_for_ui)
 
 def handle_notification_service_change(service_choice: str):
     if service_choice in ["Discord", "Pushover"]:
@@ -4493,7 +4538,7 @@ def handle_save_custom_theme(new_name, primary_hue, secondary_hue, neutral_hue, 
         gr.Warning(f"名前「{new_name}」はファイルテーマまたはプリセットテーマとして既に存在します。")
         return gr.update(), gr.update(value="")
         
-    current_config = config_manager._load_config_file()
+    current_config = config_manager.load_config_file()
     theme_settings = current_config.get("theme_settings", {})
     custom_themes = theme_settings.get("custom_themes", {})
     
@@ -4569,10 +4614,64 @@ def handle_apply_theme(selected_theme_name: str):
         gr.Warning("適用する有効なテーマを選択してください。")
         return
 
-    current_config = config_manager._load_config_file()
+    current_config = config_manager.load_config_file()
     theme_settings = current_config.get("theme_settings", {})
     theme_settings["active_theme"] = selected_theme_name
     
     config_manager.save_config("theme_settings", theme_settings)
     
     gr.Info(f"テーマ「{selected_theme_name}」を適用設定にしました。アプリケーションを再起動してください。")
+
+
+# --------------------------------------------------
+# 追加ハンドラ: 画像生成モード保存とカスタム情景登録
+# --------------------------------------------------
+def handle_save_image_generation_mode(mode: str):
+    """画像生成モードをconfig.jsonに保存する。"""
+    if mode not in ["new", "old", "disabled"]:
+        return
+    config_manager.save_config("image_generation_mode", mode)
+    mode_map = {
+        "new": "新モデル (有料)",
+        "old": "旧モデル (無料・廃止予定)",
+        "disabled": "無効"
+    }
+    gr.Info(f"画像生成モードを「{mode_map.get(mode)}」に設定しました。")
+
+
+def handle_register_custom_scenery(
+    room_name: str, api_key_name: str,
+    location: str, season_ja: str, time_ja: str, image_path: str
+):
+    """カスタム情景画像を登録し、UIを更新する。"""
+    if not all([room_name, location, season_ja, time_ja, image_path]):
+        gr.Warning("ルーム、場所、季節、時間帯、画像をすべて指定してください。")
+        return gr.update(), gr.update()
+
+    try:
+        season_map = {"春": "spring", "夏": "summer", "秋": "autumn", "冬": "winter"}
+        time_map = {"朝": "morning", "昼": "daytime", "夕方": "evening", "夜": "night"}
+        season_en = season_map.get(season_ja)
+        time_en = time_map.get(time_ja)
+
+        if not season_en or not time_en:
+            raise ValueError("季節または時間帯の変換に失敗しました。")
+
+        save_dir = Path(constants.ROOMS_DIR) / room_name / "spaces" / "images"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{location}_{season_en}_{time_en}.png"
+        save_path = save_dir / filename
+
+        img = Image.open(image_path)
+        img.save(save_path, "PNG")
+
+        gr.Info(f"カスタム情景画像を登録しました: {filename}")
+
+        # 司令塔を呼び出して、UIの情景表示を即座に更新する
+        new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
+        return new_scenery_text, new_image_path
+
+    except Exception as e:
+        gr.Error(f"カスタム情景画像の登録中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return gr.update(), gr.update()
