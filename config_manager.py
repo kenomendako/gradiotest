@@ -40,14 +40,19 @@ initial_streaming_speed_global = 0.01
 
 
 # --- 内部ヘルパー関数 ---
-def _load_config_file() -> dict:
+def load_config_file() -> dict:
+    """config.json を読み込み、辞書で返す。外部からも呼び出せるように公開する。
+    空もしくは読み込み失敗時は空辞書を返す。
+    """
     if os.path.exists(constants.CONFIG_FILE):
         try:
             with open(constants.CONFIG_FILE, "r", encoding="utf-8") as f:
                 content = f.read()
-                if not content.strip(): return {}
+                if not content.strip():
+                    return {}
                 return json.loads(content)
-        except (json.JSONDecodeError, IOError): return {}
+        except (json.JSONDecodeError, IOError):
+            return {}
     return {}
 
 def _save_config_file(config_data: dict):
@@ -71,7 +76,7 @@ def save_config(key: str, value: Any):
     """
     単一のキーと値をconfig.jsonに安全に保存する。
     """
-    config = _load_config_file()
+    config = load_config_file()
     config[key] = value
     _save_config_file(config)
 
@@ -79,7 +84,7 @@ def save_config(key: str, value: Any):
 # --- 公開APIキー管理関数 ---
 def add_or_update_gemini_key(key_name: str, key_value: str):
     global GEMINI_API_KEYS
-    config = _load_config_file()
+    config = load_config_file()
     if "gemini_api_keys" not in config or not isinstance(config.get("gemini_api_keys"), dict):
         config["gemini_api_keys"] = {}
 
@@ -93,12 +98,19 @@ def add_or_update_gemini_key(key_name: str, key_value: str):
 
 def delete_gemini_key(key_name: str):
     global GEMINI_API_KEYS
-    config = _load_config_file()
+    config = load_config_file()
     if "gemini_api_keys" in config and isinstance(config.get("gemini_api_keys"), dict) and key_name in config["gemini_api_keys"]:
         del config["gemini_api_keys"][key_name]
 
         if not config["gemini_api_keys"]:
             config["gemini_api_keys"] = {"your_key_name": "YOUR_API_KEY_HERE"}
+
+        # paid_api_key_names が存在すれば、削除する
+        if "paid_api_key_names" in config and key_name in config["paid_api_key_names"]:
+            try:
+                config["paid_api_key_names"].remove(key_name)
+            except ValueError:
+                pass
 
         if config.get("last_api_key_name") == key_name:
             config["last_api_key_name"] = None
@@ -106,7 +118,7 @@ def delete_gemini_key(key_name: str):
         GEMINI_API_KEYS = config.get("gemini_api_keys", {})
 
 def update_pushover_config(user_key: str, app_token: str):
-    config = _load_config_file()
+    config = load_config_file()
     config["pushover_user_key"] = user_key
     config["pushover_app_token"] = app_token
     _save_config_file(config)
@@ -220,8 +232,10 @@ def load_config():
 
     default_config = {
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
+        "paid_api_key_names": [],
         "available_models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
         "default_model": "gemini-2.5-pro",
+        "image_generation_mode": "new", # <<< 追加: new, old, disabled
         "last_room": "Default",
         "last_model": "gemini-2.5-pro",
         "last_api_key_name": None,
@@ -242,7 +256,7 @@ def load_config():
     }
 
     # ステップ2：ユーザーの設定ファイルを読み込む
-    user_config = _load_config_file()
+    user_config = load_config_file()
 
     # ステップ3：【賢いマージ】テーマ設定をディープマージする
     default_theme_settings = default_config["theme_settings"]
@@ -356,6 +370,18 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         effective_settings["model_name"] = DEFAULT_MODEL_GLOBAL
     return effective_settings
 
+
+from typing import Tuple
+
+def get_api_key_choices_for_ui() -> List[Tuple[str, str]]:
+    """UI用の選択肢リストを (表示名, 値) のタプルで返す。表示名には Paid ラベルを付与する。"""
+    paid_key_names = CONFIG_GLOBAL.get("paid_api_key_names", []) if isinstance(CONFIG_GLOBAL, dict) else []
+    choices: List[Tuple[str, str]] = []
+    for key_name in sorted(GEMINI_API_KEYS.keys()):
+        display = f"{key_name} (Paid)" if key_name in paid_key_names else key_name
+        choices.append((display, key_name))
+    return choices
+
 def load_redaction_rules() -> List[Dict[str, str]]:
     """redaction_rules.jsonから置換ルールを読み込む。"""
     if os.path.exists(constants.REDACTION_RULES_FILE):
@@ -382,7 +408,7 @@ def save_theme_settings(active_theme: str, custom_themes: Dict):
     """
     アクティブなテーマ名とカスタムテーマの定義をconfig.jsonに保存する。
     """
-    config = _load_config_file()
+    config = load_config_file()
     if "theme_settings" not in config:
         config["theme_settings"] = {}
     config["theme_settings"]["active_theme"] = active_theme
@@ -396,7 +422,7 @@ def get_latest_api_key_name_from_config() -> Optional[str]:
     config.jsonを直接読み込み、最後に選択された有効なAPIキー名を返す。
     UIの状態に依存しないため、バックグラウンドスレッドから安全に呼び出せる。
     """
-    config = _load_config_file()
+    config = load_config_file()
     last_key_name = config.get("last_api_key_name")
 
     # 有効な（値が設定されている）APIキーのリストを取得

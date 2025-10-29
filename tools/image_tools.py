@@ -9,17 +9,35 @@ import google.genai as genai
 import httpx
 from langchain_core.tools import tool
 from google.genai import types
+import config_manager # <<< 追加
 
-IMAGE_GEN_MODEL = "gemini-2.5-flash-image"
+# IMAGE_GEN_MODEL = "gemini-2.5-flash-image" # 定数は廃止。モードに応じて動的に選択します。
 
 @tool
-def generate_image(prompt: str, room_name: str, api_key: str) -> str:
+def generate_image(prompt: str, room_name: str, api_key: str, api_key_name: str = None) -> str:
     """
     ユーザーの要望や会話の文脈に応じて、情景、キャラクター、アイテムなどのイラストを生成する。
     成功した場合は、UIに表示するための特別な画像タグを返す。
     prompt: 画像生成のための詳細な指示（英語が望ましい）。
     """
-    print(f"--- 画像生成ツール実行 (Model: {IMAGE_GEN_MODEL}, Prompt: '{prompt}') ---")
+    # ▼▼▼【ここから下のブロックをまるごと置き換え】▼▼▼
+    # --- Just-In-Time: 常に最新の設定をファイルから読み込む ---
+    latest_config = config_manager.load_config_file()
+    image_gen_mode = latest_config.get("image_generation_mode", "new")
+    paid_key_names = latest_config.get("paid_api_key_names", [])
+
+    # 二重防御: 新モデルが選択されている場合は、api_key_name が有料キーとして登録されているか確認する
+    if image_gen_mode == "new" and (not api_key_name or api_key_name not in paid_key_names):
+        return f"【エラー】画像生成(新モデル)には有料プランのAPIキーが必要です。選択中のキー「{api_key_name}」は有料プランとして登録されていません。"
+
+    if image_gen_mode == "new":
+        model_to_use = "gemini-2.5-flash-image"
+    elif image_gen_mode == "old":
+        model_to_use = "gemini-2.0-flash-preview-image-generation"
+    else: # disabled or invalid
+        return "【エラー】画像生成機能は現在、設定で無効化されています。"
+
+    print(f"--- 画像生成ツール実行 (Model: {model_to_use}, Prompt: '{prompt[:100]}...') ---")
     if not room_name or not api_key:
         return "【エラー】画像生成にはルーム名とAPIキーが必須です。"
 
@@ -27,13 +45,29 @@ def generate_image(prompt: str, room_name: str, api_key: str) -> str:
         save_dir = os.path.join("characters", room_name, "generated_images")
         os.makedirs(save_dir, exist_ok=True)
 
+        save_dir = os.path.join("characters", room_name, "generated_images")
+        os.makedirs(save_dir, exist_ok=True)
+
         client = genai.Client(api_key=api_key)
 
-        response = client.models.generate_content(
-            model=IMAGE_GEN_MODEL,
-            contents=prompt,
-        )
-
+        # 新旧モデルでAPI呼び出しを分岐
+        if image_gen_mode == "old":
+            # 旧モデル用の呼び出し（generation_configを使用）
+            generation_config = types.GenerateContentConfig(
+                response_modalities=['IMAGE', 'TEXT']
+            )
+            response = client.models.generate_content(
+                model=model_to_use,
+                contents=prompt,
+                config=generation_config
+            )
+        else:
+            # 新モデル用の呼び出し（generation_configは不要）
+            response = client.models.generate_content(
+                model=model_to_use,
+                contents=prompt,
+            )
+    
         image_data = None
         if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
             for part in response.candidates[0].content.parts:

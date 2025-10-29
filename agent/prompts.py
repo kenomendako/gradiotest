@@ -62,10 +62,7 @@ CORE_PROMPT_TEMPLATE = """
         3.  ユーザーとの具体的な会話のやり取りそのものか？ => `search_past_conversations`
         4.  今この瞬間の外部世界の最新情報か？ => `web_search_tool`
 
-        ### 1. ツール呼び出しの共通作法
-        `generate_image`, `plan_..._edit`, `set_current_location` を含む全てのツール呼び出しは、以下の作法に従います。
-        - **手順1（ツール呼び出し）:** 対応するツールを**無言で**呼び出します。この応答には、思考ブロックや会話テキストを一切含めてはなりません。
-        - **手順2（テキスト応答）:** ツール成功後、システムからの結果報告を受け、それを元にした**思考 (`[THOUGHT]`)** と**会話**を生成し、ユーザーに報告します。
+    {image_generation_manual}
     </task_manual>
 
     <persona_definition>

@@ -287,8 +287,16 @@ try:
                                             gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
                                             gemini_key_value_input = gr.Textbox(label="APIキーの値", type="password")
                                             with gr.Row():
-                                                save_gemini_key_button = gr.Button("Geminiキーを保存", variant="primary")
-                                                delete_gemini_key_button = gr.Button("削除")
+                                                save_gemini_key_button = gr.Button("新しいキーを追加", variant="primary")
+                                                delete_gemini_key_button = gr.Button("選択したキーを削除", variant="secondary")
+                                            gr.Markdown("---")
+                                            gr.Markdown("#### 登録済みAPIキーリスト\nチェックを入れたキーが、有料プラン（Pay-as-you-go）として扱われます。")
+                                            paid_keys_checkbox_group = gr.CheckboxGroup(
+                                                label="有料プランのキーを選択",
+                                                choices=[pair[1] for pair in config_manager.get_api_key_choices_for_ui()],
+                                                value=config_manager.CONFIG_GLOBAL.get("paid_api_key_names", []),
+                                                interactive=True
+                                            )
                                         with gr.Accordion("Pushover", open=False):
                                             pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("user_key"))
                                             pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("app_token"))
@@ -298,9 +306,29 @@ try:
                                             save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
                                         gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
 
+                                    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+                                    with gr.Accordion("🎨 画像生成設定", open=False):
+                                        image_generation_mode_radio = gr.Radio(
+                                            choices=[
+                                                ("有効 (新モデル: gemini-2.5-flash-image - 有料)", "new"),
+                                                ("有効 (旧モデル: gemini-2.0-flash-preview - 無料・廃止予定)", "old"),
+                                                ("無効", "disabled")
+                                            ],
+                                            label="画像生成機能 (generate_imageツール)",
+                                            value=config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new"),
+                                            interactive=True,
+                                            info="「無効」にすると、AIのプロンプトからも画像生成に関する項目が削除されます。"
+                                        )
+                                    # ▲▲▲【追加はここまで】▲▲▲
+
                                     gr.Markdown("#### ⚙️ 一般設定")
                                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
-                                    api_key_dropdown = gr.Dropdown(choices=list(config_manager.GEMINI_API_KEYS.keys()), value=config_manager.initial_api_key_name_global, label="使用するGemini APIキー", interactive=True)
+                                    api_key_dropdown = gr.Dropdown(
+                                        choices=config_manager.get_api_key_choices_for_ui(),
+                                        value=config_manager.initial_api_key_name_global,
+                                        label="使用するGemini APIキー",
+                                        interactive=True
+                                    )
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
@@ -357,6 +385,10 @@ try:
                                             room_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
                                             room_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
                                     with gr.Accordion("📡 APIコンテキスト設定", open=False):
+                                        room_display_thoughts_checkbox = gr.Checkbox( # <<< この行を追加
+                                            label="AIの思考過程 [THOUGHT] をチャットに表示する", # <<< この行を追加
+                                            interactive=True # <<< この行を追加
+                                        ) # <<< この行を追加
                                         room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
                                         room_send_current_time_checkbox = gr.Checkbox(
                                             label="現在時刻をAPIに送信",
@@ -687,6 +719,16 @@ try:
                                 generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
                                 refresh_scenery_button = gr.Button("情景テキストを更新", variant="secondary")
 
+                                # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+                                with gr.Accordion("🏞️ カスタム情景画像の登録", open=False):
+                                    gr.Markdown("AI生成の代わりに、ご自身で用意した画像を情景として登録します。")
+                                    custom_scenery_location_dropdown = gr.Dropdown(label="場所を選択", interactive=True)
+                                    with gr.Row():
+                                        custom_scenery_season_dropdown = gr.Dropdown(label="季節", choices=["春", "夏", "秋", "冬"], value="秋", interactive=True)
+                                        custom_scenery_time_dropdown = gr.Dropdown(label="時間帯", choices=["朝", "昼", "夕方", "夜"], value="夜", interactive=True)
+                                    custom_scenery_image_upload = gr.Image(label="画像をアップロード", type="filepath", interactive=True)
+                                    register_custom_scenery_button = gr.Button("この画像を情景として登録", variant="secondary")
+                                # ▲▲▲【追加はここまで】▲▲▲
                 # --- [3カラムレイアウトはここまで] ---
 
             with gr.TabItem(" 記憶・メモ・指示"):
@@ -1180,6 +1222,7 @@ try:
                 streaming_speed_slider,
             ] + [
                 # ▼▼▼ context_checkboxes に合わせて inputs を修正 ▼▼▼
+                room_display_thoughts_checkbox, # <<< この行を追加
                 room_add_timestamp_checkbox, room_send_current_time_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
                 room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
                 enable_scenery_system_checkbox, # 新しいマスタースイッチを渡す
@@ -1239,11 +1282,11 @@ try:
             show_progress=False
         )
 
-        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[location_dropdown, current_scenery_display, scenery_image_display])
+        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[location_dropdown, current_scenery_display, scenery_image_display, custom_scenery_location_dropdown])
         location_dropdown.change(
             fn=ui_handlers.handle_location_change,
             inputs=[current_room_name, location_dropdown, api_key_dropdown],
-            outputs=[location_dropdown, current_scenery_display, scenery_image_display]
+            outputs=[location_dropdown, current_scenery_display, scenery_image_display, custom_scenery_location_dropdown]
         )
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
 
@@ -1309,17 +1352,26 @@ try:
         notification_service_radio.change(fn=ui_handlers.handle_notification_service_change, inputs=[notification_service_radio], outputs=[])
         save_gemini_key_button.click(
             fn=ui_handlers.handle_save_gemini_key,
-            # ▼▼▼【inputs に current_room_name を再度追加】▼▼▼
-            inputs=[gemini_key_name_input, gemini_key_value_input, current_room_name],
-            # ▼▼▼【outputs を UI全体を更新するリストに変更】▼▼▼
+            inputs=[gemini_key_name_input, gemini_key_value_input],
             outputs=[
-                api_key_dropdown, onboarding_guide, chat_input_multimodal
+                api_key_dropdown,
+                paid_keys_checkbox_group,
+                gemini_key_name_input,
+                gemini_key_value_input,
+                onboarding_guide,
+                chat_input_multimodal
             ] + all_room_change_outputs
-            # ▲▲▲【変更ここまで】▲▲▲
         )
-        delete_gemini_key_button.click(fn=ui_handlers.handle_delete_gemini_key, inputs=[gemini_key_name_input], outputs=[api_key_dropdown])
+        delete_gemini_key_button.click(fn=ui_handlers.handle_delete_gemini_key, inputs=[gemini_key_name_input], outputs=[api_key_dropdown, paid_keys_checkbox_group])
         save_pushover_config_button.click(fn=ui_handlers.handle_save_pushover_config, inputs=[pushover_user_key_input, pushover_app_token_input], outputs=[])
         save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
+        # 画像生成モードの変更を保存
+        image_generation_mode_radio.change(fn=ui_handlers.handle_save_image_generation_mode, inputs=[image_generation_mode_radio], outputs=[])
+        paid_keys_checkbox_group.change(
+            fn=ui_handlers.handle_paid_keys_change,
+            inputs=[paid_keys_checkbox_group],
+            outputs=[api_key_dropdown]
+        )
         # ▼▼▼ ここからが修正の核心 ▼▼▼
 
         memory_archiving_outputs = [
@@ -1383,6 +1435,11 @@ try:
         )
 
         generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_room_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
+        register_custom_scenery_button.click(
+            fn=ui_handlers.handle_register_custom_scenery,
+            inputs=[current_room_name, api_key_dropdown, custom_scenery_location_dropdown, custom_scenery_season_dropdown, custom_scenery_time_dropdown, custom_scenery_image_upload],
+            outputs=[current_scenery_display, scenery_image_display]
+        )
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
         # ▼▼▼【ここからが追加する行】▼▼▼
         audio_player.pause(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
