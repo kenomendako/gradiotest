@@ -474,7 +474,9 @@ def _stream_and_handle_response(
     current_console_content: str,
     enable_typewriter_effect: bool,
     streaming_speed: float,
-    scenery_text_from_ui: str
+    scenery_text_from_ui: str,
+    screenshot_mode: bool, 
+    redaction_rules: list  
 ) -> Iterator[Tuple]:
     """
     【v15: グループ会話・逐次表示FIX】
@@ -490,10 +492,16 @@ def _stream_and_handle_response(
     try:
         # UIをストリーミングモードに移行
         # この時点の履歴を一度取得
-        effective_settings_initial = config_manager.get_effective_settings(soul_vessel_room)
-        add_timestamp_initial = effective_settings_initial.get("add_timestamp", False)
+        effective_settings = config_manager.get_effective_settings(soul_vessel_room) # <<< "initial"を削除
+        add_timestamp = effective_settings.get("add_timestamp", False) # <<< "initial"を削除
+        display_thoughts = effective_settings.get("display_thoughts", True) # <<< "initial"を削除 & この行で定義
         chatbot_history, mapping_list = reload_chat_log(
-            room_name=soul_vessel_room, api_history_limit_value=api_history_limit, add_timestamp=add_timestamp_initial
+            room_name=soul_vessel_room, 
+            api_history_limit_value=api_history_limit, 
+            add_timestamp=add_timestamp, # <<< "initial"を削除
+            display_thoughts=display_thoughts, # <<< "initial"を削除
+            screenshot_mode=screenshot_mode,
+            redaction_rules=redaction_rules            
         )
         chatbot_history.append((None, "▌"))
         yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
@@ -511,7 +519,10 @@ def _stream_and_handle_response(
             is_first_responder = (i == 0)
             
             # UIに思考中であることを表示
-            chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit, add_timestamp_initial)
+            chatbot_history, mapping_list = reload_chat_log(
+                soul_vessel_room, api_history_limit, add_timestamp, display_thoughts,
+                screenshot_mode, redaction_rules
+            )
             chatbot_history.append((None, f"思考中 ({current_room})... ▌"))
             yield (chatbot_history, mapping_list, *([gr.update()] * 12))
 
@@ -641,7 +652,10 @@ def _stream_and_handle_response(
 
             # --- UIの再描画と確定 ---
             # このAIのターンが完了したので、ログから完全に再描画して表示を「確定」させる
-            chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit, add_timestamp_initial)
+            chatbot_history, mapping_list = reload_chat_log(
+                soul_vessel_room, api_history_limit, add_timestamp, display_thoughts,
+                screenshot_mode, redaction_rules 
+            )
             yield (chatbot_history, mapping_list, *([gr.update()] * 12))
 
         if final_error_message:
@@ -670,7 +684,9 @@ def _stream_and_handle_response(
             room_name=soul_vessel_room,
             api_history_limit_value=api_history_limit,
             add_timestamp=add_timestamp,
-            display_thoughts=display_thoughts
+            display_thoughts=display_thoughts,
+            screenshot_mode=screenshot_mode, 
+            redaction_rules=redaction_rules  
         )
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         new_scenery_text, scenery_image, token_count_text = "（更新失敗）", None, "トークン数: (更新失敗)"
@@ -705,7 +721,9 @@ def handle_message_submission(
     console_content: str, active_participants: list, active_attachments: list,
     global_model: str,
     enable_typewriter_effect: bool, streaming_speed: float,
-    scenery_text_from_ui: str
+    scenery_text_from_ui: str,
+    screenshot_mode: bool, 
+    redaction_rules: list  
 ):
     """
     【v9: 添付ファイル永続化FIX版】新規メッセージの送信を処理する司令塔。
@@ -858,7 +876,9 @@ def handle_message_submission(
         current_console_content=console_content,
         enable_typewriter_effect=enable_typewriter_effect,
         streaming_speed=streaming_speed,
-        scenery_text_from_ui=scenery_text_from_ui
+        scenery_text_from_ui=scenery_text_from_ui,
+        screenshot_mode=screenshot_mode, 
+        redaction_rules=redaction_rules  
     )
 
 def handle_rerun_button_click(
@@ -867,7 +887,9 @@ def handle_rerun_button_click(
     console_content: str, active_participants: list, active_attachments: list, # ← active_attachments を追加
     global_model: str,
     enable_typewriter_effect: bool, streaming_speed: float,
-    scenery_text_from_ui: str
+    scenery_text_from_ui: str,
+    screenshot_mode: bool, 
+    redaction_rules: list  
 ):
     """
     【v3: 遅延解消版】発言の再生成を処理する司令塔。
@@ -920,9 +942,11 @@ def handle_rerun_button_click(
         active_participants=active_participants or [],
         active_attachments=active_attachments or [],
         current_console_content=console_content,
-        enable_typewriter_effect=enable_typewriter_effect, # ← この行を追加
-        streaming_speed=streaming_speed,                   # ← この行を追加
-        scenery_text_from_ui=scenery_text_from_ui
+        enable_typewriter_effect=enable_typewriter_effect, 
+        streaming_speed=streaming_speed,  
+        scenery_text_from_ui=scenery_text_from_ui,
+        screenshot_mode=screenshot_mode, 
+        redaction_rules=redaction_rules  
     )
 
 def _get_updated_scenery_and_image(room_name: str, api_key_name: str, force_text_regenerate: bool = False) -> Tuple[str, Optional[str]]:
@@ -1607,7 +1631,16 @@ def handle_chatbot_selection(room_name: str, api_history_limit_state: str, mappi
         print(f"チャットボット選択中のエラー: {e}"); traceback.print_exc()
         return None, gr.update(visible=False), gr.update(interactive=True)
 
-def handle_delete_button_click(confirmed: str, message_to_delete: Optional[Dict[str, str]], room_name: str, api_history_limit: str):
+def handle_delete_button_click(
+    confirmed: str, 
+    message_to_delete: Optional[Dict[str, str]], 
+    room_name: str, 
+    api_history_limit: str,
+    add_timestamp: bool,
+    screenshot_mode: bool,
+    redaction_rules: list,
+    display_thoughts: bool
+    ):
     # ▼▼▼【ここから下のブロックを書き換え】▼▼▼
     if str(confirmed).lower() != 'true' or not message_to_delete:
         # ユーザーがキャンセルしたか、対象メッセージがない場合は選択状態を解除してボタンを非表示にする
@@ -1622,7 +1655,14 @@ def handle_delete_button_click(confirmed: str, message_to_delete: Optional[Dict[
 
     effective_settings = config_manager.get_effective_settings(room_name)
     add_timestamp = effective_settings.get("add_timestamp", False)
-    history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp)
+    history, mapping_list = reload_chat_log(
+        room_name, 
+        api_history_limit, 
+        add_timestamp, 
+        display_thoughts,
+        screenshot_mode, 
+        redaction_rules
+    )
     return history, mapping_list, None, gr.update(visible=False), "" # 最後にリセット用の "" を追加
 
 def format_history_for_gradio(
@@ -1634,6 +1674,11 @@ def format_history_for_gradio(
     redaction_rules: List[Dict] = None,
     absolute_start_index: int = 0
 ) -> Tuple[List[Tuple], List[int]]:
+
+    # ▼▼▼【ここに探知機（デバッグコード）を設置】▼▼▼
+    print(f"--- [DEBUG] format_history_for_gradio called with screenshot_mode: {screenshot_mode} ---")
+    # ▲▲▲【設置はここまで】▲▲▲
+
     """
     (v27: Stable Thought Log with Backward Compatibility)
     ログ辞書のリストをGradioのChatbotコンポーネントが要求する形式に変換する。

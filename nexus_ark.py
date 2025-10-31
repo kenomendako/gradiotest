@@ -967,11 +967,13 @@ try:
             debug_mode_checkbox,
             debug_console_state,
             active_participants_state,
-            active_attachments_state, # <<< 修正点: _indexを削除
+            active_attachments_state, 
             model_dropdown,
             enable_typewriter_effect_checkbox,
             streaming_speed_slider,
             current_scenery_display,
+            screenshot_mode_checkbox, 
+            redaction_rules_state,    
         ]
 
 # ▼▼▼ rerun_inputs のリスト定義から streaming_speed_slider を削除し、代わりに関連チェックボックスを追加 ▼▼▼
@@ -988,6 +990,8 @@ try:
             enable_typewriter_effect_checkbox,
             streaming_speed_slider,
             current_scenery_display,
+            screenshot_mode_checkbox, 
+            redaction_rules_state,    
         ]
 
         # 新規送信と再生成で、UI更新の対象（outputs）を完全に一致させる
@@ -1082,7 +1086,16 @@ try:
         )
         message_delete_confirmed_state.change( # 監視対象を新しい名前に変更
             fn=ui_handlers.handle_delete_button_click,
-            inputs=[message_delete_confirmed_state, selected_message_state, current_room_name, api_history_limit_state], # 引数を正しいものに
+            inputs=[
+                message_delete_confirmed_state, 
+                selected_message_state, 
+                current_room_name, 
+                api_history_limit_state,
+                room_add_timestamp_checkbox,
+                screenshot_mode_checkbox,
+                redaction_rules_state,
+                room_display_thoughts_checkbox
+            ], 
             outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group, message_delete_confirmed_state]
         )
 
