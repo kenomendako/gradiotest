@@ -662,10 +662,15 @@ def _stream_and_handle_response(
     finally:
         # (finallyブロックの中身は変更なし)
         # 処理完了・中断・エラーに関わらず、必ずログから最新の状態を再描画する
+        effective_settings = config_manager.get_effective_settings(soul_vessel_room)
+        add_timestamp = effective_settings.get("add_timestamp", False)
+        display_thoughts = effective_settings.get("display_thoughts", True)
+        
         final_chatbot_history, final_mapping_list = reload_chat_log(
             room_name=soul_vessel_room,
             api_history_limit_value=api_history_limit,
-            add_timestamp=add_timestamp_initial
+            add_timestamp=add_timestamp,
+            display_thoughts=display_thoughts
         )
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         new_scenery_text, scenery_image, token_count_text = "（更新失敗）", None, "トークン数: (更新失敗)"

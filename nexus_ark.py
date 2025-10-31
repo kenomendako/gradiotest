@@ -967,7 +967,7 @@ try:
             debug_mode_checkbox,
             debug_console_state,
             active_participants_state,
-            selected_attachment_index_state,
+            active_attachments_state, # <<< 修正点: _indexを削除
             model_dropdown,
             enable_typewriter_effect_checkbox,
             streaming_speed_slider,
