@@ -277,7 +277,7 @@ try:
                 with gr.Row(equal_height=False):
                     # --- 左カラム ---
                     with gr.Column(scale=2, min_width=300): # ← scale=1 を 2 に変更
-                        room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="ルームを選択", interactive=True)
+                        room_dropdown = gr.Dropdown(label="ルームを選択", interactive=True)
 
                         with gr.Accordion("⚙️ 設定", open=False):
                             with gr.Tabs() as settings_tabs:
@@ -298,15 +298,14 @@ try:
                                                 interactive=True
                                             )
                                         with gr.Accordion("Pushover", open=False):
-                                            pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("user_key"))
-                                            pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", value=lambda: config_manager.PUSHOVER_CONFIG.get("app_token"))
+                                            pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password") # value引数を削除
+                                            pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password") # value引数を削除
                                             save_pushover_config_button = gr.Button("Pushover設定を保存", variant="primary")
                                         with gr.Accordion("Discord", open=False):
-                                            discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", value=lambda: config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL or "")
+                                            discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password") # value引数を削除
                                             save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
                                         gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
 
-                                    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
                                     with gr.Accordion("🎨 画像生成設定", open=False):
                                         image_generation_mode_radio = gr.Radio(
                                             choices=[
@@ -315,33 +314,30 @@ try:
                                                 ("無効", "disabled")
                                             ],
                                             label="画像生成機能 (generate_imageツール)",
-                                            value=config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new"),
                                             interactive=True,
                                             info="「無効」にすると、AIのプロンプトからも画像生成に関する項目が削除されます。"
                                         )
-                                    # ▲▲▲【追加はここまで】▲▲▲
 
                                     gr.Markdown("#### ⚙️ 一般設定")
                                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
-                                    api_key_dropdown = gr.Dropdown(
-                                        choices=config_manager.get_api_key_choices_for_ui(),
-                                        value=config_manager.initial_api_key_name_global,
-                                        label="使用するGemini APIキー",
-                                        interactive=True
-                                    )
+                                    api_key_dropdown = gr.Dropdown(label="使用するGemini APIキー", interactive=True)
                                     api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", value=False, interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
 
                                     gr.Markdown("---")
                                     with gr.Accordion("📢 通知サービス設定", open=False):
-                                        notification_service_radio = gr.Radio(choices=["Discord", "Pushover"], label="アラーム通知に使用するサービス", value=config_manager.NOTIFICATION_SERVICE_GLOBAL.capitalize(), interactive=True)
+                                        notification_service_radio = gr.Radio(
+                                            choices=["Discord", "Pushover"], 
+                                            label="アラーム通知に使用するサービス",
+                                            interactive=True
+                                        )
                                         gr.Markdown("---")
 
                                     with gr.Accordion("💾 バックアップ設定", open=False):
                                         backup_rotation_count_number = gr.Number(
                                             label="バックアップの最大保存件数（世代数）",
-                                            value=lambda: config_manager.CONFIG_GLOBAL.get("backup_rotation_count", 10),
+                                            # value=... を削除
                                             step=1,
                                             minimum=1,
                                             interactive=True,
@@ -946,7 +942,7 @@ try:
 
         demo.load(
             fn=ui_handlers.handle_initial_load,
-            inputs=[gr.State(effective_initial_room), current_api_key_name_state],
+            inputs=None, # <<< 修正点: inputsを空にする
             outputs=initial_load_outputs
         )
 
