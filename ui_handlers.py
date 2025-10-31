@@ -250,28 +250,41 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
     )
 
 
-def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
+def handle_initial_load():
     """
-    【v5: 司令塔アーキテクチャ最終版】
-    UIの初期化処理。司令塔アーキテクチャに基づき、戻り値の生成パスを完全に一元化し、
-    いかなる条件分岐でも戻り値の数が変わらないことを保証する。
+    【v8: 契約修正・最終確定版】
+    UIセッションが開始されるたびに、config.jsonから全ての関連設定を再読み込みし、
+    UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
     """
-    print("--- UI初期化処理(handle_initial_load)を開始します ---")
+    print("--- [UI Session Init] demo.load event triggered. Reloading all configs from file. ---")
+    config_manager.load_config()
 
-    # --- ステップ1: 司令塔アーキテクチャへの変更 ---
-    # まず、APIキーの有無を内部で判断してくれるヘルパー関数を呼び出し、
-    # チャットタブ関連の更新値(37個)を確定させる。
-    chat_tab_updates = _update_chat_tab_for_room_change(initial_room_to_load, initial_api_key_name)
+    # --- 1. 最新のルームとAPIキー情報を取得・計算 ---
+    latest_room_list = room_manager.get_room_list_for_ui()
+    folder_names = [folder for _, folder in latest_room_list]
+    
+    last_room_from_config = config_manager.CONFIG_GLOBAL.get("last_room", "Default")
+    safe_initial_room = last_room_from_config
+    if last_room_from_config not in folder_names:
+        safe_initial_room = folder_names[0] if folder_names else "Default"
 
-    # --- ステップ2: チャットタブ以外の共通UIコンポーネントの更新値を生成 ---
+    latest_api_key_choices = config_manager.get_api_key_choices_for_ui()
+    valid_key_names = [key for _, key in latest_api_key_choices]
+    last_api_key_from_config = config_manager.CONFIG_GLOBAL.get("last_api_key_name")
+    safe_initial_api_key = last_api_key_from_config
+    if last_api_key_from_config not in valid_key_names:
+        safe_initial_api_key = valid_key_names[0] if valid_key_names else None
+    
+    # --- 2. 司令塔として、他のハンドラのロジックを呼び出してUI更新値を生成 ---
+    # `_update_chat_tab_for_room_change` は39個の値を返す
+    chat_tab_updates = _update_chat_tab_for_room_change(safe_initial_room, safe_initial_api_key)
+    
     df_with_ids = render_alarms_as_dataframe()
     display_df, feedback_text = get_display_df(df_with_ids), "アラームを選択してください"
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
-    api_key_choices = config_manager.get_api_key_choices_for_ui()  # (表示名, 値) のタプルリストを取得し、(Paid)ラベルを反映する
-    api_key_dd_update = gr.update(choices=api_key_choices, value=initial_api_key_name)
-    world_data_for_state = get_world_data(initial_room_to_load)
-    time_settings = _load_time_settings_for_room(initial_room_to_load)
+    world_data_for_state = get_world_data(safe_initial_room)
+    time_settings = _load_time_settings_for_room(safe_initial_room)
     time_settings_updates = (
         gr.update(value=time_settings.get("mode", "リアル連動")),
         gr.update(value=time_settings.get("fixed_season_ja", "秋")),
@@ -279,36 +292,29 @@ def handle_initial_load(initial_room_to_load: str, initial_api_key_name: str):
         gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
     )
 
-    # --- ステップ3: オンボーディング状態によってのみ変化する部分を条件分岐で決定 ---
+    # --- 3. オンボーディングとトークン計算 ---
     has_valid_key = config_manager.has_valid_api_key()
+    token_count_text, onboarding_guide_update = ("トークン数: (APIキー未設定)", gr.update(visible=True))
     if has_valid_key:
-        token_calc_kwargs = config_manager.get_effective_settings(initial_room_to_load)
+        token_calc_kwargs = config_manager.get_effective_settings(safe_initial_room)
         token_count_text = gemini_api.count_input_tokens(
-            room_name=initial_room_to_load, api_key_name=initial_api_key_name,
+            room_name=safe_initial_room, api_key_name=safe_initial_api_key,
             api_history_limit=config_manager.initial_api_history_limit_option_global,
             parts=[], **token_calc_kwargs
         )
         onboarding_guide_update = gr.update(visible=False)
-    else:
-        token_count_text = "トークン数: (APIキー未設定)"
-        onboarding_guide_update = gr.update(visible=True)
 
-    # --- ステップ4: 全ての更新値を結合し、ただ一つのreturn文で返す ---
-    # 戻り値の総数: 49個
-    # (display_df, df_with_ids, feedback_text) : 3個
-    # chat_tab_updates : 37個
-    # (rules_df_for_ui, token_count_text, api_key_dd_update) : 3個
-    # (world_data_for_state,) : 1個
-    # time_settings_updates : 4個
-    # (onboarding_guide_update,) : 1個
-    # = 3 + 37 + 3 + 1 + 4 + 1 = 49個
+    # --- 4. 全ての戻り値を正しい順序で組み立てる ---
+    # `initial_load_outputs`のリスト（50個）に対応
     return (
-        (display_df, df_with_ids, feedback_text) +
-        chat_tab_updates +
-        (rules_df_for_ui, token_count_text, api_key_dd_update) +
-        (world_data_for_state,) +
-        time_settings_updates +
-        (onboarding_guide_update,)
+        display_df, df_with_ids, feedback_text,
+        *chat_tab_updates,
+        rules_df_for_ui,
+        token_count_text,
+        gr.update(choices=latest_api_key_choices, value=safe_initial_api_key), # api_key_dropdown
+        world_data_for_state,
+        *time_settings_updates,
+        onboarding_guide_update
     )
 
 def handle_save_room_settings(
