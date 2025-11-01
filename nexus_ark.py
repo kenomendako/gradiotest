@@ -381,10 +381,10 @@ try:
                                             room_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
                                             room_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
                                     with gr.Accordion("📡 APIコンテキスト設定", open=False):
-                                        room_display_thoughts_checkbox = gr.Checkbox( # <<< この行を追加
-                                            label="AIの思考過程 [THOUGHT] をチャットに表示する", # <<< この行を追加
-                                            interactive=True # <<< この行を追加
-                                        ) # <<< この行を追加
+                                        room_display_thoughts_checkbox = gr.Checkbox( 
+                                            label="AIの思考過程 [THOUGHT] をチャットに表示する",
+                                            interactive=True
+                                        )
                                         room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
                                         room_send_current_time_checkbox = gr.Checkbox(
                                             label="現在時刻をAPIに送信",
@@ -1030,7 +1030,7 @@ try:
 
         chat_reload_button.click(
             fn=ui_handlers.reload_chat_log,
-            inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
+            inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, room_display_thoughts_checkbox, screenshot_mode_checkbox, redaction_rules_state],
             outputs=[chatbot_display, current_log_map_state]
         )
 
@@ -1101,7 +1101,7 @@ try:
 
         api_history_limit_dropdown.change(
             fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
-            inputs=[api_history_limit_dropdown, current_room_name, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
+            inputs=[api_history_limit_dropdown, current_room_name, room_add_timestamp_checkbox, room_display_thoughts_checkbox, screenshot_mode_checkbox, redaction_rules_state],
             outputs=[api_history_limit_state, chatbot_display, current_log_map_state]
         ).then(
             fn=ui_handlers.handle_context_settings_change,
@@ -1200,7 +1200,7 @@ try:
         )
         screenshot_mode_checkbox.change(
             fn=ui_handlers.reload_chat_log,
-            inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
+            inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, room_display_thoughts_checkbox, screenshot_mode_checkbox, redaction_rules_state],
             outputs=[chatbot_display, current_log_map_state]
         )
 
@@ -1268,16 +1268,15 @@ try:
         submit_event = chat_input_multimodal.submit(
             fn=ui_handlers.handle_message_submission,
             inputs=chat_inputs,
-            outputs=unified_streaming_outputs # ここを変更
+            outputs=unified_streaming_outputs 
         )
 
         stop_button.click(
             fn=ui_handlers.handle_stop_button_click,
-            inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, screenshot_mode_checkbox, redaction_rules_state],
+            inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, room_display_thoughts_checkbox, screenshot_mode_checkbox, redaction_rules_state],
             outputs=[stop_button, chat_reload_button, chatbot_display, current_log_map_state],
             cancels=[submit_event, rerun_event]
         )
-        # ▲▲▲【修正ここまで】▲▲▲
 
         # トークン計算イベント（入力内容が変更されるたびに実行）
         token_calc_on_input_inputs = [

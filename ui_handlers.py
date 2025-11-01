@@ -1669,15 +1669,11 @@ def format_history_for_gradio(
     messages: List[Dict[str, str]],
     current_room_folder: str,
     add_timestamp: bool,
-    display_thoughts: bool = True, # <<< この引数を追加
+    display_thoughts: bool = True, 
     screenshot_mode: bool = False,
     redaction_rules: List[Dict] = None,
     absolute_start_index: int = 0
 ) -> Tuple[List[Tuple], List[int]]:
-
-    # ▼▼▼【ここに探知機（デバッグコード）を設置】▼▼▼
-    print(f"--- [DEBUG] format_history_for_gradio called with screenshot_mode: {screenshot_mode} ---")
-    # ▲▲▲【設置はここまで】▲▲▲
 
     """
     (v27: Stable Thought Log with Backward Compatibility)
@@ -1783,68 +1779,58 @@ def format_history_for_gradio(
             final_markdown = ""
             speaker_prefix = f"**{speaker_name}:**\n\n" if speaker_name else (f"**{responder_id}:**\n\n" if role == "SYSTEM" else "")
 
-            # 1. 新しい [THOUGHT]...[/THOUGHT] タグを最優先で処理
-            new_thought_pattern = re.compile(r"(\[THOUGHT\][\s\S]*?\[/THOUGHT\])", re.IGNORECASE)
-            new_thought_match = new_thought_pattern.search(content_to_parse)
+            # --- [新ロジック v4: 汎用コードブロック対応パーサー] ---
+
+            # display_thoughtsがFalseの場合、思考ログを物理的に除去する
+            content_for_parsing = content_to_parse
+            if not display_thoughts:
+                content_for_parsing = re.sub(r"(\[THOUGHT\][\s\S]*?\[/THOUGHT\])", "", content_for_parsing, flags=re.IGNORECASE)
+                content_for_parsing = re.sub(r"【Thoughts】[\s\S]*?【/Thoughts】", "", content_for_parsing, flags=re.IGNORECASE)
+                lines = content_for_parsing.split('\n')
+                content_for_parsing = "\n".join([line for line in lines if not line.strip().upper().startswith("THOUGHT:")])
+
+            # 思考ログのタグを、標準的なコードブロック記法に統一する
+            content_for_parsing = re.sub(r"\[/?THOUGHT\]", "```", content_for_parsing, flags=re.IGNORECASE)
+            content_for_parsing = re.sub(r"【/?Thoughts】", "```", content_for_parsing, flags=re.IGNORECASE)
             
-            if new_thought_match:
-                thought_block = new_thought_match.group(1)
-                body_text = new_thought_pattern.sub("", content_to_parse).strip()
-                inner_thought_content = re.sub(r"\[/?THOUGHT\]", "", thought_block, flags=re.IGNORECASE).strip()
+            lines = content_for_parsing.split('\n')
+            processed_lines = []
+            in_thought_block = False
+            for line in lines:
+                if line.strip().upper().startswith("THOUGHT:"):
+                    if not in_thought_block:
+                        processed_lines.append("```")
+                        in_thought_block = True
+                    processed_lines.append(line.split(":", 1)[1].strip())
+                else:
+                    if in_thought_block:
+                        processed_lines.append("```")
+                        in_thought_block = False
+                    processed_lines.append(line)
+            if in_thought_block:
+                processed_lines.append("```")
+            content_for_parsing = "\n".join(processed_lines)
 
-                thought_html = ""
-                if display_thoughts: # <<< 条件分岐を追加
-                    # 文字置き換え用のHTMLが含まれているかチェック
-                    has_replacement_html = '<span style' in inner_thought_content
-                    if has_replacement_html:
-                        thought_html = f'<div class="code_wrap"><pre><code>{inner_thought_content}</code></pre></div>'
-                    else:
-                        thought_html = f"```\n{html.escape(inner_thought_content)}\n```"
-
-                final_markdown = f"{speaker_prefix}{thought_html}\n\n{body_text}".strip()
-
-            # 2. [THOUGHT]タグがない場合、現在の THOUGHT: プレフィックス方式を処理
-            elif "THOUGHT:" in content_to_parse.upper():
-                lines = content_to_parse.split('\n')
-                body_parts, thought_parts = [], []
-                for line in lines:
-                    if line.strip().upper().startswith("THOUGHT:"):
-                        thought_content = line.split(":", 1)[1] if ":" in line else line
-                        thought_parts.append(thought_content.strip())
-                    else:
-                        body_parts.append(line)
-                
-                body_text = "\n".join(body_parts).strip()
-                thought_text = "\n".join(thought_parts).strip()
-                
-                thought_html = ""
-                if display_thoughts: # <<< 条件分岐を追加
-                    has_replacement_html = "<span style=" in thought_text
-                    if has_replacement_html:
-                        thought_html = f'<div class="code_wrap"><pre><code>{thought_text}</code></pre></div>'
-                    else:
-                        thought_html = f"```\n{html.escape(thought_text)}\n```"
-
-                final_markdown = f"{speaker_prefix}{thought_html}\n\n{body_text}".strip()
+            # 統一されたコードブロック記法 ``` でテキストを分割
+            code_block_pattern = re.compile(r"(```[\s\S]*?```)")
+            parts = code_block_pattern.split(content_for_parsing)
             
-            # 3. どちらでもない場合、古い【Thoughts】...【/Thoughts】方式を処理
-            else:
-                old_thought_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
-                parts = old_thought_pattern.split(content_to_parse)
-                markdown_parts = [speaker_prefix]
-                for part in parts:
-                    if not part or not part.strip():
-                        continue
-                    if old_thought_pattern.match(part):
-                        inner_content_match = re.search(r"【Thoughts】([\s\S]*?)【/Thoughts】", part, re.IGNORECASE)
-                        inner_content = inner_content_match.group(1).strip() if inner_content_match else ""
-                        if display_thoughts: # <<< 条件分岐を追加
-                            markdown_parts.append(f"```\n{inner_content}\n```")
-                    else:
-                        markdown_parts.append(part.strip())
-                final_markdown = "\n\n".join(markdown_parts).strip()
-            # --- [新ロジックここまで] ---
+            final_html_parts = [speaker_prefix]
 
+            for part in parts:
+                if not part or not part.strip(): continue
+                if part.startswith("```"):
+                    inner_content = part[3:-3].strip()
+                    has_replacement_html = '<span style' in inner_content
+                    if has_replacement_html:
+                        formatted_block = f'<div class="code_wrap"><pre><code>{inner_content}</code></pre></div>'
+                    else:
+                        formatted_block = f"```\n{html.escape(inner_content)}\n```"
+                    final_html_parts.append(formatted_block)
+                else:
+                    final_html_parts.append(part)
+
+            final_markdown = "\n\n".join(final_html_parts).strip()
             if is_user:
                 gradio_history.append((final_markdown, None))
             else:
@@ -2633,10 +2619,10 @@ def update_api_key_state(api_key_name):
     gr.Info(f"APIキーを '{api_key_name}' に設定しました。")
     return api_key_name
 
-def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, room_name: Optional[str], add_timestamp: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None):
+def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, room_name: Optional[str], add_timestamp: bool, display_thoughts: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None):
     key = next((k for k, v in constants.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
     config_manager.save_config("last_api_history_limit_option", key)
-    history, mapping_list = reload_chat_log(room_name, key, add_timestamp, screenshot_mode, redaction_rules)
+    history, mapping_list = reload_chat_log(room_name, key, add_timestamp, display_thoughts, screenshot_mode, redaction_rules)
     return key, history, mapping_list
 
 def handle_play_audio_button_click(selected_message: Optional[Dict[str, str]], room_name: str, api_key_name: str):
@@ -3431,17 +3417,16 @@ def handle_visualize_graph(room_name: str):
         return gr.update(visible=False)
 
 
-def handle_stop_button_click(room_name, api_history_limit, add_timestamp, screenshot_mode, redaction_rules):
+def handle_stop_button_click(room_name, api_history_limit, add_timestamp, display_thoughts, screenshot_mode, redaction_rules):
     """
     ストップボタンが押されたときにUIの状態を即座にリセットし、ログから最新の状態を再描画する。
     """
     print("--- [UI] ユーザーによりストップボタンが押されました ---")
     # ログファイルから最新の履歴を再読み込みして、"思考中..." のような表示を消去する
-    history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp, screenshot_mode, redaction_rules)
+    history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp, display_thoughts, screenshot_mode, redaction_rules)
     return (
         gr.update(visible=False, interactive=True), # ストップボタンを非表示に
-        gr.update(interactive=True),              # 更新ボタンを有効に
-        history,                                  # チャット履歴を最新の状態に
+        gr.update(interactive=True),              # 更新ボタンを有効に        history,                                  # チャット履歴を最新の状態に
         mapping_list                              # マッピングリストも更新
     )
 
