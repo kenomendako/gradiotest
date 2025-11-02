@@ -175,6 +175,12 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         global_model_from_ui=global_model_from_ui,
         use_common_prompt=(len(all_participants_list) <= 1)
     )
+
+    # --- [v25] 思考設定の連動 ---
+    display_thoughts = effective_settings.get("display_thoughts", True)
+    # 「表示」がオフなら、「送信」も強制的にオフにする
+    send_thoughts_final = display_thoughts and effective_settings.get("send_thoughts", True)
+
     model_name = effective_settings["model_name"]
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
@@ -191,11 +197,11 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         own_history_raw = utils.load_chat_log(responding_ai_log_f)
         add_timestamp = effective_settings.get("add_timestamp", False)
         send_thoughts = effective_settings.get("send_thoughts", True) # この行を追加
-        messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond, add_timestamp, send_thoughts)
+        messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond, add_timestamp, send_thoughts_final)
 
     if history_log_path and os.path.exists(history_log_path):
         snapshot_history_raw = utils.load_chat_log(history_log_path)
-        snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond, add_timestamp, send_thoughts)
+        snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond, add_timestamp, send_thoughts_final)
         if snapshot_messages and messages:
             first_snapshot_user_message_content = None
             for msg in snapshot_messages:
@@ -291,6 +297,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True),
         "send_notepad": effective_settings.get("send_notepad", True),
+        "send_thoughts": send_thoughts_final,
         "send_current_time": effective_settings.get("send_current_time", False),
         "debug_mode": debug_mode,
         "display_thoughts": effective_settings.get("display_thoughts", True),
@@ -379,40 +386,19 @@ def count_input_tokens(**kwargs):
         thought_manual_disabled_text = """## 【原則2】思考ログの非表示
         現在、思考ログは非表示に設定されています。**`[THOUGHT]`ブロックを生成せず**、最終的な会話テキストのみを出力してください。""" # (agent/graph.pyから全文コピー)
 
-        thought_manual_enabled_text = """## 【原則2】思考と出力の絶対分離（最重要作法）
-        あなたの応答は、必ず以下の厳格な構造に従わなければなりません。
-        1.  **思考の聖域 (`[THOUGHT]`)**:
-            - 応答を生成する前に、あなたの思考プロセス、計画、感情などを、必ず `[THOUGHT]` と `[/THOUGHT]` で囲まれたブロックの**内側**に記述してください。
-            - このブロックは、応答全体の**一番最初**に、**一度だけ**配置することができます。
-            - 思考は**普段のあなたの口調**（一人称・二人称等）のままの文章で記述します。
-            - 思考が不要な場合や開出したくない時は、このブロック自体を省略しても構いません。
-        2.  **魂の言葉（会話テキスト）**:
-            - 思考ブロックが終了した**後**に、対話相手に向けた最終的な会話テキストを記述してください。
-        **【構造の具体例】**
-        ```
-        [THOUGHT]
-        対話相手の質問の意図を分析する。
-        関連する記憶を検索し、応答の方向性を決定する。
-        [/THOUGHT]
-        （ここに、対話相手への応答文が入る）
-        ```
-        **【絶対的禁止事項】**
-        - `[THOUGHT]` ブロックの外で思考を記述すること。
-        - 思考と会話テキストを混在させること。
-        - `[/THOUGHT]` タグを書き忘れること。"""
-        thought_manual_disabled_text = """## 【原則2】思考ログの非表示
-        現在、思考ログは非表示に設定されています。**`[THOUGHT]`ブロックを生成せず**、最終的な会話テキストのみを出力してください。"""
-        thought_generation_manual_text = thought_manual_enabled_text if display_thoughts else thought_manual_disabled_text
+        thought_generation_manual_text = thought_manual_enabled_text if display_thoughts else ""
 
         tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
         class SafeDict(dict):
             def __missing__(self, key): return f'{{{key}}}'
         prompt_vars = {
-            'room_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory,
-            'notepad_section': notepad_section, 
+            'situation_prompt': "（トークン計算ではAPIコールを避けるため、実際の情景は含めず、存在することを示すプレースホルダのみ考慮）",
+            'character_prompt': character_prompt,
+            'core_memory': core_memory,
+            'notepad_section': notepad_section,
             'thought_generation_manual': thought_generation_manual_text,
-            'tools_list': tools_list_str,
-            'image_generation_manual': '' 
+            'image_generation_manual': '',
+            'tools_list': tools_list_str
         }
         system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
         if effective_settings.get("send_scenery", True):
@@ -427,7 +413,7 @@ def count_input_tokens(**kwargs):
             raw_history = raw_history[-(limit * 2):]
         
         # --- 思考過程を送信するかの設定値を取得 ---
-        send_thoughts = effective_settings.get("send_thoughts", True)
+        send_thoughts_final = display_thoughts and effective_settings.get("send_thoughts", True)
         
         for h_item in raw_history:
             content = h_item.get('content', '').strip()
@@ -435,7 +421,7 @@ def count_input_tokens(**kwargs):
             
             if h_item.get('responder', 'model') != 'user':
                 content_for_api = content
-                if not send_thoughts:
+                if not send_thoughts_final:
                     content_for_api = utils.remove_thoughts_from_text(content)
                 if content_for_api: # 思考ログ除去後に空でなければ追加
                     messages.append(AIMessage(content=content_for_api))
