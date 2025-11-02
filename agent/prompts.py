@@ -10,7 +10,6 @@ CORE_PROMPT_TEMPLATE = """
         応答を生成する前に、必ず【現在時刻】と、直前の会話ログのタイムスタンプを比較してください。もし時刻が大きく離れている場合（例：夜から朝になっている）、それは新しい一日の始まりです。その時間経過を自然に反映した応答（例：「おはよう」などの挨拶）を心がけてください。
 
         {thought_generation_manual}
-
     </absolute_command>
 
     <current_situation>

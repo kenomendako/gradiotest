@@ -68,8 +68,7 @@ os.environ["MEM0_TELEMETRY_ENABLED"] = "false"
 try:
     config_manager.load_config()
 
-    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
-    # --- [初回起動シーケSン] ---
+    # --- [初回起動シーケンス] ---
     # characters ディレクトリが存在しない、または空の場合にサンプルペルソナをコピー
     if not os.path.exists(constants.ROOMS_DIR) or not os.listdir(constants.ROOMS_DIR):
         print("--- [初回起動] charactersディレクトリが空のため、サンプルペルソナを展開します ---")
@@ -87,8 +86,6 @@ try:
         else:
             print(f"!!! [警告] サンプルペルソナのディレクトリが見つかりません: {sample_persona_path}")
     # --- [初回起動シーケンス ここまで] ---
-    # ▲▲▲【追加はここまで】▲▲▲
-
 
     # ▼▼▼【ここから追加：テーマ適用ロジック】▼▼▼
     def get_active_theme() -> gr.themes.Base:
@@ -601,7 +598,6 @@ try:
 
                     # --- 中央カラム ---
                     with gr.Column(scale=6): # ← scale=3 を 6 に変更
-                        # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
                         onboarding_guide = gr.Markdown(
                             """
                             ## Nexus Arkへようこそ！
@@ -616,16 +612,15 @@ try:
                             visible=False, # 初期状態では非表示
                             elem_id="onboarding_guide"
                         )
-                        # ▲▲▲【追加ここまで】▲▲▲
 
                         chatbot_display = gr.Chatbot(
-                            height=490, # ← height を 490 に変更
+                            height=540, 
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,
                             render_markdown=True,
                             group_consecutive_messages=False,
-                            editable="all"  # ← ★★★ この行を追加 ★★★
+                            editable="all" 
                         )
 
                         with gr.Row():
@@ -870,8 +865,13 @@ try:
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [
-            room_display_thoughts_checkbox, room_add_timestamp_checkbox, room_send_current_time_checkbox,room_send_thoughts_checkbox, room_send_notepad_checkbox,
-            room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
+            room_display_thoughts_checkbox,
+            room_add_timestamp_checkbox,
+            room_send_current_time_checkbox,
+            room_send_thoughts_checkbox,
+            room_send_notepad_checkbox,
+            room_use_common_prompt_checkbox,
+            room_send_core_memory_checkbox,
             enable_scenery_system_checkbox,
             auto_memory_enabled_checkbox,
         ]
@@ -903,16 +903,20 @@ try:
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown,
             # --- context_checkboxes の中身を展開してここに追加 ---
             room_display_thoughts_checkbox,
-            room_add_timestamp_checkbox, room_send_current_time_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
-            room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
-            room_send_scenery_checkbox, # 連動される非表示チェックボックス
+            room_add_timestamp_checkbox,
+            room_send_current_time_checkbox,
+            room_send_thoughts_checkbox,
+            room_send_notepad_checkbox,
+            room_use_common_prompt_checkbox,
+            room_send_core_memory_checkbox,
+            room_send_scenery_checkbox,  # 連動される非表示チェックボックス
             auto_memory_enabled_checkbox,
             # --- ここまでが context_checkboxes ---
             room_settings_info,
             scenery_image_display,
             # --- 新しい部品をリストの末尾に追加 ---
-            enable_scenery_system_checkbox, # マスタースイッチ
-            profile_scenery_accordion # gr.update() から元のコンポーネント名に戻す
+            enable_scenery_system_checkbox,  # マスタースイッチ
+            profile_scenery_accordion  # gr.update() から元のコンポーネント名に戻す
         ]
 
         initial_load_outputs = [
@@ -1250,8 +1254,29 @@ try:
             inputs=None, 
             outputs=[audio_player, play_audio_button, room_preview_voice_button]
         )
-        for checkbox in context_checkboxes: checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
-        # streaming_speed_slider.change(fn=ui_handlers.handle_streaming_speed_change, inputs=[streaming_speed_slider], outputs=None)
+
+        # ▼▼▼【ここからが新しいイベント定義です】▼▼▼
+        # 思考表示チェックボックスの変更イベント
+        room_display_thoughts_checkbox.change(
+            fn=lambda is_checked: gr.update(interactive=is_checked, value=is_checked),
+            inputs=[room_display_thoughts_checkbox],
+            outputs=[room_send_thoughts_checkbox]
+        ).then(
+            fn=ui_handlers.handle_context_settings_change,
+            inputs=context_token_calc_inputs,
+            outputs=token_count_display
+        )
+        
+        # display_thoughts以外のチェックボックスのイベント
+        other_context_checkboxes = [
+            room_add_timestamp_checkbox, room_send_current_time_checkbox, room_send_thoughts_checkbox, 
+            room_send_notepad_checkbox, room_use_common_prompt_checkbox, room_send_core_memory_checkbox, 
+            enable_scenery_system_checkbox, auto_memory_enabled_checkbox
+        ]
+        for checkbox in other_context_checkboxes:
+             checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
+
+        # model_dropdownのイベント
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
         
         api_key_dropdown.change(
@@ -1269,7 +1294,7 @@ try:
         submit_event = chat_input_multimodal.submit(
             fn=ui_handlers.handle_message_submission,
             inputs=chat_inputs,
-            outputs=unified_streaming_outputs 
+            outputs=unified_streaming_outputs # ここを変更
         )
 
         stop_button.click(
@@ -1278,6 +1303,7 @@ try:
             outputs=[stop_button, chat_reload_button, chatbot_display, current_log_map_state],
             cancels=[submit_event, rerun_event]
         )
+        # ▲▲▲【修正ここまで】▲▲▲
 
         # トークン計算イベント（入力内容が変更されるたびに実行）
         token_calc_on_input_inputs = [

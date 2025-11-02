@@ -60,6 +60,7 @@ class AgentState(TypedDict):
     send_core_memory: bool
     send_scenery: bool
     send_notepad: bool
+    send_thoughts: bool
     send_current_time: bool 
     location_name: str
     scenery_text: str
@@ -330,7 +331,7 @@ def context_generator_node(state: AgentState):
 
     # AgentStateから 'display_thoughts' フラグを取得（デフォルトはTrue）
     display_thoughts = state.get("display_thoughts", True)
-    thought_generation_manual_text = thought_manual_enabled_text if display_thoughts else thought_manual_disabled_text
+    thought_generation_manual_text = thought_manual_enabled_text if display_thoughts else ""
 
 
     all_participants = state.get('all_participants', [])
@@ -346,7 +347,8 @@ def context_generator_node(state: AgentState):
         'character_prompt': character_prompt,
         'core_memory': core_memory,
         'notepad_section': notepad_section,
-        'image_generation_manual': image_generation_manual_text, # <<< この行を追加
+        'thought_generation_manual': thought_generation_manual_text,
+        'image_generation_manual': image_generation_manual_text, 
         'tools_list': tools_list_str
     }
     final_system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))

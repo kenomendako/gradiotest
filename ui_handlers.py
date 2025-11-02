@@ -124,7 +124,6 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         room_list = room_manager.get_room_list_for_ui()
         room_name = room_list[0][1] if room_list else "Default"
 
-    # ▼▼▼【ここからが修正の核心】▼▼▼
     # ステップ1: UIに表示するための場所リストを先に生成
     locations_for_ui = _get_location_choices_for_ui(room_name)
     valid_location_ids = [value for _name, value in locations_for_ui if not value.startswith("__AREA_HEADER_")]
@@ -145,11 +144,16 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
     # ステップ3: 司令塔を呼び出す
     scenery_text, scenery_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
-    # ▲▲▲【修正はここまで】▲▲▲
 
     # --- 以降、取得した値を使ってUI更新値を構築する ---
     effective_settings = config_manager.get_effective_settings(room_name)
-    # (以降のコードは、location_dropdownの更新値以外はほぼ変更なし)
+    # --- [v25] 思考設定の連動ロジック ---
+    display_thoughts_val = effective_settings.get("display_thoughts", True)
+    send_thoughts_val = effective_settings.get("send_thoughts", True)
+    send_thoughts_interactive = display_thoughts_val  # 「表示」がオンの時だけ「送信」を操作可能に
+    if not display_thoughts_val:
+        send_thoughts_val = False  # 「表示」がオフなら「送信」も強制オフ
+
     chat_history, mapping_list = reload_chat_log(
         room_name=room_name,
         api_history_limit_value=config_manager.initial_api_history_limit_option_global,
@@ -197,8 +201,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings["streaming_speed"],
         effective_settings.get("temperature", 0.8), effective_settings.get("top_p", 0.95),
         harassment_val, hate_val, sexual_val, dangerous_val,
-        effective_settings.get("display_thoughts", True),
-        effective_settings["add_timestamp"], effective_settings.get("send_current_time", False), effective_settings["send_thoughts"],
+        display_thoughts_val,
+        effective_settings["add_timestamp"],
+        effective_settings.get("send_current_time", False),
+        gr.update(value=send_thoughts_val, interactive=send_thoughts_interactive), # send_thoughts_checkbox
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
         effective_settings["send_core_memory"], effective_settings["send_scenery"],
         effective_settings["auto_memory_enabled"],
@@ -323,7 +329,7 @@ def handle_save_room_settings(
     temp: float, top_p: float, harassment: str, hate: str, sexual: str, dangerous: str,
     enable_typewriter_effect: bool,
     streaming_speed: float,
-    display_thoughts: bool, # <<< この引数を追加
+    display_thoughts: bool, 
     add_timestamp: bool, send_current_time: bool, send_thoughts: bool, send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool,
     enable_scenery_system: bool, # room_send_scenery_checkbox から変更
@@ -338,6 +344,11 @@ def handle_save_room_settings(
         "高リスクのみブロック": "BLOCK_ONLY_HIGH"
     }
 
+    display_thoughts = bool(display_thoughts)
+    send_thoughts = bool(send_thoughts)
+    
+    if not display_thoughts: send_thoughts = False
+
     new_settings = {
         "voice_id": next((k for k, v in config_manager.SUPPORTED_VOICES.items() if v == voice_name), None),
         "voice_style_prompt": voice_style_prompt.strip(),
@@ -349,10 +360,10 @@ def handle_save_room_settings(
         "safety_block_threshold_dangerous_content": safety_value_map.get(dangerous),
         "enable_typewriter_effect": bool(enable_typewriter_effect),
         "streaming_speed": float(streaming_speed),
-        "display_thoughts": bool(display_thoughts), # <<< この行を追加
+        "display_thoughts": bool(display_thoughts), 
         "add_timestamp": bool(add_timestamp),
         "send_current_time": bool(send_current_time),
-        "send_thoughts": bool(send_thoughts),
+        "send_thoughts": send_thoughts,
         "send_notepad": bool(send_notepad),
         "use_common_prompt": bool(use_common_prompt),
         "send_core_memory": bool(send_core_memory),
