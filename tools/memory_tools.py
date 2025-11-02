@@ -346,22 +346,25 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
 
         sections = re.split(r'^##\s+', memory_content, flags=re.MULTILINE)
 
-        permanent_text = "" # sanctuary_text から改名
+        permanent_text = ""
         diary_text_to_summarize = ""
         archive_summary_text = ""
 
         for section in sections:
-            section_content = section.strip()
-            if not section_content:
+            section = section.strip()
+            if not section:
                 continue
 
-            header_lower = section_content.lower()
-            if "永続記憶" in header_lower or "permanent" in header_lower:
-                permanent_text = '\n'.join(section.split('\n')[1:]).strip()
-            elif header_lower.startswith("日記") or header_lower.startswith("diary"):
-                diary_text_to_summarize = '\n'.join(section.split('\n')[1:]).strip()
-            elif "アーカイブ要約" in header_lower or "archive summary" in header_lower:
-                archive_summary_text = '\n'.join(section.split('\n')[1:]).strip()
+            lines = section.split('\n')
+            header_line = lines[0].strip().lower()
+            content_text = '\n'.join(lines[1:]).strip()
+
+            if "永続記憶" in header_line or "permanent" in header_line:
+                permanent_text = content_text
+            elif header_line.startswith("日記") or header_line.startswith("diary"):
+                diary_text_to_summarize = content_text
+            elif "アーカイブ要約" in header_line or "archive summary" in header_line:
+                archive_summary_text = content_text
 
         history_summary_text = ""
         if diary_text_to_summarize:

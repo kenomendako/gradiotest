@@ -597,3 +597,28 @@ def save_html_cache(room_name: str, cache_data: Dict[str, str]):
         os.replace(temp_path, cache_path)
     except Exception as e:
         print(f"!! エラー: HTMLキャッシュの保存に失敗しました: {e}")
+
+def _get_current_time_context(room_name: str) -> Tuple[str, str]:
+    """
+    ルームの時間設定を読み込み、現在適用すべき季節と時間帯の「英語名」を返す。
+    循環参照を避けるため、utils.pyに配置する。
+    戻り値: (season_en, time_of_day_en)
+    """
+    # 循環参照を避けるため、ここでローカルインポート
+    import room_manager
+    import datetime
+
+    room_config = room_manager.get_room_config(room_name)
+    settings = (room_config or {}).get("time_settings", {})
+    
+    mode = settings.get("mode", "realtime")
+
+    if mode == "fixed":
+        season_en = settings.get("fixed_season", "autumn")
+        time_en = settings.get("fixed_time_of_day", "night")
+        return season_en, time_en
+    else:
+        now = datetime.datetime.now()
+        season_en = get_season(now.month)
+        time_en = get_time_of_day(now.hour)
+        return season_en, time_en
