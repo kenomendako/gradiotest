@@ -543,7 +543,7 @@ def _stream_and_handle_response(
             yield (chatbot_history, mapping_list, *([gr.update()] * 12))
 
             # APIに渡す引数を、現在のAI（current_room）のために完全に再構築
-            season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
+            season_en, time_of_day_en = utils._get_current_time_context(soul_vessel_room) # utilsから呼び出
             shared_location_name = utils.get_current_location(soul_vessel_room)
             
             agent_args_dict = {
@@ -707,7 +707,7 @@ def _stream_and_handle_response(
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         new_scenery_text, scenery_image, token_count_text = "（更新失敗）", None, "トークン数: (更新失敗)"
         try:
-            season_en, time_of_day_en = _get_current_time_context(soul_vessel_room)
+            season_en, time_of_day_en = utils._get_current_time_context(soul_vessel_room)
             _, _, new_scenery_text = generate_scenery_context(soul_vessel_room, api_key, season_en=season_en, time_of_day_en=time_of_day_en)
             scenery_image = utils.find_scenery_image(soul_vessel_room, utils.get_current_location(soul_vessel_room), season_en=season_en, time_of_day_en=time_of_day_en)
         except Exception as e:
@@ -987,7 +987,7 @@ def _get_updated_scenery_and_image(room_name: str, api_key_name: str, force_text
         if not current_location:
             raise ValueError("現在地が設定されていません。UIハンドラ側で初期化が必要です。")
 
-        season_en, time_of_day_en = _get_current_time_context(room_name)
+        season_en, time_of_day_en = utils._get_current_time_context(room_name) # utilsから呼び出す
 
         _, _, scenery_text = generate_scenery_context(
             room_name, api_key, force_regenerate=force_text_regenerate,
@@ -2758,7 +2758,7 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
         gr.Info("古い画像生成モデル(無料・廃止予定)を使用して情景を生成します。")
 
     # 1. 適用すべき季節と時間帯を取得
-    season_en, time_of_day_en = _get_current_time_context(room_name)
+    season_en, time_of_day_en = utils._get_current_time_context(room_name)
 
     # 2. 取得した値を使ってファイル名を確定
     location_id = utils.get_current_location(room_name)
@@ -3882,27 +3882,7 @@ def _load_time_settings_for_room(room_name: str) -> Dict[str, Any]:
         "fixed_time_of_day_ja": time_map_en_to_ja.get(time_en, "夜"),
     }
 
-def _get_current_time_context(room_name: str) -> Tuple[str, str]:
-    """
-    ルームの時間設定を読み込み、現在適用すべき季節と時間帯の「英語名」を返す。
-    戻り値: (season_en, time_of_day_en)
-    """
-    room_config = room_manager.get_room_config(room_name)
-    settings = (room_config or {}).get("time_settings", {})
-    
-    mode = settings.get("mode", "realtime")
 
-    if mode == "fixed":
-        # 固定モードの場合は、設定ファイルから値を返す
-        season_en = settings.get("fixed_season", "autumn")
-        time_en = settings.get("fixed_time_of_day", "night")
-        return season_en, time_en
-    else:
-        # リアル連動モードの場合は、現在時刻から計算して返す
-        now = datetime.datetime.now()
-        season_en = utils.get_season(now.month)
-        time_en = utils.get_time_of_day(now.hour)
-        return season_en, time_en
 
 def handle_time_mode_change(mode: str) -> gr.update:
     """時間設定のモードが変更されたときに、詳細設定UIの表示/非表示を切り替える。"""

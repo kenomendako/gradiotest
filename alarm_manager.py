@@ -14,7 +14,6 @@ import constants
 import room_manager
 import gemini_api
 import utils
-import ui_handlers # ← この行を追加
 
 try:
     from plyer import notification
@@ -130,7 +129,7 @@ def trigger_alarm(alarm_config, current_api_key_name):
     from agent.graph import generate_scenery_context
     # ▼▼▼【ここから下のブロックを書き換え】▼▼▼
     # 1. 適用すべき時間コンテキストを取得
-    season_en, time_of_day_en = ui_handlers._get_current_time_context(room_name)
+    season_en, time_of_day_en = utils._get_current_time_context(room_name) # utilsから呼び出す
     # 2. 情景生成時に時間コンテキストを渡す
     location_name, _, scenery_text = generate_scenery_context(
         room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
