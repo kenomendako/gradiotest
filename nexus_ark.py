@@ -870,7 +870,7 @@ try:
 
         # --- イベントハンドラ定義 ---
         context_checkboxes = [
-            room_add_timestamp_checkbox, room_send_current_time_checkbox,room_send_thoughts_checkbox, room_send_notepad_checkbox,
+            room_display_thoughts_checkbox, room_add_timestamp_checkbox, room_send_current_time_checkbox,room_send_thoughts_checkbox, room_send_notepad_checkbox,
             room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
             enable_scenery_system_checkbox,
             auto_memory_enabled_checkbox,
@@ -902,6 +902,7 @@ try:
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown,
             # --- context_checkboxes の中身を展開してここに追加 ---
+            room_display_thoughts_checkbox,
             room_add_timestamp_checkbox, room_send_current_time_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
             room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
             room_send_scenery_checkbox, # 連動される非表示チェックボックス
