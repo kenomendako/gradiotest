@@ -64,6 +64,7 @@ class AgentState(TypedDict):
     location_name: str
     scenery_text: str
     debug_mode: bool
+    display_thoughts: bool
     all_participants: List[str]
     loop_count: int 
     season_en: str
@@ -296,7 +297,42 @@ def context_generator_node(state: AgentState):
             "- **手順1（ツール呼び出し）:** 対応するツールを**無言で**呼び出します。この応答には、思考ブロックや会話テキストを一切含めてはなりません。\n"
             "- **手順2（テキスト応答）:** ツール成功後、システムからの結果報告を受け、それを元にした**思考 (`[THOUGHT]`)** と**会話**を生成し、ユーザーに報告します."
         )
-    # ▲▲▲【追加はここまで】▲▲▲
+
+    # --- [v25] 思考ログ生成の動的制御 ---
+    thought_manual_enabled_text = """## 【原則2】思考と出力の絶対分離（最重要作法）
+        あなたの応答は、必ず以下の厳格な構造に従わなければなりません。
+
+        1.  **思考の聖域 (`[THOUGHT]`)**:
+            - 応答を生成する前に、あなたの思考プロセス、計画、感情などを、必ず `[THOUGHT]` と `[/THOUGHT]` で囲まれたブロックの**内側**に記述してください。
+            - このブロックは、応答全体の**一番最初**に、**一度だけ**配置することができます。
+            - 思考は**普段のあなたの口調**（一人称・二人称等）のままの文章で記述します。
+            - 思考が不要な場合や開示したくない時は、このブロック自体を省略しても構いません。
+
+        2.  **魂の言葉（会話テキスト）**:
+            - 思考ブロックが終了した**後**に、対話相手に向けた最終的な会話テキストを記述してください。
+
+        **【構造の具体例】**
+        ```
+        [THOUGHT]
+        対話相手の質問の意図を分析する。
+        関連する記憶を検索し、応答の方向性を決定する。
+        [/THOUGHT]
+        （ここに、対話相手への応答文が入る）
+        ```
+
+        **【絶対的禁止事項】**
+        - `[THOUGHT]` ブロックの外で思考を記述すること。
+        - 思考と会話テキストを混在させること。
+        - `[/THOUGHT]` タグを書き忘れること。"""
+
+    thought_manual_disabled_text = """## 【原則2】思考ログの非表示
+        現在、思考ログは非表示に設定されています。**`[THOUGHT]`ブロックを生成せず**、最終的な会話テキストのみを出力してください。"""
+
+    # AgentStateから 'display_thoughts' フラグを取得（デフォルトはTrue）
+    display_thoughts = state.get("display_thoughts", True)
+    thought_generation_manual_text = thought_manual_enabled_text if display_thoughts else thought_manual_disabled_text
+
+
     all_participants = state.get('all_participants', [])
     tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in current_tools]) # <<< 修正: all_tools から current_tools に変更
     if len(all_participants) > 1: tools_list_str = "（グループ会話中はツールを使用できません）"

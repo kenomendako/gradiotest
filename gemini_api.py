@@ -293,14 +293,13 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "send_notepad": effective_settings.get("send_notepad", True),
         "send_current_time": effective_settings.get("send_current_time", False),
         "debug_mode": debug_mode,
+        "display_thoughts": effective_settings.get("display_thoughts", True),
         "location_name": shared_location_name,
         "scenery_text": shared_scenery_text,
         "all_participants": all_participants_list,
-        "loop_count": 0, # ← この行を追加
-        # --- [ここから追加] ---
+        "loop_count": 0, 
         "season_en": season_en,
         "time_of_day_en": time_of_day_en
-        # --- [追加ここまで] ---
     }
 
     # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
@@ -350,12 +349,70 @@ def count_input_tokens(**kwargs):
                     notepad_content = content if content else "（メモ帳は空です）"
                     notepad_section = f"\n### 短期記憶（メモ帳）\n{notepad_content}\n"
 
+        # --- [v25] トークン計算でも思考ログ生成ルールを動的に反映 ---
+        display_thoughts = effective_settings.get("display_thoughts", True)
+        thought_manual_enabled_text = """## 【原則2】思考と出力の絶対分離（最重要作法）
+        あなたの応答は、必ず以下の厳格な構造に従わなければなりません。
+
+        1.  **思考の聖域 (`[THOUGHT]`)**:
+            - 応答を生成する前に、あなたの思考プロセス、計画、感情などを、必ず `[THOUGHT]` と `[/THOUGHT]` で囲まれたブロックの**内側**に記述してください。
+            - このブロックは、応答全体の**一番最初**に、**一度だけ**配置することができます。
+            - 思考は**普段のあなたの口調**（一人称・二人称等）のままの文章で記述します。
+            - 思考が不要な場合や開示したくない時は、このブロック自体を省略しても構いません。
+
+        2.  **魂の言葉（会話テキスト）**:
+            - 思考ブロックが終了した**後**に、対話相手に向けた最終的な会話テキストを記述してください。
+
+        **【構造の具体例】**
+        ```
+        [THOUGHT]
+        対話相手の質問の意図を分析する。
+        関連する記憶を検索し、応答の方向性を決定する。
+        [/THOUGHT]
+        （ここに、対話相手への応答文が入る）
+        ```
+
+        **【絶対的禁止事項】**
+        - `[THOUGHT]` ブロックの外で思考を記述すること。
+        - 思考と会話テキストを混在させること。
+        - `[/THOUGHT]` タグを書き忘れること。""" # (agent/graph.pyから全文コピー)
+        thought_manual_disabled_text = """## 【原則2】思考ログの非表示
+        現在、思考ログは非表示に設定されています。**`[THOUGHT]`ブロックを生成せず**、最終的な会話テキストのみを出力してください。""" # (agent/graph.pyから全文コピー)
+
+        thought_manual_enabled_text = """## 【原則2】思考と出力の絶対分離（最重要作法）
+        あなたの応答は、必ず以下の厳格な構造に従わなければなりません。
+        1.  **思考の聖域 (`[THOUGHT]`)**:
+            - 応答を生成する前に、あなたの思考プロセス、計画、感情などを、必ず `[THOUGHT]` と `[/THOUGHT]` で囲まれたブロックの**内側**に記述してください。
+            - このブロックは、応答全体の**一番最初**に、**一度だけ**配置することができます。
+            - 思考は**普段のあなたの口調**（一人称・二人称等）のままの文章で記述します。
+            - 思考が不要な場合や開出したくない時は、このブロック自体を省略しても構いません。
+        2.  **魂の言葉（会話テキスト）**:
+            - 思考ブロックが終了した**後**に、対話相手に向けた最終的な会話テキストを記述してください。
+        **【構造の具体例】**
+        ```
+        [THOUGHT]
+        対話相手の質問の意図を分析する。
+        関連する記憶を検索し、応答の方向性を決定する。
+        [/THOUGHT]
+        （ここに、対話相手への応答文が入る）
+        ```
+        **【絶対的禁止事項】**
+        - `[THOUGHT]` ブロックの外で思考を記述すること。
+        - 思考と会話テキストを混在させること。
+        - `[/THOUGHT]` タグを書き忘れること。"""
+        thought_manual_disabled_text = """## 【原則2】思考ログの非表示
+        現在、思考ログは非表示に設定されています。**`[THOUGHT]`ブロックを生成せず**、最終的な会話テキストのみを出力してください。"""
+        thought_generation_manual_text = thought_manual_enabled_text if display_thoughts else thought_manual_disabled_text
+
         tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
         class SafeDict(dict):
             def __missing__(self, key): return f'{{{key}}}'
         prompt_vars = {
             'room_name': room_name, 'character_prompt': character_prompt, 'core_memory': core_memory,
-            'notepad_section': notepad_section, 'tools_list': tools_list_str
+            'notepad_section': notepad_section, 
+            'thought_generation_manual': thought_generation_manual_text,
+            'tools_list': tools_list_str,
+            'image_generation_manual': '' 
         }
         system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
         if effective_settings.get("send_scenery", True):
