@@ -614,7 +614,7 @@ try:
                         )
 
                         chatbot_display = gr.Chatbot(
-                            height=540, 
+                            height=580, 
                             elem_id="chat_output_area",
                             show_copy_button=True,
                             show_label=False,

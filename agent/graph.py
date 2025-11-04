@@ -25,7 +25,7 @@ from tools.memory_tools import (
     read_main_memory, plan_main_memory_edit, _apply_main_memory_edits,
     read_secret_diary, plan_secret_diary_edit, _apply_secret_diary_edits
 )
-from tools.notepad_tools import read_full_notepad, plan_notepad_edit, _write_notepad_file
+from tools.notepad_tools import read_full_notepad, plan_notepad_edit,  _apply_notepad_edits
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
@@ -493,7 +493,6 @@ def safe_tool_executor(state: AgentState):
         try:
             print(f"  - ファイル編集プロセスを開始: {tool_name}")
 
-            # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
             # 実際のファイル操作の前にバックアップを作成
             if is_plan_main_memory:
                 room_manager.create_backup(room_name, 'memory')
@@ -503,7 +502,6 @@ def safe_tool_executor(state: AgentState):
                 room_manager.create_backup(room_name, 'notepad')
             elif is_plan_world:
                 room_manager.create_backup(room_name, 'world_setting')
-            # ▲▲▲【追加はここまで】▲▲▲
 
             read_tool = None
             if is_plan_main_memory: read_tool = read_main_memory
@@ -513,11 +511,11 @@ def safe_tool_executor(state: AgentState):
 
             raw_content = read_tool.invoke({"room_name": room_name})
 
-            if is_plan_main_memory or is_plan_secret_diary:
+            if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad:
                 lines = raw_content.split('\n')
                 numbered_lines = [f"{i+1}: {line}" for i, line in enumerate(lines)]
                 current_content = "\n".join(numbered_lines)
-            else:
+            else: # is_plan_world の場合
                 current_content = raw_content
 
             print(f"  - ペルソナAI ({state['model_name']}) に編集タスクを依頼します。")
@@ -568,13 +566,21 @@ def safe_tool_executor(state: AgentState):
                     "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
                 ),
                 "plan_notepad_edit": (
-                    "【最重要指示：これは『対話』ではなく『編集タスク』です】\n"
-                    "あなたは今、自身のメモ帳を更新しています。\n"
-                    "提示された【既存のデータ】とあなたの【変更要求】に基づき、最終的にファイルに書き込むべき、完璧な【全文】を生成してください。\n\n"
-                    "【既存のデータ（notepad.md全文）】\n---\n{current_content}\n---\n\n"
+                    "【最重要指示：これは『対話』ではなく『設計タスク』です】\n"
+                    "あなたは今、自身の短期記憶であるメモ帳(`notepad.md`)を更新するための『設計図』を作成しています。\n"
+                    "このファイルは自由な書式のテキストファイルです。提示された【行番号付きデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
+                    "【行番号付きデータ（notepad.md全文）】\n---\n{current_content}\n---\n\n"
                     "【あなたの変更要求】\n「{modification_request}」\n\n"
                     "【絶対的な出力ルール】\n"
-                    "- 思考や挨拶は含めず、最終的なファイル全文のみを出力してください。"
+                    "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
+                    "- 各指示は \"operation\" ('replace', 'delete', 'insert_after'), \"line\" (対象行番号), \"content\" (新しい内容) のキーを持つ辞書です。\n\n"
+                    "- **タイムスタンプ `[YYYY-MM-DD HH:MM]` はシステムが自動で付与するため、あなたは`content`に含める必要はありません。**\n\n"
+                    "- **【操作方法】**\n"
+                    "  - **`delete` (削除):** 指定した`line`番号の行を削除します。`content`は不要です。\n"
+                    "  - **`replace` (置換):** 指定した`line`番号の行を、新しい`content`に置き換えます。\n"
+                    "  - **`insert_after` (挿入):** 指定した`line`番号の**直後**に、新しい行として`content`を挿入します。\n"
+                    "  - **複数行の操作:** 複数行をまとめて削除・置換する場合は、**各行に対して**個別の指示を生成してください。\n\n"
+                    "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
                 )
             }
             formatted_instruction = instruction_templates[tool_name].format(
@@ -637,7 +643,7 @@ def safe_tool_executor(state: AgentState):
 
             print("  - AIからの応答を受け、ファイル書き込みを実行します。")
 
-            if is_plan_main_memory or is_plan_secret_diary or is_plan_world:
+            if is_plan_main_memory or is_plan_secret_diary or is_plan_world or is_plan_notepad:
                 json_match = re.search(r'```json\s*([\s\S]*?)\s*```', edited_content_document, re.DOTALL)
                 content_to_process = json_match.group(1).strip() if json_match else edited_content_document
                 instructions = json.loads(content_to_process)
@@ -648,12 +654,10 @@ def safe_tool_executor(state: AgentState):
                     output = _apply_main_memory_edits(instructions=instructions, room_name=room_name)
                 elif is_plan_secret_diary:
                     output = _apply_secret_diary_edits(instructions=instructions, room_name=room_name)
+                elif is_plan_notepad:
+                    output = _apply_notepad_edits(instructions=instructions, room_name=room_name)
                 else: # is_plan_world
                     output = _apply_world_edits(instructions=instructions, room_name=room_name)
-            else:
-                text_match = re.search(r'```(?:.*\n)?([\s\S]*?)```', edited_content_document, re.DOTALL)
-                content_to_process = text_match.group(1).strip() if text_match else edited_content_document
-                output = _write_notepad_file(full_content=content_to_process, room_name=room_name, modification_request=tool_args.get('modification_request'))
 
             if "成功" in output:
                 output += " **このファイル編集タスクは完了しました。**あなたが先ほどのターンで計画した操作は、システムによって正常に実行されました。その結果についてユーザーに報告してください。"
