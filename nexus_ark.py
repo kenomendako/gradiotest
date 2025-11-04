@@ -1382,7 +1382,22 @@ try:
             ]
         )
         timer_type_radio.change(fn=lambda t: (gr.update(visible=t=="通常タイマー"), gr.update(visible=t=="ポモドーロタイマー"), ""), inputs=[timer_type_radio], outputs=[normal_timer_ui, pomo_timer_ui, timer_status_output])
-        timer_submit_button.click(fn=ui_handlers.handle_timer_submission, inputs=[timer_type_radio, timer_duration_number, pomo_work_number, pomo_break_number, pomo_cycles_number, timer_room_dropdown, timer_work_theme_input, timer_break_theme_input, api_key_dropdown, normal_timer_theme_input], outputs=[timer_status_output])
+        timer_submit_button.click(
+            fn=ui_handlers.handle_timer_submission,
+            inputs=[
+            timer_type_radio,
+            timer_duration_number,
+            pomo_work_number,
+            pomo_break_number,
+            pomo_cycles_number,
+            timer_room_dropdown,
+            timer_work_theme_input,
+            timer_break_theme_input,
+            current_api_key_name_state,
+            normal_timer_theme_input
+            ],
+            outputs=[timer_status_output]
+        )
 
         notification_service_radio.change(fn=ui_handlers.handle_notification_service_change, inputs=[notification_service_radio], outputs=[])
         save_gemini_key_button.click(

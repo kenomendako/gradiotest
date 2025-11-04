@@ -21,7 +21,7 @@ def set_timer(duration_minutes: int, theme: str, room_name: str) -> str:
 
         timer = UnifiedTimer(
             timer_type="通常タイマー",
-            duration=float(duration_minutes),
+            duration_minutes=float(duration_minutes),
             room_name=room_name,
             api_key_name=api_key_name,
             normal_timer_theme=theme

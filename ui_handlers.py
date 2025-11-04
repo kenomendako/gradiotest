@@ -2179,8 +2179,8 @@ def handle_add_or_update_alarm(editing_id, h, m, room, context, days_ja, is_emer
     )
 
 def handle_timer_submission(timer_type, duration, work, brk, cycles, room, work_theme, brk_theme, api_key_name, normal_theme):
-    if not room or not api_key_name:
-        return "エラー：ルームとAPIキーを選択してください。"
+    if not room :
+        return "エラー：通知先のルームを選択してください。"
 
     try:
         if timer_type == "通常タイマー":
