@@ -262,8 +262,9 @@ def create_backup(room_name: str, file_type: str) -> Optional[str]:
     }
 
     if file_type not in file_map:
-        print(f"警告: 不明なバックアップファイルタイプです: {file_type}")
-        return None
+        error_msg = f"致命的エラー: 不明なバックアップファイルタイプです: {file_type}"
+        print(error_msg)
+        raise ValueError(error_msg)
 
     original_filename, source_path = file_map[file_type]
     backup_subdir = folder_map[file_type]
@@ -303,7 +304,7 @@ def create_backup(room_name: str, file_type: str) -> Optional[str]:
         return backup_path
 
     except Exception as e:
-        print(f"!!! エラー: バックアップ作成中にエラーが発生しました ({file_type}): {e}")
+        error_msg = f"!!! 致命的エラー: バックアップ作成中に予期せぬエラーが発生しました ({file_type}): {e}"
+        print(error_msg)
         traceback.print_exc()
-        return None
-# ▲▲▲【追加はここまで】▲▲▲
+        raise IOError(error_msg) from e
