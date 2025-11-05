@@ -2179,8 +2179,8 @@ def handle_add_or_update_alarm(editing_id, h, m, room, context, days_ja, is_emer
     )
 
 def handle_timer_submission(timer_type, duration, work, brk, cycles, room, work_theme, brk_theme, api_key_name, normal_theme):
-    if not room or not api_key_name:
-        return "エラー：ルームとAPIキーを選択してください。"
+    if not room:
+        return "エラー：通知先のルームを選択してください。"
 
     try:
         if timer_type == "通常タイマー":
@@ -2189,7 +2189,7 @@ def handle_timer_submission(timer_type, duration, work, brk, cycles, room, work_
                 theme=normal_theme or "時間になりました！",
                 room_name=room
             )
-            gr.Info(f"通常タイマーを設定しました。")
+            gr.Info("通常タイマーを設定しました。")
         elif timer_type == "ポモドーロタイマー":
             result_message = timer_tools.set_pomodoro_timer.func(
                 work_minutes=int(work),
@@ -2199,7 +2199,7 @@ def handle_timer_submission(timer_type, duration, work, brk, cycles, room, work_
                 break_theme=brk_theme or "休憩終了の時間です。",
                 room_name=room
             )
-            gr.Info(f"ポモドーロタイマーを設定しました。")
+            gr.Info("ポモドーロタイマーを設定しました。")
         else:
             result_message = "エラー: 不明なタイマー種別です。"
         return result_message

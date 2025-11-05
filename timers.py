@@ -9,7 +9,7 @@ import utils
 import constants
 import room_manager
 import config_manager
-import ui_handlers # ← この行を追加
+import ui_handlers 
 
 # --- plyerのインポートと存在チェック ---
 try:
@@ -20,6 +20,8 @@ except ImportError:
     PLYER_AVAILABLE = False
 # --- ここまで ---
 
+ACTIVE_TIMERS = []
+
 class UnifiedTimer:
     def __init__(self, timer_type, room_name, api_key_name, **kwargs):
         self.timer_type = timer_type
@@ -27,11 +29,11 @@ class UnifiedTimer:
         self.api_key_name = api_key_name
 
         if self.timer_type == "通常タイマー":
-            self.duration = kwargs.get('duration', 10) * 60
+            self.duration = kwargs.get('duration_minutes', 10) * 60
             self.theme = kwargs.get('normal_timer_theme', '時間になりました')
         elif self.timer_type == "ポモドーロタイマー":
-            self.work_duration = kwargs.get('work_duration', 25) * 60
-            self.break_duration = kwargs.get('break_duration', 5) * 60
+            self.work_duration = kwargs.get('work_minutes', 25) * 60
+            self.break_duration = kwargs.get('break_minutes', 5) * 60 
             self.cycles = kwargs.get('cycles', 4)
             self.work_theme = kwargs.get('work_theme', '作業終了の時間です')
             self.break_theme = kwargs.get('break_theme', '休憩終了の時間です')
@@ -48,6 +50,7 @@ class UnifiedTimer:
         if self.thread:
             self.thread.daemon = True
             self.thread.start()
+            ACTIVE_TIMERS.append(self)
 
     def _run_single_timer(self, duration: float, theme: str, timer_id: str):
         try:
@@ -78,9 +81,8 @@ class UnifiedTimer:
                 return
 
             from agent.graph import generate_scenery_context
-            # ▼▼▼【ここから下のブロックを書き換え】▼▼▼
             # 1. 適用すべき時間コンテキストを取得
-            season_en, time_of_day_en = ui_handlers._get_current_time_context(self.room_name)
+            season_en, time_of_day_en = utils._get_current_time_context(self.room_name)
             # 2. 情景生成時に時間コンテキストを渡す
             location_name, _, scenery_text = generate_scenery_context(
                 self.room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
@@ -103,9 +105,7 @@ class UnifiedTimer:
                 "season_en": season_en,
                 "time_of_day_en": time_of_day_en
             }
-            # ▲▲▲【書き換えはここまで】▲▲▲
 
-            # ▼▼▼【ここから下のブロックを、既存のストリーム処理ロジックと完全に置き換えてください】▼▼▼
             final_response_text = ""
             final_state = None
             initial_message_count = 0
@@ -155,23 +155,35 @@ class UnifiedTimer:
         except Exception as e:
             print(f"!! [タイマー実行エラー] {timer_id} の実行中に予期せぬエラー: {e} !!")
             traceback.print_exc()
+        finally:
+            # ポモドーロの一部でない場合、ここで自身をリストから削除
+            if "ポモドーロ" not in timer_id:
+                if self in ACTIVE_TIMERS:
+                    ACTIVE_TIMERS.remove(self)
 
     def _run_pomodoro(self):
-        for i in range(self.cycles):
-            if self._stop_event.is_set():
-                print("--- [ポモドーロタイマー] ユーザーにより停止されました ---")
-                return
+        try:
+            for i in range(self.cycles):
+                if self._stop_event.is_set():
+                    print("--- [ポモドーロタイマー] ユーザーにより停止されました ---")
+                    return
 
-            print(f"--- [ポモドーロ開始: 作業 {i+1}/{self.cycles}] ---")
-            self._run_single_timer(self.work_duration, self.work_theme, f"ポモドーロ作業 {i+1}/{self.cycles}")
-            if self._stop_event.is_set():
-                print("--- [ポモドーロタイマー] ユーザーにより停止されました ---")
-                return
+                print(f"--- [ポモドーロ開始: 作業 {i+1}/{self.cycles}] ---")
+                self._run_single_timer(self.work_duration, self.work_theme, f"ポモドーロ作業 {i+1}/{self.cycles}")
+                if self._stop_event.is_set():
+                    print("--- [ポモドーロタイマー] ユーザーにより停止されました ---")
+                    return
 
-            print(f"--- [ポモドーロ開始: 休憩 {i+1}/{self.cycles}] ---")
-            self._run_single_timer(self.break_duration, self.break_theme, f"ポモドーロ休憩 {i+1}/{self.cycles}")
+                # 最後のサイクルの後の休憩は実行しない
+                if i < self.cycles - 1:
+                    print(f"--- [ポモドーロ開始: 休憩 {i+1}/{self.cycles}] ---")
+                    self._run_single_timer(self.break_duration, self.break_theme, f"ポモドーロ休憩 {i+1}/{self.cycles}")
 
-        print("--- [ポモドーロタイマー] 全サイクル完了 ---")
+            print("--- [ポモドーロタイマー] 全サイクル完了 ---")
+        finally:
+            # 処理が完了または中断したら、自身をリストから削除
+            if self in ACTIVE_TIMERS:
+                ACTIVE_TIMERS.remove(self)
 
     def stop(self):
         self._stop_event.set()
