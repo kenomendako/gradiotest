@@ -49,8 +49,8 @@ def set_pomodoro_timer(work_minutes: int, break_minutes: int, cycles: int, work_
 
         timer = UnifiedTimer(
             timer_type="ポモドーロタイマー",
-            work_duration=float(work_minutes),
-            break_duration=float(break_minutes),
+            work_minutes=float(work_minutes),
+            break_minutes=float(break_minutes),
             cycles=int(cycles),
             room_name=room_name,
             work_theme=work_theme,
