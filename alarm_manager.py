@@ -127,7 +127,7 @@ def trigger_alarm(alarm_config, current_api_key_name):
     message_for_log = f"（システムアラーム：{alarm_config.get('time', '指定時刻')}）"
 
     from agent.graph import generate_scenery_context
-    # ▼▼▼【ここから下のブロックを書き換え】▼▼▼
+
     # 1. 適用すべき時間コンテキストを取得
     season_en, time_of_day_en = utils._get_current_time_context(room_name) # utilsから呼び出す
     # 2. 情景生成時に時間コンテキストを渡す
@@ -152,54 +152,89 @@ def trigger_alarm(alarm_config, current_api_key_name):
         "season_en": season_en,
         "time_of_day_en": time_of_day_en
     }
-    # ▲▲▲【書き換えはここまで】▲▲▲
 
-
-    # ▼▼▼【ここから下のブロックを、既存のストリーム処理ロジックと完全に置き換えてください】▼▼▼
     final_response_text = ""
-    final_state = None
-    initial_message_count = 0 # 履歴の初期数を保持
+    max_retries = 5
+    base_delay = 5
+    
+    for attempt in range(max_retries):
+        try:
+            # --- ストリーム処理の開始 ---
+            final_state = None
+            initial_message_count = 0
+            
+            for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                if mode == "initial_count":
+                    initial_message_count = chunk
+                elif mode == "values":
+                    final_state = chunk
+            
+            if final_state:
+                new_messages = final_state["messages"][initial_message_count:]
+                all_ai_contents = [
+                    msg.content for msg in new_messages
+                    if isinstance(msg, AIMessage) and msg.content and isinstance(msg.content, str)
+                ]
+                final_response_text = "\n\n".join(all_ai_contents).strip()
+            
+            # 成功したのでループを抜ける
+            break
 
-    # gemini_api.pyからストリームデータを受け取る
-    for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-        if mode == "initial_count":
-            initial_message_count = chunk
-        elif mode == "values":
-            final_state = chunk # valuesの最後のものが最終状態になる
+        except gemini_api.ResourceExhausted as e:
+            error_str = str(e)
+            # 1日の上限エラーか判定
+            if "PerDay" in error_str or "Daily" in error_str:
+                print(f"  - 致命的エラー: 回復不能なAPI上限（日間など）に達しました。リトライしません。")
+                final_response_text = "" # 応答を空にして、システムメッセージにフォールバックさせる
+                break
 
-    # ストリーム完了後、最終状態からAIの応答を再構築する
-    if final_state:
-        # 新しく追加されたメッセージ（AIの応答）のみを抽出
-        new_messages = final_state["messages"][initial_message_count:]
-        # AIMessageのcontentをすべて結合する
-        all_ai_contents = [
-            msg.content for msg in new_messages
-            if isinstance(msg, AIMessage) and msg.content and isinstance(msg.content, str)
-        ]
-        final_response_text = "\n\n".join(all_ai_contents).strip()
-    # ▲▲▲【置き換えはここまで】▲▲▲
-
-    # 思考ログを含む完全な応答を raw_response とする（ログ記録用）
+            wait_time = base_delay * (2 ** attempt)
+            match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
+            if match:
+                wait_time = int(match.group(1)) + 1
+            
+            if attempt < max_retries - 1:
+                print(f"  - APIレート制限: {wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                print(f"  - APIレート制限: 最大リトライ回数に達しました。")
+                final_response_text = "" # 応答を空にしてフォールバック
+                break
+        except Exception as e:
+            print(f"--- アラームのAI応答生成中に予期せぬエラーが発生しました ---")
+            traceback.print_exc()
+            final_response_text = "" # 応答を空にしてフォールバック
+            break
+            
+    # --- ログ記録と通知 ---
     raw_response = final_response_text
-    # 表示・通知用には思考ログを除去する
     response_text = utils.remove_thoughts_from_text(raw_response)
 
+    # AIの応答生成に成功した場合
     if response_text and not response_text.startswith("[エラー"):
-        # ログヘッダーを新しい形式 `ROLE:NAME` に準拠させる
         utils.save_message_to_log(log_f, "## SYSTEM:alarm", message_for_log)
         utils.save_message_to_log(log_f, f"## AGENT:{room_name}", raw_response)
         print(f"アラームログ記録完了 (ID:{alarm_id})")
-        send_notification(room_name, response_text, alarm_config)
-        if PLYER_AVAILABLE:
-            try:
-                display_message = (response_text[:250] + '...') if len(response_text) > 250 else response_text
-                notification.notify(title=f"{room_name} ⏰", message=display_message, app_name="Nexus Ark", timeout=20)
-                print("PCデスクトップ通知を送信しました。")
-            except Exception as e:
-                print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
+        
+    # AIの応答生成に失敗した場合（フォールバック）
     else:
-        # 失敗した場合でも、取得できた生の応答をログに出力する
-        print(f"警告: アラーム応答の生成に失敗 (ID:{alarm_id}). AIからの生応答: '{raw_response}'")
+        print(f"警告: アラーム応答の生成に失敗したため、システムメッセージを通知します (ID:{alarm_id})")
+        response_text = (
+            f"設定されたアラームを実行しようとしましたが、APIの利用上限に達したため、AIの応答を生成できませんでした。\n\n"
+            f"【アラーム内容】\n{context_to_use}"
+        )
+        # 失敗した場合でも、システムメッセージをログに記録する
+        utils.save_message_to_log(log_f, "## SYSTEM:alarm_fallback", response_text)
+
+    # 成功・失敗に関わらず、最終的なテキストで通知を送信
+    send_notification(room_name, response_text, alarm_config)
+    if PLYER_AVAILABLE:
+        try:
+            display_message = (response_text[:250] + '...') if len(response_text) > 250 else response_text
+            notification.notify(title=f"{room_name} ⏰", message=display_message, app_name="Nexus Ark", timeout=20)
+            print("PCデスクトップ通知を送信しました。")
+        except Exception as e:
+            print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
 
 def check_alarms():
     now_dt = datetime.datetime.now()
