@@ -291,7 +291,7 @@ try:
                                             paid_keys_checkbox_group = gr.CheckboxGroup(
                                                 label="有料プランのキーを選択",
                                                 choices=[pair[1] for pair in config_manager.get_api_key_choices_for_ui()],
-                                                value=config_manager.CONFIG_GLOBAL.get("paid_api_key_names", []),
+                                                # value=... を削除
                                                 interactive=True
                                             )
                                         with gr.Accordion("Pushover", open=False):
@@ -316,10 +316,10 @@ try:
                                         )
 
                                     gr.Markdown("#### ⚙️ 一般設定")
-                                    model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, value=config_manager.initial_model_global, label="デフォルトAIモデル", interactive=True)
+                                    model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, label="デフォルトAIモデル", interactive=True)
                                     api_key_dropdown = gr.Dropdown(label="使用するGemini APIキー", interactive=True)
-                                    api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), value=constants.API_HISTORY_LIMIT_OPTIONS.get(config_manager.initial_api_history_limit_option_global, "全ログ"), label="APIへの履歴送信", interactive=True)
-                                    debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", value=False, interactive=True)
+                                    api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), label="APIへの履歴送信", interactive=True)
+                                    debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
 
                                     gr.Markdown("---")
@@ -928,7 +928,18 @@ try:
             fixed_season_dropdown,
             fixed_time_of_day_dropdown,
             fixed_time_controls,
-            onboarding_guide # <<<<<<< この行を追加
+            onboarding_guide, 
+            # --- [v9] 共通設定の永続化対応 ---
+            model_dropdown,
+            api_history_limit_dropdown,
+            debug_mode_checkbox,
+            notification_service_radio,
+            backup_rotation_count_number,
+            pushover_user_key_input,
+            pushover_app_token_input,
+            discord_webhook_input,
+            image_generation_mode_radio,
+            paid_keys_checkbox_group,
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
@@ -1023,7 +1034,7 @@ try:
         # 【v5: 堅牢化】ルーム変更イベントを2段階に分離
         # 1. まず、選択されたルーム名をconfig.jsonに即時保存するだけの小さな処理を実行
         room_dropdown.change(
-            fn=lambda room_name: config_manager.save_config("last_room", room_name),
+            fn=ui_handlers.handle_save_last_room, # <<< lambdaから専用ハンドラに変更
             inputs=[room_dropdown],
             outputs=None
         # 2. その後(.then)、UI全体を更新する重い処理を実行

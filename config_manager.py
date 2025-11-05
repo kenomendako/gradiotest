@@ -3,6 +3,9 @@
 import json
 import os
 from typing import Any, List, Dict
+import time 
+import shutil 
+import datetime 
 
 import constants
 
@@ -39,47 +42,133 @@ initial_alarm_api_history_turns_global = constants.DEFAULT_ALARM_API_HISTORY_TUR
 initial_streaming_speed_global = 0.01
 
 
-# --- 内部ヘルパー関数 ---
+# --- [v8] 自己修復機能付きコンフィグ管理 ---
+
+def _create_config_backup():
+    """config.jsonのバックアップを作成し、ローテーションする。"""
+    backup_dir = os.path.join("backups", "config")
+    os.makedirs(backup_dir, exist_ok=True)
+
+    if not os.path.exists(constants.CONFIG_FILE):
+        return # バックアップ対象がない場合は何もしない
+
+    try:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"config_{timestamp}.json.bak"
+        backup_path = os.path.join(backup_dir, backup_filename)
+        shutil.copy2(constants.CONFIG_FILE, backup_path)
+
+        # ローテーション処理
+        rotation_count = CONFIG_GLOBAL.get("backup_rotation_count", 10)
+        existing_backups = sorted(
+            [f for f in os.listdir(backup_dir) if f.endswith(".bak")],
+            key=lambda f: os.path.getmtime(os.path.join(backup_dir, f))
+        )
+        if len(existing_backups) > rotation_count:
+            for f_del in existing_backups[:len(existing_backups) - rotation_count]:
+                os.remove(os.path.join(backup_dir, f_del))
+
+    except Exception as e:
+        print(f"警告: config.jsonのバックアップ作成に失敗しました: {e}")
+
+def _restore_from_backup() -> bool:
+    """最も新しいバックアップからconfig.jsonを復元する。"""
+    backup_dir = os.path.join("backups", "config")
+    if not os.path.isdir(backup_dir):
+        return False
+
+    try:
+        backups = sorted(
+            [f for f in os.listdir(backup_dir) if f.endswith(".bak")],
+            key=lambda f: os.path.getmtime(os.path.join(backup_dir, f)),
+            reverse=True # 新しいものが先頭に来るように
+        )
+        if not backups:
+            return False
+
+        latest_backup = os.path.join(backup_dir, backups[0])
+        print(f"--- [自己修復] 破損したconfig.jsonをバックアップ '{backups[0]}' から復元します ---")
+        shutil.copy2(latest_backup, constants.CONFIG_FILE)
+        return True
+
+    except Exception as e:
+        print(f"!!! エラー: バックアップからの復元に失敗しました: {e}")
+        return False
+
 def load_config_file() -> dict:
-    """config.json を読み込み、辞書で返す。外部からも呼び出せるように公開する。
-    空もしくは読み込み失敗時は空辞書を返す。
+    """
+    config.jsonを安全に読み込む。ファイルが破損している場合はバックアップから自動復元を試みる。
     """
     if os.path.exists(constants.CONFIG_FILE):
         try:
             with open(constants.CONFIG_FILE, "r", encoding="utf-8") as f:
                 content = f.read()
-                if not content.strip():
-                    return {}
-                return json.loads(content)
+            if not content.strip(): # 空ファイルの場合
+                raise json.JSONDecodeError("File is empty", "", 0)
+            return json.loads(content)
         except (json.JSONDecodeError, IOError):
-            return {}
+            print("警告: config.jsonが空または破損しています。バックアップからの復元を試みます...")
+            if _restore_from_backup():
+                # 復元に成功したら、再度読み込みを試みる
+                try:
+                    with open(constants.CONFIG_FILE, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except Exception as e:
+                    print(f"!!! エラー: 復元後のconfig.jsonの読み込みにも失敗しました: {e}")
+    # ファイルが存在しない、または復元にも失敗した場合
     return {}
+
 
 def _save_config_file(config_data: dict):
     """
-    設定データを一時ファイルに書き込んでからリネームすることで、
-    書き込み中のクラッシュによるファイル破損を防ぐ、アトミックな保存処理。
+    設定データを一時ファイルに書き込んでからリネームする、堅牢な保存処理。
     """
-    temp_file_path = constants.CONFIG_FILE + ".tmp"
-    try:
-        with open(temp_file_path, "w", encoding="utf-8") as f:
-            json.dump(config_data, f, indent=2, ensure_ascii=False)
-        # 書き込みが成功したら、一時ファイルを本番ファイルにリネーム（アトミック操作）
-        os.replace(temp_file_path, constants.CONFIG_FILE)
-    except Exception as e:
-        print(f"'{constants.CONFIG_FILE}' 保存エラー: {e}")
-        # エラーが発生した場合、一時ファイルを削除する
-        if os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
+    # ステップ1: まず現在の設定をバックアップ
+    _create_config_backup()
 
-def save_config(key: str, value: Any):
+    # ステップ2: アトミックな書き込み処理
+    temp_file_path = constants.CONFIG_FILE + ".tmp"
+    max_retries = 5
+    retry_delay = 0.1
+
+    for attempt in range(max_retries):
+        try:
+            with open(temp_file_path, "w", encoding="utf-8") as f:
+                json.dump(config_data, f, indent=2, ensure_ascii=False)
+            os.replace(temp_file_path, constants.CONFIG_FILE)
+            return
+        except PermissionError as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                print(f"'{constants.CONFIG_FILE}' 保存エラー: {e}")
+                if os.path.exists(temp_file_path):
+                    try:
+                        os.remove(temp_file_path)
+                    except OSError:
+                        pass
+        except Exception as e:
+            print(f"'{constants.CONFIG_FILE}' 保存エラー: {e}")
+            if os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                except OSError:
+                    pass
+            return
+
+
+def save_config_if_changed(key: str, value: Any) -> bool:
     """
-    単一のキーと値をconfig.jsonに安全に保存する。
+    現在の設定値と比較し、変更があった場合のみconfig.jsonに安全に保存する。
+    変更があった場合は True を、変更がなかった場合は False を返す。
     """
     config = load_config_file()
+    if config.get(key) == value:
+        return False  # 変更なし
+
     config[key] = value
     _save_config_file(config)
-
+    return True
 
 # --- 公開APIキー管理関数 ---
 def add_or_update_gemini_key(key_name: str, key_value: str):
