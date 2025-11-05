@@ -54,7 +54,8 @@ class UnifiedTimer:
 
     def _run_single_timer(self, duration: float, theme: str, timer_id: str):
         try:
-            from langchain_core.messages import AIMessage # 忘れずインポート
+            from langchain_core.messages import AIMessage 
+            import re 
 
             print(f"--- [タイマー開始: {timer_id}] Duration: {duration}s, Theme: '{theme}' ---")
             self._stop_event.wait(duration)
@@ -107,51 +108,74 @@ class UnifiedTimer:
             }
 
             final_response_text = ""
-            final_state = None
-            initial_message_count = 0
+            max_retries = 5
+            base_delay = 5
+            
+            for attempt in range(max_retries):
+                try:
+                    final_state = None
+                    initial_message_count = 0
+                    for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
+                        if mode == "initial_count":
+                            initial_message_count = chunk
+                        elif mode == "values":
+                            final_state = chunk
+                    
+                    if final_state:
+                        new_messages = final_state["messages"][initial_message_count:]
+                        all_ai_contents = [
+                            msg.content for msg in new_messages
+                            if isinstance(msg, AIMessage) and msg.content and isinstance(msg.content, str)
+                        ]
+                        final_response_text = "\n\n".join(all_ai_contents).strip()
+                    break # 成功
 
-            for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
-                if mode == "initial_count":
-                    initial_message_count = chunk
-                elif mode == "values":
-                    final_state = chunk
-
-            if final_state:
-                new_messages = final_state["messages"][initial_message_count:]
-                all_ai_contents = [
-                    msg.content for msg in new_messages
-                    if isinstance(msg, AIMessage) and msg.content and isinstance(msg.content, str)
-                ]
-                final_response_text = "\n\n".join(all_ai_contents).strip()
-            # ▲▲▲【置き換えはここまで】▲▲▲
-
+                except gemini_api.ResourceExhausted as e:
+                    error_str = str(e)
+                    if "PerDay" in error_str or "Daily" in error_str:
+                        print(f"  - 致命的エラー: 回復不能なAPI上限（日間など）に達しました。リトライしません。")
+                        final_response_text = ""; break
+                    
+                    wait_time = base_delay * (2 ** attempt)
+                    match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
+                    if match: wait_time = int(match.group(1)) + 1
+                    
+                    if attempt < max_retries - 1:
+                        print(f"  - APIレート制限: {wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                    else:
+                        print(f"  - APIレート制限: 最大リトライ回数に達しました。"); final_response_text = ""; break
+                except Exception as e:
+                    print(f"--- タイマーのAI応答生成中に予期せぬエラーが発生しました ---"); traceback.print_exc()
+                    final_response_text = ""; break
+            
             raw_response = final_response_text
             response_text = utils.remove_thoughts_from_text(raw_response)
 
             if response_text and not response_text.startswith("[エラー"):
-                # ログヘッダーを新しい形式 `ROLE:NAME` に準拠させる
                 message_for_log = f"（システムタイマー：{theme}）"
                 utils.save_message_to_log(log_f, "## SYSTEM:timer", message_for_log)
                 utils.save_message_to_log(log_f, f"## AGENT:{self.room_name}", raw_response)
-
-                alarm_manager.send_notification(self.room_name, response_text, {})
-
-                if PLYER_AVAILABLE:
-                    try:
-                        display_message = (response_text[:250] + '...') if len(response_text) > 250 else response_text
-                        notification.notify(
-                            title=f"{self.room_name} タイマー",
-                            message=display_message,
-                            app_name="Nexus Ark",
-                            timeout=20
-                        )
-                        print("PCデスクトップ通知を送信しました。")
-                    except Exception as e:
-                        print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
-
             else:
-                print(f"警告: タイマー応答の生成に失敗。AIからの生応答: '{raw_response}'")
+                print(f"警告: タイマー応答の生成に失敗したため、システムメッセージを通知します ({timer_id})")
+                response_text = (
+                    f"設定されたタイマー（{theme}）を実行しようとしましたが、APIの利用上限に達したため、AIの応答を生成できませんでした。"
+                )
+                utils.save_message_to_log(log_f, "## SYSTEM:timer_fallback", response_text)
 
+            alarm_manager.send_notification(self.room_name, response_text, {})
+
+            if PLYER_AVAILABLE:
+                try:
+                    display_message = (response_text[:250] + '...') if len(response_text) > 250 else response_text
+                    notification.notify(
+                        title=f"{self.room_name} タイマー", message=display_message,
+                        app_name="Nexus Ark", timeout=20
+                    )
+                    print("PCデスクトップ通知を送信しました。")
+                except Exception as e:
+                    print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
+                    
         except Exception as e:
             print(f"!! [タイマー実行エラー] {timer_id} の実行中に予期せぬエラー: {e} !!")
             traceback.print_exc()
