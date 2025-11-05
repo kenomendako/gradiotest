@@ -259,25 +259,26 @@ def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
 
 def handle_initial_load():
     """
-    【v8: 契約修正・最終確定版】
+    【v9: 共通設定永続化・最終版】
     UIセッションが開始されるたびに、config.jsonから全ての関連設定を再読み込みし、
     UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
     """
     print("--- [UI Session Init] demo.load event triggered. Reloading all configs from file. ---")
     config_manager.load_config()
+    config = config_manager.CONFIG_GLOBAL
 
     # --- 1. 最新のルームとAPIキー情報を取得・計算 ---
     latest_room_list = room_manager.get_room_list_for_ui()
     folder_names = [folder for _, folder in latest_room_list]
     
-    last_room_from_config = config_manager.CONFIG_GLOBAL.get("last_room", "Default")
+    last_room_from_config = config.get("last_room", "Default")
     safe_initial_room = last_room_from_config
     if last_room_from_config not in folder_names:
         safe_initial_room = folder_names[0] if folder_names else "Default"
 
     latest_api_key_choices = config_manager.get_api_key_choices_for_ui()
     valid_key_names = [key for _, key in latest_api_key_choices]
-    last_api_key_from_config = config_manager.CONFIG_GLOBAL.get("last_api_key_name")
+    last_api_key_from_config = config.get("last_api_key_name")
     safe_initial_api_key = last_api_key_from_config
     if last_api_key_from_config not in valid_key_names:
         safe_initial_api_key = valid_key_names[0] if valid_key_names else None
@@ -301,17 +302,31 @@ def handle_initial_load():
 
     # --- 3. オンボーディングとトークン計算 ---
     has_valid_key = config_manager.has_valid_api_key()
-    token_count_text, onboarding_guide_update = ("トークン数: (APIキー未設定)", gr.update(visible=True))
+    token_count_text, onboarding_guide_update, chat_input_update = ("トークン数: (APIキー未設定)", gr.update(visible=True), gr.update(interactive=False))
     if has_valid_key:
         token_calc_kwargs = config_manager.get_effective_settings(safe_initial_room)
         token_count_text = gemini_api.count_input_tokens(
             room_name=safe_initial_room, api_key_name=safe_initial_api_key,
-            api_history_limit=config_manager.initial_api_history_limit_option_global,
+            api_history_limit=config.get("last_api_history_limit_option", "all"),
             parts=[], **token_calc_kwargs
         )
         onboarding_guide_update = gr.update(visible=False)
+        chat_input_update = gr.update(interactive=True)
 
-    # --- 4. 全ての戻り値を正しい順序で組み立てる ---
+    # --- 4. [v9] その他の共通設定の初期値を決定 ---
+    common_settings_updates = (
+        gr.update(value=config.get("last_model", config_manager.DEFAULT_MODEL_GLOBAL)),
+        gr.update(value=constants.API_HISTORY_LIMIT_OPTIONS.get(config.get("last_api_history_limit_option", "all"), "全ログ")),
+        gr.update(value=config.get("debug_mode", False)),        gr.update(value=config.get("notification_service", "discord").capitalize()),
+        gr.update(value=config.get("backup_rotation_count", 10)),
+        gr.update(value=config.get("pushover_user_key", "")),
+        gr.update(value=config.get("pushover_app_token", "")),
+        gr.update(value=config.get("notification_webhook_url", "")),
+        gr.update(value=config.get("image_generation_mode", "new")),
+        gr.update(choices=[p[1] for p in latest_api_key_choices], value=config.get("paid_api_key_names", [])),
+    )
+
+    # --- 5. 全ての戻り値を正しい順序で組み立てる ---
     # `initial_load_outputs`のリスト（50個）に対応
     return (
         display_df, df_with_ids, feedback_text,
@@ -321,7 +336,8 @@ def handle_initial_load():
         gr.update(choices=latest_api_key_choices, value=safe_initial_api_key), # api_key_dropdown
         world_data_for_state,
         *time_settings_updates,
-        onboarding_guide_update
+        onboarding_guide_update,
+        *common_settings_updates # <<< 追加したタプルを展開して結合
     )
 
 def handle_save_room_settings(
@@ -2626,18 +2642,19 @@ def handle_delete_redaction_rule(
 
 
 def update_model_state(model):
-    config_manager.save_config("last_model", model)
-    gr.Info(f"デフォルトAIモデルを「{model}」に設定しました。")
+    if config_manager.save_config_if_changed("last_model", model):
+        gr.Info(f"デフォルトAIモデルを「{model}」に設定しました。")
     return model
 
 def update_api_key_state(api_key_name):
-    config_manager.save_config("last_api_key_name", api_key_name)
-    gr.Info(f"APIキーを '{api_key_name}' に設定しました。")
+    if config_manager.save_config_if_changed("last_api_key_name", api_key_name):
+        gr.Info(f"APIキーを '{api_key_name}' に設定しました。")
     return api_key_name
 
 def update_api_history_limit_state_and_reload_chat(limit_ui_val: str, room_name: Optional[str], add_timestamp: bool, display_thoughts: bool, screenshot_mode: bool = False, redaction_rules: List[Dict] = None):
     key = next((k for k, v in constants.API_HISTORY_LIMIT_OPTIONS.items() if v == limit_ui_val), "all")
-    config_manager.save_config("last_api_history_limit_option", key)
+    config_manager.save_config_if_changed("last_api_history_limit_option", key)
+    # この関数はUIリロードが主目的なので、Info通知は不要
     history, mapping_list = reload_chat_log(room_name, key, add_timestamp, display_thoughts, screenshot_mode, redaction_rules)
     return key, history, mapping_list
 
@@ -3306,24 +3323,26 @@ def handle_paid_keys_change(paid_key_names: List[str]):
     if not isinstance(paid_key_names, list):
         gr.Warning("有料キーリストの更新に失敗しました。")
         return gr.update()
-    # 保存して config を再読み込み
-    config_manager.save_config("paid_api_key_names", paid_key_names)
-    config_manager.load_config()
-    gr.Info("有料APIキーの設定を更新しました。")
+    
+    if config_manager.save_config_if_changed("paid_api_key_names", paid_key_names):
+        gr.Info("有料APIキーの設定を更新しました。")
 
+    # グローバル変数を更新して即時反映
+    config_manager.load_config()
+    
     # ドロップダウンの表示も(Paid)ラベル付きで更新するために、新しい選択肢リストを返す
     new_choices_for_ui = config_manager.get_api_key_choices_for_ui()
     return gr.update(choices=new_choices_for_ui)
 
 def handle_notification_service_change(service_choice: str):
     if service_choice in ["Discord", "Pushover"]:
-        config_manager.save_config("notification_service", service_choice.lower())
-        gr.Info(f"通知サービスを「{service_choice}」に設定しました。")
+        service_value = service_choice.lower()
+        if config_manager.save_config_if_changed("notification_service", service_value):
+            gr.Info(f"通知サービスを「{service_choice}」に設定しました。")
 
 def handle_save_discord_webhook(webhook_url: str):
-    config_manager.save_config("notification_webhook_url", webhook_url)
-    gr.Info("Discord Webhook URLを保存しました。")
-
+    if config_manager.save_config_if_changed("notification_webhook_url", webhook_url):
+        gr.Info("Discord Webhook URLを保存しました。")
 def load_system_prompt_content(room_name: str) -> str:
     if not room_name: return ""
     _, system_prompt_path, _, _, _ = get_room_files_paths(room_name)
@@ -3833,8 +3852,9 @@ def handle_save_backup_rotation_count(count: int):
         gr.Warning("バックアップ保存件数は1以上の整数で指定してください。")
         return
 
-    config_manager.save_config("backup_rotation_count", int(count))
-    gr.Info(f"バックアップの最大保存件数を {int(count)} 件に設定しました。")
+    int_count = int(count)
+    if config_manager.save_config_if_changed("backup_rotation_count", int_count):
+        gr.Info(f"バックアップの最大保存件数を {int_count} 件に設定しました。")
 
 def handle_open_backup_folder(room_name: str):
     """選択されたルームのバックアップフォルダをOSのファイルエクスプローラーで開く。"""
@@ -4667,14 +4687,14 @@ def handle_save_image_generation_mode(mode: str):
     """画像生成モードをconfig.jsonに保存する。"""
     if mode not in ["new", "old", "disabled"]:
         return
-    config_manager.save_config("image_generation_mode", mode)
-    mode_map = {
-        "new": "新モデル (有料)",
-        "old": "旧モデル (無料・廃止予定)",
-        "disabled": "無効"
-    }
-    gr.Info(f"画像生成モードを「{mode_map.get(mode)}」に設定しました。")
-
+    
+    if config_manager.save_config_if_changed("image_generation_mode", mode):
+        mode_map = {
+            "new": "新モデル (有料)",
+            "old": "旧モデル (無料・廃止予定)",
+            "disabled": "無効"
+        }
+        gr.Info(f"画像生成モードを「{mode_map.get(mode)}」に設定しました。")
 
 def handle_register_custom_scenery(
     room_name: str, api_key_name: str,
