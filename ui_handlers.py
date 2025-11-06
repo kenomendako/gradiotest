@@ -3467,7 +3467,8 @@ def handle_stop_button_click(room_name, api_history_limit, add_timestamp, displa
     history, mapping_list = reload_chat_log(room_name, api_history_limit, add_timestamp, display_thoughts, screenshot_mode, redaction_rules)
     return (
         gr.update(visible=False, interactive=True), # ストップボタンを非表示に
-        gr.update(interactive=True),              # 更新ボタンを有効に        history,                                  # チャット履歴を最新の状態に
+        gr.update(interactive=True),              # 更新ボタンを有効に       
+        history,                                  # チャット履歴を最新の状態に
         mapping_list                              # マッピングリストも更新
     )
 
