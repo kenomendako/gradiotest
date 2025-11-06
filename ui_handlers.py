@@ -49,10 +49,16 @@ from agent.graph import generate_scenery_context
 from room_manager import get_room_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
 
+def handle_save_last_room(room_name: str) -> None:
+    """
+    選択されたルーム名をconfig.jsonに保存するだけの、何も返さない専用ハンドラ。
+    Gradioのchangeイベントが不要な戻り値を受け取らないようにするために使用する。
+    """
+    if room_name:
+        config_manager.save_config_if_changed("last_room", room_name)
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
-
 
 def _get_location_choices_for_ui(room_name: str) -> list:
     """

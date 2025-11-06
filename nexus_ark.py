@@ -1034,7 +1034,7 @@ try:
         # 【v5: 堅牢化】ルーム変更イベントを2段階に分離
         # 1. まず、選択されたルーム名をconfig.jsonに即時保存するだけの小さな処理を実行
         room_dropdown.change(
-            fn=lambda room_name: config_manager.save_config("last_room", room_name),
+            fn=ui_handlers.handle_save_last_room, # <<< lambdaから専用ハンドラに変更
             inputs=[room_dropdown],
             outputs=None
         # 2. その後(.then)、UI全体を更新する重い処理を実行
