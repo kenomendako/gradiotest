@@ -72,6 +72,7 @@ class AgentState(TypedDict):
     time_of_day_en: str
     last_successful_response: Optional[AIMessage] # 最後の成功したAI応答を保持
     force_end: bool # グラフの実行を強制的に終了させるためのフラグ
+    skip_tool_execution: bool
 
 def get_location_list(room_name: str) -> List[str]:
     """
@@ -467,6 +468,11 @@ def agent_node(state: AgentState):
 
 import room_manager # ← 関数の先頭でインポートを追加
 
+side_effect_tools = [
+    "plan_main_memory_edit", "plan_secret_diary_edit", "plan_notepad_edit", "plan_world_edit",
+    "set_personal_alarm", "set_timer", "set_pomodoro_timer"
+]
+
 def safe_tool_executor(state: AgentState):
     """
     AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
@@ -481,6 +487,13 @@ def safe_tool_executor(state: AgentState):
     tool_call = last_message.tool_calls[0]
     tool_name = tool_call["name"]
     tool_args = tool_call["args"]
+
+    skip_execution = state.get("skip_tool_execution", False)
+    if skip_execution and tool_name in side_effect_tools:
+        print(f"  - [リトライ検知] 副作用のあるツール '{tool_name}' の再実行をスキップします。")
+        output = "【リトライ成功】このツールは直前の試行で既に正常に実行されています。その結果についてユーザーに報告してください。"
+        return {"messages": [ToolMessage(content=output, tool_call_id=tool_call["id"], name=tool_name)]}
+
     room_name = state.get('room_name')
     api_key = state.get('api_key')
 

@@ -527,6 +527,9 @@ def _stream_and_handle_response(
     all_turn_popups = []
     final_error_message = None
 
+    # リトライ時に副作用のあるツールが再実行されるのを防ぐためのフラグ
+    tool_execution_successful_this_turn = False
+
     try:
         # UIをストリーミングモードに移行
         # この時点の履歴を一度取得
@@ -582,7 +585,8 @@ def _stream_and_handle_response(
                 "active_attachments": active_attachments,
                 "shared_scenery_text": scenery_text_from_ui, 
                 "season_en": season_en, 
-                "time_of_day_en": time_of_day_en
+                "time_of_day_en": time_of_day_en,
+                "skip_tool_execution": tool_execution_successful_this_turn
             }
 
             streamed_text = ""
@@ -660,6 +664,16 @@ def _stream_and_handle_response(
                             content_to_log = utils.format_tool_result_for_ui(msg.name, str(msg.content)) or f"ツール「{msg.name}」を実行しました。"
                             header = f"## SYSTEM:tool_result"
                             all_turn_popups.append(content_to_log)
+
+                        # 副作用のあるツールがエラーなく成功したかを判定し、リトライ防止フラグを立てる
+                        side_effect_tools = [
+                                "plan_main_memory_edit", "plan_secret_diary_edit", "plan_notepad_edit", "plan_world_edit",
+                                "set_personal_alarm", "set_timer", "set_pomodoro_timer"
+                            ]
+                        tool_content_str = str(msg.content)
+                        if msg.name in side_effect_tools and "Error" not in tool_content_str and "エラー" not in tool_content_str:
+                                tool_execution_successful_this_turn = True
+                                print(f"--- [リトライガード設定] 副作用のあるツール '{msg.name}' の成功を記録しました。 ---")   
                         
                         if header and content_to_log:
                             for participant_room in all_rooms_in_scene:
