@@ -2849,7 +2849,7 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
 
         director_prompt = f"""
 You are a master scene director AI for a high-end image generation model.
-Your sole purpose is to synthesize information from two distinct sources into a single, cohesive, and flawless English prompt.
+Your first, most critical, and absolute command is to generate the image in a **16:9 landscape aspect ratio.** This is not a suggestion, but a non-negotiable technical requirement of the final output.
 
 **--- [Source 1: Architectural Blueprint] ---**
 This is the undeniable truth for all physical structures, objects, furniture, and materials.
@@ -2858,40 +2858,26 @@ This is the undeniable truth for all physical structures, objects, furniture, an
 ```
 
 **--- [Current Scene Conditions] ---**
-        # Use ONLY if time/lighting is NOT specified in the description above.
         - Time of Day: {time_of_day_en}
         - Season: {season_en}
 
 **--- [Your Task: The Fusion] ---**
-Your task is to **merge** these two sources into a single, coherent visual description, following the absolute rules below.
-
-**--- [The Golden Rule for Windows & Exteriors] ---**
-**If the Architectural Blueprint mentions a window, door, or any view to the outside, you MUST explicitly describe the exterior view *as it would appear* within the Temporal Context.**
--   **Example:** If the context is `night` and the blueprint mentions "a garden," you MUST describe a `dark garden under the moonlight` or `a rainy night landscape`, not just `a garden`.
--   **This rule is absolute and overrides any ambiguity.**
+Your task is to **merge** these two sources into a single, coherent visual description, while strictly adhering to all rules.
 
 **--- [Core Principles & Hierarchy] ---**
-
-1.  **Architectural Fidelity:** Your prompt MUST be a faithful visual representation of the physical elements described in the "Architectural Blueprint" (Source 1).
-
-2.  **Atmospheric & Lighting Fidelity:** The overall lighting, weather, and the view seen through windows MUST be a direct and faithful representation of the "Temporal Context" (Source 2), unless the blueprint describes an absolute, unchangeable environmental property (e.g., "a cave with no natural light," "a dimension of perpetual twilight").
-
-3.  **Strictly Visual:** The output must be a purely visual paragraph in English. Exclude any narrative, metaphors, sounds, or non-visual elements.
-
-4.  **Mandatory Inclusions:** Your prompt MUST incorporate the specified "Aspect Ratio" and adhere to the "Style Definition".
-
-5.  **Absolute Prohibitions:** Strictly enforce all "Negative Prompts".
-
-6.  **Output Format:** Output ONLY the final, single-paragraph prompt. Do not include any of your own thoughts or conversational text.
+1.  **Aspect Ratio Supremacy:** The **16:9 landscape aspect ratio** is the most important rule and must be followed above all else.
+2.  **Architectural Fidelity:** Your prompt MUST be a faithful visual representation of the physical elements described in the "Architectural Blueprint".
+3.  **Atmospheric & Lighting Fidelity:** The overall lighting, weather, and the view seen through windows MUST be a direct and faithful representation of the "Current Scene Conditions".
+4.  **Strictly Visual:** The output must be a purely visual paragraph in English. Exclude any narrative, metaphors, sounds, or non-visual elements.
+5.  **Mandatory Inclusions:** Your prompt MUST incorporate the specified "Style Definition".
+6.  **Absolute Prohibitions:** Strictly enforce all "Negative Prompts".
+7.  **Output Format:** Output ONLY the final, single-paragraph prompt. Do not include any of your own thoughts.
 
 ---
 **[Supporting Information]**
 
 **Style Definition (Incorporate this aesthetic):**
 - {style_choice_text}
-
-**Mandatory Technical Specs:**
-- Aspect Ratio: 16:9 landscape aspect ratio.
 
 **Negative Prompts (Strictly enforce these exclusions):**
 - Absolutely no text, letters, characters, signatures, or watermarks. Do not include people.
