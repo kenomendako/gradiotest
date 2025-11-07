@@ -170,6 +170,9 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     all_participants_list = [soul_vessel_room] + active_participants
     global_model_from_ui = agent_args.get("global_model_from_ui")
 
+    # UIハンドラからのツール実行スキップフラグを受け取る
+    skip_tool_execution_flag = agent_args.get("skip_tool_execution", False)
+
     effective_settings = config_manager.get_effective_settings(
         room_to_respond,
         global_model_from_ui=global_model_from_ui,
@@ -306,7 +309,8 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "all_participants": all_participants_list,
         "loop_count": 0, 
         "season_en": season_en,
-        "time_of_day_en": time_of_day_en
+        "time_of_day_en": time_of_day_en,
+        "skip_tool_execution": skip_tool_execution_flag
     }
 
     # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
