@@ -118,9 +118,18 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=[], value=None),
             "（APIキーが設定されていません）",
+            list(config_manager.SUPPORTED_VOICES.values())[0], # voice_dropdownのデフォルト値
             list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,
             0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
-            False, True, True, False, True, True, True, False,
+            False, # display_thoughts
+            True,  # add_timestamp
+            True,  # send_current_time
+            False, # send_thoughts
+            True,  # send_notepad
+            True,  # use_common_prompt
+            True,  # send_core_memory
+            False, # send_scenery (APIキーがないのでFalse)
+            False, # auto_memory_enabled
             f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", None,
             True, gr.update(open=True)
         )
@@ -218,48 +227,6 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         scenery_image_path,
         effective_settings.get("enable_scenery_system", True),
         gr.update(open=effective_settings.get("enable_scenery_system", True))
-    )
-
-def _update_all_tabs_for_room_change(room_name: str, api_key_name: str):
-    """
-    【v4】ルーム切り替え時に、全ての関連タブのUIを更新する。
-    戻り値の数は `all_room_change_outputs` の51個と一致する。
-    """
-    # chat_tab_updatesは36個の更新値を持つ
-    chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
-
-    wb_state, wb_area_selector, wb_raw_editor, wb_place_selector = handle_world_builder_load(room_name)
-    world_builder_updates = (wb_state, wb_area_selector, wb_raw_editor, wb_place_selector)
-
-    all_rooms = room_manager.get_room_list_for_ui()
-    other_rooms_for_checkbox = sorted(
-        [(display, folder) for display, folder in all_rooms if folder != room_name]
-    )
-    participant_checkbox_update = gr.update(choices=other_rooms_for_checkbox, value=[])
-    session_management_updates = ([], "現在、1対1の会話モードです。", participant_checkbox_update)
-
-    rules = config_manager.load_redaction_rules()
-    rules_df_for_ui = _create_redaction_df_from_rules(rules)
-
-    archive_dates = _get_date_choices_from_memory(room_name)
-    archive_date_dropdown_update = gr.update(choices=archive_dates, value=archive_dates[0] if archive_dates else None)
-
-    time_settings = _load_time_settings_for_room(room_name)
-    time_settings_updates = (
-        gr.update(value=time_settings.get("mode", "リアル連動")),
-        gr.update(value=time_settings.get("fixed_season_ja", "秋")),
-        gr.update(value=time_settings.get("fixed_time_of_day_ja", "夜")),
-        gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
-    )
-
-    # 戻り値の総数: 36 + 3 + 3 + 1 + 1 + 4 = 48個 -> 49個
-    return (
-        *chat_tab_updates,
-        *world_builder_updates,
-        *session_management_updates,
-        rules_df_for_ui,
-        archive_date_dropdown_update,
-        *time_settings_updates
     )
 
 
@@ -2748,12 +2715,112 @@ def handle_voice_preview(room_name: str, selected_voice_name: str, voice_style_p
     else:
         raise gr.Error(audio_filepath or "音声の生成に失敗しました。")
 
+def _generate_scenery_prompt(room_name: str, api_key_name: str, style_choice: str) -> str:
+    """
+    画像生成のための最終的なプロンプト文字列を生成する責務を負うヘルパー関数。
+    """
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or (isinstance(api_key, str) and api_key.startswith("YOUR_API_KEY")):
+        raise gr.Error(f"APIキー '{api_key_name}' が見つかりません。")
+
+    season_en, time_of_day_en = utils._get_current_time_context(room_name)
+    location_id = utils.get_current_location(room_name)
+    if not location_id:
+        raise gr.Error("現在地が特定できません。")
+
+    style_prompts = {
+        "写真風 (デフォルト)": "An ultra-detailed, photorealistic masterpiece with cinematic lighting.",
+        "イラスト風": "A beautiful and detailed anime-style illustration, pixiv contest winner.",
+        "アニメ風": "A high-quality screenshot from a modern animated film.",
+        "水彩画風": "A gentle and emotional watercolor painting."
+    }
+    style_choice_text = style_prompts.get(style_choice, style_prompts["写真風 (デフォルト)"])
+
+    world_settings_path = room_manager.get_world_settings_path(room_name)
+    world_settings = utils.parse_world_file(world_settings_path)
+    if not world_settings:
+        raise gr.Error("世界設定の読み込みに失敗しました。")
+
+    space_text = None
+    for area, places in world_settings.items():
+        if location_id in places:
+            space_text = places[location_id]
+            break
+
+    if not space_text:
+        raise gr.Error("現在の場所の定義が見つかりません。")
+
+    from gemini_api import get_configured_llm
+    effective_settings = config_manager.get_effective_settings(room_name)
+    scene_director_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
+
+    director_prompt = f"""
+You are a master scene director AI for a high-end image generation model.
+Your sole purpose is to synthesize information from two distinct sources into a single, cohesive, and flawless English prompt.
+
+**--- [Source 1: Architectural Blueprint] ---**
+This is the undeniable truth for all physical structures, objects, furniture, and materials.
+```
+{space_text}
+```
+**--- [Current Scene Conditions] ---**
+        - Time of Day: {time_of_day_en}
+        - Season: {season_en}
+
+**--- [Your Task: The Fusion] ---**
+Your task is to **merge** these two sources into a single, coherent visual description, following the absolute rules below.
+
+**--- [The Golden Rule for Windows & Exteriors] ---**
+**If the Architectural Blueprint mentions a window, door, or any view to the outside, you MUST explicitly describe the exterior view *as it would appear* within the Temporal Context.**
+-   **Example:** If the context is `night` and the blueprint mentions "a garden," you MUST describe a `dark garden under the moonlight` or `a rainy night landscape`, not just `a garden`.
+-   **This rule is absolute and overrides any ambiguity.**
+
+**--- [Core Principles & Hierarchy] ---**
+1.  **Architectural Fidelity:** Your prompt MUST be a faithful visual representation of the physical elements described in the "Architectural Blueprint" (Source 1).
+2.  **Atmospheric & Lighting Fidelity:** The overall lighting, weather, and the view seen through windows MUST be a direct and faithful representation of the "Temporal Context" (Source 2), unless the blueprint describes an absolute, unchangeable environmental property (e.g., "a cave with no natural light," "a dimension of perpetual twilight").
+3.  **Strictly Visual:** The output must be a purely visual paragraph in English. Exclude any narrative, metaphors, sounds, or non-visual elements.
+4.  **Mandatory Inclusions:** Your prompt MUST incorporate the specified "Style Definition".
+5.  **Absolute Prohibitions:** Strictly enforce all "Negative Prompts".
+6.  **Output Format:** Output ONLY the final, single-paragraph prompt. Do not include any of your own thoughts or conversational text.
+
+---
+**[Supporting Information]**
+
+**Style Definition (Incorporate this aesthetic):**
+- {style_choice_text}
+
+**Negative Prompts (Strictly enforce these exclusions):**
+- Absolutely no text, letters, characters, signatures, or watermarks. Do not include people.
+---
+
+**Final Master Prompt:**
+"""
+    final_prompt = scene_director_llm.invoke(director_prompt).content.strip()
+    return final_prompt
+
+def handle_show_scenery_prompt(room_name: str, api_key_name: str, style_choice: str) -> str:
+    """「プロンプトを生成」ボタンのイベントハンドラ。"""
+    if not room_name or not api_key_name:
+        raise gr.Error("ルームとAPIキーを選択してください。")
+
+    try:
+        gr.Info("シーンディレクターAIがプロンプトを構成しています...")
+        prompt = _generate_scenery_prompt(room_name, api_key_name, style_choice)
+        gr.Info("プロンプトを生成しました。")
+        return prompt
+    except Exception as e:
+        # gr.ErrorはGradioが自動で処理するので、ここではprintでログを残す
+        print(f"--- プロンプト生成エラー: {e} ---")
+        traceback.print_exc()
+        # UIにはGradioがエラーメッセージを表示してくれる
+        raise
+
 def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: str, style_choice: str) -> Optional[Image.Image]:
     """
     【v5: 最終FIX版】
     現在の時間と季節に一致するファイル名を事前に確定し、そのファイル名で画像を生成・上書き保存する。
     他の季節や時間帯の画像には一切触れず、UIの表示更新を保証する。
-    """
+    """    
     # --- [究極ガード要塞:一本道ルール] ---
     latest_config = config_manager.load_config_file()
     image_gen_mode = latest_config.get("image_generation_mode", "new")
@@ -2815,84 +2882,15 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
 
     # プロンプト生成
     final_prompt = ""
-    gr.Info("シーンディレクターAIがプロンプトを構成しています...")
     try:
-        style_prompts = {
-            "写真風 (デフォルト)": "An ultra-detailed, photorealistic masterpiece with cinematic lighting.",
-            "イラスト風": "A beautiful and detailed anime-style illustration, pixiv contest winner.",
-            "アニメ風": "A high-quality screenshot from a modern animated film.",
-            "水彩画風": "A gentle and emotional watercolor painting."
-        }
-        style_choice_text = style_prompts.get(style_choice, style_prompts["写真風 (デフォルト)"])
-
-        world_settings_path = room_manager.get_world_settings_path(room_name)
-        world_settings = utils.parse_world_file(world_settings_path)
-        if not world_settings:
-            gr.Error("世界設定の読み込みに失敗しました。")
-            if fallback_image_path: return Image.open(fallback_image_path)
-            return None
-
-        space_text = None
-        for area, places in world_settings.items():
-            if location_id in places:
-                space_text = places[location_id]
-                break
-
-        if not space_text:
-            gr.Error("現在の場所の定義が見つかりません。")
-            if fallback_image_path: return Image.open(fallback_image_path)
-            return None
-
-        from gemini_api import get_configured_llm
-        effective_settings = config_manager.get_effective_settings(room_name)
-        scene_director_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
-
-        director_prompt = f"""
-You are a master scene director AI for a high-end image generation model.
-Your first, most critical, and absolute command is to generate the image in a **16:9 landscape aspect ratio.** This is not a suggestion, but a non-negotiable technical requirement of the final output.
-
-**--- [Source 1: Architectural Blueprint] ---**
-This is the undeniable truth for all physical structures, objects, furniture, and materials.
-```
-{space_text}
-```
-
-**--- [Current Scene Conditions] ---**
-        - Time of Day: {time_of_day_en}
-        - Season: {season_en}
-
-**--- [Your Task: The Fusion] ---**
-Your task is to **merge** these two sources into a single, coherent visual description, while strictly adhering to all rules.
-
-**--- [Core Principles & Hierarchy] ---**
-1.  **Aspect Ratio Supremacy:** The **16:9 landscape aspect ratio** is the most important rule and must be followed above all else.
-2.  **Architectural Fidelity:** Your prompt MUST be a faithful visual representation of the physical elements described in the "Architectural Blueprint".
-3.  **Atmospheric & Lighting Fidelity:** The overall lighting, weather, and the view seen through windows MUST be a direct and faithful representation of the "Current Scene Conditions".
-4.  **Strictly Visual:** The output must be a purely visual paragraph in English. Exclude any narrative, metaphors, sounds, or non-visual elements.
-5.  **Mandatory Inclusions:** Your prompt MUST incorporate the specified "Style Definition".
-6.  **Absolute Prohibitions:** Strictly enforce all "Negative Prompts".
-7.  **Output Format:** Output ONLY the final, single-paragraph prompt. Do not include any of your own thoughts.
-
----
-**[Supporting Information]**
-
-**Style Definition (Incorporate this aesthetic):**
-- {style_choice_text}
-
-**Negative Prompts (Strictly enforce these exclusions):**
-- Absolutely no text, letters, characters, signatures, or watermarks. Do not include people.
----
-
-**Final Master Prompt:**
-"""
-        final_prompt = scene_director_llm.invoke(director_prompt).content.strip()
-
+        # 新しいヘルパー関数を呼び出す
+        final_prompt = _generate_scenery_prompt(room_name, api_key_name, style_choice)
     except Exception as e:
-        gr.Error(f"シーンディレクターAIによるプロンプト生成中にエラーが発生しました: {e}")
-        traceback.print_exc()
+        # gr.Errorはヘルパー関数内で発生済みなので、ここではログ出力とフォールバックのみ
+        print(f"シーンディレクターAIによるプロンプト生成中にエラーが発生しました: {e}")
         if fallback_image_path: return Image.open(fallback_image_path)
         return None
-
+    
     if not final_prompt:
         gr.Error("シーンディレクターAIが有効なプロンプトを生成できませんでした。")
         if fallback_image_path: return Image.open(fallback_image_path)
@@ -3003,45 +3001,48 @@ def handle_world_builder_load(room_name: str):
         gr.update(choices=place_choices_for_selected_area, value=current_location)
     )
 
-def handle_room_change_for_all_tabs(room_name: str, api_key_name: str):
+def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str):
     """
-    【v5: 堅牢化】
+    【v7: 戻り値統一・最終FIX版】
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
+    起動時の不要な連鎖発火をスキップするガード節を持つ。
     """
-    print(f"--- UI司令塔(handle_room_change_for_all_tabs)実行: {room_name} ---")
+    # --- [冪等性ガード] ---
+    if room_name == current_room_state:
+        print(f"--- UI司令塔 スキップ: ルームに変更なし ({room_name}) ---")
+        # 期待される出力の数（56個）だけ gr.update() を返す
+        return (gr.update(),) * 56
+
+    print(f"--- UI司令塔 実行: {room_name} へ変更 ---")
 
     # 責務1: 新しいヘルパーを呼び出してUI更新値のタプルを取得する
     all_ui_updates = _update_all_tabs_for_room_change(room_name, api_key_name)
 
     # 責務2: トークン数を計算する
-    add_timestamp_val = all_ui_updates[24]
-    send_thoughts_val = all_ui_updates[25]
-    send_notepad_val = all_ui_updates[26]
-    use_common_prompt_val = all_ui_updates[27]
-    send_core_memory_val = all_ui_updates[28]
-    send_scenery_val = all_ui_updates[29]
+    effective_settings = config_manager.get_effective_settings(room_name)
     api_history_limit_key = config_manager.CONFIG_GLOBAL.get("last_api_history_limit_option", "all")
+    
+    token_calc_kwargs = {k: effective_settings.get(k) for k in [
+        "display_thoughts", "add_timestamp", "send_current_time", "send_thoughts", 
+        "send_notepad", "use_common_prompt", "send_core_memory", "send_scenery"
+    ]}
 
     token_count_text = gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name, parts=[],
         api_history_limit=api_history_limit_key,
-        add_timestamp=add_timestamp_val, send_thoughts=send_thoughts_val,
-        send_notepad=send_notepad_val, use_common_prompt=use_common_prompt_val,
-        send_core_memory=send_core_memory_val, send_scenery=send_scenery_val
+        **token_calc_kwargs
     )
 
     ui_attachments_df = _get_attachments_df(room_name)
     initial_active_attachments_display = "現在アクティブな添付ファイルはありません。"
 
-    # 責務3: 全てのUI更新値と、トークン数の計算結果、そして新しいルーム名をStateに返す
+    # 責務3: 全てのUI更新値と、トークン数、新しいルーム名、そしてダミーの確認State値を返す (合計56個)
     return (
         *all_ui_updates,
-        ui_attachments_df,
-        initial_active_attachments_display, # ← この行を追加
         token_count_text,
-        room_name
+        room_name,
+        ""  # room_delete_confirmed_state用のダミーの値
     )
-
 def handle_start_session(main_room: str, participant_list: list) -> tuple:
     if not participant_list:
         gr.Info("会話に参加するルームを1人以上選択してください。")
