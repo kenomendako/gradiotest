@@ -698,10 +698,8 @@ try:
                                             choices=["朝", "昼", "夕方", "夜"],
                                             interactive=True
                                         )
-                                    # --- [ここからが修正箇所] ---
                                     # ボタンを fixed_time_controls の外に移動し、常に表示されるようにする
                                     save_time_settings_button = gr.Button("このルームの時間設定を保存", variant="secondary")
-                                    # --- [修正はここまで] ---
                                 
                                 scenery_style_radio = gr.Dropdown(
                                     choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
@@ -710,7 +708,16 @@ try:
                                 generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
                                 refresh_scenery_button = gr.Button("情景テキストを更新", variant="secondary")
 
-                                # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
+                                with gr.Accordion("🎨 情景画像プロンプトを出力", open=False):
+                                    gr.Markdown("外部の画像生成サービスで利用するための、現在の情景に基づいたプロンプトを生成します。")
+                                    scenery_prompt_output_textbox = gr.Textbox(
+                                        label="生成されたプロンプト",
+                                        interactive=False,
+                                        lines=5,
+                                        placeholder="下のボタンを押してプロンプトを生成します..."
+                                    )
+                                    generate_scenery_prompt_button = gr.Button("プロンプトを生成", variant="secondary")
+
                                 with gr.Accordion("🏞️ カスタム情景画像の登録", open=False):
                                     gr.Markdown("AI生成の代わりに、ご自身で用意した画像を情景として登録します。")
                                     custom_scenery_location_dropdown = gr.Dropdown(label="場所を選択", interactive=True)
@@ -719,7 +726,6 @@ try:
                                         custom_scenery_time_dropdown = gr.Dropdown(label="時間帯", choices=["朝", "昼", "夕方", "夜"], value="夜", interactive=True)
                                     custom_scenery_image_upload = gr.Image(label="画像をアップロード", type="filepath", interactive=True)
                                     register_custom_scenery_button = gr.Button("この画像を情景として登録", variant="secondary")
-                                # ▲▲▲【追加はここまで】▲▲▲
                 # --- [3カラムレイアウトはここまで] ---
 
             with gr.TabItem(" 記憶・メモ・指示"):
@@ -953,12 +959,15 @@ try:
             fixed_time_of_day_dropdown,
             fixed_time_controls,
             attachments_df,
-            active_attachments_display 
+            active_attachments_display, 
+            custom_scenery_location_dropdown
         ]
+
+        
 
         demo.load(
             fn=ui_handlers.handle_initial_load,
-            inputs=None, # <<< 修正点: inputsを空にする
+            inputs=None, 
             outputs=initial_load_outputs
         )
 
@@ -1040,7 +1049,7 @@ try:
         # 2. その後(.then)、UI全体を更新する重い処理を実行
         ).then(
             fn=ui_handlers.handle_room_change_for_all_tabs,
-            inputs=[room_dropdown, api_key_dropdown],
+            inputs=[room_dropdown, api_key_dropdown, current_room_name],
             outputs=all_room_change_outputs
         )
 
@@ -1186,7 +1195,7 @@ try:
         room_delete_confirmed_state.change(
             fn=ui_handlers.handle_delete_room,
             inputs=[manage_folder_name_display, room_delete_confirmed_state, api_key_dropdown],
-            outputs=all_room_change_outputs + [room_delete_confirmed_state] # ★★★ ここにトリガー自身を追加 ★★★
+            outputs=all_room_change_outputs + [room_delete_confirmed_state]
         )
 
         # --- Screenshot Helper Event Handlers ---
@@ -1874,6 +1883,12 @@ try:
             outputs=[audio_player, play_audio_button, rerun_button]
         )
         play_audio_event.failure(fn=ui_handlers._reset_play_audio_on_failure, inputs=None, outputs=[audio_player, play_audio_button, rerun_button])
+
+        generate_scenery_prompt_button.click(
+            fn=ui_handlers.handle_show_scenery_prompt,
+            inputs=[current_room_name, api_key_dropdown, scenery_style_radio],
+            outputs=[scenery_prompt_output_textbox]
+        )
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."], inbrowser=True)
