@@ -232,9 +232,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
 def handle_initial_load():
     """
-    【v9: 共通設定永続化・最終版】
-    UIセッションが開始されるたびに、config.jsonから全ての関連設定を再読み込みし、
-    UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
+    【v11: 時間デフォルト対応版】
+    UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
     """
     print("--- [UI Session Init] demo.load event triggered. Reloading all configs from file. ---")
     config_manager.load_config()
@@ -278,6 +277,18 @@ def handle_initial_load():
     token_count_text, onboarding_guide_update, chat_input_update = ("トークン数: (APIキー未設定)", gr.update(visible=True), gr.update(interactive=False))
     if has_valid_key:
         token_calc_kwargs = config_manager.get_effective_settings(safe_initial_room)
+        # --- [カスタム情景用の場所リストを準備] ---
+        locations_for_custom_scenery = _get_location_choices_for_ui(safe_initial_room)
+        current_location_for_custom_scenery = utils.get_current_location(safe_initial_room)
+        custom_scenery_dd_update = gr.update(choices=locations_for_custom_scenery, value=current_location_for_custom_scenery)      
+        
+        # --- [カスタム情景用の時間帯デフォルト値を準備] ---
+        time_map_en_to_ja = {"early_morning": "早朝", "morning": "朝", "late_morning": "昼前", "afternoon": "昼下がり", "evening": "夕方", "night": "夜", "midnight": "深夜"}
+        now = datetime.datetime.now()
+        current_time_en = utils.get_time_of_day(now.hour)
+        current_time_ja = time_map_en_to_ja.get(current_time_en, "夜") # フォールバックとして「夜」
+        custom_scenery_time_dd_update = gr.update(value=current_time_ja)
+        
         token_count_text = gemini_api.count_input_tokens(
             room_name=safe_initial_room, api_key_name=safe_initial_api_key,
             api_history_limit=config.get("last_api_history_limit_option", "all"),
@@ -300,7 +311,7 @@ def handle_initial_load():
     )
 
     # --- 5. 全ての戻り値を正しい順序で組み立てる ---
-    # `initial_load_outputs`のリスト（50個）に対応
+    # `initial_load_outputs`のリスト（58個）に対応
     return (
         display_df, df_with_ids, feedback_text,
         *chat_tab_updates,
@@ -310,7 +321,9 @@ def handle_initial_load():
         world_data_for_state,
         *time_settings_updates,
         onboarding_guide_update,
-        *common_settings_updates # <<< 追加したタプルを展開して結合
+        *common_settings_updates,
+        custom_scenery_dd_update,
+        custom_scenery_time_dd_update
     )
 
 def handle_save_room_settings(
@@ -1201,26 +1214,23 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
 
 def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name: str):
     """
-    【v4: 戻り値の数FIX・最終版】
-    「管理」タブからルームを削除する処理。
-    最後のルームが削除された場合にも対応し、常に正しい数の戻り値を返す。
+    【v5: 完全契約遵守版】
+    ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
     """
-    # nexus_ark.pyのoutputsリストは all_room_change_outputs(54) + room_delete_confirmed_state(1) = 55個
-    EXPECTED_OUTPUT_COUNT = 55
-
-    # ユーザーが確認ダイアログで「キャンセル」を押した場合
+    EXPECTED_OUTPUT_COUNT = 57
+    
     if str(confirmed).lower() != 'true':
-        return (gr.update(),) * (EXPECTED_OUTPUT_COUNT - 1) + ("",)
+        return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
     if not folder_name_to_delete:
         gr.Warning("削除するルームが選択されていません。")
-        return (gr.update(),) * (EXPECTED_OUTPUT_COUNT - 1) + ("",)
-
+        return (gr.update(),) * EXPECTED_OUTPUT_COUNT
+    
     try:
         room_path_to_delete = os.path.join(constants.ROOMS_DIR, folder_name_to_delete)
         if not os.path.isdir(room_path_to_delete):
             gr.Error(f"削除対象のフォルダが見つかりません: {room_path_to_delete}")
-            return (gr.update(),) * (EXPECTED_OUTPUT_COUNT - 1) + ("",)
+            return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
         shutil.rmtree(room_path_to_delete)
         gr.Info(f"ルーム「{folder_name_to_delete}」を完全に削除しました。")
@@ -1228,18 +1238,16 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
         new_room_list = room_manager.get_room_list_for_ui()
 
         if new_room_list:
-            # ケース1: まだ他のルームが残っている場合
             new_main_room_folder = new_room_list[0][1]
-            all_updates = handle_room_change_for_all_tabs(new_main_room_folder, api_key_name)
-            # all_updates (54個) に、確認Stateをリセットするための空文字列 "" (1個) を追加して、合計55個の値を返す
-            return all_updates + ("",)
+            # handle_room_change_for_all_tabs を呼び出し、その結果をそのまま返す
+            return handle_room_change_for_all_tabs(new_main_room_folder, api_key_name, "")
         else:
             # ケース2: これが最後のルームだった場合
             gr.Warning("全てのルームが削除されました。新しいルームを作成してください。")
-            
-            # UIを「空の状態」にするための戻り値のタプルを作成する (合計53個)
-            empty_updates = (
-                # initial_load_chat_outputs (36個)
+            # 契約数(57)に合わせてUIをリセットするための値を返す
+            empty_chat_updates = (
+                # initial_load_chat_outputs (39個)
+                # current_room_name の値として None を返す
                 None, [], [], gr.update(interactive=False, placeholder="ルームを作成してください。"), 
                 None, "", "", "", "",
                 gr.update(choices=[], value=None), gr.update(choices=[], value=None), 
@@ -1247,34 +1255,35 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 gr.update(choices=[], value=None), 
                 "（ルームがありません）", 
                 list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,
-                0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
-                False, True, True, False, True, False, False, 
+                0.8, 0.95, *[gr.update()]*4,
+                *([gr.update()]*9),
                 "ℹ️ *ルームを選択してください*", None,
-                True, gr.update(open=True),
-                # world_builder_outputs (4個)
-                {}, gr.update(choices=[], value=None), "", gr.update(choices=[], value=None),
-                # session_management_outputs (3個)
-                [], "ルームがありません", gr.update(choices=[]),
-                # redaction_rules_df (1個)
-                pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)", "背景色"]),
-                # archive_date_dropdown (1個)
-                gr.update(choices=[]),
-                # time_settings_updates (4個)
-                gr.update(), gr.update(), gr.update(), gr.update(visible=False),
-                # attachments_df, active_attachments_display (2個)
-                pd.DataFrame(columns=["ファイル名", "種類", "サイズ(KB)", "添付日時"]), "現在アクティブな添付ファイルはありません。",
-                # ★★★ ここに不足していた2つの戻り値を追加 ★★★
-                "トークン数: -", # token_count_display
-                None             # current_room_name
+                True, gr.update(open=False),
             )
-            # 53個の「空の状態」と、Stateリセット用の "" を結合して54個にする
-            return empty_updates + ("",)
-
+            empty_world_updates = ({}, gr.update(choices=[], value=None), "", gr.update(choices=[], value=None))
+            empty_session_updates = ([], "ルームがありません", gr.update(choices=[]))
+            empty_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)", "背景色"])
+            empty_attach_df = pd.DataFrame(columns=["ファイル名", "種類", "サイズ(KB)", "添付日時"])
+            
+            return (
+                *empty_chat_updates, 
+                *empty_world_updates, 
+                *empty_session_updates,
+                empty_df, 
+                gr.update(choices=[]), # archive_date_dropdown
+                *[gr.update()]*4, # time_settings
+                empty_attach_df, 
+                "現在アクティブな添付ファイルはありません。", 
+                gr.update(choices=[]), # custom_scenery_location_dropdown
+                "トークン数: -", # token_count_display
+                ""                # room_delete_confirmed_state
+            )
+        
     except Exception as e:
         gr.Error(f"ルームの削除中にエラーが発生しました: {e}")
         traceback.print_exc()
-        return (gr.update(),) * (EXPECTED_OUTPUT_COUNT - 1) + ("",)
-
+        return (gr.update(),) * EXPECTED_OUTPUT_COUNT
+    
 def load_core_memory_content(room_name: str) -> str:
     """core_memory.txtの内容を安全に読み込むヘルパー関数。"""
     if not room_name: return ""
@@ -3003,46 +3012,57 @@ def handle_world_builder_load(room_name: str):
 
 def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str):
     """
-    【v7: 戻り値統一・最終FIX版】
+    【v11: 最終契約遵守版】
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
-    起動時の不要な連鎖発火をスキップするガード節を持つ。
     """
-    # --- [冪等性ガード] ---
+    # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
+    EXPECTED_OUTPUT_COUNT = 56
     if room_name == current_room_state:
-        print(f"--- UI司令塔 スキップ: ルームに変更なし ({room_name}) ---")
-        # 期待される出力の数（56個）だけ gr.update() を返す
-        return (gr.update(),) * 56
+        return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
     print(f"--- UI司令塔 実行: {room_name} へ変更 ---")
 
-    # 責務1: 新しいヘルパーを呼び出してUI更新値のタプルを取得する
-    all_ui_updates = _update_all_tabs_for_room_change(room_name, api_key_name)
-
-    # 責務2: トークン数を計算する
+    # 責務1: 各UIセクションの更新値を個別に生成する
+    chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
+    world_builder_updates = handle_world_builder_load(room_name)
+    session_management_updates = ([], "現在、1対1の会話モードです。", gr.update(value=[]))
+    rules = config_manager.load_redaction_rules()
+    rules_df_for_ui = _create_redaction_df_from_rules(rules)
+    archive_dates = _get_date_choices_from_memory(room_name)
+    archive_date_dd_update = gr.update(choices=archive_dates, value=archive_dates[0] if archive_dates else None)
+    time_settings = _load_time_settings_for_room(room_name)
+    time_settings_updates = (
+        gr.update(value=time_settings.get("mode", "リアル連動")),
+        gr.update(value=time_settings.get("fixed_season_ja", "秋")),
+        gr.update(value=time_settings.get("fixed_time_of_day_ja", "夜")),
+        gr.update(visible=(time_settings.get("mode", "リアル連動") == "選択する"))
+    )
+    ui_attachments_df = _get_attachments_df(room_name)
+    initial_active_attachments_display = "現在アクティブな添付ファイルはありません。"
+    locations_for_custom_scenery = _get_location_choices_for_ui(room_name)
+    current_location_for_custom_scenery = utils.get_current_location(room_name)
+    custom_scenery_dd_update = gr.update(choices=locations_for_custom_scenery, value=current_location_for_custom_scenery)
+    
+    all_updates_tuple = (
+        *chat_tab_updates, *world_builder_updates, *session_management_updates,
+        rules_df_for_ui, archive_date_dd_update, *time_settings_updates,
+        ui_attachments_df, initial_active_attachments_display, custom_scenery_dd_update
+    )
+    
     effective_settings = config_manager.get_effective_settings(room_name)
     api_history_limit_key = config_manager.CONFIG_GLOBAL.get("last_api_history_limit_option", "all")
-    
     token_calc_kwargs = {k: effective_settings.get(k) for k in [
         "display_thoughts", "add_timestamp", "send_current_time", "send_thoughts", 
         "send_notepad", "use_common_prompt", "send_core_memory", "send_scenery"
     ]}
-
     token_count_text = gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name, parts=[],
-        api_history_limit=api_history_limit_key,
-        **token_calc_kwargs
+        api_history_limit=api_history_limit_key, **token_calc_kwargs
     )
 
-    ui_attachments_df = _get_attachments_df(room_name)
-    initial_active_attachments_display = "現在アクティブな添付ファイルはありません。"
+    # 契約遵守のため、最後の戻り値として room_delete_confirmed_state 用の "" を追加
+    return all_updates_tuple + (token_count_text, "")
 
-    # 責務3: 全てのUI更新値と、トークン数、新しいルーム名、そしてダミーの確認State値を返す (合計56個)
-    return (
-        *all_ui_updates,
-        token_count_text,
-        room_name,
-        ""  # room_delete_confirmed_state用のダミーの値
-    )
 def handle_start_session(main_room: str, participant_list: list) -> tuple:
     if not participant_list:
         gr.Info("会話に参加するルームを1人以上選択してください。")
@@ -3278,21 +3298,18 @@ def handle_reload_world_settings_raw(room_name: str):
     )
 
 def handle_save_gemini_key(key_name: str, key_value: str):
-    """【v13: 警告修正版】新しいAPIキーを保存し、関連UIをリフレッシュする。"""
-    # 入力検証：キー名は半角英数字とアンダースコアのみ許可
+    """【v14: 責務分離版】新しいAPIキーを保存し、関連UIのみを更新する。"""
+    # 入力検証
     if not key_name or not key_value or not re.match(r"^[a-zA-Z0-9_]+$", key_name.strip()):
         gr.Warning("キーの名前（半角英数字とアンダースコアのみ）と値を両方入力してください。")
         return gr.update(), gr.update(), gr.update(), gr.update()
 
     key_name = key_name.strip()
-    # キーを保存
     config_manager.add_or_update_gemini_key(key_name, key_value)
-    gr.Info(f"Gemini APIキー「{key_name}」を保存しました。")
+    gr.Info(f"Gemini APIキー「{key_name}」を保存しました。UIをリフレッシュします...")
 
-    # configを再読み込みして最新の状態を取得
-    config_manager.load_config()
+    config_manager.load_config() # 最新の状態を読み込み
 
-    # 関連UIを全て更新
     new_choices_for_ui = config_manager.get_api_key_choices_for_ui()
     new_key_names = [key for _, key in new_choices_for_ui]
     paid_keys = config_manager.CONFIG_GLOBAL.get("paid_api_key_names", [])
@@ -3300,8 +3317,8 @@ def handle_save_gemini_key(key_name: str, key_value: str):
     return (
         gr.update(choices=new_choices_for_ui, value=key_name), # api_key_dropdown
         gr.update(choices=new_key_names, value=paid_keys),     # paid_keys_checkbox_group
-        gr.update(value=""),                                   # gemini_key_name_input
-        gr.update(value="")                                    # gemini_key_value_input
+        gr.update(value=""),                                   # gemini_key_name_input (クリア)
+        gr.update(value="")                                    # gemini_key_value_input (クリア)
     )
 
 def handle_delete_gemini_key(key_name):
@@ -4715,7 +4732,7 @@ def handle_register_custom_scenery(
 
     try:
         season_map = {"春": "spring", "夏": "summer", "秋": "autumn", "冬": "winter"}
-        time_map = {"朝": "morning", "昼": "daytime", "夕方": "evening", "夜": "night"}
+        time_map = {"早朝": "early_morning", "朝": "morning", "昼前": "late_morning", "昼下がり": "afternoon", "夕方": "evening", "夜": "night", "深夜": "midnight"}
         season_en = season_map.get(season_ja)
         time_en = time_map.get(time_ja)
 
