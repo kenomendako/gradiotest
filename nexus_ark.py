@@ -724,7 +724,7 @@ try:
                                     custom_scenery_location_dropdown = gr.Dropdown(label="場所を選択", interactive=True)
                                     with gr.Row():
                                         custom_scenery_season_dropdown = gr.Dropdown(label="季節", choices=["春", "夏", "秋", "冬"], value="秋", interactive=True)
-                                        custom_scenery_time_dropdown = gr.Dropdown(label="時間帯", choices=["朝", "昼", "夕方", "夜"], value="夜", interactive=True)
+                                        custom_scenery_time_dropdown = gr.Dropdown(label="時間帯", choices=["早朝", "朝", "昼前", "昼下がり", "夕方", "夜", "深夜"], value="夜", interactive=True)
                                     custom_scenery_image_upload = gr.Image(label="画像をアップロード", type="filepath", interactive=True)
                                     register_custom_scenery_button = gr.Button("この画像を情景として登録", variant="secondary")
                 # --- [3カラムレイアウトはここまで] ---
@@ -947,7 +947,8 @@ try:
             discord_webhook_input,
             image_generation_mode_radio,
             paid_keys_checkbox_group,
-            custom_scenery_location_dropdown
+            custom_scenery_location_dropdown,
+            custom_scenery_time_dropdown
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]

@@ -232,9 +232,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
 def handle_initial_load():
     """
-    【v9: 共通設定永続化・最終版】
-    UIセッションが開始されるたびに、config.jsonから全ての関連設定を再読み込みし、
-    UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
+    【v11: 時間デフォルト対応版】
+    UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
     """
     print("--- [UI Session Init] demo.load event triggered. Reloading all configs from file. ---")
     config_manager.load_config()
@@ -282,6 +281,14 @@ def handle_initial_load():
         locations_for_custom_scenery = _get_location_choices_for_ui(safe_initial_room)
         current_location_for_custom_scenery = utils.get_current_location(safe_initial_room)
         custom_scenery_dd_update = gr.update(choices=locations_for_custom_scenery, value=current_location_for_custom_scenery)      
+        
+        # --- [カスタム情景用の時間帯デフォルト値を準備] ---
+        time_map_en_to_ja = {"early_morning": "早朝", "morning": "朝", "late_morning": "昼前", "afternoon": "昼下がり", "evening": "夕方", "night": "夜", "midnight": "深夜"}
+        now = datetime.datetime.now()
+        current_time_en = utils.get_time_of_day(now.hour)
+        current_time_ja = time_map_en_to_ja.get(current_time_en, "夜") # フォールバックとして「夜」
+        custom_scenery_time_dd_update = gr.update(value=current_time_ja)
+        
         token_count_text = gemini_api.count_input_tokens(
             room_name=safe_initial_room, api_key_name=safe_initial_api_key,
             api_history_limit=config.get("last_api_history_limit_option", "all"),
@@ -315,7 +322,8 @@ def handle_initial_load():
         *time_settings_updates,
         onboarding_guide_update,
         *common_settings_updates,
-        custom_scenery_dd_update
+        custom_scenery_dd_update,
+        custom_scenery_time_dd_update
     )
 
 def handle_save_room_settings(
@@ -4724,7 +4732,7 @@ def handle_register_custom_scenery(
 
     try:
         season_map = {"春": "spring", "夏": "summer", "秋": "autumn", "冬": "winter"}
-        time_map = {"朝": "morning", "昼": "daytime", "夕方": "evening", "夜": "night"}
+        time_map = {"早朝": "early_morning", "朝": "morning", "昼前": "late_morning", "昼下がり": "afternoon", "夕方": "evening", "夜": "night", "深夜": "midnight"}
         season_en = season_map.get(season_ja)
         time_en = time_map.get(time_ja)
 
