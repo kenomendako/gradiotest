@@ -717,6 +717,7 @@ try:
                                         placeholder="下のボタンを押してプロンプトを生成します..."
                                     )
                                     generate_scenery_prompt_button = gr.Button("プロンプトを生成", variant="secondary")
+                                    copy_scenery_prompt_button = gr.Button("プロンプトをコピー")
 
                                 with gr.Accordion("🏞️ カスタム情景画像の登録", open=False):
                                     gr.Markdown("AI生成の代わりに、ご自身で用意した画像を情景として登録します。")
@@ -946,12 +947,15 @@ try:
             discord_webhook_input,
             image_generation_mode_radio,
             paid_keys_checkbox_group,
+            custom_scenery_location_dropdown
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
         session_management_outputs = [active_participants_state, session_status_display, participant_checkbox_group]
 
-        all_room_change_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [
+        # 【v5: 司令塔契約統一版】
+        # ルームの変更や削除時に、UI全体をリフレッシュする全てのコンポーネントをここに集約する
+        unified_full_room_refresh_outputs = initial_load_chat_outputs + world_builder_outputs + session_management_outputs + [
             redaction_rules_df,
             archive_date_dropdown,
             time_mode_radio,
@@ -959,12 +963,13 @@ try:
             fixed_time_of_day_dropdown,
             fixed_time_controls,
             attachments_df,
-            active_attachments_display, 
-            custom_scenery_location_dropdown
+            active_attachments_display,
+            custom_scenery_location_dropdown,
+            # 司令塔間で戻り値の数を統一するための追加コンポーネント
+            token_count_display,
+            room_delete_confirmed_state, # handle_delete_room が返すリセット値用
         ]
-
         
-
         demo.load(
             fn=ui_handlers.handle_initial_load,
             inputs=None, 
@@ -1037,9 +1042,6 @@ try:
             outputs=unified_streaming_outputs
         )
 
-        # 戻り値の最後に token_count_display と current_room_name を追加
-        all_room_change_outputs.extend([token_count_display, current_room_name])
-
         # 【v5: 堅牢化】ルーム変更イベントを2段階に分離
         # 1. まず、選択されたルーム名をconfig.jsonに即時保存するだけの小さな処理を実行
         room_dropdown.change(
@@ -1050,7 +1052,7 @@ try:
         ).then(
             fn=ui_handlers.handle_room_change_for_all_tabs,
             inputs=[room_dropdown, api_key_dropdown, current_room_name],
-            outputs=all_room_change_outputs
+            outputs=unified_full_room_refresh_outputs
         )
 
         chat_reload_button.click(
@@ -1195,7 +1197,7 @@ try:
         room_delete_confirmed_state.change(
             fn=ui_handlers.handle_delete_room,
             inputs=[manage_folder_name_display, room_delete_confirmed_state, api_key_dropdown],
-            outputs=all_room_change_outputs + [room_delete_confirmed_state]
+            outputs=unified_full_room_refresh_outputs
         )
 
         # --- Screenshot Helper Event Handlers ---
@@ -1420,7 +1422,10 @@ try:
         )
 
         notification_service_radio.change(fn=ui_handlers.handle_notification_service_change, inputs=[notification_service_radio], outputs=[])
-        save_gemini_key_button.click(
+
+        # 【v14: 責務分離アーキテクチャ】
+        # 1. まず、キーの保存と、それに関連するUIのみを更新する
+        save_key_event = save_gemini_key_button.click(
             fn=ui_handlers.handle_save_gemini_key,
             inputs=[gemini_key_name_input, gemini_key_value_input],
             outputs=[
@@ -1428,10 +1433,15 @@ try:
                 paid_keys_checkbox_group,
                 gemini_key_name_input,
                 gemini_key_value_input,
-                onboarding_guide,
-                chat_input_multimodal
-            ] + all_room_change_outputs
+            ]
         )
+        # 2. その後(.then)、UI全体を初期化する司令塔を呼び出す
+        save_key_event.then(
+            fn=ui_handlers.handle_initial_load,
+            inputs=None,
+            outputs=initial_load_outputs
+        )
+
         delete_gemini_key_button.click(fn=ui_handlers.handle_delete_gemini_key, inputs=[gemini_key_name_input], outputs=[api_key_dropdown, paid_keys_checkbox_group])
         save_pushover_config_button.click(fn=ui_handlers.handle_save_pushover_config, inputs=[pushover_user_key_input, pushover_app_token_input], outputs=[])
         save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
@@ -1883,6 +1893,11 @@ try:
             outputs=[audio_player, play_audio_button, rerun_button]
         )
         play_audio_event.failure(fn=ui_handlers._reset_play_audio_on_failure, inputs=None, outputs=[audio_player, play_audio_button, rerun_button])
+
+        copy_scenery_prompt_button.click(
+            fn=None, inputs=[scenery_prompt_output_textbox], outputs=None,
+            js="(text) => { navigator.clipboard.writeText(text); const toast = document.createElement('gradio-toast'); toast.setAttribute('description', 'プロンプトをコピーしました！'); document.querySelector('.gradio-toast-container-x-center').appendChild(toast); }"
+        )
 
         generate_scenery_prompt_button.click(
             fn=ui_handlers.handle_show_scenery_prompt,
