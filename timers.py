@@ -40,6 +40,7 @@ class UnifiedTimer:
 
         self._stop_event = threading.Event()
         self.thread = None
+        self.start_time = None # 開始時刻を記録する変数を追加
 
     def start(self):
         if self.timer_type == "通常タイマー":
@@ -48,9 +49,25 @@ class UnifiedTimer:
             self.thread = threading.Thread(target=self._run_pomodoro)
 
         if self.thread:
+            self.start_time = time.time() # タイマー開始時刻を記録
             self.thread.daemon = True
             self.thread.start()
             ACTIVE_TIMERS.append(self)
+
+    def get_remaining_time(self) -> float:
+        """タイマーの残り時間を秒単位で返す。"""
+        if self.start_time is None:
+            return 0.0
+        
+        elapsed_time = time.time() - self.start_time
+        
+        # 現在のフェーズの総時間から経過時間を引く
+        # このロジックは単純なタイマーとポモドーロの最初の作業フェーズにのみ対応
+        # より正確な実装には状態管理が必要だが、重複チェックにはこれで十分
+        current_duration = self.duration if self.timer_type == "通常タイマー" else self.work_duration
+        
+        remaining = current_duration - elapsed_time
+        return max(0, remaining)
 
     def _run_single_timer(self, duration: float, theme: str, timer_id: str):
         try:
@@ -66,7 +83,7 @@ class UnifiedTimer:
 
             print(f"--- [タイマー終了: {timer_id}] AIに応答生成を依頼します ---")
 
-            synthesized_user_message = f"（システムタイマー：時間です。テーマ「{theme}」について、メッセージを伝えてください）"
+            synthesized_user_message = f"（システムタイマー：時間です。テーマ「{theme}」について、**タイマーが完了したことをユーザーに通知してください。新しいタイマーやアラームを設定してはいけません。**）"
 
             log_f, _, _, _, _ = room_manager.get_room_files_paths(self.room_name)
 
@@ -89,24 +106,27 @@ class UnifiedTimer:
                 self.room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
             )
 
+            # バックグラウンド処理で使用すべきグローバルモデル名を取得
+            global_model_for_bg = config_manager.get_current_global_model()
+
             agent_args_dict = {
                 "room_to_respond": self.room_name,
                 "api_key_name": current_api_key_name,
+                "global_model_from_ui": global_model_for_bg, # <<< ここを修正
                 "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
                 "debug_mode": False,
                 "history_log_path": log_f,
                 "user_prompt_parts": [{"type": "text", "text": synthesized_user_message}],
                 "soul_vessel_room": self.room_name,
                 "active_participants": [],
-                "active_attachments": [], # ← この行を追加
+                "active_attachments": [],
                 "shared_location_name": location_name,
                 "shared_scenery_text": scenery_text,
-                "use_common_prompt": False, # ← 思考をシンプルにするため、ツールプロンプトを無効化
-                # 3. AIの引数にも時間コンテキストを追加
+                "use_common_prompt": False,
                 "season_en": season_en,
                 "time_of_day_en": time_of_day_en
             }
-
+                        
             final_response_text = ""
             max_retries = 5
             base_delay = 5

@@ -439,6 +439,7 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         "safety_block_threshold_sexually_explicit": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_dangerous_content": "BLOCK_ONLY_HIGH"
     }
+    
     room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
     if os.path.exists(room_config_path):
         try:
@@ -446,20 +447,29 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
                 room_config = json.load(f)
             override_settings = room_config.get("override_settings", {})
             for k, v in override_settings.items():
+                # model_name はここでは読み込まない
                 if v is not None and k != "model_name":
                     effective_settings[k] = v
         except Exception as e:
             print(f"ルーム設定ファイル '{room_config_path}' の読み込みエラー: {e}")
+
     for key, value in kwargs.items():
+        # "global_model_from_ui" はモデル決定ロジックで使うので、ここでは除外
         if key not in ["global_model_from_ui"] and value is not None:
             effective_settings[key] = value
+
+    # --- モデル選択の最終決定ロジック ---
     global_model_from_ui = kwargs.get("global_model_from_ui")
+
+    # UIからの指定があればそれを使い、なければ共通のデフォルトを使う
     final_model_name = global_model_from_ui or DEFAULT_MODEL_GLOBAL
     effective_settings["model_name"] = final_model_name
+
+    # 念の為のフォールバック
     if not effective_settings.get("model_name"):
         effective_settings["model_name"] = DEFAULT_MODEL_GLOBAL
-    return effective_settings
 
+    return effective_settings
 
 from typing import Tuple
 
@@ -544,3 +554,20 @@ def has_valid_api_key() -> bool:
         if value and isinstance(value, str) and value != "YOUR_API_KEY_HERE":
             return True
     return False
+
+def get_current_global_model() -> str:
+    """
+    config.jsonから、現在ユーザーが共通設定で選択している
+    有効なグローバルモデル名を返す。
+    """
+    # 常に最新の設定をファイルから読み込む
+    config = load_config_file()
+    
+    # last_modelキーが存在し、かつ利用可能モデルリストに含まれていればそれを優先
+    last_model = config.get("last_model")
+    available_models = config.get("available_models", [])
+    if last_model and last_model in available_models:
+        return last_model
+        
+    # それ以外の場合は、default_modelキーを返す
+    return config.get("default_model", DEFAULT_MODEL_GLOBAL)

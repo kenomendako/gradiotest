@@ -453,17 +453,8 @@ def agent_node(state: AgentState):
 
     except (google_exceptions.ResourceExhausted, google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
         print(f"--- [警告] agent_nodeでAPIエラーを捕捉しました: {e} ---")
-        # 再思考中(2ループ目)の失敗か？
-        if loop_count > 0:
-            last_successful_response = state.get("last_successful_response")
-            if last_successful_response:
-                print("  - 再思考中にエラーが発生。1ループ目の応答は既に存在するため、グラフを安全に終了します。")
-                return {
-                    "force_end": True
-                }
-        
-        # 1ループ目の失敗、または復元対象がない場合は、例外を再送出してUIハンドラに処理を任せる
-        print("  - 1ループ目でのエラー、または復元可能な応答がないため、例外を上位に伝播させます。")
+        # UIハンドラ側でリトライを処理させるため、例外をそのまま再送出する
+        print("  - 例外を上位のUIハンドラに伝播させ、リトライを促します。")
         raise e
 
 import room_manager # ← 関数の先頭でインポートを追加
