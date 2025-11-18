@@ -123,7 +123,7 @@ def trigger_alarm(alarm_config, current_api_key_name):
 
     # アラームに設定された時刻を取得し、AIへの指示に含める
     scheduled_time = alarm_config.get("time", "指定時刻")
-    synthesized_user_message = f"（システムアラーム：設定時刻 {scheduled_time} になりました。コンテキスト「{context_to_use}」について、アラームメッセージを伝えてください）"
+    synthesized_user_message = f"（システムアラーム：設定時刻 {scheduled_time} になりました。コンテキスト「{context_to_use}」について、**アラームが作動したことをユーザーに通知してください。新しいタイマーやアラームを設定してはいけません。**）"
     message_for_log = f"（システムアラーム：{alarm_config.get('time', '指定時刻')}）"
 
     from agent.graph import generate_scenery_context
@@ -135,24 +135,27 @@ def trigger_alarm(alarm_config, current_api_key_name):
         room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
     )
 
+    # バックグラウンド処理で使用すべきグローバルモデル名を取得
+    global_model_for_bg = config_manager.get_current_global_model()
+    
     agent_args_dict = {
         "room_to_respond": room_name,
         "api_key_name": current_api_key_name,
+        "global_model_from_ui": global_model_for_bg, # <<< ここを修正
         "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
-        "debug_mode": True, # アラーム発火時はデバッグ情報を常に出力
+        "debug_mode": True,
         "history_log_path": log_f,
         "user_prompt_parts": [{"type": "text", "text": synthesized_user_message}],
         "soul_vessel_room": room_name,
         "active_participants": [],
-        "active_attachments": [], # ← この行を追加
+        "active_attachments": [],
         "shared_location_name": location_name,
         "shared_scenery_text": scenery_text,
-        "use_common_prompt": False, # ← 思考をシンプルにするため、ツールプロンプトを無効化
-        # 3. AIの引数にも時間コンテキストを追加
+        "use_common_prompt": False,
         "season_en": season_en,
         "time_of_day_en": time_of_day_en
     }
-
+        
     final_response_text = ""
     max_retries = 5
     base_delay = 5

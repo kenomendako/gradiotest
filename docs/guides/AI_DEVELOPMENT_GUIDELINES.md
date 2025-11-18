@@ -41,6 +41,15 @@ The original code in the `main` branch, which uses `import google.genai as genai
 | **Main Agent / Final Response** (`agent_node`) | **User-Selected (Default: `gemini-2.5-pro`)** | 高品質な推論とツール使用のため。ユーザーはUIの「共通設定」および「個別設定」から、このモデルを自由に変更できます。アプリケーションの全体的なデフォルトは`gemini-2.5-pro`に設定されています。 |
 | **Image Generation** (`generate_image` tool) | `gemini-2.0-flash-preview-image-generation` | このタスクのために指定された、唯一の無料モデル。 |
 
+#### **バックグラウンド処理におけるモデル選択**
+タイマーやアラームの通知応答のように、UIを介さずにバックグラウンドでAIの応答を生成する必要がある場合、モデルの選択は以下のルールに従う。
+
+1.  処理の起点（`timers.py`や`alarm_manager.py`）は、**`config_manager.get_current_global_model()`** を呼び出す。
+2.  この関数は、`config.json`を直接読み込み、ユーザーが「共通設定」で最後に選択した有効なモデル名 (`last_model`) を取得する。
+3.  取得したモデル名を、エージェント呼び出しの `global_model_from_ui` 引数に渡す。
+
+これにより、バックグラウンド処理においても、UIでの対話と同様に、ユーザーが意図したグローバルモデル設定が確実に反映されることが保証される。
+
 #### **Critical Warning: The `gemini-1.5-pro` Model (最重要警告)**
 過去の検証において、`gemini-1.5-pro` モデルを `agent_node` で使用すると、致命的な `429 ResourceExhausted` エラーが頻発し、システムが不安定になることが証明されています。
 

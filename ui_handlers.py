@@ -577,8 +577,26 @@ def _stream_and_handle_response(
             
             for attempt in range(max_retries):
                 try:
+                    agent_args_dict = {
+                        "room_to_respond": current_room,
+                        "api_key_name": api_key_name,
+                        "global_model_from_ui": global_model,
+                        "api_history_limit": api_history_limit,
+                        "debug_mode": debug_mode,
+                        "history_log_path": main_log_f,
+                        "user_prompt_parts": user_prompt_parts_for_api if is_first_responder else [],
+                        "soul_vessel_room": soul_vessel_room,
+                        "active_participants": active_participants,
+                        "shared_location_name": shared_location_name,
+                        "active_attachments": active_attachments,
+                        "shared_scenery_text": scenery_text_from_ui,
+                        "season_en": season_en,
+                        "time_of_day_en": time_of_day_en,
+                        "skip_tool_execution": tool_execution_successful_this_turn
+                    }
+                    
+                    # デバッグモードがONの場合のみ、標準出力をキャプチャする
                     if debug_mode:
-                        # デバッグモードがONの場合のみ、標準出力をキャプチャする
                         with utils.capture_prints() as captured_output:
                             for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                                 if mode == "initial_count":
@@ -587,29 +605,35 @@ def _stream_and_handle_response(
                                     final_state = chunk
                         current_console_content += captured_output.getvalue()
                     else:
-                        # デバッグモードがOFFの場合は、キャプチャせず直接実行する
                         for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                             if mode == "initial_count":
                                 initial_message_count = chunk
                             elif mode == "values":
                                 final_state = chunk
-                    break
+                            
+                    break # 成功したのでリトライループを抜ける
+                
                 except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
-                    # (リトライ処理は変更なし)
                     error_str = str(e)
                     if "PerDay" in error_str or "Daily" in error_str:
                         final_error_message = "[エラー] APIの1日あたりの利用上限に達したため、本日の応答はこれ以上生成できません。モデルかキーを変更するか、制限解除までお待ちください。"
                         break
+                    
                     wait_time = base_delay * (2 ** attempt)
                     match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
-                    if match: wait_time = int(match.group(1)) + 1
+                    if match:
+                        wait_time = int(match.group(1)) + 1
+                    
                     if attempt < max_retries - 1:
                         retry_message = (f"⏳ APIの応答が遅延しています。{wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries}回目)")
-                        chatbot_history[-1] = (None, retry_message)
+                        # reload_chat_logを呼び出して最新の履歴を取得
+                        chatbot_history, mapping_list = reload_chat_log(
+                            soul_vessel_room, api_history_limit, add_timestamp, display_thoughts,
+                            screenshot_mode, redaction_rules
+                        )
+                        chatbot_history.append((None, retry_message))
                         yield (chatbot_history, mapping_list, *([gr.update()] * 12))
                         time.sleep(wait_time)
-                        chatbot_history[-1] = (None, f"思考中 ({current_room})... ▌")
-                        yield (chatbot_history, mapping_list, *([gr.update()] * 12))
                     else:
                         final_error_message = f"[エラー] APIのレート制限が頻発しています。時間をおいて再試行してください。"
                         break
@@ -619,20 +643,16 @@ def _stream_and_handle_response(
                     final_error_message = f"[エラー] 内部処理で問題が発生しました。詳細はターミナルを確認してください。"
                     break
             
-            if final_error_message: break
+            if final_error_message:
+                break # AIごとのループを抜ける
 
             if final_state:
+                # [安定化] ストリーム完了後に、全てのメッセージをまとめて処理する
                 new_messages = final_state["messages"][initial_message_count:]
-                # LangGraphが末尾に追加する空のAIMessage（メタデータのみ）を除去
-                if new_messages and isinstance(new_messages[-1], AIMessage):
-                    if not new_messages[-1].content or not new_messages[-1].content.strip():
-                        new_messages.pop()
+                if new_messages and isinstance(new_messages[-1], AIMessage) and (not new_messages[-1].content or not new_messages[-1].content.strip()):
+                    new_messages.pop()
 
-                last_ai_message = next((msg for msg in reversed(new_messages) if isinstance(msg, AIMessage)), None)
-                has_tool_calls_in_turn = bool(last_ai_message and last_ai_message.tool_calls)
-
-                # --- 応答の記録 ---
-                # このAIが生成した全てのメッセージを、参加者全員のログに書き込む
+                # ログ記録とリトライガード設定
                 for msg in new_messages:
                     if isinstance(msg, (AIMessage, ToolMessage)):
                         content_to_log = ""
@@ -641,34 +661,32 @@ def _stream_and_handle_response(
                             content_to_log = msg.content
                             header = f"## AGENT:{current_room}"
                         elif isinstance(msg, ToolMessage):
-                            content_to_log = utils.format_tool_result_for_ui(msg.name, str(msg.content)) or f"ツール「{msg.name}」を実行しました。"
+                            formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                            content_to_log = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"
                             header = f"## SYSTEM:tool_result"
-                            all_turn_popups.append(content_to_log)
-
-                        # 副作用のあるツールがエラーなく成功したかを判定し、リトライ防止フラグを立てる
-                        side_effect_tools = [
-                                "plan_main_memory_edit", "plan_secret_diary_edit", "plan_notepad_edit", "plan_world_edit",
-                                "set_personal_alarm", "set_timer", "set_pomodoro_timer"
-                            ]
-                        tool_content_str = str(msg.content)
-                        if msg.name in side_effect_tools and "Error" not in tool_content_str and "エラー" not in tool_content_str:
-                                tool_execution_successful_this_turn = True
-                                print(f"--- [リトライガード設定] 副作用のあるツール '{msg.name}' の成功を記録しました。 ---")   
+                        
+                        side_effect_tools = ["plan_main_memory_edit", "plan_secret_diary_edit", "plan_notepad_edit", "plan_world_edit", "set_personal_alarm", "set_timer", "set_pomodoro_timer"]
+                        if isinstance(msg, ToolMessage) and msg.name in side_effect_tools and "Error" not in str(msg.content) and "エラー" not in str(msg.content):
+                            tool_execution_successful_this_turn = True
+                            print(f"--- [リトライガード設定] 副作用のあるツール '{msg.name}' の成功を記録しました。 ---")
                         
                         if header and content_to_log:
                             for participant_room in all_rooms_in_scene:
                                 log_f, _, _, _, _ = get_room_files_paths(participant_room)
                                 if log_f: utils.save_message_to_log(log_f, header, content_to_log)
                 
-                # --- 表示処理 ---
-                text_to_display = ""
-                if has_tool_calls_in_turn:
-                    text_to_display = last_ai_message.content if last_ai_message else ""
-                else:
-                    all_ai_contents = [msg.content for msg in new_messages if isinstance(msg, AIMessage) and msg.content and isinstance(msg.content, str)]
-                    text_to_display = "\n\n".join(all_ai_contents)
+                # 表示処理
+                # ログが更新された可能性があるので、UI表示の直前に必ず再読み込みする
+                chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit, add_timestamp, display_thoughts, screenshot_mode, redaction_rules)
+                
+                # このターンでAIが生成した最後の発言のみをストリーミング表示の対象とする
+                last_ai_message = next((msg for msg in reversed(new_messages) if isinstance(msg, AIMessage) and msg.content and msg.content.strip()), None)
+                text_to_display = last_ai_message.content if last_ai_message else ""
 
-                if text_to_display and text_to_display.strip():
+                if text_to_display:
+                    # 思考中カーソルを一旦追加してからストリーミングを開始
+                    chatbot_history.append((None, "▌"))
+                    
                     if enable_typewriter_effect and streaming_speed > 0:
                         for char in text_to_display:
                             streamed_text += char
@@ -678,17 +696,12 @@ def _stream_and_handle_response(
                     else:
                         streamed_text = text_to_display
                 
-                # ストリーミング完了後、最終的なテキストで一度更新
-                chatbot_history[-1] = (None, streamed_text)
+                # ターン完了後、最終的な表示を確定させるために再度ログから読み込む
+                chatbot_history, mapping_list = reload_chat_log(
+                    soul_vessel_room, api_history_limit, add_timestamp, display_thoughts,
+                    screenshot_mode, redaction_rules 
+                )
                 yield (chatbot_history, mapping_list, *([gr.update()] * 12))
-
-            # --- UIの再描画と確定 ---
-            # このAIのターンが完了したので、ログから完全に再描画して表示を「確定」させる
-            chatbot_history, mapping_list = reload_chat_log(
-                soul_vessel_room, api_history_limit, add_timestamp, display_thoughts,
-                screenshot_mode, redaction_rules 
-            )
-            yield (chatbot_history, mapping_list, *([gr.update()] * 12))
 
         if final_error_message:
             # エラーメッセージを、AIの応答ではなく「システムエラー」として全員のログに記録する
@@ -698,9 +711,6 @@ def _stream_and_handle_response(
                 if log_f:
                     utils.save_message_to_log(log_f, error_header, final_error_message)
             # この時点ではUIに直接書き込まず、finallyブロックのreload_chat_logに表示を任せる
-
-        for popup_message in all_turn_popups:
-            gr.Info(popup_message)
 
     except GeneratorExit:
         print("--- [ジェネレータ] ユーザーの操作により、ストリーミング処理が正常に中断されました。 ---")
@@ -1771,6 +1781,8 @@ def format_history_for_gradio(
 
         if item["type"] == "text":
             speaker_name = ""
+            content_to_parse = item['content'] # まずデフォルトとして元のコンテンツを設定
+
             if is_user:
                 speaker_name = user_display_name
             elif role == "AGENT":
@@ -1779,11 +1791,15 @@ def format_history_for_gradio(
                     agent_name_cache[responder_id] = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
                 speaker_name = agent_name_cache[responder_id]
             elif role == "SYSTEM":
-                speaker_name = ""
-            else:
+                if responder_id == "tool_result":
+                    # RAW_RESULT部分を除去したものを、パース対象のコンテンツとして上書き
+                    content_to_parse = re.sub(r"\[RAW_RESULT\][\s\S]*?\[/RAW_RESULT\]", "", item['content'], flags=re.DOTALL).strip()
+                    speaker_name = "tool_result" # 話者名として表示
+                else:
+                    # tool_result以外のSYSTEMメッセージは話者名なし
+                    speaker_name = ""
+            else: # 将来的な拡張のためのフォールバック
                 speaker_name = responder_id
-
-            content_to_parse = item['content']
 
             if screenshot_mode and redaction_rules:
                 for rule in redaction_rules:
