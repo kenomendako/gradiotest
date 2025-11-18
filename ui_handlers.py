@@ -641,9 +641,14 @@ def _stream_and_handle_response(
                             content_to_log = msg.content
                             header = f"## AGENT:{current_room}"
                         elif isinstance(msg, ToolMessage):
-                            content_to_log = utils.format_tool_result_for_ui(msg.name, str(msg.content)) or f"ツール「{msg.name}」を実行しました。"
+                            # UI表示用のフォーマットされたテキストを生成
+                            formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                            # ログには、UI表示用テキストと生の実行結果の両方を記録する
+                            content_to_log = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"
                             header = f"## SYSTEM:tool_result"
-                            all_turn_popups.append(content_to_log)
+                            # ポップアップ通知用のリストには、UI表示用テキストのみを追加
+                            if formatted_tool_result:
+                                all_turn_popups.append(formatted_tool_result)
 
                         # 副作用のあるツールがエラーなく成功したかを判定し、リトライ防止フラグを立てる
                         side_effect_tools = [
@@ -651,7 +656,8 @@ def _stream_and_handle_response(
                                 "set_personal_alarm", "set_timer", "set_pomodoro_timer"
                             ]
                         tool_content_str = str(msg.content)
-                        if msg.name in side_effect_tools and "Error" not in tool_content_str and "エラー" not in tool_content_str:
+                        # ToolMessageの場合のみname属性をチェックする
+                        if isinstance(msg, ToolMessage) and msg.name in side_effect_tools and "Error" not in tool_content_str and "エラー" not in tool_content_str:
                                 tool_execution_successful_this_turn = True
                                 print(f"--- [リトライガード設定] 副作用のあるツール '{msg.name}' の成功を記録しました。 ---")   
                         
@@ -1771,6 +1777,8 @@ def format_history_for_gradio(
 
         if item["type"] == "text":
             speaker_name = ""
+            content_to_parse = item['content'] # まずデフォルトとして元のコンテンツを設定
+
             if is_user:
                 speaker_name = user_display_name
             elif role == "AGENT":
@@ -1779,11 +1787,15 @@ def format_history_for_gradio(
                     agent_name_cache[responder_id] = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
                 speaker_name = agent_name_cache[responder_id]
             elif role == "SYSTEM":
-                speaker_name = ""
-            else:
+                if responder_id == "tool_result":
+                    # RAW_RESULT部分を除去したものを、パース対象のコンテンツとして上書き
+                    content_to_parse = re.sub(r"\[RAW_RESULT\][\s\S]*?\[/RAW_RESULT\]", "", item['content'], flags=re.DOTALL).strip()
+                    speaker_name = "tool_result" # 話者名として表示
+                else:
+                    # tool_result以外のSYSTEMメッセージは話者名なし
+                    speaker_name = ""
+            else: # 将来的な拡張のためのフォールバック
                 speaker_name = responder_id
-
-            content_to_parse = item['content']
 
             if screenshot_mode and redaction_rules:
                 for rule in redaction_rules:
