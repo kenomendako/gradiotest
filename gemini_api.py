@@ -26,6 +26,10 @@ from langchain_google_genai import HarmCategory, HarmBlockThreshold, ChatGoogleG
 import config_manager
 import constants
 
+# --- [Thinking Model Signature Cache] ---
+# ルームごとの「最後の思考署名」を保持するメモリ内キャッシュ
+_thought_signature_cache: Dict[str, str] = {}
+
 # (get_model_token_limits, _convert_lc_to_gg_for_count, count_tokens_from_lc_messages は変更なし)
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
     if model_name in utils._model_token_limits_cache: return utils._model_token_limits_cache[model_name]
@@ -118,7 +122,10 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
     lc_messages = []
     timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
 
-    for h_item in raw_history:
+    # --- [Thinking署名] キャッシュから署名を取得 ---
+    cached_signature = _thought_signature_cache.get(responding_character_id)
+
+    for i, h_item in enumerate(raw_history):
         content = h_item.get('content', '').strip()
         if not add_timestamp:
             content = timestamp_pattern.sub('', content)
@@ -128,6 +135,7 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
             continue
         is_user = (role == 'USER')
         is_self = (responder_id == responding_character_id)
+        
         if is_user:
             text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
             if text_only_content:
@@ -136,14 +144,27 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
             content_for_api = content
             if not send_thoughts:
                 content_for_api = utils.remove_thoughts_from_text(content)
+            
             if content_for_api:
-                lc_messages.append(AIMessage(content=content_for_api, name=responder_id))
+                ai_msg = AIMessage(content=content_for_api, name=responder_id)
+                
+                # ▼▼▼ [Thinking署名] 最後のAIメッセージなら、署名を注入する ▼▼▼
+                # ログの最後のメッセージ（最新の自分の発言）であり、かつ署名がキャッシュされている場合
+                if cached_signature and i == len(raw_history) - 1:
+                     # LangChain Google GenAI は additional_kwargs の特定のキーを見る仕様があるため注入
+                     if not ai_msg.additional_kwargs:
+                         ai_msg.additional_kwargs = {}
+                     ai_msg.additional_kwargs["thought_signature"] = cached_signature
+                # ▲▲▲ [追加ここまで] ▲▲▲
+                
+                lc_messages.append(ai_msg)
         else:
             other_agent_config = room_manager.get_room_config(responder_id)
             display_name = other_agent_config.get("room_name", responder_id) if other_agent_config else responder_id
             clean_content = utils.remove_thoughts_from_text(content)
             annotated_content = f"（{display_name}の発言）:\n{clean_content}"
             lc_messages.append(HumanMessage(content=annotated_content))
+            
     return lc_messages
 
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
@@ -316,8 +337,32 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
     yield ("initial_count", len(messages))
 
-    yield from app.stream(initial_state, stream_mode=["messages", "values"])
-
+    # ▼▼▼ [Thinking署名 & ストリーム形式修正] ▼▼▼
+    # app.stream からは (mode, payload) というタプルが返ってきます
+    # 必ず 'mode, payload' と2つの変数で受け取る必要があります
+    for mode, payload in app.stream(initial_state, stream_mode=["messages", "values"]):
+        
+        if mode == "messages": # メッセージ更新イベントの場合
+             # payload はメッセージのリスト、または単体のメッセージです
+             msgs = payload
+             if not isinstance(msgs, list): msgs = [msgs]
+             
+             for msg in msgs:
+                 if isinstance(msg, AIMessage):
+                     # 署名が含まれているかチェックし、あればキャッシュする
+                     # 安全のために getattr を使用
+                     add_kwargs = getattr(msg, "additional_kwargs", {})
+                     sig = add_kwargs.get("thought_signature")
+                     
+                     if not sig and hasattr(msg, "response_metadata") and "thought_signature" in msg.response_metadata:
+                         sig = msg.response_metadata["thought_signature"]
+                     
+                     if sig:
+                         _thought_signature_cache[room_to_respond] = sig
+                         
+        # そのまま (mode, payload) のタプルとして下流（ui_handlers）に流す
+        yield (mode, payload)
+                        
 def count_input_tokens(**kwargs):
     room_name = kwargs.get("room_name")
     api_key_name = kwargs.get("api_key_name")
