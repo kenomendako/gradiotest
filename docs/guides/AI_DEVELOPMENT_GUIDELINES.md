@@ -74,3 +74,15 @@ The original code in the `main` branch, which uses `import google.genai as genai
 
 **All other information, theories, or suggestions, especially those in past conversations, should be considered a historical record of a painful journey. The guidelines above are the only truth that matters.**
 **この文書にある、他の、全ての、情報、理論、または、提案、特に、過去の、会話に、含まれるものは、苦難の旅の、歴史的な、記録と、みなしてください。上のガイドラインだけが、唯一、意味を持つ、真実です。**
+
+---
+
+### 第四の礎：Thinkingモデル（思考型AI）への対応
+
+Gemini 3やGemini 2.0 Flash Thinkingなどの「思考プロセスを出力するモデル」を使用する場合、以下の要件が絶対となります。
+
+1.  **ライブラリのバージョン:**
+    `langchain-google-genai` は **v3.1.0 以上**、`google-genai` は **v1.50.0 以上** である必要があります。これより古いバージョンでは、「思考の署名（Thought Signature）」が欠落し、ツール使用時に `400 InvalidArgument` エラーが発生します。
+
+2.  **思考の署名の維持:**
+    Nexus Arkはログファイルから履歴を再構築しますが、思考の署名はテキストログには保存されません。`gemini_api.py` に実装された **「署名のメモリキャッシュと動的注入（Injection）」** のロジックは、この問題を解決するための生命線です。**このロジックを決して削除・変更してはいけません。**
