@@ -1,4 +1,4 @@
-# agent/graph.py (v21: Smart Retry)
+# agent/graph.py (v31: Dual-State Architecture - Cleaned)
 
 import os
 import copy
@@ -12,10 +12,6 @@ from typing import TypedDict, Annotated, List, Literal, Tuple, Optional
 from langchain_core.messages import SystemMessage, BaseMessage, ToolMessage, AIMessage, HumanMessage
 from google.api_core import exceptions as google_exceptions
 from langgraph.graph import StateGraph, END, START, add_messages
-import time
-import re
-from google.api_core import exceptions as google_exceptions
-from langchain_core.messages import AIMessage
 
 from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, read_world_settings, plan_world_edit, _apply_world_edits
@@ -36,6 +32,8 @@ import utils
 import config_manager
 import constants
 import pytz
+import signature_manager # 追加
+import room_manager 
 
 all_tools = [
     set_current_location, read_world_settings, plan_world_edit,
@@ -47,7 +45,12 @@ all_tools = [
     generate_image,
     set_personal_alarm,
     set_timer, set_pomodoro_timer,
-    search_knowledge_base # ← この行を追加
+    search_knowledge_base
+]
+
+side_effect_tools = [
+    "plan_main_memory_edit", "plan_secret_diary_edit", "plan_notepad_edit", "plan_world_edit",
+    "set_personal_alarm", "set_timer", "set_pomodoro_timer"
 ]
 
 class AgentState(TypedDict):
@@ -70,29 +73,21 @@ class AgentState(TypedDict):
     loop_count: int 
     season_en: str
     time_of_day_en: str
-    last_successful_response: Optional[AIMessage] # 最後の成功したAI応答を保持
-    force_end: bool # グラフの実行を強制的に終了させるためのフラグ
+    last_successful_response: Optional[AIMessage]
+    force_end: bool
     skip_tool_execution: bool
 
 def get_location_list(room_name: str) -> List[str]:
-    """
-    UIとAIのプロンプトで表示するための、移動可能な場所名のリストを生成する。
-    異なるエリアに同じ名前の場所が存在する可能性を考慮し、
-    重複を許さずに全てのユニークな場所名を返す。
-    """
     if not room_name: return []
     world_settings_path = get_world_settings_path(room_name)
     if not world_settings_path or not os.path.exists(world_settings_path): return []
     world_data = utils.parse_world_file(world_settings_path)
     if not world_data: return []
-
-    # AIが直接 location_id として使用できる、純粋な場所名のセットを作成する
     locations = set()
     for area_name, places in world_data.items():
         for place_name in places.keys():
             if place_name == "__area_description__": continue
             locations.add(place_name)
-
     return sorted(list(locations))
 
 def generate_scenery_context(
@@ -128,16 +123,12 @@ def generate_scenery_context(
         import hashlib
         import datetime
 
-        # --- [ここからが修正の核心] ---
-        # 1. 適用すべき季節と時間帯を決定する
         now = datetime.datetime.now()
         effective_season = season_en or get_season(now.month)
         effective_time_of_day = time_of_day_en or get_time_of_day(now.hour)
 
-        # 2. 決定した値を使ってキャッシュキーを生成
         content_hash = hashlib.md5(space_def.encode('utf-8')).hexdigest()[:8]
         cache_key = f"{current_location_name}_{content_hash}_{effective_season}_{effective_time_of_day}"
-        # --- [修正はここまで] ---
 
         if not force_regenerate:
             scenery_cache = load_scenery_cache(room_name)
@@ -147,18 +138,12 @@ def generate_scenery_context(
                 return location_display_name, space_def, cached_data["scenery_text"]
 
         if not space_def.startswith("（"):
-            log_message = "情景を強制的に再生成します" if force_regenerate else "情景をAPIで生成します"
-            print(f"--- {log_message} ({cache_key}) ---")
-
             effective_settings = config_manager.get_effective_settings(room_name)
             llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
 
-            # --- [ここからが修正の核心] ---
-            # 3. AIへのプロンプトも、決定した値（日本語）を使って生成する
             season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
-            time_map_en_to_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}
-
             season_ja = season_map_en_to_ja.get(effective_season, "不明な季節")
+            
             time_map_en_to_ja = {
                 "early_morning": "早朝", "morning": "朝", "late_morning": "昼前",
                 "afternoon": "昼下がり", "evening": "夕方", "night": "夜", "midnight": "深夜"
@@ -182,7 +167,6 @@ def generate_scenery_context(
                 "- 人物やキャラクターの描写は絶対に含めないでください。\n"
                 "- 五感に訴えかける、**空気感まで伝わるような**精緻で写実的な描写を重視してください。"
             )
-            # --- [修正はここまで] ---
             scenery_text = llm_flash.invoke(scenery_prompt).content
             save_scenery_cache(room_name, cache_key, location_display_name, scenery_text)
         else:
@@ -195,22 +179,14 @@ def generate_scenery_context(
     return location_display_name, space_def, scenery_text
 
 def context_generator_node(state: AgentState):
-    """
-    【v23: プロンプト工場アーキテクチャ】
-    マスターテンプレートの全てのプレースホルダを埋め、
-    完成された単一のシステムプロンプトを生成する責務を負う。
-    """
     room_name = state['room_name']
-
-    # --- パート1: 状況プロンプト ({situation_prompt}) を生成 ---
+    
+    # 状況プロンプト
     situation_prompt_parts = []
-     # 現在時刻の情報をプロンプトに追加
     send_time = state.get("send_current_time", False)
     if send_time:
-        # タイムゾーンを東京に設定
         tokyo_tz = pytz.timezone('Asia/Tokyo')
         now_tokyo = datetime.now(tokyo_tz)
-        # %Aで英語の曜日名を取得し、日本語に変換
         day_map = {"Monday": "月", "Tuesday": "火", "Wednesday": "水", "Thursday": "木", "Friday": "金", "Saturday": "土", "Sunday": "日"}
         day_ja = day_map.get(now_tokyo.strftime('%A'), "")
         current_datetime_str = now_tokyo.strftime(f'%Y-%m-%d({day_ja}) %H:%M:%S')
@@ -221,12 +197,11 @@ def context_generator_node(state: AgentState):
         situation_prompt_parts.append(f"【現在の状況】\n- 現在時刻: {current_datetime_str}")
         situation_prompt_parts.append("【現在の場所と情景】\n（空間描写は設定により無効化されています）")
     else:
-        # (この部分は変更なし)
         season_en = state.get("season_en", "autumn")
         time_of_day_en = state.get("time_of_day_en", "night")
         season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
-        time_map_en_to_ja = {"morning": "朝", "daytime": "昼", "evening": "夕方", "night": "夜"}
         season_ja = season_map_en_to_ja.get(season_en, "不明な季節")
+        
         time_map_en_to_ja = {
             "early_morning": "早朝", "morning": "朝", "late_morning": "昼前",
             "afternoon": "昼下がり", "evening": "夕方", "night": "夜", "midnight": "深夜"
@@ -235,6 +210,7 @@ def context_generator_node(state: AgentState):
         
         location_display_name = state.get("location_name", "（不明な場所）")
         scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
+        
         soul_vessel_room = state['all_participants'][0] if state['all_participants'] else state['room_name']
         space_def = "（場所の定義を取得できませんでした）"
         current_location_name = utils.get_current_location(soul_vessel_room)
@@ -247,7 +223,6 @@ def context_generator_node(state: AgentState):
                         space_def = places[current_location_name]
                         if isinstance(space_def, str) and len(space_def) > 2000: space_def = space_def[:2000] + "\n...（長すぎるため省略）"
                         break
-            else: space_def = "（エラー：世界設定のデータ構造が不正です）"
         available_locations = get_location_list(state['room_name'])
         location_list_str = "\n".join([f"- {loc}" for loc in available_locations]) if available_locations else "（現在、定義されている移動先はありません）"
         situation_prompt_parts.extend([
@@ -257,8 +232,6 @@ def context_generator_node(state: AgentState):
         ])
     situation_prompt = "\n".join(situation_prompt_parts)
     
-    # --- パート2: その他のプレースホルダを埋める ---
-    # (この部分は以前のロジックとほぼ同じ)
     char_prompt_path = os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")
     core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
     character_prompt = ""; core_memory = ""; notepad_section = ""
@@ -281,18 +254,13 @@ def context_generator_node(state: AgentState):
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
     
-    # ▼▼▼【ここから下のブロックをまるごと追加】▼▼▼
-    # --- [v24] 画像生成モードに応じた動的プロンプト生成 ---
     image_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
-    
     current_tools = all_tools
     image_generation_manual_text = ""
 
     if image_gen_mode == "disabled":
-        # モードが無効の場合、ツールリストから generate_image を除外
         current_tools = [t for t in all_tools if t.name != "generate_image"]
     else:
-        # モードが有効の場合、作法書のテキストを定義
         image_generation_manual_text = (
             "### 1. ツール呼び出しの共通作法\n"
             "`generate_image`, `plan_..._edit`, `set_current_location` を含む全てのツール呼び出しは、以下の作法に従います。\n"
@@ -300,7 +268,6 @@ def context_generator_node(state: AgentState):
             "- **手順2（テキスト応答）:** ツール成功後、システムからの結果報告を受け、それを元にした**思考 (`[THOUGHT]`)** と**会話**を生成し、ユーザーに報告します."
         )
 
-    # --- [v25] 思考ログ生成の動的制御 ---
     thought_manual_enabled_text = """## 【原則2】思考と出力の絶対分離（最重要作法）
         あなたの応答は、必ず以下の厳格な構造に従わなければなりません。
 
@@ -330,16 +297,13 @@ def context_generator_node(state: AgentState):
     thought_manual_disabled_text = """## 【原則2】思考ログの非表示
         現在、思考ログは非表示に設定されています。**`[THOUGHT]`ブロックを生成せず**、最終的な会話テキストのみを出力してください。"""
 
-    # AgentStateから 'display_thoughts' フラグを取得（デフォルトはTrue）
     display_thoughts = state.get("display_thoughts", True)
     thought_generation_manual_text = thought_manual_enabled_text if display_thoughts else ""
 
-
     all_participants = state.get('all_participants', [])
-    tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in current_tools]) # <<< 修正: all_tools から current_tools に変更
+    tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in current_tools])
     if len(all_participants) > 1: tools_list_str = "（グループ会話中はツールを使用できません）"
 
-    # --- パート3: 最終的なプロンプトを組み立てて返す ---
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
 
@@ -358,16 +322,15 @@ def context_generator_node(state: AgentState):
 
 def agent_node(state: AgentState):
     from gemini_api import get_configured_llm
+    
     print("--- エージェントノード (agent_node) 実行 ---")
     loop_count = state.get("loop_count", 0)
     print(f"  - 現在の再思考ループカウント: {loop_count}")
 
-    # --- [v23] 新アーキテクチャ対応 ---
-    # 1. 完成済みのシステムプロンプトを取得
+    # 1. プロンプト準備
     base_system_prompt_text = state['system_prompt'].content
     final_system_prompt_text = base_system_prompt_text
 
-    # 2. グループ会話用のペルソナロックプロンプトを注入（必要な場合）
     all_participants = state.get('all_participants', [])
     current_room = state['room_name']
     if len(all_participants) > 1:
@@ -383,93 +346,76 @@ def agent_node(state: AgentState):
 
     final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
 
-    # 3. 履歴を取得 (state['messages'] は純粋な会話履歴)
+    # 2. 履歴取得
     history_messages = state['messages']
-
-    # 4. 最終的なメッセージリストを構築
     messages_for_agent = [final_system_prompt_message] + history_messages
-    # --- [v23] 修正ここまで ---
+
+    # --- [Dual-State Architecture] 署名の強制注入（再思考ループ用）---
+    stored_signature = signature_manager.get_thought_signature(current_room)
+    if stored_signature:
+        injected_count = 0
+        for msg in reversed(messages_for_agent):
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                current_sig = msg.additional_kwargs.get("thought_signature")
+                if not current_sig:
+                    if not msg.additional_kwargs: msg.additional_kwargs = {}
+                    msg.additional_kwargs["thought_signature"] = stored_signature
+                    if not msg.response_metadata: msg.response_metadata = {}
+                    msg.response_metadata["thought_signature"] = stored_signature
+                    injected_count += 1
+                    # print(f"  - [Thinking] メモリ内のツール呼び出しに署名を注入しました。")
+                break
 
     print(f"  - 使用モデル: {state['model_name']}")
-    print(f"  - 最終システムプロンプト長: {len(final_system_prompt_text)} 文字")
-    if state.get("debug_mode", False):
-        print("--- [DEBUG MODE] 最終システムプロンプトの内容 ---")
-        print(final_system_prompt_text)
-        print("-----------------------------------------")
-
+    
     llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
     llm_with_tools = llm.bind_tools(all_tools)
 
-    if state.get("debug_mode", False):
-        import pprint
-        print("\n--- [DEBUG] AIに渡される直前のメッセージリスト (最終確認) ---")
-        for i, msg in enumerate(messages_for_agent):
-            msg_type = type(msg).__name__
-            content_for_length_check = ""
-            if hasattr(msg, 'content'):
-                if isinstance(msg.content, str): content_for_length_check = msg.content
-                elif isinstance(msg.content, list): content_for_length_check = "".join(part.get('text', '') if isinstance(part, dict) else str(part) for part in msg.content)
-            print(f"[{i}] {msg_type} (Content Length: {len(content_for_length_check)})")
-            if isinstance(msg, SystemMessage):
-                print(f"  - Content (Head): {msg.content[:300]}...")
-                print(f"  - Content (Tail): ...{msg.content[-300:]}")
-            elif hasattr(msg, 'content'):
-                print("  - Content:"); pprint.pprint(msg.content, indent=4)
-            if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                print("  - Tool Calls:"); pprint.pprint(msg.tool_calls, indent=4)
-            print("-" * 20)
-        print("--------------------------------------------------\n")
-
-    response = None
     try:
-        response = llm_with_tools.invoke(messages_for_agent)
+        print("  - AIモデルにリクエストを送信中 (Streaming)...")
         
-        if state.get("debug_mode", False):
-            import pprint
-            import copy
-            print("\n--- [DEBUG] AIから返ってきた生の応答 ---")
-            response_for_log = copy.deepcopy(response)
-            if hasattr(response_for_log, 'tool_calls') and response_for_log.tool_calls:
-                for tool_call in response_for_log.tool_calls:
-                    if 'api_key' in tool_call.get('args', {}): tool_call['args']['api_key'] = '<REDACTED>'
-            pprint.pprint(response_for_log)
-            print("---------------------------------------\n")
+        chunks = []
+        captured_signature = None
+        
+        # --- [Dual-State Architecture] ストリーム実行と署名の確保 ---
+        for chunk in llm_with_tools.stream(messages_for_agent):
+            chunks.append(chunk)
+            if not captured_signature:
+                sig = chunk.additional_kwargs.get("thought_signature")
+                if not sig and hasattr(chunk, "response_metadata"):
+                    sig = chunk.response_metadata.get("thought_signature")
+                if sig:
+                    captured_signature = sig
+                    # print(f"  - [Thinking] ストリームから思考署名を確保しました。")
+
+        if chunks:
+            response = sum(chunks[1:], chunks[0])
+        else:
+            raise RuntimeError("AIからの応答が空でした。")
+
+        # 確保した署名を即座に永続化し、オブジェクトにもセット
+        if captured_signature:
+            signature_manager.save_thought_signature(state['room_name'], captured_signature)
+            if not response.additional_kwargs: response.additional_kwargs = {}
+            response.additional_kwargs["thought_signature"] = captured_signature
 
         loop_count += 1
-        # ツール呼び出しを含まない、純粋なテキスト応答の場合のみ、
-        # 「最後の成功応答」として保存する
         if not getattr(response, "tool_calls", None):
-            return {
-                "messages": [response],
-                "loop_count": loop_count,
-                "last_successful_response": response
-            }
+            return {"messages": [response], "loop_count": loop_count, "last_successful_response": response}
         else:
-            # ツール呼び出しの場合は、last_successful_response を更新しない
-            return {
-                "messages": [response],
-                "loop_count": loop_count
-            }
+            return {"messages": [response], "loop_count": loop_count}
 
     except (google_exceptions.ResourceExhausted, google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
         print(f"--- [警告] agent_nodeでAPIエラーを捕捉しました: {e} ---")
-        # UIハンドラ側でリトライを処理させるため、例外をそのまま再送出する
-        print("  - 例外を上位のUIハンドラに伝播させ、リトライを促します。")
         raise e
-
-import room_manager # ← 関数の先頭でインポートを追加
-
-side_effect_tools = [
-    "plan_main_memory_edit", "plan_secret_diary_edit", "plan_notepad_edit", "plan_world_edit",
-    "set_personal_alarm", "set_timer", "set_pomodoro_timer"
-]
 
 def safe_tool_executor(state: AgentState):
     """
     AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
-    APIのレート制限エラーに対して、賢くリトライまたは中断を行う。
     """
+    import signature_manager
     from gemini_api import get_configured_llm
+    
     print("--- ツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
@@ -479,11 +425,21 @@ def safe_tool_executor(state: AgentState):
     tool_name = tool_call["name"]
     tool_args = tool_call["args"]
 
+    # --- [Dual-State] 最新の署名を取得 ---
+    current_signature = signature_manager.get_thought_signature(state['room_name'])
+    # -----------------------------------
+
     skip_execution = state.get("skip_tool_execution", False)
     if skip_execution and tool_name in side_effect_tools:
         print(f"  - [リトライ検知] 副作用のあるツール '{tool_name}' の再実行をスキップします。")
         output = "【リトライ成功】このツールは直前の試行で既に正常に実行されています。その結果についてユーザーに報告してください。"
-        return {"messages": [ToolMessage(content=output, tool_call_id=tool_call["id"], name=tool_name)]}
+        tool_msg = ToolMessage(content=output, tool_call_id=tool_call["id"], name=tool_name)
+        
+        # 署名注入
+        if current_signature:
+            tool_msg.artifact = {"thought_signature": current_signature}
+            
+        return {"messages": [tool_msg]}
 
     room_name = state.get('room_name')
     api_key = state.get('api_key')
@@ -493,19 +449,17 @@ def safe_tool_executor(state: AgentState):
     is_plan_notepad = tool_name == "plan_notepad_edit"
     is_plan_world = tool_name == "plan_world_edit"
 
+    output = ""
+
     if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad or is_plan_world:
         try:
             print(f"  - ファイル編集プロセスを開始: {tool_name}")
-
-            # 実際のファイル操作の前にバックアップを作成
-            if is_plan_main_memory:
-                room_manager.create_backup(room_name, 'memory')
-            elif is_plan_secret_diary:
-                room_manager.create_backup(room_name, 'secret_diary')
-            elif is_plan_notepad:
-                room_manager.create_backup(room_name, 'notepad')
-            elif is_plan_world:
-                room_manager.create_backup(room_name, 'world_setting')
+            
+            # バックアップ作成
+            if is_plan_main_memory: room_manager.create_backup(room_name, 'memory')
+            elif is_plan_secret_diary: room_manager.create_backup(room_name, 'secret_diary')
+            elif is_plan_notepad: room_manager.create_backup(room_name, 'notepad')
+            elif is_plan_world: room_manager.create_backup(room_name, 'world_setting')
 
             read_tool = None
             if is_plan_main_memory: read_tool = read_main_memory
@@ -519,12 +473,15 @@ def safe_tool_executor(state: AgentState):
                 lines = raw_content.split('\n')
                 numbered_lines = [f"{i+1}: {line}" for i, line in enumerate(lines)]
                 current_content = "\n".join(numbered_lines)
-            else: # is_plan_world の場合
+            else:
                 current_content = raw_content
 
             print(f"  - ペルソナAI ({state['model_name']}) に編集タスクを依頼します。")
             llm_persona = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
-
+            print(f"  - ペルソナAI ({state['model_name']}) に編集タスクを依頼します。")
+            llm_persona = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
+ 
+            # テンプレート定義（省略せず記述）
             instruction_templates = {
                 "plan_main_memory_edit": (
                     "【最重要指示：これは『対話』ではなく『記憶の設計タスク』です】\n"
@@ -597,16 +554,7 @@ def safe_tool_executor(state: AgentState):
             final_context_for_editing = [state['system_prompt']] + history_for_editing + [edit_instruction_message]
 
             if state.get("debug_mode", False):
-                print("\n--- [DEBUG] AIへの最終編集タスクプロンプト (完全版) ---")
-                for i, msg in enumerate(final_context_for_editing):
-                    msg_type = type(msg).__name__
-                    content_preview = str(msg.content)[:500].replace('\n', ' ')
-                    print(f"[{i}] {msg_type} (Content Length: {len(str(msg.content))})")
-                    if i == len(final_context_for_editing) - 1: # 最後の指示メッセージは全文表示
-                        print(f"  - Content (Full):\n{msg.content}")
-                    else:
-                        print(f"  - Content (Preview): {content_preview}...")
-                print("----------------------------------------------------------\n")
+                pass # デバッグ出力省略
 
             edited_content_document = None
             max_retries = 5
@@ -615,32 +563,22 @@ def safe_tool_executor(state: AgentState):
                 try:
                     response = llm_persona.invoke(final_context_for_editing)
                     edited_content_document = response.content.strip()
-                    break # 成功したらループを抜ける
+                    break
                 except google_exceptions.ResourceExhausted as e:
                     error_str = str(e)
                     if "PerDay" in error_str or "Daily" in error_str:
-                        print(f"  - 致命的エラー: 回復不能なAPI上限（日間など）に達しました。処理を中断します。")
                         raise RuntimeError("回復不能なAPIレート上限（日間など）に達したため、処理を中断しました。") from e
-
                     wait_time = base_delay * (2 ** attempt)
                     match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
-                    if match:
-                        wait_time = int(match.group(1)) + 1
-                        print(f"  - APIレート制限: APIの推奨に従い {wait_time}秒 待機します...")
-                    else:
-                        print(f"  - APIレート制限: 指数バックオフで {wait_time}秒 待機します...")
-
+                    if match: wait_time = int(match.group(1)) + 1
                     if attempt < max_retries - 1:
                         time.sleep(wait_time)
-                    else:
-                        raise e
+                    else: raise e
                 except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
                     if attempt < max_retries - 1:
                         wait_time = base_delay * (2 ** attempt)
-                        print(f"  - 警告: 編集AIが応答不能です ({e.args[0]})。{wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries})")
                         time.sleep(wait_time)
-                    else:
-                        raise e
+                    else: raise e
 
             if edited_content_document is None:
                 raise RuntimeError("編集AIからの応答が、リトライ後も得られませんでした。")
@@ -652,8 +590,6 @@ def safe_tool_executor(state: AgentState):
                 content_to_process = json_match.group(1).strip() if json_match else edited_content_document
                 instructions = json.loads(content_to_process)
 
-                if state.get("debug_mode", False):
-                    print(f"--- [DEBUG] AIが生成した差分指示リスト ---\n{json.dumps(instructions, indent=2, ensure_ascii=False)}\n------------------------------------")
                 if is_plan_main_memory:
                     output = _apply_main_memory_edits(instructions=instructions, room_name=room_name)
                 elif is_plan_secret_diary:
@@ -671,92 +607,58 @@ def safe_tool_executor(state: AgentState):
             traceback.print_exc()
     else:
         print(f"  - 通常ツール実行: {tool_name}")
-        # 引数ログ用コピーにAPIキーがあればマスク
         tool_args_for_log = tool_args.copy()
-        if 'api_key' in tool_args_for_log:
-            tool_args_for_log['api_key'] = '<REDACTED>'
-        # 必要に応じて以下のように利用
-        # print(f"    - 引数: {tool_args_for_log}")
-
+        if 'api_key' in tool_args_for_log: tool_args_for_log['api_key'] = '<REDACTED>'
         tool_args['room_name'] = room_name
         if tool_name in ['generate_image', 'search_past_conversations']:
             tool_args['api_key'] = api_key
-            # Try to infer api_key_name by reverse lookup from configured keys
             api_key_name = None
             try:
                 for k, v in config_manager.GEMINI_API_KEYS.items():
                     if v == api_key:
                         api_key_name = k
                         break
-            except Exception:
-                api_key_name = None
-            # attach api_key_name for tools that need it
+            except Exception: api_key_name = None
             tool_args['api_key_name'] = api_key_name
 
         selected_tool = next((t for t in all_tools if t.name == tool_name), None)
-        if not selected_tool:
-            output = f"Error: Tool '{tool_name}' not found."
+        if not selected_tool: output = f"Error: Tool '{tool_name}' not found."
         else:
-            try:
-                output = selected_tool.invoke(tool_args)
+            try: output = selected_tool.invoke(tool_args)
             except Exception as e:
                 output = f"Error executing tool '{tool_name}': {e}"
                 traceback.print_exc()
 
-    return {"messages": [ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)], "loop_count": state.get("loop_count", 0)}
+    # --- [Thinkingモデル対応] ToolMessageへの署名注入 ---
+    tool_msg = ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)
+    
+    if current_signature:
+        # LangChain Google GenAI の実装によっては artifact を使う可能性がある
+        tool_msg.artifact = {"thought_signature": current_signature}
+        print(f"  - [Thinking] ツール実行結果に署名を付与しました。")
+
+    return {"messages": [tool_msg], "loop_count": state.get("loop_count", 0)}
 
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node", "agent"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
-
-    if state.get("force_end"):
-        print("  - force_endフラグを検出。グラフの実行を強制終了します。")
-        return "__end__"
-
+    if state.get("force_end"): return "__end__"
     last_message = state["messages"][-1]
     loop_count = state.get("loop_count", 0)
-
     if last_message.tool_calls:
         print("  - ツール呼び出しあり。ツール実行ノードへ。")
-        for tool_call in last_message.tool_calls:
-            # 引数ログのAPIキーをマスク
-            args_for_log = dict(tool_call['args']) if isinstance(tool_call.get('args'), dict) else tool_call.get('args')
-            if isinstance(args_for_log, dict) and 'api_key' in args_for_log:
-                args_for_log = args_for_log.copy()
-                args_for_log['api_key'] = '<REDACTED>'
-            print(f"    🛠️ ツール呼び出し: {tool_call['name']} | 引数: {args_for_log}")
         return "safe_tool_node"
-
-    # 1回までの再思考を許容する
     if loop_count < 2:
         print(f"  - ツール呼び出しなし。再思考します。(ループカウント: {loop_count})")
-        return "agent" # agentノードにループバック
-
+        return "agent"
     print(f"  - ツール呼び出しなし。最大ループ回数({loop_count})に達したため、グラフを終了します。")
     return "__end__"
 
 workflow = StateGraph(AgentState)
-
-# ノードを定義
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("agent", agent_node)
 workflow.add_node("safe_tool_node", safe_tool_executor)
-
-# エッジ（処理の流れ）を定義
 workflow.set_entry_point("context_generator")
 workflow.add_edge("context_generator", "agent")
-
-workflow.add_conditional_edges(
-    "agent",
-    route_after_agent,
-    {
-        "safe_tool_node": "safe_tool_node",
-        "agent": "agent", # ← この行を追加
-        "__end__": END,
-    },
-)
-
-# ツール実行後は、必ずエージェントの再思考に戻る
+workflow.add_conditional_edges("agent", route_after_agent, {"safe_tool_node": "safe_tool_node", "agent": "agent", "__end__": END})
 workflow.add_edge("safe_tool_node", "agent")
-
-# グラフをコンパイル
 app = workflow.compile()
