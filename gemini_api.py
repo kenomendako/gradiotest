@@ -1,36 +1,31 @@
-#
-# gemini_api.py の内容を、この最終版テキストで完全に置き換えてください
-#
+# gemini_api.py (Dual-State Architecture Implementation)
+
 import traceback
 from typing import Any, List, Union, Optional, Dict, Iterator
 import os
 import json
-import room_manager
-import utils
-import io
+import re
+import time
 import base64
-from PIL import Image
-import google.genai as genai
-import google.api_core.exceptions
+import io
 import filetype
 import httpx
-import time
-from pathlib import Path
+from PIL import Image
 
+import google.genai as genai
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InternalServerError
-import re
 import google.genai.errors
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, AIMessageChunk
 from langchain_google_genai import HarmCategory, HarmBlockThreshold, ChatGoogleGenerativeAI
+
 import config_manager
 import constants
+import room_manager
+import utils
+import signature_manager  # 追加
 
-# --- [Thinking Model Signature Cache] ---
-# ルームごとの「最後の思考署名」を保持するメモリ内キャッシュ
-_thought_signature_cache: Dict[str, str] = {}
-
-# (get_model_token_limits, _convert_lc_to_gg_for_count, count_tokens_from_lc_messages は変更なし)
+# --- トークン計算関連 (変更なし) ---
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
     if model_name in utils._model_token_limits_cache: return utils._model_token_limits_cache[model_name]
     if not api_key or api_key.startswith("YOUR_API_KEY"): return None
@@ -63,7 +58,6 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
                             header, encoded = url_data.split(",", 1); mime_type = header.split(":")[1].split(";")[0]
                             sdk_parts.append({"inline_data": {"mime_type": mime_type, "data": encoded}})
                         except: pass
-                # ▼▼▼【ここからが追加するブロック】▼▼▼
                 elif part_type == "media_url":
                     url_data = part_data.get("media_url", "")
                     if url_data.startswith("data:"):
@@ -72,21 +66,15 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
                             mime_type = header.split(":")[1].split(";")[0]
                             sdk_parts.append({"inline_data": {"mime_type": mime_type, "data": encoded}})
                         except: pass
-                # ▲▲▲【追加はここまで】▲▲▲
                 elif part_type == "media": sdk_parts.append({"inline_data": {"mime_type": part_data.get("mime_type", "application/octet-stream"),"data": part_data.get("data", "")}})
         if sdk_parts: contents.append({"role": role, "parts": sdk_parts})
     return contents
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
-    """
-    LangChainメッセージリストからトークン数を計算する。
-    503などの一時的なサーバーエラーに対して、指数バックオフ付きのリトライを行う。
-    """
-    if not messages:
-        return 0
-
+    if not messages: return 0
     client = genai.Client(api_key=api_key)
     contents_for_api = _convert_lc_to_gg_for_count(messages)
+    
     final_contents_for_api = []
     if contents_for_api and contents_for_api[0]['role'] == 'user' and isinstance(messages[0], SystemMessage):
         system_instruction_parts = contents_for_api[0]['parts']
@@ -97,42 +85,46 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
         final_contents_for_api = contents_for_api
 
     max_retries = 3
-    retry_delay = 2  # seconds
-
+    retry_delay = 2
     for attempt in range(max_retries):
         try:
             result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
             return result.total_tokens
         except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
-            print(f"--- [トークン計算APIエラー] (試行 {attempt + 1}/{max_retries}): {e} ---")
             if attempt < max_retries - 1:
-                print(f"    - {retry_delay}秒待機してリトライします...")
                 time.sleep(retry_delay)
-                retry_delay *= 2  # Exponential backoff
+                retry_delay *= 2
             else:
-                print(f"--- [トークン計算APIエラー] 最大リトライ回数に達しました。 ---")
-                # リトライが尽きた場合は、エラーを示すために0を返すか、例外を再送出する
-                # UI表示がクラッシュしないように、ここでは0を返す
                 return 0
-    # ループが正常に終了することは理論上ないが、念のためフォールバック
     return 0
 
+# --- 履歴構築 (Dual-Stateの核心) ---
 def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str, add_timestamp: bool, send_thoughts: bool) -> list:
+    """
+    ログ(テキスト)からメッセージを復元し、signature_manager(JSON) から
+    最新の思考署名とツール呼び出し情報を注入して、完全な状態のオブジェクトを返す。
+    (v2: ツール実行後の履歴でも正しく注入できるように修正)
+    """
     from langchain_core.messages import HumanMessage, AIMessage
     lc_messages = []
     timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
 
-    # --- [Thinking署名] キャッシュから署名を取得 ---
-    cached_signature = _thought_signature_cache.get(responding_character_id)
+    # 1. JSONファイルから最新のターンコンテキストを取得
+    # これらは「直近にAIが行ったツール呼び出し」の情報
+    turn_context = signature_manager.get_turn_context(responding_character_id)
+    stored_signature = turn_context.get("last_signature")
+    stored_tool_calls = turn_context.get("last_tool_calls")
 
-    for i, h_item in enumerate(raw_history):
+    # --- フェーズ1: まずはログから基本的なメッセージリストを構築 ---
+    for h_item in raw_history:
         content = h_item.get('content', '').strip()
         if not add_timestamp:
             content = timestamp_pattern.sub('', content)
         responder_id = h_item.get('responder', '')
         role = h_item.get('role', '')
-        if not responder_id or not role:
-            continue
+        
+        if not responder_id or not role: continue
+        
         is_user = (role == 'USER')
         is_self = (responder_id == responding_character_id)
         
@@ -145,36 +137,48 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
             if not send_thoughts:
                 content_for_api = utils.remove_thoughts_from_text(content)
             
+            # テキストがある場合のみメッセージを作成
             if content_for_api:
                 ai_msg = AIMessage(content=content_for_api, name=responder_id)
-                
-                # ▼▼▼ [Thinking署名] 最後のAIメッセージなら、署名を注入する ▼▼▼
-                # ログの最後のメッセージ（最新の自分の発言）であり、かつ署名がキャッシュされている場合
-                if cached_signature and i == len(raw_history) - 1:
-                     # LangChain Google GenAI は additional_kwargs の特定のキーを見る仕様があるため注入
-                     if not ai_msg.additional_kwargs:
-                         ai_msg.additional_kwargs = {}
-                     ai_msg.additional_kwargs["thought_signature"] = cached_signature
-                # ▲▲▲ [追加ここまで] ▲▲▲
-                
                 lc_messages.append(ai_msg)
         else:
             other_agent_config = room_manager.get_room_config(responder_id)
             display_name = other_agent_config.get("room_name", responder_id) if other_agent_config else responder_id
             clean_content = utils.remove_thoughts_from_text(content)
-            annotated_content = f"（{display_name}の発言）:\n{clean_content}"
-            lc_messages.append(HumanMessage(content=annotated_content))
+            lc_messages.append(HumanMessage(content=f"（{display_name}の発言）:\n{clean_content}"))
+
+    # --- フェーズ2: 署名とツールコールの注入 ---
+    # 履歴を「後ろから」走査し、最初に見つかった「自分のAIMessage」に情報を注入する。
+    # これにより、末尾がToolMessageであっても、その直前のAIMessageを正しく特定できる。
+    if stored_tool_calls or stored_signature:
+        for i in range(len(lc_messages) - 1, -1, -1):
+            msg = lc_messages[i]
+            if isinstance(msg, AIMessage) and msg.name == responding_character_id:
+                # ターゲット発見。情報を注入する。
+                
+                # ツールコールの復元
+                if stored_tool_calls:
+                    msg.tool_calls = stored_tool_calls
+                
+                # 署名の注入
+                if stored_signature:
+                    if not msg.additional_kwargs: msg.additional_kwargs = {}
+                    msg.additional_kwargs["thought_signature"] = stored_signature
+                    
+                    if not msg.response_metadata: msg.response_metadata = {}
+                    msg.response_metadata["thought_signature"] = stored_signature
+                
+                # print(f"  - [Thinking] AIMessage(index={i})に署名とツールコールを復元しました。")
+                
+                # 最新の1つだけに適用すれば十分なので、ここでループを抜ける
+                break
             
     return lc_messages
 
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
-    """
-    LangGraphの思考プロセスをストリーミングで返す。(v27: 責務一元化版)
-    APIエラーは捕捉せず、呼び出し元に例外をスローする。
-    """
     from agent.graph import app
 
-    # --- 引数展開と初期設定 (変更なし) ---
+    # 引数展開
     room_to_respond = agent_args["room_to_respond"]
     api_key_name = agent_args["api_key_name"]
     api_history_limit = agent_args["api_history_limit"]
@@ -188,135 +192,84 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     shared_scenery_text = agent_args["shared_scenery_text"]
     season_en = agent_args["season_en"]
     time_of_day_en = agent_args["time_of_day_en"]
-    all_participants_list = [soul_vessel_room] + active_participants
     global_model_from_ui = agent_args.get("global_model_from_ui")
-
-    # UIハンドラからのツール実行スキップフラグを受け取る
     skip_tool_execution_flag = agent_args.get("skip_tool_execution", False)
+    
+    all_participants_list = [soul_vessel_room] + active_participants
 
     effective_settings = config_manager.get_effective_settings(
         room_to_respond,
         global_model_from_ui=global_model_from_ui,
         use_common_prompt=(len(all_participants_list) <= 1)
     )
-
-    # --- [v25] 思考設定の連動 ---
     display_thoughts = effective_settings.get("display_thoughts", True)
-    # 「表示」がオフなら、「送信」も強制的にオフにする
     send_thoughts_final = display_thoughts and effective_settings.get("send_thoughts", True)
-
     model_name = effective_settings["model_name"]
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        # エラーメッセージをAIMessageとして持つ最終状態をyieldする
         yield ("values", {"messages": [AIMessage(content=f"[エラー: APIキー '{api_key_name}' が無効です。]")]})
         return
 
-    # --- ハイブリッド履歴構築 (変更なし) ---
+    # 履歴構築（ここでJSONからの署名注入が行われる）
     messages = []
     add_timestamp = effective_settings.get("add_timestamp", False)
+    
+    # 自身のログ
     responding_ai_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
         own_history_raw = utils.load_chat_log(responding_ai_log_f)
-        add_timestamp = effective_settings.get("add_timestamp", False)
-        send_thoughts = effective_settings.get("send_thoughts", True) # この行を追加
         messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond, add_timestamp, send_thoughts_final)
 
-    if history_log_path and os.path.exists(history_log_path):
+    # スナップショット
+    if history_log_path and os.path.exists(history_log_path) and history_log_path != responding_ai_log_f:
         snapshot_history_raw = utils.load_chat_log(history_log_path)
         snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond, add_timestamp, send_thoughts_final)
-        if snapshot_messages and messages:
-            first_snapshot_user_message_content = None
-            for msg in snapshot_messages:
-                if isinstance(msg, HumanMessage):
-                    first_snapshot_user_message_content = msg.content
-                    break
-            if first_snapshot_user_message_content:
-                for i in range(len(messages) - 1, -1, -1):
-                    if isinstance(messages[i], HumanMessage) and messages[i].content == first_snapshot_user_message_content:
-                        messages = messages[:i]
-                        break
-            messages.extend(snapshot_messages)
-        elif snapshot_messages:
-            messages = snapshot_messages
+        if snapshot_messages:
+             messages.extend(snapshot_messages)
 
-    # グループ会話と1対1会話の両方に対応する、堅牢な履歴構築ロジック
-
-    # ユーザー入力に直接応答する最初のAI（魂の器）かどうかを判定
+    # ユーザー入力の調整
     is_first_responder = (room_to_respond == soul_vessel_room)
+    if is_first_responder and messages and isinstance(messages[-1], HumanMessage):
+        messages.pop()
 
-    # 最初のAIの場合のみ、ログから読み込んだ不完全なユーザーメッセージを削除
-    if is_first_responder:
-        if messages and isinstance(messages[-1], HumanMessage):
-            messages.pop()
-
-    # 添付ファイル情報と、最初のAIの場合はユーザー入力を結合するためのリスト
+    # プロンプトパーツの結合
     final_prompt_parts = []
-    
-    # 全員共通で、アクティブな添付ファイルの情報を構築
     if active_attachments:
-        # 時系列計算のために、最新の完全なログを読み込む
         full_raw_history = utils.load_chat_log(responding_ai_log_f)
         total_messages = len(full_raw_history)
-        
-        header_added = False
+        final_prompt_parts.append({"type": "text", "text": "【現在アクティブな添付ファイルリスト】\n"})
         for file_path_str in active_attachments:
             try:
-                # ターン差を計算
-                turn_diff = 0
-                for i in range(total_messages - 1, -1, -1):
-                    if file_path_str in full_raw_history[i].get('content', ''):
-                        # メッセージ数での差を計算し、2で割ってターン数に近似
-                        turn_diff = (total_messages - 1 - i) // 2
-                        break
-                
-                if not header_added:
-                    final_prompt_parts.append({"type": "text", "text": "【現在アクティブな添付ファイルリスト】\n"})
-                    header_added = True
-
-                file_path = Path(file_path_str)
-                display_name = '_'.join(file_path.name.split('_')[1:]) or file_path.name
-                turn_text = "このターンで添付" if turn_diff == 0 else f"{turn_diff}ターン前に添付"
-                
-                final_prompt_parts.append({"type": "text", "text": f"- [{display_name} ({turn_text})]"})
-
-                # ファイルの中身を判定して追加
+                path_obj = Path(file_path_str)
+                display_name = '_'.join(path_obj.name.split('_')[1:]) or path_obj.name
                 kind = filetype.guess(file_path_str)
                 if kind and kind.mime.startswith('image/'):
                     with open(file_path_str, "rb") as f:
                         encoded_string = base64.b64encode(f.read()).decode("utf-8")
-                    final_prompt_parts.append({
-                        "type": "image_url", "image_url": {"url": f"data:{kind.mime};base64,{encoded_string}"}
-                    })
-                else: # 画像以外はテキストとして扱う
-                    content = file_path.read_text(encoding='utf-8', errors='ignore')
-                    final_prompt_parts.append({"type": "text", "text": f"---\n{content}\n---"})
-
+                    final_prompt_parts.append({"type": "text", "text": f"- [{display_name}]"})
+                    final_prompt_parts.append({"type": "image_url", "image_url": {"url": f"data:{kind.mime};base64,{encoded_string}"}})
+                else:
+                    content = path_obj.read_text(encoding='utf-8', errors='ignore')
+                    final_prompt_parts.append({"type": "text", "text": f"- [{display_name}]:\n{content}"})
             except Exception as e:
-                print(f"--- [プロンプト注入エラー] 添付ファイルの処理中にエラー: {e} ---")
-        
-        if header_added:
-             final_prompt_parts.append({"type": "text", "text": "\n（ここから下のメッセージ本文）\n---\n"})
+                print(f"添付ファイル処理エラー: {e}")
 
-    # 最初のAIの場合のみ、ユーザーのテキスト入力とファイルをパーツに追加
     if is_first_responder and user_prompt_parts:
         final_prompt_parts.extend(user_prompt_parts)
 
-    # 何か追加するパーツがあれば、新しいHumanMessageとして履歴に追加
     if final_prompt_parts:
         messages.append(HumanMessage(content=final_prompt_parts))
-    # ▲▲▲【追加・修正はここまで】▲▲▲
 
+    # 履歴制限
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
     if limit > 0 and len(messages) > limit * 2:
         messages = messages[-(limit * 2):]
 
-    # --- エージェント実行 ---
+    # Agent State 初期化
     initial_state = {
         "messages": messages, "room_name": room_to_respond,
-        "api_key": api_key,
-        "model_name": model_name,
+        "api_key": api_key, "model_name": model_name,
         "generation_config": effective_settings,
         "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True),
@@ -328,41 +281,34 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "location_name": shared_location_name,
         "scenery_text": shared_scenery_text,
         "all_participants": all_participants_list,
-        "loop_count": 0, 
-        "season_en": season_en,
-        "time_of_day_en": time_of_day_en,
+        "loop_count": 0,
+        "season_en": season_en, "time_of_day_en": time_of_day_en,
         "skip_tool_execution": skip_tool_execution_flag
     }
 
-    # [Julesによる修正] UI側で新規メッセージを特定できるように、最初のメッセージ数をカスタムイベントとして送信
     yield ("initial_count", len(messages))
 
-    # ▼▼▼ [Thinking署名 & ストリーム形式修正] ▼▼▼
-    # app.stream からは (mode, payload) というタプルが返ってきます
-    # 必ず 'mode, payload' と2つの変数で受け取る必要があります
+    # --- ストリーム実行とコンテキストの保存 ---
+    # Graphから返ってくるチャンクを監視する
     for mode, payload in app.stream(initial_state, stream_mode=["messages", "values"]):
-        
-        if mode == "messages": # メッセージ更新イベントの場合
-             # payload はメッセージのリスト、または単体のメッセージです
-             msgs = payload
-             if not isinstance(msgs, list): msgs = [msgs]
-             
+        if mode == "messages":
+             msgs = payload if isinstance(payload, list) else [payload]
              for msg in msgs:
                  if isinstance(msg, AIMessage):
-                     # 署名が含まれているかチェックし、あればキャッシュする
-                     # 安全のために getattr を使用
-                     add_kwargs = getattr(msg, "additional_kwargs", {})
-                     sig = add_kwargs.get("thought_signature")
+                     # 署名を抽出
+                     sig = msg.additional_kwargs.get("thought_signature")
+                     if not sig and hasattr(msg, "response_metadata"):
+                         sig = msg.response_metadata.get("thought_signature")
                      
-                     if not sig and hasattr(msg, "response_metadata") and "thought_signature" in msg.response_metadata:
-                         sig = msg.response_metadata["thought_signature"]
-                     
-                     if sig:
-                         _thought_signature_cache[room_to_respond] = sig
+                     # ツールコールがあれば抽出
+                     t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
+
+                     # 署名またはツールコールがあれば、ターンコンテキストとして永続化
+                     if sig or t_calls:
+                         signature_manager.save_turn_context(room_to_respond, sig, t_calls)
                          
-        # そのまま (mode, payload) のタプルとして下流（ui_handlers）に流す
         yield (mode, payload)
-                        
+
 def count_input_tokens(**kwargs):
     room_name = kwargs.get("room_name")
     api_key_name = kwargs.get("api_key_name")
@@ -384,7 +330,7 @@ def count_input_tokens(**kwargs):
         model_name = effective_settings.get("model_name") or config_manager.DEFAULT_MODEL_GLOBAL
         messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
-        # --- システムプロンプトの構築 (変更なし) ---
+        # システムプロンプトの構築
         from agent.prompts import CORE_PROMPT_TEMPLATE
         from agent.graph import all_tools
         room_prompt_path = os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")
@@ -405,7 +351,6 @@ def count_input_tokens(**kwargs):
                     notepad_content = content if content else "（メモ帳は空です）"
                     notepad_section = f"\n### 短期記憶（メモ帳）\n{notepad_content}\n"
 
-        # --- [v25] トークン計算でも思考ログ生成ルールを動的に反映 ---
         display_thoughts = effective_settings.get("display_thoughts", True)
         thought_manual_enabled_text = """## 【原則2】思考と出力の絶対分離（最重要作法）
         あなたの応答は、必ず以下の厳格な構造に従わなければなりません。
@@ -431,9 +376,10 @@ def count_input_tokens(**kwargs):
         **【絶対的禁止事項】**
         - `[THOUGHT]` ブロックの外で思考を記述すること。
         - 思考と会話テキストを混在させること。
-        - `[/THOUGHT]` タグを書き忘れること。""" # (agent/graph.pyから全文コピー)
+        - `[/THOUGHT]` タグを書き忘れること。""" 
+        
         thought_manual_disabled_text = """## 【原則2】思考ログの非表示
-        現在、思考ログは非表示に設定されています。**`[THOUGHT]`ブロックを生成せず**、最終的な会話テキストのみを出力してください。""" # (agent/graph.pyから全文コピー)
+        現在、思考ログは非表示に設定されています。**`[THOUGHT]`ブロックを生成せず**、最終的な会話テキストのみを出力してください。"""
 
         thought_generation_manual_text = thought_manual_enabled_text if display_thoughts else ""
 
@@ -454,14 +400,13 @@ def count_input_tokens(**kwargs):
             system_prompt_text += "\n\n---\n【現在の場所と情景】\n（トークン計算ではAPIコールを避けるため、実際の情景は含めず、存在することを示すプレースホルダのみ考慮）\n- 場所の名前: サンプル\n- 場所の定義: サンプル\n- 今の情景: サンプル\n---"
         messages.append(SystemMessage(content=system_prompt_text))
 
-        # --- 履歴の構築 (ここからが修正箇所) ---
+        # 履歴の構築
         log_file, _, _, _, _ = room_manager.get_room_files_paths(room_name)
         raw_history = utils.load_chat_log(log_file)
         limit = int(api_history_limit) if api_history_limit and api_history_limit.isdigit() else 0
         if limit > 0 and len(raw_history) > limit * 2:
             raw_history = raw_history[-(limit * 2):]
         
-        # --- 思考過程を送信するかの設定値を取得 ---
         send_thoughts_final = display_thoughts and effective_settings.get("send_thoughts", True)
         
         for h_item in raw_history:
@@ -472,13 +417,12 @@ def count_input_tokens(**kwargs):
                 content_for_api = content
                 if not send_thoughts_final:
                     content_for_api = utils.remove_thoughts_from_text(content)
-                if content_for_api: # 思考ログ除去後に空でなければ追加
+                if content_for_api:
                     messages.append(AIMessage(content=content_for_api))
             else:
                  messages.append(HumanMessage(content=content))
-        # --- 履歴の構築 (ここまでが修正箇所) ---
 
-        # --- 現在の入力の構築 (変更なし) ---
+        # 現在の入力の構築
         if parts:
             formatted_parts = []
             for part in parts:
@@ -492,7 +436,7 @@ def count_input_tokens(**kwargs):
                     except Exception as img_e: print(f"画像変換エラー（トークン計算中）: {img_e}"); formatted_parts.append({"type": "text", "text": "[画像変換エラー]"})
             if formatted_parts: messages.append(HumanMessage(content=formatted_parts))
 
-        # --- トークン数の計算 (変更なし) ---
+        # トークン数の計算
         total_tokens = count_tokens_from_lc_messages(messages, model_name, api_key)
 
         limit_info = get_model_token_limits(model_name, api_key)
@@ -514,7 +458,6 @@ def count_input_tokens(**kwargs):
 def correct_punctuation_with_ai(text_to_fix: str, api_key: str, context_type: str = "body") -> Optional[str]:
     """
     読点が除去されたテキストを受け取り、AIを使って適切な読点を再付与する。
-    【v4: 分割処理対応版】
     """
     if not text_to_fix or not api_key:
         return None
@@ -523,14 +466,12 @@ def correct_punctuation_with_ai(text_to_fix: str, api_key: str, context_type: st
     max_retries = 5
     base_retry_delay = 5
 
-    # コンテキストタイプに応じた指示を生成
     context_instruction = "これはユーザーへの応答文です。自然な会話になるように読点を付与してください。"
     if context_type == "thoughts":
         context_instruction = "これはAI自身の思考ログです。思考の流れや内省的なモノローグとして自然になるように読点を付与してください。"
 
     for attempt in range(max_retries):
         try:
-            # プロンプトを動的に組み立てる
             prompt = f"""あなたは、日本語の文章を校正する専門家です。あなたの唯一の任務は、以下の【読点除去済みテキスト】に対して、文脈が自然になるように読点（「、」）のみを追加することです。
 
 【コンテキスト】
@@ -555,7 +496,6 @@ def correct_punctuation_with_ai(text_to_fix: str, api_key: str, context_type: st
             return response.text.strip()
 
         except (google.genai.errors.ClientError, google.genai.errors.ServerError) as e:
-            # (エラーハンドリング部分は変更なしのため省略)
             wait_time = 0
             if isinstance(e, google.genai.errors.ClientError):
                 try:
@@ -591,7 +531,7 @@ def correct_punctuation_with_ai(text_to_fix: str, api_key: str, context_type: st
 def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     """
     LangChain/LangGraph用の、設定済みChatGoogleGenerativeAIインスタンスを生成する。
-    いかなる呼び出しにも対応する、堅牢なAIモデル生成の聖域。
+    パッチを除去し、最もシンプルな初期化に戻す。
     """
     threshold_map = {
         "BLOCK_NONE": HarmBlockThreshold.BLOCK_NONE,
@@ -601,19 +541,19 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     }
     config = generation_config or {}
 
-    # ▼▼▼【ここが最後の歪みの修正箇所】▼▼▼
-    # config.getの第二引数に、有効なデフォルト値を設定する。
-    # これにより、configが空({})の場合でも、必ず有効なHarmBlockThresholdが設定される。
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(config.get("safety_block_threshold_harassment", "BLOCK_ONLY_HIGH")),
         HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(config.get("safety_block_threshold_hate_speech", "BLOCK_ONLY_HIGH")),
         HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: threshold_map.get(config.get("safety_block_threshold_sexually_explicit", "BLOCK_ONLY_HIGH")),
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(config.get("safety_block_threshold_dangerous_content", "BLOCK_ONLY_HIGH")),
     }
-    # ▲▲▲【修正ここまで】▲▲▲
 
     return ChatGoogleGenerativeAI(
-        model=model_name, google_api_key=api_key, convert_system_message_to_human=False,
-        max_retries=0, temperature=config.get("temperature", 0.8),
-        top_p=config.get("top_p", 0.95), safety_settings=safety_settings
+        model=model_name,
+        google_api_key=api_key,
+        convert_system_message_to_human=False,
+        max_retries=0,
+        temperature=config.get("temperature", 0.8),
+        top_p=config.get("top_p", 0.95),
+        safety_settings=safety_settings
     )
