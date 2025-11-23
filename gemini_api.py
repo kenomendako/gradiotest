@@ -101,17 +101,22 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 # --- 履歴構築 (Dual-Stateの核心) ---
 def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str, add_timestamp: bool, send_thoughts: bool) -> list:
     """
-    ログ(テキスト)からメッセージを復元し、さらに signature_manager(JSON) から
-    最新の思考署名を注入して、完全な状態のオブジェクトを返す。
+    ログ(テキスト)からメッセージを復元し、signature_manager(JSON) から
+    最新の思考署名とツール呼び出し情報を注入して、完全な状態のオブジェクトを返す。
+    (v2: ツール実行後の履歴でも正しく注入できるように修正)
     """
     from langchain_core.messages import HumanMessage, AIMessage
     lc_messages = []
     timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
 
-    # 1. JSONファイルから最新の署名を取得
-    stored_signature = signature_manager.get_thought_signature(responding_character_id)
+    # 1. JSONファイルから最新のターンコンテキストを取得
+    # これらは「直近にAIが行ったツール呼び出し」の情報
+    turn_context = signature_manager.get_turn_context(responding_character_id)
+    stored_signature = turn_context.get("last_signature")
+    stored_tool_calls = turn_context.get("last_tool_calls")
 
-    for i, h_item in enumerate(raw_history):
+    # --- フェーズ1: まずはログから基本的なメッセージリストを構築 ---
+    for h_item in raw_history:
         content = h_item.get('content', '').strip()
         if not add_timestamp:
             content = timestamp_pattern.sub('', content)
@@ -132,25 +137,41 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
             if not send_thoughts:
                 content_for_api = utils.remove_thoughts_from_text(content)
             
+            # テキストがある場合のみメッセージを作成
             if content_for_api:
                 ai_msg = AIMessage(content=content_for_api, name=responder_id)
-                
-                # 2. これが履歴上の「最新の自分の発言」であれば、署名を注入する
-                if stored_signature and i == len(raw_history) - 1:
-                     if not ai_msg.additional_kwargs: ai_msg.additional_kwargs = {}
-                     # LangChain v3.1.0 はここを見る
-                     ai_msg.additional_kwargs["thought_signature"] = stored_signature
-                     # 念のためメタデータにも
-                     if not ai_msg.response_metadata: ai_msg.response_metadata = {}
-                     ai_msg.response_metadata["thought_signature"] = stored_signature
-                     # print(f"  - [Thinking] 復元メッセージに署名を注入しました。")
-                
                 lc_messages.append(ai_msg)
         else:
             other_agent_config = room_manager.get_room_config(responder_id)
             display_name = other_agent_config.get("room_name", responder_id) if other_agent_config else responder_id
             clean_content = utils.remove_thoughts_from_text(content)
             lc_messages.append(HumanMessage(content=f"（{display_name}の発言）:\n{clean_content}"))
+
+    # --- フェーズ2: 署名とツールコールの注入 ---
+    # 履歴を「後ろから」走査し、最初に見つかった「自分のAIMessage」に情報を注入する。
+    # これにより、末尾がToolMessageであっても、その直前のAIMessageを正しく特定できる。
+    if stored_tool_calls or stored_signature:
+        for i in range(len(lc_messages) - 1, -1, -1):
+            msg = lc_messages[i]
+            if isinstance(msg, AIMessage) and msg.name == responding_character_id:
+                # ターゲット発見。情報を注入する。
+                
+                # ツールコールの復元
+                if stored_tool_calls:
+                    msg.tool_calls = stored_tool_calls
+                
+                # 署名の注入
+                if stored_signature:
+                    if not msg.additional_kwargs: msg.additional_kwargs = {}
+                    msg.additional_kwargs["thought_signature"] = stored_signature
+                    
+                    if not msg.response_metadata: msg.response_metadata = {}
+                    msg.response_metadata["thought_signature"] = stored_signature
+                
+                # print(f"  - [Thinking] AIMessage(index={i})に署名とツールコールを復元しました。")
+                
+                # 最新の1つだけに適用すれば十分なので、ここでループを抜ける
+                break
             
     return lc_messages
 
@@ -267,21 +288,24 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
 
     yield ("initial_count", len(messages))
 
-    # --- ストリーム実行と署名の保存 ---
-    # Graphから返ってくるチャンクを監視し、署名が含まれていればJSONに保存する
+    # --- ストリーム実行とコンテキストの保存 ---
+    # Graphから返ってくるチャンクを監視する
     for mode, payload in app.stream(initial_state, stream_mode=["messages", "values"]):
         if mode == "messages":
              msgs = payload if isinstance(payload, list) else [payload]
              for msg in msgs:
                  if isinstance(msg, AIMessage):
-                     # 署名を抽出 (additional_kwargs または metadata)
+                     # 署名を抽出
                      sig = msg.additional_kwargs.get("thought_signature")
                      if not sig and hasattr(msg, "response_metadata"):
                          sig = msg.response_metadata.get("thought_signature")
                      
-                     # 署名があれば即座にJSONへ永続化
-                     if sig:
-                         signature_manager.save_thought_signature(room_to_respond, sig)
+                     # ツールコールがあれば抽出
+                     t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
+
+                     # 署名またはツールコールがあれば、ターンコンテキストとして永続化
+                     if sig or t_calls:
+                         signature_manager.save_turn_context(room_to_respond, sig, t_calls)
                          
         yield (mode, payload)
 

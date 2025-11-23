@@ -34,6 +34,7 @@ import constants
 import pytz
 import signature_manager # 追加
 import room_manager 
+from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 
 all_tools = [
     set_current_location, read_world_settings, plan_world_edit,
@@ -322,6 +323,8 @@ def context_generator_node(state: AgentState):
 
 def agent_node(state: AgentState):
     from gemini_api import get_configured_llm
+    import signature_manager
+    import json
     
     print("--- エージェントノード (agent_node) 実行 ---")
     loop_count = state.get("loop_count", 0)
@@ -350,20 +353,21 @@ def agent_node(state: AgentState):
     history_messages = state['messages']
     messages_for_agent = [final_system_prompt_message] + history_messages
 
-    # --- [Dual-State Architecture] 署名の強制注入（再思考ループ用）---
-    stored_signature = signature_manager.get_thought_signature(current_room)
-    if stored_signature:
-        injected_count = 0
-        for msg in reversed(messages_for_agent):
-            if isinstance(msg, AIMessage) and msg.tool_calls:
-                current_sig = msg.additional_kwargs.get("thought_signature")
-                if not current_sig:
+    # --- [Dual-State Architecture] 復元ロジック（変更なし）---
+    turn_context = signature_manager.get_turn_context(current_room)
+    stored_signature = turn_context.get("last_signature")
+    stored_tool_calls = turn_context.get("last_tool_calls")
+    
+    if stored_signature or stored_tool_calls:
+        for i, msg in enumerate(reversed(messages_for_agent)):
+            if isinstance(msg, AIMessage):
+                if stored_tool_calls and not msg.tool_calls:
+                     msg.tool_calls = stored_tool_calls
+                if stored_signature:
                     if not msg.additional_kwargs: msg.additional_kwargs = {}
                     msg.additional_kwargs["thought_signature"] = stored_signature
                     if not msg.response_metadata: msg.response_metadata = {}
                     msg.response_metadata["thought_signature"] = stored_signature
-                    injected_count += 1
-                    # print(f"  - [Thinking] メモリ内のツール呼び出しに署名を注入しました。")
                 break
 
     print(f"  - 使用モデル: {state['model_name']}")
@@ -377,7 +381,7 @@ def agent_node(state: AgentState):
         chunks = []
         captured_signature = None
         
-        # --- [Dual-State Architecture] ストリーム実行と署名の確保 ---
+        # --- ストリーム実行 ---
         for chunk in llm_with_tools.stream(messages_for_agent):
             chunks.append(chunk)
             if not captured_signature:
@@ -386,18 +390,19 @@ def agent_node(state: AgentState):
                     sig = chunk.response_metadata.get("thought_signature")
                 if sig:
                     captured_signature = sig
-                    # print(f"  - [Thinking] ストリームから思考署名を確保しました。")
 
         if chunks:
             response = sum(chunks[1:], chunks[0])
         else:
             raise RuntimeError("AIからの応答が空でした。")
 
-        # 確保した署名を即座に永続化し、オブジェクトにもセット
+        # 署名確保（今後のライブラリ対応に備えて残しておく）
         if captured_signature:
-            signature_manager.save_thought_signature(state['room_name'], captured_signature)
             if not response.additional_kwargs: response.additional_kwargs = {}
             response.additional_kwargs["thought_signature"] = captured_signature
+            
+            t_calls = response.tool_calls if hasattr(response, "tool_calls") else []
+            signature_manager.save_turn_context(state['room_name'], captured_signature, t_calls)
 
         loop_count += 1
         if not getattr(response, "tool_calls", None):
@@ -405,10 +410,31 @@ def agent_node(state: AgentState):
         else:
             return {"messages": [response], "loop_count": loop_count}
 
-    except (google_exceptions.ResourceExhausted, google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
-        print(f"--- [警告] agent_nodeでAPIエラーを捕捉しました: {e} ---")
-        raise e
+    # ▼▼▼ Gemini 3 思考署名エラーのソフトランディング処理 (結果表示版) ▼▼▼
+    except (google_exceptions.InvalidArgument, ChatGoogleGenerativeAIError) as e:
+        error_str = str(e)
+        if "thought_signature" in error_str:
+            print(f"  - [Thinking] Gemini 3 思考署名エラーを検知しました。ツール実行結果を含めて終了します。")
+            
+            # 直前のメッセージ（ツール実行結果）を取得して表示する
+            tool_result_text = ""
+            if history_messages and isinstance(history_messages[-1], ToolMessage):
+                tool_result_text = f"\n\n【システム報告：ツール実行結果】\n{history_messages[-1].content}"
+            elif messages_for_agent and isinstance(messages_for_agent[-1], ToolMessage):
+                 tool_result_text = f"\n\n【システム報告：ツール実行結果】\n{messages_for_agent[-1].content}"
 
+            fallback_msg = AIMessage(content=f"（思考プロセスの署名検証により対話を中断しましたが、以下の処理は実行されました。）{tool_result_text}")
+            
+            return {
+                "messages": [fallback_msg], 
+                "loop_count": loop_count, 
+                "force_end": True
+            }
+        else:
+            print(f"--- [警告] agent_nodeでAPIエラーを捕捉しました: {e} ---")
+            raise e
+    # ▲▲▲ ここまで ▲▲▲
+    
 def safe_tool_executor(state: AgentState):
     """
     AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
@@ -628,6 +654,10 @@ def safe_tool_executor(state: AgentState):
             except Exception as e:
                 output = f"Error executing tool '{tool_name}': {e}"
                 traceback.print_exc()
+
+    # ▼▼▼ 追加: 実行結果をログに出力 ▼▼▼
+    print(f"  - ツール実行結果: {str(output)[:200]}...") 
+    # ▲▲▲ 追加ここまで ▲▲▲
 
     # --- [Thinkingモデル対応] ToolMessageへの署名注入 ---
     tool_msg = ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)
