@@ -320,6 +320,21 @@ try:
                                             info="「無効」にすると、AIのプロンプトからも画像生成に関する項目が削除されます。"
                                         )
 
+                                    with gr.Accordion("🔍 検索プロバイダ設定", open=False):
+                                        current_search_provider = config_manager.CONFIG_GLOBAL.get("search_provider", "google")
+                                        search_provider_radio = gr.Radio(
+                                            choices=[
+                                                ("Google (Gemini Native) - 無料枠では制限あり", "google"),
+                                                ("DuckDuckGo - 高速・安定", "ddg"),
+                                                ("無効", "disabled")
+                                            ],
+                                            value=current_search_provider,
+                                            label="Web検索プロバイダ (web_search_tool)",
+                                            interactive=True,
+                                            info="「無効」にすると、AIはWeb検索を行えなくなります。"
+                                        )
+
+
                                     gr.Markdown("#### ⚙️ 一般設定")
                                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, label="デフォルトAIモデル", interactive=True)
                                     api_key_dropdown = gr.Dropdown(label="使用するGemini APIキー", interactive=True)
@@ -1448,18 +1463,6 @@ try:
             outputs=initial_load_outputs
         )
 
-        delete_gemini_key_button.click(fn=ui_handlers.handle_delete_gemini_key, inputs=[gemini_key_name_input], outputs=[api_key_dropdown, paid_keys_checkbox_group])
-        save_pushover_config_button.click(fn=ui_handlers.handle_save_pushover_config, inputs=[pushover_user_key_input, pushover_app_token_input], outputs=[])
-        save_discord_webhook_button.click(fn=ui_handlers.handle_save_discord_webhook, inputs=[discord_webhook_input], outputs=[])
-        # 画像生成モードの変更を保存
-        image_generation_mode_radio.change(fn=ui_handlers.handle_save_image_generation_mode, inputs=[image_generation_mode_radio], outputs=[])
-        paid_keys_checkbox_group.change(
-            fn=ui_handlers.handle_paid_keys_change,
-            inputs=[paid_keys_checkbox_group],
-            outputs=[api_key_dropdown]
-        )
-        # ▼▼▼ ここからが修正の核心 ▼▼▼
-
         memory_archiving_outputs = [
             memos_import_button,
             importer_stop_button,
@@ -1910,6 +1913,13 @@ try:
             inputs=[current_room_name, api_key_dropdown, scenery_style_radio],
             outputs=[scenery_prompt_output_textbox]
         )
+
+        search_provider_radio.change(
+            fn=ui_handlers.handle_search_provider_change,
+            inputs=[search_provider_radio],
+            outputs=None
+        )
+
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."], inbrowser=True)

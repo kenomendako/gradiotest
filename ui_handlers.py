@@ -60,6 +60,19 @@ def handle_save_last_room(room_name: str) -> None:
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
+def handle_search_provider_change(provider: str) -> None:
+    """
+    検索プロバイダの変更をCONFIG_GLOBALとconfig.jsonに保存する。
+    """
+    if config_manager.save_config_if_changed("search_provider", provider):
+        config_manager.CONFIG_GLOBAL["search_provider"] = provider
+        provider_names = {
+            "google": "Google検索 (Gemini Native)",
+            "ddg": "DuckDuckGo",
+            "disabled": "無効化"
+        }
+        gr.Info(f"検索プロバイダを'{provider_names.get(provider, provider)}'に変更しました。")
+
 def _get_location_choices_for_ui(room_name: str) -> list:
     """
     UIの移動先Dropdown用の、エリアごとにグループ化された選択肢リストを生成する。

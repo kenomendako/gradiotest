@@ -319,13 +319,13 @@ def load_config():
     global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
 
     # ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
-
     default_config = {
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
         "paid_api_key_names": [],
         "available_models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
         "default_model": "gemini-2.5-pro",
-        "image_generation_mode": "new", # <<< 追加: new, old, disabled
+        "image_generation_mode": "new", 
+        "search_provider": "google",
         "last_room": "Default",
         "last_model": "gemini-2.5-pro",
         "last_api_key_name": None,

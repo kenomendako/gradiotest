@@ -33,6 +33,7 @@ filetype==1.2.0
 python-dateutil==2.9.0.post0
 pytz==2025.2
 ijson==3.4.0
+ddgs==9.9.1
 concurrent-log-handler==0.9.28
 
 # --- LangChain/LangGraph Dependencies (Verified) ---
