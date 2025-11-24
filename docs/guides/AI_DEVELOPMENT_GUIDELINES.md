@@ -39,7 +39,7 @@ The original code in the `main` branch, which uses `import google.genai as genai
 | :--- | :--- | :--- |
 | **Context Generation** (`context_generator_node` etc.) | `gemini-2.5-flash-lite` | 情景コンテキストや**記憶要約**など、高速で効率的な内部処理のためのモデル。 |
 | **Main Agent / Final Response** (`agent_node`) | **User-Selected (Default: `gemini-2.5-pro`)** | 高品質な推論とツール使用のため。ユーザーはUIの「共通設定」および「個別設定」から、このモデルを自由に変更できます。アプリケーションの全体的なデフォルトは`gemini-2.5-pro`に設定されています。 |
-| **Image Generation** (`generate_image` tool) | `gemini-2.0-flash-preview-image-generation` | このタスクのために指定された、唯一の無料モデル。 |
+| **Image Generation** (`generate_image` tool) | `gemini-2.5-flash-image` | 画像生成タスクに使用されるモデル。 |
 
 #### **バックグラウンド処理におけるモデル選択**
 タイマーやアラームの通知応答のように、UIを介さずにバックグラウンドでAIの応答を生成する必要がある場合、モデルの選択は以下のルールに従う。

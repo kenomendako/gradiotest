@@ -304,12 +304,17 @@ try:
                                         gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
 
                                     with gr.Accordion("🎨 画像生成設定", open=False):
+                                        # Configから値を読み込み、廃止された "old" が設定されていた場合は "new" にフォールバックする
+                                        current_img_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
+                                        if current_img_gen_mode == "old":
+                                            current_img_gen_mode = "new"
+
                                         image_generation_mode_radio = gr.Radio(
                                             choices=[
                                                 ("有効 (新モデル: gemini-2.5-flash-image - 有料)", "new"),
-                                                ("有効 (旧モデル: gemini-2.0-flash-preview - 無料・廃止予定)", "old"),
                                                 ("無効", "disabled")
                                             ],
+                                            value=current_img_gen_mode,
                                             label="画像生成機能 (generate_imageツール)",
                                             interactive=True,
                                             info="「無効」にすると、AIのプロンプトからも画像生成に関する項目が削除されます。"

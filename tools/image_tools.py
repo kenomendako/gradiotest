@@ -31,8 +31,6 @@ def generate_image(prompt: str, room_name: str, api_key: str, api_key_name: str 
 
     if image_gen_mode == "new":
         model_to_use = "gemini-2.5-flash-image"
-    elif image_gen_mode == "old":
-        model_to_use = "gemini-2.0-flash-preview-image-generation"
     else: # disabled or invalid
         return "【エラー】画像生成機能は現在、設定で無効化されています。"
 
@@ -46,23 +44,11 @@ def generate_image(prompt: str, room_name: str, api_key: str, api_key_name: str 
 
         client = genai.Client(api_key=api_key)
 
-        # 新旧モデルでAPI呼び出しを分岐
-        if image_gen_mode == "old":
-            # 旧モデル用の呼び出し
-            generation_config = types.GenerateContentConfig(
-                response_modalities=['IMAGE', 'TEXT']
-            )
-            response = client.models.generate_content(
-                model=model_to_use,
-                contents=prompt,
-                config=generation_config
-            )
-        else: # "new" model
-            # 新モデル用の呼び出し（特別なconfigは一切不要な、シンプルな形式）
-            response = client.models.generate_content(
-                model=model_to_use,
-                contents=prompt,
-            )
+        # 新モデル用の呼び出し（特別なconfigは一切不要な、シンプルな形式）
+        response = client.models.generate_content(
+            model=model_to_use,
+            contents=prompt,
+        )
     
         # --- レスポンス処理 (共通化) ---
         image_data = None
