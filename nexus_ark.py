@@ -92,59 +92,11 @@ try:
         """config.jsonから現在アクティブなテーマを読み込み、Gradioのテーマオブジェクトを生成する。"""
         theme_settings = config_manager.CONFIG_GLOBAL.get("theme_settings", {})
         active_theme_name = theme_settings.get("active_theme", "Soft")
-        custom_themes = theme_settings.get("custom_themes", {})
-
-        # プリセットテーマのマップ
-        preset_themes = {
-            "Default": gr.themes.Default,
-            "Soft": gr.themes.Soft,
-            "Monochrome": gr.themes.Monochrome,
-            "Glass": gr.themes.Glass,
-        }
-
-        if active_theme_name in preset_themes:
-            print(f"--- [テーマ] プリセットテーマ '{active_theme_name}' を適用します ---")
-            return preset_themes[active_theme_name]()
-        elif active_theme_name in custom_themes:
-            print(f"--- [テーマ] カスタムテーマ '{active_theme_name}' を適用します ---")
-            params = custom_themes[active_theme_name]
-
-            # gr.themes.Default と .set() の引数を分離
-            default_args = {}
-            set_args = {}
-            # gr.themes.Defaultがコンストラクタで受け付ける引数のリスト
-            default_arg_keys = [
-                "primary_hue", "secondary_hue", "neutral_hue",
-                "text_size", "spacing_size", "radius_size", "font", "font_mono"
-            ]
-
-            for key, value in params.items():
-                if key in default_arg_keys:
-                    default_args[key] = value
-                else:
-                    set_args[key] = value
-
-            # text_size, font などの値をGradioオブジェクトに変換
-            if 'text_size' in default_args and isinstance(default_args['text_size'], dict):
-                # Sizeオブジェクトのコンストラクタが受け付けるキーのみを渡す
-                valid_keys = ["xxs", "xs", "sm", "md", "lg", "xl", "xxl"]
-                size_params = {k: v for k, v in default_args['text_size'].items() if k in valid_keys}
-                default_args['text_size'] = gr.themes.Size(**size_params)
-
-            if 'font' in default_args and isinstance(default_args['font'], list):
-                # GoogleFontとそれ以外（システムフォントなど）を区別しない
-                # Gradioが内部で処理してくれる
-                default_args['font'] = [gr.themes.GoogleFont(name) if name not in ['ui-sans-serif', 'system-ui', 'sans-serif'] else name for name in default_args['font']]
-
-            # テーマオブジェクトを構築
-            theme_obj = gr.themes.Default(**default_args)
-            if set_args:
-                theme_obj = theme_obj.set(**set_args)
-
-            return theme_obj
-        else:
-            print(f"--- [テーマ警告] アクティブなテーマ '{active_theme_name}' が見つかりません。デフォルトの'Soft'テーマを適用します ---")
-            return gr.themes.Soft()
+        
+        print(f"--- [テーマ] アクティブなテーマ '{active_theme_name}' を読み込んでいます ---")
+        theme_obj = config_manager.get_theme_object(active_theme_name)
+        print(f"--- [テーマ] テーマオブジェクトの読み込みに成功しました ---")
+        return theme_obj
 
     active_theme_object = get_active_theme()
     # ▲▲▲【追加ここまで】▲▲▲
@@ -1781,7 +1733,7 @@ try:
 
         apply_theme_button.click(
             fn=ui_handlers.handle_apply_theme,
-            inputs=[theme_selector],
+            inputs=[theme_settings_state, theme_selector],
             outputs=None
         )
 
