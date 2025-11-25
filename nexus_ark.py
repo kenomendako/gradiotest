@@ -420,7 +420,14 @@ try:
                             with gr.Tabs():
                                 with gr.TabItem("アラーム"):
                                     gr.Markdown("ℹ️ **操作方法**: リストから操作したいアラームの行を選択し、下のボタンで操作します。")
-                                    alarm_dataframe = gr.Dataframe(headers=["状態", "時刻", "予定", "ルーム", "内容"], datatype=["bool", "str", "str", "str", "str"], interactive=True, row_count=(5, "dynamic"), col_count=5, wrap=True, elem_id="alarm_dataframe_display")
+                                    alarm_dataframe = gr.Dataframe(
+                                        headers=["状態", "時刻", "予定", "ルーム", "内容"], 
+                                        datatype=["bool", "str", "str", "str", "str"], 
+                                        interactive=True, 
+                                        col_count=5, 
+                                        wrap=True, 
+                                        value=[[True, "08:00", "テスト1", "Default", "テストアラーム1"], [False, "12:00", "テスト2", "Default", "テストアラーム2"], [True, "18:00", "テスト3", "Default", "テストアラーム3"]]
+                                    )
                                     selection_feedback_markdown = gr.Markdown("アラームを選択してください", elem_id="selection_feedback")
                                     with gr.Row():
                                         enable_button = gr.Button("✔️ 選択を有効化"); disable_button = gr.Button("❌ 選択を無効化"); delete_alarm_button = gr.Button("🗑️ 選択したアラームを削除", variant="stop")
@@ -1733,7 +1740,7 @@ try:
 
         apply_theme_button.click(
             fn=ui_handlers.handle_apply_theme,
-            inputs=[theme_settings_state, theme_selector],
+            inputs=[theme_selector],
             outputs=None
         )
 

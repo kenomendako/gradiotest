@@ -65,21 +65,6 @@ Nexus Arkは、AIペルソナの自律性を尊重し、あなたとの間に生
 3.  **APIキーの設定:**
     *   Nexus Arkを利用するには、GoogleのGemini APIキーが必要です。
     *   アプリ画面左側の「⚙️ 設定」を開き、「共通」→「🔑 APIキー / Webhook管理」→「Gemini APIキー」の順にメニューを開きます。
-    *   **キーの名前**に管理用の好きな名前（例: `my_key`）を、**APIキーの値**にあなたのAPIキーを貼り付け、「Geminiキーを保存」ボタンを押します。
-    *   キーをお持ちでない方は、[Google AI Studio](https://aistudio.google.com/app/apikey)から無料で取得できます。
-
-4.  **チャット開始！**
-    *   これで準備は完了です。サンプルペルソナ「オリヴェ」との対話をお楽しみください。他のAIチャットからのインポートや、新規作成も可能です！
-
-## 開発者向け情報
-
-*   **技術スタック:** Python, Gradio, LangChain/LangGraph, Google Gemini
-*   **ファイル構成:**
-    ```
-    .
-    ├── characters/         # ユーザーが作成したルームのデータ（Git管理外）
-    │   └── (ルーム名)/
-    │       ├── attachments/    # チャット添付ファイル
     │       ├── audio_cache/    # 生成された音声ファイル
     │       ├── backups/        # 各種ファイルの自動バックアップ
     │       │   ├── logs/
