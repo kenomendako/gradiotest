@@ -14,6 +14,7 @@ import constants
 import room_manager
 import gemini_api
 import utils
+import re
 
 try:
     from plyer import notification
@@ -65,7 +66,10 @@ def delete_alarm(alarm_id: str):
     return False
 
 def _send_discord_notification(webhook_url, message_text):
-    if not webhook_url: return
+    if not webhook_url:
+        print("警告 [Alarm]: Discord Webhook URLが空のため、通知を送信できませんでした。")
+        return
+        
     headers = {'Content-Type': 'application/json'}
     payload = json.dumps({'content': message_text})
     try:
@@ -90,13 +94,18 @@ def _send_pushover_notification(app_token, user_key, message_text, room_name, al
 
 def send_notification(room_name, message_text, alarm_config):
     """設定に応じて、適切な通知サービスに通知を送信する"""
-    service = config_manager.NOTIFICATION_SERVICE_GLOBAL.lower()
+    
+    # その瞬間の config.json を読み込む
+    latest_config = config_manager.load_config_file()
+    
+    # サービス設定を取得（デフォルトは discord）
+    service = latest_config.get("notification_service", "discord").lower()
 
     if service == "pushover":
         print(f"--- 通知サービス: Pushover を選択 ---")
         _send_pushover_notification(
-            config_manager.PUSHOVER_CONFIG.get("app_token"),
-            config_manager.PUSHOVER_CONFIG.get("user_key"),
+            latest_config.get("pushover_app_token"),
+            latest_config.get("pushover_user_key"),
             message_text,
             room_name,
             alarm_config
@@ -104,7 +113,11 @@ def send_notification(room_name, message_text, alarm_config):
     else: # デフォルトはDiscord
         print(f"--- 通知サービス: Discord を選択 ---")
         notification_message = f"⏰  {room_name}\n\n{message_text}\n"
-        _send_discord_notification(config_manager.NOTIFICATION_WEBHOOK_URL_GLOBAL, notification_message)
+        
+        # Webhook URLもファイルから直接取得する
+        webhook_url = latest_config.get("notification_webhook_url")
+        
+        _send_discord_notification(webhook_url, notification_message)
 
 def trigger_alarm(alarm_config, current_api_key_name):
     from langchain_core.messages import AIMessage # 忘れずインポート
@@ -243,7 +256,6 @@ def check_alarms():
     now_dt = datetime.datetime.now()
     now_t, current_day_short = now_dt.strftime("%H:%M"), now_dt.strftime('%a').lower()
 
-    # ▼▼▼【このブロックを全面的に書き換え】▼▼▼
     # 古いグローバル変数を参照するのをやめ、毎回config.jsonから最新の設定を読み込む
     current_api_key = config_manager.get_latest_api_key_name_from_config()
 
@@ -252,7 +264,6 @@ def check_alarms():
         # このメッセージは1分ごとに表示される可能性があるため、printで十分
         print("警告 [アラーム]: 有効なAPIキーが設定されていないため、アラームチェックをスキップします。")
         return
-    # ▲▲▲【書き換えはここまで】▲▲▲
 
     current_alarms = load_alarms()
     alarms_to_trigger, remaining_alarms = [], list(current_alarms)
@@ -281,7 +292,6 @@ def check_alarms():
         alarms_data_global = remaining_alarms
         save_alarms()
 
-    # if current_api_key: # このif文は上の安全装置に統合されたので不要
     for alarm_to_run in alarms_to_trigger:
         trigger_alarm(alarm_to_run, current_api_key)
 
