@@ -77,6 +77,7 @@ class AgentState(TypedDict):
     last_successful_response: Optional[AIMessage]
     force_end: bool
     skip_tool_execution: bool
+    retrieved_context: str
 
 def get_location_list(room_name: str) -> List[str]:
     if not room_name: return []
@@ -179,6 +180,102 @@ def generate_scenery_context(
         space_def = "（エラー）"
     return location_display_name, space_def, scenery_text
 
+def retrieval_node(state: AgentState):
+    """
+    ユーザーの入力に基づいて、知識ベース、過去ログ、日記から関連情報を検索し、
+    コンテキストに追加するノード。
+    """
+    print("--- 検索ノード (retrieval_node) 実行 ---")
+    
+    # 1. 検索対象となるユーザー入力（最後のメッセージ）を取得
+    if not state['messages']:
+        return {"retrieved_context": ""}
+    
+    last_message = state['messages'][-1]
+    # ユーザー発言でなければ検索しない
+    if not isinstance(last_message, HumanMessage):
+        return {"retrieved_context": ""}
+        
+    # コンテンツがリスト（マルチモーダル）の場合、テキスト部分だけ抽出
+    query_source = ""
+    if isinstance(last_message.content, str):
+        query_source = last_message.content
+    elif isinstance(last_message.content, list):
+        for part in last_message.content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                query_source += part.get("text", "") + " "
+                
+    query_source = query_source.strip()
+    if not query_source:
+        return {"retrieved_context": ""}
+
+    # 2. クエリ生成AI（Flash Lite）による判断
+    from gemini_api import get_configured_llm
+    api_key = state['api_key']
+    room_name = state['room_name']
+    
+    # 高速なモデルを使用
+    llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
+    
+    decision_prompt = f"""
+    あなたは、チャットボットの「記憶検索」を制御する司令塔です。
+    ユーザーの発言に対して、より的確に答えるために、過去のログや知識ベースを検索する必要があるか判断してください。
+
+    【ユーザーの発言】
+    {query_source}
+
+    【判断基準】
+    - 挨拶、相槌、感情の吐露など、文脈なしで即答できる場合 -> 検索不要
+    - 「あの件どうなった？」「～の設定について教えて」「前に話した～だけど」など、過去の記憶や知識が必要な場合 -> 検索クエリを生成
+
+    【出力形式】
+    - 検索が不要な場合: `NONE` とだけ出力してください。
+    - 検索が必要な場合: 検索に使用すべき最も適切な「キーワード」のみを出力してください。（例: `Nexus Ark 使い方`, `前回のクリスマスの話`）
+    """
+    
+    try:
+        decision_response = llm_flash.invoke(decision_prompt).content.strip()
+        
+        if decision_response == "NONE":
+            # print("  - [Retrieval] 検索不要と判断されました。")
+            return {"retrieved_context": ""}
+            
+        search_query = decision_response
+        print(f"  - [Retrieval] 検索を実行します。クエリ: '{search_query}'")
+        
+        results = []
+        
+        # 3. 各種検索ツールの実行 (関数として直接呼び出す)
+        # 3a. 知識ベース (RAG)
+        from tools.knowledge_tools import search_knowledge_base
+        kb_result = search_knowledge_base.func(query=search_query, room_name=room_name, api_key=api_key)
+        if "【検索結果】" in kb_result and "見つかりませんでした" not in kb_result:
+             results.append(kb_result)
+
+        # 3b. 過去ログ
+        from tools.memory_tools import search_past_conversations
+        log_result = search_past_conversations.func(query=search_query, room_name=room_name, api_key=api_key)
+        if "【検索結果】" in log_result and "見つかりませんでした" not in log_result:
+             results.append(log_result)
+             
+        # 3c. 日記 (Memory) - 検索クエリが「思い出」「記憶」などを含む場合や、過去ログ検索でヒットしなかった場合に実行
+        if not results or "思い" in search_query or "記憶" in search_query:
+            from tools.memory_tools import search_memory
+            mem_result = search_memory.func(query=search_query, room_name=room_name)
+            if "【検索結果】" in mem_result and "見つかりませんでした" not in mem_result:
+                results.append(mem_result)
+
+        if not results:
+            return {"retrieved_context": "（関連情報は検索されませんでした）"}
+            
+        final_context = "\n\n".join(results)
+        # print(f"  - [Retrieval] 検索結果を取得しました ({len(final_context)} chars)")
+        return {"retrieved_context": final_context}
+
+    except Exception as e:
+        print(f"  - [Retrieval Error] 検索処理中にエラー: {e}")
+        return {"retrieved_context": ""}
+
 def context_generator_node(state: AgentState):
     room_name = state['room_name']
     
@@ -254,7 +351,12 @@ def context_generator_node(state: AgentState):
         except Exception as e:
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
-    
+
+    retrieved_context = state.get("retrieved_context", "")
+    retrieved_info_section = ""
+    if retrieved_context and retrieved_context != "（関連情報は検索されませんでした）":
+        retrieved_info_section = f"### 🔍 事前検索された関連情報\nシステムがあなたの記憶や知識ベースを検索した結果、以下の情報が見つかりました。必要に応じて回答の参考にしてください。\n\n{retrieved_context}\n"
+
     image_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
     current_tools = all_tools
     image_generation_manual_text = ""
@@ -315,7 +417,8 @@ def context_generator_node(state: AgentState):
         'notepad_section': notepad_section,
         'thought_generation_manual': thought_generation_manual_text,
         'image_generation_manual': image_generation_manual_text, 
-        'tools_list': tools_list_str
+        'tools_list': tools_list_str,
+        'retrieved_info': retrieved_info_section
     }
     final_system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
 
@@ -685,10 +788,15 @@ def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node",
 
 workflow = StateGraph(AgentState)
 workflow.add_node("context_generator", context_generator_node)
+workflow.add_node("retrieval_node", retrieval_node)
 workflow.add_node("agent", agent_node)
 workflow.add_node("safe_tool_node", safe_tool_executor)
+
 workflow.set_entry_point("context_generator")
-workflow.add_edge("context_generator", "agent")
+
+workflow.add_edge("context_generator", "retrieval_node")
+workflow.add_edge("retrieval_node", "agent")
+
 workflow.add_conditional_edges("agent", route_after_agent, {"safe_tool_node": "safe_tool_node", "agent": "agent", "__end__": END})
 workflow.add_edge("safe_tool_node", "agent")
 app = workflow.compile()

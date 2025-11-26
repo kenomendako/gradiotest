@@ -24,6 +24,10 @@ CORE_PROMPT_TEMPLATE = """
         {situation_prompt}
     </current_situation>
 
+    <retrieved_information>
+        {retrieved_info}
+    </retrieved_information>
+
     <world_laws>
         ## 【世界の法則】物理的制約
         場所の移動、画像の生成、記憶の編集といった、世界の物理状態に影響を与える全ての行動は、**必ず、対応する「ツール」を使用することによってのみ**達成されます。物語の地の文やナレーションだけでこれらの事象を発生させることは、重大な作法違反です。

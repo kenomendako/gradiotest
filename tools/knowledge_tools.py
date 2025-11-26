@@ -11,7 +11,7 @@ import constants
 import config_manager
 
 @tool
-def search_knowledge_base(query: str, room_name: str) -> str:
+def search_knowledge_base(query: str, room_name: str, api_key: str = None) -> str:
     """
     AI自身の長期的な知識ベース（Knowledge Base）に保存されている、外部から与えられたドキュメント（マニュアル、設定資料など）の内容について、自然言語で検索する。
     AI自身の記憶や過去の会話ではなく、普遍的な事実や情報を調べる場合に使用する。
@@ -33,11 +33,13 @@ def search_knowledge_base(query: str, room_name: str) -> str:
         return "【情報】このルームには、まだ知識ベースの索引が構築されていません。UIから索引を作成してください。"
 
     # 3. APIキーとエンベディングモデルの準備
-    api_key_name = config_manager.initial_api_key_name_global
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key:
+        api_key_name = config_manager.initial_api_key_name_global
+        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        return f"【エラー】知識ベースの検索に必要なAPIキー「{api_key_name}」が無効です。"
-
+        return f"【エラー】知識ベースの検索に必要なAPIキーが無効です。"
+        
     try:
         embeddings = GoogleGenerativeAIEmbeddings(
             model=constants.EMBEDDING_MODEL,
