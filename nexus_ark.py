@@ -247,11 +247,11 @@ try:
                                                 interactive=True
                                             )
                                         with gr.Accordion("Pushover", open=False):
-                                            pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password") # value引数を削除
-                                            pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password") # value引数を削除
+                                            pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", interactive=True) 
+                                            pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", interactive=True)
                                             save_pushover_config_button = gr.Button("Pushover設定を保存", variant="primary")
                                         with gr.Accordion("Discord", open=False):
-                                            discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password") # value引数を削除
+                                            discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", interactive=True)
                                             save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
                                         gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
 
@@ -1402,6 +1402,20 @@ try:
         )
 
         notification_service_radio.change(fn=ui_handlers.handle_notification_service_change, inputs=[notification_service_radio], outputs=[])
+
+        # Pushover保存ボタンのイベント
+        save_pushover_config_button.click(
+            fn=ui_handlers.handle_save_pushover_config,
+            inputs=[pushover_user_key_input, pushover_app_token_input],
+            outputs=None
+        )
+
+        # Discord保存ボタンのイベント
+        save_discord_webhook_button.click(
+            fn=ui_handlers.handle_save_discord_webhook,
+            inputs=[discord_webhook_input],
+            outputs=None
+        )
 
         # 【v14: 責務分離アーキテクチャ】
         # 1. まず、キーの保存と、それに関連するUIのみを更新する
