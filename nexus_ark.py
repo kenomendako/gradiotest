@@ -144,14 +144,15 @@ try:
     #memory_json_editor_code, #notepad_editor_code, #system_prompt_editor, #core_memory_editor_code {
         max-height: 410px; border: 1px solid var(--border-color-primary); border-radius: 5px; padding: 0;
     }
-    #alarm_dataframe_display { border-radius: 8px !important; }
-    #alarm_dataframe_display table { width: 100% !important; }
-    #alarm_dataframe_display th, #alarm_dataframe_display td {
-        text-align: left !important; padding: 4px 8px !important; white-space: normal !important; font-size: 0.95em;
+
+    /* ID: alarm_list_table に対する指定 */
+    #alarm_list_table th:nth-child(2), #alarm_list_table td:nth-child(2) {
+        min-width: 80px !important; /* 2列目(時刻)の幅を確保 */
     }
-    #alarm_dataframe_display th:nth-child(1), #alarm_dataframe_display td:nth-child(1) {
-        width: 50px !important; text-align: center !important;
+    #alarm_list_table th:nth-child(3), #alarm_list_table td:nth-child(3) {
+        min-width: 100px !important; /* 3列目(予定)の幅を確保 */
     }
+
     #selection_feedback { font-size: 0.9em; color: var(--text-color-secondary); margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
     #token_count_display { text-align: right; font-size: 0.85em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
@@ -425,7 +426,9 @@ try:
                                         datatype=["bool", "str", "str", "str", "str"], 
                                         interactive=True, 
                                         col_count=5, 
-                                        wrap=True, 
+                                        row_count=(10, "dynamic"),
+                                        wrap=False, 
+                                        elem_id="alarm_list_table",
                                         value=[[True, "08:00", "テスト1", "Default", "テストアラーム1"], [False, "12:00", "テスト2", "Default", "テストアラーム2"], [True, "18:00", "テスト3", "Default", "テストアラーム3"]]
                                     )
                                     selection_feedback_markdown = gr.Markdown("アラームを選択してください", elem_id="selection_feedback")
