@@ -189,11 +189,14 @@ def retrieval_node(state: AgentState):
     
     # 1. 検索対象となるユーザー入力（最後のメッセージ）を取得
     if not state['messages']:
+        print("  - [Retrieval Skip] メッセージ履歴が空です。")
         return {"retrieved_context": ""}
     
     last_message = state['messages'][-1]
-    # ユーザー発言でなければ検索しない
+    # print(f"  - [Retrieval Debug] Last Message Type: {type(last_message).__name__}")
+    
     if not isinstance(last_message, HumanMessage):
+        print(f"  - [Retrieval Skip] 最後のメッセージがユーザー発言ではありません。(Type: {type(last_message).__name__})")
         return {"retrieved_context": ""}
         
     # コンテンツがリスト（マルチモーダル）の場合、テキスト部分だけ抽出
@@ -204,9 +207,10 @@ def retrieval_node(state: AgentState):
         for part in last_message.content:
             if isinstance(part, dict) and part.get("type") == "text":
                 query_source += part.get("text", "") + " "
-                
+    
     query_source = query_source.strip()
     if not query_source:
+        print("  - [Retrieval Skip] 検索対象となるテキストコンテンツが含まれていません。")
         return {"retrieved_context": ""}
 
     # 2. クエリ生成AI（Flash Lite）による判断
@@ -219,61 +223,81 @@ def retrieval_node(state: AgentState):
     
     decision_prompt = f"""
     あなたは、チャットボットの「記憶検索」を制御する司令塔です。
-    ユーザーの発言に対して、より的確に答えるために、過去のログや知識ベースを検索する必要があるか判断してください。
+    ユーザーの発言に対して、より的確で文脈に沿った応答をするために、過去のログや知識ベースを検索する必要があるか判断してください。
 
     【ユーザーの発言】
     {query_source}
 
-    【判断基準】
-    - 挨拶、相槌、感情の吐露など、文脈なしで即答できる場合 -> 検索不要
-    - 「あの件どうなった？」「～の設定について教えて」「前に話した～だけど」など、過去の記憶や知識が必要な場合 -> 検索クエリを生成
+    【判断基準（迷ったら「検索する」を選んでください）】
+    - 「あの件どうなった？」「設定を教えて」「前に話した～だけど」等の、明確な情報要求 -> **検索必須**
+    - 人名、地名、施設名、作品名などの**固有名詞**が含まれる場合 -> **検索推奨**
+    - 「いつもの」「例の」「あれ」などの指示語や、通院・習い事などの**定期的な行動**が含まれる場合 -> **検索推奨**
+    - 単なる挨拶（「おはよう」「おやすみ」）や、感情的な叫び（「疲れたー！」）のみの場合 -> 検索不要
+
+    【検索クエリ生成のコツ（重要）】
+    - ユーザーの言葉をそのまま使うだけでなく、そこから連想される**類義語**や**具体的な固有名詞**を想像してクエリに含めてください。
+    - OR検索を想定し、キーワードはスペース区切りで複数並べてください。
+    - 例: 「娘の主治医」 -> 「娘 主治医 病院 先生 医師 クリニック 飯田」
+    - 例: 「あのゲーム」 -> 「ゲーム プレイ 最近 遊んだ RPG モンハン」
 
     【出力形式】
     - 検索が不要な場合: `NONE` とだけ出力してください。
-    - 検索が必要な場合: 検索に使用すべき最も適切な「キーワード」のみを出力してください。（例: `Nexus Ark 使い方`, `前回のクリスマスの話`）
+    - 検索が必要な場合: 生成した「検索キーワード群」のみを出力してください。
     """
     
     try:
         decision_response = llm_flash.invoke(decision_prompt).content.strip()
         
         if decision_response == "NONE":
-            # print("  - [Retrieval] 検索不要と判断されました。")
+            print("  - [Retrieval] 判断: 検索不要 (AI判断)")
             return {"retrieved_context": ""}
             
         search_query = decision_response
-        print(f"  - [Retrieval] 検索を実行します。クエリ: '{search_query}'")
+        print(f"  - [Retrieval] 判断: 検索実行 (クエリ: '{search_query}')")
         
         results = []
         
-        # 3. 各種検索ツールの実行 (関数として直接呼び出す)
         # 3a. 知識ベース (RAG)
         from tools.knowledge_tools import search_knowledge_base
         kb_result = search_knowledge_base.func(query=search_query, room_name=room_name, api_key=api_key)
-        if "【検索結果】" in kb_result and "見つかりませんでした" not in kb_result:
+        if kb_result and "見つかりませんでした" not in kb_result and "エラー" not in kb_result and "【情報】" not in kb_result:
+             print(f"    -> 知識ベース: ヒット ({len(kb_result)} chars)")
              results.append(kb_result)
+        else:
+             print(f"    -> 知識ベース: なし")
 
         # 3b. 過去ログ
         from tools.memory_tools import search_past_conversations
         log_result = search_past_conversations.func(query=search_query, room_name=room_name, api_key=api_key)
-        if "【検索結果】" in log_result and "見つかりませんでした" not in log_result:
+        if log_result and "見つかりませんでした" not in log_result and "エラー" not in log_result and "【情報】" not in log_result:
+             print(f"    -> 過去ログ: ヒット ({len(log_result)} chars)")
              results.append(log_result)
+        else:
+             print(f"    -> 過去ログ: なし")
              
-        # 3c. 日記 (Memory) - 検索クエリが「思い出」「記憶」などを含む場合や、過去ログ検索でヒットしなかった場合に実行
+        # 3c. 日記 (Memory)
+        # 「思い」「記憶」が含まれるか、他の検索でヒットしなかった場合に実行
         if not results or "思い" in search_query or "記憶" in search_query:
             from tools.memory_tools import search_memory
             mem_result = search_memory.func(query=search_query, room_name=room_name)
-            if "【検索結果】" in mem_result and "見つかりませんでした" not in mem_result:
+            # ここが修正の核心です。"【検索結果】" in mem_result を削除しました。
+            if mem_result and "見つかりませんでした" not in mem_result and "エラー" not in mem_result and "【情報】" not in mem_result:
+                print(f"    -> 日記: ヒット ({len(mem_result)} chars)")
                 results.append(mem_result)
-
+            else:
+                print(f"    -> 日記: なし")
+                
         if not results:
+            print("  - [Retrieval] 関連情報は検索されませんでした。")
             return {"retrieved_context": "（関連情報は検索されませんでした）"}
             
         final_context = "\n\n".join(results)
-        # print(f"  - [Retrieval] 検索結果を取得しました ({len(final_context)} chars)")
+        print(f"  - [Retrieval] 検索完了。合計 {len(final_context)} 文字のコンテキストを生成しました。")
         return {"retrieved_context": final_context}
 
     except Exception as e:
         print(f"  - [Retrieval Error] 検索処理中にエラー: {e}")
+        traceback.print_exc()
         return {"retrieved_context": ""}
 
 def context_generator_node(state: AgentState):
@@ -352,11 +376,6 @@ def context_generator_node(state: AgentState):
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
 
-    retrieved_context = state.get("retrieved_context", "")
-    retrieved_info_section = ""
-    if retrieved_context and retrieved_context != "（関連情報は検索されませんでした）":
-        retrieved_info_section = f"### 🔍 事前検索された関連情報\nシステムがあなたの記憶や知識ベースを検索した結果、以下の情報が見つかりました。必要に応じて回答の参考にしてください。\n\n{retrieved_context}\n"
-
     image_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
     current_tools = all_tools
     image_generation_manual_text = ""
@@ -418,7 +437,6 @@ def context_generator_node(state: AgentState):
         'thought_generation_manual': thought_generation_manual_text,
         'image_generation_manual': image_generation_manual_text, 
         'tools_list': tools_list_str,
-        'retrieved_info': retrieved_info_section
     }
     final_system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
 
@@ -435,7 +453,16 @@ def agent_node(state: AgentState):
 
     # 1. プロンプト準備
     base_system_prompt_text = state['system_prompt'].content
-    final_system_prompt_text = base_system_prompt_text
+
+    retrieved_context = state.get("retrieved_context", "")
+    retrieved_info_text = "（特に関連する事前情報は検索されませんでした）"
+    
+    if retrieved_context and retrieved_context != "（関連情報は検索されませんでした）":
+        retrieved_info_text = f"### 🔍 事前検索された関連情報\nシステムがあなたの記憶や知識ベースを検索した結果、以下の情報が見つかりました。必要に応じて回答の参考にしてください。\n\n{retrieved_context}\n"
+        print("  - [Agent] 検索結果をシステムプロンプトに注入しました。")
+    
+    # プレースホルダを置換
+    final_system_prompt_text = base_system_prompt_text.replace("{retrieved_info}", retrieved_info_text)
 
     all_participants = state.get('all_participants', [])
     current_room = state['room_name']

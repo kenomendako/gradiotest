@@ -25,6 +25,8 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
     if not query or not room_name or not api_key:
         return "【エラー】検索クエリ、ルーム名、APIキーは必須です。"
 
+    search_keywords = query.lower().split()
+    
     print(f"--- 過去ログ検索実行 (ルーム: {room_name}, クエリ: '{query}') ---")
     try:
         base_path = Path(constants.ROOMS_DIR) / room_name
@@ -38,7 +40,6 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
             re.compile(r'###\s*(\d{4}-\d{2}-\d{2})')
         ]
         
-        # ▼▼▼【ここから下のブロックを、既存の検索ロジックと完全に置き換えてください】▼▼▼
         for file_path_str in search_paths:
             file_path = Path(file_path_str)
             if not file_path.exists() or file_path.stat().st_size == 0:
@@ -54,8 +55,9 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
             processed_blocks_content = set()
 
             for i, line in enumerate(lines):
-                # ★★★【実績のあるロジック】正規表現を避け、単純な小文字化と比較を行う ★★★
-                if query.lower() in line.lower():
+                # ★★★ 修正: スペース区切りのOR検索に変更 ★★★
+                # 元: if query.lower() in line.lower():
+                if any(k in line.lower() for k in search_keywords):
                     start_index = 0
                     for h_idx in reversed(header_indices):
                         if h_idx <= i:
@@ -84,8 +86,7 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
                             "date": block_date,
                             "source": file_path.name
                         })
-        # ▲▲▲【置き換えはここまで】▲▲▲
-
+                        
         if not found_blocks:
             return f"【検索結果】過去の会話ログから「{query}」に関する情報は見つかりませんでした。"
 
