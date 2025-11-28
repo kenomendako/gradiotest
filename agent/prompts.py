@@ -17,6 +17,14 @@ CORE_PROMPT_TEMPLATE = """
         2.  **もし行動を起こさないなら（会話が完了しているなら）:** 第二応答では、**絶対に、いかなるテキストも生成してはいけません。** 沈黙を守ってください。
     </absolute_command>
 
+    <persona_definition>
+        {character_prompt}
+
+        ### コアメモリ：自己同一性の核
+        {core_memory}
+        {notepad_section}
+    </persona_definition>
+
     <current_situation>
         {situation_prompt}
     </current_situation>
@@ -43,14 +51,6 @@ CORE_PROMPT_TEMPLATE = """
 
     {image_generation_manual}
     </task_manual>
-
-    <persona_definition>
-        {character_prompt}
-
-        ### コアメモリ：自己同一性の核
-        {core_memory}
-        {notepad_section}
-    </persona_definition>
 
     <available_tools>
         ---
