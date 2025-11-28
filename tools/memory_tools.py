@@ -16,9 +16,8 @@ import utils # <-- 追加が必要な場合
 import glob
 from pathlib import Path
 
-# ▼▼▼ 既存の search_memory 関数の定義よりも前に、この新しいツール関数をまるごと追加してください ▼▼▼
 @tool
-def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
+def search_past_conversations(query: str, room_name: str, api_key: str, exclude_recent_messages: int = 0) -> str:
     """
     ユーザーとの過去の会話ログ全体（アーカイブやインポートされたものを含む）から、特定の出来事や話題について検索する場合に使用します。
     """
@@ -52,11 +51,21 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
             if not header_indices:
                 continue
 
+            search_end_line = len(lines) # デフォルトは最後まで検索
+            
+            # 対象が log.txt で、かつ除外設定がある場合
+            if file_path.name == "log.txt" and exclude_recent_messages > 0:
+                if len(header_indices) <= exclude_recent_messages:
+                    # ヘッダー数が除外数以下なら、このファイル（現行ログ）はすべてコンテキストに含まれているので検索しない
+                    continue
+                else:
+                    # 後ろから N 個目のヘッダーの位置を特定し、そこまでを検索範囲とする
+                    cutoff_header_index = header_indices[-exclude_recent_messages]
+                    search_end_line = cutoff_header_index
+
             processed_blocks_content = set()
 
-            for i, line in enumerate(lines):
-                # ★★★ 修正: スペース区切りのOR検索に変更 ★★★
-                # 元: if query.lower() in line.lower():
+            for i, line in enumerate(lines[:search_end_line]):
                 if any(k in line.lower() for k in search_keywords):
                     start_index = 0
                     for h_idx in reversed(header_indices):
@@ -98,7 +107,13 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
         summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
 
         for block in limited_blocks:
-            summarize_prompt = f"""あなたは、短い会話の記録から、指定されたキーワードに関する要点のみを抽出する専門家です。以下の会話ログから、「{query}」に関連する部分だけを、1〜2文で簡潔に要約してください。
+            # プロンプトを強化し、無関係な場合は NONE を出力させる
+            summarize_prompt = f"""あなたは、短い会話の記録から、指定されたキーワードに関する要点のみを抽出する専門家です。
+以下の会話ログから、「{query}」に関連する部分だけを、1〜2文で簡潔に要約してください。
+
+【最重要ルール】
+- ログの中にキーワードが含まれていても、文脈的に重要な情報がない場合（単なる言及のみ等）は、**要約を作らず、単に `NONE` とだけ出力してください。**
+- 「抽出できませんでした」などの言い訳や挨拶は一切不要です。
 
 【会話ログ】
 ---
@@ -108,7 +123,14 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
 【要約】"""
             try:
                 summary = summarizer_llm.invoke(summarize_prompt).content.strip()
-                if summary:
+                
+                # フィルタリングロジックの強化
+                # NONE、空文字、および「抽出できません」系のフレーズを除外
+                if (summary and 
+                    summary != "NONE" and 
+                    "抽出できません" not in summary and 
+                    "見つかりません" not in summary):
+                    
                      summarized_results.append({
                         "summary": summary,
                         "date": block.get('date'),
@@ -127,13 +149,12 @@ def search_past_conversations(query: str, room_name: str, api_key: str) -> str:
             result_parts.append(f"- [出典: {res['source']}, {date_str}]\n  {res['summary']}")
         
         final_result = "\n".join(result_parts)
-        final_result += "\n\n**この検索タスクは完了しました。これから検索するというような前置きはせず、**見つかった情報を元にユーザーの質問に答えてください。"
+        # final_result += "\n\n**この検索タスクは完了しました。これから検索するというような前置きはせず、**見つかった情報を元にユーザーの質問に答えてください。"
         return final_result
 
     except Exception as e:
         traceback.print_exc()
         return f"【エラー】過去ログ検索中に予期せぬエラーが発生しました: {e}"
-# ▲▲▲ 追加はここまで ▲▲▲
 
 @tool
 def search_memory(query: str, room_name: str) -> str:

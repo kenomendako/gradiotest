@@ -256,11 +256,29 @@ def retrieval_node(state: AgentState):
         print(f"  - [Retrieval] 判断: 検索実行 (クエリ: '{search_query}')")
         
         results = []
+
+        import config_manager
+        # 現在の設定を取得 (JIT読み込み推奨だが、頻度が高いのでCONFIG_GLOBALでも可。ここでは安全のためloadする)
+        current_config = config_manager.load_config_file()
+        history_limit_option = current_config.get("last_api_history_limit_option", "all")
         
+        exclude_count = 0
+        if history_limit_option == "all":
+            # 「全ログ」送信設定なら、log.txt はすべてコンテキストに含まれているので検索不要
+            exclude_count = 999999
+        elif history_limit_option.isdigit():
+            # 「10往復」なら 20メッセージ分を除外
+            # さらに安全マージンとして +2 (直前のシステムメッセージ等) しておくと確実
+            exclude_count = int(history_limit_option) * 2 + 2
+
         # 3a. 知識ベース (RAG)
         from tools.knowledge_tools import search_knowledge_base
         kb_result = search_knowledge_base.func(query=search_query, room_name=room_name, api_key=api_key)
-        if kb_result and "見つかりませんでした" not in kb_result and "エラー" not in kb_result and "【情報】" not in kb_result:
+        if (kb_result and 
+            "見つかりませんでした" not in kb_result and 
+            "エラー" not in kb_result and 
+            "【情報】" not in kb_result and
+            "抽出できません" not in kb_result):
              print(f"    -> 知識ベース: ヒット ({len(kb_result)} chars)")
              results.append(kb_result)
         else:
@@ -268,25 +286,39 @@ def retrieval_node(state: AgentState):
 
         # 3b. 過去ログ
         from tools.memory_tools import search_past_conversations
-        log_result = search_past_conversations.func(query=search_query, room_name=room_name, api_key=api_key)
-        if log_result and "見つかりませんでした" not in log_result and "エラー" not in log_result and "【情報】" not in log_result:
+        # ▼▼▼ 引数 exclude_recent_messages を渡す ▼▼▼
+        log_result = search_past_conversations.func(
+            query=search_query, 
+            room_name=room_name, 
+            api_key=api_key, 
+            exclude_recent_messages=exclude_count
+        )
+        if (log_result and 
+            "見つかりませんでした" not in log_result and 
+            "エラー" not in log_result and 
+            "【情報】" not in log_result and
+            "抽出できません" not in log_result):
              print(f"    -> 過去ログ: ヒット ({len(log_result)} chars)")
              results.append(log_result)
         else:
-             print(f"    -> 過去ログ: なし")
-             
+             print(f"    -> 過去ログ: なし (除外数: {exclude_count})")
+
         # 3c. 日記 (Memory)
         # 「思い」「記憶」が含まれるか、他の検索でヒットしなかった場合に実行
         if not results or "思い" in search_query or "記憶" in search_query:
             from tools.memory_tools import search_memory
             mem_result = search_memory.func(query=search_query, room_name=room_name)
             # ここが修正の核心です。"【検索結果】" in mem_result を削除しました。
-            if mem_result and "見つかりませんでした" not in mem_result and "エラー" not in mem_result and "【情報】" not in mem_result:
+            if (mem_result and 
+                "見つかりませんでした" not in mem_result and 
+                "エラー" not in mem_result and 
+                "【情報】" not in mem_result and
+                "抽出できません" not in mem_result):
                 print(f"    -> 日記: ヒット ({len(mem_result)} chars)")
                 results.append(mem_result)
             else:
                 print(f"    -> 日記: なし")
-                
+
         if not results:
             print("  - [Retrieval] 関連情報は検索されませんでした。")
             return {"retrieved_context": "（関連情報は検索されませんでした）"}
@@ -462,11 +494,11 @@ def agent_node(state: AgentState):
     retrieved_info_text = "" 
     
     if retrieved_context and retrieved_context != "（関連情報は検索されませんでした）":
-        # 変更点2: 「システム」という言葉を排除し、「想起」として提示する
         retrieved_info_text = (
-            f"### 🧠 脳裏に蘇った記憶と知識\n"
-            f"会話からあなたは以下の情報をふと思い出しました。"
-            f"これらはあなたの過去の経験や知識の一部です。\n\n"
+            f"### 過去の記憶と知識\n"
+            f"過去の記録から関連する以下の情報が見つかりました。\n"
+            f"これらはキーワード連想により浮上した過去の記憶や知識ですが、**必ずしも「今」の話題と直結しているとは限りません。**\n"
+            f"現在の文脈と照らし合わせ、**会話の流れに自然に組み込めそうな場合のみ**参考にし、無関係だと判断した場合は無視してください。\n\n"
             f"{retrieved_context}\n"
         )
         print("  - [Agent] 検索結果をシステムプロンプトに注入しました。")
