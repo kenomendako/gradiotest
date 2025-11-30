@@ -15,6 +15,7 @@ import constants
 import utils # <-- 追加が必要な場合
 import glob
 from pathlib import Path
+import random 
 
 @tool
 def search_past_conversations(query: str, room_name: str, api_key: str, exclude_recent_messages: int = 0) -> str:
@@ -99,8 +100,45 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
         if not found_blocks:
             return f"【検索結果】過去の会話ログから「{query}」に関する情報は見つかりませんでした。"
 
+        # 単純な「新しい順」ではなく「分散サンプリング」を行う 
+        # 1. まず日付順（新しい順）にソート
         found_blocks.sort(key=lambda x: x.get('date') or '0000-00-00', reverse=True)
-        limited_blocks = found_blocks[:5]
+        
+        total_hits = len(found_blocks)
+        target_count = 5
+        
+        if total_hits <= target_count:
+            # ヒット数が目標以下なら、そのまま全部使う
+            limited_blocks = found_blocks
+        else:
+            # ヒット数が多い場合、戦略的にサンプリングする
+            # A. 最新の記憶 (文脈維持)
+            recent_picks = found_blocks[:2]
+            
+            # B. 最古の記憶 (起源の想起) - リスト末尾から取得
+            # ※ found_blocks[-2:] だと順序が古い順になるので、reversedで新しい順に戻すなど調整が必要だが
+            # 後の工程でまとめてソートし直すので、ここでは抽出だけで良い
+            oldest_picks = found_blocks[-2:]
+            
+            # C. 中間の記憶 (ランダムな再発見)
+            # 最新2つと最古2つを除いた中間層
+            middle_candidates = found_blocks[2:-2]
+            random_pick = []
+            if middle_candidates:
+                random_pick = [random.choice(middle_candidates)]
+            
+            # 重複を排除しつつ結合 (IDがないのでcontentで判定)
+            # ※ セットを使うと順序が崩れるが、最後にソートし直す
+            selected_contents = set()
+            limited_blocks = []
+            
+            for block in recent_picks + oldest_picks + random_pick:
+                if block['content'] not in selected_contents:
+                    limited_blocks.append(block)
+                    selected_contents.add(block['content'])
+            
+            # 最後に、読みやすいように再度「日付の新しい順」に並べ直す
+            limited_blocks.sort(key=lambda x: x.get('date') or '0000-00-00', reverse=True)
 
         summarized_results = []
         from gemini_api import get_configured_llm
