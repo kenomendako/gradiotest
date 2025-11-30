@@ -145,11 +145,16 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
         summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
 
         for block in limited_blocks:
-            # プロンプトを強化し、無関係な場合は NONE を出力させる
-            summarize_prompt = f"""あなたは、短い会話の記録から、指定されたキーワードに関する要点のみを抽出する専門家です。
-以下の会話ログから、「{query}」に関連する部分だけを、1〜2文で簡潔に要約してください。
+            summarize_prompt = f"""あなたは、断片的な会話ログから「文脈」と「物語」を復元する専門家です。
+以下の会話ログは、AI（あなた）とユーザーの過去のやり取りの一部です。
+このログから、「{query}」に関連するエピソードを、**AIが自身の記憶として鮮明に思い出せるような、具体的で物語性のある要約**として再構成してください。
 
-【最重要ルール】
+【要約のルール】
+1.  **具体性を重視:** 「会話した」「アドバイスした」という抽象的な表現で終わらせず、「**具体的に**何について議論したか」「ユーザーはどんな感情だったか」「AIは具体的に何を提案したか」を記述してください。
+2.  **物語調:** 箇条書きではなく、**3〜5文程度の自然な文章**で記述してください。主語（ユーザーは〜、私は〜）を明確にしてください。
+3.  **キーワードの文脈:** 検索クエリ「{query}」が、どのような文脈で登場したかを必ず含めてください。
+
+【除外基準】
 - ログの中にキーワードが含まれていても、文脈的に重要な情報がない場合（単なる言及のみ等）は、**要約を作らず、単に `NONE` とだけ出力してください。**
 - 「抽出できませんでした」などの言い訳や挨拶は一切不要です。
 
@@ -158,7 +163,7 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
 {block['content']}
 ---
 
-【要約】"""
+【記憶の再構成（要約）】"""
             try:
                 summary = summarizer_llm.invoke(summarize_prompt).content.strip()
                 
