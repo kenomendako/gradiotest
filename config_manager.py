@@ -427,7 +427,8 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         "add_timestamp": True, "send_thoughts": initial_send_thoughts_to_api_global,
         "send_notepad": True, "use_common_prompt": True,
         "send_core_memory": True,
-        "enable_scenery_system": True, # この行を追加
+        "enable_scenery_system": True, 
+        "enable_auto_retrieval": True,
         "send_scenery": True,
         "send_current_time": True,
         "auto_memory_enabled": False,

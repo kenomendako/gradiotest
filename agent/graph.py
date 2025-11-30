@@ -187,6 +187,11 @@ def retrieval_node(state: AgentState):
     """
     print("--- 検索ノード (retrieval_node) 実行 ---")
     
+    # 個別設定で検索が無効化されている場合は、何もせずに終了
+    if not state.get("generation_config", {}).get("enable_auto_retrieval", True):
+        print("  - [Retrieval Skip] 設定により事前検索は無効化されています。")
+        return {"retrieved_context": ""}
+
     # 1. 検索対象となるユーザー入力（最後のメッセージ）を取得
     if not state['messages']:
         print("  - [Retrieval Skip] メッセージ履歴が空です。")

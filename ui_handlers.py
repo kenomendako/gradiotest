@@ -121,7 +121,6 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     has_valid_key = api_key and not api_key.startswith("YOUR_API_KEY")
 
     if not has_valid_key:
-        # (オンボーディングモードのコードは変更なし)
         return (
             room_name, [], [], gr.update(interactive=False, placeholder="まず、左の「設定」からAPIキーを設定してください。"),
             None, "", "", "", "",
@@ -135,13 +134,14 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,
             0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
             False, # display_thoughts
+            False, # send_thoughts 
+            True,  # enable_auto_retrieval 
             True,  # add_timestamp
             True,  # send_current_time
-            False, # send_thoughts
             True,  # send_notepad
             True,  # use_common_prompt
             True,  # send_core_memory
-            False, # send_scenery (APIキーがないのでFalse)
+            False, # send_scenery
             False, # auto_memory_enabled
             f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", None,
             True, gr.update(open=True)
@@ -195,10 +195,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     profile_image = img_p if img_p and os.path.exists(img_p) else None
     notepad_content = load_notepad_content(room_name)
     
-    # ▼▼▼【ここが修正の核心】▼▼▼
     # location_dd_val を、ファイルから読み込んだ（または初期化した）値に修正
     location_dd_val = current_location_from_file
-    # ▲▲▲【修正はここまで】▲▲▲
 
     voice_display_name = config_manager.SUPPORTED_VOICES.get(effective_settings.get("voice_id", "iapetus"), list(config_manager.SUPPORTED_VOICES.values())[0])
     voice_style_prompt_val = effective_settings.get("voice_style_prompt", "")
@@ -230,9 +228,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings.get("temperature", 0.8), effective_settings.get("top_p", 0.95),
         harassment_val, hate_val, sexual_val, dangerous_val,
         display_thoughts_val,
+        gr.update(value=send_thoughts_val, interactive=send_thoughts_interactive), 
+        effective_settings.get("enable_auto_retrieval", True), 
         effective_settings["add_timestamp"],
         effective_settings.get("send_current_time", False),
-        gr.update(value=send_thoughts_val, interactive=send_thoughts_interactive), # send_thoughts_checkbox
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
         effective_settings["send_core_memory"], effective_settings["send_scenery"],
         effective_settings["auto_memory_enabled"],
@@ -345,10 +344,14 @@ def handle_save_room_settings(
     enable_typewriter_effect: bool,
     streaming_speed: float,
     display_thoughts: bool, 
-    add_timestamp: bool, send_current_time: bool, send_thoughts: bool, send_notepad: bool,
+    send_thoughts: bool, 
+    enable_auto_retrieval: bool, 
+    add_timestamp: bool, 
+    send_current_time: bool, 
+    send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool,
-    enable_scenery_system: bool, # room_send_scenery_checkbox から変更
-    auto_memory_enabled: bool
+    enable_scenery_system: bool,
+    auto_memory_enabled: bool    
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -376,9 +379,10 @@ def handle_save_room_settings(
         "enable_typewriter_effect": bool(enable_typewriter_effect),
         "streaming_speed": float(streaming_speed),
         "display_thoughts": bool(display_thoughts), 
+        "send_thoughts": send_thoughts,
+        "enable_auto_retrieval": bool(enable_auto_retrieval),
         "add_timestamp": bool(add_timestamp),
         "send_current_time": bool(send_current_time),
-        "send_thoughts": send_thoughts,
         "send_notepad": bool(send_notepad),
         "use_common_prompt": bool(use_common_prompt),
         "send_core_memory": bool(send_core_memory),
@@ -413,7 +417,9 @@ def handle_save_room_settings(
 def handle_context_settings_change(
     room_name: str, api_key_name: str, api_history_limit: str, 
     display_thoughts: bool,
-    add_timestamp: bool, send_current_time: bool, send_thoughts: bool, 
+    send_thoughts: bool, 
+    enable_auto_retrieval: bool,
+    add_timestamp: bool, send_current_time: bool, 
     send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, 
     enable_scenery_system: bool, *args, **kwargs
 ):
@@ -443,9 +449,11 @@ def update_token_count_on_input(
     api_history_limit: str,
     multimodal_input: dict,
     display_thoughts: bool, 
+    send_thoughts: bool, 
+    enable_auto_retrieval: bool,
     add_timestamp: bool, 
-    send_current_time: bool, # ◀◀◀ ここが修正点
-    send_thoughts: bool, send_notepad: bool,
+    send_current_time: bool, 
+    send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
     *args, **kwargs
 ):
@@ -1269,8 +1277,6 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
             gr.Warning("全てのルームが削除されました。新しいルームを作成してください。")
             # 契約数(57)に合わせてUIをリセットするための値を返す
             empty_chat_updates = (
-                # initial_load_chat_outputs (39個)
-                # current_room_name の値として None を返す
                 None, [], [], gr.update(interactive=False, placeholder="ルームを作成してください。"), 
                 None, "", "", "", "",
                 gr.update(choices=[], value=None), gr.update(choices=[], value=None), 
@@ -1279,7 +1285,17 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 "（ルームがありません）", 
                 list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,
                 0.8, 0.95, *[gr.update()]*4,
-                *([gr.update()]*9),
+                False, # display_thoughts
+                False, # send_thoughts
+                True,  # enable_auto_retrieval (追加)
+                True,  # add_timestamp
+                True,  # send_current_time
+                # False, # send_thoughts (削除)
+                True,  # send_notepad
+                True,  # use_common_prompt
+                True,  # send_core_memory
+                False, # send_scenery
+                False, # auto_memory_enabled
                 "ℹ️ *ルームを選択してください*", None,
                 True, gr.update(open=False),
             )
@@ -3045,7 +3061,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 56
+    EXPECTED_OUTPUT_COUNT = 57
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 

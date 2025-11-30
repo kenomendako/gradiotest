@@ -355,7 +355,15 @@ try:
                                             label="AIの思考過程 [THOUGHT] をチャットに表示する",
                                             interactive=True
                                         )
-                                        room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)
+                                        room_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
+                                        
+                                        room_enable_retrieval_checkbox = gr.Checkbox(
+                                            label="記憶の想起（事前検索）を有効化",
+                                            info="AIが応答する前に、過去ログや知識ベースから関連情報を自律的に検索・想起します。",
+                                            interactive=True
+                                        )
+                                        
+                                        room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)                                        
                                         room_send_current_time_checkbox = gr.Checkbox(
                                             label="現在時刻をAPIに送信",
                                             info="挨拶の自然さを向上させますが、特定の時間帯を演じたい場合はOFFにしてください。",
@@ -855,15 +863,17 @@ try:
         # --- イベントハンドラ定義 ---
         context_checkboxes = [
             room_display_thoughts_checkbox,
+            room_send_thoughts_checkbox, 
+            room_enable_retrieval_checkbox,
             room_add_timestamp_checkbox,
             room_send_current_time_checkbox,
-            room_send_thoughts_checkbox,
             room_send_notepad_checkbox,
             room_use_common_prompt_checkbox,
             room_send_core_memory_checkbox,
             enable_scenery_system_checkbox,
             auto_memory_enabled_checkbox,
         ]
+        
         context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
 
         attachment_change_token_calc_inputs = [
@@ -890,22 +900,20 @@ try:
             room_temperature_slider, room_top_p_slider,
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown,
-            # --- context_checkboxes の中身を展開してここに追加 ---
             room_display_thoughts_checkbox,
+            room_send_thoughts_checkbox, 
+            room_enable_retrieval_checkbox, 
             room_add_timestamp_checkbox,
             room_send_current_time_checkbox,
-            room_send_thoughts_checkbox,
             room_send_notepad_checkbox,
             room_use_common_prompt_checkbox,
             room_send_core_memory_checkbox,
-            room_send_scenery_checkbox,  # 連動される非表示チェックボックス
+            room_send_scenery_checkbox,
             auto_memory_enabled_checkbox,
-            # --- ここまでが context_checkboxes ---
             room_settings_info,
             scenery_image_display,
-            # --- 新しい部品をリストの末尾に追加 ---
-            enable_scenery_system_checkbox,  # マスタースイッチ
-            profile_scenery_accordion  # gr.update() から元のコンポーネント名に戻す
+            enable_scenery_system_checkbox,
+            profile_scenery_accordion
         ]
 
         initial_load_outputs = [
@@ -1237,14 +1245,17 @@ try:
             inputs=[
                 current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox
             ] + gen_settings_inputs + [
-                enable_typewriter_effect_checkbox, # ← enable_typewriter_effect と streaming_speed の順番を変更
+                enable_typewriter_effect_checkbox,
                 streaming_speed_slider,
             ] + [
-                # ▼▼▼ context_checkboxes に合わせて inputs を修正 ▼▼▼
-                room_display_thoughts_checkbox, # <<< この行を追加
-                room_add_timestamp_checkbox, room_send_current_time_checkbox, room_send_thoughts_checkbox, room_send_notepad_checkbox,
+                room_display_thoughts_checkbox,
+                room_send_thoughts_checkbox, 
+                room_enable_retrieval_checkbox, 
+                room_add_timestamp_checkbox, 
+                room_send_current_time_checkbox, 
+                room_send_notepad_checkbox,
                 room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
-                enable_scenery_system_checkbox, # 新しいマスタースイッチを渡す
+                enable_scenery_system_checkbox,
                 auto_memory_enabled_checkbox
             ],
             outputs=None
@@ -1274,7 +1285,10 @@ try:
         
         # display_thoughts以外のチェックボックスのイベント
         other_context_checkboxes = [
-            room_add_timestamp_checkbox, room_send_current_time_checkbox, room_send_thoughts_checkbox, 
+            room_send_thoughts_checkbox, 
+            room_enable_retrieval_checkbox, 
+            room_add_timestamp_checkbox, 
+            room_send_current_time_checkbox,
             room_send_notepad_checkbox, room_use_common_prompt_checkbox, room_send_core_memory_checkbox, 
             enable_scenery_system_checkbox, auto_memory_enabled_checkbox
         ]
