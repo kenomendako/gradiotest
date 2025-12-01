@@ -16,6 +16,7 @@ import utils # <-- 追加が必要な場合
 import glob
 from pathlib import Path
 import random 
+import config_manager
 
 @tool
 def search_past_conversations(query: str, room_name: str, api_key: str, exclude_recent_messages: int = 0) -> str:
@@ -26,7 +27,24 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
         return "【エラー】検索クエリ、ルーム名、APIキーは必須です。"
 
     search_keywords = query.lower().split()
+
+    # 1. 設定ファイルから「本来除外すべき数」を計算
+    current_config = config_manager.load_config_file()
+    val = current_config.get("last_api_history_limit_option", "all")
+    history_limit_option = str(val).strip()
     
+    config_exclude_count = 0
+    if history_limit_option == "all":
+        config_exclude_count = 999999
+    elif history_limit_option.isdigit():
+        config_exclude_count = int(history_limit_option) * 2 + 2
+    
+    # 2. 引数で渡された値（AIの指定や事前検索からの指定）と、設定値を比較
+    # AIが勝手に小さな値を指定してきても、設定値が優先されるように max を取る
+    final_exclude_count = max(exclude_recent_messages, config_exclude_count)
+    
+    print(f"  - [Search Debug] 除外数決定: {final_exclude_count} (引数: {exclude_recent_messages}, 設定: {config_exclude_count})")
+
     print(f"--- 過去ログ検索実行 (ルーム: {room_name}, クエリ: '{query}') ---")
     try:
         base_path = Path(constants.ROOMS_DIR) / room_name
@@ -52,18 +70,19 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
             if not header_indices:
                 continue
 
-            search_end_line = len(lines) # デフォルトは最後まで検索
+            search_end_line = len(lines)
             
-            # 対象が log.txt で、かつ除外設定がある場合
-            if file_path.name == "log.txt" and exclude_recent_messages > 0:
-                if len(header_indices) <= exclude_recent_messages:
-                    # ヘッダー数が除外数以下なら、このファイル（現行ログ）はすべてコンテキストに含まれているので検索しない
+            if file_path.name == "log.txt" and final_exclude_count > 0:
+                msg_count = len(header_indices)
+                if msg_count <= final_exclude_count:
+                    print(f"  - [Search Debug] log.txt をスキップ (Msg数 {msg_count} <= 除外数 {final_exclude_count})")
                     continue
                 else:
-                    # 後ろから N 個目のヘッダーの位置を特定し、そこまでを検索範囲とする
-                    cutoff_header_index = header_indices[-exclude_recent_messages]
+                    # 後ろから N 個目のヘッダーの位置を特定
+                    cutoff_header_index = header_indices[-final_exclude_count]
                     search_end_line = cutoff_header_index
-
+                    print(f"  - [Search Debug] log.txt を部分検索 (Msg数 {msg_count}, 範囲: 行 0〜{search_end_line})")
+                    
             processed_blocks_content = set()
 
             for i, line in enumerate(lines[:search_end_line]):
