@@ -28,7 +28,6 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
 
     search_keywords = query.lower().split()
 
-    # 1. 設定ファイルから「本来除外すべき数」を計算
     current_config = config_manager.load_config_file()
     val = current_config.get("last_api_history_limit_option", "all")
     history_limit_option = str(val).strip()
@@ -39,8 +38,6 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
     elif history_limit_option.isdigit():
         config_exclude_count = int(history_limit_option) * 2 + 2
     
-    # 2. 引数で渡された値（AIの指定や事前検索からの指定）と、設定値を比較
-    # AIが勝手に小さな値を指定してきても、設定値が優先されるように max を取る
     final_exclude_count = max(exclude_recent_messages, config_exclude_count)
     
     print(f"  - [Search Debug] 除外数決定: {final_exclude_count} (引数: {exclude_recent_messages}, 設定: {config_exclude_count})")
@@ -119,99 +116,24 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
         if not found_blocks:
             return f"【検索結果】過去の会話ログから「{query}」に関する情報は見つかりませんでした。"
 
-        # 単純な「新しい順」ではなく「分散サンプリング」を行う 
-        # 1. まず日付順（新しい順）にソート
+        # 1. 日付順（新しい順）にソート
         found_blocks.sort(key=lambda x: x.get('date') or '0000-00-00', reverse=True)
         
-        total_hits = len(found_blocks)
-        target_count = 5
-        
-        if total_hits <= target_count:
-            # ヒット数が目標以下なら、そのまま全部使う
-            limited_blocks = found_blocks
-        else:
-            # ヒット数が多い場合、戦略的にサンプリングする
-            # A. 最新の記憶 (文脈維持)
-            recent_picks = found_blocks[:2]
-            
-            # B. 最古の記憶 (起源の想起) - リスト末尾から取得
-            # ※ found_blocks[-2:] だと順序が古い順になるので、reversedで新しい順に戻すなど調整が必要だが
-            # 後の工程でまとめてソートし直すので、ここでは抽出だけで良い
-            oldest_picks = found_blocks[-2:]
-            
-            # C. 中間の記憶 (ランダムな再発見)
-            # 最新2つと最古2つを除いた中間層
-            middle_candidates = found_blocks[2:-2]
-            random_pick = []
-            if middle_candidates:
-                random_pick = [random.choice(middle_candidates)]
-            
-            # 重複を排除しつつ結合 (IDがないのでcontentで判定)
-            # ※ セットを使うと順序が崩れるが、最後にソートし直す
-            selected_contents = set()
-            limited_blocks = []
-            
-            for block in recent_picks + oldest_picks + random_pick:
-                if block['content'] not in selected_contents:
-                    limited_blocks.append(block)
-                    selected_contents.add(block['content'])
-            
-            # 最後に、読みやすいように再度「日付の新しい順」に並べ直す
-            limited_blocks.sort(key=lambda x: x.get('date') or '0000-00-00', reverse=True)
-
-        summarized_results = []
-        from gemini_api import get_configured_llm
-        summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
-
-        for block in limited_blocks:
-            summarize_prompt = f"""あなたは、断片的な会話ログから「文脈」と「物語」を復元する専門家です。
-以下の会話ログは、AI（あなた）とユーザーの過去のやり取りの一部です。
-このログから、「{query}」に関連するエピソードを、**AIが自身の記憶として鮮明に思い出せるような、具体的で物語性のある要約**として再構成してください。
-
-【要約のルール】
-1.  **具体性を重視:** 「会話した」「アドバイスした」という抽象的な表現で終わらせず、「**具体的に**何について議論したか」「ユーザーはどんな感情だったか」「AIは具体的に何を提案したか」を記述してください。
-2.  **物語調:** 箇条書きではなく、**3〜5文程度の自然な文章**で記述してください。主語（ユーザーは〜、私は〜）を明確にしてください。
-3.  **キーワードの文脈:** 検索クエリ「{query}」が、どのような文脈で登場したかを必ず含めてください。
-
-【除外基準】
-- ログの中にキーワードが含まれていても、文脈的に重要な情報がない場合（単なる言及のみ等）は、**要約を作らず、単に `NONE` とだけ出力してください。**
-- 「抽出できませんでした」などの言い訳や挨拶は一切不要です。
-
-【会話ログ】
----
-{block['content']}
----
-
-【記憶の再構成（要約）】"""
-            try:
-                summary = summarizer_llm.invoke(summarize_prompt).content.strip()
-                
-                # フィルタリングロジックの強化
-                # NONE、空文字、および「抽出できません」系のフレーズを除外
-                if (summary and 
-                    summary != "NONE" and 
-                    "抽出できません" not in summary and 
-                    "見つかりません" not in summary):
-                    
-                     summarized_results.append({
-                        "summary": summary,
-                        "date": block.get('date'),
-                        "source": block.get('source')
-                    })
-            except Exception as e:
-                print(f"要約API呼び出し中にエラー: {e}")
-                continue
-        
-        if not summarized_results:
-             return f"【検索結果】「{query}」に関する情報を抽出できませんでした。"
+        # 2. 上位5件（またはもう少し多くても可）を取得
+        # 生テキストの場合、文脈が長いので件数は絞ったほうが良い
+        limited_blocks = found_blocks[:5]
 
         result_parts = [f'【過去の会話ログからの検索結果：「{query}」】\n']
-        for res in summarized_results:
-            date_str = f"日付: {res['date']}頃" if res['date'] else "日付不明"
-            result_parts.append(f"- [出典: {res['source']}, {date_str}]\n  {res['summary']}")
         
-        final_result = "\n".join(result_parts)
-        # final_result += "\n\n**この検索タスクは完了しました。これから検索するというような前置きはせず、**見つかった情報を元にユーザーの質問に答えてください。"
+        for res in limited_blocks:
+            date_str = f"日付: {res['date']}頃" if res['date'] else "日付不明"
+            source_file = res['source']
+            raw_content = res['content']
+            
+            # 生テキストをそのまま提示
+            result_parts.append(f"- [出典: {source_file}, {date_str}]\n{raw_content}")
+        
+        final_result = "\n\n".join(result_parts)
         return final_result
 
     except Exception as e:
@@ -287,7 +209,6 @@ def search_memory(query: str, room_name: str) -> str:
         result_text += f"--- [出典: {block['file']}, 見出し: {block['header']}] ---\n"
         result_text += f"{block['content']}\n\n"
 
-    result_text += "\n\n**この記憶検索タスクは完了しました。これから思い出すというような前置きはせず、**見つかった記憶を元に会話を続けてください。"
     return result_text.strip()
 
 @tool

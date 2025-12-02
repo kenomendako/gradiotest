@@ -58,7 +58,6 @@ def search_knowledge_base(query: str, room_name: str, api_key: str = None) -> st
             result_parts.append(f"- {header}\n  {doc.page_content}")
 
         final_result = "\n".join(result_parts)
-        final_result += "\n\n**この検索タスクは完了しました。これから検索するというような前置きはせず、**見つかった情報を元にユーザーの質問に答えてください。"
         return final_result
 
     except Exception as e:
