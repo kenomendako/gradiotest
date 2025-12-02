@@ -136,46 +136,72 @@ def _perform_log_archiving(log_file_path: str, character_name: str, threshold_by
         if os.path.getsize(log_file_path) <= threshold_bytes:
             return None
 
+        print(f"--- [ログアーカイブ開始] {log_file_path} が {threshold_bytes / 1024 / 1024:.1f}MB を超えました ---")
+
         # Create a backup before modifying the log file
         room_manager.create_backup(character_name, 'log')
 
-        print(f"--- [ログアーカイブ開始] {log_file_path} が {threshold_bytes / 1024 / 1024:.1f}MB を超えました ---")
-        with open(log_file_path, "r", encoding="utf-8") as f: content = f.read()
-        log_parts = re.split(r'^(## .*?:)$', content, flags=re.MULTILINE)
-        messages = []
-        header = None
-        for part in log_parts:
-            part_strip = part.strip()
-            if not part_strip: continue
-            if part_strip.startswith("## ") and part_strip.endswith(":"): header = part
-            elif header: messages.append(header + part); header = None
-        current_size = 0
-        split_index = len(messages)
-        for i in range(len(messages) - 1, -1, -1):
-            current_size += len(messages[i].encode('utf-8'))
-            if current_size >= keep_bytes:
-                if messages[i].strip().startswith(f"## {character_name}:"): split_index = i + 1
-                else: split_index = i
-                break
-        if split_index >= len(messages) or split_index == 0:
-            print("--- [ログアーカイブ] 適切な分割点が見つからなかったため、処理を中断しました ---")
+        with open(log_file_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        # メッセージの区切り（ヘッダー行）のインデックスを全て探す
+        header_indices = [i for i, line in enumerate(lines) if line.startswith("## ") and ":" in line]
+        
+        if not header_indices:
+            print("--- [ログアーカイブ警告] ヘッダーが見つかりませんでした。アーカイブを中止します。 ---")
             return None
-        content_to_archive = "".join(messages[:split_index])
-        content_to_keep = "".join(messages[split_index:])
+
+        # 後ろからサイズを積み上げていき、keep_bytes を超える境界を探す
+        current_size = 0
+        split_line_index = 0
+        
+        # 最後の行から逆順にスキャン
+        for i in range(len(lines) - 1, -1, -1):
+            current_size += len(lines[i].encode('utf-8'))
+            
+            # keep_bytes を超えた時点で、その行より手前にある「直近のヘッダー」を探す
+            if current_size >= keep_bytes:
+                # 現在行(i)より前にあるヘッダーの中で、最も大きいインデックスを探す
+                valid_headers = [h for h in header_indices if h <= i]
+                if valid_headers:
+                    split_line_index = valid_headers[-1]
+                else:
+                    # ヘッダーが見つからない場合は安全のため半分で切る（フォールバック）
+                    split_line_index = header_indices[len(header_indices) // 2]
+                break
+        
+        # 分割点が先頭(0)になってしまった場合（全部残すことになってしまう場合）、強制的に古い方1/3をアーカイブする
+        if split_line_index == 0 and len(header_indices) > 10:
+             print("--- [ログアーカイブ] 適切な分割点が見つからなかったため、強制的に古いログの約1/3をアーカイブします ---")
+             split_line_index = header_indices[len(header_indices) // 3]
+
+        if split_line_index == 0:
+             print("--- [ログアーカイブ] 分割できませんでした ---")
+             return None
+
+        content_to_archive = "".join(lines[:split_line_index])
+        content_to_keep = "".join(lines[split_line_index:])
+
         archive_dir = os.path.join(os.path.dirname(log_file_path), "log_archives")
         os.makedirs(archive_dir, exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         archive_path = os.path.join(archive_dir, f"log_archive_{timestamp}.txt")
-        with open(archive_path, "w", encoding="utf-8") as f: f.write(content_to_archive.strip())
-        with open(log_file_path, "w", encoding="utf-8") as f: f.write(content_to_keep.strip() + "\n\n")
+
+        with open(archive_path, "w", encoding="utf-8") as f:
+            f.write(content_to_archive.strip())
+        
+        with open(log_file_path, "w", encoding="utf-8") as f:
+            f.write(content_to_keep.strip() + "\n\n")
+
         archive_size_mb = os.path.getsize(archive_path) / 1024 / 1024
         message = f"古いログをアーカイブしました ({archive_size_mb:.2f}MB)"
         print(f"--- [ログアーカイブ完了] {message} -> {archive_path} ---")
         return message
+
     except Exception as e:
         print(f"!!! [ログアーカイブエラー] {e}"); traceback.print_exc()
         return None
-
+        
 def save_message_to_log(log_file_path: str, header: str, text_content: str) -> Optional[str]:
     import config_manager
     if not all([log_file_path, header, text_content, text_content.strip()]): return None
