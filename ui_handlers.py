@@ -176,6 +176,11 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
     # --- 以降、取得した値を使ってUI更新値を構築する ---
     effective_settings = config_manager.get_effective_settings(room_name)
+
+# 設定ファイルにはキー("10")が入っているので、UI表示用("10往復")に変換
+    limit_key = effective_settings.get("api_history_limit", "all")
+    limit_display = constants.API_HISTORY_LIMIT_OPTIONS.get(limit_key, "全ログ")
+
     # --- [v25] 思考設定の連動ロジック ---
     display_thoughts_val = effective_settings.get("display_thoughts", True)
     send_thoughts_val = effective_settings.get("send_thoughts", True)
@@ -185,7 +190,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
 
     chat_history, mapping_list = reload_chat_log(
         room_name=room_name,
-        api_history_limit_value=config_manager.initial_api_history_limit_option_global,
+        api_history_limit_value=limit_key,
         add_timestamp=effective_settings.get("add_timestamp", False),
         display_thoughts=effective_settings.get("display_thoughts", True)
     )
@@ -239,7 +244,9 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path,
         effective_settings.get("enable_scenery_system", True),
-        gr.update(open=effective_settings.get("enable_scenery_system", True))
+        gr.update(open=effective_settings.get("enable_scenery_system", True)),
+        gr.update(value=limit_display), # room_api_history_limit_dropdown
+        limit_key # api_history_limit_state (これはUIコンポーネントではないが、State更新用)
     )
 
 
@@ -304,7 +311,6 @@ def handle_initial_load():
         
         token_count_text = gemini_api.count_input_tokens(
             room_name=safe_initial_room, api_key_name=safe_initial_api_key,
-            api_history_limit=config.get("last_api_history_limit_option", "all"),
             parts=[], **token_calc_kwargs
         )
         onboarding_guide_update = gr.update(visible=False)
@@ -313,7 +319,6 @@ def handle_initial_load():
     # --- 4. [v9] その他の共通設定の初期値を決定 ---
     common_settings_updates = (
         gr.update(value=config.get("last_model", config_manager.DEFAULT_MODEL_GLOBAL)),
-        gr.update(value=constants.API_HISTORY_LIMIT_OPTIONS.get(config.get("last_api_history_limit_option", "all"), "全ログ")),
         gr.update(value=config.get("debug_mode", False)),        gr.update(value=config.get("notification_service", "discord").capitalize()),
         gr.update(value=config.get("backup_rotation_count", 10)),
         gr.update(value=config.get("pushover_user_key", "")),
@@ -352,7 +357,8 @@ def handle_save_room_settings(
     send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool,
     enable_scenery_system: bool,
-    auto_memory_enabled: bool    
+    auto_memory_enabled: bool,
+    api_history_limit: str 
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -367,6 +373,9 @@ def handle_save_room_settings(
     send_thoughts = bool(send_thoughts)
     
     if not display_thoughts: send_thoughts = False
+
+    # 定数マップを使ってUIの表示名("10往復")を内部キー("10")に変換
+    history_limit_key = next((k for k, v in constants.API_HISTORY_LIMIT_OPTIONS.items() if v == api_history_limit), "all")
 
     new_settings = {
         "voice_id": next((k for k, v in config_manager.SUPPORTED_VOICES.items() if v == voice_name), None),
@@ -391,6 +400,7 @@ def handle_save_room_settings(
         "enable_scenery_system": bool(enable_scenery_system),
         "send_scenery": bool(enable_scenery_system),
         "auto_memory_enabled": bool(auto_memory_enabled),
+        "api_history_limit": history_limit_key
     }
     try:
         room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
@@ -495,6 +505,8 @@ def update_token_count_on_input(
         send_notepad=send_notepad, use_common_prompt=use_common_prompt,
         send_core_memory=send_core_memory, send_scenery=send_scenery
     )
+    effective_settings.pop("api_history_limit", None)
+
     return gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name,
         api_history_limit=api_history_limit, parts=parts_for_api, **effective_settings
@@ -3062,7 +3074,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 57
+    EXPECTED_OUTPUT_COUNT = 59
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
@@ -4497,6 +4509,9 @@ def update_token_count_after_attachment_change(
         send_notepad=send_notepad, use_common_prompt=use_common_prompt,
         send_core_memory=send_core_memory, send_scenery=send_scenery
     )
+
+    effective_settings.pop("api_history_limit", None)
+
     return gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name,
         api_history_limit=api_history_limit, parts=parts_for_api, **effective_settings

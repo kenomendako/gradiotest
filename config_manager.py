@@ -438,7 +438,8 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         "safety_block_threshold_harassment": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_hate_speech": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_sexually_explicit": "BLOCK_ONLY_HIGH",
-        "safety_block_threshold_dangerous_content": "BLOCK_ONLY_HIGH"
+        "safety_block_threshold_dangerous_content": "BLOCK_ONLY_HIGH",
+        "api_history_limit": "all",
     }
     
     room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")

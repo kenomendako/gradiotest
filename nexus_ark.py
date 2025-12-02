@@ -291,7 +291,6 @@ try:
                                     gr.Markdown("#### ⚙️ 一般設定")
                                     model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, label="デフォルトAIモデル", interactive=True)
                                     api_key_dropdown = gr.Dropdown(label="使用するGemini APIキー", interactive=True)
-                                    api_history_limit_dropdown = gr.Dropdown(choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), label="APIへの履歴送信", interactive=True)
                                     debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", interactive=True)
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
 
@@ -351,6 +350,14 @@ try:
                                             room_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
                                             room_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
                                     with gr.Accordion("📡 APIコンテキスト設定", open=False):
+
+                                        room_api_history_limit_dropdown = gr.Dropdown(
+                                            choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), 
+                                            label="APIへの履歴送信（短期記憶の長さ）", 
+                                            info="AIに送信する直近の会話ログの長さを設定します。",
+                                            interactive=True
+                                        )
+
                                         room_display_thoughts_checkbox = gr.Checkbox( 
                                             label="AIの思考過程 [THOUGHT] をチャットに表示する",
                                             interactive=True
@@ -913,7 +920,9 @@ try:
             room_settings_info,
             scenery_image_display,
             enable_scenery_system_checkbox,
-            profile_scenery_accordion
+            profile_scenery_accordion,
+            room_api_history_limit_dropdown,
+            api_history_limit_state            
         ]
 
         initial_load_outputs = [
@@ -928,7 +937,6 @@ try:
             onboarding_guide, 
             # --- [v9] 共通設定の永続化対応 ---
             model_dropdown,
-            api_history_limit_dropdown,
             debug_mode_checkbox,
             notification_service_radio,
             backup_rotation_count_number,
@@ -1117,13 +1125,20 @@ try:
             outputs=[chatbot_display, current_log_map_state, selected_message_state, action_button_group, message_delete_confirmed_state]
         )
 
-        api_history_limit_dropdown.change(
+        room_api_history_limit_dropdown.change(
             fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
-            inputs=[api_history_limit_dropdown, current_room_name, room_add_timestamp_checkbox, room_display_thoughts_checkbox, screenshot_mode_checkbox, redaction_rules_state],
+            inputs=[
+                room_api_history_limit_dropdown, # 新しいコンポーネント名
+                current_room_name, 
+                room_add_timestamp_checkbox, 
+                room_display_thoughts_checkbox, 
+                screenshot_mode_checkbox, 
+                redaction_rules_state
+            ],
             outputs=[api_history_limit_state, chatbot_display, current_log_map_state]
         ).then(
             fn=ui_handlers.handle_context_settings_change,
-            inputs=context_token_calc_inputs,
+            inputs=context_token_calc_inputs, # ※注意: このリストの中身も更新が必要（後述）
             outputs=token_count_display
         )
 
@@ -1256,7 +1271,8 @@ try:
                 room_send_notepad_checkbox,
                 room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
                 enable_scenery_system_checkbox,
-                auto_memory_enabled_checkbox
+                auto_memory_enabled_checkbox,
+                room_api_history_limit_dropdown
             ],
             outputs=None
         )
