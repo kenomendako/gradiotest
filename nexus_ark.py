@@ -369,7 +369,7 @@ try:
                                             info="挨拶の自然さを向上させますが、特定の時間帯を演じたい場合はOFFにしてください。",
                                             interactive=True
                                         )
-                                        room_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
+
                                         room_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
                                         room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを送信", interactive=True)
                                         room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
@@ -1274,7 +1274,7 @@ try:
         # ▼▼▼【ここからが新しいイベント定義です】▼▼▼
         # 思考表示チェックボックスの変更イベント
         room_display_thoughts_checkbox.change(
-            fn=lambda is_checked: gr.update(interactive=is_checked, value=is_checked),
+            fn=lambda is_checked: gr.update(interactive=is_checked) if is_checked else gr.update(interactive=False, value=False),
             inputs=[room_display_thoughts_checkbox],
             outputs=[room_send_thoughts_checkbox]
         ).then(
