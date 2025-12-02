@@ -35,6 +35,7 @@ from tools.image_tools import generate_image as generate_image_tool_func
 import pytz
 import ijson
 import time
+import rag_manager
 
 from pathlib import Path
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -4138,9 +4139,16 @@ def _get_knowledge_files(room_name: str) -> List[Dict]:
 
 def _get_knowledge_status(room_name: str) -> str:
     """知識ベースの現在の状態（索引の有無など）を示す文字列を返す。"""
-    index_path = Path(constants.ROOMS_DIR) / room_name / "rag_data" / "faiss_index"
-    if index_path.exists() and any(index_path.iterdir()):
-        return "✅ 索引は作成済みです。ドキュメントを変更した場合は、索引の更新を推奨します。"
+    base_dir = Path(constants.ROOMS_DIR) / room_name / "rag_data"
+    static_index = base_dir / "faiss_index_static"
+    dynamic_index = base_dir / "faiss_index_dynamic"
+    
+    # 静的または動的、どちらかのインデックスが存在すれば「作成済み」とみなす
+    is_created = (static_index.exists() and any(static_index.iterdir())) or \
+                 (dynamic_index.exists() and any(dynamic_index.iterdir()))
+
+    if is_created:
+        return "✅ 索引は作成済みです。（知識ベースやログが更新された場合は、再構築ボタンを押してください）"
     else:
         return "⚠️ 索引がまだ作成されていません。「索引を作成 / 更新」ボタンを押してください。"
 
@@ -4227,7 +4235,7 @@ def handle_knowledge_file_delete(room_name: str, selected_index: Optional[int]):
     return updated_files_df, "⚠️ 索引の更新が必要です。「索引を作成 / 更新」ボタンを押してください。", None
 
 def handle_knowledge_reindex(room_name: str, api_key_name: str):
-    """知識ベースの索引を作成/更新する。時間がかかる可能性がある処理。"""
+    """知識ベースの索引を作成/更新する。RAGManagerを使用。"""
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーを選択してください。")
         return gr.update(), gr.update()
@@ -4237,74 +4245,19 @@ def handle_knowledge_reindex(room_name: str, api_key_name: str):
         gr.Error(f"APIキー「{api_key_name}」が無効です。")
         return gr.update(), gr.update()
 
-    yield "処理中: 知識ベースのドキュメントを読み込んでいます...", gr.update(interactive=False)
+    # 処理開始を通知
+    yield "処理中: 知識ベースと過去ログを読み込み、インデックスを構築しています...（数分かかる場合があります）", gr.update(interactive=False)
 
     try:
-        knowledge_dir = Path(constants.ROOMS_DIR) / room_name / "knowledge"
-
-        # 1. ドキュメントの読み込み
-        documents = []
-        files_to_process = list(knowledge_dir.glob("*.txt")) + list(knowledge_dir.glob("*.md"))
-        if not files_to_process:
-            gr.Info("索引を作成するドキュメントがありません。")
-            # 索引ディレクトリが存在する場合はクリアする
-            index_path = Path(constants.ROOMS_DIR) / room_name / "rag_data" / "faiss_index"
-            if index_path.exists():
-                shutil.rmtree(str(index_path))
-            yield _get_knowledge_status(room_name), gr.update(interactive=True)
-            return
-
-        for file_path in files_to_process:
-            content = file_path.read_text(encoding="utf-8")
-            documents.append(Document(page_content=content, metadata={"source": str(file_path)}))
-
-        yield f"処理中: {len(documents)}個のドキュメントをチャンクに分割しています...", gr.update()
-
-        # 2. チャンク分割
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        splits = text_splitter.split_documents(documents)
-
-        yield f"処理中: {len(splits)}個のチャンクをベクトル化しています (この処理には時間がかかります)...", gr.update()
-
-        # 3. エンベディングとFAISSインデックス作成
-        embeddings = GoogleGenerativeAIEmbeddings(
-            model=constants.EMBEDDING_MODEL,
-            google_api_key=api_key,
-            task_type="retrieval_document" # ドキュメント埋め込み用のタスクタイプを指定
-        )
-
-        # FAISSは一度に100件までのエンベディングを推奨
-        batch_size = 100
-        db = None
-        for i in range(0, len(splits), batch_size):
-            batch_splits = splits[i:i+batch_size]
-            yield f"処理中: チャンク {i+1}〜{i+len(batch_splits)} / {len(splits)} をベクトル化中...", gr.update()
-            if db is None:
-                db = FAISS.from_documents(batch_splits, embeddings)
-            else:
-                db.add_documents(batch_splits)
-
-        yield "処理中: 作成した索引を保存しています...", gr.update()
-
-        # 4. 索引の保存 (日本語パス対応版)
-        final_index_path = Path(constants.ROOMS_DIR) / room_name / "rag_data" / "faiss_index"
-
-        # tempfileを使って、ASCII文字のみの一時ディレクトリを安全に作成
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_index_path = Path(temp_dir)
-            
-            # FAISSには、この安全な一時ディレクトリに書き込ませる
-            db.save_local(str(temp_index_path))
-            
-            # 書き込みが完了したら、古い索引ディレクトリを削除
-            if final_index_path.exists():
-                shutil.rmtree(str(final_index_path))
-            
-            # 完成した索引を、一時ディレクトリから本来の場所へ移動させる
-            # shutil.moveは、Pythonレベルで動作するため、日本語パスを正しく扱える
-            shutil.move(str(temp_index_path), str(final_index_path))
-
-        gr.Info("✅ 知識ベースの索引作成が完了しました。")
+        # マネージャーの初期化
+        manager = rag_manager.RAGManager(room_name, api_key)
+        
+        # インデックス作成実行（同期処理）
+        # ※進捗の詳細はサーバーのコンソールに出力されます
+        result_message = manager.create_or_update_index()
+        
+        gr.Info(f"✅ {result_message}")
+        yield f"ステータス: {result_message}", gr.update(interactive=True)
 
     except Exception as e:
         error_msg = f"索引の作成中にエラーが発生しました: {e}"
@@ -4314,6 +4267,7 @@ def handle_knowledge_reindex(room_name: str, api_key_name: str):
         yield error_msg, gr.update(interactive=True)
         return
 
+    # 完了後のステータス更新
     yield _get_knowledge_status(room_name), gr.update(interactive=True)
 
 def handle_row_selection(df: pd.DataFrame, evt: gr.SelectData) -> Optional[int]:
