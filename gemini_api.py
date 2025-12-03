@@ -23,7 +23,8 @@ import config_manager
 import constants
 import room_manager
 import utils
-import signature_manager  # 追加
+import signature_manager 
+from episodic_memory_manager import EpisodicMemoryManager
 
 # --- トークン計算関連 (変更なし) ---
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
@@ -326,22 +327,67 @@ def count_input_tokens(**kwargs):
         kwargs_for_settings.pop("parts", None)
 
         effective_settings = config_manager.get_effective_settings(room_name, **kwargs_for_settings)
-
         model_name = effective_settings.get("model_name") or config_manager.DEFAULT_MODEL_GLOBAL
+        
         messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
 
-        # システムプロンプトの構築
+        # --- [Step 1: 先に履歴を読み込む] ---
+        # エピソード記憶の注入範囲を決めるために、履歴の「最古の日付」が必要なため
+        log_file, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        raw_history = utils.load_chat_log(log_file)
+        
+        # 履歴制限の適用
+        limit = int(api_history_limit) if api_history_limit and api_history_limit.isdigit() else 0
+        if limit > 0 and len(raw_history) > limit * 2:
+            raw_history = raw_history[-(limit * 2):]
+
+        # --- [Step 2: エピソード記憶の取得] ---
+        episodic_memory_section = ""
+        lookback_days_str = effective_settings.get("episode_memory_lookback_days", "14")
+        
+        if lookback_days_str and lookback_days_str != "0":
+            try:
+                lookback_days = int(lookback_days_str)
+                oldest_log_date_str = None
+                date_pattern = re.compile(r"(\d{4}-\d{2}-\d{2})")
+                
+                # 履歴から最古の日付を探す
+                for msg in raw_history:
+                    content = msg.get("content", "")
+                    match = date_pattern.search(content)
+                    if match:
+                        oldest_log_date_str = match.group(1)
+                        break
+                
+                if not oldest_log_date_str:
+                    oldest_log_date_str = datetime.datetime.now().strftime('%Y-%m-%d')
+
+                manager = EpisodicMemoryManager(room_name)
+                episodic_text = manager.get_episodic_context(oldest_log_date_str, lookback_days)
+                
+                if episodic_text:
+                    episodic_memory_section = (
+                        f"\n### エピソード記憶（中期記憶: {oldest_log_date_str}以前の{lookback_days}日間）\n"
+                        f"以下は、現在の会話ログより前の出来事の要約です。文脈として参照してください。\n"
+                        f"{episodic_text}\n"
+                    )
+            except Exception as e:
+                print(f"トークン計算時のエピソード記憶取得エラー: {e}")
+
+        # --- [Step 3: システムプロンプトの構築] ---
         from agent.prompts import CORE_PROMPT_TEMPLATE
         from agent.graph import all_tools
         room_prompt_path = os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")
         character_prompt = ""
         if os.path.exists(room_prompt_path):
             with open(room_prompt_path, 'r', encoding='utf-8') as f: character_prompt = f.read().strip()
+        
         core_memory = ""
         if effective_settings.get("send_core_memory", True):
             core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
             if os.path.exists(core_memory_path):
                 with open(core_memory_path, 'r', encoding='utf-8') as f: core_memory = f.read().strip()
+        
         notepad_section = ""
         if effective_settings.get("send_notepad", True):
             _, _, _, _, notepad_path = room_manager.get_room_files_paths(room_name)
@@ -391,22 +437,19 @@ def count_input_tokens(**kwargs):
             'character_prompt': character_prompt,
             'core_memory': core_memory,
             'notepad_section': notepad_section,
+            'episodic_memory': episodic_memory_section,
             'thought_generation_manual': thought_generation_manual_text,
             'image_generation_manual': '',
             'tools_list': tools_list_str
         }
         system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+
         if effective_settings.get("send_scenery", True):
-            system_prompt_text += "\n\n---\n【現在の場所と情景】\n（トークン計算ではAPIコールを避けるため、実際の情景は含めず、存在することを示すプレースホルダのみ考慮）\n- 場所の名前: サンプル\n- 場所の定義: サンプル\n- 今の情景: サンプル\n---"
+            system_prompt_text += "\n\n---\n【現在の場所と情景】\n（トークン計算用プレースホルダ）\n- 場所の名前: サンプル\n- 場所の定義: サンプル\n- 今の情景: サンプル\n---"
+        
         messages.append(SystemMessage(content=system_prompt_text))
 
-        # 履歴の構築
-        log_file, _, _, _, _ = room_manager.get_room_files_paths(room_name)
-        raw_history = utils.load_chat_log(log_file)
-        limit = int(api_history_limit) if api_history_limit and api_history_limit.isdigit() else 0
-        if limit > 0 and len(raw_history) > limit * 2:
-            raw_history = raw_history[-(limit * 2):]
-        
+        # --- [Step 4: 履歴メッセージの追加] ---
         send_thoughts_final = display_thoughts and effective_settings.get("send_thoughts", True)
         
         for h_item in raw_history:
@@ -422,7 +465,7 @@ def count_input_tokens(**kwargs):
             else:
                  messages.append(HumanMessage(content=content))
 
-        # 現在の入力の構築
+        # --- [Step 5: 現在の入力の追加] ---
         if parts:
             formatted_parts = []
             for part in parts:
@@ -453,7 +496,6 @@ def count_input_tokens(**kwargs):
         print(f"トークン計算中に予期せぬエラー: {e}")
         traceback.print_exc()
         return "トークン数: (例外発生)"
-
 
 def correct_punctuation_with_ai(text_to_fix: str, api_key: str, context_type: str = "body") -> Optional[str]:
     """

@@ -4,15 +4,15 @@ import os
 import json
 import datetime
 import traceback
-import time
-import re
 from pathlib import Path
 from typing import List, Dict, Optional
+import time
+import re
+import glob # <--- 追加
 
 import constants
 import config_manager
 import utils
-from gemini_api import get_configured_llm
 
 class EpisodicMemoryManager:
     def __init__(self, room_name: str):
@@ -44,50 +44,65 @@ class EpisodicMemoryManager:
 
     def update_memory(self, api_key: str) -> str:
         """
-        ログを解析し、未処理の過去日付について要約を作成・追記する。
+        全ログ（現行＋アーカイブ）を解析し、未処理の過去日付について要約を作成・追記する。
         """
+        # 関数内でインポート（循環参照回避）
+        from gemini_api import get_configured_llm
+
         print(f"--- [Episodic Memory] 更新処理開始: {self.room_name} ---")
         
-        # 1. ログの読み込みと日付ごとのグループ化
-        log_path = self.room_dir / "log.txt"
-        if not log_path.exists():
-            return "ログファイルがありません。"
-
-        raw_logs = utils.load_chat_log(str(log_path))
-        logs_by_date = {}
+        # 1. 全ログファイルの収集
+        log_files = []
         
-        # 日付パターン (YYYY-MM-DD)
-        # ※ utils.load_chat_log はメッセージごとの辞書を返すが、日付情報は本文に含まれている場合が多い
-        #    ここでは簡易的に、本文内のタイムスタンプを探して日付を特定する
-        import re
+        # A. 現行ログ
+        current_log = self.room_dir / "log.txt"
+        if current_log.exists():
+            log_files.append(str(current_log))
+            
+        # B. アーカイブされたログ
+        archives_dir = self.room_dir / "log_archives"
+        if archives_dir.exists():
+            log_files.extend(glob.glob(str(archives_dir / "*.txt")))
+            
+        # C. インポートされたログの原本 (必要に応じて)
+        # import_source_dir = self.room_dir / "log_import_source"
+        # if import_source_dir.exists():
+        #     log_files.extend(glob.glob(str(import_source_dir / "*.txt")))
+
+        if not log_files:
+            return "ログファイルが見つかりません。"
+
+        print(f"  - 読み込み対象ファイル数: {len(log_files)}")
+
+        # 2. ログの読み込みと日付ごとのグループ化
+        logs_by_date = {}
         date_pattern = re.compile(r'(\d{4}-\d{2}-\d{2}) \(...\) \d{2}:\d{2}:\d{2}')
         
-        current_date = None
-        
-        for msg in raw_logs:
-            content = msg.get('content', '')
-            match = date_pattern.search(content)
-            if match:
-                current_date = match.group(1)
-            
-            if current_date:
-                if current_date not in logs_by_date:
-                    logs_by_date[current_date] = []
-                
-                # 話者名と本文を整形
-                role = msg.get('role', 'UNKNOWN')
-                responder = msg.get('responder', '')
-                speaker = "ユーザー" if role == 'USER' else (responder if responder else "AI")
-                
-                # 思考ログなどを除去したクリーンなテキスト
-                clean_text = utils.remove_thoughts_from_text(content)
-                # タイムスタンプ行を除去
-                clean_text = re.sub(r'\n\n\d{4}-\d{2}-\d{2}.*$', '', clean_text).strip()
-                
-                if clean_text:
-                    logs_by_date[current_date].append(f"{speaker}: {clean_text}")
+        for file_path in log_files:
+            try:
+                raw_logs = utils.load_chat_log(file_path)
+                for msg in raw_logs:
+                    content = msg.get('content', '')
+                    match = date_pattern.search(content)
+                    current_date = match.group(1) if match else None
+                    
+                    if current_date:
+                        if current_date not in logs_by_date:
+                            logs_by_date[current_date] = []
+                        
+                        role = msg.get('role', 'UNKNOWN')
+                        responder = msg.get('responder', '')
+                        speaker = "ユーザー" if role == 'USER' else (responder if responder else "AI")
+                        
+                        clean_text = utils.remove_thoughts_from_text(content)
+                        clean_text = re.sub(r'\n\n\d{4}-\d{2}-\d{2}.*$', '', clean_text).strip()
+                        
+                        if clean_text:
+                            logs_by_date[current_date].append(f"{speaker}: {clean_text}")
+            except Exception as e:
+                print(f"  - Error reading {file_path}: {e}")
 
-        # 2. 処理対象の選定
+        # 3. 処理対象の選定
         existing_memory = self._load_memory()
         existing_dates = {item['date'] for item in existing_memory}
         
@@ -95,7 +110,7 @@ class EpisodicMemoryManager:
         
         target_dates = []
         for date_str in sorted(logs_by_date.keys()):
-            # 「今日」はまだ終わっていないので要約しない
+            # 今日はスキップ
             if date_str == today_str:
                 continue
             # 既に要約済みの日はスキップ
@@ -105,9 +120,9 @@ class EpisodicMemoryManager:
             target_dates.append(date_str)
 
         if not target_dates:
-            return "新規に要約すべき過去の日付はありませんでした。"
+            return "新規に要約すべき過去の日付はありませんでした（全ての過去ログは処理済みです）。"
 
-        # 3. 要約の生成
+        # 4. 要約の生成
         llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
         new_episodes = []
         
@@ -116,7 +131,6 @@ class EpisodicMemoryManager:
         for date_str in target_dates:
             daily_log = "\n".join(logs_by_date[date_str])
             
-            # ログが少なすぎる場合はスキップ
             if len(daily_log) < 50:
                 continue
                 
@@ -139,8 +153,7 @@ class EpisodicMemoryManager:
 4.  挨拶や定型文は省略し、会話の実質的な内容に焦点を当ててください。
 
 【出力（要約のみ）】
-"""            
-            # ▼▼▼【変更】リトライ付きの呼び出しループ ▼▼▼
+"""
             max_retries = 3
             for attempt in range(max_retries):
                 try:
@@ -150,26 +163,21 @@ class EpisodicMemoryManager:
                         "summary": summary,
                         "created_at": datetime.datetime.now().isoformat()
                     })
-                    # 成功したらループを抜ける
                     break 
                 except Exception as e:
                     error_str = str(e)
-                    # レート制限エラーかチェック
                     if "429" in error_str or "ResourceExhausted" in error_str:
-                        # エラーメッセージから待機時間を抽出
-                        wait_time = 10  # デフォルト10秒
+                        wait_time = 10
                         match = re.search(r"retry_delay {\s*seconds: (\d+)", error_str)
                         if match:
-                            wait_time = int(match.group(1)) + 2 # 余裕を持って+2秒
-                        
+                            wait_time = int(match.group(1)) + 2
                         print(f"    -> API制限検知。{wait_time}秒待機してリトライします ({attempt+1}/{max_retries})...")
                         time.sleep(wait_time)
                     else:
-                        # その他のエラーならログを出してスキップ
                         print(f"  - Error summarizing {date_str}: {e}")
                         break
-                    
-        # 4. 保存
+
+        # 5. 保存
         if new_episodes:
             existing_memory.extend(new_episodes)
             self._save_memory(existing_memory)
@@ -180,10 +188,6 @@ class EpisodicMemoryManager:
     def get_episodic_context(self, oldest_log_date_str: str, lookback_days: int) -> str:
         """
         APIに送信する「生ログ」より前の期間のエピソード記憶を取得し、テキスト化して返す。
-        
-        Args:
-            oldest_log_date_str: 生ログに含まれる最も古い日付 (YYYY-MM-DD)。これより前の記憶を取得する。
-            lookback_days: 何日前まで遡るか。
         """
         if not oldest_log_date_str or lookback_days <= 0:
             return ""
@@ -199,6 +203,9 @@ class EpisodicMemoryManager:
             return ""
 
         relevant_episodes = []
+        # 日付順にソートされている前提だが、念のためソート
+        memory_data.sort(key=lambda x: x['date'])
+        
         for item in memory_data:
             try:
                 item_date = datetime.datetime.strptime(item['date'], '%Y-%m-%d').date()
@@ -212,3 +219,16 @@ class EpisodicMemoryManager:
             return ""
 
         return "\n".join(relevant_episodes)
+
+    def get_latest_memory_date(self) -> str:
+        """保存されているエピソード記憶の中で最も新しい日付を返す"""
+        data = self._load_memory()
+        if not data:
+            return "なし"
+        
+        # 日付でソートして最後（最新）を取得
+        try:
+            sorted_data = sorted(data, key=lambda x: x['date'])
+            return sorted_data[-1]['date']
+        except Exception:
+            return "不明"

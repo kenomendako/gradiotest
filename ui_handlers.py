@@ -220,6 +220,13 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     dangerous_val = safety_display_map.get(effective_settings.get("safety_block_threshold_dangerous_content"))
     core_memory_content = load_core_memory_content(room_name)
 
+    try:
+        manager = EpisodicMemoryManager(room_name)
+        latest_date = manager.get_latest_memory_date()
+        episodic_info_text = f"昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** {latest_date}"
+    except:
+        episodic_info_text = "昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** 取得エラー"
+
     return (
         room_name, chat_history, mapping_list,
         gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)。添付するにはファイルをドロップまたはクリップボタンを押してください..."),
@@ -251,7 +258,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(open=effective_settings.get("enable_scenery_system", True)),
         gr.update(value=limit_display), # room_api_history_limit_dropdown
         limit_key, # api_history_limit_state (これはUIコンポーネントではないが、State更新用)
-        gr.update(value=episode_display)
+        gr.update(value=episode_display),
+        gr.update(value=episodic_info_text)
     )
 
 
@@ -2106,26 +2114,27 @@ def handle_archive_memory_click(
 
 def handle_update_episodic_memory(room_name: str, api_key_name: str):
     """エピソード記憶の更新ボタンのハンドラ"""
+    # 初期状態の戻り値 (何も変更しない)
+    no_change = (gr.update(), gr.update(), gr.update())
+
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーを選択してください。")
-        # 何も変更せずに戻る
-        yield gr.update()
+        yield no_change
         return
 
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         gr.Error(f"APIキー「{api_key_name}」が無効です。")
-        yield gr.update()
+        yield no_change
         return
 
-    # 1. ボタンを「更新中...」にして無効化
-    yield gr.update(value="⏳ 更新中...", interactive=False)
+    # 1. UIをロック (ボタン:更新中..., チャット欄:無効化)
+    yield gr.update(value="⏳ 更新中...", interactive=False), gr.update(interactive=False, placeholder="エピソード記憶を更新中です...お待ちください")
 
     gr.Info(f"「{room_name}」のエピソード記憶（要約）を作成・更新しています...")
     
     try:
         manager = EpisodicMemoryManager(room_name)
-        # 処理実行（時間がかかる）
         result_msg = manager.update_memory(api_key)
         gr.Info(f"✅ {result_msg}")
     except Exception as e:
@@ -2134,9 +2143,15 @@ def handle_update_episodic_memory(room_name: str, api_key_name: str):
         traceback.print_exc()
         gr.Error(error_msg)
     
-    # 2. 処理が終わったらボタンを元の状態に戻す
-    yield gr.update(value="エピソード記憶を作成 / 更新", interactive=True)
-    
+    try:
+        latest_date = manager.get_latest_memory_date()
+        new_info_text = f"昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** {latest_date}"
+    except:
+        new_info_text = "昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** 取得エラー"
+
+    # 2. UIのロックを解除 (ボタン:元通り, チャット欄:有効化)
+    yield gr.update(value="エピソード記憶を作成 / 更新", interactive=True), gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)..."), gr.update(value=new_info_text)
+
 def load_notepad_content(room_name: str) -> str:
     if not room_name: return ""
     _, _, _, _, notepad_path = get_room_files_paths(room_name)
@@ -3116,7 +3131,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 60
+    EXPECTED_OUTPUT_COUNT = 61
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 

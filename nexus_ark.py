@@ -365,22 +365,22 @@ try:
                                             interactive=True
                                         )
 
+                                        room_enable_retrieval_checkbox = gr.Checkbox(
+                                            label="記憶の想起（長期記憶）を有効化",
+                                            info="▼AIが応答する前に、過去ログや知識ベースから関連情報を自律的に検索・想起します。",
+                                            interactive=True
+                                        )
+
                                         room_display_thoughts_checkbox = gr.Checkbox( 
                                             label="AIの思考過程 [THOUGHT] をチャットに表示する",
                                             interactive=True
                                         )
                                         room_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
-                                        
-                                        room_enable_retrieval_checkbox = gr.Checkbox(
-                                            label="記憶の想起（事前検索）を有効化",
-                                            info="AIが応答する前に、過去ログや知識ベースから関連情報を自律的に検索・想起します。",
-                                            interactive=True
-                                        )
-                                        
+                                                                                
                                         room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)                                        
                                         room_send_current_time_checkbox = gr.Checkbox(
                                             label="現在時刻をAPIに送信",
-                                            info="挨拶の自然さを向上させますが、特定の時間帯を演じたい場合はOFFにしてください。",
+                                            info="▼挨拶の自然さを向上させますが、特定の時間帯を演じたい場合はOFFにしてください。",
                                             interactive=True
                                         )
 
@@ -742,6 +742,11 @@ try:
                             save_prompt_button = gr.Button("プロンプトを保存", variant="secondary")
                             reload_prompt_button = gr.Button("再読込", variant="secondary")
                     with gr.TabItem("記憶"):
+
+                        with gr.Accordion("📚 エピソード記憶（中期記憶）の管理", open=False):
+                            episodic_memory_info_display = gr.Markdown("昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** (未取得)")
+                            update_episodic_memory_button = gr.Button("エピソード記憶を作成 / 更新", variant="secondary")                        
+
                         memory_txt_editor = gr.Textbox(
                             label="主観的記憶（日記） - memory_main.txt",
                             interactive=True,
@@ -753,10 +758,6 @@ try:
                             save_memory_button = gr.Button("主観的記憶を保存", variant="secondary")
                             reload_memory_button = gr.Button("再読込", variant="secondary")
                             core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
-
-                        with gr.Accordion("📚 エピソード記憶（中期記憶）の管理", open=False):
-                            gr.Markdown("昨日までの会話ログを日ごとに要約し、中期記憶として保存します。")
-                            update_episodic_memory_button = gr.Button("エピソード記憶を作成 / 更新", variant="secondary")                        
 
                         with gr.Accordion("📝 古い日記をアーカイブする", open=False) as memory_archive_accordion:
                             # ▼▼▼ 以下のgr.Markdownとgr.Dropdownのテキストを変更 ▼▼▼
@@ -933,7 +934,8 @@ try:
             profile_scenery_accordion,
             room_api_history_limit_dropdown,
             api_history_limit_state,
-            room_episode_memory_days_dropdown            
+            room_episode_memory_days_dropdown,
+            episodic_memory_info_display            
         ]
 
         initial_load_outputs = [
@@ -1529,7 +1531,7 @@ try:
         update_episodic_memory_button.click(
             fn=ui_handlers.handle_update_episodic_memory,
             inputs=[current_room_name, current_api_key_name_state],
-            outputs=[update_episodic_memory_button] # None から変更
+            outputs=[update_episodic_memory_button, chat_input_multimodal, episodic_memory_info_display]
         )
 
         save_core_memory_button.click(
