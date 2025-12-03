@@ -29,6 +29,9 @@ from tools.timer_tools import set_timer, set_pomodoro_timer
 from tools.knowledge_tools import search_knowledge_base
 from room_manager import get_world_settings_path, get_room_files_paths
 from episodic_memory_manager import EpisodicMemoryManager
+from action_plan_manager import ActionPlanManager  
+from tools.action_tools import schedule_next_action, cancel_action_plan, read_current_plan
+
 import utils
 import config_manager
 import constants
@@ -47,12 +50,14 @@ all_tools = [
     generate_image,
     set_personal_alarm,
     set_timer, set_pomodoro_timer,
-    search_knowledge_base
+    search_knowledge_base,
+    schedule_next_action, cancel_action_plan, read_current_plan
 ]
 
 side_effect_tools = [
     "plan_main_memory_edit", "plan_secret_diary_edit", "plan_notepad_edit", "plan_world_edit",
-    "set_personal_alarm", "set_timer", "set_pomodoro_timer"
+    "set_personal_alarm", "set_timer", "set_pomodoro_timer",
+    "schedule_next_action"
 ]
 
 class AgentState(TypedDict):
@@ -463,6 +468,19 @@ def context_generator_node(state: AgentState):
             print(f"  - [Episodic Memory Error] 注入処理中にエラー: {e}")
             episodic_memory_section = ""
 
+    action_plan_context = ""
+    try:
+        plan_manager = ActionPlanManager(room_name)
+        action_plan_context = plan_manager.get_plan_context_for_prompt()
+        if action_plan_context:
+            # 計画がある場合、ユーザー発言（HumanMessage）があるかチェック
+            # もしユーザー発言があれば、計画よりもユーザーを優先するよう注釈を加える
+            messages = state.get('messages', [])
+            if messages and isinstance(messages[-1], HumanMessage):
+                action_plan_context += "\n\n【重要：ユーザー割り込み発生】\n現在、行動計画が進行中ですが、ユーザーから新たな発話がありました。計画の実行よりも、ユーザーへの応答を最優先してください。必要であれば `cancel_action_plan` で計画を破棄しても構いません。"
+    except Exception as e:
+        print(f"  - [Action Plan] 読み込みエラー: {e}")
+
     image_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
     current_tools = all_tools
     image_generation_manual_text = ""
@@ -518,6 +536,7 @@ def context_generator_node(state: AgentState):
 
     prompt_vars = {
         'situation_prompt': situation_prompt,
+        'action_plan_context': action_plan_context,
         'character_prompt': character_prompt,
         'core_memory': core_memory,
         'notepad_section': notepad_section,

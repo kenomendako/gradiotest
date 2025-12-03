@@ -83,7 +83,25 @@ class UnifiedTimer:
 
             print(f"--- [タイマー終了: {timer_id}] AIに応答生成を依頼します ---")
 
-            synthesized_user_message = f"（システムタイマー：時間です。テーマ「{theme}」について、**タイマーが完了したことをユーザーに通知してください。新しいタイマーやアラームを設定してはいけません。**）"
+            # ▼▼▼【変更】自律行動か通常タイマーかで、AIへの指示を切り替える ▼▼▼
+            if theme.startswith("【自律行動】"):
+                # 自律行動モード：計画を実行させる強力な指示
+                plan_content = theme.replace("【自律行動】", "").strip()
+                synthesized_user_message = (
+                    f"（システム通知：行動計画の実行時刻になりました。）\n"
+                    f"【予定されていた行動】\n{plan_content}\n\n"
+                    f"**直ちに上記の計画を実行に移してください。**\n"
+                    f"「〜します」という予告は不要です。対応するツール（Web検索や画像生成など）を即座に呼び出してください。"
+                )
+                log_header = "## SYSTEM:autonomous_action"
+            else:
+                # 通常タイマーモード：ユーザーへの通知指示
+                synthesized_user_message = (
+                    f"（システムタイマー：時間です。テーマ「{theme}」について、"
+                    f"**タイマーが完了したことをユーザーに通知してください。新しいタイマーやアラームを設定してはいけません。**）"
+                )
+                log_header = "## SYSTEM:timer"
+            # ▲▲▲【変更ここまで】▲▲▲
 
             log_f, _, _, _, _ = room_manager.get_room_files_paths(self.room_name)
 
@@ -112,7 +130,7 @@ class UnifiedTimer:
             agent_args_dict = {
                 "room_to_respond": self.room_name,
                 "api_key_name": current_api_key_name,
-                "global_model_from_ui": global_model_for_bg, # <<< ここを修正
+                "global_model_from_ui": global_model_for_bg, 
                 "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
                 "debug_mode": False,
                 "history_log_path": log_f,
@@ -174,7 +192,9 @@ class UnifiedTimer:
 
             if response_text and not response_text.startswith("[エラー"):
                 message_for_log = f"（システムタイマー：{theme}）"
-                utils.save_message_to_log(log_f, "## SYSTEM:timer", message_for_log)
+                # ▼▼▼【変更】ヘッダーを動的に変更 ▼▼▼
+                utils.save_message_to_log(log_f, log_header, message_for_log)
+                # ▲▲▲【変更ここまで】▲▲▲
                 utils.save_message_to_log(log_f, f"## AGENT:{self.room_name}", raw_response)
             else:
                 print(f"警告: タイマー応答の生成に失敗したため、システムメッセージを通知します ({timer_id})")
@@ -204,7 +224,7 @@ class UnifiedTimer:
             if "ポモドーロ" not in timer_id:
                 if self in ACTIVE_TIMERS:
                     ACTIVE_TIMERS.remove(self)
-
+                    
     def _run_pomodoro(self):
         try:
             for i in range(self.cycles):
