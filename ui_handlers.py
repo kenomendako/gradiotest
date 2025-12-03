@@ -227,6 +227,12 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     except:
         episodic_info_text = "昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** 取得エラー"
 
+    auto_settings = effective_settings.get("autonomous_settings", {})
+    auto_enabled = auto_settings.get("enabled", False)
+    auto_inactivity = auto_settings.get("inactivity_minutes", 120)
+    quiet_start = auto_settings.get("quiet_hours_start", "00:00")
+    quiet_end = auto_settings.get("quiet_hours_end", "07:00")
+
     return (
         room_name, chat_history, mapping_list,
         gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)。添付するにはファイルをドロップまたはクリップボタンを押してください..."),
@@ -259,7 +265,11 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=limit_display), # room_api_history_limit_dropdown
         limit_key, # api_history_limit_state (これはUIコンポーネントではないが、State更新用)
         gr.update(value=episode_display),
-        gr.update(value=episodic_info_text)
+        gr.update(value=episodic_info_text),
+        gr.update(value=auto_enabled),
+        gr.update(value=auto_inactivity),
+        gr.update(value=quiet_start),
+        gr.update(value=quiet_end)        
     )
 
 
@@ -372,7 +382,11 @@ def handle_save_room_settings(
     enable_scenery_system: bool,
     auto_memory_enabled: bool,
     api_history_limit: str,
-    episode_memory_days: str  
+    episode_memory_days: str,
+    enable_autonomous: bool,
+    autonomous_inactivity: float,
+    quiet_hours_start: str,
+    quiet_hours_end: str  
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -417,7 +431,13 @@ def handle_save_room_settings(
         "send_scenery": bool(enable_scenery_system),
         "auto_memory_enabled": bool(auto_memory_enabled),
         "api_history_limit": history_limit_key,
-        "episode_memory_lookback_days": episode_days_key
+        "episode_memory_lookback_days": episode_days_key,
+        "autonomous_settings": {
+            "enabled": bool(enable_autonomous),
+            "inactivity_minutes": int(autonomous_inactivity),
+            "quiet_hours_start": quiet_hours_start,
+            "quiet_hours_end": quiet_hours_end
+        }
     }
     try:
         room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
@@ -3136,7 +3156,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 61
+    EXPECTED_OUTPUT_COUNT = 65
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 

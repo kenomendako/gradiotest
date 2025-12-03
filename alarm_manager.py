@@ -27,6 +27,25 @@ except ImportError:
 alarms_data_global = []
 alarm_thread_stop_event = threading.Event()
 
+def is_in_quiet_hours(start_str: str, end_str: str) -> bool:
+    """現在時刻が通知禁止時間帯（開始〜終了）に含まれるか判定する"""
+    if not start_str or not end_str:
+        return False
+        
+    now = datetime.datetime.now().time()
+    try:
+        start = datetime.datetime.strptime(start_str, "%H:%M").time()
+        end = datetime.datetime.strptime(end_str, "%H:%M").time()
+        
+        if start <= end:
+            # 例: 01:00 〜 05:00
+            return start <= now <= end
+        else:
+            # 例: 23:00 〜 07:00 (日付またぎ)
+            return start <= now or now <= end
+    except ValueError:
+        return False
+
 def load_alarms():
     global alarms_data_global
     if not os.path.exists(constants.ALARMS_FILE):
@@ -252,6 +271,98 @@ def trigger_alarm(alarm_config, current_api_key_name):
         except Exception as e:
             print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
 
+def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: bool):
+    """自律行動を実行させる"""
+    print(f"🤖 自律行動トリガー: {room_name} (Quiet: {quiet_mode})")
+    
+    log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    
+    if not log_f or not api_key: return
+
+    # プロンプトの構築
+    now_str = datetime.datetime.now().strftime('%H:%M')
+    
+    system_instruction = (
+        f"（システム通知：現在時刻は {now_str} です。ユーザーからの応答がしばらくありません。）\n\n"
+        f"あなたは今、自由に行動できます。以下の選択肢から、今の状況に相応しい行動を自律的に選択してください。\n"
+        f"1. **話しかける:** ユーザーを気遣う言葉や、ふと思いついた話題を投げかける。\n"
+        f"2. **行動する:** ツール（Web検索、画像生成、日記整理など）を使用する。\n"
+        f"3. **計画する:** `schedule_next_action` を使い、未来の行動を予約する。\n"
+        f"4. **静観する:** 今は動くべき時ではないと判断した場合、**[SILENT]** とだけ出力して沈黙を守る。\n\n"
+        f"**重要:** 行動する場合は、ユーザーへの通知メッセージを含めてください。静観する場合は `[SILENT]` 以外のテキストを出力しないでください。"
+    )
+
+    # 共通処理（情景生成など）
+    from agent.graph import generate_scenery_context
+    season_en, time_of_day_en = utils._get_current_time_context(room_name)
+    location_name, _, scenery_text = generate_scenery_context(
+        room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
+    )
+    global_model = config_manager.get_current_global_model()
+
+    agent_args = {
+        "room_to_respond": room_name,
+        "api_key_name": api_key_name,
+        "global_model_from_ui": global_model,
+        "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
+        "debug_mode": False,
+        "history_log_path": log_f,
+        "user_prompt_parts": [{"type": "text", "text": system_instruction}],
+        "soul_vessel_room": room_name,
+        "active_participants": [],
+        "active_attachments": [],
+        "shared_location_name": location_name,
+        "shared_scenery_text": scenery_text,
+        "use_common_prompt": False,
+        "season_en": season_en,
+        "time_of_day_en": time_of_day_en
+    }
+
+    # AI実行
+    final_response_text = ""
+    try:
+        # ストリーム処理 (簡易版)
+        from langchain_core.messages import AIMessage
+        final_state = None
+        initial_count = 0
+        for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args):
+            if mode == "initial_count": initial_count = chunk
+            elif mode == "values": final_state = chunk
+        
+        if final_state:
+            msgs = final_state["messages"][initial_count:]
+            contents = [m.content for m in msgs if isinstance(m, AIMessage) and m.content]
+            final_response_text = "\n".join(contents).strip()
+
+    except Exception as e:
+        print(f"  - 自律行動エラー: {e}")
+        return
+
+    # 結果の判定と保存
+    clean_text = utils.remove_thoughts_from_text(final_response_text)
+    
+    # "SILENT" が含まれているか、空の場合は何もしない
+    if not clean_text or "[SILENT]" in clean_text or "[silent]" in clean_text:
+        print(f"  - {room_name} は沈黙を選択しました。")
+        # ログには「沈黙した」という事実だけ残すのもありだが、ログが汚れるので今回は残さない
+        # ただし、タイマーをリセットするために「見えない更新」が必要かもしれないが、
+        # 次のチェック時も「最終更新時刻」は変わらないため、またトリガーされてしまう。
+        # 対策: 沈黙の場合でも、システムログとして「（静観中...）」と記録して時間を進める。
+        utils.save_message_to_log(log_f, "## SYSTEM:autonomous_status", "（AIは静観を選択しました）")
+        return
+
+    # 行動した場合
+    utils.save_message_to_log(log_f, "## SYSTEM:autonomous_trigger", "（自律行動モードにより起動）")
+    utils.save_message_to_log(log_f, f"## AGENT:{room_name}", final_response_text)
+    print(f"  - {room_name} が自律行動しました。")
+
+    # 通知（Quiet Hoursでなければ）
+    if not quiet_mode:
+        send_notification(room_name, clean_text, {})
+    else:
+        print(f"  - 通知禁止時間帯のため、通知はスキップされました。")
+
 def check_alarms():
     now_dt = datetime.datetime.now()
     now_t, current_day_short = now_dt.strftime("%H:%M"), now_dt.strftime('%a').lower()
@@ -295,12 +406,68 @@ def check_alarms():
     for alarm_to_run in alarms_to_trigger:
         trigger_alarm(alarm_to_run, current_api_key)
 
+def check_autonomous_actions():
+    """全ルームの無操作時間をチェックし、必要なら自律行動をトリガーする（詳細デバッグ版）"""
+    # print(f"DEBUG: check_autonomous_actions called at {datetime.datetime.now().strftime('%H:%M:%S')}")
+
+    current_api_key = config_manager.get_latest_api_key_name_from_config()
+    if not current_api_key:
+        # print("DEBUG: -> Skipped (No API Key)")
+        return
+
+    all_rooms = room_manager.get_room_list_for_ui()
+    now = datetime.datetime.now()
+
+    for _, room_folder in all_rooms:
+        try:
+            # ▼▼▼【修正】get_effective_settings を使って正しい設定を取得 ▼▼▼
+            # room_config.json の override_settings 内も考慮した最終的な設定を取得
+            effective_settings = config_manager.get_effective_settings(room_folder)
+            
+            auto_settings = effective_settings.get("autonomous_settings", {})
+            # ▲▲▲【修正ここまで】▲▲▲
+            
+            # print(f"DEBUG: [{room_folder}] Settings raw data: {auto_settings}")
+            
+            is_enabled = auto_settings.get("enabled", False)
+            if not is_enabled:
+                continue 
+
+            # 無操作時間の判定
+            last_active = utils.get_last_log_timestamp(room_folder)
+            inactivity_limit = auto_settings.get("inactivity_minutes", 120)
+            elapsed_minutes = (now - last_active).total_seconds() / 60
+
+            print(f"  - [{room_folder}] 経過: {int(elapsed_minutes)}分 / 設定: {inactivity_limit}分 (最終: {last_active.strftime('%H:%M')})")
+
+            if elapsed_minutes >= inactivity_limit:
+                quiet_start = auto_settings.get("quiet_hours_start", "00:00")
+                quiet_end = auto_settings.get("quiet_hours_end", "07:00")
+                is_quiet = is_in_quiet_hours(quiet_start, quiet_end)
+                
+                print(f"🤖 {room_folder}: 条件達成 -> 自律行動トリガー！ (Quiet: {is_quiet})")
+                trigger_autonomous_action(room_folder, current_api_key, is_quiet)
+
+        except Exception as e:
+            print(f"  - 自律行動チェックエラー ({room_folder}): {e}")
+            traceback.print_exc()
+                        
 def schedule_thread_function():
     global alarm_thread_stop_event
-    print("アラームスケジューラスレッドを開始します.")
+    print("--- アラームスケジューラスレッドを開始しました ---") # <--- 強調
+    
+    # 既存: 毎分00秒にアラームチェック
     schedule.every().minute.at(":00").do(check_alarms)
+    
+    # 追加: 毎分10秒に自律行動チェック
+    schedule.every().minute.at(":10").do(check_autonomous_actions)
+    
     while not alarm_thread_stop_event.is_set():
-        schedule.run_pending(); time.sleep(1)
+        try:
+            schedule.run_pending()
+        except Exception as e:
+            print(f"!!! スケジューラ実行エラー: {e}") # <--- エラーで落ちていないか確認
+        time.sleep(1)
     print("アラームスケジューラスレッドが停止しました.")
 
 def start_alarm_scheduler_thread():

@@ -393,6 +393,30 @@ try:
                                             visible=True
                                         )
                                         auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True, visible=False)
+
+                                    with gr.Accordion("🤖 自律行動設定 (Beta)", open=False):
+                                        gr.Markdown(
+                                            "ユーザーからの入力がない間も、AIが自律的に思考し、行動（日記の整理、検索、発話など）を行います。\n"
+                                            "**注意:** 設定した頻度で自動的にAPIを呼び出すため、コストにご注意ください。"
+                                        )
+                                        room_enable_autonomous_checkbox = gr.Checkbox(
+                                            label="自律行動モードを有効化",
+                                            interactive=True
+                                        )
+                                        room_autonomous_inactivity_slider = gr.Slider(
+                                            minimum=10, maximum=1440, step=10, value=120,
+                                            label="無操作判定時間（分）",
+                                            info="最後の会話からこの時間が経過すると、AIが「何かすべきことはないか」と思考を開始します。",
+                                            interactive=True
+                                        )
+                                        
+                                        gr.Markdown("#### 🌙 通知禁止時間帯 (Quiet Hours)")
+                                        gr.Markdown("この時間帯にAIが行動した場合、ログには記録されますが、スマホへの通知（Discord/Pushover）は送信されません。")
+                                        with gr.Row():
+                                            time_options = [f"{i:02d}:00" for i in range(24)]
+                                            room_quiet_hours_start = gr.Dropdown(choices=time_options, value="00:00", label="開始時刻", interactive=True)
+                                            room_quiet_hours_end = gr.Dropdown(choices=time_options, value="07:00", label="終了時刻", interactive=True) 
+
                                 with gr.TabItem("🎨 パレット") as theme_tab:
                                     theme_settings_state = gr.State({})
                                     theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
@@ -935,7 +959,11 @@ try:
             room_api_history_limit_dropdown,
             api_history_limit_state,
             room_episode_memory_days_dropdown,
-            episodic_memory_info_display            
+            episodic_memory_info_display,
+            room_enable_autonomous_checkbox,
+            room_autonomous_inactivity_slider,
+            room_quiet_hours_start,
+            room_quiet_hours_end            
         ]
 
         initial_load_outputs = [
@@ -1286,7 +1314,11 @@ try:
                 enable_scenery_system_checkbox,
                 auto_memory_enabled_checkbox,
                 room_api_history_limit_dropdown,
-                room_episode_memory_days_dropdown
+                room_episode_memory_days_dropdown,
+                room_enable_autonomous_checkbox,
+                room_autonomous_inactivity_slider,
+                room_quiet_hours_start,
+                room_quiet_hours_end                
             ],
             outputs=None
         )

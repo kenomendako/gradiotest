@@ -648,3 +648,42 @@ def _get_current_time_context(room_name: str) -> Tuple[str, str]:
         season_en = get_season(now.month)
         time_en = get_time_of_day(now.hour)
         return season_en, time_en
+
+def get_last_log_timestamp(room_name: str) -> datetime.datetime:
+    """
+    指定されたルームのログの「最後のメッセージ」のタイムスタンプを取得する。
+    取得できない場合は、現在時刻を返す（無限ループ防止のため）。
+    """
+    import room_manager # 循環参照回避
+    log_path, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+    
+    if not log_path or not os.path.exists(log_path):
+        return datetime.datetime.now()
+
+    try:
+        # ファイルの末尾から少しだけ読み込む（効率化）
+        # ※平均的なメッセージサイズを考慮し、末尾4KB程度を読む
+        file_size = os.path.getsize(log_path)
+        read_size = min(4096, file_size)
+        
+        with open(log_path, 'rb') as f:
+            if file_size > read_size:
+                f.seek(file_size - read_size)
+            content = f.read().decode('utf-8', errors='ignore')
+
+        # タイムスタンプパターン (YYYY-MM-DD (Day) HH:MM:SS)
+        # ログ形式: 2025-12-03 (Wed) 17:26:19
+        matches = list(re.finditer(r'(\d{4}-\d{2}-\d{2}) \(...\) (\d{2}:\d{2}:\d{2})', content))
+        
+        if matches:
+            last_match = matches[-1]
+            date_str = last_match.group(1)
+            time_str = last_match.group(2)
+            dt_str = f"{date_str} {time_str}"
+            return datetime.datetime.strptime(dt_str, '%Y-%m-%d %H:%M:%S')
+            
+    except Exception as e:
+        print(f"タイムスタンプ取得エラー ({room_name}): {e}")
+        
+    # 取得失敗時は「今」とみなしてトリガーを防ぐ
+    return datetime.datetime.now()
