@@ -170,7 +170,7 @@ class RAGManager:
             messages.append("過去ログ: 差分なし")
 
         # --- Phase 2: 動的インデックス（知識・現行ログ）の再構築 ---
-        report("Phase 2: 知識ベースと現行ログを処理中...")
+        report("Phase 2: 知識ベースと現行ログ、エピソード記憶を処理中...")
         
         dynamic_docs = []
         
@@ -192,6 +192,31 @@ class RAGManager:
                 dynamic_docs.append(Document(page_content=content, metadata={"source": "log.txt", "type": "current_log"}))
              except Exception:
                 pass
+
+        episodic_memory_path = self.room_dir / "memory" / "episodic_memory.json"
+        if episodic_memory_path.exists():
+            try:
+                with open(episodic_memory_path, 'r', encoding='utf-8') as f:
+                    episodes = json.load(f)
+                
+                if isinstance(episodes, list):
+                    for ep in episodes:
+                        date_str = ep.get('date', '不明な日付')
+                        summary = ep.get('summary', '')
+                        if summary:
+                            # 検索に引っかかりやすい形式に整形
+                            content = f"日付: {date_str}\n内容: {summary}"
+                            dynamic_docs.append(Document(
+                                page_content=content,
+                                metadata={
+                                    "source": "episodic_memory.json",
+                                    "type": "episodic_memory",
+                                    "date": date_str
+                                }
+                            ))
+                    print(f"  - エピソード記憶から {len(episodes)} 件をインデックス化しました。")
+            except Exception as e:
+                print(f"Warning: Failed to read episodic_memory.json: {e}")
 
         dynamic_count = 0
         if dynamic_docs:

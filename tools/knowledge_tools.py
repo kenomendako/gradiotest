@@ -54,7 +54,11 @@ def search_knowledge_base(query: str, room_name: str, api_key: str = None) -> st
             header = f"[出典: {source_name}]"
             if doc_type == "log_archive" or doc_type == "current_log":
                 header = f"[出典: 過去の会話ログ ({source_name})]"
-            
+
+            elif doc_type == "episodic_memory":
+                date = doc.metadata.get("date", "")
+                header = f"[出典: エピソード記憶（要約） - {date}]"
+
             result_parts.append(f"- {header}\n  {doc.page_content}")
 
         final_result = "\n".join(result_parts)

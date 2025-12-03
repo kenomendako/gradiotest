@@ -791,9 +791,10 @@ def _stream_and_handle_response(
             print(f"--- 警告: 応答後の情景更新に失敗しました (API制限の可能性): {e} ---")
         try:
             token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
+            token_calc_kwargs.pop("api_history_limit", None)
             token_count_text = gemini_api.count_input_tokens(room_name=soul_vessel_room, api_key_name=api_key_name, api_history_limit=api_history_limit, parts=[], **token_calc_kwargs)
         except Exception as e:
-            print(f"--- 警告: 応答後のトークン数更新に失敗しました (API制限の可能性): {e} ---")
+            print(f"--- 警告: 応答後のトークン数更新に失敗しました: {e} ---")
 
         final_df_with_ids = render_alarms_as_dataframe()
         final_df = get_display_df(final_df_with_ids)
@@ -2129,7 +2130,11 @@ def handle_update_episodic_memory(room_name: str, api_key_name: str):
         return
 
     # 1. UIをロック (ボタン:更新中..., チャット欄:無効化)
-    yield gr.update(value="⏳ 更新中...", interactive=False), gr.update(interactive=False, placeholder="エピソード記憶を更新中です...お待ちください")
+    yield (
+        gr.update(value="⏳ 更新中...", interactive=False), 
+        gr.update(interactive=False, placeholder="エピソード記憶を更新中です...お待ちください"),
+        gr.update() 
+    )
 
     gr.Info(f"「{room_name}」のエピソード記憶（要約）を作成・更新しています...")
     

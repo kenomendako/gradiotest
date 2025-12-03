@@ -374,7 +374,7 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
         history_summary_text = ""
         if diary_text_to_summarize:
             from gemini_api import get_configured_llm
-            summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
+            summarizer_llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, {})
 
             summarize_prompt = f"""あなたは、単なる要約AIではありません。あなたは、人物の記憶を分析し、その人物の「今」を形作る本質的な出来事を抽出する、経験豊富な記憶編纂官（Memory Archivist）です。
 あなたの思考や挨拶は不要です。最終的な要約結果のテキストのみを出力してください。
@@ -497,7 +497,7 @@ def archive_old_diary_entries(room_name: str, api_key: str, archive_until_date: 
         # 6. AIによる【圧縮率の高い】要約
         print("  - 古い日記の【索引向け】要約をAIに依頼します...")
         from gemini_api import get_configured_llm
-        summarizer_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
+        summarizer_llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, {})
 
         # ▼▼▼ 既存の summarize_prompt の定義ブロック全体を、以下のコードで置き換えてください ▼▼▼
         summarize_prompt = f"""あなたは、膨大な記録から本質を見抜き、簡潔な索引を作成する専門の図書館司書です。
