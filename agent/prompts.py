@@ -23,6 +23,8 @@ CORE_PROMPT_TEMPLATE = """
         ### コアメモリ：自己同一性の核
         {core_memory}
         {notepad_section}
+
+        {episodic_memory} 
     </persona_definition>
 
     <current_situation>

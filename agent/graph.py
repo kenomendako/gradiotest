@@ -28,6 +28,7 @@ from tools.alarm_tools import set_personal_alarm
 from tools.timer_tools import set_timer, set_pomodoro_timer
 from tools.knowledge_tools import search_knowledge_base
 from room_manager import get_world_settings_path, get_room_files_paths
+from episodic_memory_manager import EpisodicMemoryManager
 import utils
 import config_manager
 import constants
@@ -413,6 +414,55 @@ def context_generator_node(state: AgentState):
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
 
+    episodic_memory_section = ""
+    
+    # 1. 設定値の取得
+    generation_config = state.get("generation_config", {})
+    lookback_days_str = generation_config.get("episode_memory_lookback_days", "14")
+    
+    if lookback_days_str and lookback_days_str != "0":
+        try:
+            lookback_days = int(lookback_days_str)
+            
+            # 2. 生ログの最古日付（境界線）を特定
+            # state['messages'] は既に履歴制限が適用された状態のリスト
+            messages = state.get('messages', [])
+            oldest_log_date_str = None
+            
+            # タイムスタンプが含まれるメッセージを探す（古い順）
+            # フォーマット例: "2025-12-03 (Wed) 10:00:00"
+            date_pattern = re.compile(r"(\d{4}-\d{2}-\d{2})")
+            
+            for msg in messages:
+                # HumanMessageかAIMessageで、かつテキストコンテンツがある場合
+                if isinstance(msg, (HumanMessage, AIMessage)) and isinstance(msg.content, str):
+                    match = date_pattern.search(msg.content)
+                    if match:
+                        oldest_log_date_str = match.group(1)
+                        break
+            
+            # 生ログに日付が見つからない場合（会話開始直後など）は、「今日」を境界線とする
+            if not oldest_log_date_str:
+                oldest_log_date_str = datetime.datetime.now().strftime('%Y-%m-%d')
+
+            # 3. エピソード記憶マネージャーから要約を取得
+            manager = EpisodicMemoryManager(room_name)
+            episodic_text = manager.get_episodic_context(oldest_log_date_str, lookback_days)
+            
+            if episodic_text:
+                episodic_memory_section = (
+                    f"\n### エピソード記憶（中期記憶: {oldest_log_date_str}以前の{lookback_days}日間）\n"
+                    f"以下は、現在の会話ログより前の出来事の要約です。文脈として参照してください。\n"
+                    f"{episodic_text}\n"
+                )
+                print(f"  - [Episodic Memory] {oldest_log_date_str} 以前の記憶を注入しました。")
+            else:
+                print(f"  - [Episodic Memory] 注入対象の期間に記憶がありませんでした。")
+
+        except Exception as e:
+            print(f"  - [Episodic Memory Error] 注入処理中にエラー: {e}")
+            episodic_memory_section = ""
+
     image_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
     current_tools = all_tools
     image_generation_manual_text = ""
@@ -471,6 +521,7 @@ def context_generator_node(state: AgentState):
         'character_prompt': character_prompt,
         'core_memory': core_memory,
         'notepad_section': notepad_section,
+        'episodic_memory': episodic_memory_section,
         'thought_generation_manual': thought_generation_manual_text,
         'image_generation_manual': image_generation_manual_text, 
         'tools_list': tools_list_str,
