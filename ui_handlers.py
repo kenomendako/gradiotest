@@ -49,6 +49,7 @@ from tools import timer_tools, memory_tools
 from agent.graph import generate_scenery_context
 from room_manager import get_room_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
+from episodic_memory_manager import EpisodicMemoryManager
 
 def handle_save_last_room(room_name: str) -> None:
     """
@@ -181,6 +182,9 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     limit_key = effective_settings.get("api_history_limit", "all")
     limit_display = constants.API_HISTORY_LIMIT_OPTIONS.get(limit_key, "全ログ")
 
+    episode_key = effective_settings.get("episode_memory_lookback_days", constants.DEFAULT_EPISODIC_MEMORY_DAYS)
+    episode_display = constants.EPISODIC_MEMORY_OPTIONS.get(episode_key, "過去 2週間")
+
     # --- [v25] 思考設定の連動ロジック ---
     display_thoughts_val = effective_settings.get("display_thoughts", True)
     send_thoughts_val = effective_settings.get("send_thoughts", True)
@@ -246,7 +250,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings.get("enable_scenery_system", True),
         gr.update(open=effective_settings.get("enable_scenery_system", True)),
         gr.update(value=limit_display), # room_api_history_limit_dropdown
-        limit_key # api_history_limit_state (これはUIコンポーネントではないが、State更新用)
+        limit_key, # api_history_limit_state (これはUIコンポーネントではないが、State更新用)
+        gr.update(value=episode_display)
     )
 
 
@@ -358,7 +363,8 @@ def handle_save_room_settings(
     use_common_prompt: bool, send_core_memory: bool,
     enable_scenery_system: bool,
     auto_memory_enabled: bool,
-    api_history_limit: str 
+    api_history_limit: str,
+    episode_memory_days: str  
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -376,6 +382,8 @@ def handle_save_room_settings(
 
     # 定数マップを使ってUIの表示名("10往復")を内部キー("10")に変換
     history_limit_key = next((k for k, v in constants.API_HISTORY_LIMIT_OPTIONS.items() if v == api_history_limit), "all")
+
+    episode_days_key = next((k for k, v in constants.EPISODIC_MEMORY_OPTIONS.items() if v == episode_memory_days), constants.DEFAULT_EPISODIC_MEMORY_DAYS)
 
     new_settings = {
         "voice_id": next((k for k, v in config_manager.SUPPORTED_VOICES.items() if v == voice_name), None),
@@ -400,7 +408,8 @@ def handle_save_room_settings(
         "enable_scenery_system": bool(enable_scenery_system),
         "send_scenery": bool(enable_scenery_system),
         "auto_memory_enabled": bool(auto_memory_enabled),
-        "api_history_limit": history_limit_key
+        "api_history_limit": history_limit_key,
+        "episode_memory_lookback_days": episode_days_key
     }
     try:
         room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
@@ -2095,6 +2104,39 @@ def handle_archive_memory_click(
 
     return new_memory_content, date_dropdown_update
 
+def handle_update_episodic_memory(room_name: str, api_key_name: str):
+    """エピソード記憶の更新ボタンのハンドラ"""
+    if not room_name or not api_key_name:
+        gr.Warning("ルームとAPIキーを選択してください。")
+        # 何も変更せずに戻る
+        yield gr.update()
+        return
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Error(f"APIキー「{api_key_name}」が無効です。")
+        yield gr.update()
+        return
+
+    # 1. ボタンを「更新中...」にして無効化
+    yield gr.update(value="⏳ 更新中...", interactive=False)
+
+    gr.Info(f"「{room_name}」のエピソード記憶（要約）を作成・更新しています...")
+    
+    try:
+        manager = EpisodicMemoryManager(room_name)
+        # 処理実行（時間がかかる）
+        result_msg = manager.update_memory(api_key)
+        gr.Info(f"✅ {result_msg}")
+    except Exception as e:
+        error_msg = f"エピソード記憶の更新中にエラーが発生しました: {e}"
+        print(error_msg)
+        traceback.print_exc()
+        gr.Error(error_msg)
+    
+    # 2. 処理が終わったらボタンを元の状態に戻す
+    yield gr.update(value="エピソード記憶を作成 / 更新", interactive=True)
+    
 def load_notepad_content(room_name: str) -> str:
     if not room_name: return ""
     _, _, _, _, notepad_path = get_room_files_paths(room_name)
@@ -3074,7 +3116,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 59
+    EXPECTED_OUTPUT_COUNT = 60
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 

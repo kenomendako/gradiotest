@@ -30,3 +30,13 @@ EMBEDDING_MODEL = "gemini-embedding-001"
 
 # --- ツール専用AIモデル ---
 SEARCH_MODEL = "gemini-2.5-flash"
+
+# --- エピソード記憶設定 ---
+EPISODIC_MEMORY_OPTIONS = {
+    "0": "なし（無効）",
+    "7": "過去 1週間",
+    "14": "過去 2週間",
+    "30": "過去 1ヶ月",
+    "90": "過去 3ヶ月"
+}
+DEFAULT_EPISODIC_MEMORY_DAYS = "14"

@@ -358,6 +358,13 @@ try:
                                             interactive=True
                                         )
 
+                                        room_episode_memory_days_dropdown = gr.Dropdown(
+                                            choices=list(constants.EPISODIC_MEMORY_OPTIONS.values()),
+                                            label="エピソード記憶の参照期間（中期記憶）",
+                                            info="生ログより前の期間について、要約された記憶をどれくらい遡って参照するか設定します。",
+                                            interactive=True
+                                        )
+
                                         room_display_thoughts_checkbox = gr.Checkbox( 
                                             label="AIの思考過程 [THOUGHT] をチャットに表示する",
                                             interactive=True
@@ -747,7 +754,10 @@ try:
                             reload_memory_button = gr.Button("再読込", variant="secondary")
                             core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
 
-                        # ▼▼▼ ここからが修正・追加するUIブロック ▼▼▼
+                        with gr.Accordion("📚 エピソード記憶（中期記憶）の管理", open=False):
+                            gr.Markdown("昨日までの会話ログを日ごとに要約し、中期記憶として保存します。")
+                            update_episodic_memory_button = gr.Button("エピソード記憶を作成 / 更新", variant="secondary")                        
+
                         with gr.Accordion("📝 古い日記をアーカイブする", open=False) as memory_archive_accordion:
                             # ▼▼▼ 以下のgr.Markdownとgr.Dropdownのテキストを変更 ▼▼▼
                             gr.Markdown(
@@ -755,10 +765,10 @@ try:
                                 "**⚠️注意:** この操作は`memory_main.txt`を直接変更します（処理前にバックアップは作成されます）。"
                             )
                             archive_date_dropdown = gr.Dropdown(label="この日付までをアーカイブ", interactive=True)
-                            # ▲▲▲ 変更ここまで ▲▲▲
+                           
                             archive_confirm_state = gr.Textbox(visible=False) # 確認ダイアログ用
                             archive_memory_button = gr.Button("アーカイブを実行", variant="stop")
-                        # ▲▲▲ 修正・追加ブロックここまで ▲▲▲
+                        
 
                     with gr.TabItem("コアメモリ"):
                         core_memory_editor = gr.Textbox(
@@ -922,7 +932,8 @@ try:
             enable_scenery_system_checkbox,
             profile_scenery_accordion,
             room_api_history_limit_dropdown,
-            api_history_limit_state            
+            api_history_limit_state,
+            room_episode_memory_days_dropdown            
         ]
 
         initial_load_outputs = [
@@ -1272,7 +1283,8 @@ try:
                 room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
                 enable_scenery_system_checkbox,
                 auto_memory_enabled_checkbox,
-                room_api_history_limit_dropdown
+                room_api_history_limit_dropdown,
+                room_episode_memory_days_dropdown
             ],
             outputs=None
         )
@@ -1324,7 +1336,6 @@ try:
             outputs=token_count_display
         )
         api_test_button.click(fn=ui_handlers.handle_api_connection_test, inputs=[api_key_dropdown], outputs=None)
-        # ▼▼▼【送信と停止のイベント定義を全面的に更新】▼▼▼
         # chat_submit_outputs の定義を削除し、代わりに unified_streaming_outputs を使用
         submit_event = chat_input_multimodal.submit(
             fn=ui_handlers.handle_message_submission,
@@ -1338,7 +1349,6 @@ try:
             outputs=[stop_button, chat_reload_button, chatbot_display, current_log_map_state],
             cancels=[submit_event, rerun_event]
         )
-        # ▲▲▲【修正ここまで】▲▲▲
 
         # トークン計算イベント（入力内容が変更されるたびに実行）
         token_calc_on_input_inputs = [
@@ -1510,14 +1520,18 @@ try:
             outputs=[graph_image_display]
         )
 
-        # ▲▲▲ ここまで ▲▲▲
         core_memory_update_button.click(
             fn=ui_handlers.handle_core_memory_update_click,
             inputs=[current_room_name, current_api_key_name_state],
             outputs=[core_memory_editor] # <-- None から変更
         )
 
-        # --- 新規追加: コアメモリ用イベント ---
+        update_episodic_memory_button.click(
+            fn=ui_handlers.handle_update_episodic_memory,
+            inputs=[current_room_name, current_api_key_name_state],
+            outputs=[update_episodic_memory_button] # None から変更
+        )
+
         save_core_memory_button.click(
             fn=ui_handlers.handle_save_core_memory,
             inputs=[current_room_name, core_memory_editor],
@@ -1536,9 +1550,7 @@ try:
             outputs=[current_scenery_display, scenery_image_display]
         )
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
-        # ▼▼▼【ここからが追加する行】▼▼▼
         audio_player.pause(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
-        # ▲▲▲【追加はここまで】▲▲▲
 
         world_builder_tab.select(
             fn=ui_handlers.handle_world_builder_load,
