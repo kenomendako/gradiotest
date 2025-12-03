@@ -29,6 +29,8 @@ CORE_PROMPT_TEMPLATE = """
 
     <current_situation>
         {situation_prompt}
+
+        {action_plan_context}
     </current_situation>
 
     <retrieved_information>
