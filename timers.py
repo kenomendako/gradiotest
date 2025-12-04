@@ -71,7 +71,7 @@ class UnifiedTimer:
 
     def _run_single_timer(self, duration: float, theme: str, timer_id: str):
         try:
-            from langchain_core.messages import AIMessage 
+            from langchain_core.messages import AIMessage, ToolMessage 
             import re 
 
             print(f"--- [タイマー開始: {timer_id}] Duration: {duration}s, Theme: '{theme}' ---")
@@ -83,7 +83,7 @@ class UnifiedTimer:
 
             print(f"--- [タイマー終了: {timer_id}] AIに応答生成を依頼します ---")
 
-            # ▼▼▼【変更】自律行動か通常タイマーかで、AIへの指示を切り替える ▼▼▼
+            # プロンプト構築
             if theme.startswith("【自律行動】"):
                 # 自律行動モード：計画を実行させる強力な指示
                 plan_content = theme.replace("【自律行動】", "").strip()
@@ -92,6 +92,7 @@ class UnifiedTimer:
                     f"【予定されていた行動】\n{plan_content}\n\n"
                     f"**直ちに上記の計画を実行に移してください。**\n"
                     f"「〜します」という予告は不要です。対応するツール（Web検索や画像生成など）を即座に呼び出してください。"
+                    f"もし、この行動だけで目的が達成されない場合は、ツールの実行結果を確認した後、**`schedule_next_action` を使用して次のステップを予約**してください。"
                 )
                 log_header = "## SYSTEM:autonomous_action"
             else:
@@ -101,36 +102,25 @@ class UnifiedTimer:
                     f"**タイマーが完了したことをユーザーに通知してください。新しいタイマーやアラームを設定してはいけません。**）"
                 )
                 log_header = "## SYSTEM:timer"
-            # ▲▲▲【変更ここまで】▲▲▲
 
             log_f, _, _, _, _ = room_manager.get_room_files_paths(self.room_name)
-
             current_api_key_name = config_manager.get_latest_api_key_name_from_config()
-            if not current_api_key_name:
-                print(f"警告: タイマー ({timer_id}) の発火時に有効なAPIキーが見つからないため、処理をスキップします。")
+            if not current_api_key_name or not log_f:
+                print(f"警告: APIキーまたはログファイルが見つかりません。")
                 return
-
             api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name)
 
-            if not log_f or not api_key:
-                print(f"警告: タイマー ({timer_id}) のルームファイルまたはAPIキーが見つからないため、処理をスキップします。")
-                return
-
             from agent.graph import generate_scenery_context
-            # 1. 適用すべき時間コンテキストを取得
             season_en, time_of_day_en = utils._get_current_time_context(self.room_name)
-            # 2. 情景生成時に時間コンテキストを渡す
             location_name, _, scenery_text = generate_scenery_context(
                 self.room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
             )
-
-            # バックグラウンド処理で使用すべきグローバルモデル名を取得
             global_model_for_bg = config_manager.get_current_global_model()
 
             agent_args_dict = {
                 "room_to_respond": self.room_name,
                 "api_key_name": current_api_key_name,
-                "global_model_from_ui": global_model_for_bg, 
+                "global_model_from_ui": global_model_for_bg,
                 "api_history_limit": str(constants.DEFAULT_ALARM_API_HISTORY_TURNS),
                 "debug_mode": False,
                 "history_log_path": log_f,
@@ -144,7 +134,7 @@ class UnifiedTimer:
                 "season_en": season_en,
                 "time_of_day_en": time_of_day_en
             }
-                        
+
             final_response_text = ""
             max_retries = 5
             base_delay = 5
@@ -161,12 +151,22 @@ class UnifiedTimer:
                     
                     if final_state:
                         new_messages = final_state["messages"][initial_message_count:]
+
+                        for msg in new_messages:
+                            if isinstance(msg, ToolMessage):
+                                # UI表示用に見やすく整形
+                                formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                                # ログ形式に合わせて整形
+                                tool_log_content = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"
+                                # ログに保存
+                                utils.save_message_to_log(log_f, "## SYSTEM:tool_result", tool_log_content)
+
                         all_ai_contents = [
                             msg.content for msg in new_messages
                             if isinstance(msg, AIMessage) and msg.content and isinstance(msg.content, str)
                         ]
                         final_response_text = "\n\n".join(all_ai_contents).strip()
-                    break # 成功
+                    break 
 
                 except gemini_api.ResourceExhausted as e:
                     error_str = str(e)
@@ -187,44 +187,36 @@ class UnifiedTimer:
                     print(f"--- タイマーのAI応答生成中に予期せぬエラーが発生しました ---"); traceback.print_exc()
                     final_response_text = ""; break
             
+            # ログ保存（システムメッセージとAI応答）
             raw_response = final_response_text
             response_text = utils.remove_thoughts_from_text(raw_response)
 
             if response_text and not response_text.startswith("[エラー"):
-                message_for_log = f"（システムタイマー：{theme}）"
-                # ▼▼▼【変更】ヘッダーを動的に変更 ▼▼▼
+                # ヘッダー（自律行動 or タイマー）でシステムログを記録
                 utils.save_message_to_log(log_f, log_header, message_for_log)
-                # ▲▲▲【変更ここまで】▲▲▲
                 utils.save_message_to_log(log_f, f"## AGENT:{self.room_name}", raw_response)
             else:
-                print(f"警告: タイマー応答の生成に失敗したため、システムメッセージを通知します ({timer_id})")
-                response_text = (
-                    f"設定されたタイマー（{theme}）を実行しようとしましたが、APIの利用上限に達したため、AIの応答を生成できませんでした。"
-                )
-                utils.save_message_to_log(log_f, "## SYSTEM:timer_fallback", response_text)
+                # エラー時
+                fallback_text = f"設定された行動（{theme}）を実行しようとしましたが、応答を生成できませんでした。"
+                utils.save_message_to_log(log_f, "## SYSTEM:timer_fallback", fallback_text)
+                response_text = fallback_text
+
 
             alarm_manager.send_notification(self.room_name, response_text, {})
 
+            # 通知送信
+            alarm_manager.send_notification(self.room_name, response_text, {})
             if PLYER_AVAILABLE:
                 try:
-                    display_message = (response_text[:250] + '...') if len(response_text) > 250 else response_text
-                    notification.notify(
-                        title=f"{self.room_name} タイマー", message=display_message,
-                        app_name="Nexus Ark", timeout=20
-                    )
-                    print("PCデスクトップ通知を送信しました。")
-                except Exception as e:
-                    print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
-                    
+                    notification.notify(title=f"{self.room_name} アクション", message=response_text[:100], app_name="Nexus Ark", timeout=10)
+                except: pass
+
         except Exception as e:
-            print(f"!! [タイマー実行エラー] {timer_id} の実行中に予期せぬエラー: {e} !!")
-            traceback.print_exc()
+            print(f"!! [タイマー実行エラー] {timer_id}: {e} !!"); traceback.print_exc()
         finally:
-            # ポモドーロの一部でない場合、ここで自身をリストから削除
-            if "ポモドーロ" not in timer_id:
-                if self in ACTIVE_TIMERS:
-                    ACTIVE_TIMERS.remove(self)
-                    
+            if "ポモドーロ" not in timer_id and self in ACTIVE_TIMERS:
+                ACTIVE_TIMERS.remove(self)
+                                    
     def _run_pomodoro(self):
         try:
             for i in range(self.cycles):

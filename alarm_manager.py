@@ -323,7 +323,7 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
     final_response_text = ""
     try:
         # ストリーム処理 (簡易版)
-        from langchain_core.messages import AIMessage
+        from langchain_core.messages import AIMessage, ToolMessage # <--- ToolMessage を追加
         final_state = None
         initial_count = 0
         for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args):
@@ -331,8 +331,17 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
             elif mode == "values": final_state = chunk
         
         if final_state:
-            msgs = final_state["messages"][initial_count:]
-            contents = [m.content for m in msgs if isinstance(m, AIMessage) and m.content]
+            new_messages = final_state["messages"][initial_count:]
+            
+            # ▼▼▼【追加】ツール実行結果をログに保存する処理 ▼▼▼
+            for msg in new_messages:
+                if isinstance(msg, ToolMessage):
+                    formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                    tool_log_content = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"
+                    utils.save_message_to_log(log_f, "## SYSTEM:tool_result", tool_log_content)
+            # ▲▲▲【追加】▲▲▲
+
+            contents = [m.content for m in new_messages if isinstance(m, AIMessage) and m.content]
             final_response_text = "\n".join(contents).strip()
 
     except Exception as e:
