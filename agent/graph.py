@@ -233,29 +233,39 @@ def retrieval_node(state: AgentState):
     llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
     
     decision_prompt = f"""
-    あなたは、チャットボットの「記憶検索」を制御する司令塔です。
-    ユーザーの発言に対して、より的確で文脈に沿った応答をするために、過去のログや知識ベースを検索する必要があるか判断してください。
+    あなたは、検索クエリ生成の専門家です。
+    ユーザーの発言から、過去のログや知識ベースを検索するための「最適な検索キーワード群」を抽出してください。
 
     【ユーザーの発言】
     {query_source}
 
-    【判断基準（迷ったら「検索する」を選んでください）】
-    - 「あの件どうなった？」「設定を教えて」「前に話した～だけど」等の、明確な情報要求 -> **検索必須**
-    - 人名、地名、施設名、作品名などの**固有名詞**が含まれる場合 -> **検索推奨**
-    - 「いつもの」「例の」「あれ」などの指示語や、通院・習い事などの**定期的な行動**が含まれる場合 -> **検索推奨**
-    - 単なる挨拶（「おはよう」「おやすみ」）や、感情的な叫び（「疲れたー！」）のみの場合 -> 検索不要
-
-    【検索クエリ生成のコツ（重要）】
-    - ユーザーの言葉をそのまま使うだけでなく、そこから連想される**類義語**や**具体的な固有名詞**を想像してクエリに含めてください。
-    - OR検索を想定し、キーワードはスペース区切りで複数並べてください。
-    - 例: 「娘の主治医」 -> 「娘 主治医 病院 先生 医師 クリニック 飯田」
-    - 例: 「あのゲーム」 -> 「ゲーム プレイ 最近 遊んだ RPG モンハン」
-
-    【出力形式】
-    - 検索が不要な場合: `NONE` とだけ出力してください。
-    - 検索が必要な場合: 生成した「検索キーワード群」のみを出力してください。
-    """
+    【タスク】
+    ユーザーの発言から「過去の情報を参照する必要があるか」を判断する。
     
+    1.  **検索不要な場合**: `NONE` とだけ出力。
+    2.  **検索必要な場合**: 以下のルールでキーワードを生成して出力。
+
+    【キーワード抽出の絶対ルール（ノイズ除去）】
+    *   **「検索対象そのもの」**だけを抽出する。
+    *   **「前置き」「検索する理由」「直前の話題の引き継ぎ」は検索の邪魔になるため、絶対に含めないこと。**
+    *   名詞（固有名詞、専門用語）を中心に構成する。
+    *   類義語や関連語も想像して含める（OR検索の効果を高めるため）。
+    *   キーワード間は半角スペースで区切る。
+
+    【思考プロセスと出力例】
+    ユーザー：「RAGの改良してるんだけど、田中さんのこと覚えてる？」
+    *   思考: 「RAGの改良」はただの前置き（理由）であり、検索したい対象ではない。検索対象は「田中さん」のみ。
+    *   出力: `田中さん 友人 知り合い`
+
+    ユーザー：「海に行った時の話なんだけど」
+    *   思考: 「話なんだけど」は不要。「海」と「行った（旅行）」が対象。
+    *   出力: `海 ビーチ 旅行 夏 思い出 砂浜`
+    
+    【制約事項】
+    - **文章や質問文は禁止。** 単語の羅列のみを出力すること。
+    - **思考プロセスや解説は一切出力しないこと。**
+    """
+
     try:
         decision_response = llm_flash.invoke(decision_prompt).content.strip()
         
@@ -285,51 +295,43 @@ def retrieval_node(state: AgentState):
         # 3a. 知識ベース (RAG)
         from tools.knowledge_tools import search_knowledge_base
         kb_result = search_knowledge_base.func(query=search_query, room_name=room_name, api_key=api_key)
-        if (kb_result and 
-            "見つかりませんでした" not in kb_result and 
-            "エラー" not in kb_result and 
-            "【情報】" not in kb_result and
-            "抽出できません" not in kb_result):
+        
+        # 修正: 判定ロジックを「禁句除外」から「成功ヘッダーの確認」に変更
+        # ツールが返す "【知識ベースからの検索結果：" というヘッダーがあれば成功とみなす
+        if kb_result and "【知識ベースからの検索結果：" in kb_result:
              print(f"    -> 知識ベース: ヒット ({len(kb_result)} chars)")
              results.append(kb_result)
         else:
-             print(f"    -> 知識ベース: なし")
+             # ヒットしなかった場合のログ出力（デバッグ用）
+             preview = kb_result[:50].replace('\n', '') if kb_result else "None"
+             print(f"    -> 知識ベース: なし (Result: {preview}...)")
 
         # 3b. 過去ログ
         from tools.memory_tools import search_past_conversations
-        # ▼▼▼ 引数 exclude_recent_messages を渡す ▼▼▼
         log_result = search_past_conversations.func(
             query=search_query, 
             room_name=room_name, 
             api_key=api_key, 
             exclude_recent_messages=exclude_count
         )
-        if (log_result and 
-            "見つかりませんでした" not in log_result and 
-            "エラー" not in log_result and 
-            "【情報】" not in log_result and
-            "抽出できません" not in log_result):
+        # こちらも同様にヘッダーチェックに変更
+        if log_result and "【過去の会話ログからの検索結果：" in log_result:
              print(f"    -> 過去ログ: ヒット ({len(log_result)} chars)")
              results.append(log_result)
         else:
              print(f"    -> 過去ログ: なし (除外数: {exclude_count})")
 
         # 3c. 日記 (Memory)
-        # 「思い」「記憶」が含まれるか、他の検索でヒットしなかった場合に実行
         if not results or "思い" in search_query or "記憶" in search_query:
             from tools.memory_tools import search_memory
             mem_result = search_memory.func(query=search_query, room_name=room_name)
-            # ここが修正の核心です。"【検索結果】" in mem_result を削除しました。
-            if (mem_result and 
-                "見つかりませんでした" not in mem_result and 
-                "エラー" not in mem_result and 
-                "【情報】" not in mem_result and
-                "抽出できません" not in mem_result):
+            # 日記検索のヘッダーチェック
+            if mem_result and "【記憶検索の結果：" in mem_result:
                 print(f"    -> 日記: ヒット ({len(mem_result)} chars)")
                 results.append(mem_result)
             else:
                 print(f"    -> 日記: なし")
-
+                
         if not results:
             print("  - [Retrieval] 関連情報は検索されませんでした。")
             return {"retrieved_context": "（関連情報は検索されませんでした）"}

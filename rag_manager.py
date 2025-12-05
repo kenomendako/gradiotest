@@ -143,7 +143,7 @@ class RAGManager:
         if new_static_docs:
             report(f"過去ログの新規追加分 ({len(new_static_docs)}ファイル) を処理中... ベクトル化を実行します。")
             
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
             static_splits = text_splitter.split_documents(new_static_docs)
             print(f"  - チャンク分割完了: {len(static_splits)} チャンク")
             
@@ -220,7 +220,7 @@ class RAGManager:
 
         dynamic_count = 0
         if dynamic_docs:
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
             dynamic_splits = text_splitter.split_documents(dynamic_docs)
             
             # 常に新規作成（上書き）
@@ -238,21 +238,59 @@ class RAGManager:
         print(f"--- [RAG] 処理完了: {final_msg} ---")
         return final_msg
 
-    def search(self, query: str, k: int = 4) -> List[Document]:
-        """静的・動的インデックスの両方を検索し、結果を統合する"""
-        results = []
+    def search(self, query: str, k: int = 10, score_threshold: float = 0.75) -> List[Document]:
+        """
+        静的・動的インデックスの両方を検索し、スコアで足切りして結果を統合する
         
+        Args:
+            query: 検索クエリ
+            k: 取得する最大件数
+            score_threshold: 足切りライン (L2距離)。
+                             Gemini Embeddingの場合、0.0(完全一致)〜2.0(正反対)の範囲になることが多い。
+                             0.6〜0.8あたりが「関連あり/なし」の境界になる傾向がある。
+        """
+        results_with_scores = []
+        
+        print(f"--- [RAG Search Debug] Query: '{query}' (Threshold: {score_threshold}) ---")
+
         # 1. 動的インデックス（優先度高：知識や最新ログ）
         dynamic_db = self._safe_load_index(self.dynamic_index_path)
         if dynamic_db:
-            # 動的からは多めに取得
-            results.extend(dynamic_db.similarity_search(query, k=k))
+            # スコア付きで検索を実行
+            try:
+                dynamic_results = dynamic_db.similarity_search_with_score(query, k=k)
+                results_with_scores.extend(dynamic_results)
+            except Exception as e:
+                print(f"  - [RAG Warning] Dynamic index search failed: {e}")
 
         # 2. 静的インデックス（過去ログ）
         static_db = self._safe_load_index(self.static_index_path)
         if static_db:
-            results.extend(static_db.similarity_search(query, k=k))
+            try:
+                static_results = static_db.similarity_search_with_score(query, k=k)
+                results_with_scores.extend(static_results)
+            except Exception as e:
+                print(f"  - [RAG Warning] Static index search failed: {e}")
 
-        # 統合した結果を返す（本当はスコアで再ソートすべきだが、まずは単純結合）
-        # 件数が多すぎるとコンテキストを圧迫するので、合計で最大 k+2 件程度に絞る
-        return results[:k+2]
+        # 3. スコアによるフィルタリングとソート
+        # FAISS(L2)の場合: 0に近いほど似ている。
+        
+        filtered_docs = []
+        
+        # まずスコア順（昇順＝似ている順）にソート
+        results_with_scores.sort(key=lambda x: x[1])
+
+        for doc, score in results_with_scores:
+            is_relevant = score <= score_threshold
+            
+            # デバッグログ：調整のために重要
+            clean_content = doc.page_content.replace('\n', ' ')[:50]
+            status_icon = "✅" if is_relevant else "❌"
+            print(f"  - {status_icon} Score: {score:.4f} | {clean_content}...")
+            
+            if is_relevant:
+                filtered_docs.append(doc)
+
+        # 上位k件のドキュメントだけを返す
+        # 統合後に再度件数を絞ることで、最も関連性の高い情報だけをLLMに渡す
+        return filtered_docs[:k]
