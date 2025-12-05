@@ -83,6 +83,8 @@ class UnifiedTimer:
 
             print(f"--- [タイマー終了: {timer_id}] AIに応答生成を依頼します ---")
 
+            message_for_log = "" 
+
             # プロンプト構築
             if theme.startswith("【自律行動】"):
                 # 自律行動モード：計画を実行させる強力な指示
@@ -95,6 +97,9 @@ class UnifiedTimer:
                     f"もし、この行動だけで目的が達成されない場合は、ツールの実行結果を確認した後、**`schedule_next_action` を使用して次のステップを予約**してください。"
                 )
                 log_header = "## SYSTEM:autonomous_action"
+
+                message_for_log = f"（自律行動開始：{plan_content}）"
+
             else:
                 # 通常タイマーモード：ユーザーへの通知指示
                 synthesized_user_message = (
@@ -102,6 +107,8 @@ class UnifiedTimer:
                     f"**タイマーが完了したことをユーザーに通知してください。新しいタイマーやアラームを設定してはいけません。**）"
                 )
                 log_header = "## SYSTEM:timer"
+
+                message_for_log = f"（システムタイマー：{theme}）"
 
             log_f, _, _, _, _ = room_manager.get_room_files_paths(self.room_name)
             current_api_key_name = config_manager.get_latest_api_key_name_from_config()
@@ -201,16 +208,28 @@ class UnifiedTimer:
                 utils.save_message_to_log(log_f, "## SYSTEM:timer_fallback", fallback_text)
                 response_text = fallback_text
 
-
-            alarm_manager.send_notification(self.room_name, response_text, {})
-
-            # 通知送信
-            alarm_manager.send_notification(self.room_name, response_text, {})
-            if PLYER_AVAILABLE:
-                try:
-                    notification.notify(title=f"{self.room_name} アクション", message=response_text[:100], app_name="Nexus Ark", timeout=10)
-                except: pass
-
+            # 1. 正しい設定を取得 (room_config ではなく effective_settings を使う)
+            effective_settings = config_manager.get_effective_settings(self.room_name)
+            auto_settings = effective_settings.get("autonomous_settings", {})
+            
+            # 2. 時間設定を取得
+            quiet_start = auto_settings.get("quiet_hours_start", "00:00")
+            quiet_end = auto_settings.get("quiet_hours_end", "07:00")
+            
+            # 3. 判定
+            is_quiet = utils.is_in_quiet_hours(quiet_start, quiet_end)
+            
+            # 4. 通知送信 (静かな時間でなければ)
+            if not is_quiet:
+                alarm_manager.send_notification(self.room_name, response_text, {})
+                if PLYER_AVAILABLE:
+                    try:
+                        # タイトルを「アクション」に統一
+                        notification.notify(title=f"{self.room_name} アクション", message=response_text[:100], app_name="Nexus Ark", timeout=10)
+                    except: pass
+            else:
+                print(f"  - [Timer] 通知禁止時間帯のため、完了通知はスキップされました。")
+                
         except Exception as e:
             print(f"!! [タイマー実行エラー] {timer_id}: {e} !!"); traceback.print_exc()
         finally:

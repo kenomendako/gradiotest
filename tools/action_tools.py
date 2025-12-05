@@ -16,8 +16,19 @@ def schedule_next_action(intent: str, emotion: str, plan_details: str, minutes: 
     plan_details: 次に行う具体的な行動（例：「Webで最新のVR機器について検索する」「日記を整理する」）。
     minutes: 何分後に実行するか（1以上の整数）。
     """
+    from timers import ACTIVE_TIMERS
+    
     if minutes < 1:
         return "エラー: 分数は1以上で指定してください。"
+
+    expected_theme = f"【自律行動】{plan_details}"
+    
+    for timer in ACTIVE_TIMERS:
+        # ルームが同じで、かつテーマが一致するタイマーがあれば
+        if timer.room_name == room_name and getattr(timer, 'theme', '') == expected_theme:
+            remaining = int(timer.get_remaining_time() / 60)
+            print(f"  - [ActionTool] 重複した計画を検知しました。新規作成をスキップします。({plan_details})")
+            return f"行動計画は既にスケジュールされています（残り約{remaining}分）。**このタスクは完了しています。再登録の必要はありません。**"
 
     # 1. 計画をJSONファイルに保存 (ActionPlanManager)
     manager = ActionPlanManager(room_name)

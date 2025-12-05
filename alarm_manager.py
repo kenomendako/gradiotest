@@ -27,25 +27,6 @@ except ImportError:
 alarms_data_global = []
 alarm_thread_stop_event = threading.Event()
 
-def is_in_quiet_hours(start_str: str, end_str: str) -> bool:
-    """現在時刻が通知禁止時間帯（開始〜終了）に含まれるか判定する"""
-    if not start_str or not end_str:
-        return False
-        
-    now = datetime.datetime.now().time()
-    try:
-        start = datetime.datetime.strptime(start_str, "%H:%M").time()
-        end = datetime.datetime.strptime(end_str, "%H:%M").time()
-        
-        if start <= end:
-            # 例: 01:00 〜 05:00
-            return start <= now <= end
-        else:
-            # 例: 23:00 〜 07:00 (日付またぎ)
-            return start <= now or now <= end
-    except ValueError:
-        return False
-
 def load_alarms():
     global alarms_data_global
     if not os.path.exists(constants.ALARMS_FILE):
@@ -447,7 +428,7 @@ def check_autonomous_actions():
             inactivity_limit = auto_settings.get("inactivity_minutes", 120)
             elapsed_minutes = (now - last_active).total_seconds() / 60
 
-            print(f"  - [{room_folder}] 経過: {int(elapsed_minutes)}分 / 設定: {inactivity_limit}分 (最終: {last_active.strftime('%H:%M')})")
+            # print(f"  - [{room_folder}] 経過: {int(elapsed_minutes)}分 / 設定: {inactivity_limit}分 (最終: {last_active.strftime('%H:%M')})")
 
             if elapsed_minutes >= inactivity_limit:
                 quiet_start = auto_settings.get("quiet_hours_start", "00:00")
@@ -468,8 +449,8 @@ def schedule_thread_function():
     # 既存: 毎分00秒にアラームチェック
     schedule.every().minute.at(":00").do(check_alarms)
     
-    # 追加: 毎分10秒に自律行動チェック
-    schedule.every().minute.at(":10").do(check_autonomous_actions)
+    # 追加: 毎分30秒に自律行動チェック
+    schedule.every().minute.at(":30").do(check_autonomous_actions)
     
     while not alarm_thread_stop_event.is_set():
         try:

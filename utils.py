@@ -687,3 +687,22 @@ def get_last_log_timestamp(room_name: str) -> datetime.datetime:
         
     # 取得失敗時は「今」とみなしてトリガーを防ぐ
     return datetime.datetime.now()
+
+def is_in_quiet_hours(start_str: str, end_str: str) -> bool:
+    """現在時刻が通知禁止時間帯（開始〜終了）に含まれるか判定する"""
+    if not start_str or not end_str:
+        return False
+        
+    now = datetime.datetime.now().time()
+    try:
+        start = datetime.datetime.strptime(start_str, "%H:%M").time()
+        end = datetime.datetime.strptime(end_str, "%H:%M").time()
+        
+        if start <= end:
+            # 例: 01:00 〜 05:00
+            return start <= now <= end
+        else:
+            # 例: 23:00 〜 07:00 (日付またぎ)
+            return start <= now or now <= end
+    except ValueError:
+        return False
