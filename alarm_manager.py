@@ -433,7 +433,7 @@ def check_autonomous_actions():
             if elapsed_minutes >= inactivity_limit:
                 quiet_start = auto_settings.get("quiet_hours_start", "00:00")
                 quiet_end = auto_settings.get("quiet_hours_end", "07:00")
-                is_quiet = is_in_quiet_hours(quiet_start, quiet_end)
+                is_quiet = utils.is_in_quiet_hours(quiet_start, quiet_end)
                 
                 print(f"🤖 {room_folder}: 条件達成 -> 自律行動トリガー！ (Quiet: {is_quiet})")
                 trigger_autonomous_action(room_folder, current_api_key, is_quiet)
