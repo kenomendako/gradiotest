@@ -2177,6 +2177,67 @@ def handle_update_episodic_memory(room_name: str, api_key_name: str):
     # 2. UIのロックを解除 (ボタン:元通り, チャット欄:有効化)
     yield gr.update(value="エピソード記憶を作成 / 更新", interactive=True), gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)..."), gr.update(value=new_info_text)
 
+# --- [Project Morpheus] Dream Journal Handlers ---
+
+def handle_refresh_dream_journal(room_name: str):
+    """夢日記（insights.json）を読み込み、Dataframe形式で返す"""
+    if not room_name:
+        return pd.DataFrame(), ""
+
+    try:
+        from dreaming_manager import DreamingManager
+        # APIキーは読み込みだけなら不要だが、初期化に必要なのでダミーかconfigから取得
+        # ここでは簡易的に空文字でも動くようにDreamingManagerが設計されていればよいが、
+        # ディレクトリパス解決だけならAPIキーは使わないので適当な値を入れる
+        dm = DreamingManager(room_name, "dummy_key")
+        insights = dm._load_insights()
+        
+        data = []
+        for item in insights:
+            data.append([
+                item.get("created_at", "").split(" ")[0], # 日付のみ
+                item.get("trigger_topic", ""),
+                item.get("insight", "")
+            ])
+            
+        df = pd.DataFrame(data, columns=["日付", "トリガー (検索語)", "得られた洞察"])
+        return df, "読み込み完了"
+        
+    except Exception as e:
+        print(f"夢日記読み込みエラー: {e}")
+        return pd.DataFrame(), f"エラー: {e}"
+
+def handle_dream_journal_selection(room_name: str, evt: gr.SelectData):
+    """夢日記のリストから行を選択した際、詳細を表示する"""
+    if not room_name or evt.index is None:
+        return ""
+    
+    try:
+        row_index = evt.index[0]
+        from dreaming_manager import DreamingManager
+        dm = DreamingManager(room_name, "dummy_key")
+        insights = dm._load_insights()
+        
+        if 0 <= row_index < len(insights):
+            selected_dream = insights[row_index]
+            
+            # 詳細テキストを構築
+            details = (
+                f"【日付】 {selected_dream.get('created_at')}\n"
+                f"【トリガー】 {selected_dream.get('trigger_topic')}\n\n"
+                f"## 💭 夢の日記 (Dream Log)\n"
+                f"{selected_dream.get('log_entry', '（記録なし）')}\n\n"
+                f"## 💡 得られた洞察 (Insight)\n"
+                f"{selected_dream.get('insight', '（記録なし）')}\n\n"
+                f"## 🧭 今後の指針 (Strategy)\n"
+                f"{selected_dream.get('strategy', '（記録なし）')}"
+            )
+            return details
+            
+        return ""
+    except Exception as e:
+        return f"詳細表示エラー: {e}"
+
 def load_notepad_content(room_name: str) -> str:
     if not room_name: return ""
     _, _, _, _, notepad_path = get_room_files_paths(room_name)

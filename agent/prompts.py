@@ -24,7 +24,9 @@ CORE_PROMPT_TEMPLATE = """
         {core_memory}
         {notepad_section}
 
-        {episodic_memory} 
+        {episodic_memory}
+
+        {dream_insights} 
     </persona_definition>
 
     <current_situation>

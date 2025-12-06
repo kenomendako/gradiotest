@@ -15,6 +15,7 @@ import room_manager
 import gemini_api
 import utils
 import re
+import dreaming_manager
 
 try:
     from plyer import notification
@@ -397,12 +398,11 @@ def check_alarms():
         trigger_alarm(alarm_to_run, current_api_key)
 
 def check_autonomous_actions():
-    """全ルームの無操作時間をチェックし、必要なら自律行動をトリガーする（詳細デバッグ版）"""
+    """全ルームの無操作時間をチェックし、必要なら自律行動または夢想をトリガーする"""
     # print(f"DEBUG: check_autonomous_actions called at {datetime.datetime.now().strftime('%H:%M:%S')}")
 
     current_api_key = config_manager.get_latest_api_key_name_from_config()
     if not current_api_key:
-        # print("DEBUG: -> Skipped (No API Key)")
         return
 
     all_rooms = room_manager.get_room_list_for_ui()
@@ -410,14 +410,8 @@ def check_autonomous_actions():
 
     for _, room_folder in all_rooms:
         try:
-            # ▼▼▼【修正】get_effective_settings を使って正しい設定を取得 ▼▼▼
-            # room_config.json の override_settings 内も考慮した最終的な設定を取得
             effective_settings = config_manager.get_effective_settings(room_folder)
-            
             auto_settings = effective_settings.get("autonomous_settings", {})
-            # ▲▲▲【修正ここまで】▲▲▲
-            
-            # print(f"DEBUG: [{room_folder}] Settings raw data: {auto_settings}")
             
             is_enabled = auto_settings.get("enabled", False)
             if not is_enabled:
@@ -435,13 +429,50 @@ def check_autonomous_actions():
                 quiet_end = auto_settings.get("quiet_hours_end", "07:00")
                 is_quiet = utils.is_in_quiet_hours(quiet_start, quiet_end)
                 
-                print(f"🤖 {room_folder}: 条件達成 -> 自律行動トリガー！ (Quiet: {is_quiet})")
-                trigger_autonomous_action(room_folder, current_api_key, is_quiet)
+                if is_quiet:
+                    # --- [Project Morpheus] 夢想モード ---
+                    # 通知禁止時間帯は「睡眠時間」とみなし、夢を見るか、静観するかを判断する
+                    
+                    # APIキーの実体を取得
+                    api_key_val = config_manager.GEMINI_API_KEYS.get(current_api_key)
+                    if not api_key_val: continue
+
+                    dm = dreaming_manager.DreamingManager(room_folder, api_key_val)
+                    
+                    # 今日（日付変更後）すでに夢を見たかチェック
+                    # _load_insights はリストの先頭が最新であることを前提とする
+                    insights = dm._load_insights()
+                    has_dreamed_today = False
+                    
+                    if insights:
+                        last_dream_str = insights[0].get("created_at", "")
+                        if last_dream_str:
+                            try:
+                                last_dream_date = datetime.datetime.strptime(last_dream_str, '%Y-%m-%d %H:%M:%S').date()
+                                if last_dream_date == now.date():
+                                    has_dreamed_today = True
+                            except ValueError:
+                                pass
+                    
+                    if not has_dreamed_today:
+                        print(f"💤 {room_folder}: 深い眠りにつきました（夢想プロセス開始）...")
+                        result = dm.dream()
+                        # 夢を見終わったら、ログの最終更新時刻を擬似的に更新しないと
+                        # 次のループですぐまた判定に来てしまうが、has_dreamed_todayで弾かれるので大丈夫
+                    else:
+                        # 既に夢を見ているので、静かに寝ていてもらう（ログも汚さない）
+                        # print(f"💤 {room_folder}: すやすや眠っています...")
+                        pass
+
+                else:
+                    # --- 通常の自律行動モード（起きている時） ---
+                    print(f"🤖 {room_folder}: 条件達成 -> 自律行動トリガー！")
+                    trigger_autonomous_action(room_folder, current_api_key, False)
 
         except Exception as e:
             print(f"  - 自律行動チェックエラー ({room_folder}): {e}")
             traceback.print_exc()
-                        
+
 def schedule_thread_function():
     global alarm_thread_stop_event
     print("--- アラームスケジューラスレッドを開始しました ---") # <--- 強調

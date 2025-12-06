@@ -771,6 +771,24 @@ try:
                             episodic_memory_info_display = gr.Markdown("昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** (未取得)")
                             update_episodic_memory_button = gr.Button("エピソード記憶を作成 / 更新", variant="secondary")                        
 
+                        with gr.Accordion("🌙 夢日記 (Dream Journal)", open=False):
+                            gr.Markdown("AIが通知禁止時間帯（寝ている間）に見た夢の記録です。\n過去の記憶と直近の出来事を照らし合わせ、AIが得た「洞察」や「深層心理」を閲覧できます。")
+                            dream_journal_df = gr.Dataframe(
+                                headers=["日付", "トリガー (検索語)", "得られた洞察"],
+                                datatype=["str", "str", "str"],
+                                row_count=(5, "dynamic"),
+                                col_count=(3, "fixed"),
+                                interactive=False,
+                                wrap=True
+                            )
+                            dream_detail_text = gr.Textbox(
+                                label="夢の詳細・深層心理",
+                                lines=10,
+                                interactive=False,
+                                placeholder="リストを選択すると、ここに詳細が表示されます。"
+                            )
+                            refresh_dream_button = gr.Button("夢日記を読み込む", variant="secondary")
+
                         memory_txt_editor = gr.Textbox(
                             label="主観的記憶（日記） - memory_main.txt",
                             interactive=True,
@@ -1027,8 +1045,7 @@ try:
             inputs=[current_room_name, active_participants_state],
             outputs=[active_participants_state, session_status_display, participant_checkbox_group]
         )
-
-        # ▼▼▼ chat_inputs のリスト定義から streaming_speed_slider を削除し、代わりに関連チェックボックスを追加 ▼▼▼
+       
         chat_inputs = [
             chat_input_multimodal,
             current_room_name,
@@ -1045,8 +1062,7 @@ try:
             screenshot_mode_checkbox, 
             redaction_rules_state,    
         ]
-
-# ▼▼▼ rerun_inputs のリスト定義から streaming_speed_slider を削除し、代わりに関連チェックボックスを追加 ▼▼▼
+    
         rerun_inputs = [
             selected_message_state,
             current_room_name,
@@ -1068,7 +1084,7 @@ try:
         unified_streaming_outputs = [
             chatbot_display, current_log_map_state, chat_input_multimodal,
             token_count_display,
-            location_dropdown, # ← current_location_display の代わりにこれを追加
+            location_dropdown, 
             current_scenery_display,
             alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
             debug_console_state, debug_console_output,
@@ -1132,11 +1148,11 @@ try:
             outputs=[selected_message_state, action_button_group, play_audio_button],
             show_progress=False
         )
-        # --- [ここから修正] ---
+        
         chatbot_display.edit(
             fn=ui_handlers.handle_chatbot_edit,
             inputs=[
-                chatbot_display,  # ★★★ この行を追加 ★★★
+                chatbot_display,  
                 current_room_name,
                 api_history_limit_state,
                 current_log_map_state,
@@ -1148,10 +1164,10 @@ try:
         delete_selection_button.click(
             fn=None,
             inputs=None,
-            outputs=[message_delete_confirmed_state], # 出力先を新しい名前に変更
+            outputs=[message_delete_confirmed_state], 
             js="() => confirm('本当にこのメッセージを削除しますか？この操作は元に戻せません。')"
         )
-        message_delete_confirmed_state.change( # 監視対象を新しい名前に変更
+        message_delete_confirmed_state.change( 
             fn=ui_handlers.handle_delete_button_click,
             inputs=[
                 message_delete_confirmed_state, 
@@ -1169,7 +1185,7 @@ try:
         room_api_history_limit_dropdown.change(
             fn=ui_handlers.update_api_history_limit_state_and_reload_chat,
             inputs=[
-                room_api_history_limit_dropdown, # 新しいコンポーネント名
+                room_api_history_limit_dropdown, 
                 current_room_name, 
                 room_add_timestamp_checkbox, 
                 room_display_thoughts_checkbox, 
@@ -1564,6 +1580,19 @@ try:
             fn=ui_handlers.handle_update_episodic_memory,
             inputs=[current_room_name, current_api_key_name_state],
             outputs=[update_episodic_memory_button, chat_input_multimodal, episodic_memory_info_display]
+        )
+
+        # --- Dream Journal Events ---
+        refresh_dream_button.click(
+            fn=ui_handlers.handle_refresh_dream_journal,
+            inputs=[current_room_name],
+            outputs=[dream_journal_df, dream_detail_text]
+        )
+        
+        dream_journal_df.select(
+            fn=ui_handlers.handle_dream_journal_selection,
+            inputs=[current_room_name],
+            outputs=[dream_detail_text]
         )
 
         save_core_memory_button.click(

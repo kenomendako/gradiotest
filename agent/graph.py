@@ -31,12 +31,13 @@ from room_manager import get_world_settings_path, get_room_files_paths
 from episodic_memory_manager import EpisodicMemoryManager
 from action_plan_manager import ActionPlanManager  
 from tools.action_tools import schedule_next_action, cancel_action_plan, read_current_plan
+from dreaming_manager import DreamingManager
 
 import utils
 import config_manager
 import constants
 import pytz
-import signature_manager # 追加
+import signature_manager 
 import room_manager 
 from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 
@@ -470,6 +471,25 @@ def context_generator_node(state: AgentState):
             print(f"  - [Episodic Memory Error] 注入処理中にエラー: {e}")
             episodic_memory_section = ""
 
+    # --- [Project Morpheus] 夢想（深層意識）の注入 ---
+    dream_insights_text = ""
+    try:
+        # APIキーが必要だが、context_generator_nodeにはstate['api_key']がある
+        dm = DreamingManager(room_name, state['api_key'])
+        # 最新3件程度の洞察を取得
+        recent_insights = dm.get_recent_insights_text(limit=3)
+        
+        if recent_insights:
+            dream_insights_text = (
+                f"\n### 深層意識（Dream Insights）\n"
+                f"あなたは最近、記憶の整理を通じて以下のことに気づいています。\n"
+                f"これらはあなたの「無意識下の直感」や「指針」です。意識的に話題にする必要はありませんが、振る舞いの参考にしてください。\n"
+                f"{recent_insights}\n"
+            )
+    except Exception as e:
+        print(f"  - [Context] 夢想データの読み込みエラー: {e}")
+        dream_insights_text = ""
+
     action_plan_context = ""
     try:
         plan_manager = ActionPlanManager(room_name)
@@ -543,6 +563,7 @@ def context_generator_node(state: AgentState):
         'core_memory': core_memory,
         'notepad_section': notepad_section,
         'episodic_memory': episodic_memory_section,
+        'dream_insights': dream_insights_text,
         'thought_generation_manual': thought_generation_manual_text,
         'image_generation_manual': image_generation_manual_text, 
         'tools_list': tools_list_str,
