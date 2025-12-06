@@ -2201,7 +2201,8 @@ def handle_refresh_dream_journal(room_name: str):
             ])
             
         df = pd.DataFrame(data, columns=["日付", "トリガー (検索語)", "得られた洞察"])
-        return df, "読み込み完了"
+        gr.Info(f"{len(data)}件の夢日記を読み込みました。")
+        return df, ""
         
     except Exception as e:
         print(f"夢日記読み込みエラー: {e}")

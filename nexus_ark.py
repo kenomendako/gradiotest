@@ -778,7 +778,7 @@ try:
                                 datatype=["str", "str", "str"],
                                 row_count=(5, "dynamic"),
                                 col_count=(3, "fixed"),
-                                interactive=False,
+                                interactive=True,
                                 wrap=True
                             )
                             dream_detail_text = gr.Textbox(
