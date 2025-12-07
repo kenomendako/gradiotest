@@ -1,11 +1,11 @@
-# rag_manager.py (v4: Batch Processing & Rate Limit Handling)
+# rag_manager.py (v6: Incremental Save / Checkpoint System)
 
 import os
 import shutil
 import tempfile
 import time
 from pathlib import Path
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Tuple
 import traceback
 import logging
 import json
@@ -89,12 +89,11 @@ class RAGManager:
         """
         大量のドキュメントをバッチ分割し、レート制限を回避しながらインデックスを作成/追記する。
         """
-        # バッチサイズ: 安全を見て20件ずつ
         BATCH_SIZE = 20
         db = existing_db
         total_splits = len(splits)
         
-        print(f"  - 合計 {total_splits} チャンクをバッチ処理でベクトル化します...")
+        # print(f"    - {total_splits} チャンクをAPIへ送信中...")
 
         for i in range(0, total_splits, BATCH_SIZE):
             batch = splits[i : i + BATCH_SIZE]
@@ -108,7 +107,6 @@ class RAGManager:
                     else:
                         db.add_documents(batch)
                     
-                    # 成功したら少し待機して次へ (レート制限対策)
                     time.sleep(2) 
                     break 
                 
@@ -116,12 +114,12 @@ class RAGManager:
                     error_str = str(e)
                     if "429" in error_str or "ResourceExhausted" in error_str:
                         wait_time = 10 * (attempt + 1)
-                        print(f"    - API制限検知 (Batch {i//BATCH_SIZE + 1})。{wait_time}秒待機してリトライします...")
+                        print(f"      ! API制限検知。{wait_time}秒待機してリトライ... ({attempt+1}/{max_retries})")
                         time.sleep(wait_time)
                     else:
-                        print(f"    - ベクトル化中に予期せぬエラー: {e}")
+                        print(f"      ! ベクトル化エラー: {e}")
                         if attempt == max_retries - 1:
-                            print("    - このバッチの処理をスキップします。")
+                            print("      ! このバッチをスキップします。")
                         time.sleep(2)
         
         return db
@@ -133,71 +131,28 @@ class RAGManager:
 
         messages = []
         
-        # --- Phase 1: 静的インデックス（過去ログ） ---
-        report("Phase 1: 過去ログアーカイブを確認中...")
-        processed_files = self._load_processed_record()
-        new_static_docs = []
-        new_processed_files = set()
+        # --- Phase 1: 静的インデックス（逐次保存・チェックポイント方式） ---
+        report("Phase 1: 過去ログ、エピソード記憶、夢日記の差分を確認中...")
         
+        processed_records = self._load_processed_record()
+        
+        # 処理対象のキュー: (record_id, document) のタプルリスト
+        pending_items: List[Tuple[str, Document]] = []
+        
+        # 1. 過去ログ収集
         archives_dir = self.room_dir / "log_archives"
         if archives_dir.exists():
-            all_archives = list(archives_dir.glob("*.txt"))
-            for f in all_archives:
-                if f.name not in processed_files:
+            for f in list(archives_dir.glob("*.txt")):
+                record_id = f"archive:{f.name}"
+                if record_id not in processed_records:
                     try:
                         content = f.read_text(encoding="utf-8")
                         if content.strip():
-                            new_static_docs.append(Document(
-                                page_content=content, 
-                                metadata={"source": f.name, "type": "log_archive", "path": str(f)}
-                            ))
-                            new_processed_files.add(f.name)
-                    except Exception as e:
-                        print(f"Failed to read archive {f.name}: {e}")
+                            doc = Document(page_content=content, metadata={"source": f.name, "type": "log_archive", "path": str(f)})
+                            pending_items.append((record_id, doc))
+                    except Exception: pass
 
-        if new_static_docs:
-            report(f"過去ログの新規追加分 ({len(new_static_docs)}ファイル) を処理中...")
-            # チャンクサイズを小さく
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
-            static_splits = text_splitter.split_documents(new_static_docs)
-            
-            static_db = self._safe_load_index(self.static_index_path)
-            
-            # バッチ処理メソッドを使用
-            static_db = self._create_index_in_batches(static_splits, existing_db=static_db)
-            
-            if static_db:
-                self._safe_save_index(static_db, self.static_index_path)
-                processed_files.update(new_processed_files)
-                self._save_processed_record(processed_files)
-                messages.append(f"過去ログ: {len(new_static_docs)}ファイルを新規追加")
-            else:
-                messages.append("過去ログ: ベクトル化失敗")
-        else:
-            messages.append("過去ログ: 差分なし")
-
-        # --- Phase 2: 動的インデックス（知識・現行ログ） ---
-        report("Phase 2: 知識ベースと現行ログ、エピソード記憶を処理中...")
-        dynamic_docs = []
-        
-        # Knowledge
-        knowledge_dir = self.room_dir / "knowledge"
-        if knowledge_dir.exists():
-            for f in list(knowledge_dir.glob("*.txt")) + list(knowledge_dir.glob("*.md")):
-                try:
-                    content = f.read_text(encoding="utf-8")
-                    dynamic_docs.append(Document(page_content=content, metadata={"source": f.name, "type": "knowledge"}))
-                except Exception: pass
-
-        # Current Log
-        current_log_path = self.room_dir / "log.txt"
-        if current_log_path.exists():
-             try:
-                content = current_log_path.read_text(encoding="utf-8")
-                dynamic_docs.append(Document(page_content=content, metadata={"source": "log.txt", "type": "current_log"}))
-             except Exception: pass
-
-        # Episodic Memory
+        # 2. エピソード記憶収集
         episodic_memory_path = self.room_dir / "memory" / "episodic_memory.json"
         if episodic_memory_path.exists():
             try:
@@ -205,18 +160,17 @@ class RAGManager:
                     episodes = json.load(f)
                 if isinstance(episodes, list):
                     for ep in episodes:
-                        date_str = ep.get('date', '不明な日付')
-                        summary = ep.get('summary', '')
-                        if summary:
-                            content = f"日付: {date_str}\n内容: {summary}"
-                            dynamic_docs.append(Document(
-                                page_content=content,
-                                metadata={"source": "episodic_memory.json", "type": "episodic_memory", "date": date_str}
-                            ))
-                    print(f"  - エピソード記憶から {len(episodes)} 件をインデックス化しました。")
-            except Exception as e: print(f"Warning: Failed to read episodic_memory.json: {e}")
+                        date_str = ep.get('date', 'unknown')
+                        record_id = f"episodic:{date_str}"
+                        if record_id not in processed_records:
+                            summary = ep.get('summary', '')
+                            if summary:
+                                content = f"日付: {date_str}\n内容: {summary}"
+                                doc = Document(page_content=content, metadata={"source": "episodic_memory.json", "type": "episodic_memory", "date": date_str})
+                                pending_items.append((record_id, doc))
+            except Exception: pass
 
-        # Dream Insights
+        # 3. 夢日記収集
         insights_path = self.room_dir / "memory" / "insights.json"
         if insights_path.exists():
             try:
@@ -225,41 +179,97 @@ class RAGManager:
                 if isinstance(insights, list):
                     for item in insights:
                         date_str = item.get('created_at', '').split(' ')[0]
-                        trigger = item.get('trigger_topic', '')
-                        insight_content = item.get('insight', '')
-                        strategy = item.get('strategy', '')
-                        if insight_content:
-                            content = (
-                                f"【過去の夢・深層心理の記録 ({date_str})】\n"
-                                f"トリガー: {trigger}\n"
-                                f"気づき: {insight_content}\n"
-                                f"指針: {strategy}"
-                            )
-                            dynamic_docs.append(Document(
-                                page_content=content,
-                                metadata={"source": "insights.json", "type": "dream_insight", "date": date_str}
-                            ))
-                    print(f"  - 夢日記から {len(insights)} 件の洞察をインデックス化しました。")
-            except Exception as e: print(f"Warning: Failed to read insights.json: {e}")
+                        record_id = f"dream:{date_str}"
+                        if record_id not in processed_records:
+                            insight_content = item.get('insight', '')
+                            strategy = item.get('strategy', '')
+                            if insight_content:
+                                content = f"【過去の夢・深層心理の記録 ({date_str})】\nトリガー: {item.get('trigger_topic','')}\n気づき: {insight_content}\n指針: {strategy}"
+                                doc = Document(page_content=content, metadata={"source": "insights.json", "type": "dream_insight", "date": date_str})
+                                pending_items.append((record_id, doc))
+            except Exception: pass
+
+        # --- Phase 1 実行: 小分けにして保存しながら進む ---
+        if pending_items:
+            total_pending = len(pending_items)
+            report(f"新規追加アイテム: {total_pending}件。これらを小分けにして保存しながら処理します。")
+            
+            # インデックスのロード
+            static_db = self._safe_load_index(self.static_index_path)
+            
+            # 保存の粒度（何ファイルごとにセーブするか）
+            SAVE_INTERVAL = 5 
+            
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
+            
+            processed_count = 0
+            
+            # リストをチャンク分割してループ
+            for i in range(0, total_pending, SAVE_INTERVAL):
+                batch_items = pending_items[i : i + SAVE_INTERVAL]
+                batch_docs = [item[1] for item in batch_items]
+                batch_ids = [item[0] for item in batch_items]
+                
+                print(f"  - グループ処理中 ({i+1}〜{min(i+SAVE_INTERVAL, total_pending)} / {total_pending})...")
+                
+                # ドキュメントをチャンク分割
+                splits = text_splitter.split_documents(batch_docs)
+                
+                # ベクトル化してDBに追加
+                # (初回でstatic_dbがNoneの場合はここで生成される)
+                static_db = self._create_index_in_batches(splits, existing_db=static_db)
+                
+                if static_db:
+                    # ★★★ チェックポイント保存 ★★★
+                    self._safe_save_index(static_db, self.static_index_path)
+                    
+                    # 記録を更新して保存
+                    processed_records.update(batch_ids)
+                    self._save_processed_record(processed_records)
+                    
+                    processed_count += len(batch_items)
+                    # print(f"    -> セーブ完了。")
+                else:
+                    print(f"    ! グループ処理失敗。")
+
+            messages.append(f"固定記憶: {processed_count}件を追加保存")
+        else:
+            messages.append("固定記憶: 差分なし")
+
+        # --- Phase 2: 動的インデックス（知識・現行ログのみ） ---
+        # ※ここは再構築なのでセーブポイント方式は適用せず、一括で行う（件数が少ない前提）
+        report("Phase 2: 知識ベースと現行ログを再構築中...")
+        dynamic_docs = []
+        
+        knowledge_dir = self.room_dir / "knowledge"
+        if knowledge_dir.exists():
+            for f in list(knowledge_dir.glob("*.txt")) + list(knowledge_dir.glob("*.md")):
+                try:
+                    content = f.read_text(encoding="utf-8")
+                    dynamic_docs.append(Document(page_content=content, metadata={"source": f.name, "type": "knowledge"}))
+                except Exception: pass
+
+        current_log_path = self.room_dir / "log.txt"
+        if current_log_path.exists():
+             try:
+                content = current_log_path.read_text(encoding="utf-8")
+                dynamic_docs.append(Document(page_content=content, metadata={"source": "log.txt", "type": "current_log"}))
+             except Exception: pass
 
         if dynamic_docs:
-            # チャンクサイズを小さく
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
             dynamic_splits = text_splitter.split_documents(dynamic_docs)
-            
-            # バッチ処理メソッドを使用
-            # 常に新規作成（上書き）
             dynamic_db = self._create_index_in_batches(dynamic_splits, existing_db=None)
             
             if dynamic_db:
                 self._safe_save_index(dynamic_db, self.dynamic_index_path)
-                messages.append(f"知識・現行ログ: {len(dynamic_docs)}ファイルを更新")
+                messages.append(f"変動記憶: {len(dynamic_docs)}ファイルを更新")
             else:
-                messages.append("知識・現行ログ: 作成失敗")
+                messages.append("変動記憶: 作成失敗")
         else:
             if self.dynamic_index_path.exists():
                 shutil.rmtree(str(self.dynamic_index_path))
-            messages.append("知識・現行ログ: 対象なし")
+            messages.append("変動記憶: 対象なし")
 
         final_msg = " / ".join(messages)
         print(f"--- [RAG] 処理完了: {final_msg} ---")
