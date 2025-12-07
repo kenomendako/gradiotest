@@ -55,3 +55,6 @@ pydub==0.25.1
 # --- Markdown rendering ---
 markdown-it-py~=3.0.0
 mdit-py-plugins~=0.4.0
+
+# --- Multi-Provider Support ---
+langchain-openai
