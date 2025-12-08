@@ -706,3 +706,30 @@ def is_in_quiet_hours(start_str: str, end_str: str) -> bool:
             return start <= now or now <= end
     except ValueError:
         return False
+
+# utils.py の末尾に追加
+
+def get_content_as_string(message) -> str:
+    """
+    LangChainのメッセージオブジェクトまたは文字列から、テキストコンテンツを安全に抽出する。
+    マルチモーダル（リスト形式）のコンテンツにも対応。
+    """
+    if isinstance(message, str):
+        return message
+    
+    content = getattr(message, 'content', '')
+    
+    if isinstance(content, str):
+        return content
+    
+    if isinstance(content, list):
+        # リストの場合（マルチモーダル）、type='text' の部分を結合する
+        text_parts = []
+        for part in content:
+            if isinstance(part, dict) and part.get('type') == 'text':
+                text_parts.append(part.get('text', ''))
+            elif isinstance(part, str):
+                text_parts.append(part)
+        return "\n".join(text_parts)
+        
+    return str(content)
