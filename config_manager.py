@@ -3,7 +3,7 @@
 import json
 import os
 import time
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Tuple, Optional
 import time 
 import shutil 
 import datetime 
@@ -320,6 +320,32 @@ def load_config():
 
     # ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
     default_config = {
+        # --- [新規] マルチプロバイダ設定 ---
+        "active_provider": "google", # google, openai
+        "openai_provider_settings": [
+            {
+                "name": "OpenRouter",
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": "",
+                "default_model": "google/gemma-2-9b-it:free",
+                "available_models": ["google/gemma-2-9b-it:free", "meta-llama/llama-3-8b-instruct:free"]
+            },
+            {
+                "name": "Groq",
+                "base_url": "https://api.groq.com/openai/v1",
+                "api_key": "",
+                "default_model": "llama-3.3-70b-versatile",
+                "available_models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+            },
+            {
+                "name": "Local Ollama",
+                "base_url": "http://localhost:11434/v1",
+                "api_key": "ollama",
+                "default_model": "phi3.5", # 低スペックPCでの開発用推奨モデル
+                "available_models": ["phi3.5", "gemma2:2b"]
+            }
+        ],
+        # ---------------------------------
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
         "paid_api_key_names": [],
         "available_models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
@@ -573,3 +599,32 @@ def get_current_global_model() -> str:
         
     # それ以外の場合は、default_modelキーを返す
     return config.get("default_model", DEFAULT_MODEL_GLOBAL)
+
+# --- [Multi-Provider Support Helpers] ---
+
+def get_active_provider() -> str:
+    """現在アクティブなプロバイダ名 ('google' または 'openai') を返す"""
+    return CONFIG_GLOBAL.get("active_provider", "google")
+
+def set_active_provider(provider: str):
+    """アクティブなプロバイダを切り替える"""
+    if provider in ["google", "openai"]:
+        save_config_if_changed("active_provider", provider)
+
+def get_openai_settings_list() -> List[Dict]:
+    """OpenAI互換プロバイダの設定リストを返す"""
+    return CONFIG_GLOBAL.get("openai_provider_settings", [])
+
+def save_openai_settings_list(settings_list: List[Dict]):
+    """OpenAI互換プロバイダの設定リストを保存する"""
+    # 簡易的なバリデーション
+    if isinstance(settings_list, list):
+        save_config_if_changed("openai_provider_settings", settings_list)
+
+def get_active_openai_setting(provider_name: str) -> Optional[Dict]:
+    """指定された名前（例: 'OpenRouter'）の設定辞書を取得する"""
+    settings = get_openai_settings_list()
+    for s in settings:
+        if s.get("name") == provider_name:
+            return s
+    return None
