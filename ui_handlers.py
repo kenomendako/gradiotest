@@ -38,7 +38,7 @@ import time
 import rag_manager
 
 from pathlib import Path
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.docstore.document import Document
@@ -714,23 +714,63 @@ def _stream_and_handle_response(
                     final_error_message = f"[エラー] 内部処理で問題が発生しました。詳細はターミナルを確認してください。"
                     break
             
-            if final_error_message:
-                break # AIごとのループを抜ける
-
             if final_state:
                 # [安定化] ストリーム完了後に、全てのメッセージをまとめて処理する
-                new_messages = final_state["messages"][initial_message_count:]
-                if new_messages and isinstance(new_messages[-1], AIMessage) and (not new_messages[-1].content or not new_messages[-1].content.strip()):
-                    new_messages.pop()
+                raw_new_messages = final_state["messages"][initial_message_count:]
+                
+                # --- 【最強の重複・包含フィルタリング】 ---
+                # リスト内の「他のすべてのメッセージ」と比較し、
+                # 「自分が他の一部である」または「完全に一致する他のメッセージが既に処理済み」なら削除する
+                new_messages = []
+                
+                for i, msg in enumerate(raw_new_messages):
+                    content_str = ""
+                    if isinstance(msg, AIMessage):
+                        content_str = utils.get_content_as_string(msg)
+                    elif isinstance(msg, ToolMessage):
+                        content_str = str(msg.content)
+                    
+                    if not content_str or not content_str.strip():
+                        continue
+
+                    is_redundant = False
+                    for j, other_msg in enumerate(raw_new_messages):
+                        if i == j: continue # 自分自身とは比較しない
+
+                        other_content = ""
+                        if isinstance(other_msg, AIMessage):
+                            other_content = utils.get_content_as_string(other_msg)
+                        elif isinstance(other_msg, ToolMessage):
+                            other_content = str(other_msg.content)
+
+                        # 判定1: 自分が他のメッセージの「一部（substring）」であり、かつ相手の方が長い場合
+                        # 例: 自分="Hello", 相手="Hello World" -> 自分は不要
+                        if content_str in other_content and len(content_str) < len(other_content):
+                            is_redundant = True
+                            break
+                        
+                        # 判定2: 完全一致する場合、インデックスが後のものを残す（または最初を残す）
+                        # ここでは「最初に出てきたもの」を正とし、後続の重複を削除する
+                        if content_str == other_content and i > j:
+                            is_redundant = True
+                            break
+                    
+                    if not is_redundant:
+                        new_messages.append(msg)
+                # -----------------------------------
 
                 # ログ記録とリトライガード設定
                 for msg in new_messages:
                     if isinstance(msg, (AIMessage, ToolMessage)):
                         content_to_log = ""
                         header = ""
-                        if isinstance(msg, AIMessage) and msg.content and msg.content.strip():
-                            content_to_log = msg.content
-                            header = f"## AGENT:{current_room}"
+
+                        if isinstance(msg, AIMessage):
+                            content_str = utils.get_content_as_string(msg)
+                            if content_str and content_str.strip():
+                                content_to_log = content_str
+                                header = f"## AGENT:{current_room}"                        
+                        
                         elif isinstance(msg, ToolMessage):
                             formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                             content_to_log = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"
@@ -744,29 +784,55 @@ def _stream_and_handle_response(
                         if header and content_to_log:
                             for participant_room in all_rooms_in_scene:
                                 log_f, _, _, _, _ = get_room_files_paths(participant_room)
-                                if log_f: utils.save_message_to_log(log_f, header, content_to_log)
+                                if log_f:
+                                    # --- 【修正】二重書き込み防止チェック ---
+                                    try:
+                                        current_log = utils.load_chat_log(log_f)
+                                        if current_log:
+                                            last_entry = current_log[-1]
+                                            if _is_redundant_log_update(last_entry.get('content', ''), content_to_log):
+                                                print(f"--- [Deduplication] Skipping redundant message for {participant_room} (Suffix/Exact match) ---")
+                                                continue
+                                    except Exception as e:
+                                        print(f"Deduplication check failed: {e}")
+                                    # ---------------------------------------
+                                    utils.save_message_to_log(log_f, header, content_to_log)
                 
                 # 表示処理
                 # ログが更新された可能性があるので、UI表示の直前に必ず再読み込みする
                 chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit, add_timestamp, display_thoughts, screenshot_mode, redaction_rules)
                 
                 # このターンでAIが生成した最後の発言のみをストリーミング表示の対象とする
-                last_ai_message = next((msg for msg in reversed(new_messages) if isinstance(msg, AIMessage) and msg.content and msg.content.strip()), None)
-                text_to_display = last_ai_message.content if last_ai_message else ""
+                for msg in reversed(new_messages):
+                    if isinstance(msg, AIMessage):
+                        content_str = utils.get_content_as_string(msg)
+                        if content_str and content_str.strip():
+                            last_ai_message = msg
+                            break
+                            
+                text_to_display = utils.get_content_as_string(last_ai_message) if last_ai_message else ""
 
                 if text_to_display:
-                    # 思考中カーソルを一旦追加してからストリーミングを開始
-                    chatbot_history.append((None, "▌"))
-                    
+                    # 【修正】二重表示防止ロジック
                     if enable_typewriter_effect and streaming_speed > 0:
+                        # タイプライターONの場合:
+                        # 直前の reload_chat_log で読み込まれた「完了形の静的メッセージ」を一旦リストから削除する
+                        if chatbot_history:
+                            chatbot_history.pop()
+                        
+                        # 改めてアニメーション用のカーソルを追加して開始
+                        chatbot_history.append((None, "▌"))
+                        
                         for char in text_to_display:
                             streamed_text += char
                             chatbot_history[-1] = (None, streamed_text + "▌")
                             yield (chatbot_history, mapping_list, *([gr.update()] * 12))
                             time.sleep(streaming_speed)
                     else:
-                        streamed_text = text_to_display
-                
+                        # タイプライターOFFの場合:
+                        # 何もしない。直前の reload_chat_log で既に完了形のメッセージが表示されているため、
+                        # ここで append すると二重になってしまう。
+                        pass                
                 # ターン完了後、最終的な表示を確定させるために再度ログから読み込む
                 chatbot_history, mapping_list = reload_chat_log(
                     soul_vessel_room, api_history_limit, add_timestamp, display_thoughts,
@@ -4915,3 +4981,100 @@ def handle_register_custom_scenery(
         gr.Error(f"カスタム情景画像の登録中にエラーが発生しました: {e}")
         traceback.print_exc()
         return gr.update(), gr.update()
+
+# --- [Multi-Provider UI Handlers] ---
+
+def handle_provider_change(provider_choice: str):
+    """
+    AIプロバイダの選択（ラジオボタン）が変更された時の処理。
+    Google用設定とOpenAI用設定の表示/非表示を切り替える。
+    """
+    # UIの表示名から内部IDへ変換 ("Google (Gemini)" -> "google")
+    provider_id = "google" if "Google" in provider_choice else "openai"
+    
+    # 設定ファイルに保存
+    config_manager.set_active_provider(provider_id)
+    
+    is_google = (provider_id == "google")
+    
+    # Google設定(Visible), OpenAI設定(Visible) の順で返す
+    return gr.update(visible=is_google), gr.update(visible=not is_google)
+
+def handle_openai_profile_select(profile_name: str):
+    """
+    OpenAI互換設定のドロップダウン（OpenRouter/Groq/Ollama）が選択された時、
+    そのプロファイルの保存済み設定を入力欄に反映する。
+    """
+    config_manager.set_active_openai_profile(profile_name)
+
+    settings_list = config_manager.get_openai_settings_list()
+    target_setting = next((s for s in settings_list if s["name"] == profile_name), None)
+    
+    if not target_setting:
+        return "", "", ""
+        
+    return (
+        target_setting.get("base_url", ""),
+        target_setting.get("api_key", ""),
+        target_setting.get("default_model", "")
+    )
+
+def _is_redundant_log_update(last_log_content: str, new_content: str) -> bool:
+    """
+    ログの最後のメッセージと新しいメッセージを比較し、重複かどうかを判定する。
+    1. 完全一致
+    2. 新しいメッセージが最後のメッセージの末尾に含まれている（接尾辞重複）
+    """
+    if not last_log_content or not new_content:
+        return False
+    
+    clean_last = last_log_content.strip()
+    clean_new = new_content.strip()
+
+    if not clean_last or not clean_new:
+        return False
+
+    # 1. 完全一致
+    if clean_last == clean_new:
+        return True
+    
+    # 2. 接尾辞重複 (Suffix Overlap)
+    # 例: Last="Hello world.", New="world."
+    if clean_last.endswith(clean_new) and len(clean_new) < len(clean_last):
+        return True
+        
+    return False
+
+def handle_save_openai_config(profile_name: str, base_url: str, api_key: str, default_model: str):
+    """
+    OpenAI互換設定の保存ボタンが押された時の処理。
+    """
+    if not profile_name:
+        gr.Warning("プロファイルが選択されていません。")
+        return
+
+    settings_list = config_manager.get_openai_settings_list()
+    
+    # 既存の設定を更新、なければ新規作成（今回は既存更新が主）
+    target_index = -1
+    for i, s in enumerate(settings_list):
+        if s["name"] == profile_name:
+            target_index = i
+            break
+            
+    new_setting = {
+        "name": profile_name,
+        "base_url": base_url.strip(),
+        "api_key": api_key.strip(),
+        "default_model": default_model.strip(),
+        # available_modelsは既存を維持するか、簡易的にリスト化
+        "available_models": [default_model.strip()] 
+    }
+    
+    if target_index >= 0:
+        settings_list[target_index].update(new_setting)
+    else:
+        settings_list.append(new_setting)
+        
+    config_manager.save_openai_settings_list(settings_list)
+    gr.Info(f"プロファイル「{profile_name}」の設定を保存しました。")
