@@ -965,15 +965,19 @@ def safe_tool_executor(state: AgentState):
 def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node", "agent"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
     if state.get("force_end"): return "__end__"
+
     last_message = state["messages"][-1]
-    loop_count = state.get("loop_count", 0)
+    # loop_count = state.get("loop_count", 0)
+
     if last_message.tool_calls:
         print("  - ツール呼び出しあり。ツール実行ノードへ。")
         return "safe_tool_node"
-    if loop_count < 2:
-        print(f"  - ツール呼び出しなし。再思考します。(ループカウント: {loop_count})")
-        return "agent"
-    print(f"  - ツール呼び出しなし。最大ループ回数({loop_count})に達したため、グラフを終了します。")
+
+    # if loop_count < 2:
+    #     print(f"  - ツール呼び出しなし。再思考します。(ループカウント: {loop_count})")
+    #     return "agent"
+    
+    print(f"  - ツール呼び出しなし。会話終了とみなし、グラフを終了します。")
     return "__end__"
 
 workflow = StateGraph(AgentState)

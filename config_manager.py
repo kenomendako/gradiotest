@@ -183,7 +183,7 @@ def save_config_if_changed(key: str, value: Any) -> bool:
     CONFIG_GLOBAL[key] = value
     
     return True
-    
+
 # --- 公開APIキー管理関数 ---
 def add_or_update_gemini_key(key_name: str, key_value: str):
     global GEMINI_API_KEYS
@@ -509,17 +509,25 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         if key not in ["global_model_from_ui"] and value is not None:
             effective_settings[key] = value
 
-    # --- モデル選択の最終決定ロジック ---
+# --- モデル選択の最終決定ロジック ---
     global_model_from_ui = kwargs.get("global_model_from_ui")
+    
+    active_provider = get_active_provider()
+    
+    if active_provider == "openai":
+        # OpenAI互換モードなら、現在のアクティブなプロファイルのデフォルトモデルを強制使用
+        openai_setting = get_active_openai_setting()
+        if openai_setting:
+            effective_settings["model_name"] = openai_setting.get("default_model", "gpt-3.5-turbo")
+    else:
+        # Googleモードなら、従来のロジック（UI指定 or デフォルト）
+        final_model_name = global_model_from_ui or DEFAULT_MODEL_GLOBAL
+        effective_settings["model_name"] = final_model_name
 
-    # UIからの指定があればそれを使い、なければ共通のデフォルトを使う
-    final_model_name = global_model_from_ui or DEFAULT_MODEL_GLOBAL
-    effective_settings["model_name"] = final_model_name
-
-    # 念の為のフォールバック
-    if not effective_settings.get("model_name"):
-        effective_settings["model_name"] = DEFAULT_MODEL_GLOBAL
-
+        # 念の為のフォールバック
+        if not effective_settings.get("model_name"):
+            effective_settings["model_name"] = DEFAULT_MODEL_GLOBAL
+            
     return effective_settings
 
 from typing import Tuple

@@ -20,7 +20,7 @@ REDACTION_RULES_FILE = "redaction_rules.json"
 # --- UIとAPIの挙動に関する定数 ---
 # (以降、変更なし)
 UI_HISTORY_MAX_LIMIT = 200
-API_HISTORY_LIMIT_OPTIONS = {"10": "10往復", "20": "20往復", "30": "30往復", "40": "40往復", "50": "50往復", "60": "60往復", "70": "70往復", "80": "80往復", "90": "90往復", "100": "100往復", "all": "全ログ"}
+API_HISTORY_LIMIT_OPTIONS = {"1": "1往復", "3": "3往復", "5": "5往復", "10": "10往復", "20": "20往復", "30": "30往復", "40": "40往復", "50": "50往復", "60": "60往復", "70": "70往復", "80": "80往復", "90": "90往復", "100": "100往復", "all": "全ログ"}
 DEFAULT_API_HISTORY_LIMIT_OPTION = "all"
 DEFAULT_ALARM_API_HISTORY_TURNS = 10
 

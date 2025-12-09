@@ -1,5 +1,6 @@
 # gemini_api.py (Dual-State Architecture Implementation)
 
+import tiktoken
 import traceback
 from typing import Any, List, Union, Optional, Dict, Iterator
 import os
@@ -73,6 +74,38 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
     if not messages: return 0
+
+    # モデル名に "gemini" が含まれていない、または active_provider が openai の場合
+    active_provider = config_manager.get_active_provider()
+    
+    if active_provider != "google" or "gemini" not in model_name.lower():
+        try:
+            # OpenAI互換のトークナイザー(cl100k_base)で概算する
+            # Llama 3のトークナイザーとは厳密には異なるが、APIを叩かずに済む安全策として十分
+            encoding = tiktoken.get_encoding("cl100k_base")
+            total_tokens = 0
+            for msg in messages:
+                content = ""
+                if isinstance(msg.content, str):
+                    content = msg.content
+                elif isinstance(msg.content, list):
+                    # マルチモーダルのテキスト部分だけ抽出
+                    for part in msg.content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            content += part.get("text", "") + " "
+                
+                if content:
+                    total_tokens += len(encoding.encode(content))
+            
+            # 安全係数（システムプロンプトやツール定義の分を少し上乗せ）
+            return int(total_tokens * 1.1) + 100
+            
+        except Exception as e:
+            print(f"ローカル・トークン計算エラー: {e}")
+            # 最悪の場合、文字数/2 程度で返す
+            return sum(len(str(m.content)) for m in messages) // 2
+
+    # --- 以下、既存のGoogle APIを使用するロジック ---
     client = genai.Client(api_key=api_key)
     contents_for_api = _convert_lc_to_gg_for_count(messages)
     
@@ -91,11 +124,12 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
         try:
             result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
             return result.total_tokens
-        except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
+        except (ResourceExhausted, ServiceUnavailable, InternalServerError, google.genai.errors.ClientError) as e: # ClientErrorもキャッチ
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
                 retry_delay *= 2
             else:
+                print(f"トークン計算APIエラー: {e}")
                 return 0
     return 0
 
