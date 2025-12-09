@@ -1,26 +1,27 @@
 @echo off
-chcp 65001 > nul
-set PYTHONIOENCODING=utf-8
-title Nexus Ark
+cd /d "%~dp0"
 
-echo Starting Nexus Ark...
-echo.
-echo Please keep this window open while the application is running.
-echo To close the application, please close this window.
-echo.
+echo ---------------------------------------------------
+echo  Nexus Ark Launching...
+echo ---------------------------------------------------
 
-REM --- Pythonの実行ファイルを探す ---
-where python >nul 2>nul
-if %errorlevel% neq 0 (
-    echo [ERROR] Python not found.
-    echo Please install Python 3.10 or later and make sure it is in your PATH.
-    pause
-    exit /b
+if exist "venv\Scripts\python.exe" (
+    echo [INFO] Virtual Environment found.
+    echo [INFO] Starting with venv python...
+    "venv\Scripts\python.exe" nexus_ark.py
+) else (
+    echo [WARNING] venv folder not found.
+    echo [INFO] Starting with system python...
+    python nexus_ark.py
 )
 
-REM --- メインのPythonスクリプトを実行 ---
-python nexus_ark.py
+if %errorlevel% neq 0 (
+    echo.
+    echo [ERROR] An error occurred.
+)
 
 echo.
-echo Application has been closed.
+echo ---------------------------------------------------
+echo  Application Closed.
+echo ---------------------------------------------------
 pause

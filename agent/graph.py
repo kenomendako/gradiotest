@@ -32,6 +32,7 @@ from episodic_memory_manager import EpisodicMemoryManager
 from action_plan_manager import ActionPlanManager  
 from tools.action_tools import schedule_next_action, cancel_action_plan, read_current_plan
 from dreaming_manager import DreamingManager
+from llm_factory import LLMFactory
 
 import utils
 import config_manager
@@ -106,7 +107,6 @@ def generate_scenery_context(
     season_en: 'Optional[str]' = None, 
     time_of_day_en: 'Optional[str]' = None
 ) -> Tuple[str, str, str]:
-    from gemini_api import get_configured_llm
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
     location_display_name = "（不明な場所）"
@@ -148,7 +148,11 @@ def generate_scenery_context(
 
         if not space_def.startswith("（"):
             effective_settings = config_manager.get_effective_settings(room_name)
-            llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
+            llm_flash = LLMFactory.create_chat_model(
+                model_name=constants.INTERNAL_PROCESSING_MODEL,
+                api_key=api_key,
+                generation_config=effective_settings
+            )
 
             season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
             season_ja = season_map_en_to_ja.get(effective_season, "不明な季節")
@@ -226,12 +230,15 @@ def retrieval_node(state: AgentState):
         return {"retrieved_context": ""}
 
     # 2. クエリ生成AI（Flash Lite）による判断
-    from gemini_api import get_configured_llm
     api_key = state['api_key']
     room_name = state['room_name']
     
     # 高速なモデルを使用
-    llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
+    llm_flash = LLMFactory.create_chat_model(
+    model_name=constants.INTERNAL_PROCESSING_MODEL,
+    api_key=api_key,
+    generation_config={}
+)
     
     decision_prompt = f"""
     あなたは、検索クエリ生成の専門家です。
@@ -573,7 +580,6 @@ def context_generator_node(state: AgentState):
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def agent_node(state: AgentState):
-    from gemini_api import get_configured_llm
     import signature_manager
     import json
     
@@ -653,7 +659,12 @@ def agent_node(state: AgentState):
 
     print(f"  - 使用モデル: {state['model_name']}")
     
-    llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
+    llm = LLMFactory.create_chat_model(
+    model_name=state['model_name'],
+    api_key=state['api_key'],
+    generation_config=state['generation_config']
+    )
+ 
     llm_with_tools = llm.bind_tools(all_tools)
 
     try:
@@ -721,7 +732,6 @@ def safe_tool_executor(state: AgentState):
     AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
     """
     import signature_manager
-    from gemini_api import get_configured_llm
     
     print("--- ツール実行ノード (safe_tool_executor) 実行 ---")
     last_message = state['messages'][-1]
@@ -784,9 +794,11 @@ def safe_tool_executor(state: AgentState):
                 current_content = raw_content
 
             print(f"  - ペルソナAI ({state['model_name']}) に編集タスクを依頼します。")
-            llm_persona = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
-            print(f"  - ペルソナAI ({state['model_name']}) に編集タスクを依頼します。")
-            llm_persona = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
+            llm_persona = LLMFactory.create_chat_model(
+                model_name=state['model_name'],
+                api_key=state['api_key'],
+                generation_config=state['generation_config']
+            )
  
             # テンプレート定義（省略せず記述）
             instruction_templates = {

@@ -162,15 +162,28 @@ def save_config_if_changed(key: str, value: Any) -> bool:
     """
     現在の設定値と比較し、変更があった場合のみconfig.jsonに安全に保存する。
     変更があった場合は True を、変更がなかった場合は False を返す。
+    【修正】メモリ上のグローバル変数(CONFIG_GLOBAL)も即座に更新する。
     """
+    global CONFIG_GLOBAL # グローバル変数を参照
+
+    # ファイルから最新を読み込む
     config = load_config_file()
+    
+    # 変更チェック
     if config.get(key) == value:
         return False  # 変更なし
 
+    # 変更があれば保存
     config[key] = value
     _save_config_file(config)
+    
+    # 【重要】メモリ上の設定も更新して、再起動なしで反映させる
+    if CONFIG_GLOBAL is None:
+        CONFIG_GLOBAL = {}
+    CONFIG_GLOBAL[key] = value
+    
     return True
-
+    
 # --- 公開APIキー管理関数 ---
 def add_or_update_gemini_key(key_name: str, key_value: str):
     global GEMINI_API_KEYS
@@ -319,16 +332,18 @@ def load_config():
     global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
 
     # ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
+# ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
     default_config = {
         # --- [新規] マルチプロバイダ設定 ---
         "active_provider": "google", # google, openai
+        "active_openai_profile": "OpenRouter", # デフォルトで選択されるプロファイル名
         "openai_provider_settings": [
             {
                 "name": "OpenRouter",
                 "base_url": "https://openrouter.ai/api/v1",
                 "api_key": "",
                 "default_model": "google/gemma-2-9b-it:free",
-                "available_models": ["google/gemma-2-9b-it:free", "meta-llama/llama-3-8b-instruct:free"]
+                "available_models": ["google/gemma-2-9b-it:free", "meta-llama/llama-3-8b-instruct:free", "anthropic/claude-3.5-sonnet"]
             },
             {
                 "name": "Groq",
@@ -341,10 +356,18 @@ def load_config():
                 "name": "Local Ollama",
                 "base_url": "http://localhost:11434/v1",
                 "api_key": "ollama",
-                "default_model": "phi3.5", # 低スペックPCでの開発用推奨モデル
-                "available_models": ["phi3.5", "gemma2:2b"]
+                "default_model": "phi3.5", 
+                "available_models": ["phi3.5", "gemma2:2b", "llama3"]
+            },
+            {
+                "name": "OpenAI Official",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "",
+                "default_model": "gpt-4o",
+                "available_models": ["gpt-4o", "gpt-4o-mini"]
             }
         ],
+
         # ---------------------------------
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
         "paid_api_key_names": [],
@@ -617,14 +640,23 @@ def get_openai_settings_list() -> List[Dict]:
 
 def save_openai_settings_list(settings_list: List[Dict]):
     """OpenAI互換プロバイダの設定リストを保存する"""
-    # 簡易的なバリデーション
     if isinstance(settings_list, list):
         save_config_if_changed("openai_provider_settings", settings_list)
 
-def get_active_openai_setting(provider_name: str) -> Optional[Dict]:
-    """指定された名前（例: 'OpenRouter'）の設定辞書を取得する"""
+def get_active_openai_profile_name() -> str:
+    """現在選択されているOpenAIプロファイル名（例: 'OpenRouter'）を返す"""
+    return CONFIG_GLOBAL.get("active_openai_profile", "OpenRouter")
+
+def set_active_openai_profile(profile_name: str):
+    """アクティブなOpenAIプロファイル名を保存する"""
+    save_config_if_changed("active_openai_profile", profile_name)
+
+def get_active_openai_setting() -> Optional[Dict]:
+    """現在アクティブなOpenAIプロファイルの設定辞書を返す"""
+    profile_name = get_active_openai_profile_name()
     settings = get_openai_settings_list()
     for s in settings:
-        if s.get("name") == provider_name:
+        if s.get("name") == profile_name:
             return s
-    return None
+    # 見つからない場合はリストの先頭を返す
+    return settings[0] if settings else None

@@ -351,6 +351,17 @@ def handle_initial_load():
         gr.update(choices=[p[1] for p in latest_api_key_choices], value=config.get("paid_api_key_names", [])),
     )
 
+    current_openai_profile_name = config_manager.get_active_openai_profile_name()
+    # アクティブな設定辞書を取得（なければ空辞書）
+    openai_setting = config_manager.get_active_openai_setting() or {}
+    
+    openai_updates = (
+        gr.update(value=current_openai_profile_name),            # openai_profile_dropdown
+        gr.update(value=openai_setting.get("base_url", "")),     # openai_base_url_input
+        gr.update(value=openai_setting.get("api_key", "")),      # openai_api_key_input
+        gr.update(value=openai_setting.get("default_model", "")) # openai_model_input
+    )
+
     # --- 5. 全ての戻り値を正しい順序で組み立てる ---
     # `initial_load_outputs`のリスト（58個）に対応
     return (
@@ -364,7 +375,8 @@ def handle_initial_load():
         onboarding_guide_update,
         *common_settings_updates,
         custom_scenery_dd_update,
-        custom_scenery_time_dd_update
+        custom_scenery_time_dd_update,
+        *openai_updates
     )
 
 def handle_save_room_settings(
@@ -573,6 +585,7 @@ def _stream_and_handle_response(
     一人応答するごとにログを保存・UIを再描画し、各AIの思考コンテキストの完全な独立性を保証する。
     """
     from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InternalServerError
+    import openai
 
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
     all_turn_popups = []
@@ -684,19 +697,24 @@ def _stream_and_handle_response(
                             
                     break # 成功したのでリトライループを抜ける
                 
-                except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
+                except (ResourceExhausted, ServiceUnavailable, InternalServerError, openai.RateLimitError, openai.APIError) as e:
                     error_str = str(e)
+                    # 1日の上限エラーか判定 (Google用)
                     if "PerDay" in error_str or "Daily" in error_str:
-                        final_error_message = "[エラー] APIの1日あたりの利用上限に達したため、本日の応答はこれ以上生成できません。モデルかキーを変更するか、制限解除までお待ちください。"
+                        final_error_message = "[エラー] APIの1日あたりの利用上限に達したため、本日の応答はこれ以上生成できません。"
                         break
                     
+                    # 待機時間の計算
                     wait_time = base_delay * (2 ** attempt)
                     match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
                     if match:
                         wait_time = int(match.group(1)) + 1
                     
+                    # OpenAIのRateLimitErrorの場合、ヘッダーから情報を取れる場合があるが、
+                    # 簡略化のため指数バックオフを適用する
+                    
                     if attempt < max_retries - 1:
-                        retry_message = (f"⏳ APIの応答が遅延しています。{wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries}回目)")
+                        retry_message = (f"⏳ APIの応答が遅延しています(Rate Limit等)。{wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries}回目)\n詳細: {e}")        
                         # reload_chat_logを呼び出して最新の履歴を取得
                         chatbot_history, mapping_list = reload_chat_log(
                             soul_vessel_room, api_history_limit, add_timestamp, display_thoughts,
@@ -718,47 +736,41 @@ def _stream_and_handle_response(
                 # [安定化] ストリーム完了後に、全てのメッセージをまとめて処理する
                 raw_new_messages = final_state["messages"][initial_message_count:]
                 
-                # --- 【最強の重複・包含フィルタリング】 ---
-                # リスト内の「他のすべてのメッセージ」と比較し、
-                # 「自分が他の一部である」または「完全に一致する他のメッセージが既に処理済み」なら削除する
-                new_messages = []
+                # --- 【Gemini Pro重複対策: 最長メッセージ採用ロジック】 ---
+                # 1ターンの中でAIから複数のテキストメッセージが返ってきた場合、
+                # それらは「思考の断片」と「完成形」の重複である可能性が高い。
+                # ツール呼び出し(ToolMessage)は全て維持しつつ、
+                # AIMessage（テキスト）については「最も長いもの1つだけ」を採用する。
                 
-                for i, msg in enumerate(raw_new_messages):
-                    content_str = ""
+                ai_text_messages = []
+                other_messages = [] # ToolMessageなど
+                
+                for msg in raw_new_messages:
                     if isinstance(msg, AIMessage):
-                        content_str = utils.get_content_as_string(msg)
-                    elif isinstance(msg, ToolMessage):
-                        content_str = str(msg.content)
-                    
-                    if not content_str or not content_str.strip():
-                        continue
-
-                    is_redundant = False
-                    for j, other_msg in enumerate(raw_new_messages):
-                        if i == j: continue # 自分自身とは比較しない
-
-                        other_content = ""
-                        if isinstance(other_msg, AIMessage):
-                            other_content = utils.get_content_as_string(other_msg)
-                        elif isinstance(other_msg, ToolMessage):
-                            other_content = str(other_msg.content)
-
-                        # 判定1: 自分が他のメッセージの「一部（substring）」であり、かつ相手の方が長い場合
-                        # 例: 自分="Hello", 相手="Hello World" -> 自分は不要
-                        if content_str in other_content and len(content_str) < len(other_content):
-                            is_redundant = True
-                            break
-                        
-                        # 判定2: 完全一致する場合、インデックスが後のものを残す（または最初を残す）
-                        # ここでは「最初に出てきたもの」を正とし、後続の重複を削除する
-                        if content_str == other_content and i > j:
-                            is_redundant = True
-                            break
-                    
-                    if not is_redundant:
-                        new_messages.append(msg)
+                        content = utils.get_content_as_string(msg)
+                        if content and content.strip():
+                            ai_text_messages.append((len(content), msg))
+                    else:
+                        other_messages.append(msg)
+                
+                # AIメッセージがあれば、最も長いものを1つ選ぶ
+                best_ai_message = None
+                if ai_text_messages:
+                    # 長さで降順ソートして先頭を取得
+                    ai_text_messages.sort(key=lambda x: x[0], reverse=True)
+                    best_ai_message = ai_text_messages[0][1]
+                
+                # リストを再構築（順序は Tool -> AI の順が自然だが、元の順序をなるべく保つ）
+                # ここではシンプルに [ツール実行報告たち] + [AIの最終回答] とする
+                new_messages = other_messages
+                if best_ai_message:
+                    new_messages.append(best_ai_message)
+                
                 # -----------------------------------
 
+                # 変数をここで初期化（UnboundLocalError対策）
+                last_ai_message = None 
+                                
                 # ログ記録とリトライガード設定
                 for msg in new_messages:
                     if isinstance(msg, (AIMessage, ToolMessage)):
@@ -801,7 +813,9 @@ def _stream_and_handle_response(
                 # 表示処理
                 # ログが更新された可能性があるので、UI表示の直前に必ず再読み込みする
                 chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit, add_timestamp, display_thoughts, screenshot_mode, redaction_rules)
-                
+
+                last_ai_message = None 
+
                 # このターンでAIが生成した最後の発言のみをストリーミング表示の対象とする
                 for msg in reversed(new_messages):
                     if isinstance(msg, AIMessage):
@@ -5022,25 +5036,29 @@ def handle_openai_profile_select(profile_name: str):
 def _is_redundant_log_update(last_log_content: str, new_content: str) -> bool:
     """
     ログの最後のメッセージと新しいメッセージを比較し、重複かどうかを判定する。
-    1. 完全一致
-    2. 新しいメッセージが最後のメッセージの末尾に含まれている（接尾辞重複）
+    空白・改行を無視して比較することで、フォーマット揺らぎによる重複も検出する。
     """
     if not last_log_content or not new_content:
         return False
     
-    clean_last = last_log_content.strip()
-    clean_new = new_content.strip()
+    # 正規化関数: 空白と改行をすべて削除して一本の文字列にする
+    def normalize(s):
+        return "".join(s.split())
+    
+    norm_last = normalize(last_log_content)
+    norm_new = normalize(new_content)
 
-    if not clean_last or not clean_new:
+    if not norm_last or not norm_new:
         return False
 
-    # 1. 完全一致
-    if clean_last == clean_new:
+    # 1. 完全一致 (正規化後)
+    if norm_last == norm_new:
         return True
     
-    # 2. 接尾辞重複 (Suffix Overlap)
-    # 例: Last="Hello world.", New="world."
-    if clean_last.endswith(clean_new) and len(clean_new) < len(clean_last):
+    # 2. 包含関係 (正規化後)
+    # 新しいメッセージの内容が、直前のメッセージの中に「完全に含まれている」場合
+    # (例: Last="こんにちは、元気？", New="元気？") -> 重複とみなしてスキップ
+    if norm_new in norm_last:
         return True
         
     return False
@@ -5075,6 +5093,75 @@ def handle_save_openai_config(profile_name: str, base_url: str, api_key: str, de
         settings_list[target_index].update(new_setting)
     else:
         settings_list.append(new_setting)
+        
+    config_manager.save_openai_settings_list(settings_list)
+    gr.Info(f"プロファイル「{profile_name}」の設定を保存しました。")
+
+# --- [Multi-Provider UI Handlers] ---
+
+def handle_provider_change(provider_choice: str):
+    """
+    AIプロバイダの選択（ラジオボタン）が変更された時の処理。
+    Google用設定とOpenAI用設定の表示/非表示を切り替える。
+    """
+    # UIの表示名から内部IDへ変換 (Valueが直接渡ってくる場合はそのまま)
+    provider_id = provider_choice 
+    
+    # 設定ファイルに保存
+    config_manager.set_active_provider(provider_id)
+    
+    is_google = (provider_id == "google")
+    
+    # Google設定(Visible), OpenAI設定(Visible) の順で返す
+    return gr.update(visible=is_google), gr.update(visible=not is_google)
+
+def handle_openai_profile_select(profile_name: str):
+    """
+    OpenAI互換設定のドロップダウン（OpenRouter/Groq/Ollama）が選択された時、
+    そのプロファイルの保存済み設定を入力欄に反映する。
+    """
+    config_manager.set_active_openai_profile(profile_name)
+
+    settings_list = config_manager.get_openai_settings_list()
+    target_setting = next((s for s in settings_list if s["name"] == profile_name), None)
+    
+    if not target_setting:
+        return "", "", ""
+        
+    return (
+        target_setting.get("base_url", ""),
+        target_setting.get("api_key", ""),
+        target_setting.get("default_model", "")
+    )
+
+def handle_save_openai_config(profile_name: str, base_url: str, api_key: str, default_model: str):
+    """
+    OpenAI互換設定の保存ボタンが押された時の処理。
+    """
+    if not profile_name:
+        gr.Warning("プロファイルが選択されていません。")
+        return
+
+    settings_list = config_manager.get_openai_settings_list()
+    
+    # 既存の設定を更新
+    target_index = -1
+    for i, s in enumerate(settings_list):
+        if s["name"] == profile_name:
+            target_index = i
+            break
+            
+    if target_index == -1:
+        gr.Warning("プロファイルが見つかりません。")
+        return
+
+    # 設定を更新
+    settings_list[target_index]["base_url"] = base_url.strip()
+    settings_list[target_index]["api_key"] = api_key.strip()
+    settings_list[target_index]["default_model"] = default_model.strip()
+    # available_models も更新（簡易的にデフォルトモデルのみ追加）
+    if default_model.strip() not in settings_list[target_index].get("available_models", []):
+        settings_list[target_index].setdefault("available_models", []).append(default_model.strip())
         
     config_manager.save_openai_settings_list(settings_list)
     gr.Info(f"プロファイル「{profile_name}」の設定を保存しました。")
