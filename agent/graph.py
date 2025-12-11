@@ -684,7 +684,41 @@ def agent_node(state: AgentState):
                     captured_signature = sig
 
         if chunks:
-            response = sum(chunks[1:], chunks[0])
+            # 【Gemini 2.5 Pro思考モデル対応】チャンク連結の改善（2024-12-11修正）
+            # 思考モデルはChunk[0]をリスト形式（署名付き）で、それ以降を文字列形式で送信する。
+            # さらに、Chunk[0]のリスト内にstr型パーツ（Chunk[1]以降と重複するテキスト）が
+            # 含まれる場合があるため、type=textの辞書パーツのみを抽出する。
+            
+            text_parts = []
+            for chunk in chunks:
+                chunk_content = chunk.content
+                
+                if chunk_content is None or chunk_content == "":
+                    continue
+                elif isinstance(chunk_content, str):
+                    text_parts.append(chunk_content)
+                elif isinstance(chunk_content, list):
+                    # リスト形式の場合、type=textの辞書パーツのみを抽出
+                    # str型パーツはChunk[1]以降と重複するため除外
+                    for part in chunk_content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text_parts.append(part.get("text", ""))
+            
+            combined_text = "".join(text_parts)
+            
+            # 署名やツールコールを最初のチャンクから取得
+            first_chunk = chunks[0]
+            additional_kwargs = getattr(first_chunk, 'additional_kwargs', {}) or {}
+            response_metadata = getattr(first_chunk, 'response_metadata', {}) or {}
+            tool_calls = getattr(first_chunk, 'tool_calls', []) or []
+            
+            # 新しいAIMessageを作成（contentは単純な文字列）
+            response = AIMessage(
+                content=combined_text,
+                additional_kwargs=additional_kwargs,
+                response_metadata=response_metadata,
+                tool_calls=tool_calls
+            )
         else:
             raise RuntimeError("AIからの応答が空でした。")
 

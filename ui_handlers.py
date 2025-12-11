@@ -593,6 +593,10 @@ def _stream_and_handle_response(
 
     # リトライ時に副作用のあるツールが再実行されるのを防ぐためのフラグ
     tool_execution_successful_this_turn = False
+    
+    # タイプライターエフェクトが正常完了したかのフラグ
+    typewriter_completed_successfully = False
+
 
     try:
         # UIをストリーミングモードに移行
@@ -827,32 +831,53 @@ def _stream_and_handle_response(
                 text_to_display = utils.get_content_as_string(last_ai_message) if last_ai_message else ""
 
                 if text_to_display:
-                    # 【修正】二重表示防止ロジック
+                    # 【修正v2】二重表示防止ロジック（Gemini 2.5 Pro対応）
                     if enable_typewriter_effect and streaming_speed > 0:
                         # タイプライターONの場合:
-                        # 直前の reload_chat_log で読み込まれた「完了形の静的メッセージ」を一旦リストから削除する
+                        # reload_chat_logで取得したフォーマット済みの最後のメッセージを保存し、
+                        # それを文字ずつ表示する（生テキストではなくフォーマット済みを使用）
+                        formatted_last_message = None
                         if chatbot_history:
-                            chatbot_history.pop()
+                            # 最後のメッセージを取り出す（後で文字ずつ表示）
+                            formatted_last_message = chatbot_history.pop()
                         
-                        # 改めてアニメーション用のカーソルを追加して開始
-                        chatbot_history.append((None, "▌"))
+                        # フォーマット済みテキストを取得（AI応答なので[1]がテキスト）
+                        formatted_text = ""
+                        if formatted_last_message and formatted_last_message[1]:
+                            if isinstance(formatted_last_message[1], str):
+                                formatted_text = formatted_last_message[1]
+                            else:
+                                # タプル（画像など）の場合はタイプライターをスキップ
+                                chatbot_history.append(formatted_last_message)
+                                yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                                typewriter_completed_successfully = True
+                                continue
                         
-                        for char in text_to_display:
-                            streamed_text += char
-                            chatbot_history[-1] = (None, streamed_text + "▌")
+                        if formatted_text:
+                            # アニメーション用のカーソルを追加して開始
+                            chatbot_history.append((None, "▌"))
+                            
+                            for char in formatted_text:
+                                streamed_text += char
+                                chatbot_history[-1] = (None, streamed_text + "▌")
+                                yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                                time.sleep(streaming_speed)
+                            
+                            # タイプライター完了後、フォーマット済みの最終形を表示
+                            # （生テキストではなく、reload_chat_logから取得したフォーマット済みを使用）
+                            chatbot_history[-1] = formatted_last_message
                             yield (chatbot_history, mapping_list, *([gr.update()] * 12))
-                            time.sleep(streaming_speed)
+                        
+                        typewriter_completed_successfully = True
+                        
                     else:
                         # タイプライターOFFの場合:
                         # 何もしない。直前の reload_chat_log で既に完了形のメッセージが表示されているため、
                         # ここで append すると二重になってしまう。
-                        pass                
-                # ターン完了後、最終的な表示を確定させるために再度ログから読み込む
-                chatbot_history, mapping_list = reload_chat_log(
-                    soul_vessel_room, api_history_limit, add_timestamp, display_thoughts,
-                    screenshot_mode, redaction_rules 
-                )
-                yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                        pass
+                
+                # 【重要】タイプライター完了後のreloadは、finallyブロックに任せる。
+                # これにより、エラー時やキャンセル時も正しくログから読み込まれる。
 
         if final_error_message:
             # エラーメッセージを、AIの応答ではなく「システムエラー」として全員のログに記録する
@@ -867,20 +892,27 @@ def _stream_and_handle_response(
         print("--- [ジェネレータ] ユーザーの操作により、ストリーミング処理が正常に中断されました。 ---")
     
     finally:
-        # (finallyブロックの中身は変更なし)
-        # 処理完了・中断・エラーに関わらず、必ずログから最新の状態を再描画する
+        # 処理完了・中断・エラーに関わらず、最終的なUI状態を確定する
         effective_settings = config_manager.get_effective_settings(soul_vessel_room)
         add_timestamp = effective_settings.get("add_timestamp", False)
         display_thoughts = effective_settings.get("display_thoughts", True)
         
-        final_chatbot_history, final_mapping_list = reload_chat_log(
-            room_name=soul_vessel_room,
-            api_history_limit_value=api_history_limit,
-            add_timestamp=add_timestamp,
-            display_thoughts=display_thoughts,
-            screenshot_mode=screenshot_mode, 
-            redaction_rules=redaction_rules  
-        )
+        # 【修正】タイプライター完了時は既に正しい履歴がyieldされているので、再読み込みをスキップ
+        if typewriter_completed_successfully:
+            # タイプライター完了時: 既存の履歴を再利用
+            final_chatbot_history = chatbot_history
+            final_mapping_list = mapping_list
+        else:
+            # エラー時、キャンセル時、タイプライターOFF時など: ログから再読み込み
+            final_chatbot_history, final_mapping_list = reload_chat_log(
+                room_name=soul_vessel_room,
+                api_history_limit_value=api_history_limit,
+                add_timestamp=add_timestamp,
+                display_thoughts=display_thoughts,
+                screenshot_mode=screenshot_mode, 
+                redaction_rules=redaction_rules  
+            )
+        
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         new_scenery_text, scenery_image, token_count_text = "（更新失敗）", None, "トークン数: (更新失敗)"
         try:
@@ -1934,6 +1966,8 @@ def format_history_for_gradio(
         if not text_part and not media_matches and role != "SYSTEM":
              proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
 
+
+
     for item in proto_history:
         mapping_list.append(item["log_index"])
         role, responder_id = item["role"], item["responder"]
@@ -2043,6 +2077,7 @@ def format_history_for_gradio(
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))
             gradio_history.append((media_tuple, None) if is_user else (None, media_tuple))
+
 
     return gradio_history, mapping_list
 
@@ -5053,12 +5088,17 @@ def _is_redundant_log_update(last_log_content: str, new_content: str) -> bool:
 
     # 1. 完全一致 (正規化後)
     if norm_last == norm_new:
+        print(f"[Deduplication] Exact match detected (normalized)")
         return True
     
-    # 2. 包含関係 (正規化後)
-    # 新しいメッセージの内容が、直前のメッセージの中に「完全に含まれている」場合
-    # (例: Last="こんにちは、元気？", New="元気？") -> 重複とみなしてスキップ
+    # 2. 双方向の包含関係チェック (正規化後)
+    # どちらか一方が他方に完全に含まれている場合は重複とみなす
     if norm_new in norm_last:
+        print(f"[Deduplication] New content is included in last log (prefix/partial)")
+        return True
+    
+    if norm_last in norm_new:
+        print(f"[Deduplication] Last log is included in new content (last is prefix of new)")
         return True
         
     return False
