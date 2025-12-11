@@ -1408,10 +1408,11 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
 
 def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name: str):
     """
-    【v5: 完全契約遵守版】
+    【v6: 完全契約遵守版】
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
+    unified_full_room_refresh_outputs と完全に一致する65個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 57
+    EXPECTED_OUTPUT_COUNT = 65
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
@@ -1438,29 +1439,37 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
         else:
             # ケース2: これが最後のルームだった場合
             gr.Warning("全てのルームが削除されました。新しいルームを作成してください。")
-            # 契約数(57)に合わせてUIをリセットするための値を返す
+            # 契約数(65)に合わせてUIをリセットするための値を返す
+            # initial_load_chat_outputs (47個) に対応
             empty_chat_updates = (
                 None, [], [], gr.update(interactive=False, placeholder="ルームを作成してください。"), 
-                None, "", "", "", "",
+                None, "", "", "", "",  # room_name, chatbot, mapping, input, profile, memory, notepad, system_prompt, core_memory
                 gr.update(choices=[], value=None), gr.update(choices=[], value=None), 
-                gr.update(choices=[], value=None), gr.update(choices=[], value=None),
-                gr.update(choices=[], value=None), 
-                "（ルームがありません）", 
-                list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,
-                0.8, 0.95, *[gr.update()]*4,
+                gr.update(choices=[], value=None), gr.update(choices=[], value=None),  # room_dropdown, alarm_dd, timer_dd, manage_dd
+                gr.update(choices=[], value=None),  # location_dropdown
+                "（ルームがありません）",  # current_scenery_display
+                list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,  # voice_dd, voice_style, typewriter, speed
+                0.8, 0.95, *[gr.update()]*4,  # temp, top_p, 4 safety settings
                 False, # display_thoughts
                 False, # send_thoughts
-                True,  # enable_auto_retrieval (追加)
+                True,  # enable_auto_retrieval
                 True,  # add_timestamp
                 True,  # send_current_time
-                # False, # send_thoughts (削除)
                 True,  # send_notepad
                 True,  # use_common_prompt
                 True,  # send_core_memory
                 False, # send_scenery
                 False, # auto_memory_enabled
-                "ℹ️ *ルームを選択してください*", None,
-                True, gr.update(open=False),
+                "ℹ️ *ルームを選択してください*", None,  # room_settings_info, scenery_image
+                True, gr.update(open=False),  # enable_scenery_system, profile_scenery_accordion
+                gr.update(value="全ログ"),  # room_api_history_limit_dropdown
+                "all",  # api_history_limit_state
+                gr.update(value="過去 2週間"),  # room_episode_memory_days_dropdown
+                gr.update(value="昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** -"),  # episodic_memory_info_display
+                gr.update(value=False),  # room_enable_autonomous_checkbox
+                gr.update(value=120),  # room_autonomous_inactivity_slider
+                gr.update(value="00:00"),  # room_quiet_hours_start
+                gr.update(value="07:00"),  # room_quiet_hours_end
             )
             empty_world_updates = ({}, gr.update(choices=[], value=None), "", gr.update(choices=[], value=None))
             empty_session_updates = ([], "ルームがありません", gr.update(choices=[]))
