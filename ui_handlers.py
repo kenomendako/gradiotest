@@ -795,7 +795,9 @@ def _stream_and_handle_response(
                         if isinstance(msg, AIMessage):
                             content_str = utils.get_content_as_string(msg)
                             if content_str and content_str.strip():
-                                content_to_log = content_str
+                                # AI応答にもタイムスタンプを追加（ユーザー発言と同じ形式）
+                                timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+                                content_to_log = content_str + timestamp
                                 header = f"## AGENT:{current_room}"                        
                         
                         elif isinstance(msg, ToolMessage):

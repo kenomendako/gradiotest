@@ -201,7 +201,10 @@ class UnifiedTimer:
             if response_text and not response_text.startswith("[エラー"):
                 # ヘッダー（自律行動 or タイマー）でシステムログを記録
                 utils.save_message_to_log(log_f, log_header, message_for_log)
-                utils.save_message_to_log(log_f, f"## AGENT:{self.room_name}", raw_response)
+                # AI応答にタイムスタンプを追加
+                import datetime as dt_timers
+                timestamp = f"\n\n{dt_timers.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+                utils.save_message_to_log(log_f, f"## AGENT:{self.room_name}", raw_response + timestamp)
             else:
                 # エラー時
                 fallback_text = f"設定された行動（{theme}）を実行しようとしましたが、応答を生成できませんでした。"

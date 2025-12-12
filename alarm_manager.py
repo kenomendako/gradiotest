@@ -230,7 +230,9 @@ def trigger_alarm(alarm_config, current_api_key_name):
     # AIの応答生成に成功した場合
     if response_text and not response_text.startswith("[エラー"):
         utils.save_message_to_log(log_f, "## SYSTEM:alarm", message_for_log)
-        utils.save_message_to_log(log_f, f"## AGENT:{room_name}", raw_response)
+        # AI応答にタイムスタンプを追加
+        timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+        utils.save_message_to_log(log_f, f"## AGENT:{room_name}", raw_response + timestamp)
         print(f"アラームログ記録完了 (ID:{alarm_id})")
         
     # AIの応答生成に失敗した場合（フォールバック）
@@ -345,7 +347,9 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
 
     # 行動した場合
     utils.save_message_to_log(log_f, "## SYSTEM:autonomous_trigger", "（自律行動モードにより起動）")
-    utils.save_message_to_log(log_f, f"## AGENT:{room_name}", final_response_text)
+    # AI応答にタイムスタンプを追加
+    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+    utils.save_message_to_log(log_f, f"## AGENT:{room_name}", final_response_text + timestamp)
     print(f"  - {room_name} が自律行動しました。")
 
     # 通知（Quiet Hoursでなければ）
