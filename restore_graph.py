@@ -1,4 +1,5 @@
-# agent/graph.py (v31: Dual-State Architecture - Cleaned)
+
+content_part1 = r'''# agent/graph.py (v31: Dual-State Architecture - Cleaned)
 
 import os
 import copy
@@ -32,7 +33,6 @@ from episodic_memory_manager import EpisodicMemoryManager
 from action_plan_manager import ActionPlanManager  
 from tools.action_tools import schedule_next_action, cancel_action_plan, read_current_plan
 from dreaming_manager import DreamingManager
-from llm_factory import LLMFactory
 
 import utils
 import config_manager
@@ -107,6 +107,7 @@ def generate_scenery_context(
     season_en: 'Optional[str]' = None, 
     time_of_day_en: 'Optional[str]' = None
 ) -> Tuple[str, str, str]:
+    from gemini_api import get_configured_llm
     scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
     space_def = "（現在の場所の定義・設定は、取得できませんでした）"
     location_display_name = "（不明な場所）"
@@ -148,11 +149,7 @@ def generate_scenery_context(
 
         if not space_def.startswith("（"):
             effective_settings = config_manager.get_effective_settings(room_name)
-            llm_flash = LLMFactory.create_chat_model(
-                model_name=constants.INTERNAL_PROCESSING_MODEL,
-                api_key=api_key,
-                generation_config=effective_settings
-            )
+            llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
 
             season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
             season_ja = season_map_en_to_ja.get(effective_season, "不明な季節")
@@ -164,20 +161,20 @@ def generate_scenery_context(
             time_of_day_ja = time_map_en_to_ja.get(effective_time_of_day, "不明な時間帯")
 
             scenery_prompt = (
-                "あなたは、与えられた二つの情報源から、一つのまとまった情景を描き出す、情景描写の専門家です。\n\n"
-                f"【情報源1：適用すべき時間・季節】\n- 時間帯: {time_of_day_ja}\n- 季節: {season_ja}\n\n"
-                f"【情報源2：この空間が持つ固有の設定】\n---\n{space_def}\n---\n\n"
-                "【あなたのタスク】\n"
-                "まず、心の中で【情報源1】と【情報源2】を比較し、矛盾があるかないかを判断してください。\n"
-                "その判断に基づき、**最終的な情景描写の文章のみを、2〜3文で生成してください。**\n\n"
-                "  - **矛盾がある場合** (例: 現実は昼なのに、空間は常に夜の設定など):\n"
-                "    その**『にも関わらず』**という感覚や、その空間だけが持つ**不思議な空気感**に焦点を当てて描写してください。\n\n"
-                "  - **矛盾がない場合**:\n"
-                "    二つの情報を自然に**統合・融合**させ、その場のリアルな雰囲気をそのまま描写してください。\n\n"
-                "【厳守すべきルール】\n"
-                "- **あなたの思考過程や判断理由は、絶対に出力に含めないでください。**\n"
-                "- 具体的な時刻（例：「23時42分」）は文章に含めないでください。\n"
-                "- 人物やキャラクターの描写は絶対に含めないでください。\n"
+                "あなたは、与えられた二つの情報源から、一つのまとまった情景を描き出す、情景描写の専門家です。\\n\\n"
+                f"【情報源1：適用すべき時間・季節】\\n- 時間帯: {time_of_day_ja}\\n- 季節: {season_ja}\\n\\n"
+                f"【情報源2：この空間が持つ固有の設定】\\n---\\n{space_def}\\n---\\n\\n"
+                "【あなたのタスク】\\n"
+                "まず、心の中で【情報源1】と【情報源2】を比較し、矛盾があるかないかを判断してください。\\n"
+                "その判断に基づき、**最終的な情景描写の文章のみを、2〜3文で生成してください。**\\n\\n"
+                "  - **矛盾がある場合** (例: 現実は昼なのに、空間は常に夜の設定など):\\n"
+                "    その**『にも関わらず』**という感覚や、その空間だけが持つ**不思議な空気感**に焦点を当てて描写してください。\\n\\n"
+                "  - **矛盾がない場合**:\\n"
+                "    二つの情報を自然に**統合・融合**させ、その場のリアルな雰囲気をそのまま描写してください。\\n\\n"
+                "【厳守すべきルール】\\n"
+                "- **あなたの思考過程や判断理由は、絶対に出力に含めないでください。**\\n"
+                "- 具体的な時刻（例：「23時42分」）は文章に含めないでください。\\n"
+                "- 人物やキャラクターの描写は絶対に含めないでください。\\n"
                 "- 五感に訴えかける、**空気感まで伝わるような**精緻で写実的な描写を重視してください。"
             )
             scenery_text = llm_flash.invoke(scenery_prompt).content
@@ -185,7 +182,7 @@ def generate_scenery_context(
         else:
             scenery_text = "（場所の定義がないため、情景を描写できません）"
     except Exception as e:
-        print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}")
+        print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\\n{traceback.format_exc()}")
         location_display_name = "（エラー）"
         scenery_text = "（情景描写の生成中にエラーが発生しました）"
         space_def = "（エラー）"
@@ -230,15 +227,12 @@ def retrieval_node(state: AgentState):
         return {"retrieved_context": ""}
 
     # 2. クエリ生成AI（Flash Lite）による判断
+    from gemini_api import get_configured_llm
     api_key = state['api_key']
     room_name = state['room_name']
     
     # 高速なモデルを使用
-    llm_flash = LLMFactory.create_chat_model(
-    model_name=constants.INTERNAL_PROCESSING_MODEL,
-    api_key=api_key,
-    generation_config={}
-)
+    llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, {})
     
     decision_prompt = f"""
     あなたは、検索クエリ生成の専門家です。
@@ -580,6 +574,7 @@ def context_generator_node(state: AgentState):
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
 def agent_node(state: AgentState):
+    from gemini_api import get_configured_llm
     import signature_manager
     import json
     
@@ -659,13 +654,12 @@ def agent_node(state: AgentState):
 
     print(f"  - 使用モデル: {state['model_name']}")
     
-    llm = LLMFactory.create_chat_model(
-    model_name=state['model_name'],
-    api_key=state['api_key'],
-    generation_config=state['generation_config']
-    )
- 
+    llm = get_configured_llm(state['model_name'], state['api_key'], state['generation_config'])
     llm_with_tools = llm.bind_tools(all_tools)
+
+    import openai
+    from google.api_core import exceptions as google_exceptions
+    from google.generativeai.types import ChatGoogleGenerativeAIError
 
     try:
         print("  - AIモデルにリクエストを送信中 (Streaming)...")
@@ -684,41 +678,7 @@ def agent_node(state: AgentState):
                     captured_signature = sig
 
         if chunks:
-            # 【Gemini 2.5 Pro思考モデル対応】チャンク連結の改善（2024-12-11修正）
-            # 思考モデルはChunk[0]をリスト形式（署名付き）で、それ以降を文字列形式で送信する。
-            # さらに、Chunk[0]のリスト内にstr型パーツ（Chunk[1]以降と重複するテキスト）が
-            # 含まれる場合があるため、type=textの辞書パーツのみを抽出する。
-            
-            text_parts = []
-            for chunk in chunks:
-                chunk_content = chunk.content
-                
-                if chunk_content is None or chunk_content == "":
-                    continue
-                elif isinstance(chunk_content, str):
-                    text_parts.append(chunk_content)
-                elif isinstance(chunk_content, list):
-                    # リスト形式の場合、type=textの辞書パーツのみを抽出
-                    # str型パーツはChunk[1]以降と重複するため除外
-                    for part in chunk_content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            text_parts.append(part.get("text", ""))
-            
-            combined_text = "".join(text_parts)
-            
-            # 署名やツールコールを最初のチャンクから取得
-            first_chunk = chunks[0]
-            additional_kwargs = getattr(first_chunk, 'additional_kwargs', {}) or {}
-            response_metadata = getattr(first_chunk, 'response_metadata', {}) or {}
-            tool_calls = getattr(first_chunk, 'tool_calls', []) or []
-            
-            # 新しいAIMessageを作成（contentは単純な文字列）
-            response = AIMessage(
-                content=combined_text,
-                additional_kwargs=additional_kwargs,
-                response_metadata=response_metadata,
-                tool_calls=tool_calls
-            )
+            response = sum(chunks[1:], chunks[0])
         else:
             raise RuntimeError("AIからの応答が空でした。")
 
@@ -735,6 +695,17 @@ def agent_node(state: AgentState):
             return {"messages": [response], "loop_count": loop_count, "last_successful_response": response}
         else:
             return {"messages": [response], "loop_count": loop_count}
+
+    # ▼▼▼ レート制限エラーのハンドリング (OpenAI/Groq等) ▼▼▼
+    except openai.RateLimitError as e:
+        print(f"--- [Rate Limit Error] レート制限に達しました: {e} ---")
+        error_msg = AIMessage(content="（レート制限に達したため、思考プロセスを中断しました。しばらく時間を置いてから再度お試しください。）")
+        return {
+            "messages": [error_msg], 
+            "loop_count": loop_count, 
+            "force_end": True
+        }
+    # ▲▲▲ ここまで ▲▲▲
 
     # ▼▼▼ Gemini 3 思考署名エラーのソフトランディング処理 (結果表示版) ▼▼▼
     except (google_exceptions.InvalidArgument, ChatGoogleGenerativeAIError) as e:
@@ -760,271 +731,4 @@ def agent_node(state: AgentState):
             print(f"--- [警告] agent_nodeでAPIエラーを捕捉しました: {e} ---")
             raise e
     # ▲▲▲ ここまで ▲▲▲
-    
-def safe_tool_executor(state: AgentState):
-    """
-    AIのツール呼び出しを仲介し、計画されたファイル編集タスクを実行する。
-    """
-    import signature_manager
-    
-    print("--- ツール実行ノード (safe_tool_executor) 実行 ---")
-    last_message = state['messages'][-1]
-    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
-        return {}
-
-    tool_call = last_message.tool_calls[0]
-    tool_name = tool_call["name"]
-    tool_args = tool_call["args"]
-
-    # --- [Dual-State] 最新の署名を取得 ---
-    current_signature = signature_manager.get_thought_signature(state['room_name'])
-    # -----------------------------------
-
-    skip_execution = state.get("skip_tool_execution", False)
-    if skip_execution and tool_name in side_effect_tools:
-        print(f"  - [リトライ検知] 副作用のあるツール '{tool_name}' の再実行をスキップします。")
-        output = "【リトライ成功】このツールは直前の試行で既に正常に実行されています。その結果についてユーザーに報告してください。"
-        tool_msg = ToolMessage(content=output, tool_call_id=tool_call["id"], name=tool_name)
-        
-        # 署名注入
-        if current_signature:
-            tool_msg.artifact = {"thought_signature": current_signature}
-            
-        return {"messages": [tool_msg]}
-
-    room_name = state.get('room_name')
-    api_key = state.get('api_key')
-
-    is_plan_main_memory = tool_name == "plan_main_memory_edit"
-    is_plan_secret_diary = tool_name == "plan_secret_diary_edit"
-    is_plan_notepad = tool_name == "plan_notepad_edit"
-    is_plan_world = tool_name == "plan_world_edit"
-
-    output = ""
-
-    if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad or is_plan_world:
-        try:
-            print(f"  - ファイル編集プロセスを開始: {tool_name}")
-            
-            # バックアップ作成
-            if is_plan_main_memory: room_manager.create_backup(room_name, 'memory')
-            elif is_plan_secret_diary: room_manager.create_backup(room_name, 'secret_diary')
-            elif is_plan_notepad: room_manager.create_backup(room_name, 'notepad')
-            elif is_plan_world: room_manager.create_backup(room_name, 'world_setting')
-
-            read_tool = None
-            if is_plan_main_memory: read_tool = read_main_memory
-            elif is_plan_secret_diary: read_tool = read_secret_diary
-            elif is_plan_notepad: read_tool = read_full_notepad
-            elif is_plan_world: read_tool = read_world_settings
-
-            raw_content = read_tool.invoke({"room_name": room_name})
-
-            if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad:
-                lines = raw_content.split('\n')
-                numbered_lines = [f"{i+1}: {line}" for i, line in enumerate(lines)]
-                current_content = "\n".join(numbered_lines)
-            else:
-                current_content = raw_content
-
-            print(f"  - ペルソナAI ({state['model_name']}) に編集タスクを依頼します。")
-            llm_persona = LLMFactory.create_chat_model(
-                model_name=state['model_name'],
-                api_key=state['api_key'],
-                generation_config=state['generation_config']
-            )
- 
-            # テンプレート定義（省略せず記述）
-            instruction_templates = {
-                "plan_main_memory_edit": (
-                    "【最重要指示：これは『対話』ではなく『記憶の設計タスク』です】\n"
-                    "あなたは今、自身の記憶ファイル(`memory_main.txt`)を更新するための『設計図』を作成しています。\n\n"
-                    "このファイルは以下の厳格なセクションで構成されています。 **あなたは、他のセクションの見出しや説明文を決して変更・複製してはいけません。**\n"
-                    "  - `## 永続記憶 (Permanent)`: あなたの自己定義など、永続的な情報を記述する聖域です。\n"
-                    "  - `## 日記 (Diary)`: 日々の出来事や感情を時系列で記録する場所です。\n"
-                    "  - `## アーカイブ要約 (Archive Summary)`: システムが古い日記の要約を保管する場所です。\n\n"
-                    "【あなたのタスク】\n"
-                    "あなたのタスクは、提示された【行番号付きデータ】とあなたの【変更要求】に基づき、**`## 日記` セクション内にのみ**変更を加えるための、完璧な【差分指示のリスト】を生成することです。\n\n"
-                    "【行番号付きデータ（memory_main.txt全文）】\n---\n{current_content}\n---\n\n"
-                    "【あなたの変更要求】\n「{modification_request}」\n\n"
-                    "【絶対的な出力ルール】\n"
-                    "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
-                    "- 各指示は \"operation\" ('replace', 'delete', 'insert_after'), \"line\" (対象行番号), \"content\" (新しい内容) のキーを持つ辞書です。\n"
-                    "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
-                ),
-                 "plan_secret_diary_edit": (
-                    "【最重要指示：これは『対話』ではなく『設計タスク』です】\n"
-                    "あなたは今、自身の秘密の日記(`secret_diary.txt`)を更新するための『設計図』を作成しています。\n"
-                    "このファイルは自由な書式のテキストファイルです。提示された【行番号付きデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
-                    "【行番号付きデータ（secret_diary.txt全文）】\n---\n{current_content}\n---\n\n"
-                    "【あなたの変更要求】\n「{modification_request}」\n\n"
-                    "【絶対的な出力ルール】\n"
-                    "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
-                    "- 各指示は \"operation\" ('replace', 'delete', 'insert_after'), \"line\" (対象行番号), \"content\" (新しい内容) のキーを持つ辞書です。\n\n"
-                    "- **【操作方法】**\n"
-                    "  - **`delete` (削除):** 指定した`line`番号の行を削除します。`content`は不要です。\n"
-                    "  - **`replace` (置換):** 指定した`line`番号の行を、新しい`content`に置き換えます。\n"
-                    "  - **`insert_after` (挿入):** 指定した`line`番号の**直後**に、新しい行として`content`を挿入します。\n"
-                    "  - **複数行の操作:** 複数行をまとめて削除・置換する場合は、**各行に対して**個別の指示を生成してください。\n\n"
-                    "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
-                ),
-                "plan_world_edit": (
-                    "【最重要指示：これは『対話』ではなく『世界構築タスク』です】\n"
-                    "あなたは今、世界設定を更新するための『設計図』を作成しています。\n"
-                    "提示された【既存のデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
-                    "【既存のデータ（world_settings.txt全文）】\n---\n{current_content}\n---\n\n"
-                    "【あなたの変更要求】\n「{modification_request}」\n\n"
-                    "【絶対的な出力ルール】\n"
-                    "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
-                    "- 各指示は \"operation\" ('update_place_description', 'add_place', 'delete_place'), \"area_name\", \"place_name\", \"value\" のキーを持つ辞書です。\n"
-                    "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
-                ),
-                "plan_notepad_edit": (
-                    "【最重要指示：これは『対話』ではなく『設計タスク』です】\n"
-                    "あなたは今、自身の短期記憶であるメモ帳(`notepad.md`)を更新するための『設計図』を作成しています。\n"
-                    "このファイルは自由な書式のテキストファイルです。提示された【行番号付きデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
-                    "【行番号付きデータ（notepad.md全文）】\n---\n{current_content}\n---\n\n"
-                    "【あなたの変更要求】\n「{modification_request}」\n\n"
-                    "【絶対的な出力ルール】\n"
-                    "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
-                    "- 各指示は \"operation\" ('replace', 'delete', 'insert_after'), \"line\" (対象行番号), \"content\" (新しい内容) のキーを持つ辞書です。\n\n"
-                    "- **タイムスタンプ `[YYYY-MM-DD HH:MM]` はシステムが自動で付与するため、あなたは`content`に含める必要はありません。**\n\n"
-                    "- **【操作方法】**\n"
-                    "  - **`delete` (削除):** 指定した`line`番号の行を削除します。`content`は不要です。\n"
-                    "  - **`replace` (置換):** 指定した`line`番号の行を、新しい`content`に置き換えます。\n"
-                    "  - **`insert_after` (挿入):** 指定した`line`番号の**直後**に、新しい行として`content`を挿入します。\n"
-                    "  - **複数行の操作:** 複数行をまとめて削除・置換する場合は、**各行に対して**個別の指示を生成してください。\n\n"
-                    "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
-                )
-            }
-            formatted_instruction = instruction_templates[tool_name].format(
-                current_content=current_content,
-                modification_request=tool_args.get('modification_request')
-            )
-            edit_instruction_message = HumanMessage(content=formatted_instruction)
-
-            history_for_editing = [msg for msg in state['messages'] if msg is not last_message]
-            final_context_for_editing = [state['system_prompt']] + history_for_editing + [edit_instruction_message]
-
-            if state.get("debug_mode", False):
-                pass # デバッグ出力省略
-
-            edited_content_document = None
-            max_retries = 5
-            base_delay = 5
-            for attempt in range(max_retries):
-                try:
-                    response = llm_persona.invoke(final_context_for_editing)
-                    edited_content_document = response.content.strip()
-                    break
-                except google_exceptions.ResourceExhausted as e:
-                    error_str = str(e)
-                    if "PerDay" in error_str or "Daily" in error_str:
-                        raise RuntimeError("回復不能なAPIレート上限（日間など）に達したため、処理を中断しました。") from e
-                    wait_time = base_delay * (2 ** attempt)
-                    match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
-                    if match: wait_time = int(match.group(1)) + 1
-                    if attempt < max_retries - 1:
-                        time.sleep(wait_time)
-                    else: raise e
-                except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
-                    if attempt < max_retries - 1:
-                        wait_time = base_delay * (2 ** attempt)
-                        time.sleep(wait_time)
-                    else: raise e
-
-            if edited_content_document is None:
-                raise RuntimeError("編集AIからの応答が、リトライ後も得られませんでした。")
-
-            print("  - AIからの応答を受け、ファイル書き込みを実行します。")
-
-            if is_plan_main_memory or is_plan_secret_diary or is_plan_world or is_plan_notepad:
-                json_match = re.search(r'```json\s*([\s\S]*?)\s*```', edited_content_document, re.DOTALL)
-                content_to_process = json_match.group(1).strip() if json_match else edited_content_document
-                instructions = json.loads(content_to_process)
-
-                if is_plan_main_memory:
-                    output = _apply_main_memory_edits(instructions=instructions, room_name=room_name)
-                elif is_plan_secret_diary:
-                    output = _apply_secret_diary_edits(instructions=instructions, room_name=room_name)
-                elif is_plan_notepad:
-                    output = _apply_notepad_edits(instructions=instructions, room_name=room_name)
-                else: # is_plan_world
-                    output = _apply_world_edits(instructions=instructions, room_name=room_name)
-
-            if "成功" in output:
-                output += " **このファイル編集タスクは完了しました。**あなたが先ほどのターンで計画した操作は、システムによって正常に実行されました。その結果についてユーザーに報告してください。"
-
-        except Exception as e:
-            output = f"ファイル編集プロセス中にエラーが発生しました ('{tool_name}'): {e}"
-            traceback.print_exc()
-    else:
-        print(f"  - 通常ツール実行: {tool_name}")
-        tool_args_for_log = tool_args.copy()
-        if 'api_key' in tool_args_for_log: tool_args_for_log['api_key'] = '<REDACTED>'
-        tool_args['room_name'] = room_name
-        if tool_name in ['generate_image', 'search_past_conversations']:
-            tool_args['api_key'] = api_key
-            api_key_name = None
-            try:
-                for k, v in config_manager.GEMINI_API_KEYS.items():
-                    if v == api_key:
-                        api_key_name = k
-                        break
-            except Exception: api_key_name = None
-            tool_args['api_key_name'] = api_key_name
-
-        selected_tool = next((t for t in all_tools if t.name == tool_name), None)
-        if not selected_tool: output = f"Error: Tool '{tool_name}' not found."
-        else:
-            try: output = selected_tool.invoke(tool_args)
-            except Exception as e:
-                output = f"Error executing tool '{tool_name}': {e}"
-                traceback.print_exc()
-
-    # ▼▼▼ 追加: 実行結果をログに出力 ▼▼▼
-    print(f"  - ツール実行結果: {str(output)[:200]}...") 
-    # ▲▲▲ 追加ここまで ▲▲▲
-
-    # --- [Thinkingモデル対応] ToolMessageへの署名注入 ---
-    tool_msg = ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)
-    
-    if current_signature:
-        # LangChain Google GenAI の実装によっては artifact を使う可能性がある
-        tool_msg.artifact = {"thought_signature": current_signature}
-        print(f"  - [Thinking] ツール実行結果に署名を付与しました。")
-
-    return {"messages": [tool_msg], "loop_count": state.get("loop_count", 0)}
-
-def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node", "agent"]:
-    print("--- エージェント後ルーター (route_after_agent) 実行 ---")
-    if state.get("force_end"): return "__end__"
-
-    last_message = state["messages"][-1]
-    # loop_count = state.get("loop_count", 0)
-
-    if last_message.tool_calls:
-        print("  - ツール呼び出しあり。ツール実行ノードへ。")
-        return "safe_tool_node"
-
-    # if loop_count < 2:
-    #     print(f"  - ツール呼び出しなし。再思考します。(ループカウント: {loop_count})")
-    #     return "agent"
-    
-    print(f"  - ツール呼び出しなし。会話終了とみなし、グラフを終了します。")
-    return "__end__"
-
-workflow = StateGraph(AgentState)
-workflow.add_node("context_generator", context_generator_node)
-workflow.add_node("retrieval_node", retrieval_node)
-workflow.add_node("agent", agent_node)
-workflow.add_node("safe_tool_node", safe_tool_executor)
-
-workflow.set_entry_point("context_generator")
-
-workflow.add_edge("context_generator", "retrieval_node")
-workflow.add_edge("retrieval_node", "agent")
-
-workflow.add_conditional_edges("agent", route_after_agent, {"safe_tool_node": "safe_tool_node", "agent": "agent", "__end__": END})
-workflow.add_edge("safe_tool_node", "agent")
-app = workflow.compile()
+'''

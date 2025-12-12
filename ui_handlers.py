@@ -132,8 +132,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=[], value=None),
             "（APIキーが設定されていません）",
-            list(config_manager.SUPPORTED_VOICES.values())[0], # voice_dropdownのデフォルト値
-            list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,
+            list(config_manager.SUPPORTED_VOICES.values())[0], # voice_dropdown
+            "", True, 0.01,  # voice_style_prompt, enable_typewriter, streaming_speed
             0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
             False, # display_thoughts
             False, # send_thoughts 
@@ -146,7 +146,16 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             False, # send_scenery
             False, # auto_memory_enabled
             f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", None,
-            True, gr.update(open=True)
+            True, gr.update(open=True),
+            # --- [追加] 以下8個: 既存コードで不足していた項目 ---
+            gr.update(value="全ログ"),  # room_api_history_limit_dropdown
+            "all",  # api_history_limit_state
+            gr.update(value="過去 2週間"),  # room_episode_memory_days_dropdown
+            gr.update(value="昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** 取得エラー"),  # episodic_memory_info_display
+            gr.update(value=False),  # room_enable_autonomous_checkbox
+            gr.update(value=120),  # room_autonomous_inactivity_slider
+            gr.update(value="00:00"),  # room_quiet_hours_start
+            gr.update(value="07:00"),  # room_quiet_hours_end
         )
 
     # --- 【通常モード】 ---
@@ -318,20 +327,20 @@ def handle_initial_load():
     # --- 3. オンボーディングとトークン計算 ---
     has_valid_key = config_manager.has_valid_api_key()
     token_count_text, onboarding_guide_update, chat_input_update = ("トークン数: (APIキー未設定)", gr.update(visible=True), gr.update(interactive=False))
+    
+    # 変数をデフォルト値で初期化（has_valid_keyに関係なく使用するため）
+    locations_for_custom_scenery = _get_location_choices_for_ui(safe_initial_room)
+    current_location_for_custom_scenery = utils.get_current_location(safe_initial_room)
+    custom_scenery_dd_update = gr.update(choices=locations_for_custom_scenery, value=current_location_for_custom_scenery)
+    
+    time_map_en_to_ja = {"early_morning": "早朝", "morning": "朝", "late_morning": "昼前", "afternoon": "昼下がり", "evening": "夕方", "night": "夜", "midnight": "深夜"}
+    now = datetime.datetime.now()
+    current_time_en = utils.get_time_of_day(now.hour)
+    current_time_ja = time_map_en_to_ja.get(current_time_en, "夜")
+    custom_scenery_time_dd_update = gr.update(value=current_time_ja)
+    
     if has_valid_key:
         token_calc_kwargs = config_manager.get_effective_settings(safe_initial_room)
-        # --- [カスタム情景用の場所リストを準備] ---
-        locations_for_custom_scenery = _get_location_choices_for_ui(safe_initial_room)
-        current_location_for_custom_scenery = utils.get_current_location(safe_initial_room)
-        custom_scenery_dd_update = gr.update(choices=locations_for_custom_scenery, value=current_location_for_custom_scenery)      
-        
-        # --- [カスタム情景用の時間帯デフォルト値を準備] ---
-        time_map_en_to_ja = {"early_morning": "早朝", "morning": "朝", "late_morning": "昼前", "afternoon": "昼下がり", "evening": "夕方", "night": "夜", "midnight": "深夜"}
-        now = datetime.datetime.now()
-        current_time_en = utils.get_time_of_day(now.hour)
-        current_time_ja = time_map_en_to_ja.get(current_time_en, "夜") # フォールバックとして「夜」
-        custom_scenery_time_dd_update = gr.update(value=current_time_ja)
-        
         token_count_text = gemini_api.count_input_tokens(
             room_name=safe_initial_room, api_key_name=safe_initial_api_key,
             parts=[], **token_calc_kwargs
@@ -351,6 +360,19 @@ def handle_initial_load():
         gr.update(choices=[p[1] for p in latest_api_key_choices], value=config.get("paid_api_key_names", [])),
     )
 
+    current_openai_profile_name = config_manager.get_active_openai_profile_name()
+    # アクティブな設定辞書を取得（なければ空辞書）
+    openai_setting = config_manager.get_active_openai_setting() or {}
+    available_models = openai_setting.get("available_models", [])
+    default_model = openai_setting.get("default_model", "")
+    
+    openai_updates = (
+        gr.update(value=current_openai_profile_name),            # openai_profile_dropdown
+        gr.update(value=openai_setting.get("base_url", "")),     # openai_base_url_input
+        gr.update(value=openai_setting.get("api_key", "")),      # openai_api_key_input
+        gr.update(choices=available_models, value=default_model) # openai_model_dropdown
+    )
+
     # --- 5. 全ての戻り値を正しい順序で組み立てる ---
     # `initial_load_outputs`のリスト（58個）に対応
     return (
@@ -364,7 +386,8 @@ def handle_initial_load():
         onboarding_guide_update,
         *common_settings_updates,
         custom_scenery_dd_update,
-        custom_scenery_time_dd_update
+        custom_scenery_time_dd_update,
+        *openai_updates
     )
 
 def handle_save_room_settings(
@@ -573,6 +596,7 @@ def _stream_and_handle_response(
     一人応答するごとにログを保存・UIを再描画し、各AIの思考コンテキストの完全な独立性を保証する。
     """
     from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InternalServerError
+    import openai
 
     main_log_f, _, _, _, _ = get_room_files_paths(soul_vessel_room)
     all_turn_popups = []
@@ -580,6 +604,10 @@ def _stream_and_handle_response(
 
     # リトライ時に副作用のあるツールが再実行されるのを防ぐためのフラグ
     tool_execution_successful_this_turn = False
+    
+    # タイプライターエフェクトが正常完了したかのフラグ
+    typewriter_completed_successfully = False
+
 
     try:
         # UIをストリーミングモードに移行
@@ -684,19 +712,24 @@ def _stream_and_handle_response(
                             
                     break # 成功したのでリトライループを抜ける
                 
-                except (ResourceExhausted, ServiceUnavailable, InternalServerError) as e:
+                except (ResourceExhausted, ServiceUnavailable, InternalServerError, openai.RateLimitError, openai.APIError) as e:
                     error_str = str(e)
+                    # 1日の上限エラーか判定 (Google用)
                     if "PerDay" in error_str or "Daily" in error_str:
-                        final_error_message = "[エラー] APIの1日あたりの利用上限に達したため、本日の応答はこれ以上生成できません。モデルかキーを変更するか、制限解除までお待ちください。"
+                        final_error_message = "[エラー] APIの1日あたりの利用上限に達したため、本日の応答はこれ以上生成できません。"
                         break
                     
+                    # 待機時間の計算
                     wait_time = base_delay * (2 ** attempt)
                     match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
                     if match:
                         wait_time = int(match.group(1)) + 1
                     
+                    # OpenAIのRateLimitErrorの場合、ヘッダーから情報を取れる場合があるが、
+                    # 簡略化のため指数バックオフを適用する
+                    
                     if attempt < max_retries - 1:
-                        retry_message = (f"⏳ APIの応答が遅延しています。{wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries}回目)")
+                        retry_message = (f"⏳ APIの応答が遅延しています(Rate Limit等)。{wait_time}秒待機して再試行します... ({attempt + 1}/{max_retries}回目)\n詳細: {e}")        
                         # reload_chat_logを呼び出して最新の履歴を取得
                         chatbot_history, mapping_list = reload_chat_log(
                             soul_vessel_room, api_history_limit, add_timestamp, display_thoughts,
@@ -718,47 +751,41 @@ def _stream_and_handle_response(
                 # [安定化] ストリーム完了後に、全てのメッセージをまとめて処理する
                 raw_new_messages = final_state["messages"][initial_message_count:]
                 
-                # --- 【最強の重複・包含フィルタリング】 ---
-                # リスト内の「他のすべてのメッセージ」と比較し、
-                # 「自分が他の一部である」または「完全に一致する他のメッセージが既に処理済み」なら削除する
-                new_messages = []
+                # --- 【Gemini Pro重複対策: 最長メッセージ採用ロジック】 ---
+                # 1ターンの中でAIから複数のテキストメッセージが返ってきた場合、
+                # それらは「思考の断片」と「完成形」の重複である可能性が高い。
+                # ツール呼び出し(ToolMessage)は全て維持しつつ、
+                # AIMessage（テキスト）については「最も長いもの1つだけ」を採用する。
                 
-                for i, msg in enumerate(raw_new_messages):
-                    content_str = ""
+                ai_text_messages = []
+                other_messages = [] # ToolMessageなど
+                
+                for msg in raw_new_messages:
                     if isinstance(msg, AIMessage):
-                        content_str = utils.get_content_as_string(msg)
-                    elif isinstance(msg, ToolMessage):
-                        content_str = str(msg.content)
-                    
-                    if not content_str or not content_str.strip():
-                        continue
-
-                    is_redundant = False
-                    for j, other_msg in enumerate(raw_new_messages):
-                        if i == j: continue # 自分自身とは比較しない
-
-                        other_content = ""
-                        if isinstance(other_msg, AIMessage):
-                            other_content = utils.get_content_as_string(other_msg)
-                        elif isinstance(other_msg, ToolMessage):
-                            other_content = str(other_msg.content)
-
-                        # 判定1: 自分が他のメッセージの「一部（substring）」であり、かつ相手の方が長い場合
-                        # 例: 自分="Hello", 相手="Hello World" -> 自分は不要
-                        if content_str in other_content and len(content_str) < len(other_content):
-                            is_redundant = True
-                            break
-                        
-                        # 判定2: 完全一致する場合、インデックスが後のものを残す（または最初を残す）
-                        # ここでは「最初に出てきたもの」を正とし、後続の重複を削除する
-                        if content_str == other_content and i > j:
-                            is_redundant = True
-                            break
-                    
-                    if not is_redundant:
-                        new_messages.append(msg)
+                        content = utils.get_content_as_string(msg)
+                        if content and content.strip():
+                            ai_text_messages.append((len(content), msg))
+                    else:
+                        other_messages.append(msg)
+                
+                # AIメッセージがあれば、最も長いものを1つ選ぶ
+                best_ai_message = None
+                if ai_text_messages:
+                    # 長さで降順ソートして先頭を取得
+                    ai_text_messages.sort(key=lambda x: x[0], reverse=True)
+                    best_ai_message = ai_text_messages[0][1]
+                
+                # リストを再構築（順序は Tool -> AI の順が自然だが、元の順序をなるべく保つ）
+                # ここではシンプルに [ツール実行報告たち] + [AIの最終回答] とする
+                new_messages = other_messages
+                if best_ai_message:
+                    new_messages.append(best_ai_message)
+                
                 # -----------------------------------
 
+                # 変数をここで初期化（UnboundLocalError対策）
+                last_ai_message = None 
+                                
                 # ログ記録とリトライガード設定
                 for msg in new_messages:
                     if isinstance(msg, (AIMessage, ToolMessage)):
@@ -801,7 +828,9 @@ def _stream_and_handle_response(
                 # 表示処理
                 # ログが更新された可能性があるので、UI表示の直前に必ず再読み込みする
                 chatbot_history, mapping_list = reload_chat_log(soul_vessel_room, api_history_limit, add_timestamp, display_thoughts, screenshot_mode, redaction_rules)
-                
+
+                last_ai_message = None 
+
                 # このターンでAIが生成した最後の発言のみをストリーミング表示の対象とする
                 for msg in reversed(new_messages):
                     if isinstance(msg, AIMessage):
@@ -813,32 +842,53 @@ def _stream_and_handle_response(
                 text_to_display = utils.get_content_as_string(last_ai_message) if last_ai_message else ""
 
                 if text_to_display:
-                    # 【修正】二重表示防止ロジック
+                    # 【修正v2】二重表示防止ロジック（Gemini 2.5 Pro対応）
                     if enable_typewriter_effect and streaming_speed > 0:
                         # タイプライターONの場合:
-                        # 直前の reload_chat_log で読み込まれた「完了形の静的メッセージ」を一旦リストから削除する
+                        # reload_chat_logで取得したフォーマット済みの最後のメッセージを保存し、
+                        # それを文字ずつ表示する（生テキストではなくフォーマット済みを使用）
+                        formatted_last_message = None
                         if chatbot_history:
-                            chatbot_history.pop()
+                            # 最後のメッセージを取り出す（後で文字ずつ表示）
+                            formatted_last_message = chatbot_history.pop()
                         
-                        # 改めてアニメーション用のカーソルを追加して開始
-                        chatbot_history.append((None, "▌"))
+                        # フォーマット済みテキストを取得（AI応答なので[1]がテキスト）
+                        formatted_text = ""
+                        if formatted_last_message and formatted_last_message[1]:
+                            if isinstance(formatted_last_message[1], str):
+                                formatted_text = formatted_last_message[1]
+                            else:
+                                # タプル（画像など）の場合はタイプライターをスキップ
+                                chatbot_history.append(formatted_last_message)
+                                yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                                typewriter_completed_successfully = True
+                                continue
                         
-                        for char in text_to_display:
-                            streamed_text += char
-                            chatbot_history[-1] = (None, streamed_text + "▌")
+                        if formatted_text:
+                            # アニメーション用のカーソルを追加して開始
+                            chatbot_history.append((None, "▌"))
+                            
+                            for char in formatted_text:
+                                streamed_text += char
+                                chatbot_history[-1] = (None, streamed_text + "▌")
+                                yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                                time.sleep(streaming_speed)
+                            
+                            # タイプライター完了後、フォーマット済みの最終形を表示
+                            # （生テキストではなく、reload_chat_logから取得したフォーマット済みを使用）
+                            chatbot_history[-1] = formatted_last_message
                             yield (chatbot_history, mapping_list, *([gr.update()] * 12))
-                            time.sleep(streaming_speed)
+                        
+                        typewriter_completed_successfully = True
+                        
                     else:
                         # タイプライターOFFの場合:
                         # 何もしない。直前の reload_chat_log で既に完了形のメッセージが表示されているため、
                         # ここで append すると二重になってしまう。
-                        pass                
-                # ターン完了後、最終的な表示を確定させるために再度ログから読み込む
-                chatbot_history, mapping_list = reload_chat_log(
-                    soul_vessel_room, api_history_limit, add_timestamp, display_thoughts,
-                    screenshot_mode, redaction_rules 
-                )
-                yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                        pass
+                
+                # 【重要】タイプライター完了後のreloadは、finallyブロックに任せる。
+                # これにより、エラー時やキャンセル時も正しくログから読み込まれる。
 
         if final_error_message:
             # エラーメッセージを、AIの応答ではなく「システムエラー」として全員のログに記録する
@@ -853,20 +903,27 @@ def _stream_and_handle_response(
         print("--- [ジェネレータ] ユーザーの操作により、ストリーミング処理が正常に中断されました。 ---")
     
     finally:
-        # (finallyブロックの中身は変更なし)
-        # 処理完了・中断・エラーに関わらず、必ずログから最新の状態を再描画する
+        # 処理完了・中断・エラーに関わらず、最終的なUI状態を確定する
         effective_settings = config_manager.get_effective_settings(soul_vessel_room)
         add_timestamp = effective_settings.get("add_timestamp", False)
         display_thoughts = effective_settings.get("display_thoughts", True)
         
-        final_chatbot_history, final_mapping_list = reload_chat_log(
-            room_name=soul_vessel_room,
-            api_history_limit_value=api_history_limit,
-            add_timestamp=add_timestamp,
-            display_thoughts=display_thoughts,
-            screenshot_mode=screenshot_mode, 
-            redaction_rules=redaction_rules  
-        )
+        # 【修正】タイプライター完了時は既に正しい履歴がyieldされているので、再読み込みをスキップ
+        if typewriter_completed_successfully:
+            # タイプライター完了時: 既存の履歴を再利用
+            final_chatbot_history = chatbot_history
+            final_mapping_list = mapping_list
+        else:
+            # エラー時、キャンセル時、タイプライターOFF時など: ログから再読み込み
+            final_chatbot_history, final_mapping_list = reload_chat_log(
+                room_name=soul_vessel_room,
+                api_history_limit_value=api_history_limit,
+                add_timestamp=add_timestamp,
+                display_thoughts=display_thoughts,
+                screenshot_mode=screenshot_mode, 
+                redaction_rules=redaction_rules  
+            )
+        
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         new_scenery_text, scenery_image, token_count_text = "（更新失敗）", None, "トークン数: (更新失敗)"
         try:
@@ -1362,10 +1419,11 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
 
 def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name: str):
     """
-    【v5: 完全契約遵守版】
+    【v6: 完全契約遵守版】
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
+    unified_full_room_refresh_outputs と完全に一致する65個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 57
+    EXPECTED_OUTPUT_COUNT = 65
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
@@ -1392,29 +1450,37 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
         else:
             # ケース2: これが最後のルームだった場合
             gr.Warning("全てのルームが削除されました。新しいルームを作成してください。")
-            # 契約数(57)に合わせてUIをリセットするための値を返す
+            # 契約数(65)に合わせてUIをリセットするための値を返す
+            # initial_load_chat_outputs (47個) に対応
             empty_chat_updates = (
                 None, [], [], gr.update(interactive=False, placeholder="ルームを作成してください。"), 
-                None, "", "", "", "",
+                None, "", "", "", "",  # room_name, chatbot, mapping, input, profile, memory, notepad, system_prompt, core_memory
                 gr.update(choices=[], value=None), gr.update(choices=[], value=None), 
-                gr.update(choices=[], value=None), gr.update(choices=[], value=None),
-                gr.update(choices=[], value=None), 
-                "（ルームがありません）", 
-                list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,
-                0.8, 0.95, *[gr.update()]*4,
+                gr.update(choices=[], value=None), gr.update(choices=[], value=None),  # room_dropdown, alarm_dd, timer_dd, manage_dd
+                gr.update(choices=[], value=None),  # location_dropdown
+                "（ルームがありません）",  # current_scenery_display
+                list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,  # voice_dd, voice_style, typewriter, speed
+                0.8, 0.95, *[gr.update()]*4,  # temp, top_p, 4 safety settings
                 False, # display_thoughts
                 False, # send_thoughts
-                True,  # enable_auto_retrieval (追加)
+                True,  # enable_auto_retrieval
                 True,  # add_timestamp
                 True,  # send_current_time
-                # False, # send_thoughts (削除)
                 True,  # send_notepad
                 True,  # use_common_prompt
                 True,  # send_core_memory
                 False, # send_scenery
                 False, # auto_memory_enabled
-                "ℹ️ *ルームを選択してください*", None,
-                True, gr.update(open=False),
+                "ℹ️ *ルームを選択してください*", None,  # room_settings_info, scenery_image
+                True, gr.update(open=False),  # enable_scenery_system, profile_scenery_accordion
+                gr.update(value="全ログ"),  # room_api_history_limit_dropdown
+                "all",  # api_history_limit_state
+                gr.update(value="過去 2週間"),  # room_episode_memory_days_dropdown
+                gr.update(value="昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** -"),  # episodic_memory_info_display
+                gr.update(value=False),  # room_enable_autonomous_checkbox
+                gr.update(value=120),  # room_autonomous_inactivity_slider
+                gr.update(value="00:00"),  # room_quiet_hours_start
+                gr.update(value="07:00"),  # room_quiet_hours_end
             )
             empty_world_updates = ({}, gr.update(choices=[], value=None), "", gr.update(choices=[], value=None))
             empty_session_updates = ([], "ルームがありません", gr.update(choices=[]))
@@ -1920,6 +1986,8 @@ def format_history_for_gradio(
         if not text_part and not media_matches and role != "SYSTEM":
              proto_history.append({"type": "text", "role": role, "responder": responder_id, "content": "", "log_index": i})
 
+
+
     for item in proto_history:
         mapping_list.append(item["log_index"])
         role, responder_id = item["role"], item["responder"]
@@ -2029,6 +2097,7 @@ def format_history_for_gradio(
         elif item["type"] == "media":
             media_tuple = (item["path"], os.path.basename(item["path"]))
             gradio_history.append((media_tuple, None) if is_user else (None, media_tuple))
+
 
     return gradio_history, mapping_list
 
@@ -5022,25 +5091,34 @@ def handle_openai_profile_select(profile_name: str):
 def _is_redundant_log_update(last_log_content: str, new_content: str) -> bool:
     """
     ログの最後のメッセージと新しいメッセージを比較し、重複かどうかを判定する。
-    1. 完全一致
-    2. 新しいメッセージが最後のメッセージの末尾に含まれている（接尾辞重複）
+    空白・改行を無視して比較することで、フォーマット揺らぎによる重複も検出する。
     """
     if not last_log_content or not new_content:
         return False
     
-    clean_last = last_log_content.strip()
-    clean_new = new_content.strip()
+    # 正規化関数: 空白と改行をすべて削除して一本の文字列にする
+    def normalize(s):
+        return "".join(s.split())
+    
+    norm_last = normalize(last_log_content)
+    norm_new = normalize(new_content)
 
-    if not clean_last or not clean_new:
+    if not norm_last or not norm_new:
         return False
 
-    # 1. 完全一致
-    if clean_last == clean_new:
+    # 1. 完全一致 (正規化後)
+    if norm_last == norm_new:
+        print(f"[Deduplication] Exact match detected (normalized)")
         return True
     
-    # 2. 接尾辞重複 (Suffix Overlap)
-    # 例: Last="Hello world.", New="world."
-    if clean_last.endswith(clean_new) and len(clean_new) < len(clean_last):
+    # 2. 双方向の包含関係チェック (正規化後)
+    # どちらか一方が他方に完全に含まれている場合は重複とみなす
+    if norm_new in norm_last:
+        print(f"[Deduplication] New content is included in last log (prefix/partial)")
+        return True
+    
+    if norm_last in norm_new:
+        print(f"[Deduplication] Last log is included in new content (last is prefix of new)")
         return True
         
     return False
@@ -5078,3 +5156,132 @@ def handle_save_openai_config(profile_name: str, base_url: str, api_key: str, de
         
     config_manager.save_openai_settings_list(settings_list)
     gr.Info(f"プロファイル「{profile_name}」の設定を保存しました。")
+
+# --- [Multi-Provider UI Handlers] ---
+
+def handle_provider_change(provider_choice: str):
+    """
+    AIプロバイダの選択（ラジオボタン）が変更された時の処理。
+    Google用設定とOpenAI用設定の表示/非表示を切り替える。
+    """
+    # UIの表示名から内部IDへ変換 (Valueが直接渡ってくる場合はそのまま)
+    provider_id = provider_choice 
+    
+    # 設定ファイルに保存
+    config_manager.set_active_provider(provider_id)
+    
+    is_google = (provider_id == "google")
+    
+    # Google設定(Visible), OpenAI設定(Visible) の順で返す
+    return gr.update(visible=is_google), gr.update(visible=not is_google)
+
+def handle_openai_profile_select(profile_name: str):
+    """
+    OpenAI互換設定のドロップダウン（OpenRouter/Groq/Ollama）が選択された時、
+    そのプロファイルの保存済み設定を入力欄に反映する。
+    
+    Returns:
+        Tuple: (base_url, api_key, openai_model_dropdown(with choices and value))
+    """
+    config_manager.set_active_openai_profile(profile_name)
+
+    settings_list = config_manager.get_openai_settings_list()
+    target_setting = next((s for s in settings_list if s["name"] == profile_name), None)
+    
+    if not target_setting:
+        return "", "", gr.update(choices=[], value="")
+    
+    available_models = target_setting.get("available_models", [])
+    default_model = target_setting.get("default_model", "")
+    
+    # デフォルトモデルがリストにない場合は追加
+    if default_model and default_model not in available_models:
+        available_models = [default_model] + available_models
+        
+    return (
+        target_setting.get("base_url", ""),
+        target_setting.get("api_key", ""),
+        gr.update(choices=available_models, value=default_model)
+    )
+
+def handle_save_openai_config(profile_name: str, base_url: str, api_key: str, default_model: str):
+    """
+    OpenAI互換設定の保存ボタンが押された時の処理。
+    """
+    if not profile_name:
+        gr.Warning("プロファイルが選択されていません。")
+        return
+
+    settings_list = config_manager.get_openai_settings_list()
+    
+    # 既存の設定を更新
+    target_index = -1
+    for i, s in enumerate(settings_list):
+        if s["name"] == profile_name:
+            target_index = i
+            break
+            
+    if target_index == -1:
+        gr.Warning("プロファイルが見つかりません。")
+        return
+
+    # 設定を更新（available_modelsは既存を維持）
+    settings_list[target_index]["base_url"] = base_url.strip()
+    settings_list[target_index]["api_key"] = api_key.strip()
+    settings_list[target_index]["default_model"] = default_model.strip()
+    
+    # デフォルトモデルがavailable_modelsに含まれていなければ追加
+    if default_model.strip() not in settings_list[target_index].get("available_models", []):
+        settings_list[target_index].setdefault("available_models", []).append(default_model.strip())
+        
+    config_manager.save_openai_settings_list(settings_list)
+    gr.Info(f"プロファイル「{profile_name}」の設定を保存しました。")
+
+
+def handle_add_custom_openai_model(profile_name: str, custom_model_name: str):
+    """
+    カスタムモデル追加ボタンが押された時の処理。
+    指定されたプロファイルのavailable_modelsにモデルを追加し、Dropdownを更新する。
+    """
+    if not profile_name:
+        gr.Warning("プロファイルが選択されていません。")
+        return gr.update(), gr.update()
+    
+    if not custom_model_name or not custom_model_name.strip():
+        gr.Warning("モデル名を入力してください。")
+        return gr.update(), gr.update()
+    
+    model_name = custom_model_name.strip()
+    
+    settings_list = config_manager.get_openai_settings_list()
+    
+    # プロファイルを検索
+    target_index = -1
+    for i, s in enumerate(settings_list):
+        if s["name"] == profile_name:
+            target_index = i
+            break
+    
+    if target_index == -1:
+        gr.Warning("プロファイルが見つかりません。")
+        return gr.update(), gr.update()
+    
+    # 既存のモデルリストを取得
+    available_models = settings_list[target_index].get("available_models", [])
+    
+    # 既に存在するか確認
+    if model_name in available_models:
+        gr.Warning(f"モデル「{model_name}」は既にリストに存在します。")
+        return gr.update(), ""
+    
+    # モデルを追加
+    available_models.append(model_name)
+    settings_list[target_index]["available_models"] = available_models
+    
+    # 設定を保存
+    config_manager.save_openai_settings_list(settings_list)
+    
+    gr.Info(f"モデル「{model_name}」を追加しました。")
+    
+    # Dropdownの選択肢を更新して返す
+    return gr.update(choices=available_models, value=model_name), ""

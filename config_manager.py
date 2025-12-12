@@ -162,13 +162,26 @@ def save_config_if_changed(key: str, value: Any) -> bool:
     """
     現在の設定値と比較し、変更があった場合のみconfig.jsonに安全に保存する。
     変更があった場合は True を、変更がなかった場合は False を返す。
+    【修正】メモリ上のグローバル変数(CONFIG_GLOBAL)も即座に更新する。
     """
+    global CONFIG_GLOBAL # グローバル変数を参照
+
+    # ファイルから最新を読み込む
     config = load_config_file()
+    
+    # 変更チェック
     if config.get(key) == value:
         return False  # 変更なし
 
+    # 変更があれば保存
     config[key] = value
     _save_config_file(config)
+    
+    # 【重要】メモリ上の設定も更新して、再起動なしで反映させる
+    if CONFIG_GLOBAL is None:
+        CONFIG_GLOBAL = {}
+    CONFIG_GLOBAL[key] = value
+    
     return True
 
 # --- 公開APIキー管理関数 ---
@@ -319,32 +332,88 @@ def load_config():
     global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
 
     # ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
+# ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
     default_config = {
         # --- [新規] マルチプロバイダ設定 ---
         "active_provider": "google", # google, openai
+        "active_openai_profile": "OpenRouter", # デフォルトで選択されるプロファイル名
         "openai_provider_settings": [
             {
                 "name": "OpenRouter",
                 "base_url": "https://openrouter.ai/api/v1",
                 "api_key": "",
                 "default_model": "google/gemma-2-9b-it:free",
-                "available_models": ["google/gemma-2-9b-it:free", "meta-llama/llama-3-8b-instruct:free"]
+                "available_models": [
+                    # 無料モデル
+                    "google/gemma-2-9b-it:free",
+                    "meta-llama/llama-3-8b-instruct:free",
+                    "mistralai/mistral-7b-instruct:free",
+                    "deepseek/deepseek-chat:free",
+                    "qwen/qwen-2-7b-instruct:free",
+                    # 有料モデル
+                    "anthropic/claude-3.5-sonnet",
+                    "anthropic/claude-3-opus",
+                    "openai/gpt-4o",
+                    "openai/gpt-4o-mini",
+                    "google/gemini-pro-1.5",
+                    "meta-llama/llama-3.1-405b-instruct"
+                ]
             },
             {
                 "name": "Groq",
                 "base_url": "https://api.groq.com/openai/v1",
                 "api_key": "",
                 "default_model": "llama-3.3-70b-versatile",
-                "available_models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+                "available_models": [
+                    "llama-3.3-70b-versatile",
+                    "llama-3.3-70b-specdec",
+                    "llama-3.1-70b-versatile",
+                    "llama-3.1-8b-instant",
+                    "mixtral-8x7b-32768",
+                    "gemma2-9b-it"
+                ]
             },
             {
                 "name": "Local Ollama",
                 "base_url": "http://localhost:11434/v1",
                 "api_key": "ollama",
-                "default_model": "phi3.5", # 低スペックPCでの開発用推奨モデル
-                "available_models": ["phi3.5", "gemma2:2b"]
+                "default_model": "phi3.5",
+                "available_models": [
+                    # 軽量モデル（低スペックPC向け: VRAM 4GB以下）
+                    "phi3.5",
+                    "gemma2:2b",
+                    "qwen2.5:0.5b",
+                    "qwen2.5:1.5b",
+                    # 中量級モデル（中スペックPC向け: VRAM 8GB程度）
+                    "llama3.1:8b",
+                    "gemma2:9b",
+                    "mistral",
+                    "qwen2.5:7b",
+                    "deepseek-coder:6.7b",
+                    # 大型モデル（高スペックPC向け: VRAM 12GB以上）
+                    "llama3.1:70b",
+                    "mixtral:8x7b",
+                    "qwen2.5:32b",
+                    "deepseek-coder:33b"
+                ]
+            },
+            {
+                "name": "OpenAI Official",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "",
+                "default_model": "gpt-4o",
+                "available_models": [
+                    "gpt-4o",
+                    "gpt-4o-mini",
+                    "gpt-4-turbo",
+                    "gpt-4",
+                    "gpt-3.5-turbo",
+                    "o1-preview",
+                    "o1-mini"
+                ]
             }
         ],
+
         # ---------------------------------
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
         "paid_api_key_names": [],
@@ -388,12 +457,64 @@ def load_config():
     user_models_set = set(user_config.get("available_models", []))
     merged_models = sorted(list(default_models_set | user_models_set))
 
+    # ステップ4.5：【賢いマージ】OpenAI互換プロバイダのavailable_modelsを統合する
+    # デフォルトのモデルリストとユーザーが追加したモデルをマージし、ユーザー追加モデルが消えないようにする
+    def merge_openai_provider_models(default_providers: List[Dict], user_providers: List[Dict]) -> List[Dict]:
+        """OpenAI互換プロバイダの設定をマージする。ユーザー追加モデルを保持しつつ、デフォルトモデルも追加する。"""
+        merged_providers = []
+        
+        # デフォルトプロバイダをnameでインデックス化
+        default_by_name = {p["name"]: p for p in default_providers}
+        user_by_name = {p["name"]: p for p in user_providers}
+        
+        # 全てのプロバイダ名を収集（デフォルト優先、ユーザー追加も含む）
+        all_provider_names = list(default_by_name.keys())
+        for name in user_by_name.keys():
+            if name not in all_provider_names:
+                all_provider_names.append(name)
+        
+        for name in all_provider_names:
+            default_p = default_by_name.get(name, {})
+            user_p = user_by_name.get(name, {})
+            
+            if not default_p and user_p:
+                # ユーザーが追加したカスタムプロバイダ
+                merged_providers.append(user_p)
+            elif default_p and not user_p:
+                # デフォルトにしかないプロバイダ（新規追加）
+                merged_providers.append(default_p)
+            else:
+                # 両方に存在するプロバイダ：設定をマージ
+                merged_p = default_p.copy()
+                # ユーザー設定を優先（api_key, default_model, base_url）
+                if user_p.get("api_key"):
+                    merged_p["api_key"] = user_p["api_key"]
+                if user_p.get("default_model"):
+                    merged_p["default_model"] = user_p["default_model"]
+                if user_p.get("base_url"):
+                    merged_p["base_url"] = user_p["base_url"]
+                
+                # available_modelsはマージ（デフォルト + ユーザー追加）
+                default_models = set(default_p.get("available_models", []))
+                user_models = set(user_p.get("available_models", []))
+                merged_p["available_models"] = sorted(list(default_models | user_models))
+                
+                merged_providers.append(merged_p)
+        
+        return merged_providers
+    
+    merged_openai_providers = merge_openai_provider_models(
+        default_config.get("openai_provider_settings", []),
+        user_config.get("openai_provider_settings", [])
+    )
+
     # ステップ5：ユーザー設定を優先しつつ、不足キーを補完
     config = default_config.copy()
     config.update(user_config)
     # 統合したモデルリストとテーマ設定で、最終的な設定を上書き
     config["available_models"] = merged_models
     config["theme_settings"] = final_theme_settings
+    config["openai_provider_settings"] = merged_openai_providers
 
     # ステップ6：不要なキーをクリーンアップ
     keys_to_remove = ["memos_config", "api_keys", "default_api_key_name"]
@@ -486,17 +607,25 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         if key not in ["global_model_from_ui"] and value is not None:
             effective_settings[key] = value
 
-    # --- モデル選択の最終決定ロジック ---
+# --- モデル選択の最終決定ロジック ---
     global_model_from_ui = kwargs.get("global_model_from_ui")
+    
+    active_provider = get_active_provider()
+    
+    if active_provider == "openai":
+        # OpenAI互換モードなら、現在のアクティブなプロファイルのデフォルトモデルを強制使用
+        openai_setting = get_active_openai_setting()
+        if openai_setting:
+            effective_settings["model_name"] = openai_setting.get("default_model", "gpt-3.5-turbo")
+    else:
+        # Googleモードなら、従来のロジック（UI指定 or デフォルト）
+        final_model_name = global_model_from_ui or DEFAULT_MODEL_GLOBAL
+        effective_settings["model_name"] = final_model_name
 
-    # UIからの指定があればそれを使い、なければ共通のデフォルトを使う
-    final_model_name = global_model_from_ui or DEFAULT_MODEL_GLOBAL
-    effective_settings["model_name"] = final_model_name
-
-    # 念の為のフォールバック
-    if not effective_settings.get("model_name"):
-        effective_settings["model_name"] = DEFAULT_MODEL_GLOBAL
-
+        # 念の為のフォールバック
+        if not effective_settings.get("model_name"):
+            effective_settings["model_name"] = DEFAULT_MODEL_GLOBAL
+            
     return effective_settings
 
 from typing import Tuple
@@ -617,14 +746,23 @@ def get_openai_settings_list() -> List[Dict]:
 
 def save_openai_settings_list(settings_list: List[Dict]):
     """OpenAI互換プロバイダの設定リストを保存する"""
-    # 簡易的なバリデーション
     if isinstance(settings_list, list):
         save_config_if_changed("openai_provider_settings", settings_list)
 
-def get_active_openai_setting(provider_name: str) -> Optional[Dict]:
-    """指定された名前（例: 'OpenRouter'）の設定辞書を取得する"""
+def get_active_openai_profile_name() -> str:
+    """現在選択されているOpenAIプロファイル名（例: 'OpenRouter'）を返す"""
+    return CONFIG_GLOBAL.get("active_openai_profile", "OpenRouter")
+
+def set_active_openai_profile(profile_name: str):
+    """アクティブなOpenAIプロファイル名を保存する"""
+    save_config_if_changed("active_openai_profile", profile_name)
+
+def get_active_openai_setting() -> Optional[Dict]:
+    """現在アクティブなOpenAIプロファイルの設定辞書を返す"""
+    profile_name = get_active_openai_profile_name()
     settings = get_openai_settings_list()
     for s in settings:
-        if s.get("name") == provider_name:
+        if s.get("name") == profile_name:
             return s
-    return None
+    # 見つからない場合はリストの先頭を返す
+    return settings[0] if settings else None

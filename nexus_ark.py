@@ -191,7 +191,7 @@ try:
             new_room_folder = folder_names_on_startup[0] if folder_names_on_startup else "Default"
             print(f"警告: 最後に使用したルーム '{effective_initial_room}' が見つからないか無効です。'{new_room_folder}' で起動します。")
             effective_initial_room = new_room_folder
-            config_manager.save_config("last_room", new_room_folder)
+            config_manager.save_config_if_changed("last_room", new_room_folder)
             if new_room_folder == "Default" and "Default" not in folder_names_on_startup:
                 room_manager.ensure_room_files("Default")
                 room_list_on_startup = room_manager.get_room_list_for_ui()
@@ -272,6 +272,70 @@ try:
                                             interactive=True,
                                             info="「無効」にすると、AIのプロンプトからも画像生成に関する項目が削除されます。"
                                         )
+
+                                    with gr.Accordion("🤖 AIモデルプロバイダ設定 (Beta)", open=False):
+                                        gr.Markdown("会話に使用するAIモデルのプロバイダを切り替えます。")
+                                        
+                                        current_provider = config_manager.get_active_provider()
+                                        
+                                        provider_radio = gr.Radio(
+                                            choices=[
+                                                ("Google (Gemini Native)", "google"),
+                                                ("OpenAI互換 (OpenRouter / Groq / Ollama / OpenAI)", "openai")
+                                            ],
+                                            value=current_provider,
+                                            label="アクティブなプロバイダ",
+                                            interactive=True
+                                        )
+                                        
+                                        # --- Google設定エリア (既存のUI要素への参照は後で紐付け) ---
+                                        with gr.Group(visible=(current_provider == "google")) as google_settings_group:
+                                            gr.Markdown("※ Google設定は下の「Gemini APIキー」アコーディオンで管理します。")
+
+                                        # --- OpenAI互換設定エリア ---
+                                        with gr.Group(visible=(current_provider == "openai")) as openai_settings_group:
+                                            openai_profiles = [s["name"] for s in config_manager.get_openai_settings_list()]
+                                            current_openai_profile = config_manager.get_active_openai_profile_name()
+                                            
+                                            openai_profile_dropdown = gr.Dropdown(
+                                                choices=openai_profiles,
+                                                value=current_openai_profile,
+                                                label="プロファイル選択",
+                                                interactive=True,
+                                                allow_custom_value=False # 既存のみ選択可
+                                            )
+                                            
+                                            with gr.Row():
+                                                openai_base_url_input = gr.Textbox(label="Base URL", placeholder="例: https://openrouter.ai/api/v1")
+                                                openai_api_key_input = gr.Textbox(label="API Key", type="password", placeholder="sk-...")
+                                            
+                                            # モデル選択をDropdownに変更
+                                            # 現在のプロファイルからモデルリストを取得
+                                            _current_openai_setting = config_manager.get_active_openai_setting() or {}
+                                            _current_models = _current_openai_setting.get("available_models", [])
+                                            _current_default_model = _current_openai_setting.get("default_model", "")
+                                            
+                                            openai_model_dropdown = gr.Dropdown(
+                                                choices=_current_models,
+                                                value=_current_default_model,
+                                                label="デフォルトモデル",
+                                                interactive=True,
+                                                allow_custom_value=True,  # カスタム値の直接入力も許可
+                                                info="リストから選択するか、新しいモデル名を直接入力できます"
+                                            )
+                                            
+                                            # カスタムモデル追加UI
+                                            with gr.Accordion("カスタムモデルを追加", open=False):
+                                                with gr.Row():
+                                                    custom_model_name_input = gr.Textbox(
+                                                        label="モデル名",
+                                                        placeholder="例: my-custom-model",
+                                                        scale=3
+                                                    )
+                                                    add_custom_model_button = gr.Button("追加", scale=1, variant="secondary")
+                                                gr.Markdown("💡 追加したモデルはプロファイルに保存され、次回起動時も利用できます。")
+                                            
+                                            save_openai_config_button = gr.Button("このプロファイル設定を保存", variant="secondary")
 
                                     with gr.Accordion("🔍 検索プロバイダ設定", open=False):
                                         current_search_provider = config_manager.CONFIG_GLOBAL.get("search_provider", "google")
@@ -1005,7 +1069,12 @@ try:
             image_generation_mode_radio,
             paid_keys_checkbox_group,
             custom_scenery_location_dropdown,
-            custom_scenery_time_dropdown
+            custom_scenery_time_dropdown,
+            # --- [追加] OpenAI設定UIへの反映 ---
+            openai_profile_dropdown,
+            openai_base_url_input,
+            openai_api_key_input,
+            openai_model_dropdown
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
@@ -1944,7 +2013,6 @@ try:
             outputs=None
         )
 
-        # ▼▼▼【ここから下のブロックをイベントハンドラ定義の末尾に追加】▼▼▼
         # --- Knowledge Tab Event Handlers ---
         knowledge_tab.select(
             fn=ui_handlers.handle_knowledge_tab_load,
@@ -2001,6 +2069,31 @@ try:
             outputs=None
         )
 
+# --- Multi-Provider Events ---
+        provider_radio.change(
+            fn=ui_handlers.handle_provider_change,
+            inputs=[provider_radio],
+            outputs=[google_settings_group, openai_settings_group]
+        )
+        
+        openai_profile_dropdown.change(
+            fn=ui_handlers.handle_openai_profile_select,
+            inputs=[openai_profile_dropdown],
+            outputs=[openai_base_url_input, openai_api_key_input, openai_model_dropdown]
+        )
+        
+        save_openai_config_button.click(
+            fn=ui_handlers.handle_save_openai_config,
+            inputs=[openai_profile_dropdown, openai_base_url_input, openai_api_key_input, openai_model_dropdown],
+            outputs=None
+        )
+        
+        # カスタムモデル追加ボタンのイベント
+        add_custom_model_button.click(
+            fn=ui_handlers.handle_add_custom_openai_model,
+            inputs=[openai_profile_dropdown, custom_model_name_input],
+            outputs=[openai_model_dropdown, custom_model_name_input]
+        )
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=["."], inbrowser=True)
