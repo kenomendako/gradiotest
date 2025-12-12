@@ -132,8 +132,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=[], value=None),
             "（APIキーが設定されていません）",
-            list(config_manager.SUPPORTED_VOICES.values())[0], # voice_dropdownのデフォルト値
-            list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,
+            list(config_manager.SUPPORTED_VOICES.values())[0], # voice_dropdown
+            "", True, 0.01,  # voice_style_prompt, enable_typewriter, streaming_speed
             0.8, 0.95, "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック", "高リスクのみブロック",
             False, # display_thoughts
             False, # send_thoughts 
@@ -146,7 +146,16 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             False, # send_scenery
             False, # auto_memory_enabled
             f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", None,
-            True, gr.update(open=True)
+            True, gr.update(open=True),
+            # --- [追加] 以下8個: 既存コードで不足していた項目 ---
+            gr.update(value="全ログ"),  # room_api_history_limit_dropdown
+            "all",  # api_history_limit_state
+            gr.update(value="過去 2週間"),  # room_episode_memory_days_dropdown
+            gr.update(value="昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** 取得エラー"),  # episodic_memory_info_display
+            gr.update(value=False),  # room_enable_autonomous_checkbox
+            gr.update(value=120),  # room_autonomous_inactivity_slider
+            gr.update(value="00:00"),  # room_quiet_hours_start
+            gr.update(value="07:00"),  # room_quiet_hours_end
         )
 
     # --- 【通常モード】 ---
@@ -318,20 +327,20 @@ def handle_initial_load():
     # --- 3. オンボーディングとトークン計算 ---
     has_valid_key = config_manager.has_valid_api_key()
     token_count_text, onboarding_guide_update, chat_input_update = ("トークン数: (APIキー未設定)", gr.update(visible=True), gr.update(interactive=False))
+    
+    # 変数をデフォルト値で初期化（has_valid_keyに関係なく使用するため）
+    locations_for_custom_scenery = _get_location_choices_for_ui(safe_initial_room)
+    current_location_for_custom_scenery = utils.get_current_location(safe_initial_room)
+    custom_scenery_dd_update = gr.update(choices=locations_for_custom_scenery, value=current_location_for_custom_scenery)
+    
+    time_map_en_to_ja = {"early_morning": "早朝", "morning": "朝", "late_morning": "昼前", "afternoon": "昼下がり", "evening": "夕方", "night": "夜", "midnight": "深夜"}
+    now = datetime.datetime.now()
+    current_time_en = utils.get_time_of_day(now.hour)
+    current_time_ja = time_map_en_to_ja.get(current_time_en, "夜")
+    custom_scenery_time_dd_update = gr.update(value=current_time_ja)
+    
     if has_valid_key:
         token_calc_kwargs = config_manager.get_effective_settings(safe_initial_room)
-        # --- [カスタム情景用の場所リストを準備] ---
-        locations_for_custom_scenery = _get_location_choices_for_ui(safe_initial_room)
-        current_location_for_custom_scenery = utils.get_current_location(safe_initial_room)
-        custom_scenery_dd_update = gr.update(choices=locations_for_custom_scenery, value=current_location_for_custom_scenery)      
-        
-        # --- [カスタム情景用の時間帯デフォルト値を準備] ---
-        time_map_en_to_ja = {"early_morning": "早朝", "morning": "朝", "late_morning": "昼前", "afternoon": "昼下がり", "evening": "夕方", "night": "夜", "midnight": "深夜"}
-        now = datetime.datetime.now()
-        current_time_en = utils.get_time_of_day(now.hour)
-        current_time_ja = time_map_en_to_ja.get(current_time_en, "夜") # フォールバックとして「夜」
-        custom_scenery_time_dd_update = gr.update(value=current_time_ja)
-        
         token_count_text = gemini_api.count_input_tokens(
             room_name=safe_initial_room, api_key_name=safe_initial_api_key,
             parts=[], **token_calc_kwargs
@@ -354,12 +363,14 @@ def handle_initial_load():
     current_openai_profile_name = config_manager.get_active_openai_profile_name()
     # アクティブな設定辞書を取得（なければ空辞書）
     openai_setting = config_manager.get_active_openai_setting() or {}
+    available_models = openai_setting.get("available_models", [])
+    default_model = openai_setting.get("default_model", "")
     
     openai_updates = (
         gr.update(value=current_openai_profile_name),            # openai_profile_dropdown
         gr.update(value=openai_setting.get("base_url", "")),     # openai_base_url_input
         gr.update(value=openai_setting.get("api_key", "")),      # openai_api_key_input
-        gr.update(value=openai_setting.get("default_model", "")) # openai_model_input
+        gr.update(choices=available_models, value=default_model) # openai_model_dropdown
     )
 
     # --- 5. 全ての戻り値を正しい順序で組み立てる ---
@@ -5168,6 +5179,9 @@ def handle_openai_profile_select(profile_name: str):
     """
     OpenAI互換設定のドロップダウン（OpenRouter/Groq/Ollama）が選択された時、
     そのプロファイルの保存済み設定を入力欄に反映する。
+    
+    Returns:
+        Tuple: (base_url, api_key, openai_model_dropdown(with choices and value))
     """
     config_manager.set_active_openai_profile(profile_name)
 
@@ -5175,12 +5189,19 @@ def handle_openai_profile_select(profile_name: str):
     target_setting = next((s for s in settings_list if s["name"] == profile_name), None)
     
     if not target_setting:
-        return "", "", ""
+        return "", "", gr.update(choices=[], value="")
+    
+    available_models = target_setting.get("available_models", [])
+    default_model = target_setting.get("default_model", "")
+    
+    # デフォルトモデルがリストにない場合は追加
+    if default_model and default_model not in available_models:
+        available_models = [default_model] + available_models
         
     return (
         target_setting.get("base_url", ""),
         target_setting.get("api_key", ""),
-        target_setting.get("default_model", "")
+        gr.update(choices=available_models, value=default_model)
     )
 
 def handle_save_openai_config(profile_name: str, base_url: str, api_key: str, default_model: str):
@@ -5204,13 +5225,63 @@ def handle_save_openai_config(profile_name: str, base_url: str, api_key: str, de
         gr.Warning("プロファイルが見つかりません。")
         return
 
-    # 設定を更新
+    # 設定を更新（available_modelsは既存を維持）
     settings_list[target_index]["base_url"] = base_url.strip()
     settings_list[target_index]["api_key"] = api_key.strip()
     settings_list[target_index]["default_model"] = default_model.strip()
-    # available_models も更新（簡易的にデフォルトモデルのみ追加）
+    
+    # デフォルトモデルがavailable_modelsに含まれていなければ追加
     if default_model.strip() not in settings_list[target_index].get("available_models", []):
         settings_list[target_index].setdefault("available_models", []).append(default_model.strip())
         
     config_manager.save_openai_settings_list(settings_list)
     gr.Info(f"プロファイル「{profile_name}」の設定を保存しました。")
+
+
+def handle_add_custom_openai_model(profile_name: str, custom_model_name: str):
+    """
+    カスタムモデル追加ボタンが押された時の処理。
+    指定されたプロファイルのavailable_modelsにモデルを追加し、Dropdownを更新する。
+    """
+    if not profile_name:
+        gr.Warning("プロファイルが選択されていません。")
+        return gr.update(), gr.update()
+    
+    if not custom_model_name or not custom_model_name.strip():
+        gr.Warning("モデル名を入力してください。")
+        return gr.update(), gr.update()
+    
+    model_name = custom_model_name.strip()
+    
+    settings_list = config_manager.get_openai_settings_list()
+    
+    # プロファイルを検索
+    target_index = -1
+    for i, s in enumerate(settings_list):
+        if s["name"] == profile_name:
+            target_index = i
+            break
+    
+    if target_index == -1:
+        gr.Warning("プロファイルが見つかりません。")
+        return gr.update(), gr.update()
+    
+    # 既存のモデルリストを取得
+    available_models = settings_list[target_index].get("available_models", [])
+    
+    # 既に存在するか確認
+    if model_name in available_models:
+        gr.Warning(f"モデル「{model_name}」は既にリストに存在します。")
+        return gr.update(), ""
+    
+    # モデルを追加
+    available_models.append(model_name)
+    settings_list[target_index]["available_models"] = available_models
+    
+    # 設定を保存
+    config_manager.save_openai_settings_list(settings_list)
+    
+    gr.Info(f"モデル「{model_name}」を追加しました。")
+    
+    # Dropdownの選択肢を更新して返す
+    return gr.update(choices=available_models, value=model_name), ""

@@ -343,28 +343,74 @@ def load_config():
                 "base_url": "https://openrouter.ai/api/v1",
                 "api_key": "",
                 "default_model": "google/gemma-2-9b-it:free",
-                "available_models": ["google/gemma-2-9b-it:free", "meta-llama/llama-3-8b-instruct:free", "anthropic/claude-3.5-sonnet"]
+                "available_models": [
+                    # 無料モデル
+                    "google/gemma-2-9b-it:free",
+                    "meta-llama/llama-3-8b-instruct:free",
+                    "mistralai/mistral-7b-instruct:free",
+                    "deepseek/deepseek-chat:free",
+                    "qwen/qwen-2-7b-instruct:free",
+                    # 有料モデル
+                    "anthropic/claude-3.5-sonnet",
+                    "anthropic/claude-3-opus",
+                    "openai/gpt-4o",
+                    "openai/gpt-4o-mini",
+                    "google/gemini-pro-1.5",
+                    "meta-llama/llama-3.1-405b-instruct"
+                ]
             },
             {
                 "name": "Groq",
                 "base_url": "https://api.groq.com/openai/v1",
                 "api_key": "",
                 "default_model": "llama-3.3-70b-versatile",
-                "available_models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+                "available_models": [
+                    "llama-3.3-70b-versatile",
+                    "llama-3.3-70b-specdec",
+                    "llama-3.1-70b-versatile",
+                    "llama-3.1-8b-instant",
+                    "mixtral-8x7b-32768",
+                    "gemma2-9b-it"
+                ]
             },
             {
                 "name": "Local Ollama",
                 "base_url": "http://localhost:11434/v1",
                 "api_key": "ollama",
-                "default_model": "phi3.5", 
-                "available_models": ["phi3.5", "gemma2:2b", "llama3"]
+                "default_model": "phi3.5",
+                "available_models": [
+                    # 軽量モデル（低スペックPC向け: VRAM 4GB以下）
+                    "phi3.5",
+                    "gemma2:2b",
+                    "qwen2.5:0.5b",
+                    "qwen2.5:1.5b",
+                    # 中量級モデル（中スペックPC向け: VRAM 8GB程度）
+                    "llama3.1:8b",
+                    "gemma2:9b",
+                    "mistral",
+                    "qwen2.5:7b",
+                    "deepseek-coder:6.7b",
+                    # 大型モデル（高スペックPC向け: VRAM 12GB以上）
+                    "llama3.1:70b",
+                    "mixtral:8x7b",
+                    "qwen2.5:32b",
+                    "deepseek-coder:33b"
+                ]
             },
             {
                 "name": "OpenAI Official",
                 "base_url": "https://api.openai.com/v1",
                 "api_key": "",
                 "default_model": "gpt-4o",
-                "available_models": ["gpt-4o", "gpt-4o-mini"]
+                "available_models": [
+                    "gpt-4o",
+                    "gpt-4o-mini",
+                    "gpt-4-turbo",
+                    "gpt-4",
+                    "gpt-3.5-turbo",
+                    "o1-preview",
+                    "o1-mini"
+                ]
             }
         ],
 
@@ -411,12 +457,64 @@ def load_config():
     user_models_set = set(user_config.get("available_models", []))
     merged_models = sorted(list(default_models_set | user_models_set))
 
+    # ステップ4.5：【賢いマージ】OpenAI互換プロバイダのavailable_modelsを統合する
+    # デフォルトのモデルリストとユーザーが追加したモデルをマージし、ユーザー追加モデルが消えないようにする
+    def merge_openai_provider_models(default_providers: List[Dict], user_providers: List[Dict]) -> List[Dict]:
+        """OpenAI互換プロバイダの設定をマージする。ユーザー追加モデルを保持しつつ、デフォルトモデルも追加する。"""
+        merged_providers = []
+        
+        # デフォルトプロバイダをnameでインデックス化
+        default_by_name = {p["name"]: p for p in default_providers}
+        user_by_name = {p["name"]: p for p in user_providers}
+        
+        # 全てのプロバイダ名を収集（デフォルト優先、ユーザー追加も含む）
+        all_provider_names = list(default_by_name.keys())
+        for name in user_by_name.keys():
+            if name not in all_provider_names:
+                all_provider_names.append(name)
+        
+        for name in all_provider_names:
+            default_p = default_by_name.get(name, {})
+            user_p = user_by_name.get(name, {})
+            
+            if not default_p and user_p:
+                # ユーザーが追加したカスタムプロバイダ
+                merged_providers.append(user_p)
+            elif default_p and not user_p:
+                # デフォルトにしかないプロバイダ（新規追加）
+                merged_providers.append(default_p)
+            else:
+                # 両方に存在するプロバイダ：設定をマージ
+                merged_p = default_p.copy()
+                # ユーザー設定を優先（api_key, default_model, base_url）
+                if user_p.get("api_key"):
+                    merged_p["api_key"] = user_p["api_key"]
+                if user_p.get("default_model"):
+                    merged_p["default_model"] = user_p["default_model"]
+                if user_p.get("base_url"):
+                    merged_p["base_url"] = user_p["base_url"]
+                
+                # available_modelsはマージ（デフォルト + ユーザー追加）
+                default_models = set(default_p.get("available_models", []))
+                user_models = set(user_p.get("available_models", []))
+                merged_p["available_models"] = sorted(list(default_models | user_models))
+                
+                merged_providers.append(merged_p)
+        
+        return merged_providers
+    
+    merged_openai_providers = merge_openai_provider_models(
+        default_config.get("openai_provider_settings", []),
+        user_config.get("openai_provider_settings", [])
+    )
+
     # ステップ5：ユーザー設定を優先しつつ、不足キーを補完
     config = default_config.copy()
     config.update(user_config)
     # 統合したモデルリストとテーマ設定で、最終的な設定を上書き
     config["available_models"] = merged_models
     config["theme_settings"] = final_theme_settings
+    config["openai_provider_settings"] = merged_openai_providers
 
     # ステップ6：不要なキーをクリーンアップ
     keys_to_remove = ["memos_config", "api_keys", "default_api_key_name"]

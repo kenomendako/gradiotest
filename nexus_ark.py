@@ -191,7 +191,7 @@ try:
             new_room_folder = folder_names_on_startup[0] if folder_names_on_startup else "Default"
             print(f"警告: 最後に使用したルーム '{effective_initial_room}' が見つからないか無効です。'{new_room_folder}' で起動します。")
             effective_initial_room = new_room_folder
-            config_manager.save_config("last_room", new_room_folder)
+            config_manager.save_config_if_changed("last_room", new_room_folder)
             if new_room_folder == "Default" and "Default" not in folder_names_on_startup:
                 room_manager.ensure_room_files("Default")
                 room_list_on_startup = room_manager.get_room_list_for_ui()
@@ -309,7 +309,31 @@ try:
                                                 openai_base_url_input = gr.Textbox(label="Base URL", placeholder="例: https://openrouter.ai/api/v1")
                                                 openai_api_key_input = gr.Textbox(label="API Key", type="password", placeholder="sk-...")
                                             
-                                            openai_model_input = gr.Textbox(label="デフォルトモデル名", placeholder="例: google/gemma-2-9b-it:free")
+                                            # モデル選択をDropdownに変更
+                                            # 現在のプロファイルからモデルリストを取得
+                                            _current_openai_setting = config_manager.get_active_openai_setting() or {}
+                                            _current_models = _current_openai_setting.get("available_models", [])
+                                            _current_default_model = _current_openai_setting.get("default_model", "")
+                                            
+                                            openai_model_dropdown = gr.Dropdown(
+                                                choices=_current_models,
+                                                value=_current_default_model,
+                                                label="デフォルトモデル",
+                                                interactive=True,
+                                                allow_custom_value=True,  # カスタム値の直接入力も許可
+                                                info="リストから選択するか、新しいモデル名を直接入力できます"
+                                            )
+                                            
+                                            # カスタムモデル追加UI
+                                            with gr.Accordion("カスタムモデルを追加", open=False):
+                                                with gr.Row():
+                                                    custom_model_name_input = gr.Textbox(
+                                                        label="モデル名",
+                                                        placeholder="例: my-custom-model",
+                                                        scale=3
+                                                    )
+                                                    add_custom_model_button = gr.Button("追加", scale=1, variant="secondary")
+                                                gr.Markdown("💡 追加したモデルはプロファイルに保存され、次回起動時も利用できます。")
                                             
                                             save_openai_config_button = gr.Button("このプロファイル設定を保存", variant="secondary")
 
@@ -1050,7 +1074,7 @@ try:
             openai_profile_dropdown,
             openai_base_url_input,
             openai_api_key_input,
-            openai_model_input
+            openai_model_dropdown
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
@@ -2055,13 +2079,20 @@ try:
         openai_profile_dropdown.change(
             fn=ui_handlers.handle_openai_profile_select,
             inputs=[openai_profile_dropdown],
-            outputs=[openai_base_url_input, openai_api_key_input, openai_model_input]
+            outputs=[openai_base_url_input, openai_api_key_input, openai_model_dropdown]
         )
         
         save_openai_config_button.click(
             fn=ui_handlers.handle_save_openai_config,
-            inputs=[openai_profile_dropdown, openai_base_url_input, openai_api_key_input, openai_model_input],
+            inputs=[openai_profile_dropdown, openai_base_url_input, openai_api_key_input, openai_model_dropdown],
             outputs=None
+        )
+        
+        # カスタムモデル追加ボタンのイベント
+        add_custom_model_button.click(
+            fn=ui_handlers.handle_add_custom_openai_model,
+            inputs=[openai_profile_dropdown, custom_model_name_input],
+            outputs=[openai_model_dropdown, custom_model_name_input]
         )
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
