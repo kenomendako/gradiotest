@@ -357,7 +357,17 @@ def format_tool_result_for_ui(tool_name: str, tool_result: str) -> Optional[str]
     elif tool_name == 'delete_from_notepad':
         entry_match = re.search(r'deleted from the notepad', tool_result)
         if entry_match: display_text = f'メモ帳から項目を削除しました。'
-    elif tool_name == 'generate_image': display_text = '新しい画像を生成しました。'
+    elif tool_name == 'generate_image':
+        # プロンプトを抽出して表示（省略版）
+        prompt_match = re.search(r'📝 Prompt: (.+?)(?:\n|$)', tool_result, re.DOTALL)
+        if prompt_match:
+            prompt_text = prompt_match.group(1).strip()
+            # 100文字で切り詰め（全文はログの[RAW_RESULT]に保存されている）
+            if len(prompt_text) > 100:
+                prompt_text = prompt_text[:100] + "..."
+            display_text = f'新しい画像を生成しました。\n📝 Prompt: {prompt_text}'
+        else:
+            display_text = '新しい画像を生成しました。'
     return f"🛠️ {display_text}" if display_text else f"🛠️ ツール「{tool_name}」を実行しました。"
 
 def get_season(month: int) -> str:
