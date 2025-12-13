@@ -802,8 +802,15 @@ def _stream_and_handle_response(
                             content_str = utils.get_content_as_string(msg)
                             if content_str and content_str.strip():
                                 # AI応答にもタイムスタンプを追加（ユーザー発言と同じ形式）
-                                timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
-                                content_to_log = content_str + timestamp
+                                # 【修正】既にタイムスタンプが含まれている場合は追加しない
+                                timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2} \([A-Za-z]{3}\) \d{2}:\d{2}:\d{2}$'
+                                if not re.search(timestamp_pattern, content_str):
+                                    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+                                    content_to_log = content_str + timestamp
+                                else:
+                                    # デバッグ用ログ
+                                    print(f"--- [タイムスタンプ重複防止] 既にタイムスタンプが含まれているためスキップ ---")
+                                    content_to_log = content_str
                                 header = f"## AGENT:{current_room}"                        
                         
                         elif isinstance(msg, ToolMessage):
