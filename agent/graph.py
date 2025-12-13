@@ -782,11 +782,10 @@ def agent_node(state: AgentState):
         if "tools is not supported" in error_str or "function calling" in error_str:
             print(f"  - [OpenAI] ツール非対応モデルエラーを検知: {model_name}")
             error_msg = (
+                f"【システム】\n\n"
                 f"⚠️ **モデル非対応エラー**\n\n"
                 f"選択されたモデル `{model_name}` はツール呼び出し（Function Calling）に対応していません。\n\n"
-                f"**解決方法:**\n"
-                f"- GPT-4o、GPT-4 Turbo、GPT-3.5 Turbo など、Function Calling対応モデルを選択してください\n"
-                f"- または、設定でGeminiプロバイダに切り替えてください"
+                f"設定からFunction Calling対応モデルに変更するか、Geminiプロバイダに切り替えてください。"
             )
             return {
                 "messages": [AIMessage(content=error_msg)],
