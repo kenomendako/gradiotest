@@ -91,12 +91,18 @@
 
 ---
 
-### Phase 2: エージェントの移植 (Migration) 🔄 進行中
+### Phase 2: エージェントの移植 (Migration) ✅ 完了
 *   [x] `agent/graph.py`: `llm_factory` 経由でのモデル取得に移行。
 *   [x] **内部処理モデルの分離**: `force_google=True` パラメータにより、検索クエリ生成・情景描写等の内部処理は**Gemini固定**で実行。ユーザー選択の最終応答モデル（OpenAI等）とは独立して動作。
 *   [x] `gemini_api.py`: `get_model_token_limits` がOpenAIモデル（gpt-、o1-等）を正しく処理するように修正。
-*   [ ] ツール呼び出し（Tool Calling）の互換性検証。
-    *   Gemini以外のモデルでは、ツール定義のバインド方法が異なる場合があるため調整する。
+*   [x] **ツール不使用モード**: `tool_use_enabled` 設定により、Function Calling非対応モデルでも会話が可能に。
+
+#### 2024-12-13 修正: ツール不使用モード実装
+OllamaやGPT-3.5等のFunction Calling非対応モデル使用時にエラーが発生していた問題を解決：
+- プロバイダ設定に `tool_use_enabled` フラグを追加（Local Ollamaはデフォルトでfalse）
+- `config_manager.is_tool_use_enabled()` で現在の設定を取得
+- `agent_node` でフラグに応じてツールバインドをスキップ
+- UIの「ツール使用（Function Calling）を有効にする」チェックボックスで切り替え可能
 
 #### 2024-12-13 修正: 内部処理モデルとプロバイダ分離
 OpenAIプロバイダ使用時に以下のエラーが発生していた問題を修正：
@@ -118,6 +124,7 @@ OpenAIプロバイダ使用時に以下のエラーが発生していた問題�
 ### Phase 4: ルームごとのAI設定
 *   [ ] 各ルームで異なるプロバイダ/モデルを設定可能に
 *   [ ] `room_config.json` にAI設定を追加
+*   [ ] **ツール使用設定もルーム単位で管理**（プロバイダ設定からの移行予定）
 
 ---
 

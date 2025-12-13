@@ -378,6 +378,7 @@ def load_config():
                 "base_url": "http://localhost:11434/v1",
                 "api_key": "ollama",
                 "default_model": "phi3.5",
+                "tool_use_enabled": False,  # 【ツール不使用モード】Ollamaはデフォルトでツール無効
                 "available_models": [
                     # 軽量モデル（低スペックPC向け: VRAM 4GB以下）
                     "phi3.5",
@@ -390,7 +391,7 @@ def load_config():
                     "mistral",
                     "qwen2.5:7b",
                     "deepseek-coder:6.7b",
-                    # 大型モデル（高スペックPC向け: VRAM 12GB以上）
+                    # 大型モデル（高スペックPC向け: VRAM 12GB以丈）
                     "llama3.1:70b",
                     "mixtral:8x7b",
                     "qwen2.5:32b",
@@ -766,3 +767,24 @@ def get_active_openai_setting() -> Optional[Dict]:
             return s
     # 見つからない場合はリストの先頭を返す
     return settings[0] if settings else None
+
+def is_tool_use_enabled() -> bool:
+    """
+    【ツール不使用モード】
+    現在のプロバイダ設定でツール使用が有効かどうかを返す。
+    - Googleプロバイダ: 常にTrue
+    - OpenAI互換プロバイダ: プロファイルの`tool_use_enabled`設定に従う（デフォルトTrue）
+    """
+    active_provider = get_active_provider()
+    
+    if active_provider == "google":
+        # Geminiは常にツール使用可能
+        return True
+    
+    # OpenAI互換プロバイダの場合
+    openai_setting = get_active_openai_setting()
+    if openai_setting:
+        # プロファイルのtool_use_enabled設定を取得（デフォルトTrue）
+        return openai_setting.get("tool_use_enabled", True)
+    
+    return True  # フォールバック

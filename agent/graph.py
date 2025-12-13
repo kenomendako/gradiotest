@@ -94,6 +94,7 @@ class AgentState(TypedDict):
     force_end: bool
     skip_tool_execution: bool
     retrieved_context: str
+    tool_use_enabled: bool  # 【ツール不使用モード】ツール使用の有効/無効
 
 def get_location_list(room_name: str) -> List[str]:
     if not room_name: return []
@@ -672,12 +673,19 @@ def agent_node(state: AgentState):
     print(f"  - 使用モデル: {state['model_name']}")
     
     llm = LLMFactory.create_chat_model(
-    model_name=state['model_name'],
-    api_key=state['api_key'],
-    generation_config=state['generation_config']
+        model_name=state['model_name'],
+        api_key=state['api_key'],
+        generation_config=state['generation_config']
     )
- 
-    llm_with_tools = llm.bind_tools(all_tools)
+    
+    # 【ツール不使用モード】ツール使用の有効/無効に応じて分岐
+    tool_use_enabled = state.get('tool_use_enabled', True)
+    if tool_use_enabled:
+        llm_or_llm_with_tools = llm.bind_tools(all_tools)
+        print("  - ツール使用モード: 有効")
+    else:
+        llm_or_llm_with_tools = llm
+        print("  - ツール使用モード: 無効（会話のみ）")
 
     try:
         print("  - AIモデルにリクエストを送信中 (Streaming)...")
@@ -686,7 +694,7 @@ def agent_node(state: AgentState):
         captured_signature = None
         
         # --- ストリーム実行 ---
-        for chunk in llm_with_tools.stream(messages_for_agent):
+        for chunk in llm_or_llm_with_tools.stream(messages_for_agent):
             chunks.append(chunk)
             if not captured_signature:
                 sig = chunk.additional_kwargs.get("thought_signature")
@@ -785,7 +793,10 @@ def agent_node(state: AgentState):
             # エラーメッセージをユーザーフレンドリーに書き換え
             raise RuntimeError(
                 f"⚠️ モデル非対応エラー: 選択されたモデル `{model_name}` はツール呼び出し（Function Calling）に対応していません。"
-                f"設定からFunction Calling対応モデルに変更するか、Geminiプロバイダに切り替えてください。"
+                f"\n\n【解決方法】"
+                f"\n1. 設定タブ→プロバイダ設定で「ツール使用」をOFFにする"
+                f"\n2. または、Function Calling対応モデルに変更する"
+                f"\n3. または、Geminiプロバイダに切り替える"
             ) from e
         else:
             # その他のOpenAIエラーは従来通り再スロー

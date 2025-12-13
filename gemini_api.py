@@ -330,7 +330,8 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "all_participants": all_participants_list,
         "loop_count": 0,
         "season_en": season_en, "time_of_day_en": time_of_day_en,
-        "skip_tool_execution": skip_tool_execution_flag
+        "skip_tool_execution": skip_tool_execution_flag,
+        "tool_use_enabled": config_manager.is_tool_use_enabled()  # 【ツール不使用モード】
     }
 
     yield ("initial_count", len(messages))

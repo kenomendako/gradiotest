@@ -335,6 +335,15 @@ try:
                                                     add_custom_model_button = gr.Button("追加", scale=1, variant="secondary")
                                                 gr.Markdown("💡 追加したモデルはプロファイルに保存され、次回起動時も利用できます。")
                                             
+                                            # 【ツール不使用モード】ツール使用チェックボックス
+                                            _tool_use_enabled = _current_openai_setting.get("tool_use_enabled", True)
+                                            openai_tool_use_checkbox = gr.Checkbox(
+                                                label="ツール使用（Function Calling）を有効にする",
+                                                value=_tool_use_enabled,
+                                                interactive=True,
+                                                info="OFFにすると、AIはWeb検索・画像生成・記憶編集などのツールを使用できなくなりますが、ツール非対応モデルでも会話できるようになります。"
+                                            )
+                                            
                                             save_openai_config_button = gr.Button("このプロファイル設定を保存", variant="secondary")
 
                                     with gr.Accordion("🔍 検索プロバイダ設定", open=False):
@@ -2084,7 +2093,7 @@ try:
         
         save_openai_config_button.click(
             fn=ui_handlers.handle_save_openai_config,
-            inputs=[openai_profile_dropdown, openai_base_url_input, openai_api_key_input, openai_model_dropdown],
+            inputs=[openai_profile_dropdown, openai_base_url_input, openai_api_key_input, openai_model_dropdown, openai_tool_use_checkbox],
             outputs=None
         )
         

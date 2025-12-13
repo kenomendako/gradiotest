@@ -5212,7 +5212,7 @@ def handle_openai_profile_select(profile_name: str):
         gr.update(choices=available_models, value=default_model)
     )
 
-def handle_save_openai_config(profile_name: str, base_url: str, api_key: str, default_model: str):
+def handle_save_openai_config(profile_name: str, base_url: str, api_key: str, default_model: str, tool_use_enabled: bool = True):
     """
     OpenAI互換設定の保存ボタンが押された時の処理。
     """
@@ -5237,6 +5237,7 @@ def handle_save_openai_config(profile_name: str, base_url: str, api_key: str, de
     settings_list[target_index]["base_url"] = base_url.strip()
     settings_list[target_index]["api_key"] = api_key.strip()
     settings_list[target_index]["default_model"] = default_model.strip()
+    settings_list[target_index]["tool_use_enabled"] = tool_use_enabled  # 【ツール不使用モード】
     
     # デフォルトモデルがavailable_modelsに含まれていなければ追加
     if default_model.strip() not in settings_list[target_index].get("available_models", []):
