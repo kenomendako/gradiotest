@@ -14,7 +14,8 @@ class LLMFactory:
         top_p: float = 0.95,
         max_retries: int = 0,
         api_key: str = None, # Gemini用 (OpenAI系は設定から取得)
-        generation_config: dict = None
+        generation_config: dict = None,
+        force_google: bool = False  # 内部処理用にGeminiを強制使用する場合True
     ):
         """
         現在の設定(active_provider)に基づいて、適切なLangChain ChatModelインスタンスを生成して返す。
@@ -26,10 +27,19 @@ class LLMFactory:
             max_retries: リトライ回数（Agent側で制御するため基本0）
             api_key: Geminiを使用する場合のAPIキー
             generation_config: その他の生成設定（安全性設定など）
+            force_google: Trueの場合、active_providerに関係なくGemini Nativeを使用。
+                          内部処理（検索クエリ生成、情景描写等）はGemini固定のため。
         """
         config_manager.load_config() 
         
         active_provider = config_manager.get_active_provider()
+        
+        # 【マルチモデル対応】内部処理用モデルは強制的にGemini APIを使用
+        # ユーザー設定のプロバイダ（OpenAI等）に関係なく、Gemini固定が必要な処理用
+        if force_google:
+            print(f"--- [LLM Factory] Force Google mode: Using Gemini Native for internal processing ---")
+            print(f"  - Model: {model_name}")
+            active_provider = "google"
 
         # --- Google Gemini (Native) ---
         if active_provider == "google":

@@ -31,6 +31,18 @@ from episodic_memory_manager import EpisodicMemoryManager
 def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
     if model_name in utils._model_token_limits_cache: return utils._model_token_limits_cache[model_name]
     if not api_key or api_key.startswith("YOUR_API_KEY"): return None
+    
+    # 【マルチモデル対応】OpenAIモデルの場合はGemini APIを呼び出さない
+    # gpt-、o1-、claude-などGemini以外のモデルはGemini APIで情報取得不可
+    active_provider = config_manager.get_active_provider()
+    is_openai_model = model_name.startswith(("gpt-", "o1-", "claude-", "llama-", "mixtral-", "mistral-"))
+    
+    if active_provider == "openai" or is_openai_model:
+        # OpenAI互換モデルのトークン制限は一般的なデフォルト値を返す
+        # 正確な値が必要な場合は、各プロバイダのAPIを呼び出す必要があるが、
+        # トークンカウントはあくまで参考値なので概算で十分
+        return {"input": 128000, "output": 8192}  # GPT-4o相当のデフォルト値
+    
     try:
         client = genai.Client(api_key=api_key)
         model_info = client.models.get(model=f"models/{model_name}")

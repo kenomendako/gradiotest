@@ -91,10 +91,19 @@
 
 ---
 
-### Phase 2: エージェントの移植 (Migration)
-*   [ ] `agent/graph.py`: `gemini_api` 依存の排除。`llm_factory` 経由でのモデル取得。
+### Phase 2: エージェントの移植 (Migration) 🔄 進行中
+*   [x] `agent/graph.py`: `llm_factory` 経由でのモデル取得に移行。
+*   [x] **内部処理モデルの分離**: `force_google=True` パラメータにより、検索クエリ生成・情景描写等の内部処理は**Gemini固定**で実行。ユーザー選択の最終応答モデル（OpenAI等）とは独立して動作。
+*   [x] `gemini_api.py`: `get_model_token_limits` がOpenAIモデル（gpt-、o1-等）を正しく処理するように修正。
 *   [ ] ツール呼び出し（Tool Calling）の互換性検証。
     *   Gemini以外のモデルでは、ツール定義のバインド方法が異なる場合があるため調整する。
+
+#### 2024-12-13 修正: 内部処理モデルとプロバイダ分離
+OpenAIプロバイダ使用時に以下のエラーが発生していた問題を修正：
+- `gemini-2.5-flash-lite does not exist` → 内部処理が誤ってOpenAI APIに送信されていた
+- `Model is not found: models/gpt-X` → モデル情報取得がGemini API専用だった
+
+**解決策**: `LLMFactory.create_chat_model()` に `force_google` パラメータを追加。内部処理（RAG検索、情景生成等）は常にGemini Native APIを使用し、最終応答のみユーザー選択のプロバイダを使用する設計に。
 
 ---
 

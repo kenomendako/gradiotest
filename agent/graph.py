@@ -148,10 +148,12 @@ def generate_scenery_context(
 
         if not space_def.startswith("（"):
             effective_settings = config_manager.get_effective_settings(room_name)
+            # 【マルチモデル対応】内部処理はGemini固定のため force_google=True
             llm_flash = LLMFactory.create_chat_model(
                 model_name=constants.INTERNAL_PROCESSING_MODEL,
                 api_key=api_key,
-                generation_config=effective_settings
+                generation_config=effective_settings,
+                force_google=True
             )
 
             season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
@@ -234,11 +236,13 @@ def retrieval_node(state: AgentState):
     room_name = state['room_name']
     
     # 高速なモデルを使用
+    # 【マルチモデル対応】内部処理はGemini固定のため force_google=True
     llm_flash = LLMFactory.create_chat_model(
-    model_name=constants.INTERNAL_PROCESSING_MODEL,
-    api_key=api_key,
-    generation_config={}
-)
+        model_name=constants.INTERNAL_PROCESSING_MODEL,
+        api_key=api_key,
+        generation_config={},
+        force_google=True
+    )
     
     decision_prompt = f"""
     あなたは、検索クエリ生成の専門家です。
