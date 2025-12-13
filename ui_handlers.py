@@ -741,6 +741,12 @@ def _stream_and_handle_response(
                     else:
                         final_error_message = f"[エラー] APIのレート制限が頻発しています。時間をおいて再試行してください。"
                         break
+                except RuntimeError as e:
+                    # 【マルチモデル対応】ツール非対応エラーなど、agent/graph.pyから送られる
+                    # ユーザーフレンドリーなエラーメッセージをシステムエラーとして処理
+                    print(f"--- エージェントからシステムエラーが送信されました ---")
+                    final_error_message = str(e)
+                    break
                 except Exception as e:
                     print(f"--- エージェント実行中に予期せぬエラーが発生しました ---")
                     traceback.print_exc()

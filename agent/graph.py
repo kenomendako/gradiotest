@@ -781,17 +781,12 @@ def agent_node(state: AgentState):
         # ツール/Function Calling非対応エラーの検知
         if "tools is not supported" in error_str or "function calling" in error_str:
             print(f"  - [OpenAI] ツール非対応モデルエラーを検知: {model_name}")
-            error_msg = (
-                f"【システム】\n\n"
-                f"⚠️ **モデル非対応エラー**\n\n"
-                f"選択されたモデル `{model_name}` はツール呼び出し（Function Calling）に対応していません。\n\n"
+            # ui_handlers.py側でシステムエラーとして処理するため、例外として再スロー
+            # エラーメッセージをユーザーフレンドリーに書き換え
+            raise RuntimeError(
+                f"⚠️ モデル非対応エラー: 選択されたモデル `{model_name}` はツール呼び出し（Function Calling）に対応していません。"
                 f"設定からFunction Calling対応モデルに変更するか、Geminiプロバイダに切り替えてください。"
-            )
-            return {
-                "messages": [AIMessage(content=error_msg)],
-                "loop_count": loop_count,
-                "force_end": True
-            }
+            ) from e
         else:
             # その他のOpenAIエラーは従来通り再スロー
             print(f"--- [警告] agent_nodeでOpenAIエラーを捕捉しました: {e} ---")
