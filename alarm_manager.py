@@ -188,11 +188,14 @@ def trigger_alarm(alarm_config, current_api_key_name):
             
             if final_state:
                 new_messages = final_state["messages"][initial_message_count:]
-                all_ai_contents = [
-                    msg.content for msg in new_messages
+                # ▼▼▼【修正】最後のAIMessageのみを使用する（複数結合によるタイムスタンプ重複防止）▼▼▼
+                ai_messages = [
+                    msg for msg in new_messages
                     if isinstance(msg, AIMessage) and msg.content and isinstance(msg.content, str)
                 ]
-                final_response_text = "\n\n".join(all_ai_contents).strip()
+                if ai_messages:
+                    final_response_text = ai_messages[-1].content
+                # ▲▲▲【修正】▲▲▲
             
             # 成功したのでループを抜ける
             break
@@ -325,8 +328,12 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
                     utils.save_message_to_log(log_f, "## SYSTEM:tool_result", tool_log_content)
             # ▲▲▲【追加】▲▲▲
 
-            contents = [m.content for m in new_messages if isinstance(m, AIMessage) and m.content]
-            final_response_text = "\n".join(contents).strip()
+            # ▼▼▼【修正】最後のAIMessageのみを使用する（複数結合によるタイムスタンプ重複防止）▼▼▼
+            ai_messages = [m for m in new_messages if isinstance(m, AIMessage) and m.content]
+            if ai_messages:
+                # 最後のAIMessageを使用（ツール実行後の最終応答）
+                final_response_text = ai_messages[-1].content if isinstance(ai_messages[-1].content, str) else str(ai_messages[-1].content)
+            # ▲▲▲【修正】▲▲▲
 
     except Exception as e:
         print(f"  - 自律行動エラー: {e}")
