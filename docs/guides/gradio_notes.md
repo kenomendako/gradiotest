@@ -589,3 +589,58 @@ elif isinstance(chunk_content, list):
 - `agent/graph.py`: チャンク連結処理（修正対象）
 - `ui_handlers.py`: `_stream_and_handle_response`関数（デバッグ時に調査）
 - `utils.py`: `save_message_to_log`関数（デバッグ時に調査）
+
+---
+
+### AI応答タイムスタンプ二重表示問題（2024-12-14）
+
+#### 現象
+
+自律行動モードでツール（画像生成など）を使用した際、AI応答の末尾にタイムスタンプが2つ連続して表示される。
+
+```
+...AI応答テキスト...
+
+2025-12-14 (Sun) 18:19:56
+
+2025-12-14 (Sun) 18:20:05
+```
+
+#### 原因
+
+`alarm_manager.py` の `trigger_autonomous_action` および `trigger_alarm` 関数で、複数のAIMessageを結合していた：
+
+```python
+# 問題のあったコード
+contents = [m.content for m in new_messages if isinstance(m, AIMessage) and m.content]
+final_response_text = "\n".join(contents).strip()
+```
+
+ツール使用時、グラフは複数回ループするため、複数のAIMessageが生成される：
+1. AIMessage1（ツール呼び出し + 短いテキスト）
+2. AIMessage2（ツール実行後の最終応答）
+
+これらが全て結合され、それぞれに対して `ui_handlers.py` でタイムスタンプが追加されていた。
+
+#### 解決策
+
+1. **`alarm_manager.py`**: 複数のAIMessageを結合するのではなく、**最後のAIMessage（最終応答）のみ**を使用するように修正。
+
+```python
+# 修正後
+ai_messages = [m for m in new_messages if isinstance(m, AIMessage) and m.content]
+if ai_messages:
+    final_response_text = ai_messages[-1].content
+```
+
+2. **`ui_handlers.py`**: 対症療法として、タイムスタンプ追加前に既存タイムスタンプのチェックを追加（重複検出時はスキップ）。
+
+#### 状態
+
+- **2024-12-14**: 修正をコミット。自律行動での画像生成時のテストは条件が難しいため、**様子見中**。
+- ツール未使用時の自律行動では問題なし確認済み。
+
+#### 関連ファイル
+
+- `alarm_manager.py`: `trigger_autonomous_action`, `trigger_alarm`（修正対象）
+- `ui_handlers.py`: タイムスタンプ追加処理（対症療法追加）
