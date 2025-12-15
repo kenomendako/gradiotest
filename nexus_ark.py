@@ -669,6 +669,11 @@ try:
                                 choices=sorted([c for c in room_list_on_startup if c != effective_initial_room]),
                                 interactive=True
                             )
+                            group_hide_thoughts_checkbox = gr.Checkbox(
+                                label="思考ログを非表示（セッション中のみ）",
+                                value=False,
+                                info="チェックすると、グループ会話中の全参加者の思考ログが非表示になります。"
+                            )
                             with gr.Row():
                                 start_session_button = gr.Button("このメンバーで会話を開始 / 更新", variant="primary")
                                 end_session_button = gr.Button("会話を終了 (1対1に戻る)", variant="secondary")
@@ -1234,6 +1239,7 @@ try:
             debug_mode_checkbox,
             debug_console_state,
             active_participants_state,
+            group_hide_thoughts_checkbox,  # グループ会話 思考ログ非表示
             active_attachments_state, 
             model_dropdown,
             enable_typewriter_effect_checkbox,
@@ -1251,6 +1257,7 @@ try:
             debug_mode_checkbox,
             debug_console_state,
             active_participants_state,
+            group_hide_thoughts_checkbox,  # グループ会話 思考ログ非表示
             active_attachments_state,
             model_dropdown,
             enable_typewriter_effect_checkbox,

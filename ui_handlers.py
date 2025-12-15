@@ -627,6 +627,7 @@ def _stream_and_handle_response(
     debug_mode: bool,
     soul_vessel_room: str,
     active_participants: List[str],
+    group_hide_thoughts: bool,  # グループ会話 思考ログ非表示
     active_attachments: List[str],
     current_console_content: str,
     enable_typewriter_effect: bool,
@@ -660,6 +661,9 @@ def _stream_and_handle_response(
         effective_settings = config_manager.get_effective_settings(soul_vessel_room) # <<< "initial"を削除
         add_timestamp = effective_settings.get("add_timestamp", False) # <<< "initial"を削除
         display_thoughts = effective_settings.get("display_thoughts", True) # <<< "initial"を削除 & この行で定義
+        # グループ会話で思考ログ非表示が有効な場合、強制的にオフ
+        if group_hide_thoughts:
+            display_thoughts = False
         chatbot_history, mapping_list = reload_chat_log(
             room_name=soul_vessel_room, 
             api_history_limit_value=api_history_limit, 
@@ -1019,7 +1023,8 @@ def _stream_and_handle_response(
 def handle_message_submission(
     multimodal_input: dict, soul_vessel_room: str, api_key_name: str,
     api_history_limit: str, debug_mode: bool,
-    console_content: str, active_participants: list, active_attachments: list,
+    console_content: str, active_participants: list, group_hide_thoughts: bool,
+    active_attachments: list,
     global_model: str,
     enable_typewriter_effect: bool, streaming_speed: float,
     scenery_text_from_ui: str,
@@ -1173,6 +1178,7 @@ def handle_message_submission(
         debug_mode=debug_mode,
         soul_vessel_room=soul_vessel_room,
         active_participants=active_participants or [],
+        group_hide_thoughts=group_hide_thoughts,  # グループ会話 思考ログ非表示
         active_attachments=active_attachments or [],
         current_console_content=console_content,
         enable_typewriter_effect=enable_typewriter_effect,
@@ -1185,7 +1191,8 @@ def handle_message_submission(
 def handle_rerun_button_click(
     selected_message: Optional[Dict], room_name: str, api_key_name: str,
     api_history_limit: str, debug_mode: bool,
-    console_content: str, active_participants: list, active_attachments: list, # ← active_attachments を追加
+    console_content: str, active_participants: list, group_hide_thoughts: bool,
+    active_attachments: list,
     global_model: str,
     enable_typewriter_effect: bool, streaming_speed: float,
     scenery_text_from_ui: str,
@@ -1241,6 +1248,7 @@ def handle_rerun_button_click(
         debug_mode=debug_mode,
         soul_vessel_room=room_name,
         active_participants=active_participants or [],
+        group_hide_thoughts=group_hide_thoughts,  # グループ会話 思考ログ非表示
         active_attachments=active_attachments or [],
         current_console_content=console_content,
         enable_typewriter_effect=enable_typewriter_effect, 
