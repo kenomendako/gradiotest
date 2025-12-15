@@ -256,24 +256,7 @@ try:
                                             save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
                                         gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
 
-                                    with gr.Accordion("🎨 画像生成設定", open=False):
-                                        # Configから値を読み込み、廃止された "old" が設定されていた場合は "new" にフォールバックする
-                                        current_img_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
-                                        if current_img_gen_mode == "old":
-                                            current_img_gen_mode = "new"
-
-                                        image_generation_mode_radio = gr.Radio(
-                                            choices=[
-                                                ("有効 (新モデル: gemini-2.5-flash-image - 有料)", "new"),
-                                                ("無効", "disabled")
-                                            ],
-                                            value=current_img_gen_mode,
-                                            label="画像生成機能 (generate_imageツール)",
-                                            interactive=True,
-                                            info="「無効」にすると、AIのプロンプトからも画像生成に関する項目が削除されます。"
-                                        )
-
-                                    with gr.Accordion("🤖 AIモデルプロバイダ設定 (Beta)", open=False):
+                                    with gr.Accordion("🤖 AIモデルプロバイダ設定（デフォルト）", open=False):
                                         gr.Markdown("会話に使用するAIモデルのプロバイダを切り替えます。")
                                         
                                         current_provider = config_manager.get_active_provider()
@@ -288,9 +271,11 @@ try:
                                             interactive=True
                                         )
                                         
-                                        # --- Google設定エリア (既存のUI要素への参照は後で紐付け) ---
+                                        # --- Google設定エリア ---
                                         with gr.Group(visible=(current_provider == "google")) as google_settings_group:
-                                            gr.Markdown("※ Google設定は下の「Gemini APIキー」アコーディオンで管理します。")
+                                            model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, label="デフォルトAIモデル", interactive=True)
+                                            api_key_dropdown = gr.Dropdown(label="使用するGemini APIキー", interactive=True)
+                                            api_test_button = gr.Button("API接続をテスト", variant="secondary")
 
                                         # --- OpenAI互換設定エリア ---
                                         with gr.Group(visible=(current_provider == "openai")) as openai_settings_group:
@@ -346,6 +331,23 @@ try:
                                             
                                             save_openai_config_button = gr.Button("このプロファイル設定を保存", variant="secondary")
 
+                                    with gr.Accordion("🎨 画像生成設定", open=False):
+                                        # Configから値を読み込み、廃止された "old" が設定されていた場合は "new" にフォールバックする
+                                        current_img_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
+                                        if current_img_gen_mode == "old":
+                                            current_img_gen_mode = "new"
+
+                                        image_generation_mode_radio = gr.Radio(
+                                            choices=[
+                                                ("有効 (新モデル: gemini-2.5-flash-image - 有料)", "new"),
+                                                ("無効", "disabled")
+                                            ],
+                                            value=current_img_gen_mode,
+                                            label="画像生成機能 (generate_imageツール)",
+                                            interactive=True,
+                                            info="「無効」にすると、AIのプロンプトからも画像生成に関する項目が削除されます。"
+                                        )
+
                                     with gr.Accordion("🔍 検索プロバイダ設定", open=False):
                                         current_search_provider = config_manager.CONFIG_GLOBAL.get("search_provider", "google")
                                         search_provider_radio = gr.Radio(
@@ -361,13 +363,6 @@ try:
                                         )
 
 
-                                    gr.Markdown("#### ⚙️ 一般設定")
-                                    model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, label="デフォルトAIモデル", interactive=True)
-                                    api_key_dropdown = gr.Dropdown(label="使用するGemini APIキー", interactive=True)
-                                    debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", interactive=True)
-                                    api_test_button = gr.Button("API接続をテスト", variant="secondary")
-
-                                    gr.Markdown("---")
                                     with gr.Accordion("📢 通知サービス設定", open=False):
                                         notification_service_radio = gr.Radio(
                                             choices=["Discord", "Pushover"], 
@@ -386,9 +381,105 @@ try:
                                             info="ファイル（ログ、記憶など）ごとに、ここで指定した数だけ最新のバックアップが保持されます。"
                                         )
                                         open_backup_folder_button = gr.Button("現在のルームのバックアップフォルダを開く", variant="secondary")
+                                    
+                                    debug_mode_checkbox = gr.Checkbox(label="🐛 デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", interactive=True)
                                 with gr.TabItem("個別") as individual_settings_tab:
                                     room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
                                     save_room_settings_button = gr.Button("このルームの個別設定を保存", variant="primary")
+
+                                    # --- [Phase 3] 個別設定用AIモデルプロバイダ設定 (一番上に配置) ---
+                                    with gr.Accordion("🤖 AIモデルプロバイダ設定（このルーム）", open=False):
+                                        gr.Markdown("このルームで使用するAIプロバイダを設定します。「共通設定に従う」を選ぶとデフォルト設定が適用されます。")
+                                        
+                                        room_provider_radio = gr.Radio(
+                                            choices=[
+                                                ("共通設定に従う", "default"),
+                                                ("Google (Gemini Native)", "google"),
+                                                ("OpenAI互換 (OpenRouter / Groq / Ollama)", "openai")
+                                            ],
+                                            value="default",
+                                            label="このルームで使用するプロバイダ",
+                                            interactive=True
+                                        )
+                                        
+                                        # --- Google設定グループ ---
+                                        with gr.Group(visible=False) as room_google_settings_group:
+                                            room_model_dropdown = gr.Dropdown(
+                                                choices=config_manager.AVAILABLE_MODELS_GLOBAL,
+                                                label="このルームで使用するAIモデル",
+                                                info="Gemini APIで使用するモデルを選択します。",
+                                                interactive=True,
+                                                allow_custom_value=True
+                                            )
+                                            
+                                            # カスタムモデル追加UI
+                                            with gr.Accordion("カスタムモデルを追加", open=False):
+                                                with gr.Row():
+                                                    room_google_custom_model_input = gr.Textbox(
+                                                        label="モデル名",
+                                                        placeholder="例: gemini-2.5-flash-exp",
+                                                        scale=3
+                                                    )
+                                                    room_google_add_model_button = gr.Button("追加", scale=1, variant="secondary")
+                                                gr.Markdown("💡 追加したモデルは現在のセッション中のみ有効です。")
+                                            
+                                            room_api_key_dropdown = gr.Dropdown(
+                                                choices=config_manager.get_api_key_choices_for_ui(),
+                                                label="このルームで使用するAPIキー",
+                                                info="共通設定で登録したAPIキーから選択します。",
+                                                interactive=True
+                                            )
+                                        
+                                        # --- OpenAI互換設定グループ ---
+                                        with gr.Group(visible=False) as room_openai_settings_group:
+                                            # プロファイル選択
+                                            room_openai_profile_dropdown = gr.Dropdown(
+                                                choices=[s["name"] for s in config_manager.get_openai_settings_list()],
+                                                label="プロファイル選択",
+                                                info="共通設定で登録したプロファイルから選択します。選択すると下の項目が自動入力されます。",
+                                                interactive=True
+                                            )
+                                            
+                                            with gr.Row():
+                                                room_openai_base_url_input = gr.Textbox(
+                                                    label="Base URL",
+                                                    placeholder="例: https://openrouter.ai/api/v1",
+                                                    interactive=True
+                                                )
+                                                room_openai_api_key_input = gr.Textbox(
+                                                    label="API Key",
+                                                    type="password",
+                                                    placeholder="sk-...",
+                                                    interactive=True
+                                                )
+                                            
+                                            # モデル選択（Dropdown + カスタム値入力可能）
+                                            room_openai_model_dropdown = gr.Dropdown(
+                                                choices=[],
+                                                label="デフォルトモデル",
+                                                interactive=True,
+                                                allow_custom_value=True,
+                                                info="プロファイル選択で自動入力されるか、直接入力できます"
+                                            )
+                                            
+                                            # カスタムモデル追加UI
+                                            with gr.Accordion("カスタムモデルを追加", open=False):
+                                                with gr.Row():
+                                                    room_openai_custom_model_input = gr.Textbox(
+                                                        label="モデル名",
+                                                        placeholder="例: my-custom-model",
+                                                        scale=3
+                                                    )
+                                                    room_openai_add_model_button = gr.Button("追加", scale=1, variant="secondary")
+                                                gr.Markdown("💡 追加したモデルは現在のセッション中のみ有効です。")
+                                            
+                                            # ツール使用オンオフ
+                                            room_openai_tool_use_checkbox = gr.Checkbox(
+                                                label="ツール使用（Function Calling）を有効にする",
+                                                value=True,
+                                                interactive=True,
+                                                info="OFFにすると、AIはWeb検索・画像生成・記憶編集などのツールを使用できなくなりますが、ツール非対応モデルでも会話できるようになります。"
+                                            )
 
                                     with gr.Accordion("🖼️ 情景描写設定", open=False):
                                         enable_scenery_system_checkbox = gr.Checkbox(
@@ -422,8 +513,8 @@ try:
                                         with gr.Row():
                                             room_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
                                             room_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
+                                    
                                     with gr.Accordion("📡 APIコンテキスト設定", open=False):
-
                                         room_api_history_limit_dropdown = gr.Dropdown(
                                             choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), 
                                             label="APIへの履歴送信（短期記憶の長さ）", 
@@ -1054,7 +1145,18 @@ try:
             room_enable_autonomous_checkbox,
             room_autonomous_inactivity_slider,
             room_quiet_hours_start,
-            room_quiet_hours_end            
+            room_quiet_hours_end,
+            room_model_dropdown,  # [追加] ルーム個別モデル設定 (Dropdown)
+            # [Phase 3] 個別プロバイダ設定
+            room_provider_radio,
+            room_google_settings_group,
+            room_openai_settings_group,
+            room_api_key_dropdown,
+            room_openai_profile_dropdown,  # 追加: プロファイル選択
+            room_openai_base_url_input,
+            room_openai_api_key_input,
+            room_openai_model_dropdown,
+            room_openai_tool_use_checkbox,  # 追加: ツール使用オンオフ
         ]
 
         initial_load_outputs = [
@@ -1412,7 +1514,16 @@ try:
                 room_enable_autonomous_checkbox,
                 room_autonomous_inactivity_slider,
                 room_quiet_hours_start,
-                room_quiet_hours_end                
+                room_quiet_hours_end,
+                room_model_dropdown,  # [追加] ルーム個別モデル設定 (Dropdown)
+                # [Phase 3] 個別プロバイダ設定
+                room_provider_radio,
+                room_api_key_dropdown,
+                room_openai_profile_dropdown,  # 追加: プロファイル選択
+                room_openai_base_url_input,
+                room_openai_api_key_input,
+                room_openai_model_dropdown,
+                room_openai_tool_use_checkbox,  # 追加: ツール使用オンオフ
             ],
             outputs=None
         )
@@ -1425,6 +1536,53 @@ try:
             fn=ui_handlers._reset_preview_on_failure, 
             inputs=None, 
             outputs=[audio_player, play_audio_button, room_preview_voice_button]
+        )
+
+        # --- [Phase 3] 個別プロバイダ切り替えイベント ---
+        room_provider_radio.change(
+            fn=lambda provider: (
+                gr.update(visible=(provider == "google")),  # room_google_settings_group
+                gr.update(visible=(provider == "openai")),  # room_openai_settings_group
+            ),
+            inputs=[room_provider_radio],
+            outputs=[room_google_settings_group, room_openai_settings_group]
+        )
+
+        # --- [Phase 3] Google用カスタムモデル追加イベント（永続保存） ---
+        room_google_add_model_button.click(
+            fn=lambda room, model: ui_handlers.handle_add_room_custom_model(room, model, "google"),
+            inputs=[current_room_name, room_google_custom_model_input],
+            outputs=[room_model_dropdown, room_google_custom_model_input]
+        )
+
+        # --- [Phase 3] 個別プロファイル選択時の自動入力イベント ---
+        def _load_room_openai_profile(profile_name):
+            """プロファイル選択時に共通設定から設定を読み込んで自動入力"""
+            if not profile_name:
+                return "", "", gr.update(choices=[], value=None)
+            settings_list = config_manager.get_openai_settings_list()
+            target = next((s for s in settings_list if s["name"] == profile_name), None)
+            if not target:
+                return "", "", gr.update(choices=[], value=None)
+            available_models = target.get("available_models", [])
+            default_model = target.get("default_model", "")
+            return (
+                target.get("base_url", ""),
+                target.get("api_key", ""),
+                gr.update(choices=available_models, value=default_model)
+            )
+        
+        room_openai_profile_dropdown.change(
+            fn=_load_room_openai_profile,
+            inputs=[room_openai_profile_dropdown],
+            outputs=[room_openai_base_url_input, room_openai_api_key_input, room_openai_model_dropdown]
+        )
+        
+        # --- [Phase 3] OpenAI互換カスタムモデル追加イベント（永続保存） ---
+        room_openai_add_model_button.click(
+            fn=lambda room, model: ui_handlers.handle_add_room_custom_model(room, model, "openai"),
+            inputs=[current_room_name, room_openai_custom_model_input],
+            outputs=[room_openai_model_dropdown, room_openai_custom_model_input]
         )
 
         # ▼▼▼【ここからが新しいイベント定義です】▼▼▼

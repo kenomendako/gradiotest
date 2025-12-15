@@ -418,7 +418,7 @@ def load_config():
         # ---------------------------------
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
         "paid_api_key_names": [],
-        "available_models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+        "available_models": ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
         "default_model": "gemini-2.5-pro",
         "image_generation_mode": "new", 
         "search_provider": "google",
@@ -591,15 +591,22 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
     }
     
     room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+    room_model_name = None  # ルーム個別モデル設定（あれば後で上書き）
+    room_provider = None  # ルーム個別プロバイダ設定（Noneは共通設定に従う）
     if os.path.exists(room_config_path):
         try:
             with open(room_config_path, "r", encoding="utf-8") as f:
                 room_config = json.load(f)
             override_settings = room_config.get("override_settings", {})
             for k, v in override_settings.items():
-                # model_name はここでは読み込まない
+                # model_name は後で別ロジックで処理するので、ここでは読み込まない
+                # providerとopenai_settingsはUI表示用にそのまま含める
                 if v is not None and k != "model_name":
                     effective_settings[k] = v
+            # ルーム個別のモデル設定を一時保存（後のロジックで使用）
+            room_model_name = override_settings.get("model_name")
+            # ルーム個別のプロバイダ設定（共通設定に従うかどうか）
+            room_provider = override_settings.get("provider")
         except Exception as e:
             print(f"ルーム設定ファイル '{room_config_path}' の読み込みエラー: {e}")
 
@@ -611,16 +618,29 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
 # --- モデル選択の最終決定ロジック ---
     global_model_from_ui = kwargs.get("global_model_from_ui")
     
-    active_provider = get_active_provider()
+    active_provider = get_active_provider(room_name)
     
     if active_provider == "openai":
-        # OpenAI互換モードなら、現在のアクティブなプロファイルのデフォルトモデルを強制使用
-        openai_setting = get_active_openai_setting()
-        if openai_setting:
-            effective_settings["model_name"] = openai_setting.get("default_model", "gpt-3.5-turbo")
+        # OpenAI互換モード: ルーム個別のopenai_settings > グローバルなアクティブプロファイル の優先度
+        room_openai_settings = effective_settings.get("openai_settings")
+        if room_openai_settings and room_openai_settings.get("model"):
+            # ルーム個別のOpenAI設定でモデルが指定されている場合
+            effective_settings["model_name"] = room_openai_settings["model"]
+        else:
+            # フォールバック: グローバルなアクティブプロファイルのデフォルトモデル
+            openai_setting = get_active_openai_setting()
+            if openai_setting:
+                effective_settings["model_name"] = openai_setting.get("default_model", "gpt-3.5-turbo")
     else:
-        # Googleモードなら、従来のロジック（UI指定 or デフォルト）
-        final_model_name = global_model_from_ui or DEFAULT_MODEL_GLOBAL
+        # Googleモード: ルーム個別設定 > UI指定 > デフォルト の優先度でモデルを決定
+        # ただし、room_providerがNone（共通設定に従う）の場合はルーム個別モデルを無視
+        if room_model_name and room_provider is not None:
+            # プロバイダがルーム個別設定（google等）の場合のみ、ルーム個別モデルを使用
+            final_model_name = room_model_name
+        elif global_model_from_ui:
+            final_model_name = global_model_from_ui
+        else:
+            final_model_name = DEFAULT_MODEL_GLOBAL
         effective_settings["model_name"] = final_model_name
 
         # 念の為のフォールバック
@@ -732,8 +752,26 @@ def get_current_global_model() -> str:
 
 # --- [Multi-Provider Support Helpers] ---
 
-def get_active_provider() -> str:
-    """現在アクティブなプロバイダ名 ('google' または 'openai') を返す"""
+def get_active_provider(room_name: str = None) -> str:
+    """
+    現在アクティブなプロバイダ名 ('google' または 'openai') を返す。
+    room_nameが指定された場合、ルーム個別の設定を優先する。
+    """
+    if room_name:
+        # ルーム個別のプロバイダ設定を確認
+        room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+        if os.path.exists(room_config_path):
+            try:
+                with open(room_config_path, "r", encoding="utf-8") as f:
+                    room_config = json.load(f)
+                override_settings = room_config.get("override_settings", {})
+                room_provider = override_settings.get("provider")
+                # ルーム個別にプロバイダが設定されている場合はそれを使用
+                if room_provider and room_provider in ["google", "openai"]:
+                    return room_provider
+            except Exception:
+                pass
+    # フォールバック: グローバル設定
     return CONFIG_GLOBAL.get("active_provider", "google")
 
 def set_active_provider(provider: str):
@@ -768,20 +806,37 @@ def get_active_openai_setting() -> Optional[Dict]:
     # 見つからない場合はリストの先頭を返す
     return settings[0] if settings else None
 
-def is_tool_use_enabled() -> bool:
+def is_tool_use_enabled(room_name: str = None) -> bool:
     """
     【ツール不使用モード】
     現在のプロバイダ設定でツール使用が有効かどうかを返す。
+    room_nameが指定された場合、ルーム個別の設定を優先する。
     - Googleプロバイダ: 常にTrue
-    - OpenAI互換プロバイダ: プロファイルの`tool_use_enabled`設定に従う（デフォルトTrue）
+    - OpenAI互換プロバイダ: ルーム個別またはプロファイルの`tool_use_enabled`設定に従う（デフォルトTrue）
     """
-    active_provider = get_active_provider()
+    active_provider = get_active_provider(room_name)
     
     if active_provider == "google":
         # Geminiは常にツール使用可能
         return True
     
     # OpenAI互換プロバイダの場合
+    # まずルーム個別のopenai_settings.tool_use_enabledを確認
+    if room_name:
+        room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+        if os.path.exists(room_config_path):
+            try:
+                with open(room_config_path, "r", encoding="utf-8") as f:
+                    room_config = json.load(f)
+                override_settings = room_config.get("override_settings", {})
+                room_openai_settings = override_settings.get("openai_settings", {})
+                # ルーム個別のtool_use_enabledが明示的に設定されている場合はそれを使用
+                if "tool_use_enabled" in room_openai_settings:
+                    return room_openai_settings["tool_use_enabled"]
+            except Exception:
+                pass
+    
+    # フォールバック: グローバルなアクティブプロファイルの設定
     openai_setting = get_active_openai_setting()
     if openai_setting:
         # プロファイルのtool_use_enabled設定を取得（デフォルトTrue）

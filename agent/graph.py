@@ -675,7 +675,8 @@ def agent_node(state: AgentState):
     llm = LLMFactory.create_chat_model(
         model_name=state['model_name'],
         api_key=state['api_key'],
-        generation_config=state['generation_config']
+        generation_config=state['generation_config'],
+        room_name=state['room_name']  # ルーム個別のプロバイダ設定を使用
     )
     
     # 【ツール不使用モード】ツール使用の有効/無効に応じて分岐
@@ -786,8 +787,16 @@ def agent_node(state: AgentState):
         error_str = str(e).lower()
         model_name = state.get('model_name', '不明なモデル')
         
-        # ツール/Function Calling非対応エラーの検知
-        if "tools is not supported" in error_str or "function calling" in error_str:
+        # ツール/Function Calling関連エラーの検知（複数パターンに対応）
+        tool_error_patterns = [
+            "tools is not supported",
+            "function calling",
+            "failed to call a function",
+            "tool call validation failed"
+        ]
+        is_tool_error = any(pattern in error_str for pattern in tool_error_patterns)
+        
+        if is_tool_error:
             print(f"  - [OpenAI] ツール非対応モデルエラーを検知: {model_name}")
             # ui_handlers.py側でシステムエラーとして処理するため、例外として再スロー
             # エラーメッセージをユーザーフレンドリーに書き換え

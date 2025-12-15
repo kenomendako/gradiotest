@@ -147,7 +147,6 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             False, # auto_memory_enabled
             f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", None,
             True, gr.update(open=True),
-            # --- [追加] 以下8個: 既存コードで不足していた項目 ---
             gr.update(value="全ログ"),  # room_api_history_limit_dropdown
             "all",  # api_history_limit_state
             gr.update(value="過去 2週間"),  # room_episode_memory_days_dropdown
@@ -156,6 +155,17 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value=120),  # room_autonomous_inactivity_slider
             gr.update(value="00:00"),  # room_quiet_hours_start
             gr.update(value="07:00"),  # room_quiet_hours_end
+            gr.update(value=None),  # room_model_dropdown (Dropdown)
+            # [Phase 3] 個別プロバイダ設定
+            gr.update(value="default"),  # room_provider_radio
+            gr.update(visible=False),  # room_google_settings_group
+            gr.update(visible=False),  # room_openai_settings_group
+            gr.update(value=None),  # room_api_key_dropdown
+            gr.update(value=None),  # room_openai_profile_dropdown
+            gr.update(value=""),  # room_openai_base_url_input
+            gr.update(value=""),  # room_openai_api_key_input
+            gr.update(value=None),  # room_openai_model_dropdown
+            gr.update(value=True),  # room_openai_tool_use_checkbox
         )
 
     # --- 【通常モード】 ---
@@ -278,7 +288,18 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=auto_enabled),
         gr.update(value=auto_inactivity),
         gr.update(value=quiet_start),
-        gr.update(value=quiet_end)        
+        gr.update(value=quiet_end),
+        gr.update(choices=list(config_manager.AVAILABLE_MODELS_GLOBAL), value=effective_settings.get("model_name", None)),  # room_model_dropdown (Dropdown)
+        # [Phase 3] 個別プロバイダ設定
+        gr.update(value=effective_settings.get("provider", "default")),  # room_provider_radio
+        gr.update(visible=(effective_settings.get("provider") == "google")),  # room_google_settings_group
+        gr.update(visible=(effective_settings.get("provider") == "openai")),  # room_openai_settings_group
+        gr.update(value=effective_settings.get("api_key_name", None)),  # room_api_key_dropdown
+        gr.update(value=effective_settings.get("openai_settings", {}).get("profile", None)),  # room_openai_profile_dropdown
+        gr.update(value=effective_settings.get("openai_settings", {}).get("base_url", "")),  # room_openai_base_url_input
+        gr.update(value=effective_settings.get("openai_settings", {}).get("api_key", "")),  # room_openai_api_key_input
+        gr.update(choices=[], value=effective_settings.get("openai_settings", {}).get("model", None)),  # room_openai_model_dropdown (profs用chooseはprofile選択時に読み込み)
+        gr.update(value=effective_settings.get("openai_settings", {}).get("tool_use_enabled", True)),  # room_openai_tool_use_checkbox
     )
 
 
@@ -341,6 +362,8 @@ def handle_initial_load():
     
     if has_valid_key:
         token_calc_kwargs = config_manager.get_effective_settings(safe_initial_room)
+        # api_key_nameが重複しないように削除（明示的に渡すため）
+        token_calc_kwargs.pop("api_key_name", None)
         token_count_text = gemini_api.count_input_tokens(
             room_name=safe_initial_room, api_key_name=safe_initial_api_key,
             parts=[], **token_calc_kwargs
@@ -409,7 +432,16 @@ def handle_save_room_settings(
     enable_autonomous: bool,
     autonomous_inactivity: float,
     quiet_hours_start: str,
-    quiet_hours_end: str  
+    quiet_hours_end: str,
+    model_name: str = None,  # [追加] ルーム個別モデル設定
+    # [Phase 3] 個別プロバイダ設定
+    provider: str = "default",
+    api_key_name: str = None,
+    openai_profile: str = None,  # 追加: プロファイル選択
+    openai_base_url: str = None,
+    openai_api_key: str = None,
+    openai_model: str = None,
+    openai_tool_use: bool = True  # 追加: ツール使用オンオフ
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -431,6 +463,8 @@ def handle_save_room_settings(
     episode_days_key = next((k for k, v in constants.EPISODIC_MEMORY_OPTIONS.items() if v == episode_memory_days), constants.DEFAULT_EPISODIC_MEMORY_DAYS)
 
     new_settings = {
+        # ルーム個別モデル設定: 「共通設定に従う」の場合はNullにリセット
+        "model_name": None if provider == "default" else (model_name if model_name else None),
         "voice_id": next((k for k, v in config_manager.SUPPORTED_VOICES.items() if v == voice_name), None),
         "voice_style_prompt": voice_style_prompt.strip(),
         "temperature": temp,
@@ -460,7 +494,17 @@ def handle_save_room_settings(
             "inactivity_minutes": int(autonomous_inactivity),
             "quiet_hours_start": quiet_hours_start,
             "quiet_hours_end": quiet_hours_end
-        }
+        },
+        # [Phase 3] 個別プロバイダ設定
+        "provider": provider if provider != "default" else None,
+        "api_key_name": api_key_name if api_key_name else None,
+        "openai_settings": {
+            "profile": openai_profile if openai_profile else None,
+            "base_url": openai_base_url if openai_base_url else "",
+            "api_key": openai_api_key if openai_api_key else "",
+            "model": openai_model if openai_model else "",
+            "tool_use_enabled": bool(openai_tool_use)
+        } if provider == "openai" else None
     }
     try:
         room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
@@ -566,6 +610,7 @@ def update_token_count_on_input(
         send_core_memory=send_core_memory, send_scenery=send_scenery
     )
     effective_settings.pop("api_history_limit", None)
+    effective_settings.pop("api_key_name", None)  # 重複防止
 
     return gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name,
@@ -801,11 +846,14 @@ def _stream_and_handle_response(
                         if isinstance(msg, AIMessage):
                             content_str = utils.get_content_as_string(msg)
                             if content_str and content_str.strip():
-                                # AI応答にもタイムスタンプを追加（ユーザー発言と同じ形式）
+                                # AI応答にもタイムスタンプ・モデル名を追加（ユーザー発言と同じ形式）
                                 # 【修正】既にタイムスタンプが含まれている場合は追加しない
-                                timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2} \([A-Za-z]{3}\) \d{2}:\d{2}:\d{2}$'
+                                timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2} \([A-Za-z]{3}\) \d{2}:\d{2}:\d{2}'
                                 if not re.search(timestamp_pattern, content_str):
-                                    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+                                    # 使用モデル名を取得
+                                    room_effective_settings = config_manager.get_effective_settings(current_room)
+                                    model_name = room_effective_settings.get("model_name", "Unknown")
+                                    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {model_name}"
                                     content_to_log = content_str + timestamp
                                 else:
                                     # デバッグ用ログ
@@ -950,6 +998,7 @@ def _stream_and_handle_response(
         try:
             token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
             token_calc_kwargs.pop("api_history_limit", None)
+            token_calc_kwargs.pop("api_key_name", None)  # 重複防止
             token_count_text = gemini_api.count_input_tokens(room_name=soul_vessel_room, api_key_name=api_key_name, api_history_limit=api_history_limit, parts=[], **token_calc_kwargs)
         except Exception as e:
             print(f"--- 警告: 応答後のトークン数更新に失敗しました: {e} ---")
@@ -1438,7 +1487,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
     unified_full_room_refresh_outputs と完全に一致する65個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 65
+    EXPECTED_OUTPUT_COUNT = 75
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
@@ -3368,7 +3417,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 65
+    EXPECTED_OUTPUT_COUNT = 75
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
@@ -4805,6 +4854,7 @@ def update_token_count_after_attachment_change(
     )
 
     effective_settings.pop("api_history_limit", None)
+    effective_settings.pop("api_key_name", None)  # 重複防止
 
     return gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name,
@@ -5008,7 +5058,7 @@ def handle_apply_theme(selected_theme_name: str):
     theme_settings = current_config.get("theme_settings", {})
     theme_settings["active_theme"] = selected_theme_name
     
-    config_manager.save_config("theme_settings", theme_settings)
+    config_manager.save_config_if_changed("theme_settings", theme_settings)
     
     gr.Info(f"テーマ「{selected_theme_name}」を適用設定にしました。アプリケーションを再起動してください。")
 
@@ -5301,3 +5351,85 @@ def handle_add_custom_openai_model(profile_name: str, custom_model_name: str):
     
     # Dropdownの選択肢を更新して返す
     return gr.update(choices=available_models, value=model_name), ""
+
+
+def handle_add_room_custom_model(room_name: str, custom_model_name: str, provider: str):
+    """
+    個別設定でカスタムモデルを追加し、共通設定に永続保存する。
+    これにより、追加したモデルは全ルームで利用可能になる。
+    
+    Args:
+        room_name: 現在のルーム名（未使用だが引数として残す）
+        custom_model_name: 追加するモデル名
+        provider: "google" または "openai"
+    
+    Returns:
+        (Dropdown更新, テキスト入力クリア)
+    """
+    if not custom_model_name or not custom_model_name.strip():
+        gr.Warning("モデル名を入力してください。")
+        return gr.update(), ""
+    
+    model_name = custom_model_name.strip()
+    
+    if provider == "google":
+        # --- Google (Gemini) の場合: config.jsonのavailable_modelsに追加 ---
+        current_models = list(config_manager.AVAILABLE_MODELS_GLOBAL)
+        
+        # 既に存在するか確認
+        if model_name in current_models:
+            gr.Warning(f"モデル「{model_name}」は既にリストに存在します。")
+            return gr.update(), ""
+        
+        # モデルを追加
+        current_models.append(model_name)
+        
+        # グローバル変数を更新
+        config_manager.AVAILABLE_MODELS_GLOBAL = current_models
+        
+        # config.jsonに保存
+        config_manager.save_config_if_changed("available_models", current_models)
+        
+        gr.Info(f"モデル「{model_name}」を追加しました（共通設定に保存済み）。")
+        
+        # Dropdownの選択肢を更新して返す
+        return gr.update(choices=current_models, value=model_name), ""
+    
+    else:
+        # --- OpenAI互換の場合: 現在選択中のプロファイルのavailable_modelsに追加 ---
+        # 現在アクティブなプロファイルを取得
+        active_profile_name = config_manager.get_active_openai_profile_name()
+        if not active_profile_name:
+            gr.Warning("OpenAI互換のプロファイルが選択されていません。")
+            return gr.update(), ""
+        
+        settings_list = config_manager.get_openai_settings_list()
+        target_index = -1
+        for i, s in enumerate(settings_list):
+            if s["name"] == active_profile_name:
+                target_index = i
+                break
+        
+        if target_index == -1:
+            gr.Warning("プロファイルが見つかりません。")
+            return gr.update(), ""
+        
+        # 既存のモデルリストを取得
+        available_models = settings_list[target_index].get("available_models", [])
+        
+        # 既に存在するか確認
+        if model_name in available_models:
+            gr.Warning(f"モデル「{model_name}」は既にリストに存在します。")
+            return gr.update(), ""
+        
+        # モデルを追加
+        available_models.append(model_name)
+        settings_list[target_index]["available_models"] = available_models
+        
+        # 設定を保存
+        config_manager.save_openai_settings_list(settings_list)
+        
+        gr.Info(f"モデル「{model_name}」を追加しました（共通設定のプロファイルに保存済み）。")
+        
+        # Dropdownの選択肢を更新して返す
+        return gr.update(choices=available_models, value=model_name), ""

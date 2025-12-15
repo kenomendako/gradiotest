@@ -121,10 +121,38 @@ OpenAIプロバイダ使用時に以下のエラーが発生していた問題�
 
 ---
 
-### Phase 4: ルームごとのAI設定
-*   [ ] 各ルームで異なるプロバイダ/モデルを設定可能に
-*   [ ] `room_config.json` にAI設定を追加
-*   [ ] **ツール使用設定もルーム単位で管理**（プロバイダ設定からの移行予定）
+### Phase 4: ルームごとのAI設定 ✅ 完了 (2024-12-15)
+*   [x] 各ルームで異なるプロバイダ/モデルを設定可能に
+*   [x] `room_config.json` の `override_settings` にAI設定（provider, openai_settings）を追加
+*   [x] ルーム個別のツール使用設定（tool_use_enabled）
+*   [x] AI応答にタイムスタンプ + 使用モデル名を表示
+
+#### 2024-12-15 実装: ルーム個別プロバイダ設定
+
+**機能概要:**
+- ルームごとに「共通設定に従う」「Google (Gemini)」「OpenAI互換」を選択可能
+- 各ルームで異なるプロバイダ・モデル・ツール使用設定を持てる
+- グループ会話で3つの異なるモデルが同時に会話可能に
+
+**UI構成:**
+- 個別設定タブに「AIプロバイダ設定」セクションを追加
+- プロバイダラジオボタン: 「共通設定に従う」「Google (Gemini)」「OpenAI互換」
+- Google設定: モデル選択Dropdown、APIキー選択、カスタムモデル追加
+- OpenAI設定: プロファイル選択、Base URL、API Key、モデル選択、ツール使用チェックボックス
+
+**技術的変更:**
+- `get_active_provider(room_name)`: ルーム名を受け取りルーム個別設定を優先
+- `is_tool_use_enabled(room_name)`: ルーム個別のtool_use_enabled設定を参照
+- `LLMFactory.create_chat_model(room_name=...)`: ルーム個別のopenai_settingsを使用
+- `get_effective_settings()`: provider, openai_settingsをeffective_settingsに含める
+
+**対応ファイル:**
+- `config_manager.py`: 設定取得関数にroom_name引数追加
+- `llm_factory.py`: ルーム個別OpenAI設定優先ロジック追加
+- `agent/graph.py`: LLMFactory呼び出しにroom_name渡し
+- `gemini_api.py`: is_tool_use_enabled呼び出しにroom_name渡し
+- `ui_handlers.py`: 設定の保存・読み込み対応、AI応答にモデル名表示
+- `nexus_ark.py`: 個別設定UIの追加
 
 ---
 
