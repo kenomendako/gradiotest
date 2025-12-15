@@ -28,16 +28,23 @@ import signature_manager
 from episodic_memory_manager import EpisodicMemoryManager
 
 # --- トークン計算関連 (変更なし) ---
-def get_model_token_limits(model_name: str, api_key: str) -> Optional[Dict[str, int]]:
+def get_model_token_limits(model_name: str, api_key: str, provider: str = None) -> Optional[Dict[str, int]]:
     if model_name in utils._model_token_limits_cache: return utils._model_token_limits_cache[model_name]
     if not api_key or api_key.startswith("YOUR_API_KEY"): return None
     
     # 【マルチモデル対応】OpenAIモデルの場合はGemini APIを呼び出さない
     # gpt-、o1-、claude-などGemini以外のモデルはGemini APIで情報取得不可
-    active_provider = config_manager.get_active_provider()
-    is_openai_model = model_name.startswith(("gpt-", "o1-", "claude-", "llama-", "mixtral-", "mistral-"))
+    if not provider:
+        provider = config_manager.get_active_provider()
+
+    # '/'が含まれる場合（例: mistralai/mistral-7b...）もOpenAI互換とみなす
+    is_openai_model = (
+        provider == "openai" or 
+        model_name.startswith(("gpt-", "o1-", "claude-", "llama-", "mixtral-", "mistral-")) or
+        "/" in model_name 
+    )
     
-    if active_provider == "openai" or is_openai_model:
+    if is_openai_model:
         # OpenAI互換モデルのトークン制限は一般的なデフォルト値を返す
         # 正確な値が必要な場合は、各プロバイダのAPIを呼び出す必要があるが、
         # トークンカウントはあくまで参考値なので概算で十分
@@ -241,6 +248,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     time_of_day_en = agent_args["time_of_day_en"]
     global_model_from_ui = agent_args.get("global_model_from_ui")
     skip_tool_execution_flag = agent_args.get("skip_tool_execution", False)
+    enable_supervisor_flag = agent_args.get("enable_supervisor", False)
     
     all_participants_list = [soul_vessel_room] + active_participants
 
@@ -331,7 +339,8 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         "loop_count": 0,
         "season_en": season_en, "time_of_day_en": time_of_day_en,
         "skip_tool_execution": skip_tool_execution_flag,
-        "tool_use_enabled": config_manager.is_tool_use_enabled(room_to_respond)  # 【ツール不使用モード】ルーム個別設定を反映
+        "tool_use_enabled": config_manager.is_tool_use_enabled(room_to_respond),  # 【ツール不使用モード】ルーム個別設定を反映
+        "enable_supervisor": enable_supervisor_flag # Supervisor有効フラグ
     }
 
     yield ("initial_count", len(messages))
@@ -529,7 +538,8 @@ def count_input_tokens(**kwargs):
         # トークン数の計算
         total_tokens = count_tokens_from_lc_messages(messages, model_name, api_key)
 
-        limit_info = get_model_token_limits(model_name, api_key)
+        provider = effective_settings.get("provider")
+        limit_info = get_model_token_limits(model_name, api_key, provider=provider)
         if limit_info and 'input' in limit_info: return f"入力トークン数: {total_tokens} / {limit_info['input']}"
         else: return f"入力トークン数: {total_tokens}"
 

@@ -674,6 +674,12 @@ try:
                                 value=False,
                                 info="チェックすると、グループ会話中の全参加者の思考ログが非表示になります。"
                             )
+                            # [v18] Supervisorモード（AI自動進行）
+                            enable_supervisor_cb = gr.Checkbox(
+                                label="AI自動進行（司会モード）",
+                                value=False,
+                                info="AIが会話の流れを読んで、次に誰が話すべきかを自動で指名します。（ONにすると会話が自律的に進みます）"
+                            )
                             with gr.Row():
                                 start_session_button = gr.Button("このメンバーで会話を開始 / 更新", variant="primary")
                                 end_session_button = gr.Button("会話を終了 (1対1に戻る)", variant="secondary")
@@ -816,6 +822,7 @@ try:
                             show_copy_button=True,
                             show_label=False,
                             render_markdown=True,
+                            type="tuples", # [v4.x] 明示的にtuplesを指定して警告を回避
                             group_consecutive_messages=False,
                             editable="all" 
                         )
@@ -1246,7 +1253,8 @@ try:
             streaming_speed_slider,
             current_scenery_display,
             screenshot_mode_checkbox, 
-            redaction_rules_state,    
+            redaction_rules_state,
+            enable_supervisor_cb, # [v18] Supervisorモード    
         ]
     
         rerun_inputs = [
@@ -1264,7 +1272,8 @@ try:
             streaming_speed_slider,
             current_scenery_display,
             screenshot_mode_checkbox, 
-            redaction_rules_state,    
+            redaction_rules_state,
+            enable_supervisor_cb, # [v18] Supervisorモード    
         ]
 
         # 新規送信と再生成で、UI更新の対象（outputs）を完全に一致させる

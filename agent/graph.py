@@ -37,6 +37,7 @@ from llm_factory import LLMFactory
 import utils
 import config_manager
 import constants
+from constants import SUPERVISOR_MODEL
 import pytz
 import signature_manager 
 import room_manager 
@@ -94,7 +95,10 @@ class AgentState(TypedDict):
     force_end: bool
     skip_tool_execution: bool
     retrieved_context: str
+    retrieved_context: str
     tool_use_enabled: bool  # 【ツール不使用モード】ツール使用の有効/無効
+    next: str
+    enable_supervisor: bool # Supervisor機能の有効/無効
 
 def get_location_list(room_name: str) -> List[str]:
     if not room_name: return []
@@ -1048,35 +1052,142 @@ def safe_tool_executor(state: AgentState):
 
     return {"messages": [tool_msg], "loop_count": state.get("loop_count", 0)}
 
-def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node", "agent"]:
+
+def supervisor_node(state: AgentState):
+    """
+    会話の管理者ノード。
+    次に誰が発言するか、またはユーザーにターンを戻すか（FINISH）を決定する。
+    """
+    print("--- Supervisor Node 実行 ---")
+    
+    # 1. 無効化されている場合はスキップ（現在のルーム名 = つまり指名されたエージェントをそのまま通す）
+    if not state.get("enable_supervisor", False):
+        next_agent = state["room_name"]
+        print(f"  - [Supervisor] 無効設定のためスキップ: {next_agent}")
+        return {"next": next_agent}
+
+    # 2. 参加者が一人（または0）の場合は、管理不要なのでその一人に任せる
+    all_participants = state.get("all_participants", [])
+    if len(all_participants) <= 1:
+        next_agent = state["room_name"]
+        print(f"  - 参加者が単独のため、Supervisorをスキップ: {next_agent}")
+        return {"next": next_agent}
+
+    # Supervisorモデルの準備
+    api_key = state['api_key'] 
+    
+    print(f"  - Supervisor AI ({SUPERVISOR_MODEL}) が次の進行を判断中...")
+
+    # 選択肢の定義
+    options = all_participants + ["FINISH"]
+    options_str = ', '.join(f'"{o}"' for o in options)
+    
+    system_prompt = (
+        "あなたはグループチャットの進行役です。\n"
+        "以下の会話履歴を確認し、次に発言すべき参加者を選んでください。\n"
+        "特に指定がなければ、話の流れに最も適した人物を指名してください。\n"
+        "全員が話し終えた、またはユーザーからの入力が必要なタイミングであれば 'FINISH' を選んでください。\n\n"
+        "【重要】\n"
+        "出力は **必ず以下のJSON形式のみ** にしてください。他のテキストは一切含めないでください。\n"
+        '{"next_speaker": "選択した名前"}\n\n'
+        f"【選択可能な名前リスト】: [{options_str}]"
+    )
+
+    try:
+        # LLMFactoryでモデル作成
+        # Function Callingを使用せず、純粋なテキスト生成として呼び出す
+        supervisor_llm = LLMFactory.create_chat_model(
+            model_name=SUPERVISOR_MODEL,
+            api_key=api_key,
+            temperature=0.0 # 決定論的にする
+        )
+        
+        # 会話履歴の最後の方だけ渡す
+        recent_messages = state["messages"][-10:]
+        
+        # SystemMessageが使えないモデル（Gemma 3など）のためにHumanMessageに置換
+        response = supervisor_llm.invoke([HumanMessage(content=system_prompt)] + recent_messages)
+        content = response.content.strip()
+        print(f"  - Supervisor生応答: {content}")
+        
+        # JSONパース（Markdownコードブロック除去を含む）
+        json_match = re.search(r"\{.*\}", content, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+            decision = json.loads(json_str)
+            next_speaker = decision.get("next_speaker")
+        else:
+            # JSONが見つからない場合、文字列そのものでマッチ試行
+            cleaned = content.replace('"', '').replace("'", "").strip()
+            if cleaned in options:
+                next_speaker = cleaned
+            else:
+                raise ValueError("Valid JSON not found")
+
+        # バリデーション
+        if next_speaker not in options:
+            print(f"  - 警告: 無効な選択 '{next_speaker}'。デフォルト(現在のルーム)へ。")
+            next_speaker = state["room_name"]
+
+        print(f"  - Supervisorの決定: {next_speaker}")
+        
+    except Exception as e:
+        print(f"  - Supervisorエラー: {e}")
+        print("  - デフォルト（現在のルーム）にフォールバックします。")
+        next_speaker = state["room_name"]
+
+    # もしFINISHなら終了
+    if next_speaker == "FINISH":
+        return {"next": "FINISH"}
+    
+    # 次の話者が決まったら、room_nameを更新してコンテキスト生成などがそのキャラ用になるようにする
+    return {"next": next_speaker, "room_name": next_speaker}
+
+def route_after_agent(state: AgentState) -> Literal["__end__", "safe_tool_node", "supervisor"]:
     print("--- エージェント後ルーター (route_after_agent) 実行 ---")
     if state.get("force_end"): return "__end__"
 
     last_message = state["messages"][-1]
-    # loop_count = state.get("loop_count", 0)
 
     if last_message.tool_calls:
         print("  - ツール呼び出しあり。ツール実行ノードへ。")
         return "safe_tool_node"
 
-    # if loop_count < 2:
-    #     print(f"  - ツール呼び出しなし。再思考します。(ループカウント: {loop_count})")
-    #     return "agent"
+    # 【v18 Fix】Supervisorが無効の場合は、ループせずに終了する
+    if not state.get("enable_supervisor", False):
+        print("  - ツール呼び出しなし。Supervisor無効のため終了。")
+        return "__end__"
     
-    print(f"  - ツール呼び出しなし。会話終了とみなし、グラフを終了します。")
-    return "__end__"
+    print(f"  - ツール呼び出しなし。Supervisorに制御を戻します。")
+    return "supervisor"
 
 workflow = StateGraph(AgentState)
+workflow.add_node("supervisor", supervisor_node)
 workflow.add_node("context_generator", context_generator_node)
 workflow.add_node("retrieval_node", retrieval_node)
 workflow.add_node("agent", agent_node)
 workflow.add_node("safe_tool_node", safe_tool_executor)
 
-workflow.set_entry_point("context_generator")
+# エントリーポイントをSupervisorに変更
+workflow.set_entry_point("supervisor")
+
+# Supervisorの決定による分岐
+# FINISH -> 終了
+# それ以外 -> そのキャラのコンテキスト生成へ
+def route_supervisor(state):
+    if state["next"] == "FINISH":
+        return END
+    return "context_generator"
+
+workflow.add_conditional_edges("supervisor", route_supervisor)
 
 workflow.add_edge("context_generator", "retrieval_node")
 workflow.add_edge("retrieval_node", "agent")
 
-workflow.add_conditional_edges("agent", route_after_agent, {"safe_tool_node": "safe_tool_node", "agent": "agent", "__end__": END})
+# Agent後の分岐: ツール使用 -> ToolNode, 会話終了 -> Supervisorへ戻る
+workflow.add_conditional_edges("agent", route_after_agent, {"safe_tool_node": "safe_tool_node", "supervisor": "supervisor", "__end__": END})
+
+# ツール実行後は必ず元のAgentに戻る（結果を受け取るため）
 workflow.add_edge("safe_tool_node", "agent")
+
 app = workflow.compile()

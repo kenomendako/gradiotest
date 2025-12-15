@@ -646,6 +646,9 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         # 念の為のフォールバック
         if not effective_settings.get("model_name"):
             effective_settings["model_name"] = DEFAULT_MODEL_GLOBAL
+
+    # 【重要】プロバイダ情報を明示的に含める（gemini_apiなどで参照するため）
+    effective_settings["provider"] = active_provider
             
     return effective_settings
 

@@ -634,7 +634,8 @@ def _stream_and_handle_response(
     streaming_speed: float,
     scenery_text_from_ui: str,
     screenshot_mode: bool, 
-    redaction_rules: list  
+    redaction_rules: list,
+    enable_supervisor: bool = False # Supervisor機能の有効/無効
 ) -> Iterator[Tuple]:
     """
     【v15: グループ会話・逐次表示FIX】
@@ -714,7 +715,8 @@ def _stream_and_handle_response(
                 "shared_scenery_text": scenery_text_from_ui, 
                 "season_en": season_en, 
                 "time_of_day_en": time_of_day_en,
-                "skip_tool_execution": tool_execution_successful_this_turn
+                "skip_tool_execution": tool_execution_successful_this_turn,
+                "enable_supervisor": enable_supervisor # フラグを渡す
             }
 
             streamed_text = ""
@@ -740,7 +742,8 @@ def _stream_and_handle_response(
                         "shared_scenery_text": scenery_text_from_ui,
                         "season_en": season_en,
                         "time_of_day_en": time_of_day_en,
-                        "skip_tool_execution": tool_execution_successful_this_turn
+                        "skip_tool_execution": tool_execution_successful_this_turn,
+                        "enable_supervisor": enable_supervisor # フラグを渡す
                     }
                     
                     # デバッグモードがONの場合のみ、標準出力をキャプチャする
@@ -1029,7 +1032,8 @@ def handle_message_submission(
     enable_typewriter_effect: bool, streaming_speed: float,
     scenery_text_from_ui: str,
     screenshot_mode: bool, 
-    redaction_rules: list  
+    redaction_rules: list,
+    enable_supervisor: bool = False  # [v18] Supervisor機能の有効/無効
 ):
     """
     【v9: 添付ファイル永続化FIX版】新規メッセージの送信を処理する司令塔。
@@ -1185,7 +1189,8 @@ def handle_message_submission(
         streaming_speed=streaming_speed,
         scenery_text_from_ui=scenery_text_from_ui,
         screenshot_mode=screenshot_mode, 
-        redaction_rules=redaction_rules  
+        redaction_rules=redaction_rules,
+        enable_supervisor=enable_supervisor  # [v18] Supervisor機能の有効/無効
     )
 
 def handle_rerun_button_click(
@@ -1197,7 +1202,8 @@ def handle_rerun_button_click(
     enable_typewriter_effect: bool, streaming_speed: float,
     scenery_text_from_ui: str,
     screenshot_mode: bool, 
-    redaction_rules: list  
+    redaction_rules: list,
+    enable_supervisor: bool = False  # [v18] Supervisor機能の有効/無効
 ):
     """
     【v3: 遅延解消版】発言の再生成を処理する司令塔。
@@ -1255,7 +1261,8 @@ def handle_rerun_button_click(
         streaming_speed=streaming_speed,  
         scenery_text_from_ui=scenery_text_from_ui,
         screenshot_mode=screenshot_mode, 
-        redaction_rules=redaction_rules  
+        redaction_rules=redaction_rules,
+        enable_supervisor=enable_supervisor  # [v18] Supervisor機能の有効/無効
     )
 
 def _get_updated_scenery_and_image(room_name: str, api_key_name: str, force_text_regenerate: bool = False) -> Tuple[str, Optional[str]]:

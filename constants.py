@@ -28,6 +28,7 @@ DEFAULT_ALARM_API_HISTORY_TURNS = 10
 INTERNAL_PROCESSING_MODEL = "gemini-2.5-flash-lite"
 SUMMARIZATION_MODEL = "gemini-2.5-flash"          # 高品質（要約、文章生成など）
 EMBEDDING_MODEL = "gemini-embedding-001"
+SUPERVISOR_MODEL = "gemma-3-12b-it"
 
 # --- ツール専用AIモデル ---
 SEARCH_MODEL = "gemini-2.5-flash"
