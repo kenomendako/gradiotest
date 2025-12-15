@@ -3434,7 +3434,11 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     # 責務1: 各UIセクションの更新値を個別に生成する
     chat_tab_updates = _update_chat_tab_for_room_change(room_name, api_key_name)
     world_builder_updates = handle_world_builder_load(room_name)
-    session_management_updates = ([], "現在、1対1の会話モードです。", gr.update(value=[]))
+    # グループ会話の参加者リストから現在のルームを除外
+    all_rooms = room_manager.get_room_list_for_ui()
+    room_names_only = [name for name, _folder in all_rooms]
+    participant_choices = sorted([r for r in room_names_only if r != room_name])
+    session_management_updates = ([], "現在、1対1の会話モードです。", gr.update(choices=participant_choices, value=[]))
     rules = config_manager.load_redaction_rules()
     rules_df_for_ui = _create_redaction_df_from_rules(rules)
     archive_dates = _get_date_choices_from_memory(room_name)
