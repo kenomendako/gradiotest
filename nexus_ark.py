@@ -273,721 +273,719 @@ try:
         redaction_rule_color_state = gr.State("#62827e")
         imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
         selected_knowledge_file_index_state = gr.State(None)
-        with gr.Tabs():
-            with gr.TabItem("チャット"):
-                # --- [ここからが新しい3カラムレイアウト] ---
-                with gr.Row(equal_height=False):
-                    # --- 左カラム (サイドバー化) ---
-                    with gr.Sidebar(label="設定", width=350, open=True):
-                        room_dropdown = gr.Dropdown(label="ルームを選択", interactive=True)
+    # --- グローバル・左サイドバー (設定) ---
+    with gr.Sidebar(label="設定", width=320, open=True):
+        room_dropdown = gr.Dropdown(label="ルームを選択", interactive=True)
 
-                        with gr.Accordion("⚙️ 設定", open=False):
-                            with gr.Tabs() as settings_tabs:
-                                with gr.TabItem("共通") as common_settings_tab:
-                                    with gr.Accordion("🔑 APIキー / Webhook管理", open=False):
-                                        with gr.Accordion("Gemini APIキー", open=True):
-                                            gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
-                                            gemini_key_value_input = gr.Textbox(label="APIキーの値", type="password")
-                                            with gr.Row():
-                                                save_gemini_key_button = gr.Button("新しいキーを追加", variant="primary")
-                                                delete_gemini_key_button = gr.Button("選択したキーを削除", variant="secondary")
-                                            gr.Markdown("---")
-                                            gr.Markdown("#### 登録済みAPIキーリスト\nチェックを入れたキーが、有料プラン（Pay-as-you-go）として扱われます。")
-                                            paid_keys_checkbox_group = gr.CheckboxGroup(
-                                                label="有料プランのキーを選択",
-                                                choices=[pair[1] for pair in config_manager.get_api_key_choices_for_ui()],
-                                                # value=... を削除
-                                                interactive=True
-                                            )
-                                        with gr.Accordion("Pushover", open=False):
-                                            pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", interactive=True) 
-                                            pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", interactive=True)
-                                            save_pushover_config_button = gr.Button("Pushover設定を保存", variant="primary")
-                                        with gr.Accordion("Discord", open=False):
-                                            discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", interactive=True)
-                                            save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
-                                        gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
-
-                                    with gr.Accordion("🤖 AIモデルプロバイダ設定（デフォルト）", open=False):
-                                        gr.Markdown("会話に使用するAIモデルのプロバイダを切り替えます。")
-                                        
-                                        current_provider = config_manager.get_active_provider()
-                                        
-                                        provider_radio = gr.Radio(
-                                            choices=[
-                                                ("Google (Gemini Native)", "google"),
-                                                ("OpenAI互換 (OpenRouter / Groq / Ollama / OpenAI)", "openai")
-                                            ],
-                                            value=current_provider,
-                                            label="アクティブなプロバイダ",
-                                            interactive=True
-                                        )
-                                        
-                                        # --- Google設定エリア ---
-                                        with gr.Group(visible=(current_provider == "google")) as google_settings_group:
-                                            model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, label="デフォルトAIモデル", interactive=True)
-                                            api_key_dropdown = gr.Dropdown(label="使用するGemini APIキー", interactive=True)
-                                            api_test_button = gr.Button("API接続をテスト", variant="secondary")
-
-                                        # --- OpenAI互換設定エリア ---
-                                        with gr.Group(visible=(current_provider == "openai")) as openai_settings_group:
-                                            openai_profiles = [s["name"] for s in config_manager.get_openai_settings_list()]
-                                            current_openai_profile = config_manager.get_active_openai_profile_name()
-                                            
-                                            openai_profile_dropdown = gr.Dropdown(
-                                                choices=openai_profiles,
-                                                value=current_openai_profile,
-                                                label="プロファイル選択",
-                                                interactive=True,
-                                                allow_custom_value=False # 既存のみ選択可
-                                            )
-                                            
-                                            with gr.Row():
-                                                openai_base_url_input = gr.Textbox(label="Base URL", placeholder="例: https://openrouter.ai/api/v1")
-                                                openai_api_key_input = gr.Textbox(label="API Key", type="password", placeholder="sk-...")
-                                            
-                                            # モデル選択をDropdownに変更
-                                            # 現在のプロファイルからモデルリストを取得
-                                            _current_openai_setting = config_manager.get_active_openai_setting() or {}
-                                            _current_models = _current_openai_setting.get("available_models", [])
-                                            _current_default_model = _current_openai_setting.get("default_model", "")
-                                            
-                                            openai_model_dropdown = gr.Dropdown(
-                                                choices=_current_models,
-                                                value=_current_default_model,
-                                                label="デフォルトモデル",
-                                                interactive=True,
-                                                allow_custom_value=True,  # カスタム値の直接入力も許可
-                                                info="リストから選択するか、新しいモデル名を直接入力できます"
-                                            )
-                                            
-                                            # カスタムモデル追加UI
-                                            with gr.Accordion("カスタムモデルを追加", open=False):
-                                                with gr.Row():
-                                                    custom_model_name_input = gr.Textbox(
-                                                        label="モデル名",
-                                                        placeholder="例: my-custom-model",
-                                                        scale=3
-                                                    )
-                                                    add_custom_model_button = gr.Button("追加", scale=1, variant="secondary")
-                                                gr.Markdown("💡 追加したモデルはプロファイルに保存され、次回起動時も利用できます。")
-                                            
-                                            # 【ツール不使用モード】ツール使用チェックボックス
-                                            _tool_use_enabled = _current_openai_setting.get("tool_use_enabled", True)
-                                            openai_tool_use_checkbox = gr.Checkbox(
-                                                label="ツール使用（Function Calling）を有効にする",
-                                                value=_tool_use_enabled,
-                                                interactive=True,
-                                                info="OFFにすると、AIはWeb検索・画像生成・記憶編集などのツールを使用できなくなりますが、ツール非対応モデルでも会話できるようになります。"
-                                            )
-                                            
-                                            save_openai_config_button = gr.Button("このプロファイル設定を保存", variant="secondary")
-
-                                    with gr.Accordion("🎨 画像生成設定", open=False):
-                                        # Configから値を読み込み、廃止された "old" が設定されていた場合は "new" にフォールバックする
-                                        current_img_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
-                                        if current_img_gen_mode == "old":
-                                            current_img_gen_mode = "new"
-
-                                        image_generation_mode_radio = gr.Radio(
-                                            choices=[
-                                                ("有効 (新モデル: gemini-2.5-flash-image - 有料)", "new"),
-                                                ("無効", "disabled")
-                                            ],
-                                            value=current_img_gen_mode,
-                                            label="画像生成機能 (generate_imageツール)",
-                                            interactive=True,
-                                            info="「無効」にすると、AIのプロンプトからも画像生成に関する項目が削除されます。"
-                                        )
-
-                                    with gr.Accordion("🔍 検索プロバイダ設定", open=False):
-                                        current_search_provider = config_manager.CONFIG_GLOBAL.get("search_provider", "google")
-                                        search_provider_radio = gr.Radio(
-                                            choices=[
-                                                ("Google (Gemini Native) - 無料枠では制限あり", "google"),
-                                                ("DuckDuckGo - 高速・安定", "ddg"),
-                                                ("無効", "disabled")
-                                            ],
-                                            value=current_search_provider,
-                                            label="Web検索プロバイダ (web_search_tool)",
-                                            interactive=True,
-                                            info="「無効」にすると、AIはWeb検索を行えなくなります。"
-                                        )
-
-
-                                    with gr.Accordion("📢 通知サービス設定", open=False):
-                                        notification_service_radio = gr.Radio(
-                                            choices=["Discord", "Pushover"], 
-                                            label="アラーム通知に使用するサービス",
-                                            interactive=True
-                                        )
-                                        gr.Markdown("---")
-
-                                    with gr.Accordion("💾 バックアップ設定", open=False):
-                                        backup_rotation_count_number = gr.Number(
-                                            label="バックアップの最大保存件数（世代数）",
-                                            # value=... を削除
-                                            step=1,
-                                            minimum=1,
-                                            interactive=True,
-                                            info="ファイル（ログ、記憶など）ごとに、ここで指定した数だけ最新のバックアップが保持されます。"
-                                        )
-                                        open_backup_folder_button = gr.Button("現在のルームのバックアップフォルダを開く", variant="secondary")
-                                    
-                                    debug_mode_checkbox = gr.Checkbox(label="🐛 デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", interactive=True)
-                                with gr.TabItem("個別") as individual_settings_tab:
-                                    room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
-                                    save_room_settings_button = gr.Button("このルームの個別設定を保存", variant="primary")
-
-                                    # --- [Phase 3] 個別設定用AIモデルプロバイダ設定 (一番上に配置) ---
-                                    with gr.Accordion("🤖 AIモデルプロバイダ設定（このルーム）", open=False):
-                                        gr.Markdown("このルームで使用するAIプロバイダを設定します。「共通設定に従う」を選ぶとデフォルト設定が適用されます。")
-                                        
-                                        room_provider_radio = gr.Radio(
-                                            choices=[
-                                                ("共通設定に従う", "default"),
-                                                ("Google (Gemini Native)", "google"),
-                                                ("OpenAI互換 (OpenRouter / Groq / Ollama)", "openai")
-                                            ],
-                                            value="default",
-                                            label="このルームで使用するプロバイダ",
-                                            interactive=True
-                                        )
-                                        
-                                        # --- Google設定グループ ---
-                                        with gr.Group(visible=False) as room_google_settings_group:
-                                            room_model_dropdown = gr.Dropdown(
-                                                choices=config_manager.AVAILABLE_MODELS_GLOBAL,
-                                                label="このルームで使用するAIモデル",
-                                                info="Gemini APIで使用するモデルを選択します。",
-                                                interactive=True,
-                                                allow_custom_value=True
-                                            )
-                                            
-                                            # カスタムモデル追加UI
-                                            with gr.Accordion("カスタムモデルを追加", open=False):
-                                                with gr.Row():
-                                                    room_google_custom_model_input = gr.Textbox(
-                                                        label="モデル名",
-                                                        placeholder="例: gemini-2.5-flash-exp",
-                                                        scale=3
-                                                    )
-                                                    room_google_add_model_button = gr.Button("追加", scale=1, variant="secondary")
-                                                gr.Markdown("💡 追加したモデルは現在のセッション中のみ有効です。")
-                                            
-                                            room_api_key_dropdown = gr.Dropdown(
-                                                choices=config_manager.get_api_key_choices_for_ui(),
-                                                label="このルームで使用するAPIキー",
-                                                info="共通設定で登録したAPIキーから選択します。",
-                                                interactive=True
-                                            )
-                                        
-                                        # --- OpenAI互換設定グループ ---
-                                        with gr.Group(visible=False) as room_openai_settings_group:
-                                            # プロファイル選択
-                                            room_openai_profile_dropdown = gr.Dropdown(
-                                                choices=[s["name"] for s in config_manager.get_openai_settings_list()],
-                                                label="プロファイル選択",
-                                                info="共通設定で登録したプロファイルから選択します。選択すると下の項目が自動入力されます。",
-                                                interactive=True
-                                            )
-                                            
-                                            with gr.Row():
-                                                room_openai_base_url_input = gr.Textbox(
-                                                    label="Base URL",
-                                                    placeholder="例: https://openrouter.ai/api/v1",
-                                                    interactive=True
-                                                )
-                                                room_openai_api_key_input = gr.Textbox(
-                                                    label="API Key",
-                                                    type="password",
-                                                    placeholder="sk-...",
-                                                    interactive=True
-                                                )
-                                            
-                                            # モデル選択（Dropdown + カスタム値入力可能）
-                                            room_openai_model_dropdown = gr.Dropdown(
-                                                choices=[],
-                                                label="デフォルトモデル",
-                                                interactive=True,
-                                                allow_custom_value=True,
-                                                info="プロファイル選択で自動入力されるか、直接入力できます"
-                                            )
-                                            
-                                            # カスタムモデル追加UI
-                                            with gr.Accordion("カスタムモデルを追加", open=False):
-                                                with gr.Row():
-                                                    room_openai_custom_model_input = gr.Textbox(
-                                                        label="モデル名",
-                                                        placeholder="例: my-custom-model",
-                                                        scale=3
-                                                    )
-                                                    room_openai_add_model_button = gr.Button("追加", scale=1, variant="secondary")
-                                                gr.Markdown("💡 追加したモデルは現在のセッション中のみ有効です。")
-                                            
-                                            # ツール使用オンオフ
-                                            room_openai_tool_use_checkbox = gr.Checkbox(
-                                                label="ツール使用（Function Calling）を有効にする",
-                                                value=True,
-                                                interactive=True,
-                                                info="OFFにすると、AIはWeb検索・画像生成・記憶編集などのツールを使用できなくなりますが、ツール非対応モデルでも会話できるようになります。"
-                                            )
-
-                                    with gr.Accordion("🖼️ 情景描写設定", open=False):
-                                        enable_scenery_system_checkbox = gr.Checkbox(
-                                            label="🖼️ このルームで情景描写システムを有効にする",
-                                            info="有効にすると、チャット画面右側に情景が表示され、AIもそれを認識します。",
-                                            interactive=True
-                                        )
-                                    with gr.Accordion("📜 ストリーミング表示設定", open=False):
-                                        enable_typewriter_effect_checkbox = gr.Checkbox(label="タイプライター風の逐次表示を有効化", interactive=True)
-                                        streaming_speed_slider = gr.Slider(
-                                            minimum=0.0, maximum=0.1, step=0.005,
-                                            label="表示速度", info="値が小さいほど速く、大きいほどゆっくり表示されます。(0.0で最速)",
-                                            interactive=True
-                                        )
-                                    with gr.Accordion("🎤 音声設定", open=False):
-                                        gr.Markdown("チャットの発言を選択して、ここで設定した声で再生できます。")
-                                        room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
-                                        room_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
-                                        with gr.Row():
-                                            room_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
-                                            room_preview_voice_button = gr.Button("試聴", scale=1)
-                                        open_audio_folder_button = gr.Button("📂 現在のルームの音声フォルダを開く", variant="secondary")
-                                    with gr.Accordion("🔬 AI生成パラメータ調整", open=False):
-                                        gr.Markdown("このルームの応答の「創造性」と「安全性」を調整します。")
-                                        room_temperature_slider = gr.Slider(minimum=0.0, maximum=2.0, step=0.05, label="Temperature", info="値が高いほど、AIの応答がより創造的で多様になります。(推奨: 0.7 ~ 0.9)")
-                                        room_top_p_slider = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, label="Top-P", info="値が低いほど、ありふれた単語が選ばれやすくなります。(推奨: 0.95)")
-                                        safety_choices = ["ブロックしない", "低リスク以上をブロック", "中リスク以上をブロック", "高リスクのみブロック"]
-                                        with gr.Row():
-                                            room_safety_harassment_dropdown = gr.Dropdown(choices=safety_choices, label="嫌がらせコンテンツ", interactive=True)
-                                            room_safety_hate_speech_dropdown = gr.Dropdown(choices=safety_choices, label="ヘイトスピーチ", interactive=True)
-                                        with gr.Row():
-                                            room_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
-                                            room_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
-                                    
-                                    with gr.Accordion("📡 APIコンテキスト設定", open=False):
-                                        room_api_history_limit_dropdown = gr.Dropdown(
-                                            choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), 
-                                            label="APIへの履歴送信（短期記憶の長さ）", 
-                                            info="AIに送信する直近の会話ログの長さを設定します。",
-                                            interactive=True
-                                        )
-
-                                        room_episode_memory_days_dropdown = gr.Dropdown(
-                                            choices=list(constants.EPISODIC_MEMORY_OPTIONS.values()),
-                                            label="エピソード記憶の参照期間（中期記憶）",
-                                            info="生ログより前の期間について、要約された記憶をどれくらい遡って参照するか設定します。",
-                                            interactive=True
-                                        )
-
-                                        room_enable_retrieval_checkbox = gr.Checkbox(
-                                            label="記憶の想起（長期記憶）を有効化",
-                                            info="▼AIが応答する前に、過去ログや知識ベースから関連情報を自律的に検索・想起します。",
-                                            interactive=True
-                                        )
-
-                                        room_display_thoughts_checkbox = gr.Checkbox( 
-                                            label="AIの思考過程 [THOUGHT] をチャットに表示する",
-                                            interactive=True
-                                        )
-                                        room_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
-                                                                                
-                                        room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)                                        
-                                        room_send_current_time_checkbox = gr.Checkbox(
-                                            label="現在時刻をAPIに送信",
-                                            info="▼挨拶の自然さを向上させますが、特定の時間帯を演じたい場合はOFFにしてください。",
-                                            interactive=True
-                                        )
-
-                                        room_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
-                                        room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを送信", interactive=True)
-                                        room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
-                                        room_send_scenery_checkbox = gr.Checkbox(
-                                            label="空間描写・設定をAPIに送信 (情景システムと連動)",
-                                            interactive=False,
-                                            visible=True
-                                        )
-                                        auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True, visible=False)
-
-                                    with gr.Accordion("🤖 自律行動設定 (Beta)", open=False):
-                                        gr.Markdown(
-                                            "ユーザーからの入力がない間も、AIが自律的に思考し、行動（日記の整理、検索、発話など）を行います。\n"
-                                            "**注意:** 設定した頻度で自動的にAPIを呼び出すため、コストにご注意ください。"
-                                        )
-                                        room_enable_autonomous_checkbox = gr.Checkbox(
-                                            label="自律行動モードを有効化",
-                                            interactive=True
-                                        )
-                                        room_autonomous_inactivity_slider = gr.Slider(
-                                            minimum=10, maximum=1440, step=10, value=120,
-                                            label="無操作判定時間（分）",
-                                            info="最後の会話からこの時間が経過すると、AIが「何かすべきことはないか」と思考を開始します。",
-                                            interactive=True
-                                        )
-                                        
-                                        gr.Markdown("#### 🌙 通知禁止時間帯 (Quiet Hours)")
-                                        gr.Markdown(
-                                            "この時間帯にAIが行動した場合、通知（Discord/Pushover）は送信されません。\n"
-                                            "また、この時間帯はAIの「睡眠時間」とみなされ、**夢日記の作成**と**睡眠時記憶整理**が実行されます。詳しくは「記憶タブ → 夢日記」をご覧ください。"
-                                        )
-
-                                        with gr.Row():
-                                            time_options = [f"{i:02d}:00" for i in range(24)]
-                                            room_quiet_hours_start = gr.Dropdown(choices=time_options, value="00:00", label="開始時刻", interactive=True)
-                                            room_quiet_hours_end = gr.Dropdown(choices=time_options, value="07:00", label="終了時刻", interactive=True) 
-
-                                with gr.TabItem("🎨 パレット") as theme_tab:
-                                    theme_settings_state = gr.State({})
-                                    theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
-                                    
-                                    # --- [サムネイル表示エリア] ---
-                                    with gr.Row():
-                                        with gr.Column():
-                                            gr.Markdown("#### ライトモード プレビュー")
-                                            theme_preview_light = gr.Image(label="Light Mode Preview", interactive=False, height=200)
-                                        with gr.Column():
-                                            gr.Markdown("#### ダークモード プレビュー")
-                                            theme_preview_dark = gr.Image(label="Dark Mode Preview", interactive=False, height=200)
-
-                                    gr.Markdown("---")
-                                    gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
-                                    AVAILABLE_HUES = [
-                                        "slate", "gray", "zinc", "neutral", "stone", "red", "orange", "amber",
-                                        "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue",
-                                        "indigo", "violet", "purple", "fuchsia", "pink", "rose"
-                                    ]
-                                    with gr.Row():
-                                        primary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="プライマリカラー系統", value="blue")
-                                        secondary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="セカンダリカラー系統", value="sky")
-                                        neutral_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="ニュートラルカラー系統", value="slate")
-                                    
-                                    AVAILABLE_FONTS = sorted([
-                                        "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
-                                        "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "IBM Plex Mono", "Inconsolata", "Inter",
-                                        "Jost", "Lato", "Libre Baskerville", "Libre Franklin", "Lora", "Merriweather",
-                                        "Montserrat", "Mulish", "Noto Sans", "Noto Sans JP", "Open Sans", "Playfair Display",
-                                        "Poppins", "Pt Sans", "Pt Serif", "Quattrocento", "Quicksand", "Raleway",
-                                        "Roboto", "Roboto Mono", "Rubik", "Source Sans Pro", "Source Serif Pro",
-                                        "Space Mono", "Spectral", "Sriracha", "Titillium Web", "Ubuntu", "Work Sans"
-                                    ])
-                                    font_dropdown = gr.Dropdown(choices=AVAILABLE_FONTS, label="メインフォント", value="Noto Sans JP", interactive=True)
-                                    
-                                    gr.Markdown("---")
-                                    custom_theme_name_input = gr.Textbox(label="新しいテーマ名として保存", placeholder="例: My Cool Theme")
-                                    
-                                    with gr.Row():
-                                        save_theme_button = gr.Button("カスタムテーマとして保存", variant="secondary")
-                                        export_theme_button = gr.Button("ファイルにエクスポート", variant="secondary") # <-- 新規追加
-
-                                    apply_theme_button = gr.Button("このテーマを適用（要再起動）", variant="primary")
-                                    gr.Markdown("⚠️ **注意:** テーマの変更を完全に反映するには、コンソールを閉じて `nexus_ark.py` を再実行する必要があります。")
-
-                        with gr.Accordion("⏰ 時間管理", open=False):
-                            with gr.Tabs():
-                                with gr.TabItem("アラーム"):
-                                    gr.Markdown("ℹ️ **操作方法**: リストから操作したいアラームの行を選択し、下のボタンで操作します。")
-                                    alarm_dataframe = gr.Dataframe(
-                                        headers=["状態", "時刻", "予定", "ルーム", "内容"], 
-                                        datatype=["bool", "str", "str", "str", "str"], 
-                                        interactive=True, 
-                                        col_count=5, 
-                                        row_count=(10, "dynamic"),
-                                        wrap=False, 
-                                        elem_id="alarm_list_table",
-                                        value=[[True, "08:00", "テスト1", "Default", "テストアラーム1"], [False, "12:00", "テスト2", "Default", "テストアラーム2"], [True, "18:00", "テスト3", "Default", "テストアラーム3"]]
-                                    )
-                                    selection_feedback_markdown = gr.Markdown("アラームを選択してください", elem_id="selection_feedback")
-                                    with gr.Row():
-                                        enable_button = gr.Button("✔️ 選択を有効化"); disable_button = gr.Button("❌ 選択を無効化"); delete_alarm_button = gr.Button("🗑️ 選択したアラームを削除", variant="stop")
-                                    gr.Markdown("---"); gr.Markdown("#### 新規 / 更新")
-                                    alarm_hour_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(24)], label="時", value="08")
-                                    alarm_minute_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(60)], label="分", value="00")
-                                    alarm_room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="ルーム")
-                                    alarm_context_input = gr.Textbox(label="内容", placeholder="AIに伝える内容や目的を簡潔に記述します。\n例：朝の目覚まし、今日も一日頑張ろう！", lines=3)
-                                    alarm_emergency_checkbox = gr.Checkbox(label="緊急通知として送信 (マナーモードを貫通)", value=False, interactive=True)
-                                    alarm_days_checkboxgroup = gr.CheckboxGroup(choices=["月", "火", "水", "木", "金", "土", "日"], label="曜日", value=[])
-                                    with gr.Row():
-                                        alarm_add_button = gr.Button("アラーム追加")
-                                        cancel_edit_button = gr.Button("編集をキャンセル", visible=False)
-                                with gr.TabItem("タイマー"):
-                                    timer_type_radio = gr.Radio(["通常タイマー", "ポモドーロタイマー"], label="タイマー種別", value="通常タイマー")
-                                    with gr.Column(visible=True) as normal_timer_ui:
-                                        timer_duration_number = gr.Number(label="タイマー時間 (分)", value=10, minimum=1, step=1); normal_timer_theme_input = gr.Textbox(label="通常タイマーのテーマ", placeholder="例: タイマー終了！")
-                                    with gr.Column(visible=False) as pomo_timer_ui:
-                                        pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
-                                    timer_room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="通知ルーム", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
-
-                        with gr.Accordion("🧑‍🤝‍🧑 グループ会話", open=False):
-                            session_status_display = gr.Markdown("現在、1対1の会話モードです。")
-                            participant_checkbox_group = gr.CheckboxGroup(
-                                label="会話に招待するルーム",
-                                choices=sorted([c for c in room_list_on_startup if c != effective_initial_room]),
+        with gr.Accordion("⚙️ 設定", open=False):
+            with gr.Tabs() as settings_tabs:
+                with gr.TabItem("共通") as common_settings_tab:
+                    with gr.Accordion("🔑 APIキー / Webhook管理", open=False):
+                        with gr.Accordion("Gemini APIキー", open=True):
+                            gemini_key_name_input = gr.Textbox(label="キーの名前（管理用の半角英数字）", placeholder="例: my_personal_key")
+                            gemini_key_value_input = gr.Textbox(label="APIキーの値", type="password")
+                            with gr.Row():
+                                save_gemini_key_button = gr.Button("新しいキーを追加", variant="primary")
+                                delete_gemini_key_button = gr.Button("選択したキーを削除", variant="secondary")
+                            gr.Markdown("---")
+                            gr.Markdown("#### 登録済みAPIキーリスト\nチェックを入れたキーが、有料プラン（Pay-as-you-go）として扱われます。")
+                            paid_keys_checkbox_group = gr.CheckboxGroup(
+                                label="有料プランのキーを選択",
+                                choices=[pair[1] for pair in config_manager.get_api_key_choices_for_ui()],
+                                # value=... を削除
                                 interactive=True
                             )
-                            group_hide_thoughts_checkbox = gr.Checkbox(
-                                label="思考ログを非表示（セッション中のみ）",
-                                value=False,
-                                info="チェックすると、グループ会話中の全参加者の思考ログが非表示になります。"
+                        with gr.Accordion("Pushover", open=False):
+                            pushover_user_key_input = gr.Textbox(label="Pushover User Key", type="password", interactive=True) 
+                            pushover_app_token_input = gr.Textbox(label="Pushover App Token/Key", type="password", interactive=True)
+                            save_pushover_config_button = gr.Button("Pushover設定を保存", variant="primary")
+                        with gr.Accordion("Discord", open=False):
+                            discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", interactive=True)
+                            save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
+                        gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
+
+                    with gr.Accordion("🤖 AIモデルプロバイダ設定（デフォルト）", open=False):
+                        gr.Markdown("会話に使用するAIモデルのプロバイダを切り替えます。")
+                                        
+                        current_provider = config_manager.get_active_provider()
+                                        
+                        provider_radio = gr.Radio(
+                            choices=[
+                                ("Google (Gemini Native)", "google"),
+                                ("OpenAI互換 (OpenRouter / Groq / Ollama / OpenAI)", "openai")
+                            ],
+                            value=current_provider,
+                            label="アクティブなプロバイダ",
+                            interactive=True
+                        )
+                                        
+                        # --- Google設定エリア ---
+                        with gr.Group(visible=(current_provider == "google")) as google_settings_group:
+                            model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, label="デフォルトAIモデル", interactive=True)
+                            api_key_dropdown = gr.Dropdown(label="使用するGemini APIキー", interactive=True)
+                            api_test_button = gr.Button("API接続をテスト", variant="secondary")
+
+                        # --- OpenAI互換設定エリア ---
+                        with gr.Group(visible=(current_provider == "openai")) as openai_settings_group:
+                            openai_profiles = [s["name"] for s in config_manager.get_openai_settings_list()]
+                            current_openai_profile = config_manager.get_active_openai_profile_name()
+                                            
+                            openai_profile_dropdown = gr.Dropdown(
+                                choices=openai_profiles,
+                                value=current_openai_profile,
+                                label="プロファイル選択",
+                                interactive=True,
+                                allow_custom_value=False # 既存のみ選択可
                             )
-                            # [v18] Supervisorモード（AI自動進行）
-                            enable_supervisor_cb = gr.Checkbox(
-                                label="AI自動進行（司会モード）",
-                                value=False,
-                                info="AIが会話の流れを読んで、次に誰が話すべきかを自動で指名します。（ONにすると会話が自律的に進みます）"
-                            )
+                                            
                             with gr.Row():
-                                start_session_button = gr.Button("このメンバーで会話を開始 / 更新", variant="primary")
-                                end_session_button = gr.Button("会話を終了 (1対1に戻る)", variant="secondary")
-
-                        with gr.Accordion("🗨️ チャットルームの作成・管理", open=False) as manage_room_accordion:
-                            with gr.Tabs() as room_management_tabs:
-                                with gr.TabItem("作成") as create_room_tab:
-                                    new_room_name = gr.Textbox(label="ルーム名（必須）", info="UIやグループ会話で表示される名前です。フォルダ名は自動で生成されます。")
-                                    new_user_display_name = gr.Textbox(label="あなたの表示名（任意）", placeholder="デフォルト: ユーザー")
-                                    new_agent_display_name = gr.Textbox(label="Agentの表示名（任意）", placeholder="AIのデフォルト表示名。未設定の場合はルーム名が使われます。")
-                                    new_room_description = gr.Textbox(label="ルームの説明（任意）", lines=3, placeholder="このルームがどのような場所かをメモしておけます。")
-                                    initial_system_prompt = gr.Textbox(label="初期システムプロンプト（任意）", lines=5, placeholder="このルームの基本的なルールやAIの役割などを設定します。")
-                                    create_room_button = gr.Button("ルームを作成", variant="primary")
-                                
-                                with gr.TabItem("管理") as manage_room_tab:
-                                    manage_room_selector = gr.Dropdown(label="管理するルームを選択", choices=room_list_on_startup, interactive=True)
-                                    with gr.Column(visible=False) as manage_room_details:
-                                        open_room_folder_button = gr.Button("📂 ルームフォルダを開く", variant="secondary")
-                                        manage_room_name = gr.Textbox(label="ルーム名")
-                                        manage_user_display_name = gr.Textbox(label="あなたの表示名")
-                                        manage_agent_display_name = gr.Textbox(label="Agentの表示名")
-                                        manage_room_description = gr.Textbox(label="ルームの説明", lines=3)
-                                        manage_folder_name_display = gr.Textbox(label="フォルダ名（編集不可）", interactive=False)
-                                        save_room_config_button = gr.Button("変更を保存", variant="primary")
-                                        delete_room_button = gr.Button("このルームを削除", variant="stop")
-                                
-                                with gr.TabItem("インポート") as import_tab:
-                                    with gr.Accordion("🔵 ChatGPT (公式)", open=False):
-                                        gr.Markdown("### ChatGPTデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
-                                        chatgpt_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
-                                        with gr.Column(visible=False) as chatgpt_import_form:
-                                            chatgpt_thread_dropdown = gr.Dropdown(label="インポートする会話スレッドを選択", interactive=True)
-                                            chatgpt_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
-                                            chatgpt_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
-                                            chatgpt_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
-                                    with gr.Accordion("🟠 Claude (公式)", open=False):
-                                        gr.Markdown("### Claudeデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
-                                        claude_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
-                                        with gr.Column(visible=False) as claude_import_form:
-                                            claude_thread_dropdown = gr.Dropdown(label="インポートする会話スレッドを選択", interactive=True)
-                                            claude_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
-                                            claude_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
-                                            claude_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
-
-                                    with gr.Accordion("📄 その他テキスト/JSON", open=False):
-                                        gr.Markdown(
-                                            "### 汎用インポーター\n"
-                                            "ChatGPT Exporter形式のファイルや、任意の話者ヘッダーを持つテキストログをインポートします。"
-                                        )
-                                        generic_import_file = gr.File(label="JSON, MD, TXT ファイルをアップロード", file_types=[".json", ".md", ".txt"])
-                                        with gr.Column(visible=False) as generic_import_form:
-                                            generic_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
-                                            generic_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", interactive=True)
-                                            gr.Markdown("---")
-                                            gr.Markdown(
-                                                "**話者ヘッダーの指定**\n"
-                                                "ファイル内の、誰の発言かを示す行頭の文字列を正確に入力してください。"
-                                            )
-                                            generic_user_header_textbox = gr.Textbox(label="あなたの発言ヘッダー", placeholder="例: Prompt:")
-                                            generic_agent_header_textbox = gr.Textbox(label="AIの発言ヘッダー", placeholder="例: Response:")
-                                            generic_import_button = gr.Button("このファイルをインポートする", variant="primary")
-
-
-
-                        with gr.Accordion("🛠️ チャット支援ツール", open=False):
-                            with gr.Tabs():
-                                with gr.TabItem("文字置き換え"):
-                                    gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
-                                    screenshot_mode_checkbox = gr.Checkbox(
-                                        label="スクリーンショットモードを有効にする",
-                                        info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。"
+                                openai_base_url_input = gr.Textbox(label="Base URL", placeholder="例: https://openrouter.ai/api/v1")
+                                openai_api_key_input = gr.Textbox(label="API Key", type="password", placeholder="sk-...")
+                                            
+                            # モデル選択をDropdownに変更
+                            # 現在のプロファイルからモデルリストを取得
+                            _current_openai_setting = config_manager.get_active_openai_setting() or {}
+                            _current_models = _current_openai_setting.get("available_models", [])
+                            _current_default_model = _current_openai_setting.get("default_model", "")
+                                            
+                            openai_model_dropdown = gr.Dropdown(
+                                choices=_current_models,
+                                value=_current_default_model,
+                                label="デフォルトモデル",
+                                interactive=True,
+                                allow_custom_value=True,  # カスタム値の直接入力も許可
+                                info="リストから選択するか、新しいモデル名を直接入力できます"
+                            )
+                                            
+                            # カスタムモデル追加UI
+                            with gr.Accordion("カスタムモデルを追加", open=False):
+                                with gr.Row():
+                                    custom_model_name_input = gr.Textbox(
+                                        label="モデル名",
+                                        placeholder="例: my-custom-model",
+                                        scale=3
                                     )
-                                    with gr.Row():
-                                        with gr.Column(scale=3):
-                                            gr.Markdown("**現在のルールリスト**")
-                                            redaction_rules_df = gr.Dataframe(
-                                                headers=["元の文字列 (Find)", "置換後の文字列 (Replace)", "背景色"],
-                                                datatype=["str", "str", "str"],
-                                                row_count=(5, "dynamic"),
-                                                col_count=(3, "fixed"),
-                                                interactive=False
-                                            )
-                                        with gr.Column(scale=2):
-                                            gr.Markdown("**ルールの編集**")
-                                            redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)")
-                                            redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)")
-                                            redaction_color_picker = gr.ColorPicker(label="背景色", value="#62827e")
-                                            with gr.Row():
-                                                add_rule_button = gr.Button("ルールを追加/更新", variant="primary")
-                                                clear_rule_form_button = gr.Button("フォームをクリア")
-                                            delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
-                                with gr.TabItem("ログ修正"):
-                                    gr.Markdown("選択した**発言**以降の**AIの応答**に含まれる読点（、）を、AIを使って自動で修正し、自然な文章に校正します。")
-                                    gr.Markdown("⚠️ **注意:** この操作はログファイルを直接上書きするため、元に戻せません。処理の前に、ログファイルのバックアップが自動的に作成されます。")
-                                    correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
-                                    correction_confirmed_state = gr.Textbox(visible=False)
-                                with gr.TabItem("添付ファイル") as attachment_tab:
-                                    gr.Markdown(
-                                        "過去に添付したファイルの一覧です。\n\n"
-                                        "リストを選択してアクティブにすることで、解除するまで送信に含められます。\n\n"
-                                        "**⚠️注意:** ここでファイルを削除すると、チャット履歴の画像表示なども含めて、ファイルへのすべての参照が失われます。"
-                                    )
-                                    active_attachments_display = gr.Markdown("現在アクティブな添付ファイルはありません。")
-                                    gr.Markdown("---") # 区切り線
+                                    add_custom_model_button = gr.Button("追加", scale=1, variant="secondary")
+                                gr.Markdown("💡 追加したモデルはプロファイルに保存され、次回起動時も利用できます。")
+                                            
+                            # 【ツール不使用モード】ツール使用チェックボックス
+                            _tool_use_enabled = _current_openai_setting.get("tool_use_enabled", True)
+                            openai_tool_use_checkbox = gr.Checkbox(
+                                label="ツール使用（Function Calling）を有効にする",
+                                value=_tool_use_enabled,
+                                interactive=True,
+                                info="OFFにすると、AIはWeb検索・画像生成・記憶編集などのツールを使用できなくなりますが、ツール非対応モデルでも会話できるようになります。"
+                            )
+                                            
+                            save_openai_config_button = gr.Button("このプロファイル設定を保存", variant="secondary")
 
-                                    attachments_df = gr.Dataframe(
-                                        headers=["ファイル名", "種類", "サイズ(KB)", "添付日時"],
-                                        datatype=["str", "str", "str", "str"],
-                                        row_count=(5, "dynamic"),
-                                        col_count=(4, "fixed"),
-                                        interactive=True,  # 行選択を有効にする
-                                        wrap=True
-                                    )
-                                    with gr.Row():
-                                        open_attachments_folder_button = gr.Button("📂 添付ファイルフォルダを開く", variant="secondary")
-                                        delete_attachment_button = gr.Button("選択したファイルを削除", variant="stop")
+                    with gr.Accordion("🎨 画像生成設定", open=False):
+                        # Configから値を読み込み、廃止された "old" が設定されていた場合は "new" にフォールバックする
+                        current_img_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
+                        if current_img_gen_mode == "old":
+                            current_img_gen_mode = "new"
 
-                        gr.Markdown(f"Nexus Ark {constants.APP_VERSION} (Beta)", elem_id="app_version_display")
-
-                    # --- 中央カラム ---
-                    with gr.Column(scale=6): # ← scale=3 を 6 に変更
-                        onboarding_guide = gr.Markdown(
-                            """
-                            ## Nexus Arkへようこそ！
-                            **まずはAIと対話するための準備をしましょう。**
-                            1.  **Google AI Studio** などで **Gemini APIキー** を取得してください。
-                            2.  左カラムの **「⚙️ 設定」** を開きます。
-                            3.  **「共通」** タブ内の **「🔑 APIキー / Webhook管理」** を開きます。
-                            4.  **「Gemini APIキー」** の項目に、キーの名前（管理用のあだ名）と、取得したAPIキーの値を入力し、**「Geminiキーを保存」** ボタンを押してください。
-
-                            設定が完了すると、このメッセージは消え、チャットが利用可能になります。
-                            """,
-                            visible=False, # 初期状態では非表示
-                            elem_id="onboarding_guide"
+                        image_generation_mode_radio = gr.Radio(
+                            choices=[
+                                ("有効 (新モデル: gemini-2.5-flash-image - 有料)", "new"),
+                                ("無効", "disabled")
+                            ],
+                            value=current_img_gen_mode,
+                            label="画像生成機能 (generate_imageツール)",
+                            interactive=True,
+                            info="「無効」にすると、AIのプロンプトからも画像生成に関する項目が削除されます。"
                         )
 
-                        chatbot_display = gr.Chatbot(
-                            height=580, 
-                            elem_id="chat_output_area",
-                            show_copy_button=True,
-                            show_label=False,
-                            render_markdown=True,
-                            type="tuples", # [v4.x] 明示的にtuplesを指定して警告を回避
-                            group_consecutive_messages=False,
-                            editable="all" 
+                    with gr.Accordion("🔍 検索プロバイダ設定", open=False):
+                        current_search_provider = config_manager.CONFIG_GLOBAL.get("search_provider", "google")
+                        search_provider_radio = gr.Radio(
+                            choices=[
+                                ("Google (Gemini Native) - 無料枠では制限あり", "google"),
+                                ("DuckDuckGo - 高速・安定", "ddg"),
+                                ("無効", "disabled")
+                            ],
+                            value=current_search_provider,
+                            label="Web検索プロバイダ (web_search_tool)",
+                            interactive=True,
+                            info="「無効」にすると、AIはWeb検索を行えなくなります。"
                         )
 
+
+                    with gr.Accordion("📢 通知サービス設定", open=False):
+                        notification_service_radio = gr.Radio(
+                            choices=["Discord", "Pushover"], 
+                            label="アラーム通知に使用するサービス",
+                            interactive=True
+                        )
+                        gr.Markdown("---")
+
+                    with gr.Accordion("💾 バックアップ設定", open=False):
+                        backup_rotation_count_number = gr.Number(
+                            label="バックアップの最大保存件数（世代数）",
+                            # value=... を削除
+                            step=1,
+                            minimum=1,
+                            interactive=True,
+                            info="ファイル（ログ、記憶など）ごとに、ここで指定した数だけ最新のバックアップが保持されます。"
+                        )
+                        open_backup_folder_button = gr.Button("現在のルームのバックアップフォルダを開く", variant="secondary")
+                                    
+                    debug_mode_checkbox = gr.Checkbox(label="🐛 デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", interactive=True)
+                with gr.TabItem("個別") as individual_settings_tab:
+                    room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
+                    save_room_settings_button = gr.Button("このルームの個別設定を保存", variant="primary")
+
+                    # --- [Phase 3] 個別設定用AIモデルプロバイダ設定 (一番上に配置) ---
+                    with gr.Accordion("🤖 AIモデルプロバイダ設定（このルーム）", open=False):
+                        gr.Markdown("このルームで使用するAIプロバイダを設定します。「共通設定に従う」を選ぶとデフォルト設定が適用されます。")
+                                        
+                        room_provider_radio = gr.Radio(
+                            choices=[
+                                ("共通設定に従う", "default"),
+                                ("Google (Gemini Native)", "google"),
+                                ("OpenAI互換 (OpenRouter / Groq / Ollama)", "openai")
+                            ],
+                            value="default",
+                            label="このルームで使用するプロバイダ",
+                            interactive=True
+                        )
+                                        
+                        # --- Google設定グループ ---
+                        with gr.Group(visible=False) as room_google_settings_group:
+                            room_model_dropdown = gr.Dropdown(
+                                choices=config_manager.AVAILABLE_MODELS_GLOBAL,
+                                label="このルームで使用するAIモデル",
+                                info="Gemini APIで使用するモデルを選択します。",
+                                interactive=True,
+                                allow_custom_value=True
+                            )
+                                            
+                            # カスタムモデル追加UI
+                            with gr.Accordion("カスタムモデルを追加", open=False):
+                                with gr.Row():
+                                    room_google_custom_model_input = gr.Textbox(
+                                        label="モデル名",
+                                        placeholder="例: gemini-2.5-flash-exp",
+                                        scale=3
+                                    )
+                                    room_google_add_model_button = gr.Button("追加", scale=1, variant="secondary")
+                                gr.Markdown("💡 追加したモデルは現在のセッション中のみ有効です。")
+                                            
+                            room_api_key_dropdown = gr.Dropdown(
+                                choices=config_manager.get_api_key_choices_for_ui(),
+                                label="このルームで使用するAPIキー",
+                                info="共通設定で登録したAPIキーから選択します。",
+                                interactive=True
+                            )
+                                        
+                        # --- OpenAI互換設定グループ ---
+                        with gr.Group(visible=False) as room_openai_settings_group:
+                            # プロファイル選択
+                            room_openai_profile_dropdown = gr.Dropdown(
+                                choices=[s["name"] for s in config_manager.get_openai_settings_list()],
+                                label="プロファイル選択",
+                                info="共通設定で登録したプロファイルから選択します。選択すると下の項目が自動入力されます。",
+                                interactive=True
+                            )
+                                            
+                            with gr.Row():
+                                room_openai_base_url_input = gr.Textbox(
+                                    label="Base URL",
+                                    placeholder="例: https://openrouter.ai/api/v1",
+                                    interactive=True
+                                )
+                                room_openai_api_key_input = gr.Textbox(
+                                    label="API Key",
+                                    type="password",
+                                    placeholder="sk-...",
+                                    interactive=True
+                                )
+                                            
+                            # モデル選択（Dropdown + カスタム値入力可能）
+                            room_openai_model_dropdown = gr.Dropdown(
+                                choices=[],
+                                label="デフォルトモデル",
+                                interactive=True,
+                                allow_custom_value=True,
+                                info="プロファイル選択で自動入力されるか、直接入力できます"
+                            )
+                                            
+                            # カスタムモデル追加UI
+                            with gr.Accordion("カスタムモデルを追加", open=False):
+                                with gr.Row():
+                                    room_openai_custom_model_input = gr.Textbox(
+                                        label="モデル名",
+                                        placeholder="例: my-custom-model",
+                                        scale=3
+                                    )
+                                    room_openai_add_model_button = gr.Button("追加", scale=1, variant="secondary")
+                                gr.Markdown("💡 追加したモデルは現在のセッション中のみ有効です。")
+                                            
+                            # ツール使用オンオフ
+                            room_openai_tool_use_checkbox = gr.Checkbox(
+                                label="ツール使用（Function Calling）を有効にする",
+                                value=True,
+                                interactive=True,
+                                info="OFFにすると、AIはWeb検索・画像生成・記憶編集などのツールを使用できなくなりますが、ツール非対応モデルでも会話できるようになります。"
+                            )
+
+                    with gr.Accordion("🖼️ 情景描写設定", open=False):
+                        enable_scenery_system_checkbox = gr.Checkbox(
+                            label="🖼️ このルームで情景描写システムを有効にする",
+                            info="有効にすると、チャット画面右側に情景が表示され、AIもそれを認識します。",
+                            interactive=True
+                        )
+                    with gr.Accordion("📜 ストリーミング表示設定", open=False):
+                        enable_typewriter_effect_checkbox = gr.Checkbox(label="タイプライター風の逐次表示を有効化", interactive=True)
+                        streaming_speed_slider = gr.Slider(
+                            minimum=0.0, maximum=0.1, step=0.005,
+                            label="表示速度", info="値が小さいほど速く、大きいほどゆっくり表示されます。(0.0で最速)",
+                            interactive=True
+                        )
+                    with gr.Accordion("🎤 音声設定", open=False):
+                        gr.Markdown("チャットの発言を選択して、ここで設定した声で再生できます。")
+                        room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
+                        room_voice_style_prompt_textbox = gr.Textbox(label="音声スタイルプロンプト", placeholder="例：囁くように、楽しそうに、落ち着いたトーンで", interactive=True)
                         with gr.Row():
-                            audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
-                        with gr.Row(visible=False) as action_button_group:
-                            rerun_button = gr.Button("🔄 再生成")
-                            play_audio_button = gr.Button("🔊 選択した発言を再生")
-                            delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
-                            cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
-
-                        chat_input_multimodal = gr.MultimodalTextbox(
-                            file_types=["image", "audio", "video", "text", ".pdf", ".md", ".py", ".json", ".html", ".css", ".js"],
-                            max_plain_text_length=100000,
-                            placeholder="メッセージを入力してください (Shift+Enterで送信)",
-                            show_label=False,
-                            lines=3,
+                            room_preview_text_textbox = gr.Textbox(value="こんにちは、Nexus Arkです。これは音声のテストです。", show_label=False, scale=3)
+                            room_preview_voice_button = gr.Button("試聴", scale=1)
+                        open_audio_folder_button = gr.Button("📂 現在のルームの音声フォルダを開く", variant="secondary")
+                    with gr.Accordion("🔬 AI生成パラメータ調整", open=False):
+                        gr.Markdown("このルームの応答の「創造性」と「安全性」を調整します。")
+                        room_temperature_slider = gr.Slider(minimum=0.0, maximum=2.0, step=0.05, label="Temperature", info="値が高いほど、AIの応答がより創造的で多様になります。(推奨: 0.7 ~ 0.9)")
+                        room_top_p_slider = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, label="Top-P", info="値が低いほど、ありふれた単語が選ばれやすくなります。(推奨: 0.95)")
+                        safety_choices = ["ブロックしない", "低リスク以上をブロック", "中リスク以上をブロック", "高リスクのみブロック"]
+                        with gr.Row():
+                            room_safety_harassment_dropdown = gr.Dropdown(choices=safety_choices, label="嫌がらせコンテンツ", interactive=True)
+                            room_safety_hate_speech_dropdown = gr.Dropdown(choices=safety_choices, label="ヘイトスピーチ", interactive=True)
+                        with gr.Row():
+                            room_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
+                            room_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
+                                    
+                    with gr.Accordion("📡 APIコンテキスト設定", open=False):
+                        room_api_history_limit_dropdown = gr.Dropdown(
+                            choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), 
+                            label="APIへの履歴送信（短期記憶の長さ）", 
+                            info="AIに送信する直近の会話ログの長さを設定します。",
                             interactive=True
                         )
 
-                        token_count_display = gr.Markdown(
-                            "入力トークン数: 0 / 0",
-                            elem_id="token_count_display"
+                        room_episode_memory_days_dropdown = gr.Dropdown(
+                            choices=list(constants.EPISODIC_MEMORY_OPTIONS.values()),
+                            label="エピソード記憶の参照期間（中期記憶）",
+                            info="生ログより前の期間について、要約された記憶をどれくらい遡って参照するか設定します。",
+                            interactive=True
+                        )
+
+                        room_enable_retrieval_checkbox = gr.Checkbox(
+                            label="記憶の想起（長期記憶）を有効化",
+                            info="▼AIが応答する前に、過去ログや知識ベースから関連情報を自律的に検索・想起します。",
+                            interactive=True
+                        )
+
+                        room_display_thoughts_checkbox = gr.Checkbox( 
+                            label="AIの思考過程 [THOUGHT] をチャットに表示する",
+                            interactive=True
+                        )
+                        room_send_thoughts_checkbox = gr.Checkbox(label="思考過程をAPIに送信", interactive=True)
+                                                                                
+                        room_add_timestamp_checkbox = gr.Checkbox(label="メッセージにタイムスタンプを追加", interactive=True)                                        
+                        room_send_current_time_checkbox = gr.Checkbox(
+                            label="現在時刻をAPIに送信",
+                            info="▼挨拶の自然さを向上させますが、特定の時間帯を演じたい場合はOFFにしてください。",
+                            interactive=True
+                        )
+
+                        room_send_notepad_checkbox = gr.Checkbox(label="メモ帳の内容をAPIに送信", interactive=True)
+                        room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを送信", interactive=True)
+                        room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
+                        room_send_scenery_checkbox = gr.Checkbox(
+                            label="空間描写・設定をAPIに送信 (情景システムと連動)",
+                            interactive=False,
+                            visible=True
+                        )
+                        auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True, visible=False)
+
+                    with gr.Accordion("🤖 自律行動設定 (Beta)", open=False):
+                        gr.Markdown(
+                            "ユーザーからの入力がない間も、AIが自律的に思考し、行動（日記の整理、検索、発話など）を行います。\n"
+                            "**注意:** 設定した頻度で自動的にAPIを呼び出すため、コストにご注意ください。"
+                        )
+                        room_enable_autonomous_checkbox = gr.Checkbox(
+                            label="自律行動モードを有効化",
+                            interactive=True
+                        )
+                        room_autonomous_inactivity_slider = gr.Slider(
+                            minimum=10, maximum=1440, step=10, value=120,
+                            label="無操作判定時間（分）",
+                            info="最後の会話からこの時間が経過すると、AIが「何かすべきことはないか」と思考を開始します。",
+                            interactive=True
+                        )
+                                        
+                        gr.Markdown("#### 🌙 通知禁止時間帯 (Quiet Hours)")
+                        gr.Markdown(
+                            "この時間帯にAIが行動した場合、通知（Discord/Pushover）は送信されません。\n"
+                            "また、この時間帯はAIの「睡眠時間」とみなされ、**夢日記の作成**と**睡眠時記憶整理**が実行されます。詳しくは「記憶タブ → 夢日記」をご覧ください。"
                         )
 
                         with gr.Row():
-                            stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
-                            chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
+                            time_options = [f"{i:02d}:00" for i in range(24)]
+                            room_quiet_hours_start = gr.Dropdown(choices=time_options, value="00:00", label="開始時刻", interactive=True)
+                            room_quiet_hours_end = gr.Dropdown(choices=time_options, value="07:00", label="終了時刻", interactive=True) 
 
-                        with gr.Row():
-                            add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1, visible=False)
+                with gr.TabItem("🎨 パレット") as theme_tab:
+                    theme_settings_state = gr.State({})
+                    theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
+                                    
+                    # --- [サムネイル表示エリア] ---
+                    with gr.Row():
+                        with gr.Column():
+                            gr.Markdown("#### ライトモード プレビュー")
+                            theme_preview_light = gr.Image(label="Light Mode Preview", interactive=False, height=200)
+                        with gr.Column():
+                            gr.Markdown("#### ダークモード プレビュー")
+                            theme_preview_dark = gr.Image(label="Dark Mode Preview", interactive=False, height=200)
 
-                    # --- 右カラム (サイドバー化) ---
-                    with gr.Sidebar(label="情景・プロフィール", width=400, open=True, position="right"):
-                        with gr.Accordion("🖼️ プロフィール・情景", open=True, elem_id="profile_scenery_accordion") as profile_scenery_accordion:
-                            # --- プロフィール画像セクション ---
-                            profile_image_display = gr.Image(
-                                height=200, interactive=False, show_label=False, elem_id="profile_image_display"
-                            )
-                            with gr.Accordion("プロフィール画像を変更", open=False) as profile_image_accordion:
-                                staged_image_state = gr.State()
-                                image_upload_button = gr.UploadButton("新しい画像をアップロード", file_types=["image"])
-                                cropper_image_preview = gr.ImageEditor(
-                                    sources=["upload"], type="pil", interactive=True, show_label=False,
-                                    visible=False, transforms=["crop"], brush=None, eraser=None,
-                                )
-                                save_cropped_image_button = gr.Button("この範囲で保存", visible=False)
+                    gr.Markdown("---")
+                    gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
+                    AVAILABLE_HUES = [
+                        "slate", "gray", "zinc", "neutral", "stone", "red", "orange", "amber",
+                        "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue",
+                        "indigo", "violet", "purple", "fuchsia", "pink", "rose"
+                    ]
+                    with gr.Row():
+                        primary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="プライマリカラー系統", value="blue")
+                        secondary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="セカンダリカラー系統", value="sky")
+                        neutral_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="ニュートラルカラー系統", value="slate")
+                                    
+                    AVAILABLE_FONTS = sorted([
+                        "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
+                        "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "IBM Plex Mono", "Inconsolata", "Inter",
+                        "Jost", "Lato", "Libre Baskerville", "Libre Franklin", "Lora", "Merriweather",
+                        "Montserrat", "Mulish", "Noto Sans", "Noto Sans JP", "Open Sans", "Playfair Display",
+                        "Poppins", "Pt Sans", "Pt Serif", "Quattrocento", "Quicksand", "Raleway",
+                        "Roboto", "Roboto Mono", "Rubik", "Source Sans Pro", "Source Serif Pro",
+                        "Space Mono", "Spectral", "Sriracha", "Titillium Web", "Ubuntu", "Work Sans"
+                    ])
+                    font_dropdown = gr.Dropdown(choices=AVAILABLE_FONTS, label="メインフォント", value="Noto Sans JP", interactive=True)
+                                    
+                    gr.Markdown("---")
+                    custom_theme_name_input = gr.Textbox(label="新しいテーマ名として保存", placeholder="例: My Cool Theme")
+                                    
+                    with gr.Row():
+                        save_theme_button = gr.Button("カスタムテーマとして保存", variant="secondary")
+                        export_theme_button = gr.Button("ファイルにエクスポート", variant="secondary") # <-- 新規追加
 
-                            # --- 情景ビジュアルセクション ---
-                            scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
-                            current_scenery_display = gr.Textbox( # ← ここに移動し、labelを削除
-                                interactive=False, lines=4, max_lines=10, show_label=False,
-                                placeholder="現在の情景が表示されます..."
-                            )
+                    apply_theme_button = gr.Button("このテーマを適用（要再起動）", variant="primary")
+                    gr.Markdown("⚠️ **注意:** テーマの変更を完全に反映するには、コンソールを閉じて `nexus_ark.py` を再実行する必要があります。")
 
-                            # --- 移動メニュー ---
-                            location_dropdown = gr.Dropdown(label="現在地 / 移動先を選択", interactive=True) # ← label を変更
+        with gr.Accordion("⏰ 時間管理", open=False):
+            with gr.Tabs():
+                with gr.TabItem("アラーム"):
+                    gr.Markdown("ℹ️ **操作方法**: リストから操作したいアラームの行を選択し、下のボタンで操作します。")
+                    alarm_dataframe = gr.Dataframe(
+                        headers=["状態", "時刻", "予定", "ルーム", "内容"], 
+                        datatype=["bool", "str", "str", "str", "str"], 
+                        interactive=True, 
+                        col_count=5, 
+                        row_count=(10, "dynamic"),
+                        wrap=False, 
+                        elem_id="alarm_list_table",
+                        value=[[True, "08:00", "テスト1", "Default", "テストアラーム1"], [False, "12:00", "テスト2", "Default", "テストアラーム2"], [True, "18:00", "テスト3", "Default", "テストアラーム3"]]
+                    )
+                    selection_feedback_markdown = gr.Markdown("アラームを選択してください", elem_id="selection_feedback")
+                    with gr.Row():
+                        enable_button = gr.Button("✔️ 選択を有効化"); disable_button = gr.Button("❌ 選択を無効化"); delete_alarm_button = gr.Button("🗑️ 選択したアラームを削除", variant="stop")
+                    gr.Markdown("---"); gr.Markdown("#### 新規 / 更新")
+                    alarm_hour_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(24)], label="時", value="08")
+                    alarm_minute_dropdown = gr.Dropdown(choices=[str(i).zfill(2) for i in range(60)], label="分", value="00")
+                    alarm_room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="ルーム")
+                    alarm_context_input = gr.Textbox(label="内容", placeholder="AIに伝える内容や目的を簡潔に記述します。\n例：朝の目覚まし、今日も一日頑張ろう！", lines=3)
+                    alarm_emergency_checkbox = gr.Checkbox(label="緊急通知として送信 (マナーモードを貫通)", value=False, interactive=True)
+                    alarm_days_checkboxgroup = gr.CheckboxGroup(choices=["月", "火", "水", "木", "金", "土", "日"], label="曜日", value=[])
+                    with gr.Row():
+                        alarm_add_button = gr.Button("アラーム追加")
+                        cancel_edit_button = gr.Button("編集をキャンセル", visible=False)
+                with gr.TabItem("タイマー"):
+                    timer_type_radio = gr.Radio(["通常タイマー", "ポモドーロタイマー"], label="タイマー種別", value="通常タイマー")
+                    with gr.Column(visible=True) as normal_timer_ui:
+                        timer_duration_number = gr.Number(label="タイマー時間 (分)", value=10, minimum=1, step=1); normal_timer_theme_input = gr.Textbox(label="通常タイマーのテーマ", placeholder="例: タイマー終了！")
+                    with gr.Column(visible=False) as pomo_timer_ui:
+                        pomo_work_number = gr.Number(label="作業時間 (分)", value=25, minimum=1, step=1); pomo_break_number = gr.Number(label="休憩時間 (分)", value=5, minimum=1, step=1); pomo_cycles_number = gr.Number(label="サイクル数", value=4, minimum=1, step=1); timer_work_theme_input = gr.Textbox(label="作業終了時テーマ", placeholder="作業終了！"); timer_break_theme_input = gr.Textbox(label="休憩終了時テーマ", placeholder="休憩終了！")
+                    timer_room_dropdown = gr.Dropdown(choices=room_list_on_startup, value=effective_initial_room, label="通知ルーム", interactive=True); timer_status_output = gr.Textbox(label="タイマー設定状況", interactive=False, placeholder="ここに設定内容が表示されます。"); timer_submit_button = gr.Button("タイマー開始", variant="primary")
 
-                            # --- 画像生成メニュー ---
-                            with gr.Accordion("🌄情景設定・生成", open=False):
-                                with gr.Accordion("季節・時間を指定", open=False) as time_control_accordion:
-                                    gr.Markdown("（この設定はルームごとに保存されます）", elem_id="time_control_note")
-                                    time_mode_radio = gr.Radio(
-                                        choices=["リアル連動", "選択する"],
-                                        label="モード選択",
-                                        interactive=True
-                                    )
-                                    with gr.Column(visible=False) as fixed_time_controls:
-                                        fixed_season_dropdown = gr.Dropdown(
-                                            label="季節を選択",
-                                            choices=["春", "夏", "秋", "冬"],
-                                            interactive=True
-                                        )
-                                        fixed_time_of_day_dropdown = gr.Dropdown(
-                                            label="時間帯を選択",
-                                            choices=["朝", "昼", "夕方", "夜"],
-                                            interactive=True
-                                        )
-                                    # ボタンを fixed_time_controls の外に移動し、常に表示されるようにする
-                                    save_time_settings_button = gr.Button("このルームの時間設定を保存", variant="secondary")
+        with gr.Accordion("🧑‍🤝‍🧑 グループ会話", open=False):
+            session_status_display = gr.Markdown("現在、1対1の会話モードです。")
+            participant_checkbox_group = gr.CheckboxGroup(
+                label="会話に招待するルーム",
+                choices=sorted([c for c in room_list_on_startup if c != effective_initial_room]),
+                interactive=True
+            )
+            group_hide_thoughts_checkbox = gr.Checkbox(
+                label="思考ログを非表示（セッション中のみ）",
+                value=False,
+                info="チェックすると、グループ会話中の全参加者の思考ログが非表示になります。"
+            )
+            # [v18] Supervisorモード（AI自動進行）
+            enable_supervisor_cb = gr.Checkbox(
+                label="AI自動進行（司会モード）",
+                value=False,
+                info="AIが会話の流れを読んで、次に誰が話すべきかを自動で指名します。（ONにすると会話が自律的に進みます）"
+            )
+            with gr.Row():
+                start_session_button = gr.Button("このメンバーで会話を開始 / 更新", variant="primary")
+                end_session_button = gr.Button("会話を終了 (1対1に戻る)", variant="secondary")
+
+        with gr.Accordion("🗨️ チャットルームの作成・管理", open=False) as manage_room_accordion:
+            with gr.Tabs() as room_management_tabs:
+                with gr.TabItem("作成") as create_room_tab:
+                    new_room_name = gr.Textbox(label="ルーム名（必須）", info="UIやグループ会話で表示される名前です。フォルダ名は自動で生成されます。")
+                    new_user_display_name = gr.Textbox(label="あなたの表示名（任意）", placeholder="デフォルト: ユーザー")
+                    new_agent_display_name = gr.Textbox(label="Agentの表示名（任意）", placeholder="AIのデフォルト表示名。未設定の場合はルーム名が使われます。")
+                    new_room_description = gr.Textbox(label="ルームの説明（任意）", lines=3, placeholder="このルームがどのような場所かをメモしておけます。")
+                    initial_system_prompt = gr.Textbox(label="初期システムプロンプト（任意）", lines=5, placeholder="このルームの基本的なルールやAIの役割などを設定します。")
+                    create_room_button = gr.Button("ルームを作成", variant="primary")
                                 
-                                scenery_style_radio = gr.Dropdown(
-                                    choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
-                                    label="画風を選択", value="写真風 (デフォルト)", interactive=True
-                                )
-                                generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
-                                refresh_scenery_button = gr.Button("情景テキストを更新", variant="secondary")
+                with gr.TabItem("管理") as manage_room_tab:
+                    manage_room_selector = gr.Dropdown(label="管理するルームを選択", choices=room_list_on_startup, interactive=True)
+                    with gr.Column(visible=False) as manage_room_details:
+                        open_room_folder_button = gr.Button("📂 ルームフォルダを開く", variant="secondary")
+                        manage_room_name = gr.Textbox(label="ルーム名")
+                        manage_user_display_name = gr.Textbox(label="あなたの表示名")
+                        manage_agent_display_name = gr.Textbox(label="Agentの表示名")
+                        manage_room_description = gr.Textbox(label="ルームの説明", lines=3)
+                        manage_folder_name_display = gr.Textbox(label="フォルダ名（編集不可）", interactive=False)
+                        save_room_config_button = gr.Button("変更を保存", variant="primary")
+                        delete_room_button = gr.Button("このルームを削除", variant="stop")
+                                
+                with gr.TabItem("インポート") as import_tab:
+                    with gr.Accordion("🔵 ChatGPT (公式)", open=False):
+                        gr.Markdown("### ChatGPTデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
+                        chatgpt_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
+                        with gr.Column(visible=False) as chatgpt_import_form:
+                            chatgpt_thread_dropdown = gr.Dropdown(label="インポートする会話スレッドを選択", interactive=True)
+                            chatgpt_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
+                            chatgpt_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
+                            chatgpt_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
+                    with gr.Accordion("🟠 Claude (公式)", open=False):
+                        gr.Markdown("### Claudeデータインポート\n`conversations.json`ファイルをアップロードして、過去の対話をNexus Arkにインポートします。")
+                        claude_import_file = gr.File(label="`conversations.json` をアップロード", file_types=[".json"])
+                        with gr.Column(visible=False) as claude_import_form:
+                            claude_thread_dropdown = gr.Dropdown(label="インポートする会話スレッドを選択", interactive=True)
+                            claude_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
+                            claude_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", value="ユーザー", interactive=True)
+                            claude_import_button = gr.Button("この会話をNexus Arkにインポートする", variant="primary")
 
-                                with gr.Accordion("🎨 情景画像プロンプトを出力", open=False):
-                                    gr.Markdown("外部の画像生成サービスで利用するための、現在の情景に基づいたプロンプトを生成します。")
-                                    scenery_prompt_output_textbox = gr.Textbox(
-                                        label="生成されたプロンプト",
-                                        interactive=False,
-                                        lines=5,
-                                        placeholder="下のボタンを押してプロンプトを生成します..."
-                                    )
-                                    generate_scenery_prompt_button = gr.Button("プロンプトを生成", variant="secondary")
-                                    copy_scenery_prompt_button = gr.Button("プロンプトをコピー")
+                    with gr.Accordion("📄 その他テキスト/JSON", open=False):
+                        gr.Markdown(
+                            "### 汎用インポーター\n"
+                            "ChatGPT Exporter形式のファイルや、任意の話者ヘッダーを持つテキストログをインポートします。"
+                        )
+                        generic_import_file = gr.File(label="JSON, MD, TXT ファイルをアップロード", file_types=[".json", ".md", ".txt"])
+                        with gr.Column(visible=False) as generic_import_form:
+                            generic_room_name_textbox = gr.Textbox(label="新しいルーム名", interactive=True)
+                            generic_user_name_textbox = gr.Textbox(label="あなたの表示名（ルーム内）", interactive=True)
+                            gr.Markdown("---")
+                            gr.Markdown(
+                                "**話者ヘッダーの指定**\n"
+                                "ファイル内の、誰の発言かを示す行頭の文字列を正確に入力してください。"
+                            )
+                            generic_user_header_textbox = gr.Textbox(label="あなたの発言ヘッダー", placeholder="例: Prompt:")
+                            generic_agent_header_textbox = gr.Textbox(label="AIの発言ヘッダー", placeholder="例: Response:")
+                            generic_import_button = gr.Button("このファイルをインポートする", variant="primary")
 
-                                with gr.Accordion("🏞️ カスタム情景画像の登録", open=False):
-                                    gr.Markdown("AI生成の代わりに、ご自身で用意した画像を情景として登録します。")
-                                    custom_scenery_location_dropdown = gr.Dropdown(label="場所を選択", interactive=True)
-                                    with gr.Row():
-                                        custom_scenery_season_dropdown = gr.Dropdown(label="季節", choices=["春", "夏", "秋", "冬"], value="秋", interactive=True)
-                                        custom_scenery_time_dropdown = gr.Dropdown(label="時間帯", choices=["早朝", "朝", "昼前", "昼下がり", "夕方", "夜", "深夜"], value="夜", interactive=True)
-                                    custom_scenery_image_upload = gr.Image(label="画像をアップロード", type="filepath", interactive=True)
-                                    register_custom_scenery_button = gr.Button("この画像を情景として登録", variant="secondary")
-                # --- [3カラムレイアウトはここまで] ---
+
+
+        with gr.Accordion("🛠️ チャット支援ツール", open=False):
+            with gr.Tabs():
+                with gr.TabItem("文字置き換え"):
+                    gr.Markdown("チャット履歴内の特定の文字列を、スクリーンショット用に一時的に別の文字列に置き換えます。**元のログファイルは変更されません。**")
+                    screenshot_mode_checkbox = gr.Checkbox(
+                        label="スクリーンショットモードを有効にする",
+                        info="有効にすると、下のルールに基づいてチャット履歴の表示が置き換えられます。"
+                    )
+                    with gr.Row():
+                        with gr.Column(scale=3):
+                            gr.Markdown("**現在のルールリスト**")
+                            redaction_rules_df = gr.Dataframe(
+                                headers=["元の文字列 (Find)", "置換後の文字列 (Replace)", "背景色"],
+                                datatype=["str", "str", "str"],
+                                row_count=(5, "dynamic"),
+                                col_count=(3, "fixed"),
+                                interactive=False
+                            )
+                        with gr.Column(scale=2):
+                            gr.Markdown("**ルールの編集**")
+                            redaction_find_textbox = gr.Textbox(label="元の文字列 (Find)")
+                            redaction_replace_textbox = gr.Textbox(label="置換後の文字列 (Replace)")
+                            redaction_color_picker = gr.ColorPicker(label="背景色", value="#62827e")
+                            with gr.Row():
+                                add_rule_button = gr.Button("ルールを追加/更新", variant="primary")
+                                clear_rule_form_button = gr.Button("フォームをクリア")
+                            delete_rule_button = gr.Button("選択したルールを削除", variant="stop")
+                with gr.TabItem("ログ修正"):
+                    gr.Markdown("選択した**発言**以降の**AIの応答**に含まれる読点（、）を、AIを使って自動で修正し、自然な文章に校正します。")
+                    gr.Markdown("⚠️ **注意:** この操作はログファイルを直接上書きするため、元に戻せません。処理の前に、ログファイルのバックアップが自動的に作成されます。")
+                    correct_punctuation_button = gr.Button("選択発言以降の読点をAIで修正", variant="secondary")
+                    correction_confirmed_state = gr.Textbox(visible=False)
+                with gr.TabItem("添付ファイル") as attachment_tab:
+                    gr.Markdown(
+                        "過去に添付したファイルの一覧です。\n\n"
+                        "リストを選択してアクティブにすることで、解除するまで送信に含められます。\n\n"
+                        "**⚠️注意:** ここでファイルを削除すると、チャット履歴の画像表示なども含めて、ファイルへのすべての参照が失われます。"
+                    )
+                    active_attachments_display = gr.Markdown("現在アクティブな添付ファイルはありません。")
+                    gr.Markdown("---") # 区切り線
+
+                    attachments_df = gr.Dataframe(
+                        headers=["ファイル名", "種類", "サイズ(KB)", "添付日時"],
+                        datatype=["str", "str", "str", "str"],
+                        row_count=(5, "dynamic"),
+                        col_count=(4, "fixed"),
+                        interactive=True,  # 行選択を有効にする
+                        wrap=True
+                    )
+                    with gr.Row():
+                        open_attachments_folder_button = gr.Button("📂 添付ファイルフォルダを開く", variant="secondary")
+                        delete_attachment_button = gr.Button("選択したファイルを削除", variant="stop")
+
+        gr.Markdown(f"Nexus Ark {constants.APP_VERSION} (Beta)", elem_id="app_version_display")
+
+
+    # --- グローバル・右サイドバー (情景・プロフィール) ---
+    with gr.Sidebar(label="情景・プロフィール", width=320, open=True, position="right"):
+        with gr.Accordion("🖼️ プロフィール・情景", open=True, elem_id="profile_scenery_accordion") as profile_scenery_accordion:
+            # --- プロフィール画像セクション ---
+            profile_image_display = gr.Image(
+                height=200, interactive=False, show_label=False, elem_id="profile_image_display"
+            )
+            with gr.Accordion("プロフィール画像を変更", open=False) as profile_image_accordion:
+                staged_image_state = gr.State()
+                image_upload_button = gr.UploadButton("新しい画像をアップロード", file_types=["image"])
+                cropper_image_preview = gr.ImageEditor(
+                    sources=["upload"], type="pil", interactive=True, show_label=False,
+                    visible=False, transforms=["crop"], brush=None, eraser=None,
+                )
+                save_cropped_image_button = gr.Button("この範囲で保存", visible=False)
+
+            # --- 情景ビジュアルセクション ---
+            scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
+            current_scenery_display = gr.Textbox( # ← ここに移動し、labelを削除
+                interactive=False, lines=4, max_lines=10, show_label=False,
+                placeholder="現在の情景が表示されます..."
+            )
+
+            # --- 移動メニュー ---
+            location_dropdown = gr.Dropdown(label="現在地 / 移動先を選択", interactive=True) # ← label を変更
+
+            # --- 画像生成メニュー ---
+            with gr.Accordion("🌄情景設定・生成", open=False):
+                with gr.Accordion("季節・時間を指定", open=False) as time_control_accordion:
+                    gr.Markdown("（この設定はルームごとに保存されます）", elem_id="time_control_note")
+                    time_mode_radio = gr.Radio(
+                        choices=["リアル連動", "選択する"],
+                        label="モード選択",
+                        interactive=True
+                    )
+                    with gr.Column(visible=False) as fixed_time_controls:
+                        fixed_season_dropdown = gr.Dropdown(
+                            label="季節を選択",
+                            choices=["春", "夏", "秋", "冬"],
+                            interactive=True
+                        )
+                        fixed_time_of_day_dropdown = gr.Dropdown(
+                            label="時間帯を選択",
+                            choices=["朝", "昼", "夕方", "夜"],
+                            interactive=True
+                        )
+                    # ボタンを fixed_time_controls の外に移動し、常に表示されるようにする
+                    save_time_settings_button = gr.Button("このルームの時間設定を保存", variant="secondary")
+                                
+                scenery_style_radio = gr.Dropdown(
+                    choices=["写真風 (デフォルト)", "イラスト風", "アニメ風", "水彩画風"],
+                    label="画風を選択", value="写真風 (デフォルト)", interactive=True
+                )
+                generate_scenery_image_button = gr.Button("情景画像を生成 / 更新", variant="secondary")
+                refresh_scenery_button = gr.Button("情景テキストを更新", variant="secondary")
+
+                with gr.Accordion("🎨 情景画像プロンプトを出力", open=False):
+                    gr.Markdown("外部の画像生成サービスで利用するための、現在の情景に基づいたプロンプトを生成します。")
+                    scenery_prompt_output_textbox = gr.Textbox(
+                        label="生成されたプロンプト",
+                        interactive=False,
+                        lines=5,
+                        placeholder="下のボタンを押してプロンプトを生成します..."
+                    )
+                    generate_scenery_prompt_button = gr.Button("プロンプトを生成", variant="secondary")
+                    copy_scenery_prompt_button = gr.Button("プロンプトをコピー")
+
+                with gr.Accordion("🏞️ カスタム情景画像の登録", open=False):
+                    gr.Markdown("AI生成の代わりに、ご自身で用意した画像を情景として登録します。")
+                    custom_scenery_location_dropdown = gr.Dropdown(label="場所を選択", interactive=True)
+                    with gr.Row():
+                        custom_scenery_season_dropdown = gr.Dropdown(label="季節", choices=["春", "夏", "秋", "冬"], value="秋", interactive=True)
+                        custom_scenery_time_dropdown = gr.Dropdown(label="時間帯", choices=["早朝", "朝", "昼前", "昼下がり", "夕方", "夜", "深夜"], value="夜", interactive=True)
+                    custom_scenery_image_upload = gr.Image(label="画像をアップロード", type="filepath", interactive=True)
+                    register_custom_scenery_button = gr.Button("この画像を情景として登録", variant="secondary")
+
+        with gr.Tabs():
+            with gr.TabItem("チャット"):
+                # --- 中央チャットエリア ---
+                with gr.Column(scale=1):
+                    onboarding_guide = gr.Markdown(
+                        """
+                        ## Nexus Arkへようこそ！
+                        **まずはAIと対話するための準備をしましょう。**
+                        1.  **Google AI Studio** などで **Gemini APIキー** を取得してください。
+                        2.  左カラムの **「⚙️ 設定」** を開きます。
+                        3.  **「共通」** タブ内の **「🔑 APIキー / Webhook管理」** を開きます。
+                        4.  **「Gemini APIキー」** の項目に、キーの名前（管理用のあだ名）と、取得したAPIキーの値を入力し、**「Geminiキーを保存」** ボタンを押してください。
+
+                        設定が完了すると、このメッセージは消え、チャットが利用可能になります。
+                        """,
+                        visible=False, # 初期状態では非表示
+                        elem_id="onboarding_guide"
+                    )
+
+                    chatbot_display = gr.Chatbot(
+                        height=580, 
+                        elem_id="chat_output_area",
+                        show_copy_button=True,
+                        show_label=False,
+                        render_markdown=True,
+                        type="tuples", # [v4.x] 明示的にtuplesを指定して警告を回避
+                        group_consecutive_messages=False,
+                        editable="all" 
+                    )
+
+                    with gr.Row():
+                        audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
+                    with gr.Row(visible=False) as action_button_group:
+                        rerun_button = gr.Button("🔄 再生成")
+                        play_audio_button = gr.Button("🔊 選択した発言を再生")
+                        delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
+                        cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
+
+                    chat_input_multimodal = gr.MultimodalTextbox(
+                        file_types=["image", "audio", "video", "text", ".pdf", ".md", ".py", ".json", ".html", ".css", ".js"],
+                        max_plain_text_length=100000,
+                        placeholder="メッセージを入力してください (Shift+Enterで送信)",
+                        show_label=False,
+                        lines=3,
+                        interactive=True
+                    )
+
+                    token_count_display = gr.Markdown(
+                        "入力トークン数: 0 / 0",
+                        elem_id="token_count_display"
+                    )
+
+                    with gr.Row():
+                        stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
+                        chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
+
+                    with gr.Row():
+                        add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1, visible=False)
 
             with gr.TabItem(" 記憶・メモ・指示"):
                 gr.Markdown("##  記憶・メモ・指示\nルームの根幹をなす設定ファイルを、ここで直接編集できます。")
