@@ -396,8 +396,12 @@ def handle_initial_load():
         gr.update(choices=available_models, value=default_model) # openai_model_dropdown
     )
 
-    # --- 5. 全ての戻り値を正しい順序で組み立てる ---
-    # `initial_load_outputs`のリスト（58個）に対応
+    # --- 6. 索引の最終更新日時を取得 ---
+    memory_index_last_updated = _get_rag_index_last_updated(safe_initial_room, "memory")
+    current_log_index_last_updated = _get_rag_index_last_updated(safe_initial_room, "current_log")
+
+    # --- 7. 全ての戻り値を正しい順序で組み立てる ---
+    # `initial_load_outputs`のリスト（60個）に対応
     return (
         display_df, df_with_ids, feedback_text,
         *chat_tab_updates,
@@ -410,7 +414,9 @@ def handle_initial_load():
         *common_settings_updates,
         custom_scenery_dd_update,
         custom_scenery_time_dd_update,
-        *openai_updates
+        *openai_updates,
+        f"最終更新: {memory_index_last_updated}",  # memory_reindex_status
+        f"最終更新: {current_log_index_last_updated}"  # current_log_reindex_status
     )
 
 def handle_save_room_settings(
@@ -1502,7 +1508,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
     unified_full_room_refresh_outputs と完全に一致する65個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 75
+    EXPECTED_OUTPUT_COUNT = 77
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
@@ -1577,7 +1583,9 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 "現在アクティブな添付ファイルはありません。", 
                 gr.update(choices=[]), # custom_scenery_location_dropdown
                 "トークン数: -", # token_count_display
-                ""                # room_delete_confirmed_state
+                "",              # room_delete_confirmed_state
+                "最終更新: -",  # memory_reindex_status
+                "最終更新: -"   # current_log_reindex_status
             )
         
     except Exception as e:
@@ -3432,7 +3440,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 75
+    EXPECTED_OUTPUT_COUNT = 77
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
@@ -3480,8 +3488,17 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
         api_history_limit=api_history_limit_key, **token_calc_kwargs
     )
 
-    # 契約遵守のため、最後の戻り値として room_delete_confirmed_state 用の "" を追加
-    return all_updates_tuple + (token_count_text, "")
+    # 索引の最終更新日時を取得
+    memory_index_last_updated = _get_rag_index_last_updated(room_name, "memory")
+    current_log_index_last_updated = _get_rag_index_last_updated(room_name, "current_log")
+    
+    # 契約遵守のため、最後の戻り値として索引ステータスを追加
+    return all_updates_tuple + (
+        token_count_text, 
+        "",  # room_delete_confirmed_state
+        f"最終更新: {memory_index_last_updated}",  # memory_reindex_status
+        f"最終更新: {current_log_index_last_updated}"  # current_log_reindex_status
+    )
 
 def handle_start_session(main_room: str, participant_list: list) -> tuple:
     if not participant_list:
@@ -4620,15 +4637,12 @@ def handle_knowledge_reindex(room_name: str, api_key_name: str):
         return gr.update(), gr.update()
 
     # 処理開始を通知
-    yield "処理中: 知識ベースと過去ログを読み込み、インデックスを構築しています...（数分かかる場合があります）", gr.update(interactive=False)
+    yield "処理中: 知識ドキュメントのインデックスを構築しています...", gr.update(interactive=False)
 
     try:
-        # マネージャーの初期化
         manager = rag_manager.RAGManager(room_name, api_key)
-        
-        # インデックス作成実行（同期処理）
-        # ※進捗の詳細はサーバーのコンソールに出力されます
-        result_message = manager.create_or_update_index()
+        # 知識索引のみ更新
+        result_message = manager.update_knowledge_index()
         
         gr.Info(f"✅ {result_message}")
         yield f"ステータス: {result_message}", gr.update(interactive=True)
@@ -4636,13 +4650,101 @@ def handle_knowledge_reindex(room_name: str, api_key_name: str):
     except Exception as e:
         error_msg = f"索引の作成中にエラーが発生しました: {e}"
         gr.Error(error_msg)
-        print(f"--- [索引作成エラー] ---")
+        print(f"--- [知識索引作成エラー] ---")
         traceback.print_exc()
         yield error_msg, gr.update(interactive=True)
         return
 
-    # 完了後のステータス更新
     yield _get_knowledge_status(room_name), gr.update(interactive=True)
+
+def _get_rag_index_last_updated(room_name: str, index_type: str = "memory") -> str:
+    """指定された索引の最終更新日時を取得する"""
+    from pathlib import Path
+    import datetime
+    
+    if index_type == "memory":
+        index_path = Path("characters") / room_name / "rag_data" / "faiss_index_static"
+    elif index_type == "current_log":
+        index_path = Path("characters") / room_name / "rag_data" / "current_log_index"
+    else:
+        return "不明"
+    
+    if not index_path.exists():
+        return "未作成"
+    
+    try:
+        # フォルダの最終更新時刻を取得
+        mtime = index_path.stat().st_mtime
+        dt = datetime.datetime.fromtimestamp(mtime)
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return "取得失敗"
+
+def handle_memory_reindex(room_name: str, api_key_name: str):
+    """記憶の索引（過去ログ、エピソード記憶、夢日記）を更新する。"""
+    if not room_name or not api_key_name:
+        gr.Warning("ルームとAPIキーを選択してください。")
+        return gr.update(), gr.update()
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Error(f"APIキー「{api_key_name}」が無効です。")
+        return gr.update(), gr.update()
+
+    # 処理開始を通知
+    yield "処理中: 過去ログ、エピソード記憶、夢日記、現行ログをベクトル化しています...", gr.update(interactive=False)
+
+    try:
+        manager = rag_manager.RAGManager(room_name, api_key)
+        # 記憶索引のみ更新
+        result_message = manager.update_memory_index()
+        
+        gr.Info(f"✅ {result_message}")
+        yield f"ステータス: {result_message}", gr.update(interactive=True)
+
+    except Exception as e:
+        error_msg = f"記憶索引の作成中にエラーが発生しました: {e}"
+        gr.Error(error_msg)
+        print(f"--- [記憶索引作成エラー] ---")
+        traceback.print_exc()
+        yield error_msg, gr.update(interactive=True)
+        return
+
+    last_updated = _get_rag_index_last_updated(room_name, "memory")
+    yield f"✅ 記憶索引の更新が完了しました（最終更新: {last_updated}）", gr.update(interactive=True)
+
+def handle_current_log_reindex(room_name: str, api_key_name: str):
+    """現行ログ（log.txt）の索引を更新する（リアルタイム進捗表示付き）。"""
+    if not room_name or not api_key_name:
+        gr.Warning("ルームとAPIキーを選択してください。")
+        return gr.update(), gr.update()
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Error(f"APIキー「{api_key_name}」が無効です。")
+        return gr.update(), gr.update()
+
+    yield "開始中...", gr.update(interactive=False)
+
+    try:
+        manager = rag_manager.RAGManager(room_name, api_key)
+        
+        last_message = ""
+        for batch_num, total_batches, status_message in manager.update_current_log_index_with_progress():
+            last_message = status_message
+            yield f"{status_message}", gr.update(interactive=False)
+        
+        gr.Info(f"✅ {last_message}")
+        last_updated = _get_rag_index_last_updated(room_name, "current_log")
+        yield f"{last_message}（最終更新: {last_updated}）", gr.update(interactive=True)
+
+    except Exception as e:
+        error_msg = f"現行ログ索引の作成中にエラーが発生しました: {e}"
+        gr.Error(error_msg)
+        print(f"--- [現行ログ索引作成エラー] ---")
+        traceback.print_exc()
+        yield error_msg, gr.update(interactive=True)
+        return
 
 def handle_row_selection(df: pd.DataFrame, evt: gr.SelectData) -> Optional[int]:
     """【教訓21】DataFrameの行選択イベントを処理し、選択された行のインデックスを返す汎用ハンドラ。"""

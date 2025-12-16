@@ -1006,6 +1006,18 @@ try:
                             )
                             refresh_dream_button = gr.Button("夢日記を読み込む", variant="secondary")
 
+                        # --- 記憶索引の更新 ---
+                        gr.Markdown("---")
+                        gr.Markdown("### 🔍 記憶の索引 (RAG)")
+                        gr.Markdown("**過去ログアーカイブ、エピソード記憶、夢日記**をAIが検索できるようにベクトル化します。")
+                        memory_reindex_button = gr.Button("記憶の索引を更新", variant="primary")
+                        memory_reindex_status = gr.Textbox(label="ステータス", interactive=False)
+                        
+                        gr.Markdown("---")
+                        gr.Markdown("**現行ログ**（今日の会話）を索引化します。")
+                        current_log_reindex_button = gr.Button("現行ログの索引を更新", variant="secondary")
+                        current_log_reindex_status = gr.Textbox(label="ステータス", interactive=False)
+
                     with gr.TabItem("知識グラフ管理", visible=False):
                         gr.Markdown("## 知識グラフの管理")
                         gr.Markdown("過去の対話ログを分析し、エンティティ間の関係性を抽出して、AIの永続的な知識グラフを構築・更新します。")
@@ -1202,7 +1214,10 @@ try:
             openai_profile_dropdown,
             openai_base_url_input,
             openai_api_key_input,
-            openai_model_dropdown
+            openai_model_dropdown,
+            # --- 索引ステータス欄（最終更新日時表示用）---
+            memory_reindex_status,
+            current_log_reindex_status
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
@@ -1223,6 +1238,9 @@ try:
             # 司令塔間で戻り値の数を統一するための追加コンポーネント
             token_count_display,
             room_delete_confirmed_state, # handle_delete_room が返すリセット値用
+            # 索引ステータス欄（最終更新日時表示用）
+            memory_reindex_status,
+            current_log_reindex_status,
         ]
         
         demo.load(
@@ -2231,6 +2249,18 @@ try:
             fn=ui_handlers.handle_knowledge_reindex,
             inputs=[current_room_name, current_api_key_name_state],
             outputs=[knowledge_status_output, knowledge_reindex_button]
+        )
+
+        memory_reindex_button.click(
+            fn=ui_handlers.handle_memory_reindex,
+            inputs=[current_room_name, current_api_key_name_state],
+            outputs=[memory_reindex_status, memory_reindex_button]
+        )
+
+        current_log_reindex_button.click(
+            fn=ui_handlers.handle_current_log_reindex,
+            inputs=[current_room_name, current_api_key_name_state],
+            outputs=[current_log_reindex_status, current_log_reindex_button]
         )
 
         play_audio_event = play_audio_button.click(
