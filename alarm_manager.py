@@ -474,8 +474,43 @@ def check_autonomous_actions():
                     if not has_dreamed_today:
                         print(f"💤 {room_folder}: 深い眠りにつきました（夢想プロセス開始）...")
                         result = dm.dream()
-                        # 夢を見終わったら、ログの最終更新時刻を擬似的に更新しないと
-                        # 次のループですぐまた判定に来てしまうが、has_dreamed_todayで弾かれるので大丈夫
+                        
+                        # --- 睡眠時記憶整理 ---
+                        sleep_consolidation = effective_settings.get("sleep_consolidation", {})
+                        
+                        if sleep_consolidation.get("update_episodic_memory", True):
+                            print(f"  🌙 {room_folder}: エピソード記憶を更新中...")
+                            try:
+                                from episodic_memory_manager import EpisodicMemoryManager
+                                em = EpisodicMemoryManager(room_folder)
+                                em_result = em.update_memory(api_key_val)
+                                print(f"  ✅ {room_folder}: {em_result}")
+                            except Exception as e:
+                                print(f"  ❌ {room_folder}: エピソード記憶更新エラー - {e}")
+                        
+                        if sleep_consolidation.get("update_memory_index", True):
+                            print(f"  🌙 {room_folder}: 記憶索引を更新中...")
+                            try:
+                                import rag_manager
+                                rm = rag_manager.RAGManager(room_folder, api_key_val)
+                                rm_result = rm.update_memory_index()
+                                print(f"  ✅ {room_folder}: {rm_result}")
+                            except Exception as e:
+                                print(f"  ❌ {room_folder}: 記憶索引更新エラー - {e}")
+                        
+                        if sleep_consolidation.get("update_current_log_index", False):
+                            print(f"  🌙 {room_folder}: 現行ログ索引を更新中...")
+                            try:
+                                import rag_manager
+                                rm = rag_manager.RAGManager(room_folder, api_key_val)
+                                # ジェネレーターを消費して完了を待つ
+                                for batch_num, total_batches, status in rm.update_current_log_index_with_progress():
+                                    if batch_num == total_batches:
+                                        print(f"  ✅ {room_folder}: {status}")
+                            except Exception as e:
+                                print(f"  ❌ {room_folder}: 現行ログ索引更新エラー - {e}")
+                        
+                        print(f"🛌 {room_folder}: 睡眠時記憶整理が完了しました。")
                     else:
                         # 既に夢を見ているので、静かに寝ていてもらう（ログも汚さない）
                         # print(f"💤 {room_folder}: すやすや眠っています...")

@@ -252,6 +252,12 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     quiet_start = auto_settings.get("quiet_hours_start", "00:00")
     quiet_end = auto_settings.get("quiet_hours_end", "07:00")
 
+    # 睡眠時記憶整理設定
+    sleep_consolidation = effective_settings.get("sleep_consolidation", {})
+    sleep_episodic = sleep_consolidation.get("update_episodic_memory", True)
+    sleep_memory_index = sleep_consolidation.get("update_memory_index", True)
+    sleep_current_log = sleep_consolidation.get("update_current_log_index", False)
+
     return (
         room_name, chat_history, mapping_list,
         gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)。添付するにはファイルをドロップまたはクリップボタンを押してください..."),
@@ -300,6 +306,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=effective_settings.get("openai_settings", {}).get("api_key", "")),  # room_openai_api_key_input
         gr.update(choices=[], value=effective_settings.get("openai_settings", {}).get("model", None)),  # room_openai_model_dropdown (profs用chooseはprofile選択時に読み込み)
         gr.update(value=effective_settings.get("openai_settings", {}).get("tool_use_enabled", True)),  # room_openai_tool_use_checkbox
+        # --- 睡眠時記憶整理 ---
+        gr.update(value=sleep_episodic),
+        gr.update(value=sleep_memory_index),
+        gr.update(value=sleep_current_log),
     )
 
 
@@ -447,7 +457,11 @@ def handle_save_room_settings(
     openai_base_url: str = None,
     openai_api_key: str = None,
     openai_model: str = None,
-    openai_tool_use: bool = True  # 追加: ツール使用オンオフ
+    openai_tool_use: bool = True,  # 追加: ツール使用オンオフ
+    # --- 睡眠時記憶整理 ---
+    sleep_update_episodic: bool = True,
+    sleep_update_memory_index: bool = True,
+    sleep_update_current_log: bool = False
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -510,7 +524,13 @@ def handle_save_room_settings(
             "api_key": openai_api_key if openai_api_key else "",
             "model": openai_model if openai_model else "",
             "tool_use_enabled": bool(openai_tool_use)
-        } if provider == "openai" else None
+        } if provider == "openai" else None,
+        # --- 睡眠時記憶整理 ---
+        "sleep_consolidation": {
+            "update_episodic_memory": bool(sleep_update_episodic),
+            "update_memory_index": bool(sleep_update_memory_index),
+            "update_current_log_index": bool(sleep_update_current_log)
+        }
     }
     try:
         room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
@@ -1508,7 +1528,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
     unified_full_room_refresh_outputs と完全に一致する65個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 77
+    EXPECTED_OUTPUT_COUNT = 80
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
@@ -1566,6 +1586,13 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 gr.update(value=120),  # room_autonomous_inactivity_slider
                 gr.update(value="00:00"),  # room_quiet_hours_start
                 gr.update(value="07:00"),  # room_quiet_hours_end
+                *[gr.update()]*8,  # room_model_dropdown, provider_radio, google_group, openai_group, api_key_dd, openai_profile, base_url, api_key
+                gr.update(),  # openai_model_dropdown
+                gr.update(value=True),  # openai_tool_use_checkbox
+                # --- 睡眠時記憶整理 ---
+                gr.update(value=True),  # sleep_consolidation_episodic_cb
+                gr.update(value=True),  # sleep_consolidation_memory_index_cb
+                gr.update(value=False),  # sleep_consolidation_current_log_cb
             )
             empty_world_updates = ({}, gr.update(choices=[], value=None), "", gr.update(choices=[], value=None))
             empty_session_updates = ([], "ルームがありません", gr.update(choices=[]))
@@ -3440,7 +3467,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 77
+    EXPECTED_OUTPUT_COUNT = 80
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
@@ -4679,6 +4706,34 @@ def _get_rag_index_last_updated(room_name: str, index_type: str = "memory") -> s
         return dt.strftime("%Y-%m-%d %H:%M")
     except Exception:
         return "取得失敗"
+
+def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, update_memory_index: bool, update_current_log: bool):
+    """睡眠時記憶整理設定を即座に保存する"""
+    if not room_name:
+        return
+    
+    try:
+        room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+        config = {}
+        if os.path.exists(room_config_path) and os.path.getsize(room_config_path) > 0:
+            with open(room_config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        
+        if "override_settings" not in config:
+            config["override_settings"] = {}
+        
+        config["override_settings"]["sleep_consolidation"] = {
+            "update_episodic_memory": bool(update_episodic),
+            "update_memory_index": bool(update_memory_index),
+            "update_current_log_index": bool(update_current_log)
+        }
+        
+        with open(room_config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        
+        print(f"--- [睡眠時記憶整理] 設定保存: {room_name} ---")
+    except Exception as e:
+        print(f"--- [睡眠時記憶整理] 設定保存エラー: {e} ---")
 
 def handle_memory_reindex(room_name: str, api_key_name: str):
     """記憶の索引（過去ログ、エピソード記憶、夢日記）を更新する。"""

@@ -575,7 +575,11 @@ try:
                                         )
                                         
                                         gr.Markdown("#### 🌙 通知禁止時間帯 (Quiet Hours)")
-                                        gr.Markdown("この時間帯にAIが行動した場合、ログには記録されますが、スマホへの通知（Discord/Pushover）は送信されません。")
+                                        gr.Markdown(
+                                            "この時間帯にAIが行動した場合、通知（Discord/Pushover）は送信されません。\n"
+                                            "また、この時間帯はAIの「睡眠時間」とみなされ、**夢日記の作成**と**睡眠時記憶整理**が実行されます。詳しくは「記憶タブ → 夢日記」をご覧ください。"
+                                        )
+
                                         with gr.Row():
                                             time_options = [f"{i:02d}:00" for i in range(24)]
                                             room_quiet_hours_start = gr.Dropdown(choices=time_options, value="00:00", label="開始時刻", interactive=True)
@@ -1005,6 +1009,29 @@ try:
                                 placeholder="リストを選択すると、ここに詳細が表示されます。"
                             )
                             refresh_dream_button = gr.Button("夢日記を読み込む", variant="secondary")
+                            
+                            # --- 睡眠時記憶整理 ---
+                            gr.Markdown("---")
+                            gr.Markdown(
+                                "#### 🌙 睡眠時記憶整理\n"
+                                "**発生条件:** 自律行動が有効で、通知禁止時間帯（デフォルト: 0:00〜7:00）に無操作時間を超過すると、AIは「眠り」に入り夢日記を作成します。\n\n"
+                                "夢日記を作成する際に、以下の処理も連続して実行します。（チェックを変更すると即座に保存されます）"
+                            )
+                            sleep_consolidation_episodic_cb = gr.Checkbox(
+                                label="エピソード記憶を作成・更新する",
+                                value=True,
+                                interactive=True
+                            )
+                            sleep_consolidation_memory_index_cb = gr.Checkbox(
+                                label="記憶の索引を更新する",
+                                value=True,
+                                interactive=True
+                            )
+                            sleep_consolidation_current_log_cb = gr.Checkbox(
+                                label="現行ログの索引を更新する（時間がかかります）",
+                                value=False,  # デフォルトOFF（時間がかかるため）
+                                interactive=True
+                            )
 
                         # --- 記憶索引の更新 ---
                         gr.Markdown("---")
@@ -1186,6 +1213,10 @@ try:
             room_openai_api_key_input,
             room_openai_model_dropdown,
             room_openai_tool_use_checkbox,  # 追加: ツール使用オンオフ
+            # --- 睡眠時記憶整理 ---
+            sleep_consolidation_episodic_cb,
+            sleep_consolidation_memory_index_cb,
+            sleep_consolidation_current_log_cb,
         ]
 
         initial_load_outputs = [
@@ -1563,6 +1594,10 @@ try:
                 room_openai_api_key_input,
                 room_openai_model_dropdown,
                 room_openai_tool_use_checkbox,  # 追加: ツール使用オンオフ
+                # --- 睡眠時記憶整理 ---
+                sleep_consolidation_episodic_cb,
+                sleep_consolidation_memory_index_cb,
+                sleep_consolidation_current_log_cb,
             ],
             outputs=None
         )
@@ -1868,6 +1903,29 @@ try:
             fn=ui_handlers.handle_dream_journal_selection,
             inputs=[current_room_name],
             outputs=[dream_detail_text]
+        )
+
+        # --- 睡眠時記憶整理チェックボックス即保存 ---
+        sleep_consolidation_inputs = [
+            current_room_name,
+            sleep_consolidation_episodic_cb,
+            sleep_consolidation_memory_index_cb,
+            sleep_consolidation_current_log_cb
+        ]
+        sleep_consolidation_episodic_cb.change(
+            fn=ui_handlers.handle_sleep_consolidation_change,
+            inputs=sleep_consolidation_inputs,
+            outputs=None
+        )
+        sleep_consolidation_memory_index_cb.change(
+            fn=ui_handlers.handle_sleep_consolidation_change,
+            inputs=sleep_consolidation_inputs,
+            outputs=None
+        )
+        sleep_consolidation_current_log_cb.change(
+            fn=ui_handlers.handle_sleep_consolidation_change,
+            inputs=sleep_consolidation_inputs,
+            outputs=None
         )
 
         save_core_memory_button.click(
