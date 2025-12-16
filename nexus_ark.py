@@ -308,6 +308,10 @@ try:
         current_model_name = gr.State(config_manager.initial_model_global)
         current_api_key_name_state = gr.State(config_manager.initial_api_key_name_global)
         api_history_limit_state = gr.State(config_manager.initial_api_history_limit_option_global)
+        
+        # --- style_injector: 常に表示される場所に配置し、起動時からCSSが適用されるようにする ---
+        # visible=TrueかつCSSで非表示にすることで、GradioがDOMを更新する
+        style_injector = gr.HTML(value="<style></style>", visible=True, elem_id="style_injector_component")
         alarm_dataframe_original_data = gr.State(pd.DataFrame())
         selected_alarm_ids_state = gr.State([])
         editing_alarm_id_state = gr.State(None)
@@ -615,9 +619,7 @@ try:
                                 font_size_slider = gr.Slider(minimum=10, maximum=30, value=15, step=1, label="文字サイズ (px)", interactive=True)
                                 line_height_slider = gr.Slider(minimum=1.0, maximum=3.0, value=1.6, step=0.1, label="行間", interactive=True)
                             
-                            # visible=FalseだとGradioのバージョンによってはDOMに出力されないため、
-                            # visible=TrueにしつつCSSで非表示にするアプローチをとる
-                            style_injector = gr.HTML(value="<style></style>", visible=True, elem_id="style_injector_component")
+                            # style_injector moved to Palette tab to ensure active rendering
                         with gr.Accordion("🎤 音声設定", open=False):
                             gr.Markdown("チャットの発言を選択して、ここで設定した声で再生できます。")
                             room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
@@ -710,6 +712,20 @@ try:
                                 room_quiet_hours_end = gr.Dropdown(choices=time_options, value="07:00", label="終了時刻", interactive=True) 
 
                     with gr.TabItem("🎨 パレット") as theme_tab:
+                        with gr.Group(visible=True, elem_id="room_theme_color_settings"):
+                            gr.Markdown("#### 🎨 ルーム別テーマカラー個別設定")
+                            gr.Markdown("このルーム専用の配色を設定・保存します。（未指定の場合はデフォルトまたは下記ベーステーマが適用されます）")
+                            with gr.Row():
+                                theme_primary_picker = gr.ColorPicker(label="Main Color (Accent/Loader)", interactive=True)
+                                theme_secondary_picker = gr.ColorPicker(label="Sub Color (Bot BG/Labels)", interactive=True)
+                                theme_accent_soft_picker = gr.ColorPicker(label="User Color (User Bubble)", interactive=True)
+                            with gr.Row():
+                                theme_background_picker = gr.ColorPicker(label="Background Color", interactive=True)
+                                theme_text_picker = gr.ColorPicker(label="Text Color", interactive=True)
+                            save_room_theme_button = gr.Button("🎨 現在のテーマ設定をこのルームに保存", size="sm", variant="primary")
+                        
+                        gr.Markdown("---")
+                        gr.Markdown("#### 🌐 ベーステーマ選択 (Global)")
                         theme_settings_state = gr.State({})
                         theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
                                     
@@ -1343,6 +1359,17 @@ try:
             sleep_consolidation_episodic_cb,
             sleep_consolidation_memory_index_cb,
             sleep_consolidation_current_log_cb,
+            # --- [v25] テーマ設定 ---
+            chat_style_radio,
+            font_size_slider,
+            line_height_slider,
+            theme_primary_picker,
+            theme_secondary_picker,
+            theme_background_picker,
+            theme_text_picker,
+            theme_accent_soft_picker,
+            save_room_theme_button,
+            style_injector,
         ]
 
         initial_load_outputs = [
@@ -1786,50 +1813,24 @@ try:
             outputs=[room_openai_model_dropdown, room_openai_custom_model_input]
         )
 
-        # --- [v19] Novel Mode Event Handler ---
-        def _toggle_chat_style(style_val):
-            if style_val == "Novel (Text only)":
-                return gr.update(elem_classes=["novel-mode"])
-            else:
-                return gr.update(elem_classes=[])
+        # [v25] Theme & Display Handlers
+        theme_preview_inputs = [
+            font_size_slider, line_height_slider, chat_style_radio,
+            theme_primary_picker, theme_secondary_picker, theme_background_picker, theme_text_picker, theme_accent_soft_picker
+        ]
         
-        chat_style_radio.change(
-            fn=_toggle_chat_style,
-            inputs=[chat_style_radio],
-            outputs=[chatbot_display]
-        )
-
-        # --- [v19] Readability Controls Event ---
-        def _update_readability(font_size, line_height):
-            return f"""<style>
-            #chat_output_area .message-bubble, 
-            #chat_output_area .message-row .message-bubble,
-            #chat_output_area .message-wrap .message,
-            #chat_output_area .prose,
-            #chat_output_area .prose > *,
-            #chat_output_area .prose p,
-            #chat_output_area .prose li {{
-                font-size: {font_size}px !important;
-                line-height: {line_height} !important;
-            }}
-            #chat_output_area code,
-            #chat_output_area pre,
-            #chat_output_area pre span {{
-                font-size: {font_size*0.9}px !important;
-                line-height: {line_height} !important;
-            }}
-            /* Hide the injector itself just in case */
-            #style_injector_component {{
-                display: none !important;
-            }}
-            </style>"""
-
-        for slider in [font_size_slider, line_height_slider]:
-            slider.change(
-                fn=_update_readability,
-                inputs=[font_size_slider, line_height_slider],
+        for comp in theme_preview_inputs:
+            comp.change(
+                fn=ui_handlers.handle_theme_preview,
+                inputs=theme_preview_inputs,
                 outputs=[style_injector]
             )
+
+        save_room_theme_button.click(
+            fn=ui_handlers.handle_save_theme_settings,
+            inputs=[room_dropdown] + theme_preview_inputs,
+            outputs=None
+        )
 
         # ▼▼▼【ここからが新しいイベント定義です】▼▼▼
         # 思考表示チェックボックスの変更イベント
@@ -2335,6 +2336,14 @@ try:
             fn=ui_handlers.handle_theme_tab_load,
             inputs=None,
             outputs=[theme_selector, theme_preview_light, theme_preview_dark]
+        ).then(
+            fn=ui_handlers.handle_room_theme_reload,
+            inputs=[room_dropdown],
+            outputs=[
+                chat_style_radio, font_size_slider, line_height_slider,
+                theme_primary_picker, theme_secondary_picker, theme_background_picker,
+                theme_text_picker, theme_accent_soft_picker, style_injector
+            ]
         )
 
         theme_selector.change(

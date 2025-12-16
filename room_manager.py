@@ -308,3 +308,34 @@ def create_backup(room_name: str, file_type: str) -> Optional[str]:
         print(error_msg)
         traceback.print_exc()
         raise IOError(error_msg) from e
+
+def save_room_override_settings(room_name: str, settings: dict) -> bool:
+    """
+    ルーム個別の設定(override_settings)を room_config.json に保存する。
+    既存の設定は保持し、新しい設定値のみをマージ(更新)する。
+    """
+    if not room_name: return False
+
+    config = get_room_config(room_name)
+    if not config:
+        # Configがない場合は新規作成はせずエラーとする（通常ありえないため）
+        print(f"エラー: ルーム '{room_name}' の設定ファイルが見つかりません。")
+        return False
+
+    current_overrides = config.get("override_settings", {})
+    
+    # マージ
+    current_overrides.update(settings)
+    config["override_settings"] = current_overrides
+    config["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    try:
+        config_file = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+        with open(config_file, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        print(f"ルーム '{room_name}' の個別設定を保存しました。")
+        return True
+    except Exception as e:
+        print(f"ルーム '{room_name}' の設定保存エラー: {e}")
+        traceback.print_exc()
+        return False

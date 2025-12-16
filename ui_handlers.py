@@ -166,6 +166,21 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value=""),  # room_openai_api_key_input
             gr.update(value=None),  # room_openai_model_dropdown
             gr.update(value=True),  # room_openai_tool_use_checkbox
+            # --- 睡眠時記憶整理 (Default values) ---
+            gr.update(value=True),  # sleep_episodic
+            gr.update(value=True),  # sleep_memory_index
+            gr.update(value=False),  # sleep_current_log
+            # --- [v25] テーマ設定 (Default values) ---
+            gr.update(value="Chat (Default)"),  # chat_style
+            gr.update(value=15),  # font_size
+            gr.update(value=1.6),  # line_height
+            gr.update(value=None),  # primary
+            gr.update(value=None),  # secondary
+            gr.update(value=None),  # bg
+            gr.update(value=None),  # text
+            gr.update(value=None),  # accent_soft
+            gr.update(), # save_room_theme_button
+            gr.update(value="<style></style>"),  # style_injector
         )
 
     # --- 【通常モード】 ---
@@ -310,6 +325,26 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=sleep_episodic),
         gr.update(value=sleep_memory_index),
         gr.update(value=sleep_current_log),
+        # --- [v25] テーマ設定 ---
+        gr.update(value=effective_settings.get("chat_style", "Chat (Default)")),
+        gr.update(value=effective_settings.get("font_size", 15)),
+        gr.update(value=effective_settings.get("line_height", 1.6)),
+        gr.update(value=effective_settings.get("theme_primary", None)),
+        gr.update(value=effective_settings.get("theme_secondary", None)),
+        gr.update(value=effective_settings.get("theme_background", None)),
+        gr.update(value=effective_settings.get("theme_text", None)),
+        gr.update(value=effective_settings.get("theme_accent_soft", None)),
+        gr.update(), # save_room_theme_button
+        gr.update(value=generate_room_style_css(
+            effective_settings.get("font_size", 15),
+            effective_settings.get("line_height", 1.6),
+            effective_settings.get("chat_style", "Chat (Default)"),
+            effective_settings.get("theme_primary", None),
+            effective_settings.get("theme_secondary", None),
+            effective_settings.get("theme_background", None),
+            effective_settings.get("theme_text", None),
+            effective_settings.get("theme_accent_soft", None)
+        )),
     )
 
 
@@ -1534,9 +1569,9 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     """
     【v6: 完全契約遵守版】
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
-    unified_full_room_refresh_outputs と完全に一致する65個の値を返す。
+    unified_full_room_refresh_outputs と完全に一致する99個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 80
+    EXPECTED_OUTPUT_COUNT = 90
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
@@ -1601,6 +1636,16 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 gr.update(value=True),  # sleep_consolidation_episodic_cb
                 gr.update(value=True),  # sleep_consolidation_memory_index_cb
                 gr.update(value=False),  # sleep_consolidation_current_log_cb
+                # --- [v25] テーマ設定 ---
+                gr.update(value="Chat (Default)"),  # chat_style
+                gr.update(value=15),  # font_size
+                gr.update(value=1.6),  # line_height
+                gr.update(value=None),  # primary
+                gr.update(value=None),  # secondary
+                gr.update(value=None),  # bg
+                gr.update(value=None),  # text
+                gr.update(value=None),  # accent_soft
+                gr.update(value="<style></style>"),  # style_injector
             )
             empty_world_updates = ({}, gr.update(choices=[], value=None), "", gr.update(choices=[], value=None))
             empty_session_updates = ([], "ルームがありません", gr.update(choices=[]))
@@ -3475,7 +3520,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 80
+    EXPECTED_OUTPUT_COUNT = 90
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
@@ -5617,3 +5662,183 @@ def handle_add_room_custom_model(room_name: str, custom_model_name: str, provide
         
         # Dropdownの選択肢を更新して返す
         return gr.update(choices=available_models, value=model_name), ""
+
+# ==========================================
+# [v25] テーマ・表示設定管理ロジック
+# ==========================================
+
+def generate_room_style_css(font_size, line_height, chat_style, primary=None, secondary=None, bg=None, text=None, accent_soft=None):
+    """ルーム個別のCSS（文字サイズ、Novel Mode、テーマカラー）を生成する"""
+    
+    # Check for None values (Gradio updates might send None)
+    if not font_size: font_size = 15
+    if not line_height: line_height = 1.6
+    
+    # 1. Readability & Novel Mode (Common)
+    css = f"""
+    #chat_output_area .message-bubble, 
+    #chat_output_area .message-row .message-bubble,
+    #chat_output_area .message-wrap .message,
+    #chat_output_area .prose,
+    #chat_output_area .prose > *,
+    #chat_output_area .prose p,
+    #chat_output_area .prose li {{
+        font-size: {font_size}px !important;
+        line-height: {line_height} !important;
+    }}
+    #chat_output_area code,
+    #chat_output_area pre,
+    #chat_output_area pre span {{
+        font-size: {int(font_size)*0.9}px !important;
+        line-height: {line_height} !important;
+    }}
+    #style_injector_component {{ display: none !important; }}
+    """
+
+    if chat_style == "Novel (Text only)":
+        css += """
+        #chat_output_area .message-row .message-bubble,
+        #chat_output_area .message-row .message-bubble:before,
+        #chat_output_area .message-row .message-bubble:after,
+        #chat_output_area .message-wrap .message,
+        #chat_output_area .message-wrap .message.bot,
+        #chat_output_area .message-wrap .message.user,
+        #chat_output_area .bot-row .message-bubble,
+        #chat_output_area .user-row .message-bubble {
+            background: transparent !important;
+            background-color: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 4px 0 !important;
+            border-radius: 0 !important;
+        }
+        #chat_output_area .message-row,
+        #chat_output_area .user-row,
+        #chat_output_area .bot-row {
+            display: flex !important;
+            justify-content: flex-start !important;
+            margin-bottom: 12px !important;
+            background: transparent !important;
+            border: none !important;
+            width: 100% !important;
+        }
+        #chat_output_area .avatar-container { display: none !important; }
+        #chat_output_area .message-wrap .message { padding: 0 !important; }
+        """
+
+    # 2. Color Theme Overrides
+    overrides = []
+    
+    # メインカラー: Interactive elements (Checkbox, Slider, Loader)
+    if primary:
+        overrides.append(f"--color-accent: {primary} !important;")
+        overrides.append(f"--loader-color: {primary} !important;")
+        overrides.append(f"--primary-500: {primary} !important;") # Fallback for some themes
+        overrides.append(f"--primary-600: {primary} !important;")
+
+    # サブカラー: Chat bubbles, Panel backgrounds, Item box highlights
+    if secondary:
+        overrides.append(f"--background-fill-secondary: {secondary} !important;") 
+        overrides.append(f"--block-label-background-fill: {secondary} !important;")
+        # Custom CSS variable often used for bot bubbles in Nexus Ark
+        overrides.append(f"--secondary-500: {secondary} !important;") 
+
+    # 背景色: Overall App Background & Content Boxes
+    if bg:
+        overrides.append(f"--body-background-fill: {bg} !important;")
+        overrides.append(f"--background-fill-primary: {bg} !important;") 
+        overrides.append(f"--block-background-fill: {bg} !important;")
+
+    # テキスト色: Body text, labels, headers
+    if text:
+        overrides.append(f"--body-text-color: {text} !important;")
+        overrides.append(f"--block-label-text-color: {text} !important;")
+        overrides.append(f"--block-info-text-color: {text} !important;")
+        overrides.append(f"--section-header-text-color: {text} !important;")
+        overrides.append(f"--prose-text-color: {text} !important;")
+
+    # ユーザー発言背景 (Accent Soft)
+    if accent_soft:
+        overrides.append(f"--color-accent-soft: {accent_soft} !important;")
+
+    if overrides:
+        # Create a more aggressive global override block
+        css += f"""
+        :root, body, gradio-app, .gradio-container, .dark {{
+            {' '.join(overrides)}
+        }}
+        /* Specific overrides for common containers */
+        #chat_output_area, #room_theme_color_settings {{
+            {' '.join(overrides)}
+        }}
+        """
+
+    return f"<style>{css}</style>"
+
+def handle_save_theme_settings(*args):
+    """詳細なテーマ設定を保存する (Robust Debug Version)"""
+    print(f"DEBUG: handle_save_theme_settings called with {len(args)} args: {args}")
+    
+    try:
+        if len(args) < 9:
+            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/9)")
+            return
+
+        room_name = args[0]
+        settings = {
+            "font_size": args[1],
+            "line_height": args[2],
+            "chat_style": args[3],
+            "theme_primary": args[4],
+            "theme_secondary": args[5],
+            "theme_background": args[6],
+            "theme_text": args[7],
+            "theme_accent_soft": args[8]
+        }
+        
+        # Use the centralized save function in room_manager
+        if room_manager.save_room_override_settings(room_name, settings):
+            gr.Info(f"「{room_name}」のテーマ設定を保存しました。")
+        else:
+            gr.Error(f"テーマ保存に失敗しました。コンソールを確認してください。")
+
+    except Exception as e:
+        print(f"Error in handle_save_theme_settings: {e}")
+        traceback.print_exc()
+        gr.Error(f"保存エラー: {e}")
+
+def handle_theme_preview(font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft):
+    """UI変更時に即時CSSを返すだけのヘルパー"""
+    return generate_room_style_css(font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft)
+
+def handle_room_theme_reload(room_name: str):
+    """
+    パレットタブが選択されたときに、ルーム個別のテーマ設定を再読み込みしてUIに反映する。
+    Gradioは非表示タブのコンポーネントを初回ロードで更新しないため、タブ選択時に明示的に再読み込みが必要。
+    """
+    if not room_name:
+        return (gr.update(),) * 9
+    
+    effective_settings = config_manager.get_effective_settings(room_name)
+    
+    return (
+        gr.update(value=effective_settings.get("chat_style", "Chat (Default)")),
+        gr.update(value=effective_settings.get("font_size", 15)),
+        gr.update(value=effective_settings.get("line_height", 1.6)),
+        gr.update(value=effective_settings.get("theme_primary", None)),
+        gr.update(value=effective_settings.get("theme_secondary", None)),
+        gr.update(value=effective_settings.get("theme_background", None)),
+        gr.update(value=effective_settings.get("theme_text", None)),
+        gr.update(value=effective_settings.get("theme_accent_soft", None)),
+        gr.update(value=generate_room_style_css(
+            effective_settings.get("font_size", 15),
+            effective_settings.get("line_height", 1.6),
+            effective_settings.get("chat_style", "Chat (Default)"),
+            effective_settings.get("theme_primary", None),
+            effective_settings.get("theme_secondary", None),
+            effective_settings.get("theme_background", None),
+            effective_settings.get("theme_text", None),
+            effective_settings.get("theme_accent_soft", None)
+        ))
+    )

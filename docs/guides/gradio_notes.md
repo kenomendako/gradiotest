@@ -655,3 +655,73 @@ timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} |
 - `alarm_manager.py`: `trigger_autonomous_action`, `trigger_alarm`（修正対象）
 - `timers.py`: `_run_single_timer`（修正対象）
 - `ui_handlers.py`: タイムスタンプ追加処理（参照元・対症療法含む）
+
+---
+
+### レッスン31: 非表示タブ内のコンポーネントは初回ロードで更新されない（2024-12-16）
+
+#### 問題の症状
+
+ルーム個別のテーマ設定（背景色など）を`room_config.json`に保存し、ページリロード後に`handle_initial_load`で読み込んでいるにもかかわらず、**パレットタブを開くまでテーマが適用されない**という現象が発生した。
+
+デバッグログでは`effective_settings`に正しい値（`theme_bg=rgba(119...)`）が読み込まれていることを確認できたが、UI（ColorPickerやCSS注入用のHTMLコンポーネント）には反映されなかった。
+
+#### 根本原因
+
+Gradioは、**`demo.load`や初回レンダリング時に、非表示タブ内のコンポーネントの値を更新しない**という仕様を持っている。
+
+1. `gr.TabItem("🎨 パレット")` 内に`style_injector = gr.HTML(...)`を配置していた
+2. `handle_initial_load` が正しい値を返しても、そのタブが未選択（非表示）のため、Gradioはそのコンポーネントへの更新を**スキップ**していた
+3. タブを開いた瞬間にDOMが「アクティブ」になり、その後の更新は反映されるようになる
+
+#### 解決策
+
+**初回ロード時から反映されるべきコンポーネント（特にCSS注入用のHTMLなど）は、タブの外（常に表示される場所）に配置する。**
+
+```python
+# nexus_ark.py（修正後）
+
+with gr.Blocks(...) as demo:
+    # --- Stateの定義 ---
+    world_data_state = gr.State({})
+    current_room_name = gr.State(effective_initial_room)
+    # ...
+    
+    # --- style_injector: 常に表示される場所に配置 ---
+    # タブ内ではなくアプリ最上位レベルに配置することで、初回ロードからCSSが適用される
+    style_injector = gr.HTML(value="<style></style>", visible=True, elem_id="style_injector_component")
+    
+    # --- 以降、タブやカラムの定義 ---
+    with gr.Row():
+        # ...
+```
+
+ColorPickerなどの「設定用UI」は非表示タブ内に残しても問題ないが、**その場合はタブを開いた時に値を再読み込みするハンドラを追加する必要がある。**
+
+```python
+# nexus_ark.py
+
+theme_tab.select(
+    fn=ui_handlers.handle_theme_tab_load,
+    inputs=None,
+    outputs=[theme_selector, ...]
+).then(
+    fn=ui_handlers.handle_room_theme_reload,  # ルーム設定を再読み込み
+    inputs=[room_dropdown],
+    outputs=[chat_style_radio, font_size_slider, ..., style_injector]
+)
+```
+
+#### 教訓
+
+1. **機能的に「常にアクティブ」であるべきコンポーネント**（CSS注入、グローバル State に影響を与えるもの）は、**タブやアコーディオンの外**に配置する。
+
+2. **設定用UI（ユーザーが手動で操作するもの）**は非表示タブ内でも問題ないが、**タブを開いた時に値を再読み込みする**ハンドラを `.select()` イベントに接続する。
+
+3. **デバッグ時**、`gr.update(value=...)` が正しい値を返しているのにUIに反映されない場合、そのコンポーネントが**非表示の親要素**（タブ、アコーディオン、Group）内にないか確認する。
+
+#### 関連ファイル
+
+- `nexus_ark.py`: `style_injector` の配置場所、`theme_tab.select` イベント
+- `ui_handlers.py`: `handle_room_theme_reload` 関数
+- `config_manager.py`: `get_effective_settings` 関数
