@@ -681,6 +681,8 @@ def _stream_and_handle_response(
     # タイプライターエフェクトが正常完了したかのフラグ
     typewriter_completed_successfully = False
 
+    current_profile_update = gr.update(elem_classes=["thinking-pulse"]) # [v19] Animation Start
+
 
     try:
         # UIをストリーミングモードに移行
@@ -704,7 +706,8 @@ def _stream_and_handle_response(
                *([gr.update()] * 8),
                gr.update(visible=True, interactive=True),
                gr.update(interactive=False),
-               gr.update(visible=False)
+               gr.update(visible=False),
+               current_profile_update # [v19]
         )
 
         # AIごとの応答生成ループ
@@ -720,7 +723,7 @@ def _stream_and_handle_response(
                 screenshot_mode, redaction_rules
             )
             chatbot_history.append((None, f"思考中 ({current_room})... ▌"))
-            yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+            yield (chatbot_history, mapping_list, *([gr.update()] * 12), current_profile_update)
 
             # APIに渡す引数を、現在のAI（current_room）のために完全に再構築
             season_en, time_of_day_en = utils._get_current_time_context(soul_vessel_room) # utilsから呼び出
@@ -814,7 +817,7 @@ def _stream_and_handle_response(
                             screenshot_mode, redaction_rules
                         )
                         chatbot_history.append((None, retry_message))
-                        yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                        yield (chatbot_history, mapping_list, *([gr.update()] * 12), current_profile_update)
                         time.sleep(wait_time)
                     else:
                         final_error_message = f"[エラー] APIのレート制限が頻発しています。時間をおいて再試行してください。"
@@ -956,7 +959,7 @@ def _stream_and_handle_response(
                             else:
                                 # タプル（画像など）の場合はタイプライターをスキップ
                                 chatbot_history.append(formatted_last_message)
-                                yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                                yield (chatbot_history, mapping_list, *([gr.update()] * 12), current_profile_update)
                                 typewriter_completed_successfully = True
                                 continue
                         
@@ -967,13 +970,13 @@ def _stream_and_handle_response(
                             for char in formatted_text:
                                 streamed_text += char
                                 chatbot_history[-1] = (None, streamed_text + "▌")
-                                yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                                yield (chatbot_history, mapping_list, *([gr.update()] * 12), current_profile_update)
                                 time.sleep(streaming_speed)
                             
                             # タイプライター完了後、フォーマット済みの最終形を表示
                             # （生テキストではなく、reload_chat_logから取得したフォーマット済みを使用）
                             chatbot_history[-1] = formatted_last_message
-                            yield (chatbot_history, mapping_list, *([gr.update()] * 12))
+                            yield (chatbot_history, mapping_list, *([gr.update()] * 12), current_profile_update)
                         
                         typewriter_completed_successfully = True
                         
@@ -1041,12 +1044,17 @@ def _stream_and_handle_response(
         new_location_choices = _get_location_choices_for_ui(soul_vessel_room)
         latest_location_id = utils.get_current_location(soul_vessel_room)
         location_dropdown_update = gr.update(choices=new_location_choices, value=latest_location_id)
+        
+        # [v19] Animation End: remove the class
+        final_profile_update = gr.update(elem_classes=[])
+
         yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
                location_dropdown_update, new_scenery_text,
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
                gr.update(visible=False, interactive=True), gr.update(interactive=True),
-               gr.update(visible=False)
+               gr.update(visible=False),
+               final_profile_update # [v19] Stop Animation
         )
 
 def handle_message_submission(
@@ -1072,9 +1080,9 @@ def handle_message_submission(
     # --- [v9: 空送信ガード] ---
     # テキスト入力がなく、かつファイルも添付されていない場合は、何もせずに終了する
     if not user_prompt_from_textbox and not file_input_list:
-        # 戻り値の数は unified_streaming_outputs の要素数と一致させる必要がある (14個)
+        # 戻り値の数は unified_streaming_outputs の要素数と一致させる必要がある (15個)
         # 既存のUIの状態を維持するため、全て gr.update() を返す
-        yield (gr.update(),) * 14
+        yield (gr.update(),) * 15
         return
     # --- [ガードここまで] ---
 
@@ -1144,8 +1152,8 @@ def handle_message_submission(
         effective_settings = config_manager.get_effective_settings(soul_vessel_room)
         add_timestamp = effective_settings.get("add_timestamp", False)
         history, mapping = reload_chat_log(soul_vessel_room, api_history_limit, add_timestamp)
-        # 戻り値の数を14個に合わせる
-        yield (history, mapping, *([gr.update()] * 10), gr.update(visible=False), gr.update(interactive=True))
+        # 戻り値の数を15個に合わせる
+        yield (history, mapping, *([gr.update()] * 10), gr.update(visible=False), gr.update(interactive=True), gr.update())
         return
 
     # ▼▼▼【ここからが修正の核心】▼▼▼
@@ -1238,7 +1246,7 @@ def handle_rerun_button_click(
         gr.Warning("再生成の起点となるメッセージが選択されていません。")
         yield (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), console_content, console_content,
-               gr.update(visible=True, interactive=True), gr.update(interactive=True))
+               gr.update(visible=True, interactive=True), gr.update(interactive=True), gr.update(), gr.update())
         return
 
     # 1. ログを巻き戻し、再送信するユーザー発言を取得
@@ -1258,7 +1266,7 @@ def handle_rerun_button_click(
         history, mapping = reload_chat_log(room_name, api_history_limit, add_timestamp)
         yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), console_content, console_content,
-               gr.update(visible=True, interactive=True), gr.update(interactive=True))
+               gr.update(visible=True, interactive=True), gr.update(interactive=True), gr.update(), gr.update())
         return
 
     # 2. 巻き戻したユーザー発言に、新しいタイムスタンプを付加してログに再保存

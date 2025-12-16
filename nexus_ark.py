@@ -216,6 +216,60 @@ try:
         font-weight: 400;
         opacity: 0.7;
     }
+    /* --- [Novel Mode Styles] --- */
+    .novel-mode .message-row .message-bubble,
+    .novel-mode .message-row .message-bubble:before,
+    .novel-mode .message-row .message-bubble:after,
+    .novel-mode .message-wrap .message,
+    .novel-mode .message-wrap .message.bot,
+    .novel-mode .message-wrap .message.user,
+    .novel-mode .bot-row .message-bubble,
+    .novel-mode .user-row .message-bubble {
+        background: transparent !important;
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 4px 0 !important;
+        border-radius: 0 !important;
+    }
+    .novel-mode .message-row,
+    .novel-mode .user-row,
+    .novel-mode .bot-row {
+        display: flex !important;
+        justify-content: flex-start !important; /* Force all messages to left */
+        margin-bottom: 12px !important;
+        background: transparent !important;
+        border: none !important;
+        width: 100% !important; /* Ensure full width */
+    }
+    /* Hide avatar container in novel mode if desired, or just transparent */
+    .novel-mode .avatar-container {
+        display: none !important;
+    }
+    /* Ensure text color is readable and layout is dense */
+    .novel-mode .message-wrap .message {
+        padding: 0 !important;
+    }
+
+    /* --- [Thinking Animation] --- */
+    @keyframes pulse-glow {
+        0% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.4); border-color: var(--primary-500); }
+        70% { box-shadow: 0 0 0 10px rgba(147, 51, 234, 0); border-color: var(--primary-400); }
+        100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0); border-color: var(--primary-500); }
+    }
+    .thinking-pulse .prose {
+        animation: pulse-glow 2s infinite;
+    }
+    /* Note: Gradio Image component puts the class on the wrapper. 
+       We target the inner image or container if needed, but 'elem_classes' usually applies to the outer container. 
+       Adjusting selector to match Gradio's structure for Image component.
+    */
+    .thinking-pulse {
+        animation: pulse-glow 2s infinite;
+        border-radius: 12px; /* Ensure border radius matches if needed */
+    }
+
     """
     custom_js = """
     function() {
@@ -535,13 +589,35 @@ try:
                                 info="有効にすると、チャット画面右側に情景が表示され、AIもそれを認識します。",
                                 interactive=True
                             )
-                        with gr.Accordion("📜 ストリーミング表示設定", open=False):
-                            enable_typewriter_effect_checkbox = gr.Checkbox(label="タイプライター風の逐次表示を有効化", interactive=True)
-                            streaming_speed_slider = gr.Slider(
-                                minimum=0.0, maximum=0.1, step=0.005,
-                                label="表示速度", info="値が小さいほど速く、大きいほどゆっくり表示されます。(0.0で最速)",
-                                interactive=True
-                            )
+                        with gr.Accordion("📜 チャット表示設定", open=False):
+                            with gr.Group():
+                                gr.Markdown("##### 逐次表示設定")
+                                enable_typewriter_effect_checkbox = gr.Checkbox(label="タイプライター風の逐次表示を有効化", interactive=True)
+                                streaming_speed_slider = gr.Slider(
+                                    minimum=0.0, maximum=0.1, step=0.005,
+                                    label="表示速度", info="値が小さいほど速く、大きいほどゆっくり表示されます。(0.0で最速)",
+                                    interactive=True
+                                )
+                            
+                            with gr.Group():
+                                gr.Markdown("##### 表示モード")
+                                # --- [v19] Novel Mode Toggle ---
+                                chat_style_radio = gr.Radio(
+                                    choices=["Chat (Default)", "Novel (Text only)"],
+                                    label="スタイル選択",
+                                    value="Chat (Default)",
+                                    interactive=True,
+                                    info="「Novel」にすると吹き出しや枠線が消え、小説のような表示になります。"
+                                )
+
+                            with gr.Group():
+                                gr.Markdown("##### 文字サイズ・行間")
+                                font_size_slider = gr.Slider(minimum=10, maximum=30, value=15, step=1, label="文字サイズ (px)", interactive=True)
+                                line_height_slider = gr.Slider(minimum=1.0, maximum=3.0, value=1.6, step=0.1, label="行間", interactive=True)
+                            
+                            # visible=FalseだとGradioのバージョンによってはDOMに出力されないため、
+                            # visible=TrueにしつつCSSで非表示にするアプローチをとる
+                            style_injector = gr.HTML(value="<style></style>", visible=True, elem_id="style_injector_component")
                         with gr.Accordion("🎤 音声設定", open=False):
                             gr.Markdown("チャットの発言を選択して、ここで設定した声で再生できます。")
                             room_voice_dropdown = gr.Dropdown(label="声を選択（個別）", choices=list(config_manager.SUPPORTED_VOICES.values()), interactive=True)
@@ -1389,7 +1465,8 @@ try:
             alarm_dataframe_original_data, alarm_dataframe, scenery_image_display,
             debug_console_state, debug_console_output,
             stop_button, chat_reload_button,
-            action_button_group
+            action_button_group,
+            profile_image_display # [v19] Added for Thinking Animation
         ]
 
         rerun_event = rerun_button.click(
@@ -1708,6 +1785,51 @@ try:
             inputs=[current_room_name, room_openai_custom_model_input],
             outputs=[room_openai_model_dropdown, room_openai_custom_model_input]
         )
+
+        # --- [v19] Novel Mode Event Handler ---
+        def _toggle_chat_style(style_val):
+            if style_val == "Novel (Text only)":
+                return gr.update(elem_classes=["novel-mode"])
+            else:
+                return gr.update(elem_classes=[])
+        
+        chat_style_radio.change(
+            fn=_toggle_chat_style,
+            inputs=[chat_style_radio],
+            outputs=[chatbot_display]
+        )
+
+        # --- [v19] Readability Controls Event ---
+        def _update_readability(font_size, line_height):
+            return f"""<style>
+            #chat_output_area .message-bubble, 
+            #chat_output_area .message-row .message-bubble,
+            #chat_output_area .message-wrap .message,
+            #chat_output_area .prose,
+            #chat_output_area .prose > *,
+            #chat_output_area .prose p,
+            #chat_output_area .prose li {{
+                font-size: {font_size}px !important;
+                line-height: {line_height} !important;
+            }}
+            #chat_output_area code,
+            #chat_output_area pre,
+            #chat_output_area pre span {{
+                font-size: {font_size*0.9}px !important;
+                line-height: {line_height} !important;
+            }}
+            /* Hide the injector itself just in case */
+            #style_injector_component {{
+                display: none !important;
+            }}
+            </style>"""
+
+        for slider in [font_size_slider, line_height_slider]:
+            slider.change(
+                fn=_update_readability,
+                inputs=[font_size_slider, line_height_slider],
+                outputs=[style_injector]
+            )
 
         # ▼▼▼【ここからが新しいイベント定義です】▼▼▼
         # 思考表示チェックボックスの変更イベント
