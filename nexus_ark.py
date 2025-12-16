@@ -216,47 +216,6 @@ try:
         font-weight: 400;
         opacity: 0.7;
     }
-    /* --- [Glassmorphism & Floating UI] --- */
-    /* Subtle static background to make glass effect visible */
-    .gradio-container {
-        background: radial-gradient(circle at center top, var(--background-fill-secondary), var(--background-fill-primary)) !important;
-    }
-
-    /* Glass Sidebar */
-    .glass-sidebar {
-        background: transparent !important;
-        background-color: rgba(var(--background-fill-secondary), 0.3) !important; /* Fallback/Base */
-        backdrop-filter: blur(12px) !important;
-        -webkit-backdrop-filter: blur(12px) !important;
-        border: 1px solid var(--border-color-primary) !important;
-    }
-    
-    /* Dark mode adjustment for glass opacity */
-    .dark .glass-sidebar {
-        background-color: rgba(20, 20, 20, 0.6) !important;
-    }
-
-    /* Floating Input Area */
-    #floating_chat_input {
-        background: var(--background-fill-primary) !important;
-        border: 1px solid var(--border-color-primary) !important;
-        border-radius: 24px !important;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1) !important;
-        margin-bottom: 8px !important;
-        transition: all 0.3s ease;
-        z-index: 100 !important; /* Ensure it floats above */
-    }
-    
-    #floating_chat_input:focus-within {
-        transform: translateY(-4px);
-        box-shadow: 0 15px 40px rgba(0,0,0,0.15) !important;
-        border-color: var(--primary-500) !important;
-    }
-    
-    #floating_chat_input textarea {
-        background: transparent !important;
-    }
-
     """
     custom_js = """
     function() {
@@ -315,7 +274,7 @@ try:
         imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
         selected_knowledge_file_index_state = gr.State(None)
         # --- グローバル・左サイドバー (設定) ---
-        with gr.Sidebar(label="設定", width=320, open=True, elem_classes=["glass-sidebar"]):
+        with gr.Sidebar(label="設定", width=320, open=True):
             room_dropdown = gr.Dropdown(label="ルームを選択", interactive=True)
 
             with gr.Accordion("⚙️ 設定", open=False):
@@ -894,7 +853,7 @@ try:
 
 
         # --- グローバル・右サイドバー (情景・プロフィール) ---
-        with gr.Sidebar(label="情景・プロフィール", width=350, open=True, position="right", elem_classes=["glass-sidebar"]):
+        with gr.Sidebar(label="情景・プロフィール", width=350, open=True, position="right"):
             with gr.Accordion("🖼️ プロフィール・情景", open=True, elem_id="profile_scenery_accordion") as profile_scenery_accordion:
                 # --- プロフィール画像セクション ---
                 profile_image_display = gr.Image(
@@ -1008,7 +967,6 @@ try:
                         cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
 
                     chat_input_multimodal = gr.MultimodalTextbox(
-                    elem_id="floating_chat_input",
                         file_types=["image", "audio", "video", "text", ".pdf", ".md", ".py", ".json", ".html", ".css", ".js"],
                         max_plain_text_length=100000,
                         placeholder="メッセージを入力してください (Shift+Enterで送信)",
