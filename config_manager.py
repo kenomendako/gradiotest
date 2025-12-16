@@ -436,7 +436,7 @@ def load_config():
         "log_keep_size_mb": 5,
         "backup_rotation_count": 10,
         "theme_settings": {
-            "active_theme": "nexus_ark_theme", # デフォルトテーマをファイル名に変更
+            "active_theme": "nexus_modern", # デフォルトテーマをモダン版に変更
             "custom_themes": {} # config.jsonで管理するカスタムテーマは最初は空
         }
     }

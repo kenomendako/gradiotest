@@ -105,33 +105,83 @@ try:
     alarm_manager.start_alarm_scheduler_thread()
 
     custom_css = """
-    /* --- [Final Styles - v8: The Renaissance] --- */
+    /* --- [Final Styles - v9: Nexus Modern Polish] --- */
 
-    /* ルール1: <pre>タグ（外側のコンテナ）のスタイル */
+    /* Rule 1: <pre> tag (Outer container) styling */
     #chat_output_area .code_wrap pre {
         background-color: var(--background-fill-secondary);
         color: var(--text-color-secondary);
-        border: 1px solid var(--border-color-primary); /* ← これが復活させる外枠です */
-        padding: 10px;
-        border-radius: 8px;
+        border: 1px solid var(--border-color-primary);
+        padding: 12px;
+        border-radius: 12px;
         font-family: var(--font-mono);
         font-size: 0.9em;
         white-space: pre-wrap !important;
         word-break: break-word;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05); /* Subtle shadow for depth */
     }
 
-    /* ルール2: <code>タグ（内側のテキスト）のスタイルをリセット */
+    /* Rule 2: Resetting <code> tag styles */
     #chat_output_area .code_wrap code {
-        background: none !important;      /* 背景をリセット */
-        border: none !important;          /* 枠線をリセット */
-        padding: 0 !important;            /* パディングをリセット */
-        background-image: none !important; /* 背景画像をリセット */
-        white-space: inherit !important; /* 親の折り返し設定を強制的に継承する */
+        background: none !important;
+        border: none !important;
+        padding: 0 !important;
+        background-image: none !important;
+        white-space: inherit !important;
     }
 
-    /* ゴミ箱アイコン（クリアボタン）を強制的に非表示にする */
+    /* Hide Clear Button (Trash Icon) */
     #chat_output_area button[aria-label="会話をクリア"] {
         display: none !important;
+    }
+
+    /* --- [Modern Transitions & interactive elements] --- */
+    button {
+        transition: all 0.2s ease-in-out !important;
+    }
+    button:hover {
+        transform: translateY(-1px);
+        filter: brightness(1.05);
+    }
+    button:active {
+        transform: translateY(0px);
+    }
+
+    /* --- [Custom Scrollbar (Webkit) for a premium feel] --- */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent; 
+    }
+    ::-webkit-scrollbar-thumb {
+        background-color: var(--neutral-300);
+        border-radius: 4px;
+    }
+    .dark ::-webkit-scrollbar-thumb {
+        background-color: var(--neutral-700);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background-color: var(--neutral-400);
+    }
+    .dark ::-webkit-scrollbar-thumb:hover {
+        background-color: var(--neutral-600);
+    }
+
+    /* --- [Chat Bubble Refinement] --- */
+    /* Making user/bot messages distinct and modern */
+    .message-row.user-row .message-bubble {
+        border-radius: 16px 16px 0 16px !important; /* Top-Left, Top-Right, Bottom-Right (0), Bottom-Left */
+        background: var(--primary-600); /* Use primary color for user */
+        color: white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .message-row.bot-row .message-bubble {
+        border-radius: 16px 16px 16px 0 !important;
+        background: var(--background-fill-secondary);
+        border: 1px solid var(--border-color-primary);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
 
     /* --- [Layout & Utility Styles] --- */
@@ -142,27 +192,29 @@ try:
         max-height: 400px !important; overflow-y: auto !important; box-sizing: border-box;
     }
     #memory_json_editor_code, #notepad_editor_code, #system_prompt_editor, #core_memory_editor_code {
-        max-height: 410px; border: 1px solid var(--border-color-primary); border-radius: 5px; padding: 0;
+        max-height: 410px; border: 1px solid var(--border-color-primary); border-radius: 8px; padding: 0;
     }
 
-    /* ID: alarm_list_table に対する指定 */
+    /* ID: alarm_list_table */
     #alarm_list_table th:nth-child(2), #alarm_list_table td:nth-child(2) {
-        min-width: 80px !important; /* 2列目(時刻)の幅を確保 */
+        min-width: 80px !important;
     }
     #alarm_list_table th:nth-child(3), #alarm_list_table td:nth-child(3) {
-        min-width: 100px !important; /* 3列目(予定)の幅を確保 */
+        min-width: 100px !important;
     }
 
     #selection_feedback { font-size: 0.9em; color: var(--text-color-secondary); margin-top: 0px; margin-bottom: 5px; padding-left: 5px; }
     #token_count_display { text-align: right; font-size: 0.85em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: 5px; }
     #tpm_note_display { text-align: right; font-size: 0.75em; color: var(--text-color-secondary); padding-right: 10px; margin-bottom: -5px; margin-top: 0px; }
     #chat_container { position: relative; }
+    
     #app_version_display {
         text-align: center;
-        font-size: 0.85em;                  /* infoテキストに合わせてサイズを調整 */
-        color: var(--text-color-secondary); /* 副次テキスト用のテーマカラーを維持 */
-        margin-top: 8px;                    /* 上の要素との間隔を調整 */
-        font-weight: 300;                   /* フォントを少し細くして控えめな印象に */
+        font-size: 0.85em;
+        color: var(--text-color-secondary);
+        margin-top: 12px;
+        font-weight: 400;
+        opacity: 0.7;
     }
     """
     custom_js = """
