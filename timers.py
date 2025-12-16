@@ -168,11 +168,17 @@ class UnifiedTimer:
                                 # ログに保存
                                 utils.save_message_to_log(log_f, "## SYSTEM:tool_result", tool_log_content)
 
-                        all_ai_contents = [
-                            msg.content for msg in new_messages
+                        # ▼▼▼【修正】最後のAIMessageのみを使用する（複数結合によるタイムスタンプ重複防止）▼▼▼
+                        ai_messages = [
+                            msg for msg in new_messages
                             if isinstance(msg, AIMessage) and msg.content and isinstance(msg.content, str)
                         ]
-                        final_response_text = "\n\n".join(all_ai_contents).strip()
+                        if ai_messages:
+                            final_response_text = ai_messages[-1].content
+                        # ▲▲▲【修正】▲▲▲
+                        
+                        # 実際に使用されたモデル名を取得（タイムスタンプ用）
+                        actual_model_name = final_state.get("model_name", global_model_for_bg) if final_state else global_model_for_bg
                     break 
 
                 except gemini_api.ResourceExhausted as e:
@@ -201,9 +207,9 @@ class UnifiedTimer:
             if response_text and not response_text.startswith("[エラー"):
                 # ヘッダー（自律行動 or タイマー）でシステムログを記録
                 utils.save_message_to_log(log_f, log_header, message_for_log)
-                # AI応答にタイムスタンプを追加
+                # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
                 import datetime as dt_timers
-                timestamp = f"\n\n{dt_timers.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+                timestamp = f"\n\n{dt_timers.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
                 utils.save_message_to_log(log_f, f"## AGENT:{self.room_name}", raw_response + timestamp)
             else:
                 # エラー時

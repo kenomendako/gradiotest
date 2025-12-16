@@ -592,11 +592,11 @@ elif isinstance(chunk_content, list):
 
 ---
 
-### AI応答タイムスタンプ二重表示問題（2024-12-14）
+### AI応答タイムスタンプ二重表示問題（2024-12-14 / 2024-12-16更新）
 
 #### 現象
 
-自律行動モードでツール（画像生成など）を使用した際、AI応答の末尾にタイムスタンプが2つ連続して表示される。
+自律行動モードやアラーム/タイマー発火時にツール（画像生成など）を使用した際、AI応答の末尾にタイムスタンプが2つ連続して表示される。また、使用モデル名が付記されていなかった。
 
 ```
 ...AI応答テキスト...
@@ -608,7 +608,7 @@ elif isinstance(chunk_content, list):
 
 #### 原因
 
-`alarm_manager.py` の `trigger_autonomous_action` および `trigger_alarm` 関数で、複数のAIMessageを結合していた：
+1. **タイムスタンプ二重表示**: `alarm_manager.py`、`timers.py` で複数のAIMessageを結合していた：
 
 ```python
 # 問題のあったコード
@@ -620,27 +620,38 @@ final_response_text = "\n".join(contents).strip()
 1. AIMessage1（ツール呼び出し + 短いテキスト）
 2. AIMessage2（ツール実行後の最終応答）
 
-これらが全て結合され、それぞれに対して `ui_handlers.py` でタイムスタンプが追加されていた。
+これらが全て結合され、それぞれにタイムスタンプが追加されていた。
+
+2. **モデル名未付記**: `ui_handlers.py`ではタイムスタンプに `| model_name` を付記していたが、`alarm_manager.py` と `timers.py` では付記されていなかった。
 
 #### 解決策
 
-1. **`alarm_manager.py`**: 複数のAIMessageを結合するのではなく、**最後のAIMessage（最終応答）のみ**を使用するように修正。
+1. **AIMessage結合処理の修正**: 複数のAIMessageを結合するのではなく、**最後のAIMessage（最終応答）のみ**を使用するように修正。
 
 ```python
-# 修正後
+# 修正後（alarm_manager.py, timers.py）
 ai_messages = [m for m in new_messages if isinstance(m, AIMessage) and m.content]
 if ai_messages:
     final_response_text = ai_messages[-1].content
 ```
 
-2. **`ui_handlers.py`**: 対症療法として、タイムスタンプ追加前に既存タイムスタンプのチェックを追加（重複検出時はスキップ）。
+2. **タイムスタンプへのモデル名付記**: `ui_handlers.py`と同じフォーマット（`YYYY-MM-DD (Day) HH:MM:SS | model_name`）を使用するように統一。**重要**: `config_manager.get_current_global_model()`（共通設定）ではなく、`final_state.get("model_name")`を使用して**実際にAPIで使用されたモデル名**を取得するように修正。
+
+```python
+# 修正後
+actual_model_name = final_state.get("model_name", global_model_for_bg) if final_state else global_model_for_bg
+timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
+```
+
+3. **`ui_handlers.py`**: 対症療法として、タイムスタンプ追加前に既存タイムスタンプのチェックを追加（重複検出時はスキップ）。
 
 #### 状態
 
-- **2024-12-14**: 修正をコミット。自律行動での画像生成時のテストは条件が難しいため、**様子見中**。
-- ツール未使用時の自律行動では問題なし確認済み。
+- **2024-12-14**: `alarm_manager.py`の修正をコミット。
+- **2024-12-16**: `timers.py`にも同様の修正を適用。また、全てのバックグラウンド処理（アラーム、自律行動、タイマー）でモデル名が付記されるように修正完了。さらに、`final_state`から実際に使用されたモデル名を取得するように再修正。
 
 #### 関連ファイル
 
 - `alarm_manager.py`: `trigger_autonomous_action`, `trigger_alarm`（修正対象）
-- `ui_handlers.py`: タイムスタンプ追加処理（対症療法追加）
+- `timers.py`: `_run_single_timer`（修正対象）
+- `ui_handlers.py`: タイムスタンプ追加処理（参照元・対症療法含む）
