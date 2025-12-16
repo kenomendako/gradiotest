@@ -936,17 +936,58 @@ try:
             with gr.TabItem(" 記憶・メモ・指示"):
                 gr.Markdown("##  記憶・メモ・指示\nルームの根幹をなす設定ファイルを、ここで直接編集できます。")
                 with gr.Tabs():
-                    with gr.TabItem("システムプロンプト"):
-                        system_prompt_editor = gr.Textbox(label="システムプロンプト (System Prompt)", interactive=True, elem_id="system_prompt_editor", lines=20, autoscroll=True)
-                        with gr.Row():
-                            save_prompt_button = gr.Button("プロンプトを保存", variant="secondary")
-                            reload_prompt_button = gr.Button("再読込", variant="secondary")
                     with gr.TabItem("記憶"):
+                        # --- システムプロンプト (Accordion) ---
+                        with gr.Accordion("📜 システムプロンプト (ペルソナ設定)", open=False) as system_prompt_accordion:
+                            system_prompt_editor = gr.Textbox(label="SystemPrompt.txt", interactive=True, elem_id="system_prompt_editor", lines=15, autoscroll=True)
+                            with gr.Row():
+                                save_prompt_button = gr.Button("保存", variant="secondary")
+                                reload_prompt_button = gr.Button("再読込", variant="secondary")
 
+                        # --- コアメモリ (Accordion) ---
+                        with gr.Accordion("💎 コアメモリ (自己同一性の核)", open=False) as core_memory_accordion:
+                            core_memory_editor = gr.Textbox(
+                                label="core_memory.txt - AIの自己同一性の核",
+                                interactive=True,
+                                elem_id="core_memory_editor_code",
+                                lines=15,
+                                autoscroll=True
+                            )
+                            with gr.Row():
+                                save_core_memory_button = gr.Button("保存", variant="secondary")
+                                reload_core_memory_button = gr.Button("再読込", variant="secondary")
+
+                        # --- 日記 (Accordion) ---
+                        with gr.Accordion("📝 主観的記憶（日記）", open=False) as memory_main_accordion:
+                            memory_txt_editor = gr.Textbox(
+                                label="memory_main.txt",
+                                interactive=True,
+                                elem_id="memory_txt_editor_code",
+                                lines=15,
+                                autoscroll=True
+                            )
+                            with gr.Row():
+                                save_memory_button = gr.Button("保存", variant="secondary")
+                                reload_memory_button = gr.Button("再読込", variant="secondary")
+                                core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
+
+                        # --- 古い日記のアーカイブ ---
+                        with gr.Accordion("📦 古い日記をアーカイブする", open=False) as memory_archive_accordion:
+                            gr.Markdown(
+                                "指定した日付**まで**の日記を要約し、別ファイルに保存して、このメインファイルから削除します。\n"
+                                "**⚠️注意:** この操作は`memory_main.txt`を直接変更します（処理前にバックアップは作成されます）。"
+                            )
+                            archive_date_dropdown = gr.Dropdown(label="この日付までをアーカイブ", interactive=True)
+                           
+                            archive_confirm_state = gr.Textbox(visible=False) # 確認ダイアログ用
+                            archive_memory_button = gr.Button("アーカイブを実行", variant="stop")
+
+                        # --- エピソード記憶 ---
                         with gr.Accordion("📚 エピソード記憶（中期記憶）の管理", open=False):
                             episodic_memory_info_display = gr.Markdown("昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** (未取得)")
                             update_episodic_memory_button = gr.Button("エピソード記憶を作成 / 更新", variant="secondary")                        
 
+                        # --- 夢日記 ---
                         with gr.Accordion("🌙 夢日記 (Dream Journal)", open=False):
                             gr.Markdown("AIが通知禁止時間帯（寝ている間）に見た夢の記録です。\n過去の記憶と直近の出来事を照らし合わせ、AIが得た「洞察」や「深層心理」を閲覧できます。")
                             dream_journal_df = gr.Dataframe(
@@ -964,42 +1005,6 @@ try:
                                 placeholder="リストを選択すると、ここに詳細が表示されます。"
                             )
                             refresh_dream_button = gr.Button("夢日記を読み込む", variant="secondary")
-
-                        memory_txt_editor = gr.Textbox(
-                            label="主観的記憶（日記） - memory_main.txt",
-                            interactive=True,
-                            elem_id="memory_txt_editor_code",
-                            lines=20,
-                            autoscroll=True
-                        )
-                        with gr.Row():
-                            save_memory_button = gr.Button("主観的記憶を保存", variant="secondary")
-                            reload_memory_button = gr.Button("再読込", variant="secondary")
-                            core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
-
-                        with gr.Accordion("📝 古い日記をアーカイブする", open=False) as memory_archive_accordion:
-                            # ▼▼▼ 以下のgr.Markdownとgr.Dropdownのテキストを変更 ▼▼▼
-                            gr.Markdown(
-                                "指定した日付**まで**の日記を要約し、別ファイルに保存して、このメインファイルから削除します。\n"
-                                "**⚠️注意:** この操作は`memory_main.txt`を直接変更します（処理前にバックアップは作成されます）。"
-                            )
-                            archive_date_dropdown = gr.Dropdown(label="この日付までをアーカイブ", interactive=True)
-                           
-                            archive_confirm_state = gr.Textbox(visible=False) # 確認ダイアログ用
-                            archive_memory_button = gr.Button("アーカイブを実行", variant="stop")
-                        
-
-                    with gr.TabItem("コアメモリ"):
-                        core_memory_editor = gr.Textbox(
-                            label="コアメモリ (core_memory.txt) - AIの自己同一性の核",
-                            interactive=True,
-                            elem_id="core_memory_editor_code",
-                            lines=20,
-                            autoscroll=True
-                        )
-                        with gr.Row():
-                            save_core_memory_button = gr.Button("コアメモリを保存", variant="secondary")
-                            reload_core_memory_button = gr.Button("再読込", variant="secondary")
 
                     with gr.TabItem("知識グラフ管理", visible=False):
                         gr.Markdown("## 知識グラフの管理")
