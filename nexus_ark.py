@@ -277,8 +277,8 @@ try:
             with gr.TabItem("チャット"):
                 # --- [ここからが新しい3カラムレイアウト] ---
                 with gr.Row(equal_height=False):
-                    # --- 左カラム ---
-                    with gr.Column(scale=2, min_width=300): # ← scale=1 を 2 に変更
+                    # --- 左カラム (サイドバー化) ---
+                    with gr.Sidebar(label="設定", width=350, open=True):
                         room_dropdown = gr.Dropdown(label="ルームを選択", interactive=True)
 
                         with gr.Accordion("⚙️ 設定", open=False):
