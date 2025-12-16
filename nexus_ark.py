@@ -912,8 +912,8 @@ try:
                         with gr.Row():
                             add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1, visible=False)
 
-                    # --- 右カラム ---
-                    with gr.Column(scale=3, min_width=300): # ← scale=1.5 を 3 に変更
+                    # --- 右カラム (サイドバー化) ---
+                    with gr.Sidebar(label="情景・プロフィール", width=350, open=True, position="right"):
                         with gr.Accordion("🖼️ プロフィール・情景", open=True, elem_id="profile_scenery_accordion") as profile_scenery_accordion:
                             # --- プロフィール画像セクション ---
                             profile_image_display = gr.Image(
