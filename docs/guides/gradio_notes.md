@@ -725,3 +725,44 @@ theme_tab.select(
 - `nexus_ark.py`: `style_injector` の配置場所、`theme_tab.select` イベント
 - `ui_handlers.py`: `handle_room_theme_reload` 関数
 - `config_manager.py`: `get_effective_settings` 関数
+
+---
+
+### レッスン32: EXPECTED_OUTPUT_COUNTは複数箇所に存在する（2024-12-17）
+
+#### 問題の症状
+
+テーマ設定のColorPickerを追加した後、ルーム移動時に `ValueError: A function (handle_delete_room) didn't return enough output values (needed: 101, returned: 90)` エラーが発生した。
+
+#### 根本原因
+
+`EXPECTED_OUTPUT_COUNT`定数が**複数の関数に分散して定義**されていた：
+
+1. `handle_room_change_for_all_tabs` 関数内 → 更新済み ✅
+2. `handle_delete_room` 関数内 → 更新漏れ ❌
+
+#### 解決策
+
+**outputs数を変更した場合は、以下の全ての箇所を確認・更新する：**
+
+```python
+# ui_handlers.py 内で検索すべきパターン
+EXPECTED_OUTPUT_COUNT = 
+
+# 更新すべき箇所（2024-12-17時点）：
+# 1. handle_room_change_for_all_tabs 関数
+# 2. handle_delete_room 関数
+```
+
+#### 教訓
+
+1. **定数は一箇所で定義すべき**だが、現状では複数箇所に散らばっている。将来的にはモジュールレベルの定数として統一することを検討。
+
+2. **`initial_load_chat_outputs`にコンポーネントを追加した場合**、その数は`unified_full_room_refresh_outputs`にも影響し、結果として`EXPECTED_OUTPUT_COUNT`も更新が必要になる。
+
+3. **エラーメッセージの「needed: X, returned: Y」**を見れば、どの関数が更新漏れかすぐ分かる。
+
+#### 関連ファイル
+
+- `ui_handlers.py`: `handle_room_change_for_all_tabs`, `handle_delete_room`
+- `nexus_ark.py`: `initial_load_chat_outputs`, `unified_full_room_refresh_outputs`
