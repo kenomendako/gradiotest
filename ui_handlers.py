@@ -5757,6 +5757,22 @@ def generate_room_style_css(font_size, line_height, chat_style, primary=None, se
         overrides.append(f"--block-info-text-color: {text} !important;")
         overrides.append(f"--section-header-text-color: {text} !important;")
         overrides.append(f"--prose-text-color: {text} !important;")
+        # ダークモード用の変数も追加
+        overrides.append(f"--block-label-text-color-dark: {text} !important;")
+        # 直接ラベル要素にスタイルを適用（CSS変数が効かない場合の対策）
+        css += f"""
+        .gradio-container label,
+        .gradio-container .label-wrap span,
+        .gradio-container .block-label span,
+        .gradio-container .svelte-1gfkn6j,
+        .dark label,
+        .dark .label-wrap span,
+        label span,
+        .block label {{
+            color: {text} !important;
+        }}
+        """
+
 
     # ユーザー発言背景 (Accent Soft)
     if accent_soft:
