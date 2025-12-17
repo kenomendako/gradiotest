@@ -1609,7 +1609,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
     unified_full_room_refresh_outputs と完全に一致する99個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 90
+    EXPECTED_OUTPUT_COUNT = 101
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
