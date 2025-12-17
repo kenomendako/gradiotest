@@ -723,14 +723,18 @@ try:
                                 theme_text_picker = gr.ColorPicker(label="文字色", interactive=True)
                             
                             with gr.Accordion("🔧 詳細設定", open=False):
-                                gr.Markdown("ドロップダウンやテキストボックス、コードブロックなどの色を個別に設定できます。")
+                                gr.Markdown("ドロップダウンやテキストボックス、コードブロック、ボタンなどの色を個別に設定できます。")
                                 with gr.Row():
                                     theme_input_bg_picker = gr.ColorPicker(label="入力欄の背景色", interactive=True)
                                     theme_input_border_picker = gr.ColorPicker(label="入力欄の枠線色", interactive=True)
                                     theme_code_bg_picker = gr.ColorPicker(label="コードブロック背景色", interactive=True)
                                 with gr.Row():
                                     theme_subdued_text_picker = gr.ColorPicker(label="サブテキスト色（説明文など）", interactive=True)
-                                    theme_hover_picker = gr.ColorPicker(label="ホバー時の背景色", interactive=True)
+                                    theme_button_bg_picker = gr.ColorPicker(label="ボタン背景色", interactive=True)
+                                    theme_button_hover_picker = gr.ColorPicker(label="ボタンホバー色", interactive=True)
+                                with gr.Row():
+                                    theme_stop_button_bg_picker = gr.ColorPicker(label="停止ボタン背景色", interactive=True)
+                                    theme_stop_button_hover_picker = gr.ColorPicker(label="停止ボタンホバー色", interactive=True)
                             
                             save_room_theme_button = gr.Button("🎀 現在のテーマ設定をこのルームに保存", size="sm", variant="primary")
                         
@@ -1829,7 +1833,8 @@ try:
             # 基本配色
             theme_primary_picker, theme_secondary_picker, theme_background_picker, theme_text_picker, theme_accent_soft_picker,
             # 詳細設定
-            theme_input_bg_picker, theme_input_border_picker, theme_code_bg_picker, theme_subdued_text_picker, theme_hover_picker
+            theme_input_bg_picker, theme_input_border_picker, theme_code_bg_picker, theme_subdued_text_picker,
+            theme_button_bg_picker, theme_button_hover_picker, theme_stop_button_bg_picker, theme_stop_button_hover_picker
         ]
         
         for comp in theme_preview_inputs:
@@ -2359,7 +2364,9 @@ try:
                 theme_text_picker, theme_accent_soft_picker,
                 # 詳細設定
                 theme_input_bg_picker, theme_input_border_picker, theme_code_bg_picker,
-                theme_subdued_text_picker, theme_hover_picker,
+                theme_subdued_text_picker,
+                theme_button_bg_picker, theme_button_hover_picker,
+                theme_stop_button_bg_picker, theme_stop_button_hover_picker,
                 # CSS注入
                 style_injector
             ]

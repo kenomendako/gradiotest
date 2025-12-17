@@ -5667,7 +5667,8 @@ def handle_add_room_custom_model(room_name: str, custom_model_name: str, provide
 # ==========================================
 
 def generate_room_style_css(font_size, line_height, chat_style, primary=None, secondary=None, bg=None, text=None, accent_soft=None,
-                             input_bg=None, input_border=None, code_bg=None, subdued_text=None, hover_color=None):
+                             input_bg=None, input_border=None, code_bg=None, subdued_text=None,
+                             button_bg=None, button_hover=None, stop_button_bg=None, stop_button_hover=None):
     """ルーム個別のCSS（文字サイズ、Novel Mode、テーマカラー）を生成する"""
     
     # Check for None values (Gradio updates might send None)
@@ -5760,15 +5761,18 @@ def generate_room_style_css(font_size, line_height, chat_style, primary=None, se
         # ダークモード用の変数も追加
         overrides.append(f"--block-label-text-color-dark: {text} !important;")
         # 直接ラベル要素にスタイルを適用（CSS変数が効かない場合の対策）
+        # Gradioが生成するdata-testid属性を使用
         css += f"""
+        [data-testid="block-info"],
+        [data-testid="block-label"],
+        span[data-testid="block-info"],
+        span[data-testid="block-label"],
         .gradio-container label,
-        .gradio-container .label-wrap span,
-        .gradio-container .block-label span,
-        .gradio-container .svelte-1gfkn6j,
+        .gradio-container label span,
+        .dark [data-testid="block-info"],
+        .dark [data-testid="block-label"],
         .dark label,
-        .dark .label-wrap span,
-        label span,
-        .block label {{
+        .dark label span {{
             color: {text} !important;
         }}
         """
@@ -5819,10 +5823,55 @@ def generate_room_style_css(font_size, line_height, chat_style, primary=None, se
         overrides.append(f"--block-info-text-color: {subdued_text} !important;")
         overrides.append(f"--input-placeholder-color: {subdued_text} !important;")
     
-    # ホバー時の背景色
-    if hover_color:
-        overrides.append(f"--background-fill-secondary: {hover_color} !important;")
-        overrides.append(f"--input-background-fill-hover: {hover_color} !important;")
+    # ボタン背景色（secondaryボタン）
+    if button_bg:
+        overrides.append(f"--button-secondary-background-fill: {button_bg} !important;")
+        overrides.append(f"--button-secondary-background-fill-dark: {button_bg} !important;")
+        # 直接セレクターでも適用
+        css += f"""
+        button.secondary,
+        .gradio-container button.secondary {{
+            background-color: {button_bg} !important;
+        }}
+        """
+    
+    # ボタンホバー色
+    if button_hover:
+        overrides.append(f"--button-secondary-background-fill-hover: {button_hover} !important;")
+        overrides.append(f"--button-secondary-background-fill-hover-dark: {button_hover} !important;")
+        css += f"""
+        button.secondary:hover,
+        .gradio-container button.secondary:hover {{
+            background-color: {button_hover} !important;
+        }}
+        """
+    
+    # 停止ボタン背景色（stop/cancelボタン）
+    if stop_button_bg:
+        overrides.append(f"--button-cancel-background-fill: {stop_button_bg} !important;")
+        overrides.append(f"--button-cancel-background-fill-dark: {stop_button_bg} !important;")
+        css += f"""
+        button.stop,
+        button.cancel,
+        .gradio-container button.stop,
+        .gradio-container button.cancel {{
+            background-color: {stop_button_bg} !important;
+        }}
+        """
+    
+    # 停止ボタンホバー色
+    if stop_button_hover:
+        overrides.append(f"--button-cancel-background-fill-hover: {stop_button_hover} !important;")
+        overrides.append(f"--button-cancel-background-fill-hover-dark: {stop_button_hover} !important;")
+        css += f"""
+        button.stop:hover,
+        button.cancel:hover,
+        .gradio-container button.stop:hover,
+        .gradio-container button.cancel:hover {{
+            background-color: {stop_button_hover} !important;
+        }}
+        """
+
 
     if overrides:
         # Create a more aggressive global override block
@@ -5843,9 +5892,9 @@ def handle_save_theme_settings(*args):
     print(f"DEBUG: handle_save_theme_settings called with {len(args)} args: {args}")
     
     try:
-        # 必要な引数数: room_name + font_size + line_height + chat_style + 基本5色 + 詳細5色 = 14
-        if len(args) < 14:
-            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/14)")
+        # 必要な引数数: room_name + font_size + line_height + chat_style + 基本5色 + 詳細7項目 = 17
+        if len(args) < 17:
+            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/17)")
             return
 
         room_name = args[0]
@@ -5864,7 +5913,10 @@ def handle_save_theme_settings(*args):
             "theme_input_border": args[10],
             "theme_code_bg": args[11],
             "theme_subdued_text": args[12],
-            "theme_hover_color": args[13]
+            "theme_button_bg": args[13],
+            "theme_button_hover": args[14],
+            "theme_stop_button_bg": args[15],
+            "theme_stop_button_hover": args[16]
         }
         
         # Use the centralized save function in room_manager
@@ -5879,10 +5931,12 @@ def handle_save_theme_settings(*args):
         gr.Error(f"保存エラー: {e}")
 
 def handle_theme_preview(font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
-                         input_bg, input_border, code_bg, subdued_text, hover_color):
+                         input_bg, input_border, code_bg, subdued_text,
+                         button_bg, button_hover, stop_button_bg, stop_button_hover):
     """UI変更時に即時CSSを返すだけのヘルパー"""
     return generate_room_style_css(font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
-                                   input_bg, input_border, code_bg, subdued_text, hover_color)
+                                   input_bg, input_border, code_bg, subdued_text,
+                                   button_bg, button_hover, stop_button_bg, stop_button_hover)
 
 def handle_room_theme_reload(room_name: str):
     """
@@ -5892,11 +5946,11 @@ def handle_room_theme_reload(room_name: str):
     戻り値の順番:
     1. chat_style, 2. font_size, 3. line_height,
     4-8. 基本配色5つ (primary, secondary, background, text, accent_soft)
-    9-13. 詳細設定5つ (input_bg, input_border, code_bg, subdued_text, hover_color)
-    14. style_injector
+    9-15. 詳細設定7つ (input_bg, input_border, code_bg, subdued_text, button_bg, button_hover, stop_button_bg, stop_button_hover)
+    16. style_injector
     """
     if not room_name:
-        return (gr.update(),) * 14
+        return (gr.update(),) * 17
     
     effective_settings = config_manager.get_effective_settings(room_name)
     
@@ -5915,7 +5969,10 @@ def handle_room_theme_reload(room_name: str):
         gr.update(value=effective_settings.get("theme_input_border", None)),
         gr.update(value=effective_settings.get("theme_code_bg", None)),
         gr.update(value=effective_settings.get("theme_subdued_text", None)),
-        gr.update(value=effective_settings.get("theme_hover_color", None)),
+        gr.update(value=effective_settings.get("theme_button_bg", None)),
+        gr.update(value=effective_settings.get("theme_button_hover", None)),
+        gr.update(value=effective_settings.get("theme_stop_button_bg", None)),
+        gr.update(value=effective_settings.get("theme_stop_button_hover", None)),
         # CSS生成
         gr.update(value=generate_room_style_css(
             effective_settings.get("font_size", 15),
@@ -5932,6 +5989,9 @@ def handle_room_theme_reload(room_name: str):
             effective_settings.get("theme_input_border", None),
             effective_settings.get("theme_code_bg", None),
             effective_settings.get("theme_subdued_text", None),
-            effective_settings.get("theme_hover_color", None)
+            effective_settings.get("theme_button_bg", None),
+            effective_settings.get("theme_button_hover", None),
+            effective_settings.get("theme_stop_button_bg", None),
+            effective_settings.get("theme_stop_button_hover", None)
         ))
     )
