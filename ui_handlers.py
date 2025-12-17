@@ -5177,8 +5177,7 @@ def handle_theme_selection(selected_theme_name: str):
         params = config_manager.CONFIG_GLOBAL.get("theme_settings", {}).get("custom_themes", {}).get(selected_theme_name, {})
     elif theme_source == "file":
         is_editable = False # ファイルベースのテーマは直接編集不可
-        gr.Info("ファイルベースのテーマは直接編集できません。カスタマイズして新しいテーマとして保存してください。")
-        # ファイルからパラメータを逆引きするのは複雑なため、UIはデフォルト値のまま無効化する
+        # UI内に説明テキストを配置するため、ポップアップは出さない
         params = preset_params["Soft"]
 
     font_name = params.get("font", ["Source Sans Pro"])[0]

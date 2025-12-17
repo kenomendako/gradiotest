@@ -362,7 +362,7 @@ try:
                                 save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
                             gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
 
-                        with gr.Accordion("🤖 AIモデルプロバイダ設定（デフォルト）", open=False):
+                        with gr.Accordion("⚡ AIモデルプロバイダ設定（デフォルト）", open=False):
                             gr.Markdown("会話に使用するAIモデルのプロバイダを切り替えます。")
                                         
                             current_provider = config_manager.get_active_provider()
@@ -494,7 +494,7 @@ try:
                         save_room_settings_button = gr.Button("このルームの個別設定を保存", variant="primary")
 
                         # --- [Phase 3] 個別設定用AIモデルプロバイダ設定 (一番上に配置) ---
-                        with gr.Accordion("🤖 AIモデルプロバイダ設定（このルーム）", open=False):
+                        with gr.Accordion("⚡ AIモデルプロバイダ設定（このルーム）", open=False):
                             gr.Markdown("このルームで使用するAIプロバイダを設定します。「共通設定に従う」を選ぶとデフォルト設定が適用されます。")
                                         
                             room_provider_radio = gr.Radio(
@@ -684,7 +684,7 @@ try:
                             )
                             auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True, visible=False)
 
-                        with gr.Accordion("🤖 自律行動設定 (Beta)", open=False):
+                        with gr.Accordion("✨ 自律行動設定 (Beta)", open=False):
                             gr.Markdown(
                                 "ユーザーからの入力がない間も、AIが自律的に思考し、行動（日記の整理、検索、発話など）を行います。\n"
                                 "**注意:** 設定した頻度で自動的にAPIを呼び出すため、コストにご注意ください。"
@@ -711,10 +711,9 @@ try:
                                 room_quiet_hours_start = gr.Dropdown(choices=time_options, value="00:00", label="開始時刻", interactive=True)
                                 room_quiet_hours_end = gr.Dropdown(choices=time_options, value="07:00", label="終了時刻", interactive=True) 
 
-                    with gr.TabItem("🎨 パレット") as theme_tab:
-                        with gr.Group(visible=True, elem_id="room_theme_color_settings"):
-                            gr.Markdown("#### 🎨 ルーム別テーマカラー個別設定")
-                            gr.Markdown("このルーム専用の配色を設定・保存します。（未指定の場合はデフォルトまたは下記ベーステーマが適用されます）")
+                    with gr.TabItem("パレット") as theme_tab:
+                        with gr.Accordion("🎀 ルーム別テーマカラー", open=False):
+                            gr.Markdown("このルーム専用の配色を設定・保存します。（未指定の場合は下記ベーステーマが適用されます）")
                             with gr.Row():
                                 theme_primary_picker = gr.ColorPicker(label="Main Color (Accent/Loader)", interactive=True)
                                 theme_secondary_picker = gr.ColorPicker(label="Sub Color (Bot BG/Labels)", interactive=True)
@@ -722,54 +721,54 @@ try:
                             with gr.Row():
                                 theme_background_picker = gr.ColorPicker(label="Background Color", interactive=True)
                                 theme_text_picker = gr.ColorPicker(label="Text Color", interactive=True)
-                            save_room_theme_button = gr.Button("🎨 現在のテーマ設定をこのルームに保存", size="sm", variant="primary")
+                            save_room_theme_button = gr.Button("🎀 現在のテーマ設定をこのルームに保存", size="sm", variant="primary")
                         
-                        gr.Markdown("---")
-                        gr.Markdown("#### 🌐 ベーステーマ選択 (Global)")
-                        theme_settings_state = gr.State({})
-                        theme_selector = gr.Dropdown(label="テーマを選択", interactive=True)
+                        with gr.Accordion("🏛️ ベーステーマ選択", open=False):
+                            gr.Markdown("アプリ全体のテーマを変更します。適用には再起動が必要です。")
+                            theme_settings_state = gr.State({})
+                            with gr.Row():
+                                theme_selector = gr.Dropdown(label="テーマを選択", interactive=True, scale=3)
+                                apply_theme_button = gr.Button("適用（要再起動）", variant="primary", scale=1)
                                     
-                        # --- [サムネイル表示エリア] ---
-                        with gr.Row():
-                            with gr.Column():
-                                gr.Markdown("#### ライトモード プレビュー")
-                                theme_preview_light = gr.Image(label="Light Mode Preview", interactive=False, height=200)
-                            with gr.Column():
-                                gr.Markdown("#### ダークモード プレビュー")
-                                theme_preview_dark = gr.Image(label="Dark Mode Preview", interactive=False, height=200)
-
-                        gr.Markdown("---")
-                        gr.Markdown("#### プレビュー＆カスタマイズ\n選択したテーマをカスタマイズして、新しい名前で保存できます。")
-                        AVAILABLE_HUES = [
-                            "slate", "gray", "zinc", "neutral", "stone", "red", "orange", "amber",
-                            "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue",
-                            "indigo", "violet", "purple", "fuchsia", "pink", "rose"
-                        ]
-                        with gr.Row():
-                            primary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="プライマリカラー系統", value="blue")
-                            secondary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="セカンダリカラー系統", value="sky")
-                            neutral_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="ニュートラルカラー系統", value="slate")
-                                    
-                        AVAILABLE_FONTS = sorted([
-                            "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
-                            "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "IBM Plex Mono", "Inconsolata", "Inter",
-                            "Jost", "Lato", "Libre Baskerville", "Libre Franklin", "Lora", "Merriweather",
-                            "Montserrat", "Mulish", "Noto Sans", "Noto Sans JP", "Open Sans", "Playfair Display",
-                            "Poppins", "Pt Sans", "Pt Serif", "Quattrocento", "Quicksand", "Raleway",
-                            "Roboto", "Roboto Mono", "Rubik", "Source Sans Pro", "Source Serif Pro",
-                            "Space Mono", "Spectral", "Sriracha", "Titillium Web", "Ubuntu", "Work Sans"
-                        ])
-                        font_dropdown = gr.Dropdown(choices=AVAILABLE_FONTS, label="メインフォント", value="Noto Sans JP", interactive=True)
-                                    
-                        gr.Markdown("---")
-                        custom_theme_name_input = gr.Textbox(label="新しいテーマ名として保存", placeholder="例: My Cool Theme")
-                                    
-                        with gr.Row():
-                            save_theme_button = gr.Button("カスタムテーマとして保存", variant="secondary")
-                            export_theme_button = gr.Button("ファイルにエクスポート", variant="secondary") # <-- 新規追加
-
-                        apply_theme_button = gr.Button("このテーマを適用（要再起動）", variant="primary")
-                        gr.Markdown("⚠️ **注意:** テーマの変更を完全に反映するには、コンソールを閉じて `nexus_ark.py` を再実行する必要があります。")
+                            # --- [サムネイル表示エリア] ---
+                            with gr.Row():
+                                with gr.Column():
+                                    gr.Markdown("##### ライトモード プレビュー")
+                                    theme_preview_light = gr.Image(label="Light Mode Preview", interactive=False, height=200)
+                                with gr.Column():
+                                    gr.Markdown("##### ダークモード プレビュー")
+                                    theme_preview_dark = gr.Image(label="Dark Mode Preview", interactive=False, height=200)
+                            
+                            # --- [カスタマイズ: 折り畳み可能] ---
+                            with gr.Accordion("🔧 カスタマイズ", open=False):
+                                gr.Markdown("選択したテーマをカスタマイズして、新しい名前で保存できます。\n※ファイルベースのテーマは直接編集できません。")
+                                AVAILABLE_HUES = [
+                                    "slate", "gray", "zinc", "neutral", "stone", "red", "orange", "amber",
+                                    "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue",
+                                    "indigo", "violet", "purple", "fuchsia", "pink", "rose"
+                                ]
+                                with gr.Row():
+                                    primary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="プライマリカラー系統", value="blue")
+                                    secondary_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="セカンダリカラー系統", value="sky")
+                                    neutral_hue_picker = gr.Dropdown(choices=AVAILABLE_HUES, label="ニュートラルカラー系統", value="slate")
+                                        
+                                AVAILABLE_FONTS = sorted([
+                                    "Alice", "Archivo", "Bitter", "Cabin", "Cormorant Garamond", "Crimson Pro",
+                                    "Dm Sans", "Eczar", "Fira Sans", "Glegoo", "IBM Plex Mono", "Inconsolata", "Inter",
+                                    "Jost", "Lato", "Libre Baskerville", "Libre Franklin", "Lora", "Merriweather",
+                                    "Montserrat", "Mulish", "Noto Sans", "Noto Sans JP", "Open Sans", "Playfair Display",
+                                    "Poppins", "Pt Sans", "Pt Serif", "Quattrocento", "Quicksand", "Raleway",
+                                    "Roboto", "Roboto Mono", "Rubik", "Source Sans Pro", "Source Serif Pro",
+                                    "Space Mono", "Spectral", "Sriracha", "Titillium Web", "Ubuntu", "Work Sans"
+                                ])
+                                font_dropdown = gr.Dropdown(choices=AVAILABLE_FONTS, label="メインフォント", value="Noto Sans JP", interactive=True)
+                                        
+                                gr.Markdown("---")
+                                custom_theme_name_input = gr.Textbox(label="新しいテーマ名として保存", placeholder="例: My Cool Theme")
+                                        
+                                with gr.Row():
+                                    save_theme_button = gr.Button("カスタムテーマとして保存", variant="secondary")
+                                    export_theme_button = gr.Button("ファイルにエクスポート", variant="secondary")
 
             with gr.Accordion("⏰ 時間管理", open=False):
                 with gr.Tabs():
