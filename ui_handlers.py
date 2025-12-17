@@ -198,6 +198,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value="cover"), # bg_size
             gr.update(value="center"), # bg_position
             gr.update(value="no-repeat"), # bg_repeat
+            gr.update(value="300px"), # bg_custom_width
+            gr.update(value=0), # bg_radius
+            gr.update(value=0), # bg_mask_blur
+            gr.update(value=False), # bg_front_layer
             # ---
             gr.update(), # save_room_theme_button
             gr.update(value="<style></style>"),  # style_injector
@@ -373,6 +377,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=effective_settings.get("theme_bg_size", "cover")),
         gr.update(value=effective_settings.get("theme_bg_position", "center")),
         gr.update(value=effective_settings.get("theme_bg_repeat", "no-repeat")),
+        gr.update(value=effective_settings.get("theme_bg_custom_width", "300px")),
+        gr.update(value=effective_settings.get("theme_bg_radius", 0)),
+        gr.update(value=effective_settings.get("theme_bg_mask_blur", 0)),
+        gr.update(value=effective_settings.get("theme_bg_front_layer", False)),
         # ---
         gr.update(), # save_room_theme_button
         gr.update(value=generate_room_style_css(
@@ -402,8 +410,13 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             effective_settings.get("theme_bg_blur", 0),
             effective_settings.get("theme_bg_size", "cover"),
             effective_settings.get("theme_bg_position", "center"),
-            effective_settings.get("theme_bg_repeat", "no-repeat")
-        )),
+            effective_settings.get("theme_bg_repeat", "no-repeat"),
+            effective_settings.get("theme_bg_custom_width", "300px"),
+            effective_settings.get("theme_bg_radius", 0),
+            effective_settings.get("theme_bg_mask_blur", 0),
+            effective_settings.get("theme_bg_front_layer", False)
+        ))
+
     )
 
 
@@ -1630,7 +1643,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
     unified_full_room_refresh_outputs と完全に一致する99個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 107
+    EXPECTED_OUTPUT_COUNT = 111
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
@@ -1723,7 +1736,11 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 gr.update(value=0),    # bg_blur
                 gr.update(value="cover"), # bg_size
                 gr.update(value="center"), # bg_position
-                gr.update(value="no-repeat"), # bg_repeat
+                gr.update(value="no-repeat"), # theme_bg_repeat
+                gr.update(value="300px"), # theme_bg_custom_width
+                gr.update(value=0), # theme_bg_radius
+                gr.update(value=0), # theme_bg_mask_blur
+                gr.update(value=False), # theme_bg_front_layer
                 # ---
                 gr.update(), # save_room_theme_button
                 gr.update(value="<style></style>"),  # style_injector
@@ -3601,7 +3618,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 107
+    EXPECTED_OUTPUT_COUNT = 111
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
@@ -5752,7 +5769,8 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
                              input_bg=None, input_border=None, code_bg=None, subdued_text=None,
                              button_bg=None, button_hover=None, stop_button_bg=None, stop_button_hover=None, 
                              checkbox_off=None, table_bg=None,
-                             bg_image=None, bg_opacity=0.4, bg_blur=0, bg_size="cover", bg_position="center", bg_repeat="no-repeat"):
+                             bg_image=None, bg_opacity=0.4, bg_blur=0, bg_size="cover", bg_position="center", bg_repeat="no-repeat",
+                             bg_custom_width="", bg_radius=0, bg_mask_blur=0, bg_front_layer=False):
     """ルーム個別のCSS（文字サイズ、Novel Mode、テーマカラー）を生成する"""
     
     # 個別テーマが無効の場合は空のCSSを返す
@@ -6038,23 +6056,78 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
                 print(f"Error encoding/resizing background image: {e}")
         
         if bg_image_url:
+             # スタンプモード（custom）か壁紙モードか
+             is_stamp_mode = (bg_size == "custom" and bg_custom_width)
+             
+             if is_stamp_mode:
+                 # スタンプモード: width/heightを指定し、配置を細かく制御
+                 # アスペクト比は維持したいが、CSSのbackground-imageでアスペクト比維持しつつサイズ指定は
+                 # containerのサイズを画像に合わせる必要がある。
+                 # ここではwidthを基準に、heightはautoにしたいが、fixed要素でheight:auto空だと表示されないことがある。
+                 # 正方形またはcontainで表示領域を確保する。
+                 
+                 size_style = f"width: {bg_custom_width}; height: {bg_custom_width}; background-size: contain;"
+                 if bg_repeat == "no-repeat":
+                     size_style += " background-repeat: no-repeat;"
+                 
+                 # 配置ロジック (簡易変換)
+                 # ユーザーが "top left" (文字列) を選んだ場合の変換
+                 # CSSの background-position は "top left" そのままで有効だが、
+                 # fixed要素自体の配置(top, left)とは別。
+                 # スタンプモードでは fixed要素自体を動かすのが自然。
+                 
+                 pos_style = "top: 50%; left: 50%; transform: translate(-50%, -50%);" # Default Center
+                 bg_p = bg_position.lower()
+                 
+                 if bg_p == "top left": pos_style = "top: 20px; left: 20px;"
+                 elif bg_p == "top right": pos_style = "top: 20px; right: 20px;"
+                 elif bg_p == "bottom left": pos_style = "bottom: 20px; left: 20px;"
+                 elif bg_p == "bottom right": pos_style = "bottom: 20px; right: 20px;"
+                 elif bg_p == "top": pos_style = "top: 20px; left: 50%; transform: translateX(-50%);"
+                 elif bg_p == "bottom": pos_style = "bottom: 20px; left: 50%; transform: translateX(-50%);"
+                 elif bg_p == "left": pos_style = "top: 50%; left: 20px; transform: translateY(-50%);"
+                 elif bg_p == "right": pos_style = "top: 50%; right: 20px; transform: translateY(-50%);"
+                 # center 以外の場合、transformを上書きする形になるので注意
+                 
+                 # border-radius
+                 radius_style = f"border-radius: {bg_radius}%;" if bg_radius else ""
+                 bg_p_style = "" # 初期化
+                 
+             else:
+                 # 壁紙モード
+                 size_style = f"width: 100%; height: 100%; background-size: {bg_size}; background-repeat: {bg_repeat};"
+                 # background-position はCSSプロパティとしてそのまま渡す
+                 pos_style = "top: 0; left: 0;"
+                 radius_style = "" # 全画面で角丸は通常使わない
+                 bg_p_style = f"background-position: {bg_position};"
+
+             # エッジぼかし (Mask) - 両方のモードで有効
+             mask_style = ""
+             if bg_mask_blur > 0:
+                 # エッジから内側に向けてぼかす
+                 # radial-gradient: circle at center, black (100% - blur), transparent 100%
+                 # ただしStampモード(正方形とは限らない)の場合、closest-sideなどが良い
+                 mask_style = f"mask-image: radial-gradient(closest-side, black calc(100% - {bg_mask_blur}px), transparent 100%); -webkit-mask-image: radial-gradient(closest-side, black calc(100% - {bg_mask_blur}px), transparent 100%);"
+             
+             # オーバーレイ設定 (最前面表示)
+             z_index_val = 9999 if bg_front_layer else 0
+
              css += f"""
-        /* 背景画像を最背面(z-index: 0)に配置 */
+        /* 背景画像レイヤー */
         body::before, .gradio-container::before, gradio-app::before {{
             content: "";
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            {pos_style}
+            {size_style}
             background-image: url('{bg_image_url}');
-            background-size: {bg_size};
-            background-position: {bg_position};
-            background-repeat: {bg_repeat};
+            {bg_p_style if not is_stamp_mode else ''}
+            
             opacity: {bg_opacity};
             filter: blur({bg_blur}px);
-            z-index: 0;
+            z-index: {z_index_val};
             pointer-events: none;
+            {radius_style}
+            {mask_style}
         }}
         
         /* 背景画像が見えるようにCSS変数レベルで背景を透明化 */
@@ -6090,9 +6163,9 @@ def handle_save_theme_settings(*args):
     print(f"DEBUG: handle_save_theme_settings called with {len(args)} args: {args}")
     
     try:
-        # 必要な引数数: room_name + enabled + font_size + line_height + chat_style + 基本5色 + 詳細9項目 + 背景画像6項目 = 26
-        if len(args) < 26:
-            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/26)")
+        # 必要な引数数: room_name + enabled + font_size + line_height + chat_style + 基本5色 + 詳細9項目 + 背景画像6項目 + 追加3項目 + 前面表示1 = 30
+        if len(args) < 30:
+            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/30)")
             return
 
         room_name = args[0]
@@ -6149,7 +6222,11 @@ def handle_save_theme_settings(*args):
             "theme_bg_blur": args[22],
             "theme_bg_size": args[23],
             "theme_bg_position": args[24],
-            "theme_bg_repeat": args[25]
+            "theme_bg_repeat": args[25],
+            "theme_bg_custom_width": args[26],
+            "theme_bg_radius": args[27],
+            "theme_bg_mask_blur": args[28],
+            "theme_bg_front_layer": args[29]
         }
         
         # Use the centralized save function in room_manager
@@ -6167,13 +6244,15 @@ def handle_theme_preview(enabled, font_size, line_height, chat_style, primary, s
                          input_bg, input_border, code_bg, subdued_text,
                          button_bg, button_hover, stop_button_bg, stop_button_hover, 
                          checkbox_off, table_bg,
-                         bg_image, bg_opacity, bg_blur, bg_size, bg_position, bg_repeat):
+                         bg_image, bg_opacity, bg_blur, bg_size, bg_position, bg_repeat,
+                         bg_custom_width, bg_radius, bg_mask_blur, bg_front_layer):
     """UI変更時に即時CSSを返すだけのヘルパー"""
     return generate_room_style_css(enabled, font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
                                    input_bg, input_border, code_bg, subdued_text,
                                    button_bg, button_hover, stop_button_bg, stop_button_hover, 
                                    checkbox_off, table_bg,
-                                   bg_image, bg_opacity, bg_blur, bg_size, bg_position, bg_repeat)
+                                   bg_image, bg_opacity, bg_blur, bg_size, bg_position, bg_repeat,
+                                   bg_custom_width, bg_radius, bg_mask_blur, bg_front_layer)
 
 def handle_room_theme_reload(room_name: str):
     """
@@ -6189,7 +6268,7 @@ def handle_room_theme_reload(room_name: str):
     24. style_injector
     """
     if not room_name:
-        return (gr.update(),) * 26
+        return (gr.update(),) * 30
     
     effective_settings = config_manager.get_effective_settings(room_name)
     room_theme_enabled = effective_settings.get("room_theme_enabled", False)
@@ -6223,6 +6302,10 @@ def handle_room_theme_reload(room_name: str):
         gr.update(value=effective_settings.get("theme_bg_size", "cover")),
         gr.update(value=effective_settings.get("theme_bg_position", "center")),
         gr.update(value=effective_settings.get("theme_bg_repeat", "no-repeat")),
+        gr.update(value=effective_settings.get("theme_bg_custom_width", "300px")),
+        gr.update(value=effective_settings.get("theme_bg_radius", 0)),
+        gr.update(value=effective_settings.get("theme_bg_mask_blur", 0)),
+        gr.update(value=effective_settings.get("theme_bg_front_layer", False)),
         # CSS生成
         gr.update(value=generate_room_style_css(
             room_theme_enabled,
@@ -6252,6 +6335,10 @@ def handle_room_theme_reload(room_name: str):
             effective_settings.get("theme_bg_blur", 0),
             effective_settings.get("theme_bg_size", "cover"),
             effective_settings.get("theme_bg_position", "center"),
-            effective_settings.get("theme_bg_repeat", "no-repeat")
-        ))
+            effective_settings.get("theme_bg_repeat", "no-repeat"),
+            effective_settings.get("theme_bg_custom_width", "300px"),
+            effective_settings.get("theme_bg_radius", 0),
+            effective_settings.get("theme_bg_mask_blur", 0),
+            effective_settings.get("theme_bg_front_layer", False)
+        )),
     )

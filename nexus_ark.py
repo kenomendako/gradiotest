@@ -746,9 +746,15 @@ try:
                                     theme_bg_opacity_slider = gr.Slider(label="不透明度 (Opacity)", minimum=0.0, maximum=1.0, step=0.1, value=0.4, interactive=True)
                                     theme_bg_blur_slider = gr.Slider(label="ぼかし (Blur)", minimum=0, maximum=20, step=1, value=0, interactive=True)
                                 with gr.Row():
-                                    theme_bg_size_dropdown = gr.Dropdown(label="サイズ", choices=["cover", "contain", "auto"], value="cover", interactive=True)
-                                    theme_bg_position_dropdown = gr.Dropdown(label="位置", choices=["center", "top", "bottom", "left", "right"], value="center", interactive=True)
-                                    theme_bg_repeat_dropdown = gr.Dropdown(label="繰り返し", choices=["no-repeat", "repeat"], value="no-repeat", interactive=True)
+                                    theme_bg_size_dropdown = gr.Dropdown(label="サイズ", choices=["cover", "contain", "auto", "custom"], value="cover", interactive=True)
+                                    theme_bg_position_dropdown = gr.Dropdown(label="位置", choices=["center", "top", "bottom", "left", "right", "top left", "top right", "bottom left", "bottom right"], value="center", interactive=True)
+                                with gr.Row():
+                                     theme_bg_repeat_dropdown = gr.Dropdown(label="繰り返し", choices=["no-repeat", "repeat"], value="no-repeat", interactive=True)
+                                     theme_bg_custom_width = gr.Textbox(label="カスタム幅 (custom時のみ)", placeholder="300px", value="300px", interactive=True)
+                                with gr.Row():
+                                     theme_bg_radius_slider = gr.Slider(label="角丸 (%)", minimum=0, maximum=50, step=1, value=0, interactive=True)
+                                     theme_bg_mask_blur_slider = gr.Slider(label="エッジぼかし (px)", minimum=0, maximum=100, step=1, value=0, interactive=True)
+                                     theme_bg_overlay_checkbox = gr.Checkbox(label="前面に表示 (Overlay)", value=False, interactive=True)
                             
                             save_room_theme_button = gr.Button("🎀 現在のテーマ設定をこのルームに保存", size="sm", variant="primary")
                         
@@ -1415,6 +1421,10 @@ try:
             theme_bg_size_dropdown,
             theme_bg_position_dropdown,
             theme_bg_repeat_dropdown,
+            theme_bg_custom_width,
+            theme_bg_radius_slider,
+            theme_bg_mask_blur_slider,
+            theme_bg_overlay_checkbox,
             # ---
             save_room_theme_button,
             style_injector,
@@ -1873,7 +1883,9 @@ try:
             theme_checkbox_off_picker, theme_table_bg_picker,
             # 背景画像設定
             theme_bg_image_picker, theme_bg_opacity_slider, theme_bg_blur_slider,
-            theme_bg_size_dropdown, theme_bg_position_dropdown, theme_bg_repeat_dropdown
+            theme_bg_size_dropdown, theme_bg_position_dropdown, theme_bg_repeat_dropdown,
+            theme_bg_custom_width, theme_bg_radius_slider, theme_bg_mask_blur_slider,
+            theme_bg_overlay_checkbox
         ]
         
         for comp in theme_preview_inputs:
@@ -2411,6 +2423,8 @@ try:
                 # 背景画像設定
                 theme_bg_image_picker, theme_bg_opacity_slider, theme_bg_blur_slider,
                 theme_bg_size_dropdown, theme_bg_position_dropdown, theme_bg_repeat_dropdown,
+                theme_bg_custom_width, theme_bg_radius_slider, theme_bg_mask_blur_slider,
+                theme_bg_overlay_checkbox,
                 # CSS注入
                 style_injector
             ]
