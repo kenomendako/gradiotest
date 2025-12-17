@@ -171,6 +171,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value=True),  # sleep_memory_index
             gr.update(value=False),  # sleep_current_log
             # --- [v25] テーマ設定 (Default values) ---
+            gr.update(value=False),  # room_theme_enabled
             gr.update(value="Chat (Default)"),  # chat_style
             gr.update(value=15),  # font_size
             gr.update(value=1.6),  # line_height
@@ -338,6 +339,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=sleep_memory_index),
         gr.update(value=sleep_current_log),
         # --- [v25] テーマ設定 ---
+        gr.update(value=effective_settings.get("room_theme_enabled", False)),  # 個別テーマのオンオフ
         gr.update(value=effective_settings.get("chat_style", "Chat (Default)")),
         gr.update(value=effective_settings.get("font_size", 15)),
         gr.update(value=effective_settings.get("line_height", 1.6)),
@@ -360,6 +362,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         # ---
         gr.update(), # save_room_theme_button
         gr.update(value=generate_room_style_css(
+            effective_settings.get("room_theme_enabled", False),  # 個別テーマのオンオフ
             effective_settings.get("font_size", 15),
             effective_settings.get("line_height", 1.6),
             effective_settings.get("chat_style", "Chat (Default)"),
@@ -3555,7 +3558,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 100
+    EXPECTED_OUTPUT_COUNT = 101
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
@@ -5701,11 +5704,16 @@ def handle_add_room_custom_model(room_name: str, custom_model_name: str, provide
 # [v25] テーマ・表示設定管理ロジック
 # ==========================================
 
-def generate_room_style_css(font_size, line_height, chat_style, primary=None, secondary=None, bg=None, text=None, accent_soft=None,
+def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_style="Chat (Default)", 
+                             primary=None, secondary=None, bg=None, text=None, accent_soft=None,
                              input_bg=None, input_border=None, code_bg=None, subdued_text=None,
                              button_bg=None, button_hover=None, stop_button_bg=None, stop_button_hover=None, 
                              checkbox_off=None, table_bg=None):
     """ルーム個別のCSS（文字サイズ、Novel Mode、テーマカラー）を生成する"""
+    
+    # 個別テーマが無効の場合は空のCSSを返す
+    if not enabled:
+        return "<style>#style_injector_component { display: none !important; }</style>"
     
     # Check for None values (Gradio updates might send None)
     if not font_size: font_size = 15
@@ -5961,33 +5969,34 @@ def handle_save_theme_settings(*args):
     print(f"DEBUG: handle_save_theme_settings called with {len(args)} args: {args}")
     
     try:
-        # 必要な引数数: room_name + font_size + line_height + chat_style + 基本5色 + 詳細9項目 = 19
-        if len(args) < 19:
-            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/19)")
+        # 必要な引数数: room_name + enabled + font_size + line_height + chat_style + 基本5色 + 詳細9項目 = 20
+        if len(args) < 20:
+            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/20)")
             return
 
         room_name = args[0]
         settings = {
-            "font_size": args[1],
-            "line_height": args[2],
-            "chat_style": args[3],
+            "room_theme_enabled": args[1],  # 個別テーマのオンオフ
+            "font_size": args[2],
+            "line_height": args[3],
+            "chat_style": args[4],
             # 基本配色
-            "theme_primary": args[4],
-            "theme_secondary": args[5],
-            "theme_background": args[6],
-            "theme_text": args[7],
-            "theme_accent_soft": args[8],
+            "theme_primary": args[5],
+            "theme_secondary": args[6],
+            "theme_background": args[7],
+            "theme_text": args[8],
+            "theme_accent_soft": args[9],
             # 詳細設定
-            "theme_input_bg": args[9],
-            "theme_input_border": args[10],
-            "theme_code_bg": args[11],
-            "theme_subdued_text": args[12],
-            "theme_button_bg": args[13],
-            "theme_button_hover": args[14],
-            "theme_stop_button_bg": args[15],
-            "theme_stop_button_hover": args[16],
-            "theme_checkbox_off": args[17],
-            "theme_table_bg": args[18]
+            "theme_input_bg": args[10],
+            "theme_input_border": args[11],
+            "theme_code_bg": args[12],
+            "theme_subdued_text": args[13],
+            "theme_button_bg": args[14],
+            "theme_button_hover": args[15],
+            "theme_stop_button_bg": args[16],
+            "theme_stop_button_hover": args[17],
+            "theme_checkbox_off": args[18],
+            "theme_table_bg": args[19]
         }
         
         # Use the centralized save function in room_manager
@@ -6001,12 +6010,12 @@ def handle_save_theme_settings(*args):
         traceback.print_exc()
         gr.Error(f"保存エラー: {e}")
 
-def handle_theme_preview(font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
+def handle_theme_preview(enabled, font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
                          input_bg, input_border, code_bg, subdued_text,
                          button_bg, button_hover, stop_button_bg, stop_button_hover, 
                          checkbox_off, table_bg):
     """UI変更時に即時CSSを返すだけのヘルパー"""
-    return generate_room_style_css(font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
+    return generate_room_style_css(enabled, font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
                                    input_bg, input_border, code_bg, subdued_text,
                                    button_bg, button_hover, stop_button_bg, stop_button_hover, 
                                    checkbox_off, table_bg)
@@ -6017,17 +6026,20 @@ def handle_room_theme_reload(room_name: str):
     Gradioは非表示タブのコンポーネントを初回ロードで更新しないため、タブ選択時に明示的に再読み込みが必要。
     
     戻り値の順番:
+    0. room_theme_enabled (個別テーマのオンオフ)
     1. chat_style, 2. font_size, 3. line_height,
     4-8. 基本配色5つ (primary, secondary, background, text, accent_soft)
     9-17. 詳細設定9つ (input_bg, input_border, code_bg, subdued_text, button_bg, button_hover, stop_button_bg, stop_button_hover, checkbox_off, table_bg)
     18. style_injector
     """
     if not room_name:
-        return (gr.update(),) * 19
+        return (gr.update(),) * 20
     
     effective_settings = config_manager.get_effective_settings(room_name)
+    room_theme_enabled = effective_settings.get("room_theme_enabled", False)
     
     return (
+        gr.update(value=room_theme_enabled),  # 個別テーマのオンオフ
         gr.update(value=effective_settings.get("chat_style", "Chat (Default)")),
         gr.update(value=effective_settings.get("font_size", 15)),
         gr.update(value=effective_settings.get("line_height", 1.6)),
@@ -6050,6 +6062,7 @@ def handle_room_theme_reload(room_name: str):
         gr.update(value=effective_settings.get("theme_table_bg", None)),
         # CSS生成
         gr.update(value=generate_room_style_css(
+            room_theme_enabled,
             effective_settings.get("font_size", 15),
             effective_settings.get("line_height", 1.6),
             effective_settings.get("chat_style", "Chat (Default)"),

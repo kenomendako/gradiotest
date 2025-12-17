@@ -714,6 +714,7 @@ try:
                     with gr.TabItem("パレット") as theme_tab:
                         with gr.Accordion("🎀 ルーム別テーマカラー", open=False):
                             gr.Markdown("このルーム専用の配色を設定・保存します。（未指定の場合は下記ベーステーマが適用されます）")
+                            room_theme_enabled_checkbox = gr.Checkbox(label="個別テーマを有効にする", value=False, interactive=True)
                             with gr.Row():
                                 theme_primary_picker = gr.ColorPicker(label="メインカラー（強調・ローダー）", interactive=True)
                                 theme_secondary_picker = gr.ColorPicker(label="サブカラー（AI発言・ラベル背景）", interactive=True)
@@ -1376,6 +1377,7 @@ try:
             sleep_consolidation_memory_index_cb,
             sleep_consolidation_current_log_cb,
             # --- [v25] テーマ設定 ---
+            room_theme_enabled_checkbox,  # 個別テーマのオンオフ
             chat_style_radio,
             font_size_slider,
             line_height_slider,
@@ -1843,6 +1845,7 @@ try:
 
         # [v25] Theme & Display Handlers
         theme_preview_inputs = [
+            room_theme_enabled_checkbox,  # 個別テーマのオンオフ
             font_size_slider, line_height_slider, chat_style_radio,
             # 基本配色
             theme_primary_picker, theme_secondary_picker, theme_background_picker, theme_text_picker, theme_accent_soft_picker,
@@ -2373,6 +2376,7 @@ try:
             fn=ui_handlers.handle_room_theme_reload,
             inputs=[room_dropdown],
             outputs=[
+                room_theme_enabled_checkbox,  # 個別テーマのオンオフ
                 chat_style_radio, font_size_slider, line_height_slider,
                 # 基本配色
                 theme_primary_picker, theme_secondary_picker, theme_background_picker,
