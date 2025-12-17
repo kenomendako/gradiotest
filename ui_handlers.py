@@ -6008,13 +6008,39 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
 
     # 背景画像
     if bg_image:
-        # パスの正規化とURL形式への変換
-        bg_image_url = bg_image.replace("\\", "/")
-        if not bg_image_url.startswith("http") and not bg_image_url.startswith("/file/"):
-             bg_image_url = f"/file={bg_image_url}"
+        import base64
+        from PIL import Image
+        import io
 
-        css += f"""
-        body::before {{
+        bg_image_url = ""
+        
+        # HTTP URLならそのまま
+        if bg_image.startswith("http"):
+             bg_image_url = bg_image
+        # ローカルファイルならBase64エンコード（リサイズ処理付き）
+        elif os.path.exists(bg_image):
+            try:
+                with Image.open(bg_image) as img:
+                    # 最大サイズ制限 (Full HD相当)
+                    max_size = 1920
+                    if max(img.size) > max_size:
+                        ratio = max_size / max(img.size)
+                        new_size = (int(img.width * ratio), int(img.height * ratio))
+                        img = img.resize(new_size, Image.Resampling.LANCZOS)
+                    
+                    buffer = io.BytesIO()
+                    # JPEG変換して軽量化 (PNGだと重い場合があるが、画質優先ならPNG)
+                    # ここでは元のフォーマットに近い形で、ただし透過考慮でPNG推奨
+                    img.save(buffer, format="PNG")
+                    encoded_string = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                    bg_image_url = f"data:image/png;base64,{encoded_string}"
+            except Exception as e:
+                print(f"Error encoding/resizing background image: {e}")
+        
+        if bg_image_url:
+             css += f"""
+        /* 背景画像を最背面(z-index: 0)に配置 */
+        body::before, .gradio-container::before, gradio-app::before {{
             content: "";
             position: fixed;
             top: 0;
@@ -6027,8 +6053,33 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
             background-repeat: {bg_repeat};
             opacity: {bg_opacity};
             filter: blur({bg_blur}px);
-            z-index: -1;
+            z-index: 0;
             pointer-events: none;
+        }}
+        
+        /* 背景画像が見えるようにCSS変数レベルで背景を透明化 */
+        :root, body, .gradio-container, .dark, .dark .gradio-container {{
+            --background-fill-primary: transparent !important;
+            --background-fill-secondary: rgba(0, 0, 0, 0.2) !important; /* パネル等に少し色を残して視認性確保 */
+            --block-background-fill: rgba(0, 0, 0, 0.2) !important; /* ブロック背景も半透明に */
+        }}
+        
+        /* コンテナ自体の背景も透明 */
+        .gradio-container {{
+            background-color: transparent !important;
+            background: transparent !important;
+        }}
+
+        /* ドロップダウンメニュー等の視認性修正 */
+        .options, ul.options, .wrap.options, .dropdown-options {{
+            background-color: #1f2937 !important; /* ダークグレー */
+            color: #f3f4f6 !important;
+            opacity: 1 !important;
+            z-index: 10000 !important;
+        }}
+        /* 選択中のアイテム */
+        li.item.selected {{
+            background-color: #374151 !important;
         }}
         """
 
