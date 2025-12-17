@@ -715,12 +715,23 @@ try:
                         with gr.Accordion("🎀 ルーム別テーマカラー", open=False):
                             gr.Markdown("このルーム専用の配色を設定・保存します。（未指定の場合は下記ベーステーマが適用されます）")
                             with gr.Row():
-                                theme_primary_picker = gr.ColorPicker(label="Main Color (Accent/Loader)", interactive=True)
-                                theme_secondary_picker = gr.ColorPicker(label="Sub Color (Bot BG/Labels)", interactive=True)
-                                theme_accent_soft_picker = gr.ColorPicker(label="User Color (User Bubble)", interactive=True)
+                                theme_primary_picker = gr.ColorPicker(label="メインカラー（強調・ローダー）", interactive=True)
+                                theme_secondary_picker = gr.ColorPicker(label="サブカラー（AI発言・ラベル背景）", interactive=True)
+                                theme_accent_soft_picker = gr.ColorPicker(label="ユーザー発言色", interactive=True)
                             with gr.Row():
-                                theme_background_picker = gr.ColorPicker(label="Background Color", interactive=True)
-                                theme_text_picker = gr.ColorPicker(label="Text Color", interactive=True)
+                                theme_background_picker = gr.ColorPicker(label="背景色", interactive=True)
+                                theme_text_picker = gr.ColorPicker(label="文字色", interactive=True)
+                            
+                            with gr.Accordion("🔧 詳細設定", open=False):
+                                gr.Markdown("ドロップダウンやテキストボックス、コードブロックなどの色を個別に設定できます。")
+                                with gr.Row():
+                                    theme_input_bg_picker = gr.ColorPicker(label="入力欄の背景色", interactive=True)
+                                    theme_input_border_picker = gr.ColorPicker(label="入力欄の枠線色", interactive=True)
+                                    theme_code_bg_picker = gr.ColorPicker(label="コードブロック背景色", interactive=True)
+                                with gr.Row():
+                                    theme_subdued_text_picker = gr.ColorPicker(label="サブテキスト色（説明文など）", interactive=True)
+                                    theme_hover_picker = gr.ColorPicker(label="ホバー時の背景色", interactive=True)
+                            
                             save_room_theme_button = gr.Button("🎀 現在のテーマ設定をこのルームに保存", size="sm", variant="primary")
                         
                         with gr.Accordion("🏛️ ベーステーマ選択", open=False):
@@ -1815,7 +1826,10 @@ try:
         # [v25] Theme & Display Handlers
         theme_preview_inputs = [
             font_size_slider, line_height_slider, chat_style_radio,
-            theme_primary_picker, theme_secondary_picker, theme_background_picker, theme_text_picker, theme_accent_soft_picker
+            # 基本配色
+            theme_primary_picker, theme_secondary_picker, theme_background_picker, theme_text_picker, theme_accent_soft_picker,
+            # 詳細設定
+            theme_input_bg_picker, theme_input_border_picker, theme_code_bg_picker, theme_subdued_text_picker, theme_hover_picker
         ]
         
         for comp in theme_preview_inputs:
@@ -2340,8 +2354,14 @@ try:
             inputs=[room_dropdown],
             outputs=[
                 chat_style_radio, font_size_slider, line_height_slider,
+                # 基本配色
                 theme_primary_picker, theme_secondary_picker, theme_background_picker,
-                theme_text_picker, theme_accent_soft_picker, style_injector
+                theme_text_picker, theme_accent_soft_picker,
+                # 詳細設定
+                theme_input_bg_picker, theme_input_border_picker, theme_code_bg_picker,
+                theme_subdued_text_picker, theme_hover_picker,
+                # CSS注入
+                style_injector
             ]
         )
 

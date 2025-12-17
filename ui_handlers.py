@@ -5666,7 +5666,8 @@ def handle_add_room_custom_model(room_name: str, custom_model_name: str, provide
 # [v25] テーマ・表示設定管理ロジック
 # ==========================================
 
-def generate_room_style_css(font_size, line_height, chat_style, primary=None, secondary=None, bg=None, text=None, accent_soft=None):
+def generate_room_style_css(font_size, line_height, chat_style, primary=None, secondary=None, bg=None, text=None, accent_soft=None,
+                             input_bg=None, input_border=None, code_bg=None, subdued_text=None, hover_color=None):
     """ルーム個別のCSS（文字サイズ、Novel Mode、テーマカラー）を生成する"""
     
     # Check for None values (Gradio updates might send None)
@@ -5761,6 +5762,52 @@ def generate_room_style_css(font_size, line_height, chat_style, primary=None, se
     if accent_soft:
         overrides.append(f"--color-accent-soft: {accent_soft} !important;")
 
+    # === 詳細設定 ===
+    
+    # 入力欄の背景色 (Form Background)
+    if input_bg:
+        overrides.append(f"--input-background-fill: {input_bg} !important;")
+        overrides.append(f"--input-background-fill-hover: {input_bg} !important;")
+        # スクロールバーも連動させる
+        css += f"""
+        *::-webkit-scrollbar {{ width: 8px; height: 8px; }}
+        *::-webkit-scrollbar-thumb {{
+            background-color: {input_bg} !important;
+            border-radius: 4px;
+        }}
+        *::-webkit-scrollbar-track {{ background-color: transparent; }}
+        """
+    
+    # 入力欄の枠線色 (Form Border)
+    if input_border:
+        overrides.append(f"--border-color-primary: {input_border} !important;")
+        overrides.append(f"--input-border-color: {input_border} !important;")
+        overrides.append(f"--input-border-color-focus: {input_border} !important;")
+    
+    # コードブロック背景色 (Code Block BG)
+    if code_bg:
+        overrides.append(f"--code-background-fill: {code_bg} !important;")
+        # チャット内のコードブロックにも適用
+        css += f"""
+        #chat_output_area pre,
+        #chat_output_area code,
+        .prose pre,
+        .prose code {{
+            background-color: {code_bg} !important;
+        }}
+        """
+    
+    # サブテキスト色（説明文など）
+    if subdued_text:
+        overrides.append(f"--body-text-color-subdued: {subdued_text} !important;")
+        overrides.append(f"--block-info-text-color: {subdued_text} !important;")
+        overrides.append(f"--input-placeholder-color: {subdued_text} !important;")
+    
+    # ホバー時の背景色
+    if hover_color:
+        overrides.append(f"--background-fill-secondary: {hover_color} !important;")
+        overrides.append(f"--input-background-fill-hover: {hover_color} !important;")
+
     if overrides:
         # Create a more aggressive global override block
         css += f"""
@@ -5780,8 +5827,9 @@ def handle_save_theme_settings(*args):
     print(f"DEBUG: handle_save_theme_settings called with {len(args)} args: {args}")
     
     try:
-        if len(args) < 9:
-            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/9)")
+        # 必要な引数数: room_name + font_size + line_height + chat_style + 基本5色 + 詳細5色 = 14
+        if len(args) < 14:
+            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/14)")
             return
 
         room_name = args[0]
@@ -5789,11 +5837,18 @@ def handle_save_theme_settings(*args):
             "font_size": args[1],
             "line_height": args[2],
             "chat_style": args[3],
+            # 基本配色
             "theme_primary": args[4],
             "theme_secondary": args[5],
             "theme_background": args[6],
             "theme_text": args[7],
-            "theme_accent_soft": args[8]
+            "theme_accent_soft": args[8],
+            # 詳細設定
+            "theme_input_bg": args[9],
+            "theme_input_border": args[10],
+            "theme_code_bg": args[11],
+            "theme_subdued_text": args[12],
+            "theme_hover_color": args[13]
         }
         
         # Use the centralized save function in room_manager
@@ -5807,17 +5862,25 @@ def handle_save_theme_settings(*args):
         traceback.print_exc()
         gr.Error(f"保存エラー: {e}")
 
-def handle_theme_preview(font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft):
+def handle_theme_preview(font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
+                         input_bg, input_border, code_bg, subdued_text, hover_color):
     """UI変更時に即時CSSを返すだけのヘルパー"""
-    return generate_room_style_css(font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft)
+    return generate_room_style_css(font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
+                                   input_bg, input_border, code_bg, subdued_text, hover_color)
 
 def handle_room_theme_reload(room_name: str):
     """
     パレットタブが選択されたときに、ルーム個別のテーマ設定を再読み込みしてUIに反映する。
     Gradioは非表示タブのコンポーネントを初回ロードで更新しないため、タブ選択時に明示的に再読み込みが必要。
+    
+    戻り値の順番:
+    1. chat_style, 2. font_size, 3. line_height,
+    4-8. 基本配色5つ (primary, secondary, background, text, accent_soft)
+    9-13. 詳細設定5つ (input_bg, input_border, code_bg, subdued_text, hover_color)
+    14. style_injector
     """
     if not room_name:
-        return (gr.update(),) * 9
+        return (gr.update(),) * 14
     
     effective_settings = config_manager.get_effective_settings(room_name)
     
@@ -5825,19 +5888,34 @@ def handle_room_theme_reload(room_name: str):
         gr.update(value=effective_settings.get("chat_style", "Chat (Default)")),
         gr.update(value=effective_settings.get("font_size", 15)),
         gr.update(value=effective_settings.get("line_height", 1.6)),
+        # 基本配色
         gr.update(value=effective_settings.get("theme_primary", None)),
         gr.update(value=effective_settings.get("theme_secondary", None)),
         gr.update(value=effective_settings.get("theme_background", None)),
         gr.update(value=effective_settings.get("theme_text", None)),
         gr.update(value=effective_settings.get("theme_accent_soft", None)),
+        # 詳細設定
+        gr.update(value=effective_settings.get("theme_input_bg", None)),
+        gr.update(value=effective_settings.get("theme_input_border", None)),
+        gr.update(value=effective_settings.get("theme_code_bg", None)),
+        gr.update(value=effective_settings.get("theme_subdued_text", None)),
+        gr.update(value=effective_settings.get("theme_hover_color", None)),
+        # CSS生成
         gr.update(value=generate_room_style_css(
             effective_settings.get("font_size", 15),
             effective_settings.get("line_height", 1.6),
             effective_settings.get("chat_style", "Chat (Default)"),
+            # 基本配色
             effective_settings.get("theme_primary", None),
             effective_settings.get("theme_secondary", None),
             effective_settings.get("theme_background", None),
             effective_settings.get("theme_text", None),
-            effective_settings.get("theme_accent_soft", None)
+            effective_settings.get("theme_accent_soft", None),
+            # 詳細設定
+            effective_settings.get("theme_input_bg", None),
+            effective_settings.get("theme_input_border", None),
+            effective_settings.get("theme_code_bg", None),
+            effective_settings.get("theme_subdued_text", None),
+            effective_settings.get("theme_hover_color", None)
         ))
     )
