@@ -179,6 +179,18 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value=None),  # bg
             gr.update(value=None),  # text
             gr.update(value=None),  # accent_soft
+            # --- 詳細設定 (Default values) ---
+            gr.update(value=None),  # input_bg
+            gr.update(value=None),  # input_border
+            gr.update(value=None),  # code_bg
+            gr.update(value=None),  # subdued_text
+            gr.update(value=None),  # button_bg
+            gr.update(value=None),  # button_hover
+            gr.update(value=None),  # stop_button_bg
+            gr.update(value=None),  # stop_button_hover
+            gr.update(value=None),  # checkbox_off
+            gr.update(value=None),  # table_bg
+            # ---
             gr.update(), # save_room_theme_button
             gr.update(value="<style></style>"),  # style_injector
         )
@@ -334,6 +346,18 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=effective_settings.get("theme_background", None)),
         gr.update(value=effective_settings.get("theme_text", None)),
         gr.update(value=effective_settings.get("theme_accent_soft", None)),
+        # --- 詳細設定 ---
+        gr.update(value=effective_settings.get("theme_input_bg", None)),
+        gr.update(value=effective_settings.get("theme_input_border", None)),
+        gr.update(value=effective_settings.get("theme_code_bg", None)),
+        gr.update(value=effective_settings.get("theme_subdued_text", None)),
+        gr.update(value=effective_settings.get("theme_button_bg", None)),
+        gr.update(value=effective_settings.get("theme_button_hover", None)),
+        gr.update(value=effective_settings.get("theme_stop_button_bg", None)),
+        gr.update(value=effective_settings.get("theme_stop_button_hover", None)),
+        gr.update(value=effective_settings.get("theme_checkbox_off", None)),
+        gr.update(value=effective_settings.get("theme_table_bg", None)),
+        # ---
         gr.update(), # save_room_theme_button
         gr.update(value=generate_room_style_css(
             effective_settings.get("font_size", 15),
@@ -343,7 +367,18 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             effective_settings.get("theme_secondary", None),
             effective_settings.get("theme_background", None),
             effective_settings.get("theme_text", None),
-            effective_settings.get("theme_accent_soft", None)
+            effective_settings.get("theme_accent_soft", None),
+            # 詳細設定
+            effective_settings.get("theme_input_bg", None),
+            effective_settings.get("theme_input_border", None),
+            effective_settings.get("theme_code_bg", None),
+            effective_settings.get("theme_subdued_text", None),
+            effective_settings.get("theme_button_bg", None),
+            effective_settings.get("theme_button_hover", None),
+            effective_settings.get("theme_stop_button_bg", None),
+            effective_settings.get("theme_stop_button_hover", None),
+            effective_settings.get("theme_checkbox_off", None),
+            effective_settings.get("theme_table_bg", None)
         )),
     )
 
@@ -3520,7 +3555,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 90
+    EXPECTED_OUTPUT_COUNT = 100
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 

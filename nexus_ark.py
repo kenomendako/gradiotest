@@ -1384,6 +1384,18 @@ try:
             theme_background_picker,
             theme_text_picker,
             theme_accent_soft_picker,
+            # --- 詳細設定 ---
+            theme_input_bg_picker,
+            theme_input_border_picker,
+            theme_code_bg_picker,
+            theme_subdued_text_picker,
+            theme_button_bg_picker,
+            theme_button_hover_picker,
+            theme_stop_button_bg_picker,
+            theme_stop_button_hover_picker,
+            theme_checkbox_off_picker,
+            theme_table_bg_picker,
+            # ---
             save_room_theme_button,
             style_injector,
         ]
