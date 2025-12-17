@@ -191,6 +191,13 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value=None),  # stop_button_hover
             gr.update(value=None),  # checkbox_off
             gr.update(value=None),  # table_bg
+            # 背景画像設定 (Default values)
+            gr.update(value=None),  # bg_image
+            gr.update(value=0.4),  # bg_opacity
+            gr.update(value=0),    # bg_blur
+            gr.update(value="cover"), # bg_size
+            gr.update(value="center"), # bg_position
+            gr.update(value="no-repeat"), # bg_repeat
             # ---
             gr.update(), # save_room_theme_button
             gr.update(value="<style></style>"),  # style_injector
@@ -359,6 +366,13 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=effective_settings.get("theme_stop_button_hover", None)),
         gr.update(value=effective_settings.get("theme_checkbox_off", None)),
         gr.update(value=effective_settings.get("theme_table_bg", None)),
+        # 背景画像設定
+        gr.update(value=effective_settings.get("theme_bg_image", None)),
+        gr.update(value=effective_settings.get("theme_bg_opacity", 0.4)),
+        gr.update(value=effective_settings.get("theme_bg_blur", 0)),
+        gr.update(value=effective_settings.get("theme_bg_size", "cover")),
+        gr.update(value=effective_settings.get("theme_bg_position", "center")),
+        gr.update(value=effective_settings.get("theme_bg_repeat", "no-repeat")),
         # ---
         gr.update(), # save_room_theme_button
         gr.update(value=generate_room_style_css(
@@ -381,7 +395,14 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             effective_settings.get("theme_stop_button_bg", None),
             effective_settings.get("theme_stop_button_hover", None),
             effective_settings.get("theme_checkbox_off", None),
-            effective_settings.get("theme_table_bg", None)
+            effective_settings.get("theme_table_bg", None),
+            # 背景画像設定
+            effective_settings.get("theme_bg_image", None),
+            effective_settings.get("theme_bg_opacity", 0.4),
+            effective_settings.get("theme_bg_blur", 0),
+            effective_settings.get("theme_bg_size", "cover"),
+            effective_settings.get("theme_bg_position", "center"),
+            effective_settings.get("theme_bg_repeat", "no-repeat")
         )),
     )
 
@@ -1609,7 +1630,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
     unified_full_room_refresh_outputs と完全に一致する99個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 101
+    EXPECTED_OUTPUT_COUNT = 107
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
@@ -1675,6 +1696,8 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 gr.update(value=True),  # sleep_consolidation_memory_index_cb
                 gr.update(value=False),  # sleep_consolidation_current_log_cb
                 # --- [v25] テーマ設定 ---
+                # --- [v25] テーマ設定 ---
+                gr.update(value=False),  # room_theme_enabled
                 gr.update(value="Chat (Default)"),  # chat_style
                 gr.update(value=15),  # font_size
                 gr.update(value=1.6),  # line_height
@@ -1683,6 +1706,26 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 gr.update(value=None),  # bg
                 gr.update(value=None),  # text
                 gr.update(value=None),  # accent_soft
+                # 詳細設定
+                gr.update(value=None),  # input_bg
+                gr.update(value=None),  # input_border
+                gr.update(value=None),  # code_bg
+                gr.update(value=None),  # subdued_text
+                gr.update(value=None),  # button_bg
+                gr.update(value=None),  # button_hover
+                gr.update(value=None),  # stop_button_bg
+                gr.update(value=None),  # stop_button_hover
+                gr.update(value=None),  # checkbox_off
+                gr.update(value=None),  # table_bg
+                # 背景画像設定
+                gr.update(value=None),  # bg_image
+                gr.update(value=0.4),  # bg_opacity
+                gr.update(value=0),    # bg_blur
+                gr.update(value="cover"), # bg_size
+                gr.update(value="center"), # bg_position
+                gr.update(value="no-repeat"), # bg_repeat
+                # ---
+                gr.update(), # save_room_theme_button
                 gr.update(value="<style></style>"),  # style_injector
             )
             empty_world_updates = ({}, gr.update(choices=[], value=None), "", gr.update(choices=[], value=None))
@@ -3558,7 +3601,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 101
+    EXPECTED_OUTPUT_COUNT = 107
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
@@ -5708,7 +5751,8 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
                              primary=None, secondary=None, bg=None, text=None, accent_soft=None,
                              input_bg=None, input_border=None, code_bg=None, subdued_text=None,
                              button_bg=None, button_hover=None, stop_button_bg=None, stop_button_hover=None, 
-                             checkbox_off=None, table_bg=None):
+                             checkbox_off=None, table_bg=None,
+                             bg_image=None, bg_opacity=0.4, bg_blur=0, bg_size="cover", bg_position="center", bg_repeat="no-repeat"):
     """ルーム個別のCSS（文字サイズ、Novel Mode、テーマカラー）を生成する"""
     
     # 個別テーマが無効の場合は空のCSSを返す
@@ -5962,6 +6006,32 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
         }}
         """
 
+    # 背景画像
+    if bg_image:
+        # パスの正規化とURL形式への変換
+        bg_image_url = bg_image.replace("\\", "/")
+        if not bg_image_url.startswith("http") and not bg_image_url.startswith("/file/"):
+             bg_image_url = f"/file={bg_image_url}"
+
+        css += f"""
+        body::before {{
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('{bg_image_url}');
+            background-size: {bg_size};
+            background-position: {bg_position};
+            background-repeat: {bg_repeat};
+            opacity: {bg_opacity};
+            filter: blur({bg_blur}px);
+            z-index: -1;
+            pointer-events: none;
+        }}
+        """
+
     return f"<style>{css}</style>"
 
 def handle_save_theme_settings(*args):
@@ -5969,12 +6039,37 @@ def handle_save_theme_settings(*args):
     print(f"DEBUG: handle_save_theme_settings called with {len(args)} args: {args}")
     
     try:
-        # 必要な引数数: room_name + enabled + font_size + line_height + chat_style + 基本5色 + 詳細9項目 = 20
-        if len(args) < 20:
-            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/20)")
+        # 必要な引数数: room_name + enabled + font_size + line_height + chat_style + 基本5色 + 詳細9項目 + 背景画像6項目 = 26
+        if len(args) < 26:
+            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/26)")
             return
 
         room_name = args[0]
+        
+        # 背景画像の保存処理
+        bg_image_temp_path = args[20]
+        saved_image_path = None
+        
+        if bg_image_temp_path:
+             try:
+                 room_dir = os.path.join(constants.ROOMS_DIR, room_name)
+                 os.makedirs(room_dir, exist_ok=True)
+                 
+                 _, ext = os.path.splitext(bg_image_temp_path)
+                 if not ext: ext = ".png"
+                 
+                 target_filename = f"theme_bg{ext}"
+                 destination_path = os.path.join(room_dir, target_filename)
+                 
+                 # 同じパスでない場合のみコピー（既存パスが渡された場合の無駄なコピー防止）
+                 if os.path.abspath(bg_image_temp_path) != os.path.abspath(destination_path):
+                    shutil.copy2(bg_image_temp_path, destination_path)
+                 
+                 saved_image_path = destination_path
+             except Exception as img_err:
+                 print(f"Error saving background image: {img_err}")
+                 gr.Warning(f"背景画像の保存に失敗しました: {img_err}")
+
         settings = {
             "room_theme_enabled": args[1],  # 個別テーマのオンオフ
             "font_size": args[2],
@@ -5996,7 +6091,14 @@ def handle_save_theme_settings(*args):
             "theme_stop_button_bg": args[16],
             "theme_stop_button_hover": args[17],
             "theme_checkbox_off": args[18],
-            "theme_table_bg": args[19]
+            "theme_table_bg": args[19],
+            # 背景画像設定
+            "theme_bg_image": saved_image_path,
+            "theme_bg_opacity": args[21],
+            "theme_bg_blur": args[22],
+            "theme_bg_size": args[23],
+            "theme_bg_position": args[24],
+            "theme_bg_repeat": args[25]
         }
         
         # Use the centralized save function in room_manager
@@ -6013,12 +6115,14 @@ def handle_save_theme_settings(*args):
 def handle_theme_preview(enabled, font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
                          input_bg, input_border, code_bg, subdued_text,
                          button_bg, button_hover, stop_button_bg, stop_button_hover, 
-                         checkbox_off, table_bg):
+                         checkbox_off, table_bg,
+                         bg_image, bg_opacity, bg_blur, bg_size, bg_position, bg_repeat):
     """UI変更時に即時CSSを返すだけのヘルパー"""
     return generate_room_style_css(enabled, font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
                                    input_bg, input_border, code_bg, subdued_text,
                                    button_bg, button_hover, stop_button_bg, stop_button_hover, 
-                                   checkbox_off, table_bg)
+                                   checkbox_off, table_bg,
+                                   bg_image, bg_opacity, bg_blur, bg_size, bg_position, bg_repeat)
 
 def handle_room_theme_reload(room_name: str):
     """
@@ -6030,10 +6134,11 @@ def handle_room_theme_reload(room_name: str):
     1. chat_style, 2. font_size, 3. line_height,
     4-8. 基本配色5つ (primary, secondary, background, text, accent_soft)
     9-17. 詳細設定9つ (input_bg, input_border, code_bg, subdued_text, button_bg, button_hover, stop_button_bg, stop_button_hover, checkbox_off, table_bg)
-    18. style_injector
+    18-23. 背景画像設定6つ (bg_image, bg_opacity, bg_blur, bg_size, bg_position, bg_repeat)
+    24. style_injector
     """
     if not room_name:
-        return (gr.update(),) * 20
+        return (gr.update(),) * 26
     
     effective_settings = config_manager.get_effective_settings(room_name)
     room_theme_enabled = effective_settings.get("room_theme_enabled", False)
@@ -6060,6 +6165,13 @@ def handle_room_theme_reload(room_name: str):
         gr.update(value=effective_settings.get("theme_stop_button_hover", None)),
         gr.update(value=effective_settings.get("theme_checkbox_off", None)),
         gr.update(value=effective_settings.get("theme_table_bg", None)),
+        # 背景画像設定
+        gr.update(value=effective_settings.get("theme_bg_image", None)),
+        gr.update(value=effective_settings.get("theme_bg_opacity", 0.4)),
+        gr.update(value=effective_settings.get("theme_bg_blur", 0)),
+        gr.update(value=effective_settings.get("theme_bg_size", "cover")),
+        gr.update(value=effective_settings.get("theme_bg_position", "center")),
+        gr.update(value=effective_settings.get("theme_bg_repeat", "no-repeat")),
         # CSS生成
         gr.update(value=generate_room_style_css(
             room_theme_enabled,
@@ -6082,6 +6194,13 @@ def handle_room_theme_reload(room_name: str):
             effective_settings.get("theme_stop_button_bg", None),
             effective_settings.get("theme_stop_button_hover", None),
             effective_settings.get("theme_checkbox_off", None),
-            effective_settings.get("theme_table_bg", None)
+            effective_settings.get("theme_table_bg", None),
+            # 背景画像設定
+            effective_settings.get("theme_bg_image", None),
+            effective_settings.get("theme_bg_opacity", 0.4),
+            effective_settings.get("theme_bg_blur", 0),
+            effective_settings.get("theme_bg_size", "cover"),
+            effective_settings.get("theme_bg_position", "center"),
+            effective_settings.get("theme_bg_repeat", "no-repeat")
         ))
     )

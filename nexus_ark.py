@@ -739,6 +739,17 @@ try:
                                     theme_checkbox_off_picker = gr.ColorPicker(label="チェックボックスオフ時", interactive=True)
                                     theme_table_bg_picker = gr.ColorPicker(label="テーブル背景色", interactive=True)
                             
+                            with gr.Accordion("🖼️ 背景画像設定", open=False):
+                                gr.Markdown("ルームの背景に画像を設定します。")
+                                theme_bg_image_picker = gr.Image(label="背景画像", type="filepath", interactive=True, height=200)
+                                with gr.Row():
+                                    theme_bg_opacity_slider = gr.Slider(label="不透明度 (Opacity)", minimum=0.0, maximum=1.0, step=0.1, value=0.4, interactive=True)
+                                    theme_bg_blur_slider = gr.Slider(label="ぼかし (Blur)", minimum=0, maximum=20, step=1, value=0, interactive=True)
+                                with gr.Row():
+                                    theme_bg_size_dropdown = gr.Dropdown(label="サイズ", choices=["cover", "contain", "auto"], value="cover", interactive=True)
+                                    theme_bg_position_dropdown = gr.Dropdown(label="位置", choices=["center", "top", "bottom", "left", "right"], value="center", interactive=True)
+                                    theme_bg_repeat_dropdown = gr.Dropdown(label="繰り返し", choices=["no-repeat", "repeat"], value="no-repeat", interactive=True)
+                            
                             save_room_theme_button = gr.Button("🎀 現在のテーマ設定をこのルームに保存", size="sm", variant="primary")
                         
                         with gr.Accordion("🏛️ ベーステーマ選択", open=False):
@@ -1397,6 +1408,13 @@ try:
             theme_stop_button_hover_picker,
             theme_checkbox_off_picker,
             theme_table_bg_picker,
+            # 背景画像設定
+            theme_bg_image_picker,
+            theme_bg_opacity_slider,
+            theme_bg_blur_slider,
+            theme_bg_size_dropdown,
+            theme_bg_position_dropdown,
+            theme_bg_repeat_dropdown,
             # ---
             save_room_theme_button,
             style_injector,
@@ -1852,7 +1870,10 @@ try:
             # 詳細設定
             theme_input_bg_picker, theme_input_border_picker, theme_code_bg_picker, theme_subdued_text_picker,
             theme_button_bg_picker, theme_button_hover_picker, theme_stop_button_bg_picker, theme_stop_button_hover_picker,
-            theme_checkbox_off_picker, theme_table_bg_picker
+            theme_checkbox_off_picker, theme_table_bg_picker,
+            # 背景画像設定
+            theme_bg_image_picker, theme_bg_opacity_slider, theme_bg_blur_slider,
+            theme_bg_size_dropdown, theme_bg_position_dropdown, theme_bg_repeat_dropdown
         ]
         
         for comp in theme_preview_inputs:
@@ -2387,6 +2408,9 @@ try:
                 theme_button_bg_picker, theme_button_hover_picker,
                 theme_stop_button_bg_picker, theme_stop_button_hover_picker,
                 theme_checkbox_off_picker, theme_table_bg_picker,
+                # 背景画像設定
+                theme_bg_image_picker, theme_bg_opacity_slider, theme_bg_blur_slider,
+                theme_bg_size_dropdown, theme_bg_position_dropdown, theme_bg_repeat_dropdown,
                 # CSS注入
                 style_injector
             ]
