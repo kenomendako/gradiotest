@@ -5668,7 +5668,8 @@ def handle_add_room_custom_model(room_name: str, custom_model_name: str, provide
 
 def generate_room_style_css(font_size, line_height, chat_style, primary=None, secondary=None, bg=None, text=None, accent_soft=None,
                              input_bg=None, input_border=None, code_bg=None, subdued_text=None,
-                             button_bg=None, button_hover=None, stop_button_bg=None, stop_button_hover=None, checkbox_off=None):
+                             button_bg=None, button_hover=None, stop_button_bg=None, stop_button_hover=None, 
+                             checkbox_off=None, table_bg=None):
     """ルーム個別のCSS（文字サイズ、Novel Mode、テーマカラー）を生成する"""
     
     # Check for None values (Gradio updates might send None)
@@ -5885,6 +5886,27 @@ def generate_room_style_css(font_size, line_height, chat_style, primary=None, se
         }}
         """
 
+    # テーブル背景色
+    if table_bg:
+        overrides.append(f"--table-even-background-fill: {table_bg} !important;")
+        overrides.append(f"--table-odd-background-fill: {table_bg} !important;")
+        css += f"""
+        table,
+        .table-container,
+        .table-wrap,
+        .gradio-container table,
+        .gradio-container .table-container,
+        [role="grid"] {{
+            background-color: {table_bg} !important;
+        }}
+        table td,
+        table th,
+        .table-wrap td,
+        .table-wrap th {{
+            background-color: {table_bg} !important;
+        }}
+        """
+
     if overrides:
         # Create a more aggressive global override block
         css += f"""
@@ -5904,9 +5926,9 @@ def handle_save_theme_settings(*args):
     print(f"DEBUG: handle_save_theme_settings called with {len(args)} args: {args}")
     
     try:
-        # 必要な引数数: room_name + font_size + line_height + chat_style + 基本5色 + 詳細8項目 = 18
-        if len(args) < 18:
-            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/18)")
+        # 必要な引数数: room_name + font_size + line_height + chat_style + 基本5色 + 詳細9項目 = 19
+        if len(args) < 19:
+            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/19)")
             return
 
         room_name = args[0]
@@ -5929,7 +5951,8 @@ def handle_save_theme_settings(*args):
             "theme_button_hover": args[14],
             "theme_stop_button_bg": args[15],
             "theme_stop_button_hover": args[16],
-            "theme_checkbox_off": args[17]
+            "theme_checkbox_off": args[17],
+            "theme_table_bg": args[18]
         }
         
         # Use the centralized save function in room_manager
@@ -5945,11 +5968,13 @@ def handle_save_theme_settings(*args):
 
 def handle_theme_preview(font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
                          input_bg, input_border, code_bg, subdued_text,
-                         button_bg, button_hover, stop_button_bg, stop_button_hover, checkbox_off):
+                         button_bg, button_hover, stop_button_bg, stop_button_hover, 
+                         checkbox_off, table_bg):
     """UI変更時に即時CSSを返すだけのヘルパー"""
     return generate_room_style_css(font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
                                    input_bg, input_border, code_bg, subdued_text,
-                                   button_bg, button_hover, stop_button_bg, stop_button_hover, checkbox_off)
+                                   button_bg, button_hover, stop_button_bg, stop_button_hover, 
+                                   checkbox_off, table_bg)
 
 def handle_room_theme_reload(room_name: str):
     """
@@ -5959,11 +5984,11 @@ def handle_room_theme_reload(room_name: str):
     戻り値の順番:
     1. chat_style, 2. font_size, 3. line_height,
     4-8. 基本配色5つ (primary, secondary, background, text, accent_soft)
-    9-16. 詳細設定8つ (input_bg, input_border, code_bg, subdued_text, button_bg, button_hover, stop_button_bg, stop_button_hover, checkbox_off)
-    17. style_injector
+    9-17. 詳細設定9つ (input_bg, input_border, code_bg, subdued_text, button_bg, button_hover, stop_button_bg, stop_button_hover, checkbox_off, table_bg)
+    18. style_injector
     """
     if not room_name:
-        return (gr.update(),) * 18
+        return (gr.update(),) * 19
     
     effective_settings = config_manager.get_effective_settings(room_name)
     
@@ -5987,6 +6012,7 @@ def handle_room_theme_reload(room_name: str):
         gr.update(value=effective_settings.get("theme_stop_button_bg", None)),
         gr.update(value=effective_settings.get("theme_stop_button_hover", None)),
         gr.update(value=effective_settings.get("theme_checkbox_off", None)),
+        gr.update(value=effective_settings.get("theme_table_bg", None)),
         # CSS生成
         gr.update(value=generate_room_style_css(
             effective_settings.get("font_size", 15),
@@ -6007,6 +6033,7 @@ def handle_room_theme_reload(room_name: str):
             effective_settings.get("theme_button_hover", None),
             effective_settings.get("theme_stop_button_bg", None),
             effective_settings.get("theme_stop_button_hover", None),
-            effective_settings.get("theme_checkbox_off", None)
+            effective_settings.get("theme_checkbox_off", None),
+            effective_settings.get("theme_table_bg", None)
         ))
     )

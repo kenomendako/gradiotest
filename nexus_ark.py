@@ -736,6 +736,7 @@ try:
                                     theme_stop_button_bg_picker = gr.ColorPicker(label="停止ボタン背景色", interactive=True)
                                     theme_stop_button_hover_picker = gr.ColorPicker(label="停止ボタンホバー色", interactive=True)
                                     theme_checkbox_off_picker = gr.ColorPicker(label="チェックボックスオフ時", interactive=True)
+                                    theme_table_bg_picker = gr.ColorPicker(label="テーブル背景色", interactive=True)
                             
                             save_room_theme_button = gr.Button("🎀 現在のテーマ設定をこのルームに保存", size="sm", variant="primary")
                         
@@ -1194,7 +1195,7 @@ try:
                         gr.Markdown("---")
                         gr.Markdown("### 🔍 記憶の索引 (RAG)")
                         gr.Markdown("**過去ログアーカイブ、エピソード記憶、夢日記**をAIが検索できるようにベクトル化します。")
-                        memory_reindex_button = gr.Button("記憶の索引を更新", variant="primary")
+                        memory_reindex_button = gr.Button("記憶の索引を更新", variant="secondary")
                         memory_reindex_status = gr.Textbox(label="ステータス", interactive=False)
                         
                         gr.Markdown("---")
@@ -1836,7 +1837,7 @@ try:
             # 詳細設定
             theme_input_bg_picker, theme_input_border_picker, theme_code_bg_picker, theme_subdued_text_picker,
             theme_button_bg_picker, theme_button_hover_picker, theme_stop_button_bg_picker, theme_stop_button_hover_picker,
-            theme_checkbox_off_picker
+            theme_checkbox_off_picker, theme_table_bg_picker
         ]
         
         for comp in theme_preview_inputs:
@@ -2369,7 +2370,7 @@ try:
                 theme_subdued_text_picker,
                 theme_button_bg_picker, theme_button_hover_picker,
                 theme_stop_button_bg_picker, theme_stop_button_hover_picker,
-                theme_checkbox_off_picker,
+                theme_checkbox_off_picker, theme_table_bg_picker,
                 # CSS注入
                 style_injector
             ]
