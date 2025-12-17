@@ -735,6 +735,7 @@ try:
                                 with gr.Row():
                                     theme_stop_button_bg_picker = gr.ColorPicker(label="停止ボタン背景色", interactive=True)
                                     theme_stop_button_hover_picker = gr.ColorPicker(label="停止ボタンホバー色", interactive=True)
+                                    theme_checkbox_off_picker = gr.ColorPicker(label="チェックボックスオフ時", interactive=True)
                             
                             save_room_theme_button = gr.Button("🎀 現在のテーマ設定をこのルームに保存", size="sm", variant="primary")
                         
@@ -1834,7 +1835,8 @@ try:
             theme_primary_picker, theme_secondary_picker, theme_background_picker, theme_text_picker, theme_accent_soft_picker,
             # 詳細設定
             theme_input_bg_picker, theme_input_border_picker, theme_code_bg_picker, theme_subdued_text_picker,
-            theme_button_bg_picker, theme_button_hover_picker, theme_stop_button_bg_picker, theme_stop_button_hover_picker
+            theme_button_bg_picker, theme_button_hover_picker, theme_stop_button_bg_picker, theme_stop_button_hover_picker,
+            theme_checkbox_off_picker
         ]
         
         for comp in theme_preview_inputs:
@@ -2367,6 +2369,7 @@ try:
                 theme_subdued_text_picker,
                 theme_button_bg_picker, theme_button_hover_picker,
                 theme_stop_button_bg_picker, theme_stop_button_hover_picker,
+                theme_checkbox_off_picker,
                 # CSS注入
                 style_injector
             ]
