@@ -1015,8 +1015,10 @@ try:
         with gr.Sidebar(label="情景・プロフィール", width=350, open=True, position="right"):
             with gr.Accordion("🖼️ プロフィール・情景", open=True, elem_id="profile_scenery_accordion") as profile_scenery_accordion:
                 # --- プロフィール画像セクション ---
+                # フルスクリーンボタンにバグがあるため無効化
                 profile_image_display = gr.Image(
-                    height=200, interactive=False, show_label=False, elem_id="profile_image_display"
+                    height=200, interactive=False, show_label=False, elem_id="profile_image_display",
+                    show_fullscreen_button=False
                 )
                 with gr.Accordion("プロフィール画像を変更", open=False) as profile_image_accordion:
                     staged_image_state = gr.State()
@@ -1028,7 +1030,8 @@ try:
                     save_cropped_image_button = gr.Button("この範囲で保存", visible=False)
 
                 # --- 情景ビジュアルセクション ---
-                scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False)
+                # フルスクリーンボタンにバグがあるため無効化
+                scenery_image_display = gr.Image(label="現在の情景ビジュアル", interactive=False, height=200, show_label=False, show_fullscreen_button=False)
                 current_scenery_display = gr.Textbox( # ← ここに移動し、labelを削除
                     interactive=False, lines=4, max_lines=10, show_label=False,
                     placeholder="現在の情景が表示されます..."
