@@ -6300,6 +6300,17 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
             background-color: transparent !important;
             background: transparent !important;
         }}
+        
+        /* サイドバー（左カラム）のスクロール設定を明示的に保証 */
+        .gradio-container > div > div,
+        .contain > div,
+        [class*="column"],
+        .tabs > div,
+        .tabitem > div {{
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            -webkit-overflow-scrolling: touch !important;
+        }}
 
         /* チャットバブルの背景を直接透過 (CSS変数が効かない場合の対策) */
         #chat_output_area .message-bubble,
