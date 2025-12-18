@@ -408,14 +408,13 @@ def find_scenery_image(room_name: str, location_id: str, season_en: str = None, 
     target_filename = f"{location_id}_{effective_season}_{effective_time_of_day}.png"
     target_path = os.path.join(image_dir, target_filename)
     if os.path.exists(target_path):
-        print(f"--- 最適な情景画像を発見 (完全一致): {target_path} ---"); return target_path
+        return target_path
 
     # 2. 季節一致の検索 (場所_季節_*.png)
     try:
         for filename in os.listdir(image_dir):
             if filename.startswith(f"{location_id}_{effective_season}_") and filename.lower().endswith('.png'):
-                found_path = os.path.join(image_dir, filename)
-                print(f"--- 最適な情景画像を発見 (季節一致): {found_path} ---"); return found_path
+                return os.path.join(image_dir, filename)
     except FileNotFoundError: pass
 
     # 3. 場所のみ一致の検索 (場所.png または 場所_*.png)
@@ -423,13 +422,12 @@ def find_scenery_image(room_name: str, location_id: str, season_en: str = None, 
         # まずは単純な `場所.png` を探す
         fallback_path = os.path.join(image_dir, f"{location_id}.png")
         if os.path.exists(fallback_path):
-            print(f"--- 最適な情景画像を発見 (場所一致): {fallback_path} ---"); return fallback_path
+            return fallback_path
 
         # それもなければ `場所_` で始まるものを探す
         for filename in os.listdir(image_dir):
             if filename.startswith(f"{location_id}_") and filename.lower().endswith('.png'):
-                found_path = os.path.join(image_dir, filename)
-                print(f"--- 最適な情景画像を発見 (場所一致): {found_path} ---"); return found_path
+                return os.path.join(image_dir, filename)
     except FileNotFoundError: pass
 
     # 4. それでも見つからない場合はNoneを返す

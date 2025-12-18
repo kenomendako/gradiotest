@@ -711,19 +711,22 @@ try:
                                 room_quiet_hours_start = gr.Dropdown(choices=time_options, value="00:00", label="開始時刻", interactive=True)
                                 room_quiet_hours_end = gr.Dropdown(choices=time_options, value="07:00", label="終了時刻", interactive=True) 
 
-                    with gr.TabItem("パレット") as theme_tab:
-                        with gr.Accordion("🎀 ルーム別テーマカラー", open=False):
-                            gr.Markdown("このルーム専用の配色を設定・保存します。（未指定の場合は下記ベーステーマが適用されます）")
-                            room_theme_enabled_checkbox = gr.Checkbox(label="個別テーマを有効にする", value=False, interactive=True)
-                            with gr.Row():
-                                theme_primary_picker = gr.ColorPicker(label="メインカラー（強調・ローダー）", interactive=True)
-                                theme_secondary_picker = gr.ColorPicker(label="サブカラー（AI発言・ラベル背景）", interactive=True)
-                                theme_accent_soft_picker = gr.ColorPicker(label="ユーザー発言色", interactive=True)
-                            with gr.Row():
-                                theme_background_picker = gr.ColorPicker(label="背景色", interactive=True)
-                                theme_text_picker = gr.ColorPicker(label="文字色", interactive=True)
+                    with gr.TabItem("デザイン") as theme_tab:
+                        # チェックボックスをタブの最上部に配置
+                        room_theme_enabled_checkbox = gr.Checkbox(label="個別テーマを有効にする", value=False, interactive=True)
+                        gr.Markdown("このルーム専用の配色を設定・保存します。（未指定の場合は下記ベーステーマが適用されます）")
+                        
+                        with gr.Accordion("🎀 ルーム別デザイン", open=False):
+                            with gr.Accordion("メイン配色", open=False):
+                                with gr.Row():
+                                    theme_primary_picker = gr.ColorPicker(label="メインカラー（強調・ローダー）", interactive=True)
+                                    theme_secondary_picker = gr.ColorPicker(label="サブカラー（AI発言・ラベル背景）", interactive=True)
+                                    theme_accent_soft_picker = gr.ColorPicker(label="ユーザー発言色", interactive=True)
+                                with gr.Row():
+                                    theme_background_picker = gr.ColorPicker(label="背景色", interactive=True)
+                                    theme_text_picker = gr.ColorPicker(label="文字色", interactive=True)
                             
-                            with gr.Accordion("🔧 詳細設定", open=False):
+                            with gr.Accordion("詳細配色", open=False):
                                 gr.Markdown("ドロップダウンやテキストボックス、コードブロック、ボタンなどの色を個別に設定できます。")
                                 with gr.Row():
                                     theme_input_bg_picker = gr.ColorPicker(label="入力欄の背景色", interactive=True)
@@ -736,26 +739,55 @@ try:
                                 with gr.Row():
                                     theme_stop_button_bg_picker = gr.ColorPicker(label="停止ボタン背景色", interactive=True)
                                     theme_stop_button_hover_picker = gr.ColorPicker(label="停止ボタンホバー色", interactive=True)
-                                    theme_checkbox_off_picker = gr.ColorPicker(label="チェックボックスオフ時", interactive=True)
-                                    theme_table_bg_picker = gr.ColorPicker(label="テーブル背景色", interactive=True)
+                                    theme_checkbox_off_picker = gr.ColorPicker(label="未チェックボックス色 (Off)", value=None)
+                                theme_table_bg_picker = gr.ColorPicker(label="テーブル背景色", value=None)
+                                theme_radio_label_picker = gr.ColorPicker(label="ラジオ/チェックボックスのラベル背景色", value=None)
+                                theme_dropdown_list_bg_picker = gr.ColorPicker(label="ドロップダウンリスト背景色", value=None)
                             
-                            with gr.Accordion("🖼️ 背景画像設定", open=False):
+                            with gr.Accordion("背景画像設定", open=False):
                                 gr.Markdown("ルームの背景に画像を設定します。")
-                                theme_bg_src_mode = gr.Radio(label="背景ソース", choices=["画像を指定 (Manual)", "現在地と連動 (Sync)"], value="画像を指定 (Manual)", interactive=True)
-                                theme_bg_image_picker = gr.Image(label="背景画像 (Manualモード用)", type="filepath", interactive=True, height=200)
-                                with gr.Row():
-                                    theme_bg_opacity_slider = gr.Slider(label="不透明度 (Opacity)", minimum=0.0, maximum=1.0, step=0.1, value=0.4, interactive=True)
-                                    theme_bg_blur_slider = gr.Slider(label="ぼかし (Blur)", minimum=0, maximum=20, step=1, value=0, interactive=True)
-                                with gr.Row():
-                                    theme_bg_size_dropdown = gr.Dropdown(label="サイズ", choices=["cover", "contain", "auto", "custom"], value="cover", interactive=True)
-                                    theme_bg_position_dropdown = gr.Dropdown(label="位置", choices=["center", "top", "bottom", "left", "right", "top left", "top right", "bottom left", "bottom right"], value="center", interactive=True)
-                                with gr.Row():
-                                     theme_bg_repeat_dropdown = gr.Dropdown(label="繰り返し", choices=["no-repeat", "repeat"], value="no-repeat", interactive=True)
-                                     theme_bg_custom_width = gr.Textbox(label="カスタム幅 (custom時のみ)", placeholder="300px", value="300px", interactive=True)
-                                with gr.Row():
-                                     theme_bg_radius_slider = gr.Slider(label="角丸 (%)", minimum=0, maximum=50, step=1, value=0, interactive=True)
-                                     theme_bg_mask_blur_slider = gr.Slider(label="エッジぼかし (px)", minimum=0, maximum=100, step=1, value=0, interactive=True)
-                                     theme_bg_overlay_checkbox = gr.Checkbox(label="前面に表示 (Overlay)", value=False, interactive=True)
+                                theme_ui_opacity_slider = gr.Slider(0.0, 1.0, value=0.7, step=0.05, label="UI背景の不透明度 (透明 0.0 - 1.0 不透明)")
+                                theme_bg_src_mode = gr.Radio(label="背景ソース", choices=["画像を指定 (Manual)", "現在地と連動 (Sync)"], value="現在地と連動 (Sync)", interactive=True)
+                                
+                                # Manual Mode Settings
+                                with gr.Group(visible=False) as manual_bg_settings_group:
+                                    theme_bg_image_picker = gr.Image(label="背景画像 (Manualモード用)", type="filepath", interactive=True, height=200)
+                                    with gr.Row():
+                                        theme_bg_opacity_slider = gr.Slider(label="不透明度 (Opacity)", minimum=0.0, maximum=1.0, step=0.1, value=0.3, interactive=True)
+                                        theme_bg_blur_slider = gr.Slider(label="ぼかし (Blur)", minimum=0, maximum=20, step=1, value=2, interactive=True)
+                                    with gr.Row():
+                                        theme_bg_size_dropdown = gr.Dropdown(label="サイズ", choices=["cover", "contain", "auto", "custom"], value="cover", interactive=True)
+                                        theme_bg_position_dropdown = gr.Dropdown(label="位置", choices=["center", "top", "bottom", "left", "right", "top left", "top right", "bottom left", "bottom right"], value="center", interactive=True)
+                                    with gr.Row():
+                                         theme_bg_repeat_dropdown = gr.Dropdown(label="繰り返し", choices=["no-repeat", "repeat"], value="no-repeat", interactive=True)
+                                         theme_bg_custom_width = gr.Textbox(label="カスタム幅 (custom時のみ)", placeholder="300px", value="300px", interactive=True)
+                                    with gr.Row():
+                                         theme_bg_radius_slider = gr.Slider(label="角丸 (%)", minimum=0, maximum=50, step=1, value=0, interactive=True)
+                                         theme_bg_mask_blur_slider = gr.Slider(label="エッジぼかし (px)", minimum=0, maximum=100, step=1, value=0, interactive=True)
+                                         theme_bg_overlay_checkbox = gr.Checkbox(label="前面に表示 (Overlay)", value=False, interactive=True)
+
+                                # Sync Mode Settings
+                                with gr.Group(visible=True) as sync_bg_settings_group:
+                                    gr.Markdown("※ 画像は現在地に合わせて自動選択されます。")
+                                    with gr.Row():
+                                        theme_bg_sync_opacity_slider = gr.Slider(label="不透明度 (Opacity)", minimum=0.0, maximum=1.0, step=0.1, value=0.3, interactive=True)
+                                        theme_bg_sync_blur_slider = gr.Slider(label="ぼかし (Blur)", minimum=0, maximum=20, step=1, value=2, interactive=True)
+                                    with gr.Row():
+                                        theme_bg_sync_size_dropdown = gr.Dropdown(label="サイズ", choices=["cover", "contain", "auto", "custom"], value="cover", interactive=True)
+                                        theme_bg_sync_position_dropdown = gr.Dropdown(label="位置", choices=["center", "top", "bottom", "left", "right", "top left", "top right", "bottom left", "bottom right"], value="center", interactive=True)
+                                    with gr.Row():
+                                         theme_bg_sync_repeat_dropdown = gr.Dropdown(label="繰り返し", choices=["no-repeat", "repeat"], value="no-repeat", interactive=True)
+                                         theme_bg_sync_custom_width = gr.Textbox(label="カスタム幅 (custom時のみ)", placeholder="300px", value="300px", interactive=True)
+                                    with gr.Row():
+                                         theme_bg_sync_radius_slider = gr.Slider(label="角丸 (%)", minimum=0, maximum=50, step=1, value=0, interactive=True)
+                                         theme_bg_sync_mask_blur_slider = gr.Slider(label="エッジぼかし (px)", minimum=0, maximum=100, step=1, value=0, interactive=True)
+                                         theme_bg_sync_overlay_checkbox = gr.Checkbox(label="前面に表示 (Overlay)", value=False, interactive=True)
+
+                                theme_bg_src_mode.change(
+                                    fn=lambda x: (gr.update(visible=x=="画像を指定 (Manual)"), gr.update(visible=x=="現在地と連動 (Sync)")),
+                                    inputs=[theme_bg_src_mode],
+                                    outputs=[manual_bg_settings_group, sync_bg_settings_group]
+                                )
                             
                             save_room_theme_button = gr.Button("🎀 現在のテーマ設定をこのルームに保存", size="sm", variant="primary")
                         
@@ -1415,6 +1447,9 @@ try:
             theme_stop_button_hover_picker,
             theme_checkbox_off_picker,
             theme_table_bg_picker,
+            theme_radio_label_picker,
+            theme_dropdown_list_bg_picker,
+            theme_ui_opacity_slider,
             # 背景画像設定
             theme_bg_image_picker,
             theme_bg_opacity_slider,
@@ -1427,6 +1462,16 @@ try:
             theme_bg_mask_blur_slider,
             theme_bg_overlay_checkbox,
             theme_bg_src_mode,
+            # Sync設定
+            theme_bg_sync_opacity_slider,
+            theme_bg_sync_blur_slider,
+            theme_bg_sync_size_dropdown,
+            theme_bg_sync_position_dropdown,
+            theme_bg_sync_repeat_dropdown,
+            theme_bg_sync_custom_width,
+            theme_bg_sync_radius_slider,
+            theme_bg_sync_mask_blur_slider,
+            theme_bg_sync_overlay_checkbox,
             # ---
             save_room_theme_button,
             style_injector,
@@ -1882,13 +1927,19 @@ try:
             # 詳細設定
             theme_input_bg_picker, theme_input_border_picker, theme_code_bg_picker, theme_subdued_text_picker,
             theme_button_bg_picker, theme_button_hover_picker, theme_stop_button_bg_picker, theme_stop_button_hover_picker,
-            theme_checkbox_off_picker, theme_table_bg_picker,
+            theme_checkbox_off_picker, theme_table_bg_picker, theme_radio_label_picker, theme_dropdown_list_bg_picker,
+            theme_ui_opacity_slider,
             # 背景画像設定
             theme_bg_image_picker, theme_bg_opacity_slider, theme_bg_blur_slider,
             theme_bg_size_dropdown, theme_bg_position_dropdown, theme_bg_repeat_dropdown,
             theme_bg_custom_width, theme_bg_radius_slider, theme_bg_mask_blur_slider,
             theme_bg_overlay_checkbox,
-            theme_bg_src_mode
+            theme_bg_src_mode,
+            # Sync設定 (追加)
+            theme_bg_sync_opacity_slider, theme_bg_sync_blur_slider,
+            theme_bg_sync_size_dropdown, theme_bg_sync_position_dropdown, theme_bg_sync_repeat_dropdown,
+            theme_bg_sync_custom_width, theme_bg_sync_radius_slider, theme_bg_sync_mask_blur_slider,
+            theme_bg_sync_overlay_checkbox
         ]
         
         for comp in theme_preview_inputs:
@@ -2422,13 +2473,19 @@ try:
                 theme_subdued_text_picker,
                 theme_button_bg_picker, theme_button_hover_picker,
                 theme_stop_button_bg_picker, theme_stop_button_hover_picker,
-                theme_checkbox_off_picker, theme_table_bg_picker,
+                theme_checkbox_off_picker, theme_table_bg_picker, theme_radio_label_picker, theme_dropdown_list_bg_picker,
+                theme_ui_opacity_slider,
                 # 背景画像設定
                 theme_bg_image_picker, theme_bg_opacity_slider, theme_bg_blur_slider,
                 theme_bg_size_dropdown, theme_bg_position_dropdown, theme_bg_repeat_dropdown,
                 theme_bg_custom_width, theme_bg_radius_slider, theme_bg_mask_blur_slider,
                 theme_bg_overlay_checkbox,
                 theme_bg_src_mode,
+                # Sync設定
+                theme_bg_sync_opacity_slider, theme_bg_sync_blur_slider,
+                theme_bg_sync_size_dropdown, theme_bg_sync_position_dropdown, theme_bg_sync_repeat_dropdown,
+                theme_bg_sync_custom_width, theme_bg_sync_radius_slider, theme_bg_sync_mask_blur_slider,
+                theme_bg_sync_overlay_checkbox,
                 # CSS注入
                 style_injector
             ]
