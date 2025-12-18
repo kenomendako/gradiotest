@@ -989,10 +989,8 @@ def _stream_and_handle_response(
                                 # 【修正】既にタイムスタンプが含まれている場合は追加しない
                                 timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2} \([A-Za-z]{3}\) \d{2}:\d{2}:\d{2}'
                                 if not re.search(timestamp_pattern, content_str):
-                                    # 使用モデル名を取得
-                                    room_effective_settings = config_manager.get_effective_settings(current_room)
-                                    model_name = room_effective_settings.get("model_name", "Unknown")
-                                    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {model_name}"
+                                    # 使用モデル名を取得（UIで選択されたglobal_modelを使用）
+                                    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {global_model}"
                                     content_to_log = content_str + timestamp
                                 else:
                                     # デバッグ用ログ
