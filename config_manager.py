@@ -418,7 +418,7 @@ def load_config():
         # ---------------------------------
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
         "paid_api_key_names": [],
-        "available_models": ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+        "available_models": ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
         "default_model": "gemini-2.5-pro",
         "image_generation_mode": "new", 
         "search_provider": "google",
