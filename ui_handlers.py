@@ -6235,7 +6235,8 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
                  size_style = f"width: 100%; height: 100%; background-size: {bg_size}; background-repeat: {bg_repeat};"
                  # background-position はCSSプロパティとしてそのまま渡す
                  pos_style = "top: 0; left: 0;"
-                 radius_style = "" # 全画面で角丸は通常使わない
+                 # 壁紙モードでも角丸を適用可能にする
+                 radius_style = f"border-radius: {bg_radius}%;" if bg_radius else ""
                  bg_p_style = f"background-position: {bg_position};"
 
              # エッジぼかし (Mask) - 両方のモードで有効
