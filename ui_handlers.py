@@ -202,6 +202,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value=0), # bg_radius
             gr.update(value=0), # bg_mask_blur
             gr.update(value=False), # bg_front_layer
+            gr.update(value="画像を指定 (Manual)"), # bg_src_mode
             # ---
             gr.update(), # save_room_theme_button
             gr.update(value="<style></style>"),  # style_injector
@@ -381,42 +382,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=effective_settings.get("theme_bg_radius", 0)),
         gr.update(value=effective_settings.get("theme_bg_mask_blur", 0)),
         gr.update(value=effective_settings.get("theme_bg_front_layer", False)),
+        gr.update(value=effective_settings.get("theme_bg_src_mode", "画像を指定 (Manual)")),
         # ---
         gr.update(), # save_room_theme_button
-        gr.update(value=generate_room_style_css(
-            effective_settings.get("room_theme_enabled", False),  # 個別テーマのオンオフ
-            effective_settings.get("font_size", 15),
-            effective_settings.get("line_height", 1.6),
-            effective_settings.get("chat_style", "Chat (Default)"),
-            effective_settings.get("theme_primary", None),
-            effective_settings.get("theme_secondary", None),
-            effective_settings.get("theme_background", None),
-            effective_settings.get("theme_text", None),
-            effective_settings.get("theme_accent_soft", None),
-            # 詳細設定
-            effective_settings.get("theme_input_bg", None),
-            effective_settings.get("theme_input_border", None),
-            effective_settings.get("theme_code_bg", None),
-            effective_settings.get("theme_subdued_text", None),
-            effective_settings.get("theme_button_bg", None),
-            effective_settings.get("theme_button_hover", None),
-            effective_settings.get("theme_stop_button_bg", None),
-            effective_settings.get("theme_stop_button_hover", None),
-            effective_settings.get("theme_checkbox_off", None),
-            effective_settings.get("theme_table_bg", None),
-            # 背景画像設定
-            effective_settings.get("theme_bg_image", None),
-            effective_settings.get("theme_bg_opacity", 0.4),
-            effective_settings.get("theme_bg_blur", 0),
-            effective_settings.get("theme_bg_size", "cover"),
-            effective_settings.get("theme_bg_position", "center"),
-            effective_settings.get("theme_bg_repeat", "no-repeat"),
-            effective_settings.get("theme_bg_custom_width", "300px"),
-            effective_settings.get("theme_bg_radius", 0),
-            effective_settings.get("theme_bg_mask_blur", 0),
-            effective_settings.get("theme_bg_front_layer", False)
-        ))
-
+        gr.update(value=_generate_style_from_settings(room_name, effective_settings))
     )
 
 
@@ -1458,7 +1427,7 @@ def _get_updated_scenery_and_image(room_name: str, api_key_name: str, force_text
         gr.Warning(error_message)
         return "（情景の取得中にエラーが発生しました）", None
 
-def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[gr.update, str, Optional[str]]:
+def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[gr.update, str, Optional[str], gr.update]:
     """「情景テキストを更新」ボタンのハンドラ。新しい司令塔を呼び出す。"""
     gr.Info(f"「{room_name}」の現在の情景を再生成しています...")
     # 新しい司令塔を呼び出し、テキストの強制再生成フラグを立てる
@@ -1466,7 +1435,12 @@ def handle_scenery_refresh(room_name: str, api_key_name: str) -> Tuple[gr.update
         room_name, api_key_name, force_text_regenerate=True
     )
     latest_location_id = utils.get_current_location(room_name)
-    return gr.update(value=latest_location_id), new_scenery_text, new_image_path
+    
+    # スタイル更新
+    effective_settings = config_manager.get_effective_settings(room_name)
+    new_style = _generate_style_from_settings(room_name, effective_settings)
+    
+    return gr.update(value=latest_location_id), new_scenery_text, new_image_path, gr.update(value=latest_location_id), gr.update(value=new_style)
 
 def handle_location_change(
     room_name: str,
@@ -1478,13 +1452,27 @@ def handle_location_change(
     # --- [冪等性ガード] ---
     # ファイルに記録されている現在の場所と比較し、変更がなければ何もしない
     current_location_from_file = utils.get_current_location(room_name)
+    
+    # 設定をロード（スタイル生成用）
+    effective_settings = config_manager.get_effective_settings(room_name)
+    
+    def _create_return_tuple(loc_val, scen_text, img_path):
+        return (
+            gr.update(value=loc_val), 
+            scen_text, 
+            img_path, 
+            gr.update(value=loc_val),
+            gr.update(value=_generate_style_from_settings(room_name, effective_settings))
+        )
+
     if selected_value == current_location_from_file:
-        return gr.update(), gr.update(), gr.update(), gr.update() # UIの状態を何も変更しない
+        return (gr.update(), gr.update(), gr.update(), gr.update(), gr.update()) # UIの状態を何も変更しない
+
 
     if not selected_value or selected_value.startswith("__AREA_HEADER_"):
         # ヘッダーがクリックされた場合、現在の値でUIを更新するだけ
         new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
-        return gr.update(value=current_location_from_file), new_scenery_text, new_image_path, gr.update(value=current_location_from_file)
+        return _create_return_tuple(current_location_from_file, new_scenery_text, new_image_path)
 
     # --- ここから下は、本当に場所が変更された場合のみ実行される ---
     location_id = selected_value
@@ -1495,11 +1483,11 @@ def handle_location_change(
     if "Success" not in result:
         gr.Error(f"場所の変更に失敗しました: {result}")
         new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
-        return gr.update(value=current_location_from_file), new_scenery_text, new_image_path, gr.update(value=current_location_from_file)
+        return _create_return_tuple(current_location_from_file, new_scenery_text, new_image_path)
 
     gr.Info(f"場所を「{location_id}」に移動しました。情景を更新します...")
     new_scenery_text, new_image_path = _get_updated_scenery_and_image(room_name, api_key_name)
-    return gr.update(value=location_id), new_scenery_text, new_image_path, gr.update(value=location_id)
+    return _create_return_tuple(location_id, new_scenery_text, new_image_path)
 
 #
 # --- Room Management Handlers ---
@@ -1643,7 +1631,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
     unified_full_room_refresh_outputs と完全に一致する99個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 111
+    EXPECTED_OUTPUT_COUNT = 112
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
@@ -1741,6 +1729,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 gr.update(value=0), # theme_bg_radius
                 gr.update(value=0), # theme_bg_mask_blur
                 gr.update(value=False), # theme_bg_front_layer
+                gr.update(value="画像を指定 (Manual)"), # theme_bg_src_mode
                 # ---
                 gr.update(), # save_room_theme_button
                 gr.update(value="<style></style>"),  # style_injector
@@ -3618,7 +3607,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 111
+    EXPECTED_OUTPUT_COUNT = 112
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
@@ -5757,8 +5746,59 @@ def handle_add_room_custom_model(room_name: str, custom_model_name: str, provide
         
         gr.Info(f"モデル「{model_name}」を追加しました（共通設定のプロファイルに保存済み）。")
         
-        # Dropdownの選択肢を更新して返す
         return gr.update(choices=available_models, value=model_name), ""
+    
+def _resolve_background_image(room_name: str, settings: dict) -> str:
+    """背景画像ソースモードに基づいて、使用すべき画像パスを決定する"""
+    mode = settings.get("theme_bg_src_mode", "画像を指定 (Manual)")
+    # print(f"DEBUG: Resolving background for {room_name}, Mode: {mode}, Repr: {repr(mode)}")
+    
+    if mode == "現在地と連動 (Sync)":
+        # 現在地から画像を探す
+        location_id = utils.get_current_location(room_name)
+        if location_id:
+            scenery_path = utils.find_scenery_image(room_name, location_id)
+            if scenery_path:
+                return scenery_path
+        # 見つからない場合はNone（背景なし）
+        return None
+    else:
+        # Manualモード: 設定された画像パスを使用
+        return settings.get("theme_bg_image", None)
+
+def _generate_style_from_settings(room_name: str, settings: dict) -> str:
+    """設定辞書からCSSを生成するヘルパー（背景画像解決込み）"""
+    return generate_room_style_css(
+        settings.get("room_theme_enabled", False),
+        settings.get("font_size", 15),
+        settings.get("line_height", 1.6),
+        settings.get("chat_style", "Chat (Default)"),
+        settings.get("theme_primary", None),
+        settings.get("theme_secondary", None),
+        settings.get("theme_background", None),
+        settings.get("theme_text", None),
+        settings.get("theme_accent_soft", None),
+        settings.get("theme_input_bg", None),
+        settings.get("theme_input_border", None),
+        settings.get("theme_code_bg", None),
+        settings.get("theme_subdued_text", None),
+        settings.get("theme_button_bg", None),
+        settings.get("theme_button_hover", None),
+        settings.get("theme_stop_button_bg", None),
+        settings.get("theme_stop_button_hover", None),
+        settings.get("theme_checkbox_off", None),
+        settings.get("theme_table_bg", None),
+        _resolve_background_image(room_name, settings),
+        settings.get("theme_bg_opacity", 0.4),
+        settings.get("theme_bg_blur", 0),
+        settings.get("theme_bg_size", "cover"),
+        settings.get("theme_bg_position", "center"),
+        settings.get("theme_bg_repeat", "no-repeat"),
+        settings.get("theme_bg_custom_width", "300px"),
+        settings.get("theme_bg_radius", 0),
+        settings.get("theme_bg_mask_blur", 0),
+        settings.get("theme_bg_front_layer", False)
+    )
 
 # ==========================================
 # [v25] テーマ・表示設定管理ロジック
@@ -6160,12 +6200,11 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
 
 def handle_save_theme_settings(*args):
     """詳細なテーマ設定を保存する (Robust Debug Version)"""
-    print(f"DEBUG: handle_save_theme_settings called with {len(args)} args: {args}")
     
     try:
-        # 必要な引数数: room_name + enabled + font_size + line_height + chat_style + 基本5色 + 詳細9項目 + 背景画像6項目 + 追加3項目 + 前面表示1 = 30
-        if len(args) < 30:
-            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/30)")
+        # 必要な引数数: ... + 前面表示1 + 背景ソース1 = 31
+        if len(args) < 31:
+            gr.Error(f"内部エラー: 引数が不足しています ({len(args)}/31)")
             return
 
         room_name = args[0]
@@ -6226,12 +6265,14 @@ def handle_save_theme_settings(*args):
             "theme_bg_custom_width": args[26],
             "theme_bg_radius": args[27],
             "theme_bg_mask_blur": args[28],
-            "theme_bg_front_layer": args[29]
+            "theme_bg_front_layer": args[29],
+            "theme_bg_src_mode": args[30]
         }
         
         # Use the centralized save function in room_manager
         if room_manager.save_room_override_settings(room_name, settings):
-            gr.Info(f"「{room_name}」のテーマ設定を保存しました。")
+            mode_val = settings.get("theme_bg_src_mode")
+            gr.Info(f"「{room_name}」のテーマ設定を保存しました。\n保存モード: {mode_val}")
         else:
             gr.Error(f"テーマ保存に失敗しました。コンソールを確認してください。")
 
@@ -6240,18 +6281,28 @@ def handle_save_theme_settings(*args):
         traceback.print_exc()
         gr.Error(f"保存エラー: {e}")
 
-def handle_theme_preview(enabled, font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
+def handle_theme_preview(room_name, enabled, font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
                          input_bg, input_border, code_bg, subdued_text,
                          button_bg, button_hover, stop_button_bg, stop_button_hover, 
                          checkbox_off, table_bg,
                          bg_image, bg_opacity, bg_blur, bg_size, bg_position, bg_repeat,
-                         bg_custom_width, bg_radius, bg_mask_blur, bg_front_layer):
-    """UI変更時に即時CSSを返すだけのヘルパー"""
+                         bg_custom_width, bg_radius, bg_mask_blur, bg_front_layer, bg_src_mode):
+    """UI変更時に即時CSSを返すだけのヘルパー (Syncモード対応)"""
+    
+    # プレビュー時でもSyncモードなら画像解決を行う
+    # settings辞書を擬似的に構築
+    mock_settings = {
+        "theme_bg_src_mode": bg_src_mode,
+        "theme_bg_image": bg_image
+    }
+    
+    resolved_bg_image = _resolve_background_image(room_name, mock_settings)
+
     return generate_room_style_css(enabled, font_size, line_height, chat_style, primary, secondary, bg, text, accent_soft,
                                    input_bg, input_border, code_bg, subdued_text,
                                    button_bg, button_hover, stop_button_bg, stop_button_hover, 
                                    checkbox_off, table_bg,
-                                   bg_image, bg_opacity, bg_blur, bg_size, bg_position, bg_repeat,
+                                   resolved_bg_image, bg_opacity, bg_blur, bg_size, bg_position, bg_repeat,
                                    bg_custom_width, bg_radius, bg_mask_blur, bg_front_layer)
 
 def handle_room_theme_reload(room_name: str):
@@ -6268,7 +6319,7 @@ def handle_room_theme_reload(room_name: str):
     24. style_injector
     """
     if not room_name:
-        return (gr.update(),) * 30
+        return (gr.update(),) * 31
     
     effective_settings = config_manager.get_effective_settings(room_name)
     room_theme_enabled = effective_settings.get("room_theme_enabled", False)
@@ -6306,39 +6357,7 @@ def handle_room_theme_reload(room_name: str):
         gr.update(value=effective_settings.get("theme_bg_radius", 0)),
         gr.update(value=effective_settings.get("theme_bg_mask_blur", 0)),
         gr.update(value=effective_settings.get("theme_bg_front_layer", False)),
+        gr.update(value=effective_settings.get("theme_bg_src_mode", "画像を指定 (Manual)")),
         # CSS生成
-        gr.update(value=generate_room_style_css(
-            room_theme_enabled,
-            effective_settings.get("font_size", 15),
-            effective_settings.get("line_height", 1.6),
-            effective_settings.get("chat_style", "Chat (Default)"),
-            # 基本配色
-            effective_settings.get("theme_primary", None),
-            effective_settings.get("theme_secondary", None),
-            effective_settings.get("theme_background", None),
-            effective_settings.get("theme_text", None),
-            effective_settings.get("theme_accent_soft", None),
-            # 詳細設定
-            effective_settings.get("theme_input_bg", None),
-            effective_settings.get("theme_input_border", None),
-            effective_settings.get("theme_code_bg", None),
-            effective_settings.get("theme_subdued_text", None),
-            effective_settings.get("theme_button_bg", None),
-            effective_settings.get("theme_button_hover", None),
-            effective_settings.get("theme_stop_button_bg", None),
-            effective_settings.get("theme_stop_button_hover", None),
-            effective_settings.get("theme_checkbox_off", None),
-            effective_settings.get("theme_table_bg", None),
-            # 背景画像設定
-            effective_settings.get("theme_bg_image", None),
-            effective_settings.get("theme_bg_opacity", 0.4),
-            effective_settings.get("theme_bg_blur", 0),
-            effective_settings.get("theme_bg_size", "cover"),
-            effective_settings.get("theme_bg_position", "center"),
-            effective_settings.get("theme_bg_repeat", "no-repeat"),
-            effective_settings.get("theme_bg_custom_width", "300px"),
-            effective_settings.get("theme_bg_radius", 0),
-            effective_settings.get("theme_bg_mask_blur", 0),
-            effective_settings.get("theme_bg_front_layer", False)
-        )),
+        gr.update(value=_generate_style_from_settings(room_name, effective_settings)),
     )

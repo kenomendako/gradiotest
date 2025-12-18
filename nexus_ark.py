@@ -741,7 +741,8 @@ try:
                             
                             with gr.Accordion("🖼️ 背景画像設定", open=False):
                                 gr.Markdown("ルームの背景に画像を設定します。")
-                                theme_bg_image_picker = gr.Image(label="背景画像", type="filepath", interactive=True, height=200)
+                                theme_bg_src_mode = gr.Radio(label="背景ソース", choices=["画像を指定 (Manual)", "現在地と連動 (Sync)"], value="画像を指定 (Manual)", interactive=True)
+                                theme_bg_image_picker = gr.Image(label="背景画像 (Manualモード用)", type="filepath", interactive=True, height=200)
                                 with gr.Row():
                                     theme_bg_opacity_slider = gr.Slider(label="不透明度 (Opacity)", minimum=0.0, maximum=1.0, step=0.1, value=0.4, interactive=True)
                                     theme_bg_blur_slider = gr.Slider(label="ぼかし (Blur)", minimum=0, maximum=20, step=1, value=0, interactive=True)
@@ -1425,6 +1426,7 @@ try:
             theme_bg_radius_slider,
             theme_bg_mask_blur_slider,
             theme_bg_overlay_checkbox,
+            theme_bg_src_mode,
             # ---
             save_room_theme_button,
             style_injector,
@@ -1885,13 +1887,14 @@ try:
             theme_bg_image_picker, theme_bg_opacity_slider, theme_bg_blur_slider,
             theme_bg_size_dropdown, theme_bg_position_dropdown, theme_bg_repeat_dropdown,
             theme_bg_custom_width, theme_bg_radius_slider, theme_bg_mask_blur_slider,
-            theme_bg_overlay_checkbox
+            theme_bg_overlay_checkbox,
+            theme_bg_src_mode
         ]
         
         for comp in theme_preview_inputs:
             comp.change(
                 fn=ui_handlers.handle_theme_preview,
-                inputs=theme_preview_inputs,
+                inputs=[current_room_name] + theme_preview_inputs,
                 outputs=[style_injector]
             )
 
@@ -1964,11 +1967,11 @@ try:
             show_progress=False
         )
 
-        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[location_dropdown, current_scenery_display, scenery_image_display, custom_scenery_location_dropdown])
+        refresh_scenery_button.click(fn=ui_handlers.handle_scenery_refresh, inputs=[current_room_name, api_key_dropdown], outputs=[location_dropdown, current_scenery_display, scenery_image_display, custom_scenery_location_dropdown, style_injector])
         location_dropdown.change(
             fn=ui_handlers.handle_location_change,
             inputs=[current_room_name, location_dropdown, api_key_dropdown],
-            outputs=[location_dropdown, current_scenery_display, scenery_image_display, custom_scenery_location_dropdown]
+            outputs=[location_dropdown, current_scenery_display, scenery_image_display, custom_scenery_location_dropdown, style_injector]
         )
         cancel_selection_button.click(fn=lambda: (None, gr.update(visible=False)), inputs=None, outputs=[selected_message_state, action_button_group])
 
@@ -2425,6 +2428,7 @@ try:
                 theme_bg_size_dropdown, theme_bg_position_dropdown, theme_bg_repeat_dropdown,
                 theme_bg_custom_width, theme_bg_radius_slider, theme_bg_mask_blur_slider,
                 theme_bg_overlay_checkbox,
+                theme_bg_src_mode,
                 # CSS注入
                 style_injector
             ]
