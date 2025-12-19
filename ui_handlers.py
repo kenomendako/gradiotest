@@ -4899,7 +4899,7 @@ def _get_rag_index_last_updated(room_name: str, index_type: str = "memory") -> s
     except Exception:
         return "取得失敗"
 
-def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, update_memory_index: bool, update_current_log: bool, update_topic_clusters: bool = True):
+def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, update_memory_index: bool, update_current_log: bool, update_topic_clusters: bool = True, compress_episodes: bool = False):
     """睡眠時記憶整理設定を即座に保存する"""
     if not room_name:
         return
@@ -4918,7 +4918,8 @@ def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, upd
             "update_episodic_memory": bool(update_episodic),
             "update_memory_index": bool(update_memory_index),
             "update_current_log_index": bool(update_current_log),
-            "update_topic_clusters": bool(update_topic_clusters)
+            "update_topic_clusters": bool(update_topic_clusters),
+            "compress_old_episodes": bool(compress_episodes)
         }
         
         with open(room_config_path, "w", encoding="utf-8") as f:
@@ -4927,6 +4928,29 @@ def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, upd
         print(f"--- [睡眠時記憶整理] 設定保存: {room_name} ---")
     except Exception as e:
         print(f"--- [睡眠時記憶整理] 設定保存エラー: {e} ---")
+
+def handle_compress_episodes(room_name: str, api_key_name: str):
+    """エピソード記憶を手動で圧縮する"""
+    if not room_name or not api_key_name:
+        gr.Warning("ルームとAPIキーを選択してください。")
+        return "エラー: ルームとAPIキーを選択してください。"
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Error(f"APIキー「{api_key_name}」が無効です。")
+        return "エラー: APIキーが無効です。"
+
+    try:
+        from episodic_memory_manager import EpisodicMemoryManager
+        manager = EpisodicMemoryManager(room_name)
+        result = manager.compress_old_episodes(api_key)
+        gr.Info(f"✅ {result}")
+        return result
+    except Exception as e:
+        error_msg = f"圧縮中にエラーが発生しました: {e}"
+        gr.Error(error_msg)
+        traceback.print_exc()
+        return error_msg
 
 def handle_memory_reindex(room_name: str, api_key_name: str):
     """記憶の索引（過去ログ、エピソード記憶、夢日記）を更新する。"""

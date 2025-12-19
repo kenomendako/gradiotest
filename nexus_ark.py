@@ -1250,6 +1250,19 @@ try:
                                 interactive=True,
                                 info="エピソード記憶を話題ごとに分類"
                             )
+                            sleep_consolidation_compress_cb = gr.Checkbox(
+                                label="📦 古い記憶を圧縮する",
+                                value=False,  # デフォルトOFF（破壊的操作のため）
+                                interactive=True,
+                                info="半年以上前のエピソード記憶を週単位に統合"
+                            )
+
+                        # --- 手動圧縮ボタン ---
+                        gr.Markdown("---")
+                        gr.Markdown("### 📦 記憶の圧縮")
+                        gr.Markdown("半年以上前のエピソード記憶を週単位にまとめます。元のデータはアーカイブに保存されます。")
+                        compress_episodes_button = gr.Button("古い記憶を圧縮する", variant="secondary")
+                        compress_episodes_status = gr.Textbox(label="圧縮結果", interactive=False)
 
                         # --- 記憶索引の更新 ---
                         gr.Markdown("---")
@@ -2218,7 +2231,8 @@ try:
             sleep_consolidation_episodic_cb,
             sleep_consolidation_memory_index_cb,
             sleep_consolidation_current_log_cb,
-            sleep_consolidation_topic_clusters_cb
+            sleep_consolidation_topic_clusters_cb,
+            sleep_consolidation_compress_cb
         ]
         sleep_consolidation_episodic_cb.change(
             fn=ui_handlers.handle_sleep_consolidation_change,
@@ -2239,6 +2253,18 @@ try:
             fn=ui_handlers.handle_sleep_consolidation_change,
             inputs=sleep_consolidation_inputs,
             outputs=None
+        )
+        sleep_consolidation_compress_cb.change(
+            fn=ui_handlers.handle_sleep_consolidation_change,
+            inputs=sleep_consolidation_inputs,
+            outputs=None
+        )
+        
+        # --- 手動圧縮ボタン ---
+        compress_episodes_button.click(
+            fn=ui_handlers.handle_compress_episodes,
+            inputs=[current_room_name, current_api_key_name_state],
+            outputs=[compress_episodes_status]
         )
 
         save_core_memory_button.click(

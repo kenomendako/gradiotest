@@ -520,6 +520,16 @@ def check_autonomous_actions():
                             except Exception as e:
                                 print(f"  ❌ {room_folder}: 話題クラスタ更新エラー - {e}")
                         
+                        if sleep_consolidation.get("compress_old_episodes", False):
+                            print(f"  🌙 {room_folder}: 古いエピソード記憶を圧縮中...")
+                            try:
+                                from episodic_memory_manager import EpisodicMemoryManager
+                                emm = EpisodicMemoryManager(room_folder)
+                                compress_result = emm.compress_old_episodes(api_key_val)
+                                print(f"  ✅ {room_folder}: {compress_result}")
+                            except Exception as e:
+                                print(f"  ❌ {room_folder}: エピソード圧縮エラー - {e}")
+                        
                         print(f"🛌 {room_folder}: 睡眠時記憶整理が完了しました。")
                     else:
                         # 既に夢を見ているので、静かに寝ていてもらう（ログも汚さない）

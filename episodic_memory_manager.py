@@ -275,3 +275,143 @@ class EpisodicMemoryManager:
             return sorted_data[-1]['date']
         except Exception:
             return "不明"
+
+    def compress_old_episodes(self, api_key: str, threshold_days: int = 180) -> str:
+        """
+        半年以上前のエピソード記憶を週単位に統合する。
+        元データはアーカイブに保存。
+        
+        Args:
+            api_key: 要約生成に使用するAPIキー
+            threshold_days: 圧縮対象とする日数（デフォルト180日 = 約半年）
+            
+        Returns:
+            処理結果のメッセージ
+        """
+        from gemini_api import get_configured_llm
+        from collections import defaultdict
+        
+        print(f"--- [Episodic Memory] 圧縮処理開始: {self.room_name} ---")
+        
+        episodes = self._load_memory()
+        if not episodes:
+            return "圧縮対象のエピソード記憶がありません。"
+        
+        # 閾値日付を計算
+        threshold_date = datetime.datetime.now() - datetime.timedelta(days=threshold_days)
+        threshold_date_str = threshold_date.strftime('%Y-%m-%d')
+        
+        # 古いエピソードと新しいエピソードを分離
+        old_episodes = []
+        recent_episodes = []
+        
+        for episode in episodes:
+            episode_date = episode.get('date', '')
+            if episode_date < threshold_date_str:
+                old_episodes.append(episode)
+            else:
+                recent_episodes.append(episode)
+        
+        if not old_episodes:
+            return f"圧縮対象のエピソード（{threshold_days}日以上前）はありませんでした。"
+        
+        print(f"  - 圧縮対象: {len(old_episodes)}件 / 最近: {len(recent_episodes)}件")
+        
+        # --- アーカイブ保存 ---
+        archive_dir = self.memory_dir / "archives"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_file = archive_dir / f"episodic_archive_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        
+        with open(archive_file, 'w', encoding='utf-8') as f:
+            json.dump(old_episodes, f, indent=2, ensure_ascii=False)
+        print(f"  - アーカイブ保存: {archive_file}")
+        
+        # --- 週ごとにグループ化 ---
+        weekly_groups = defaultdict(list)
+        
+        for episode in old_episodes:
+            try:
+                episode_date = datetime.datetime.strptime(episode['date'], '%Y-%m-%d')
+                # 週の開始日（月曜日）を取得
+                week_start = episode_date - datetime.timedelta(days=episode_date.weekday())
+                week_key = week_start.strftime('%Y-%m-%d')
+                weekly_groups[week_key].append(episode)
+            except ValueError:
+                continue
+        
+        if not weekly_groups:
+            return "週ごとにグループ化できるエピソードがありませんでした。"
+        
+        print(f"  - 週単位グループ数: {len(weekly_groups)}")
+        
+        # --- 各週の要約を生成 ---
+        effective_settings = config_manager.get_effective_settings(self.room_name)
+        llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
+        
+        compressed_episodes = []
+        
+        for week_start, week_episodes in sorted(weekly_groups.items()):
+            # 週の終了日を計算
+            week_start_date = datetime.datetime.strptime(week_start, '%Y-%m-%d')
+            week_end_date = week_start_date + datetime.timedelta(days=6)
+            week_end = week_end_date.strftime('%Y-%m-%d')
+            
+            # 週内のエピソード要約を結合
+            week_summaries = []
+            for ep in week_episodes:
+                summary = ep.get('summary', '')
+                if summary and '（' not in summary[:5]:  # エラーメッセージでないことを確認
+                    week_summaries.append(f"[{ep['date']}] {summary}")
+            
+            if not week_summaries:
+                continue
+            
+            combined_text = "\n\n".join(week_summaries)
+            
+            # 週ごとの統合要約を生成
+            prompt = f"""
+あなたは、日記の編集者です。
+以下は、ある1週間の出来事の記録です。これらを1つにまとめて、週全体の出来事として要約してください。
+
+【元の記録 ({week_start} 〜 {week_end})】
+---
+{combined_text}
+---
+
+【要約のルール】
+1. 三人称視点（だ・である調）で記述してください。
+2. 固有名詞はそのまま使用してください。
+3. 5〜8行程度の自然な文章にまとめてください。
+4. 重要な出来事、決定事項、感情的な交流を優先して記録してください。
+5. 個々の日付に言及する必要はありません。週全体の印象をまとめてください。
+
+【出力（週間要約のみ）】
+"""
+            
+            try:
+                result = llm.invoke(prompt)
+                summary = result.content.strip()
+                
+                if summary:
+                    compressed_episodes.append({
+                        "date": f"{week_start}~{week_end}",
+                        "summary": summary,
+                        "compressed": True,
+                        "original_count": len(week_episodes),
+                        "created_at": datetime.datetime.now().isoformat()
+                    })
+                    print(f"    - {week_start}〜{week_end}: {len(week_episodes)}件 → 1件")
+            except Exception as e:
+                print(f"    - {week_start}〜{week_end}: 要約エラー ({e})")
+                # エラー時は元のエピソードをそのまま保持
+                compressed_episodes.extend(week_episodes)
+        
+        # --- 圧縮後のデータを保存 ---
+        final_episodes = compressed_episodes + recent_episodes
+        final_episodes.sort(key=lambda x: x['date'].split('~')[0])  # 週範囲の場合は開始日でソート
+        
+        self._save_memory(final_episodes)
+        
+        result_msg = f"圧縮完了: {len(old_episodes)}件 → {len(compressed_episodes)}件"
+        print(f"  - {result_msg}")
+        return result_msg
