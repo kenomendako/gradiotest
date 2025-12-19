@@ -4952,6 +4952,32 @@ def handle_compress_episodes(room_name: str, api_key_name: str):
         traceback.print_exc()
         return error_msg
 
+def handle_embedding_mode_change(room_name: str, embedding_mode: str):
+    """エンベディングモード設定を保存する"""
+    if not room_name:
+        return
+    
+    try:
+        room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+        config = {}
+        if os.path.exists(room_config_path) and os.path.getsize(room_config_path) > 0:
+            with open(room_config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        
+        if "override_settings" not in config:
+            config["override_settings"] = {}
+        
+        config["override_settings"]["embedding_mode"] = embedding_mode
+        
+        with open(room_config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        
+        mode_name = "ローカル" if embedding_mode == "local" else "Gemini API"
+        gr.Info(f"📌 エンベディングモードを「{mode_name}」に変更しました。次回の索引更新から適用されます。")
+        print(f"--- [Embedding Mode] {room_name}: {embedding_mode} ---")
+    except Exception as e:
+        print(f"--- [Embedding Mode] 設定保存エラー: {e} ---")
+
 def handle_memory_reindex(room_name: str, api_key_name: str):
     """記憶の索引（過去ログ、エピソード記憶、夢日記）を更新する。"""
     if not room_name or not api_key_name:

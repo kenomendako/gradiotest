@@ -24,6 +24,22 @@ import utils
 # ロギング設定
 logger = logging.getLogger(__name__)
 
+
+class LangChainEmbeddingWrapper:
+    """ローカルエンベディングをLangChainのインターフェースでラップ"""
+    
+    def __init__(self, local_provider):
+        self.local_provider = local_provider
+    
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        embeddings = self.local_provider.embed_documents(texts)
+        return embeddings.tolist()
+    
+    def embed_query(self, text: str) -> List[float]:
+        embedding = self.local_provider.embed_query(text)
+        return embedding.tolist()
+
+
 class RAGManager:
     def __init__(self, room_name: str, api_key: str):
         self.room_name = room_name
@@ -37,11 +53,31 @@ class RAGManager:
         
         self.rag_data_dir.mkdir(parents=True, exist_ok=True)
 
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model=constants.EMBEDDING_MODEL,
-            google_api_key=self.api_key,
-            task_type="retrieval_document"
-        )
+        # エンベディングモードを設定から取得
+        effective_settings = config_manager.get_effective_settings(room_name)
+        self.embedding_mode = effective_settings.get("embedding_mode", "api")
+        
+        if self.embedding_mode == "local":
+            # ローカルエンベディングを使用
+            try:
+                from topic_cluster_manager import LocalEmbeddingProvider
+                local_provider = LocalEmbeddingProvider()
+                self.embeddings = LangChainEmbeddingWrapper(local_provider)
+                print(f"[RAGManager] ローカルエンベディングモードで初期化")
+            except Exception as e:
+                print(f"[RAGManager] ローカルエンベディング初期化失敗、APIにフォールバック: {e}")
+                self.embeddings = GoogleGenerativeAIEmbeddings(
+                    model=constants.EMBEDDING_MODEL,
+                    google_api_key=self.api_key,
+                    task_type="retrieval_document"
+                )
+        else:
+            # Gemini API エンベディングを使用
+            self.embeddings = GoogleGenerativeAIEmbeddings(
+                model=constants.EMBEDDING_MODEL,
+                google_api_key=self.api_key,
+                task_type="retrieval_document"
+            )
 
     def _load_processed_record(self) -> Set[str]:
         if self.processed_files_record.exists():

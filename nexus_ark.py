@@ -1264,6 +1264,17 @@ try:
                         compress_episodes_button = gr.Button("古い記憶を圧縮する", variant="secondary")
                         compress_episodes_status = gr.Textbox(label="圧縮結果", interactive=False)
 
+                        # --- エンベディング設定 ---
+                        gr.Markdown("---")
+                        gr.Markdown("### 🧠 エンベディング設定")
+                        gr.Markdown("記憶の検索（RAG）と話題クラスタリングで使用するベクトル化方式を選択します。")
+                        embedding_mode_radio = gr.Radio(
+                            choices=[("Gemini API（高精度・API使用）", "api"), ("ローカル（無料・オフライン）", "local")],
+                            value="api",
+                            label="エンベディングモード",
+                            info="ローカルモードは初回のみモデルをダウンロードし、以降はオフラインで動作します"
+                        )
+
                         # --- 記憶索引の更新 ---
                         gr.Markdown("---")
                         gr.Markdown("### 🔍 記憶の索引 (RAG)")
@@ -2265,6 +2276,13 @@ try:
             fn=ui_handlers.handle_compress_episodes,
             inputs=[current_room_name, current_api_key_name_state],
             outputs=[compress_episodes_status]
+        )
+        
+        # --- エンベディングモード設定 ---
+        embedding_mode_radio.change(
+            fn=ui_handlers.handle_embedding_mode_change,
+            inputs=[current_room_name, embedding_mode_radio],
+            outputs=None
         )
 
         save_core_memory_button.click(
