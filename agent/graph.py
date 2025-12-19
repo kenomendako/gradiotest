@@ -356,6 +356,34 @@ def retrieval_node(state: AgentState):
                 results.append(mem_result)
             else:
                 print(f"    -> 日記: なし")
+
+        # 3d. 話題クラスタ検索
+        try:
+            from topic_cluster_manager import TopicClusterManager
+            tcm = TopicClusterManager(room_name, api_key)
+            
+            # クラスタデータが存在する場合のみ検索を実行
+            if tcm._load_clusters().get("clusters"):
+                relevant_clusters = tcm.get_relevant_clusters(search_query, top_k=2)
+                
+                if relevant_clusters:
+                    cluster_context_parts = []
+                    for cluster in relevant_clusters:
+                        label = cluster.get('label', '不明なトピック')
+                        summary = cluster.get('summary', '')
+                        if summary:
+                            cluster_context_parts.append(f"【{label}に関する記憶】\n{summary}")
+                    
+                    if cluster_context_parts:
+                        cluster_result = "【関連する話題クラスタ：】\n" + "\n\n".join(cluster_context_parts)
+                        print(f"    -> 話題クラスタ: ヒット ({len(relevant_clusters)}件)")
+                        results.append(cluster_result)
+                else:
+                    print(f"    -> 話題クラスタ: 関連なし")
+            else:
+                print(f"    -> 話題クラスタ: データなし（初回クラスタリング未実行）")
+        except Exception as cluster_e:
+            print(f"    -> 話題クラスタ: エラー ({cluster_e})")
                 
         if not results:
             print("  - [Retrieval] 関連情報は検索されませんでした。")
