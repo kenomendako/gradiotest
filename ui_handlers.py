@@ -184,6 +184,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value=True),  # sleep_memory_index
             gr.update(value=False),  # sleep_current_log
             gr.update(value=True),  # sleep_topic_clusters
+            gr.update(value=False), # sleep_compress
+            gr.update(value="未実行"), # compress_episodes_status
             # --- [v25] テーマ設定 (Default values) ---
             gr.update(value=False),  # room_theme_enabled
             gr.update(value="Chat (Default)"),  # chat_style
@@ -297,7 +299,9 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         manager = EpisodicMemoryManager(room_name)
         latest_date = manager.get_latest_memory_date()
         episodic_info_text = f"昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** {latest_date}"
-    except:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         episodic_info_text = "昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** 取得エラー"
 
     auto_settings = effective_settings.get("autonomous_settings", {})
@@ -312,6 +316,24 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     sleep_memory_index = sleep_consolidation.get("update_memory_index", True)
     sleep_current_log = sleep_consolidation.get("update_current_log_index", False)
     sleep_topic_clusters = sleep_consolidation.get("update_topic_clusters", True)
+    sleep_compress = sleep_consolidation.get("compress_old_episodes", False)
+    # 圧縮状況の詳細を動的に取得
+    stats = EpisodicMemoryManager(room_name).get_compression_stats()
+    last_date = stats["last_compressed_date"] or "なし"
+    pending = stats["pending_count"]
+    
+    # ルーム設定を直接読み込んで最終実行結果を取得
+    room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+    room_config = {}
+    if os.path.exists(room_config_path):
+        try:
+            with open(room_config_path, "r", encoding="utf-8") as f:
+                room_config = json.load(f)
+        except: pass
+    
+    last_exec = room_config.get("last_compression_result", "未実行")
+    # 表示用の文字列を構築 (例: 2024-06-15まで圧縮済み (対象: 12件) | 最終結果: 圧縮完了...)
+    last_compression_result = f"{last_date}まで圧縮済み (対象: {pending}件) | 最終: {last_exec}"
 
     return (
         room_name, chat_history, mapping_list,
@@ -366,6 +388,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=sleep_memory_index),
         gr.update(value=sleep_current_log),
         gr.update(value=sleep_topic_clusters),
+        gr.update(value=sleep_compress),
+        gr.update(value=last_compression_result),
         # --- [v25] テーマ設定 ---
         gr.update(value=effective_settings.get("room_theme_enabled", False)),  # 個別テーマのオンオフ
         gr.update(value=effective_settings.get("chat_style", "Chat (Default)")),
@@ -568,7 +592,8 @@ def handle_save_room_settings(
     sleep_update_episodic: bool = True,
     sleep_update_memory_index: bool = True,
     sleep_update_current_log: bool = False,
-    sleep_update_topic_clusters: bool = True
+    sleep_update_topic_clusters: bool = True,
+    sleep_update_compress: bool = False
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -637,7 +662,8 @@ def handle_save_room_settings(
             "update_episodic_memory": bool(sleep_update_episodic),
             "update_memory_index": bool(sleep_update_memory_index),
             "update_current_log_index": bool(sleep_update_current_log),
-            "update_topic_clusters": bool(sleep_update_topic_clusters)
+            "update_topic_clusters": bool(sleep_update_topic_clusters),
+            "compress_old_episodes": bool(sleep_update_compress)
         }
     }
     try:
@@ -1663,7 +1689,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
     unified_full_room_refresh_outputs と完全に一致する99個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 125
+    EXPECTED_OUTPUT_COUNT = 127
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
@@ -1729,6 +1755,8 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 gr.update(value=True),  # sleep_consolidation_memory_index_cb
                 gr.update(value=False),  # sleep_consolidation_current_log_cb
                 gr.update(value=True),  # sleep_consolidation_topic_clusters_cb
+                gr.update(value=False), # sleep_consolidation_compress_cb
+                gr.update(value="未実行"), # compress_episodes_status
                 # --- [v25] テーマ設定 ---
                 # --- [v25] テーマ設定 ---
                 gr.update(value=False),  # room_theme_enabled
@@ -2606,7 +2634,9 @@ def handle_update_episodic_memory(room_name: str, api_key_name: str):
     try:
         latest_date = manager.get_latest_memory_date()
         new_info_text = f"昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** {latest_date}"
-    except:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         new_info_text = "昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** 取得エラー"
 
     # 2. UIのロックを解除 (ボタン:元通り, チャット欄:有効化)
@@ -3653,7 +3683,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 125
+    EXPECTED_OUTPUT_COUNT = 127
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
@@ -3713,9 +3743,10 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
         f"最終更新: {current_log_index_last_updated}"  # current_log_reindex_status
     )
     
-    if len(final_ret) == 123:
-        print("WARNING: handle_room_change_for_all_tabs returned 123 items (expected 124). Appending dummy.")
-        final_ret = final_ret + (gr.update(),)
+    if len(final_ret) < EXPECTED_OUTPUT_COUNT:
+        diff = EXPECTED_OUTPUT_COUNT - len(final_ret)
+        print(f"WARNING: handle_room_change_for_all_tabs returned {len(final_ret)} items (expected {EXPECTED_OUTPUT_COUNT}). Appending {diff} dummy items.")
+        final_ret = final_ret + (gr.update(),) * diff
         
     return final_ret
 
@@ -4941,11 +4972,27 @@ def handle_compress_episodes(room_name: str, api_key_name: str):
         return "エラー: APIキーが無効です。"
 
     try:
-        from episodic_memory_manager import EpisodicMemoryManager
         manager = EpisodicMemoryManager(room_name)
         result = manager.compress_old_episodes(api_key)
+        
+        # 実行後の最新統計を取得してステータス文字列を更新
+        stats = manager.get_compression_stats()
+        last_date = stats["last_compressed_date"] or "なし"
+        pending = stats["pending_count"]
+        full_status = f"{last_date}まで圧縮済み (対象: {pending}件) | 最終: {result}"
+        
+        # 最終実行結果を room_config.json に保存
+        room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+        config = {}
+        if os.path.exists(room_config_path):
+            with open(room_config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        config["last_compression_result"] = result
+        with open(room_config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+
         gr.Info(f"✅ {result}")
-        return result
+        return full_status
     except Exception as e:
         error_msg = f"圧縮中にエラーが発生しました: {e}"
         gr.Error(error_msg)

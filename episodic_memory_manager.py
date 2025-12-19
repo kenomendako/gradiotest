@@ -23,6 +23,7 @@ class EpisodicMemoryManager:
         
         # ディレクトリの保証
         self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
 
     def _load_memory(self) -> List[Dict]:
         """JSONファイルからエピソード記憶を読み込む"""
@@ -38,9 +39,17 @@ class EpisodicMemoryManager:
     def _save_memory(self, data: List[Dict]):
         """エピソード記憶をJSONファイルに保存する"""
         # 日付順にソートして保存
-        data.sort(key=lambda x: x['date'])
+        def get_sort_key_for_save(item):
+            d = item.get('date', '').strip()
+            # 範囲なら開始日でソートして自然な並びにする
+            if '~' in d: return d.split('~')[0].strip()
+            if '～' in d: return d.split('～')[0].strip()
+            return d
+            
+        data.sort(key=get_sort_key_for_save)
         with open(self.memory_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+        # print(f"  - 記憶ファイルを保存しました ({len(data)}件, {os.path.getsize(self.memory_file)} bytes)")
 
     def update_memory(self, api_key: str) -> str:
         """
@@ -104,16 +113,63 @@ class EpisodicMemoryManager:
 
         # 3. 処理対象の選定
         existing_memory = self._load_memory()
-        existing_dates = {item['date'] for item in existing_memory}
+        print(f"  - 既存の記憶エントリ総数: {len(existing_memory)}")
+        
+        # 既にある日付をセット（単独日の高速検索用）
+        # 全角チルダにも対応し、前後の空白も除去
+        # 「エラーにより要約できませんでした」という文字が含まれるエントリは、再処理対象にするため「既知」から除外する
+        existing_dates_single = {
+            item['date'].strip() for item in existing_memory 
+            if isinstance(item, dict) and 'date' in item 
+            and '~' not in item['date'] and '～' not in item['date']
+            and "エラーにより要約できませんでした" not in item.get('summary', '')
+        }
+        print(f"  - 解析された単独エントリ数: {len(existing_dates_single)}")
+        
+        if len(existing_dates_single) > 0:
+            may_dates = sorted([d for d in existing_dates_single if "2025-05" in d])
+            if may_dates:
+                print(f"  - 5月の単独エントリ例: {may_dates[:10]}")
+
+        # 既にある日付範囲（週圧縮済み用）
+        existing_date_ranges = []
+        for item in existing_memory:
+            if not isinstance(item, dict) or 'date' not in item: continue
+            
+            d_str = item['date'].strip()
+            if '~' in d_str or '～' in d_str:
+                sep = '~' if '~' in d_str else '～'
+                parts = d_str.split(sep)
+                if len(parts) == 2:
+                    existing_date_ranges.append((parts[0].strip(), parts[1].strip()))
+        
+        print(f"  - 解析された既知の範囲数: {len(existing_date_ranges)}")
+        if existing_date_ranges:
+            print(f"  - 解析された既知の範囲: {existing_date_ranges}")
+
         today_str = datetime.datetime.now().strftime('%Y-%m-%d')
         
         target_dates = []
         for date_str in sorted(logs_by_date.keys()):
-            if date_str == today_str: continue
-            if date_str in existing_dates: continue
-            target_dates.append(date_str)
+            date_str_clean = date_str.strip() # ここでもトリミング
+            if date_str_clean == today_str: continue
+            
+            # 単独日として存在するかチェック
+            if date_str_clean in existing_dates_single: continue
+            
+            # いずれかの範囲に含まれているかチェック
+            is_processed = False
+            for start, end in existing_date_ranges:
+                if start <= date_str_clean <= end:
+                    is_processed = True
+                    break
+            
+            if is_processed: continue
+            
+            target_dates.append(date_str_clean)
 
         if not target_dates:
+            print("  - 新規に要約すべき日付はありません。")
             return "新規に要約すべき過去の日付はありませんでした（全ての過去ログは処理済みです）。"
 
         # 4. 要約の生成と逐次保存
@@ -160,6 +216,7 @@ class EpisodicMemoryManager:
 """
 
             summary_result = None
+            is_temporary_error = False
             max_retries = 3
             
             for attempt in range(max_retries):
@@ -170,42 +227,60 @@ class EpisodicMemoryManager:
                     
                     if content:
                         summary_result = content
+                        is_temporary_error = False
                         break
                     else:
                         # コンテンツが空（ブロック等）の場合
                         print(f"  - Warning: Empty response for {date_str} (Attempt {attempt+1})")
                         summary_result = "（コンテンツポリシーにより要約できませんでした）"
+                        is_temporary_error = False
                         break # リトライしても恐らく同じなので抜ける
 
                 except Exception as e:
                     error_str = str(e)
-                    if "429" in error_str or "ResourceExhausted" in error_str:
-                        wait_time = 10
-                        match = re.search(r"retry_delay {\s*seconds: (\d+)", error_str)
-                        if match: wait_time = int(match.group(1)) + 2
-                        print(f"    -> API制限検知。{wait_time}秒待機してリトライします...")
-                        time.sleep(wait_time)
+                    # 一時的なエラー（リトライすべきもの）
+                    if any(code in error_str for code in ["429", "ResourceExhausted", "500", "503", "504", "deadline exceeded"]):
+                        is_temporary_error = True
+                        if "429" in error_str or "ResourceExhausted" in error_str:
+                            wait_time = 10
+                            match = re.search(r"retry_delay {\s*seconds: (\d+)", error_str)
+                            if match: wait_time = int(match.group(1)) + 2
+                            print(f"    -> API制限検知({attempt+1}/{max_retries})。{wait_time}秒待機...")
+                            time.sleep(wait_time)
+                        else:
+                            print(f"    -> 一時的エラー検知({attempt+1}/{max_retries}): {e}")
+                        
+                        # ループの最後なら次へ行く（自然に attempt が増える）
+                        continue
                     else:
-                        print(f"  - Error summarizing {date_str}: {e}")
+                        # 恒久的なエラー（このまま保存して終わるもの）
+                        print(f"  - 恒久的なエラーまたは未知のエラー: {e}")
                         summary_result = f"（エラーにより要約できませんでした: {e}）"
+                        is_temporary_error = False
                         break
             
-            # ▼▼▼【重要】結果がNoneのままループを抜けた場合のフォールバック ▼▼▼
-            if not summary_result:
-                summary_result = "（生成エラーまたはブロックにより要約できませんでした）"
-            # ▲▲▲【追加】▲▲▲
-
-            # どのような結果であれ、必ず保存する
-            self._append_single_episode({
-                "date": date_str,
-                "summary": summary_result,
-                "created_at": datetime.datetime.now().isoformat()
-            })
-            
-            if "エラー" in summary_result or "できませんでした" in summary_result:
+            # --- 保存判定 ---
+            if summary_result:
+                # 成功したか、恒久的に失敗した場合は保存して「完了」とする
+                self._append_single_episode({
+                    "date": date_str,
+                    "summary": summary_result,
+                    "created_at": datetime.datetime.now().isoformat()
+                })
+                
+                if "エラー" in summary_result or "できませんでした" in summary_result:
+                    error_count += 1
+                else:
+                    success_count += 1
+            elif is_temporary_error:
+                # すべてのリトライが一時的エラーで終わった場合。
+                # 保存しないことで、次回の update_memory 実行時に再度対象に含まれるようにする。
+                print(f"  - {date_str}: 一時的エラーが解消されなかったため、保存せずに今回はスキップします（次回再試行）。")
                 error_count += 1
             else:
-                success_count += 1
+                # 予期せぬケース
+                print(f"  - {date_str}: 要約結果が得られなかったため、保存をスキップしました。")
+                error_count += 1
 
         return f"処理完了: 成功 {success_count}件 / エラー・スキップ {error_count}件"
 
@@ -218,9 +293,43 @@ class EpisodicMemoryManager:
             # 常に最新の状態を読み込む
             current_data = self._load_memory()
             
-            # 重複チェック（念のため）
-            if any(item['date'] == new_episode['date'] for item in current_data):
-                return # 既に存在すれば何もしない
+            # 重複判定（単一一致 or 範囲内）
+            is_duplicate = False
+            for item in current_data:
+                d_str = item.get('date', '').strip()
+                new_date = new_episode.get('date', '').strip()
+                
+                if '~' in d_str or '～' in d_str:
+                    sep = '~' if '~' in d_str else '～'
+                    parts = d_str.split(sep)
+                    if len(parts) == 2:
+                        start, end = parts[0].strip(), parts[1].strip()
+                        if start <= new_date <= end:
+                            is_duplicate = True
+                            break
+                elif d_str == new_date:
+                    is_duplicate = True
+                    break
+            
+            if is_duplicate:
+                # 既に存在する場合の特別処理: 
+                # 既存が「エラー記録」で、今回が「正常な要約」なら上書き（差し替え）を許可する
+                existing_item = None
+                for i in current_data:
+                    if i.get('date', '').strip() == new_date:
+                        existing_item = i
+                        break
+                
+                if existing_item and "エラーにより要約できませんでした" in existing_item.get('summary', ''):
+                    if "エラーにより要約できませんでした" not in new_episode.get('summary', ''):
+                        # エラーを正常な記憶で上書き
+                        current_data.remove(existing_item)
+                    else:
+                        # 両方エラーなら追記せず終了
+                        return
+                else:
+                    # 既存が正常なら何もしない
+                    return
 
             current_data.append(new_episode)
             self._save_memory(current_data)
@@ -251,11 +360,22 @@ class EpisodicMemoryManager:
         
         for item in memory_data:
             try:
-                item_date = datetime.datetime.strptime(item['date'], '%Y-%m-%d').date()
-                # 範囲チェック: (開始日) <= (エピソード日) < (生ログ開始日)
-                if start_date <= item_date < cutoff_date:
-                    relevant_episodes.append(f"[{item['date']}] {item['summary']}")
-            except ValueError:
+                # 範囲日付 (YYYY-MM-DD~YYYY-MM-DD) または 単独日付 (YYYY-MM-DD)
+                d_str = item['date']
+                sep = '~' if '~' in d_str else ('～' if '～' in d_str else None)
+                
+                if sep:
+                    parts = d_str.split(sep)
+                    item_start_date = datetime.datetime.strptime(parts[0].strip(), '%Y-%m-%d').date()
+                    item_end_date = datetime.datetime.strptime(parts[1].strip(), '%Y-%m-%d').date()
+                else:
+                    item_start_date = datetime.datetime.strptime(d_str.strip(), '%Y-%m-%d').date()
+                    item_end_date = item_start_date
+                
+                # 範囲チェック: (既存エピソードの終端がルックバック開始日以降) かつ (既存エピソードの開始が生ログ開始日より前)
+                if (item_end_date >= start_date) and (item_start_date < cutoff_date):
+                    relevant_episodes.append(f"[{d_str}] {item['summary']}")
+            except Exception:
                 continue
 
         if not relevant_episodes:
@@ -265,16 +385,30 @@ class EpisodicMemoryManager:
 
     def get_latest_memory_date(self) -> str:
         """保存されているエピソード記憶の中で最も新しい日付を返す"""
-        data = self._load_memory()
-        if not data:
-            return "なし"
-        
-        # 日付でソートして最後（最新）を取得
         try:
-            sorted_data = sorted(data, key=lambda x: x['date'])
+            data = self._load_memory()
+            if not data:
+                return "なし"
+            
+            # 範囲日付の終端、または単一の日付でソートして最後（最新）を取得
+            # dateキーが存在しない可能性を考慮
+            valid_items = [x for x in data if isinstance(x, dict) and 'date' in x]
+            if not valid_items:
+                return "なし"
+            
+            def get_sort_key(item):
+                d = item['date']
+                if '~' in d: return d.split('~')[-1].strip()
+                if '～' in d: return d.split('～')[-1].strip()
+                return d.strip()
+                
+            sorted_data = sorted(valid_items, key=get_sort_key)
             return sorted_data[-1]['date']
-        except Exception:
-            return "不明"
+        except Exception as e:
+            print(f"Error in get_latest_memory_date: {e}")
+            import traceback
+            traceback.print_exc()
+            return "取得エラー"
 
     def compress_old_episodes(self, api_key: str, threshold_days: int = 180) -> str:
         """
@@ -328,21 +462,32 @@ class EpisodicMemoryManager:
         
         # --- 週ごとにグループ化 ---
         weekly_groups = defaultdict(list)
+        preserved_compressed_episodes = [] # 既にある圧縮済みエピソード
+        unparseable_episodes = [] # 形式不一致のため統合できないが破棄してはいけないエピソード
         
         for episode in old_episodes:
+            ep_date_str = episode.get('date', '').strip()
+            if '~' in ep_date_str or '～' in ep_date_str:
+                # すでに圧縮済みのものはそのまま保持する
+                preserved_compressed_episodes.append(episode)
+                continue
+                
             try:
-                episode_date = datetime.datetime.strptime(episode['date'], '%Y-%m-%d')
+                # 単一の日付の場合のみ週グループ化の対象にする
+                episode_date = datetime.datetime.strptime(ep_date_str, '%Y-%m-%d')
                 # 週の開始日（月曜日）を取得
-                week_start = episode_date - datetime.timedelta(days=episode_date.weekday())
-                week_key = week_start.strftime('%Y-%m-%d')
+                week_start_obj = episode_date - datetime.timedelta(days=episode_date.weekday())
+                week_key = week_start_obj.strftime('%Y-%m-%d')
                 weekly_groups[week_key].append(episode)
             except ValueError:
+                print(f"  ⚠️ 無効な日付形式（現状保存）: {ep_date_str}")
+                unparseable_episodes.append(episode)
                 continue
         
-        if not weekly_groups:
-            return "週ごとにグループ化できるエピソードがありませんでした。"
+        if not weekly_groups and not preserved_compressed_episodes and not unparseable_episodes:
+            return "圧縮対象のエピソードがありませんでした。"
         
-        print(f"  - 週単位グループ数: {len(weekly_groups)}")
+        print(f"  - グループ数: {len(weekly_groups)} / 維持: {len(preserved_compressed_episodes)} / 非パース: {len(unparseable_episodes)}")
         
         # --- 各週の要約を生成 ---
         effective_settings = config_manager.get_effective_settings(self.room_name)
@@ -401,17 +546,60 @@ class EpisodicMemoryManager:
                         "created_at": datetime.datetime.now().isoformat()
                     })
                     print(f"    - {week_start}〜{week_end}: {len(week_episodes)}件 → 1件")
+                else:
+                    # 要約が空だった場合は元のエピソードをそのまま保持（データ消失防止）
+                    print(f"    - {week_start}〜{week_end}: 要約が空のため統合をスキップし、元データを維持します。")
+                    compressed_episodes.extend(week_episodes)
             except Exception as e:
                 print(f"    - {week_start}〜{week_end}: 要約エラー ({e})")
                 # エラー時は元のエピソードをそのまま保持
                 compressed_episodes.extend(week_episodes)
         
         # --- 圧縮後のデータを保存 ---
-        final_episodes = compressed_episodes + recent_episodes
-        final_episodes.sort(key=lambda x: x['date'].split('~')[0])  # 週範囲の場合は開始日でソート
+        # 既存の圧縮済み + 今回圧縮したもの + 形式不一致 + 最近のもの
+        final_episodes = preserved_compressed_episodes + compressed_episodes + unparseable_episodes + recent_episodes
         
         self._save_memory(final_episodes)
         
-        result_msg = f"圧縮完了: {len(old_episodes)}件 → {len(compressed_episodes)}件"
-        print(f"  - {result_msg}")
-        return result_msg
+        msg = f"圧縮完了: {len(old_episodes) - len(preserved_compressed_episodes) - len(unparseable_episodes)}件を{len(compressed_episodes)}件に集約しました。"
+        if preserved_compressed_episodes:
+            msg += f"（既存圧縮{len(preserved_compressed_episodes)}件、非パース{len(unparseable_episodes)}件を維持）"
+        print(f"  - {msg}")
+        return msg
+
+    def get_compression_stats(self, threshold_days: int = 180) -> dict:
+        """
+        現在の記憶ファイルの圧縮状況（圧縮済み最終日、圧縮対象件数）をスキャンして返す。
+        """
+        episodes = self._load_memory()
+        if not episodes:
+            return {"last_compressed_date": None, "pending_count": 0, "total_count": 0}
+            
+        # 閾値日付
+        threshold_date = datetime.datetime.now() - datetime.timedelta(days=threshold_days)
+        threshold_date_str = threshold_date.strftime('%Y-%m-%d')
+        
+        last_compressed_date = None
+        pending_count = 0
+        
+        for ep in episodes:
+            date_str = ep.get('date', '')
+            # 圧縮済み（週範囲形式 "YYYY-MM-DD~YYYY-MM-DD"）をチェック
+            if '~' in date_str:
+                parts = date_str.split('~')
+                end_date = parts[-1]
+                if last_compressed_date is None or end_date > last_compressed_date:
+                    last_compressed_date = end_date
+            elif ep.get('compressed') is True: # フラグがある場合
+                if last_compressed_date is None or date_str > last_compressed_date:
+                    last_compressed_date = date_str
+            else:
+                # 圧縮されていないエピソードで、かつ閾値より古いものをカウント
+                if date_str < threshold_date_str:
+                    pending_count += 1
+                    
+        return {
+            "last_compressed_date": last_compressed_date,
+            "pending_count": pending_count,
+            "total_count": len(episodes)
+        }

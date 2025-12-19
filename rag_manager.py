@@ -11,7 +11,7 @@ import logging
 import json
 import hashlib
 
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_core.embeddings import Embeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.docstore.document import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -25,17 +25,19 @@ import utils
 logger = logging.getLogger(__name__)
 
 
-class LangChainEmbeddingWrapper:
+class LangChainEmbeddingWrapper(Embeddings):
     """ローカルエンベディングをLangChainのインターフェースでラップ"""
     
     def __init__(self, local_provider):
         self.local_provider = local_provider
     
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        # local_provider.embed_documents は np.ndarray を返す想定
         embeddings = self.local_provider.embed_documents(texts)
         return embeddings.tolist()
     
     def embed_query(self, text: str) -> List[float]:
+        # local_provider.embed_query は np.ndarray を返す想定
         embedding = self.local_provider.embed_query(text)
         return embedding.tolist()
 
@@ -66,6 +68,7 @@ class RAGManager:
                 print(f"[RAGManager] ローカルエンベディングモードで初期化")
             except Exception as e:
                 print(f"[RAGManager] ローカルエンベディング初期化失敗、APIにフォールバック: {e}")
+                from langchain_google_genai import GoogleGenerativeAIEmbeddings
                 self.embeddings = GoogleGenerativeAIEmbeddings(
                     model=constants.EMBEDDING_MODEL,
                     google_api_key=self.api_key,
@@ -73,6 +76,7 @@ class RAGManager:
                 )
         else:
             # Gemini API エンベディングを使用
+            from langchain_google_genai import GoogleGenerativeAIEmbeddings
             self.embeddings = GoogleGenerativeAIEmbeddings(
                 model=constants.EMBEDDING_MODEL,
                 google_api_key=self.api_key,
@@ -104,14 +108,18 @@ class RAGManager:
         if not target_path.exists():
             return None
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_index_path = Path(temp_dir) / "index_copy"
-            shutil.copytree(str(target_path), str(temp_index_path))
+            temp_index_path = Path(temp_dir)
             try:
-                query_embeddings = GoogleGenerativeAIEmbeddings(
-                    model=constants.EMBEDDING_MODEL,
-                    google_api_key=self.api_key,
-                    task_type="retrieval_query"
-                )
+                # インデックスを一時フォルダにコピー
+                shutil.copytree(str(target_path), str(temp_index_path), dirs_exist_ok=True)
+                
+                # モードに応じたエンベディング（query用）を使用
+                query_embeddings = self.embeddings # 既に初期化済みのものを使用
+                
+                # Gemini API の場合はタスクタイプを query に変更した新しいインスタンスが必要な場合があるが、
+                # langchain_google_genai は内部で処理する場合が多い。
+                # ローカルモードの場合は self.embeddings がそのまま使える。
+                
                 return FAISS.load_local(
                     str(temp_index_path),
                     query_embeddings,
@@ -152,20 +160,23 @@ class RAGManager:
                     if progress_callback:
                         progress_callback(batch_num, total_batches)
                     
-                    time.sleep(2) 
+                    if self.embedding_mode == "api":
+                        time.sleep(2) 
                     break 
                 
                 except Exception as e:
                     error_str = str(e)
+                    print(f"      ! ベクトル化エラー (試行 {attempt+1}/{max_retries}): {e}")
                     if "429" in error_str or "ResourceExhausted" in error_str:
                         wait_time = 10 * (attempt + 1)
-                        print(f"      ! API制限検知。{wait_time}秒待機してリトライ... ({attempt+1}/{max_retries})")
+                        print(f"      ! API制限検知。{wait_time}秒待機してリトライ...")
                         time.sleep(wait_time)
                     else:
-                        print(f"      ! ベクトル化エラー: {e}")
                         if attempt == max_retries - 1:
-                            print("      ! このバッチをスキップします。")
-                        time.sleep(2)
+                            print(f"      ! このバッチをスキップします。最終エラー: {e}")
+                            traceback.print_exc()
+                        if self.embedding_mode == "api":
+                            time.sleep(2)
         
         print(f"    [BATCH] 全バッチ処理完了")
         return db
@@ -351,10 +362,12 @@ class RAGManager:
                             db.add_documents(batch)
                         
                         yield (batch_num, total_batches, f"処理中: {batch_num}/{total_batches} バッチ完了")
-                        time.sleep(2)
+                        if self.embedding_mode == "api":
+                            time.sleep(2)
                         break
                     except Exception as e:
                         error_str = str(e)
+                        print(f"      ! [CurrentLog] ベクトル化エラー (試行 {attempt+1}/{max_retries}): {e}")
                         if "429" in error_str or "ResourceExhausted" in error_str:
                             wait_time = 10 * (attempt + 1)
                             yield (batch_num, total_batches, f"API制限 - {wait_time}秒待機中...")
@@ -362,7 +375,10 @@ class RAGManager:
                         else:
                             if attempt == max_retries - 1:
                                 yield (batch_num, total_batches, f"エラー: バッチ{batch_num}をスキップ")
-                            time.sleep(2)
+                                print(f"      ! このバッチをスキップします。最終エラー: {e}")
+                                traceback.print_exc()
+                            if self.embedding_mode == "api":
+                                time.sleep(2)
             
             if db:
                 current_log_index_path = self.room_dir / "rag_data" / "current_log_index"

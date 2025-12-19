@@ -1222,10 +1222,9 @@ try:
                             )
                             refresh_dream_button = gr.Button("夢日記を読み込む", variant="secondary")
                             
-                            # --- 睡眠時記憶整理 ---
-                            gr.Markdown("---")
+                        # --- 睡眠時記憶整理 ---
+                        with gr.Accordion("🌛 睡眠時記憶整理 (Sleep Consolidation)", open=False):
                             gr.Markdown(
-                                "#### 🌙 睡眠時記憶整理\n"
                                 "**発生条件:** 自律行動が有効で、通知禁止時間帯（デフォルト: 0:00〜7:00）に無操作時間を超過すると、AIは「眠り」に入り夢日記を作成します。\n\n"
                                 "夢日記を作成する際に、以下の処理も連続して実行します。（チェックを変更すると即座に保存されます）"
                             )
@@ -1256,13 +1255,12 @@ try:
                                 interactive=True,
                                 info="半年以上前のエピソード記憶を週単位に統合"
                             )
-
-                        # --- 手動圧縮ボタン ---
-                        gr.Markdown("---")
-                        gr.Markdown("### 📦 記憶の圧縮")
-                        gr.Markdown("半年以上前のエピソード記憶を週単位にまとめます。元のデータはアーカイブに保存されます。")
-                        compress_episodes_button = gr.Button("古い記憶を圧縮する", variant="secondary")
-                        compress_episodes_status = gr.Textbox(label="圧縮結果", interactive=False)
+                            
+                            gr.Markdown("---")
+                            gr.Markdown("#### 📦 手動圧縮を実行")
+                            gr.Markdown("半年以上前のエピソード記憶を週単位にまとめます。元のデータはアーカイブに保存されます。")
+                            compress_episodes_button = gr.Button("古い記憶を手動で圧縮する", variant="secondary")
+                            compress_episodes_status = gr.Textbox(label="圧縮ステータス", interactive=False)
 
                         # --- エンベディング設定 ---
                         gr.Markdown("---")
@@ -1460,6 +1458,8 @@ try:
             sleep_consolidation_memory_index_cb,
             sleep_consolidation_current_log_cb,
             sleep_consolidation_topic_clusters_cb,
+            sleep_consolidation_compress_cb,
+            compress_episodes_status,
             # --- [v25] テーマ設定 ---
             room_theme_enabled_checkbox,  # 個別テーマのオンオフ
             chat_style_radio,
@@ -1892,6 +1892,7 @@ try:
                 sleep_consolidation_memory_index_cb,
                 sleep_consolidation_current_log_cb,
                 sleep_consolidation_topic_clusters_cb,
+                sleep_consolidation_compress_cb,
             ],
             outputs=None
         )
