@@ -654,5 +654,6 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
         max_retries=0,
         temperature=config.get("temperature", 0.8),
         top_p=config.get("top_p", 0.95),
-        safety_settings=safety_settings
+        safety_settings=safety_settings,
+        timeout=600  # 10分のタイムアウト：Gemini 3などの新しいモデルは処理に時間がかかる場合がある
     )

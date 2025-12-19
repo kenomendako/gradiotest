@@ -694,12 +694,17 @@ def agent_node(state: AgentState):
 
     try:
         print("  - AIモデルにリクエストを送信中 (Streaming)...")
+        stream_start_time = time.time()  # デバッグ用: ストリーム開始時刻
         
         chunks = []
         captured_signature = None
         
         # --- ストリーム実行 ---
         for chunk in llm_or_llm_with_tools.stream(messages_for_agent):
+            if not chunks:
+                # 最初のチャンク受信時にログ出力
+                first_chunk_time = time.time() - stream_start_time
+                print(f"  - 最初のチャンク受信: {first_chunk_time:.2f}秒後")
             chunks.append(chunk)
             if not captured_signature:
                 sig = chunk.additional_kwargs.get("thought_signature")
@@ -707,6 +712,14 @@ def agent_node(state: AgentState):
                     sig = chunk.response_metadata.get("thought_signature")
                 if sig:
                     captured_signature = sig
+        
+        # ストリーム完了後のログ
+        if chunks:
+            total_stream_time = time.time() - stream_start_time
+            print(f"  - ストリーム完了: {len(chunks)}チャンク受信, 合計{total_stream_time:.2f}秒")
+        else:
+            print(f"  - 警告: チャンクが0個でした（タイムアウトの可能性）")
+
 
         if chunks:
             # 【Gemini 2.5 Pro思考モデル対応】チャンク連結の改善（2024-12-11修正）
