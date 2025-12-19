@@ -183,6 +183,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value=True),  # sleep_episodic
             gr.update(value=True),  # sleep_memory_index
             gr.update(value=False),  # sleep_current_log
+            gr.update(value=True),  # sleep_topic_clusters
             # --- [v25] テーマ設定 (Default values) ---
             gr.update(value=False),  # room_theme_enabled
             gr.update(value="Chat (Default)"),  # chat_style
@@ -310,6 +311,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     sleep_episodic = sleep_consolidation.get("update_episodic_memory", True)
     sleep_memory_index = sleep_consolidation.get("update_memory_index", True)
     sleep_current_log = sleep_consolidation.get("update_current_log_index", False)
+    sleep_topic_clusters = sleep_consolidation.get("update_topic_clusters", True)
 
     return (
         room_name, chat_history, mapping_list,
@@ -363,6 +365,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=sleep_episodic),
         gr.update(value=sleep_memory_index),
         gr.update(value=sleep_current_log),
+        gr.update(value=sleep_topic_clusters),
         # --- [v25] テーマ設定 ---
         gr.update(value=effective_settings.get("room_theme_enabled", False)),  # 個別テーマのオンオフ
         gr.update(value=effective_settings.get("chat_style", "Chat (Default)")),
@@ -564,7 +567,8 @@ def handle_save_room_settings(
     # --- 睡眠時記憶整理 ---
     sleep_update_episodic: bool = True,
     sleep_update_memory_index: bool = True,
-    sleep_update_current_log: bool = False
+    sleep_update_current_log: bool = False,
+    sleep_update_topic_clusters: bool = True
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -632,7 +636,8 @@ def handle_save_room_settings(
         "sleep_consolidation": {
             "update_episodic_memory": bool(sleep_update_episodic),
             "update_memory_index": bool(sleep_update_memory_index),
-            "update_current_log_index": bool(sleep_update_current_log)
+            "update_current_log_index": bool(sleep_update_current_log),
+            "update_topic_clusters": bool(sleep_update_topic_clusters)
         }
     }
     try:
@@ -1658,7 +1663,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
     unified_full_room_refresh_outputs と完全に一致する99個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 124
+    EXPECTED_OUTPUT_COUNT = 125
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
@@ -1723,6 +1728,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 gr.update(value=True),  # sleep_consolidation_episodic_cb
                 gr.update(value=True),  # sleep_consolidation_memory_index_cb
                 gr.update(value=False),  # sleep_consolidation_current_log_cb
+                gr.update(value=True),  # sleep_consolidation_topic_clusters_cb
                 # --- [v25] テーマ設定 ---
                 # --- [v25] テーマ設定 ---
                 gr.update(value=False),  # room_theme_enabled
@@ -3647,7 +3653,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 124
+    EXPECTED_OUTPUT_COUNT = 125
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
@@ -4893,7 +4899,7 @@ def _get_rag_index_last_updated(room_name: str, index_type: str = "memory") -> s
     except Exception:
         return "取得失敗"
 
-def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, update_memory_index: bool, update_current_log: bool):
+def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, update_memory_index: bool, update_current_log: bool, update_topic_clusters: bool = True):
     """睡眠時記憶整理設定を即座に保存する"""
     if not room_name:
         return
@@ -4911,7 +4917,8 @@ def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, upd
         config["override_settings"]["sleep_consolidation"] = {
             "update_episodic_memory": bool(update_episodic),
             "update_memory_index": bool(update_memory_index),
-            "update_current_log_index": bool(update_current_log)
+            "update_current_log_index": bool(update_current_log),
+            "update_topic_clusters": bool(update_topic_clusters)
         }
         
         with open(room_config_path, "w", encoding="utf-8") as f:

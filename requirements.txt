@@ -58,3 +58,7 @@ mdit-py-plugins~=0.4.0
 
 # --- Multi-Provider Support ---
 langchain-openai
+
+# --- Topic Clustering Feature ---
+hdbscan>=0.8.33
+sentence-transformers>=2.2.0

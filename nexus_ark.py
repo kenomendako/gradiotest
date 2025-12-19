@@ -1244,6 +1244,12 @@ try:
                                 value=False,  # デフォルトOFF（時間がかかるため）
                                 interactive=True
                             )
+                            sleep_consolidation_topic_clusters_cb = gr.Checkbox(
+                                label="🏷️ 話題クラスタを更新する",
+                                value=True,  # デフォルトON
+                                interactive=True,
+                                info="エピソード記憶を話題ごとに分類"
+                            )
 
                         # --- 記憶索引の更新 ---
                         gr.Markdown("---")
@@ -1429,6 +1435,7 @@ try:
             sleep_consolidation_episodic_cb,
             sleep_consolidation_memory_index_cb,
             sleep_consolidation_current_log_cb,
+            sleep_consolidation_topic_clusters_cb,
             # --- [v25] テーマ設定 ---
             room_theme_enabled_checkbox,  # 個別テーマのオンオフ
             chat_style_radio,
@@ -1860,6 +1867,7 @@ try:
                 sleep_consolidation_episodic_cb,
                 sleep_consolidation_memory_index_cb,
                 sleep_consolidation_current_log_cb,
+                sleep_consolidation_topic_clusters_cb,
             ],
             outputs=None
         )
@@ -2209,7 +2217,8 @@ try:
             current_room_name,
             sleep_consolidation_episodic_cb,
             sleep_consolidation_memory_index_cb,
-            sleep_consolidation_current_log_cb
+            sleep_consolidation_current_log_cb,
+            sleep_consolidation_topic_clusters_cb
         ]
         sleep_consolidation_episodic_cb.change(
             fn=ui_handlers.handle_sleep_consolidation_change,
@@ -2222,6 +2231,11 @@ try:
             outputs=None
         )
         sleep_consolidation_current_log_cb.change(
+            fn=ui_handlers.handle_sleep_consolidation_change,
+            inputs=sleep_consolidation_inputs,
+            outputs=None
+        )
+        sleep_consolidation_topic_clusters_cb.change(
             fn=ui_handlers.handle_sleep_consolidation_change,
             inputs=sleep_consolidation_inputs,
             outputs=None

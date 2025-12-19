@@ -510,6 +510,16 @@ def check_autonomous_actions():
                             except Exception as e:
                                 print(f"  ❌ {room_folder}: 現行ログ索引更新エラー - {e}")
                         
+                        if sleep_consolidation.get("update_topic_clusters", True):
+                            print(f"  🌙 {room_folder}: 話題クラスタを更新中...")
+                            try:
+                                from topic_cluster_manager import TopicClusterManager
+                                tcm = TopicClusterManager(room_folder, api_key_val)
+                                tcm_result = tcm.run_clustering()
+                                print(f"  ✅ {room_folder}: {tcm_result}")
+                            except Exception as e:
+                                print(f"  ❌ {room_folder}: 話題クラスタ更新エラー - {e}")
+                        
                         print(f"🛌 {room_folder}: 睡眠時記憶整理が完了しました。")
                     else:
                         # 既に夢を見ているので、静かに寝ていてもらう（ログも汚さない）
