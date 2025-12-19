@@ -188,7 +188,7 @@ class TopicClusterManager:
             print(f"  - [TopicCluster] {msg}")
             return msg
         
-        print(f"  - [TopicCluster] {len(episode_texts)}件のエピソードをベクトル化中...")
+        print(f"  - [TopicCluster] {len(episode_texts)}件のエピソードをベクトル化中... (Mode: {self.embedding_mode})")
         
         # 3. ベクトル化
         try:

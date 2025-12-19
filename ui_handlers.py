@@ -59,6 +59,26 @@ def handle_save_last_room(room_name: str) -> None:
     if room_name:
         config_manager.save_config_if_changed("last_room", room_name)
 
+# --- [Phase 13 追加] 再発防止用の共通ヘルパー ---
+def _ensure_output_count(values_tuple: tuple, expected_count: int) -> tuple:
+    """
+    Gradioの出力カウント不整合エラー (ValueError) を防ぐための安全装置。
+    返却値の数が期待値より少ない場合は gr.update() で埋め、多い場合は切り捨てる。
+    """
+    if len(values_tuple) == expected_count:
+        return values_tuple
+    
+    if len(values_tuple) < expected_count:
+        # 足りない分を gr.update() で埋める
+        padding = (gr.update(),) * (expected_count - len(values_tuple))
+        if len(values_tuple) > 1: # 早期リターン(1個)以外の場合のみログを出すか、文言を和らげる
+             print(f"--- [Gradio Sync] 出力数を自動調整しました (返却:{len(values_tuple)} -> 期待:{expected_count}) ---")
+        return values_tuple + padding
+    else:
+        # 多すぎる分を切り捨てる
+        print(f"⚠️ [Gradio Safety] 出力数が多すぎます (返却:{len(values_tuple)} > 期待:{expected_count})。超過分を無視します。")
+        return values_tuple[:expected_count]
+
 def hex_to_rgba(hex_code, alpha):
     """HexカラーコードをRGBA文字列に変換するヘルパー関数"""
     if not hex_code or not str(hex_code).startswith("#"):
@@ -207,6 +227,9 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value=None),  # stop_button_hover
             gr.update(value=None),  # checkbox_off
             gr.update(value=None),  # table_bg
+            gr.update(value=None),  # radio_label
+            gr.update(value=None),  # dropdown_list_bg
+            gr.update(value=0.9),  # ui_opacity
             # 背景画像設定 (Default values)
             gr.update(value=None),  # bg_image
             gr.update(value=0.4),  # bg_opacity
@@ -219,6 +242,16 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value=0), # bg_mask_blur
             gr.update(value=False), # bg_front_layer
             gr.update(value="画像を指定 (Manual)"), # bg_src_mode
+            # Sync設定
+            gr.update(value=0.4),  # sync_opacity
+            gr.update(value=0),    # sync_blur
+            gr.update(value="cover"), # sync_size
+            gr.update(value="center"), # sync_position
+            gr.update(value="no-repeat"), # sync_repeat
+            gr.update(value="300px"), # sync_custom_width
+            gr.update(value=0), # sync_radius
+            gr.update(value=0), # sync_mask_blur
+            gr.update(value=False), # sync_front_layer
             # ---
             gr.update(), # save_room_theme_button
             gr.update(value="<style></style>"),  # style_injector
@@ -226,7 +259,15 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(choices=[], value=None), # dream_date_dropdown
             gr.update(value="日付を選択すると、ここに詳細が表示されます。"), # dream_detail_text
             gr.update(choices=["すべて"], value="すべて"), # dream_year_filter
-            gr.update(choices=["すべて"], value="すべて")  # dream_month_filter
+            gr.update(choices=["すべて"], value="すべて"), # dream_month_filter
+            # --- [Phase 14] エピソード記憶閲覧リセット ---
+            gr.update(choices=[], value=None), # episodic_date_dropdown
+            gr.update(value="日付を選択すると、ここに内容が表示されます。"), # episodic_detail_text
+            gr.update(choices=["すべて"], value="すべて"), # episodic_year_filter
+            gr.update(choices=["すべて"], value="すべて"), # episodic_month_filter
+            gr.update(value="待機中"), # episodic_update_status
+            gr.update(value="", placeholder="「すべて」等の年月フィルタを切り替えると更新されます"), # topic_cluster_status
+            gr.update(value="api") # embedding_mode_radio
         )
 
     # --- 【通常モード】 ---
@@ -340,6 +381,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     # 表示用の文字列を構築 (例: 2024-06-15まで圧縮済み (対象: 12件) | 最終結果: 圧縮完了...)
     last_compression_result = f"{last_date}まで圧縮済み (対象: {pending}件) | 最終: {last_exec}"
 
+    # エピソード更新/話題クラスタ更新のステータス復元
+    last_episodic_update = room_config.get("last_episodic_update", "未実行")
+    last_topic_cluster_update = room_config.get("last_topic_cluster_update", "未実行")
+
     return (
         room_name, chat_history, mapping_list,
         gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)。添付するにはファイルをドロップまたはクリップボタンを押してください..."),
@@ -449,11 +494,19 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(choices=[], value=None), # dream_date_dropdown
         gr.update(value="日付を選択すると、ここに詳細が表示されます。"), # dream_detail_text
         gr.update(choices=["すべて"], value="すべて"), # dream_year_filter
-        gr.update(choices=["すべて"], value="すべて")  # dream_month_filter
+        gr.update(choices=["すべて"], value="すべて"), # dream_month_filter
+        # --- [Phase 14] エピソード記憶リセット対応 ---
+        gr.update(choices=[], value=None), # episodic_date_dropdown
+        gr.update(value="日付を選択すると、ここに内容が表示されます。"), # episodic_detail_text
+        gr.update(choices=["すべて"], value="すべて"), # episodic_year_filter
+        gr.update(choices=["すべて"], value="すべて"), # episodic_month_filter
+        gr.update(value=last_episodic_update), # episodic_update_status
+        gr.update(value=last_topic_cluster_update), # topic_cluster_status
+        gr.update(value=effective_settings.get("embedding_mode", "api")) # embedding_mode_radio
     )
 
 
-def handle_initial_load():
+def handle_initial_load(room_name: str = None, expected_count: int = 151):
     """
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
@@ -552,7 +605,7 @@ def handle_initial_load():
 
     # --- 7. 全ての戻り値を正しい順序で組み立てる ---
     # `initial_load_outputs`のリスト（60個）に対応
-    return (
+    final_outputs = (
         display_df, df_with_ids, feedback_text,
         *chat_tab_updates,
         rules_df_for_ui,
@@ -568,6 +621,8 @@ def handle_initial_load():
         f"最終更新: {memory_index_last_updated}",  # memory_reindex_status
         f"最終更新: {current_log_index_last_updated}"  # current_log_reindex_status
     )
+    
+    return _ensure_output_count(final_outputs, expected_count)
 
 def handle_save_room_settings(
     room_name: str, voice_name: str, voice_style_prompt: str,
@@ -2650,7 +2705,21 @@ def handle_update_episodic_memory(room_name: str, api_key_name: str):
         new_info_text = "昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** 取得エラー"
 
     # 2. UIのロックを解除 (ボタン:元通り, チャット欄:有効化)
-    yield gr.update(value="エピソード記憶を作成 / 更新", interactive=True), gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)..."), gr.update(value=new_info_text)
+    status_text = f"最終更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    
+    # 実行結果を room_config.json に保存
+    try:
+        room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+        if os.path.exists(room_config_path):
+            with open(room_config_path, "r", encoding="utf-8") as f:
+                room_config = json.load(f)
+            room_config["last_episodic_update"] = status_text
+            with open(room_config_path, "w", encoding="utf-8") as f:
+                json.dump(room_config, f, indent=2, ensure_ascii=False)
+    except:
+        pass
+
+    yield gr.update(value="エピソード記憶を作成 / 更新", interactive=True), gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)..."), gr.update(value=status_text)
 
 # --- [Project Morpheus] Dream Journal Handlers ---
 
@@ -2768,6 +2837,148 @@ def handle_dream_journal_selection_from_dropdown(room_name: str, selected_create
         return "選択された日記が見つかりませんでした。"
     except Exception as e:
         return f"詳細表示エラー: {e}"
+
+# --- [Phase 14] Episodic Memory Browser Handlers ---
+
+def handle_refresh_episodic_entries(room_name: str):
+    """エピソード記憶（episodic_memory.json）を読み込み、Dropdown の選択肢とフィルタの選択肢を返す"""
+    if not room_name:
+        return gr.update(choices=[], value=None), gr.update(value="日付を選択してください"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて")
+        
+    try:
+        manager = EpisodicMemoryManager(room_name)
+        data = manager._load_memory()
+        
+        if not data:
+            return gr.update(choices=[], value=None), gr.update(value="エピソード記憶がまだ作成されていません。"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて")
+            
+        # 日付リスト（最新順）
+        entries = []
+        years = set()
+        months = set()
+        
+        for item in data:
+            d = item.get('date', '').strip()
+            if not d: continue
+            
+            entries.append(d)
+            
+            # 年・月抽出 (YYYY-MM-DD or YYYY-MM-DD~YYYY-MM-DD)
+            # 範囲の場合は開始日を使う
+            base_date = d.split('~')[0].split('～')[0].strip()
+            if len(base_date) >= 7:
+                years.add(base_date[:4])
+                months.add(base_date[5:7])
+        
+        entries.sort(reverse=True)
+        year_choices = ["すべて"] + sorted(list(years), reverse=True)
+        month_choices = ["すべて"] + sorted(list(months))
+        
+        return (
+            gr.update(choices=entries, value=None),
+            gr.update(value="日付を選択すると、ここに内容が表示されます。"),
+            gr.update(choices=year_choices, value="すべて"),
+            gr.update(choices=month_choices, value="すべて")
+        )
+    except Exception as e:
+        print(f"Error refreshing episodic entries: {e}")
+        return gr.update(choices=[], value=None), gr.update(value=f"読み込みエラー: {e}"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて")
+
+def handle_episodic_filter_change(room_name: str, year: str, month: str):
+    """年・月のフィルタ変更に合わせて、エピソードドロップダウンの選択肢を絞り込む"""
+    if not room_name:
+        return gr.update(choices=[], value=None)
+        
+    try:
+        manager = EpisodicMemoryManager(room_name)
+        data = manager._load_memory()
+        
+        filtered_entries = []
+        for item in data:
+            d = item.get('date', '').strip()
+            if not d: continue
+            
+            # 判定用日付（範囲なら開始日）
+            base_date = d.split('~')[0].split('～')[0].strip()
+            
+            match_year = (year == "すべて" or base_date.startswith(year))
+            match_month = (month == "すべて" or (len(base_date) >= 7 and base_date[5:7] == month))
+            
+            if match_year and match_month:
+                filtered_entries.append(d)
+                
+        filtered_entries.sort(reverse=True)
+        return gr.update(choices=filtered_entries, value=None)
+    except Exception as e:
+        print(f"Error filtering episodic entries: {e}")
+        return gr.update(choices=[], value=None)
+
+def handle_episodic_selection_from_dropdown(room_name: str, selected_date: str):
+    """エピソードのドロップダウンから選択した際、詳細を表示する"""
+    if not room_name or not selected_date:
+        return ""
+        
+    try:
+        manager = EpisodicMemoryManager(room_name)
+        data = manager._load_memory()
+        
+        for item in data:
+            if item.get('date', '').strip() == selected_date.strip():
+                summary = item.get('summary', '')
+                created_at = item.get('created_at', '不明')
+                
+                details = f"【日付】 {selected_date}\n"
+                details += f"【記録日時】 {created_at}\n"
+                if item.get('compressed'):
+                    details += f"【種別】 統合済みエピソード（元ログ数: {item.get('original_count', '?')}）\n"
+                details += "-" * 30 + "\n\n"
+                details += summary
+                return details
+                
+        return "選択されたエピソードが見つかりませんでした。"
+    except Exception as e:
+        return f"エピソード表示エラー: {e}"
+
+def handle_update_topic_clusters(room_name: str, api_key_name: str):
+    """話題クラスタ（記憶の分類）を手動で更新する"""
+    if not room_name:
+        return "ルーム名が指定されていません。"
+    
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        return "⚠️ 有効なAPIキーが設定されていません。"
+    
+    try:
+        from topic_cluster_manager import TopicClusterManager
+        tcm = TopicClusterManager(room_name, api_key)
+        
+        # クラスタリング実行
+        result_msg = tcm.run_clustering()
+        
+        # 最終更新日時も含めてステータスを表示
+        from datetime import datetime
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        status_text = f"✅ 更新完了 ({now_str}): {result_msg}"
+        
+        # 実行結果を room_config.json に保存
+        try:
+            room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+            if os.path.exists(room_config_path):
+                with open(room_config_path, "r", encoding="utf-8") as f:
+                    import json
+                    room_config = json.load(f)
+                room_config["last_topic_cluster_update"] = status_text
+                with open(room_config_path, "w", encoding="utf-8") as f:
+                    json.dump(room_config, f, indent=2, ensure_ascii=False)
+        except:
+            pass
+            
+        return status_text
+        
+    except Exception as e:
+        print(f"話題クラスタ更新エラー: {e}")
+        traceback.print_exc()
+        return f"❌ エラーが発生しました: {e}"
 
 # 古い handle_dream_journal_selection は Dropdown 移行に伴い廃止
 
@@ -3744,15 +3955,15 @@ def handle_world_builder_load(room_name: str):
         gr.update(choices=place_choices_for_selected_area, value=current_location)
     )
 
-def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str):
+def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 132):
     """
     【v11: 最終契約遵守版】
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
+     expected_count を UI側 (gr.State) から受け取ることで、不整合を自動的に解消する仕組みを導入。
     """
-    # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 131
+    # 互換性のため、引数から expected_count を取得（デフォルト値はハードコード）
     if room_name == current_room_state:
-        return (gr.update(),) * EXPECTED_OUTPUT_COUNT
+        return _ensure_output_count((gr.update(),), expected_count)
 
     print(f"--- UI司令塔 実行: {room_name} へ変更 ---")
 
@@ -3803,19 +4014,31 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     current_log_index_last_updated = _get_rag_index_last_updated(room_name, "current_log")
     
     # 契約遵守のため、最後の戻り値として索引ステータスを追加
-    final_ret = all_updates_tuple + (
+    final_outputs = all_updates_tuple + (
         token_count_text, 
         "",  # room_delete_confirmed_state
         f"最終更新: {memory_index_last_updated}",  # memory_reindex_status
         f"最終更新: {current_log_index_last_updated}"  # current_log_reindex_status
     )
     
-    if len(final_ret) < EXPECTED_OUTPUT_COUNT:
-        diff = EXPECTED_OUTPUT_COUNT - len(final_ret)
-        print(f"WARNING: handle_room_change_for_all_tabs returned {len(final_ret)} items (expected {EXPECTED_OUTPUT_COUNT}). Appending {diff} dummy items.")
-        final_ret = final_ret + (gr.update(),) * diff
-        
-    return final_ret
+    return _ensure_output_count(final_outputs, expected_count)
+
+def handle_delete_room(room_name: str, api_key_name: str, current_room_name: str, expected_count: int = 132):
+    """
+    ルームを削除し、UIを別のルームにリダイレクトする。
+    """
+    if not room_name:
+        return _ensure_output_count((gr.update(),), expected_count)
+    
+    print(f"--- ルーム削除実行: {room_name} ---")
+    room_manager.delete_room(room_name)
+    
+    # 代わりのルームに移動
+    room_list = room_manager.get_room_list_for_ui()
+    next_room = room_list[0][1] if room_list else "Default"
+    
+    # 【司令塔】に委ねる
+    return handle_room_change_for_all_tabs(next_room, api_key_name, current_room_name, expected_count)
 
 def handle_start_session(main_room: str, participant_list: list) -> tuple:
     if not participant_list:

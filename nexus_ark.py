@@ -1179,29 +1179,50 @@ try:
                                 label="memory_main.txt",
                                 interactive=True,
                                 elem_id="memory_txt_editor_code",
-                                lines=15,
+                                lines=20, # 行数を増やして視認性向上
+                                max_lines=30, # max_linesを設定してスクロールバーを誘導
                                 autoscroll=True
                             )
                             with gr.Row():
                                 save_memory_button = gr.Button("保存", variant="secondary")
                                 reload_memory_button = gr.Button("再読込", variant="secondary")
                                 core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
+                            
+                            # --- 古い日記のアーカイブ (主観的記憶の中へ移動) ---
+                            with gr.Accordion("📦 古い日記をアーカイブする", open=False) as memory_archive_accordion:
+                                gr.Markdown(
+                                    "指定した日付**まで**の日記を要約し、別ファイルに保存して、このメインファイルから削除します。\n"
+                                    "**⚠️注意:** この操作は`memory_main.txt`を直接変更します（処理前にバックアップは作成されます）。"
+                                )
+                                archive_date_dropdown = gr.Dropdown(label="この日付までをアーカイブ", interactive=True)
+                               
+                                archive_confirm_state = gr.Textbox(visible=False) # 確認ダイアログ用
+                                archive_memory_button = gr.Button("アーカイブを実行", variant="stop")
 
-                        # --- 古い日記のアーカイブ ---
-                        with gr.Accordion("📦 古い日記をアーカイブする", open=False) as memory_archive_accordion:
-                            gr.Markdown(
-                                "指定した日付**まで**の日記を要約し、別ファイルに保存して、このメインファイルから削除します。\n"
-                                "**⚠️注意:** この操作は`memory_main.txt`を直接変更します（処理前にバックアップは作成されます）。"
-                            )
-                            archive_date_dropdown = gr.Dropdown(label="この日付までをアーカイブ", interactive=True)
-                           
-                            archive_confirm_state = gr.Textbox(visible=False) # 確認ダイアログ用
-                            archive_memory_button = gr.Button("アーカイブを実行", variant="stop")
-
-                        # --- エピソード記憶 ---
+                        # --- [Phase 14] エピソード記憶閲覧 ---
                         with gr.Accordion("📚 エピソード記憶（中期記憶）の管理", open=False):
                             episodic_memory_info_display = gr.Markdown("昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** (未取得)")
-                            update_episodic_memory_button = gr.Button("エピソード記憶を作成 / 更新", variant="secondary")                        
+                            refresh_episodic_button = gr.Button("📚 エピソード記憶を読み込む", variant="primary")
+                            
+                            with gr.Row():
+                                episodic_year_filter = gr.Dropdown(label="年で絞り込む", choices=["すべて"], value="すべて", scale=1)
+                                episodic_month_filter = gr.Dropdown(label="月で絞り込む", choices=["すべて"], value="すべて", scale=1)
+                            
+                            with gr.Row():
+                                with gr.Column(scale=1):
+                                    episodic_date_dropdown = gr.Dropdown(
+                                        label="閲覧するエピソードの日付を選択",
+                                        choices=[],
+                                        interactive=True,
+                                        info="最新のエピソードが上に表示されます。"
+                                    )
+                                with gr.Column(scale=2):
+                                    episodic_detail_text = gr.Textbox(
+                                        label="エピソードの内容",
+                                        lines=15,
+                                        interactive=False,
+                                        placeholder="日付を選択すると、ここに詳細が表示されます。"
+                                    )
 
                         # --- 夢日記 ---
                         with gr.Accordion("🌙 夢日記 (Dream Journal)", open=False):
@@ -1229,7 +1250,7 @@ try:
                                     )
                             
                         # --- 睡眠時記憶整理 ---
-                        with gr.Accordion("🌛 睡眠時記憶整理 (Sleep Consolidation)", open=False):
+                        with gr.Accordion("💫 睡眠時記憶整理 (Sleep Consolidation)", open=False):
                             gr.Markdown(
                                 "**発生条件:** 自律行動が有効で、通知禁止時間帯（デフォルト: 0:00〜7:00）に無操作時間を超過すると、AIは「眠り」に入り夢日記を作成します。\n\n"
                                 "夢日記を作成する際に、以下の処理も連続して実行します。（チェックを変更すると即座に保存されます）"
@@ -1261,10 +1282,37 @@ try:
                                 interactive=True,
                                 info="半年以上前のエピソード記憶を週単位に統合"
                             )
+
+                        # --- [Phase 14] 🛠️ 記憶のメンテナンス (手動実行) ---
+                        with gr.Accordion("🛠️ 記憶のメンテナンス (手動実行)", open=False) as maintenance_accordion:
+                            gr.Markdown("大規模な記憶の更新や、データの最適化を手動で実行します。")
                             
+                            with gr.Row():
+                                with gr.Column():
+                                    gr.Markdown("### 📚 エピソード記憶の更新")
+                                    update_episodic_memory_button = gr.Button("エピソード記憶を今すぐ更新", variant="primary")
+                                    episodic_update_status = gr.Textbox(label="エピソード更新ステータス", interactive=False, placeholder="更新を実行すると、ここに最終処理日等が表示されます")
+                                
+                                with gr.Column():
+                                    gr.Markdown("### 🏷️ 話題クラスタの更新")
+                                    update_topic_cluster_button = gr.Button("話題クラスタを更新する", variant="primary")
+                                    topic_cluster_status = gr.Textbox(label="話題クラスタステータス", interactive=False, placeholder="「すべて」等の年月フィルタを切り替えると更新されます")
+
                             gr.Markdown("---")
-                            gr.Markdown("#### 📦 手動圧縮を実行")
-                            gr.Markdown("半年以上前のエピソード記憶を週単位にまとめます。元のデータはアーカイブに保存されます。")
+                            with gr.Row():
+                                with gr.Column():
+                                    gr.Markdown("### 🔍 記憶索引 (RAG) の再構築")
+                                    memory_reindex_button = gr.Button("記憶の索引を更新", variant="secondary")
+                                    memory_reindex_status = gr.Textbox(label="記憶索引ステータス", interactive=False)
+                                
+                                with gr.Column():
+                                    gr.Markdown("### 🔍 現行ログの索引更新")
+                                    current_log_reindex_button = gr.Button("現行ログの索引を更新", variant="secondary")
+                                    current_log_reindex_status = gr.Textbox(label="現行ログ索引ステータス", interactive=False)
+
+                            gr.Markdown("---")
+                            gr.Markdown("### 📦 記憶の圧縮 (Archive)")
+                            gr.Markdown("半年以上前のエピソード記憶を週単位に統合して、データ量を削減します。")
                             compress_episodes_button = gr.Button("古い記憶を手動で圧縮する", variant="secondary")
                             compress_episodes_status = gr.Textbox(label="圧縮ステータス", interactive=False)
 
@@ -1273,23 +1321,11 @@ try:
                         gr.Markdown("### 🧠 エンベディング設定")
                         gr.Markdown("記憶の検索（RAG）と話題クラスタリングで使用するベクトル化方式を選択します。")
                         embedding_mode_radio = gr.Radio(
-                            choices=[("Gemini API（高精度・API使用）", "api"), ("ローカル（無料・オフライン）", "local")],
+                            choices=[("Gemini API（高精度・gemini-embedding-001）", "api"), ("ローカル（無料・paraphrase-multilingual-MiniLM-L12-v2）", "local")],
                             value="api",
                             label="エンベディングモード",
                             info="ローカルモードは初回のみモデルをダウンロードし、以降はオフラインで動作します"
                         )
-
-                        # --- 記憶索引の更新 ---
-                        gr.Markdown("---")
-                        gr.Markdown("### 🔍 記憶の索引 (RAG)")
-                        gr.Markdown("**過去ログアーカイブ、エピソード記憶、夢日記**をAIが検索できるようにベクトル化します。")
-                        memory_reindex_button = gr.Button("記憶の索引を更新", variant="secondary")
-                        memory_reindex_status = gr.Textbox(label="ステータス", interactive=False)
-                        
-                        gr.Markdown("---")
-                        gr.Markdown("**現行ログ**（今日の会話）を索引化します。")
-                        current_log_reindex_button = gr.Button("現行ログの索引を更新", variant="secondary")
-                        current_log_reindex_status = gr.Textbox(label="ステータス", interactive=False)
 
                     with gr.TabItem("知識グラフ管理", visible=False):
                         gr.Markdown("## 知識グラフの管理")
@@ -1335,6 +1371,7 @@ try:
                         knowledge_reindex_button = gr.Button("索引を作成 / 更新", variant="primary")
                         knowledge_status_output = gr.Textbox(label="ステータス", interactive=False)
                     # ▲▲▲【追加はここまで】▲▲▲
+
 
             with gr.TabItem("ワールド・ビルダー") as world_builder_tab:
                 gr.Markdown("## ワールド・ビルダー\n`world_settings.txt` の内容を、直感的に、または直接的に編集・確認できます。")
@@ -1519,7 +1556,15 @@ try:
             dream_date_dropdown,
             dream_detail_text,
             dream_year_filter,
-            dream_month_filter
+            dream_month_filter,
+            # --- [Phase 14] エピソード記憶閲覧 ---
+            episodic_date_dropdown,
+            episodic_detail_text,
+            episodic_year_filter,
+            episodic_month_filter,
+            episodic_update_status, # [Phase 14 追加] エピソード更新ステータス
+            topic_cluster_status, # [Phase 13] 話題クラスタステータス
+            embedding_mode_radio # [Phase 16 追加] エンベディングモード同期用
         ]
 
         initial_load_outputs = [
@@ -1572,14 +1617,23 @@ try:
             # 司令塔間で戻り値の数を統一するための追加コンポーネント
             token_count_display,
             room_delete_confirmed_state, # handle_delete_room が返すリセット値用
-            # 索引ステータス欄（最終更新日時表示用）
             memory_reindex_status,
             current_log_reindex_status,
+            # --- [Phase 14] エピソード記憶閲覧 ---
+            episodic_date_dropdown,
+            episodic_detail_text,
+            episodic_year_filter,
+            episodic_month_filter,
+            episodic_update_status,
+            topic_cluster_status,     # unified にも追加（initial_load_chat_outputs の変更が波及するため個別に足す必要はないかもしれないが明示的に）
+            embedding_mode_radio
         ]
+        full_refresh_output_count = gr.State(len(unified_full_room_refresh_outputs))
         
+        initial_load_output_count = gr.State(len(initial_load_outputs))
         demo.load(
             fn=ui_handlers.handle_initial_load,
-            inputs=None, 
+            inputs=[current_room_name, initial_load_output_count], 
             outputs=initial_load_outputs
         )
 
@@ -1661,7 +1715,7 @@ try:
         # 2. その後(.then)、UI全体を更新する重い処理を実行
         ).then(
             fn=ui_handlers.handle_room_change_for_all_tabs,
-            inputs=[room_dropdown, api_key_dropdown, current_room_name],
+            inputs=[room_dropdown, api_key_dropdown, current_room_name, full_refresh_output_count],
             outputs=unified_full_room_refresh_outputs
         )
 
@@ -1813,7 +1867,7 @@ try:
         )
         room_delete_confirmed_state.change(
             fn=ui_handlers.handle_delete_room,
-            inputs=[manage_folder_name_display, room_delete_confirmed_state, api_key_dropdown],
+            inputs=[manage_folder_name_display, api_key_dropdown, current_room_name, full_refresh_output_count],
             outputs=unified_full_room_refresh_outputs
         )
 
@@ -2232,7 +2286,7 @@ try:
         update_episodic_memory_button.click(
             fn=ui_handlers.handle_update_episodic_memory,
             inputs=[current_room_name, current_api_key_name_state],
-            outputs=[update_episodic_memory_button, chat_input_multimodal, episodic_memory_info_display]
+            outputs=[update_episodic_memory_button, chat_input_multimodal, episodic_update_status]
         )
 
         # --- Dream Journal Events ---
@@ -2258,6 +2312,31 @@ try:
             fn=ui_handlers.handle_dream_journal_selection_from_dropdown,
             inputs=[current_room_name, dream_date_dropdown],
             outputs=[dream_detail_text]
+        )
+
+        # --- [Phase 14] Episodic Memory Browser Events ---
+        refresh_episodic_button.click(
+            fn=ui_handlers.handle_refresh_episodic_entries,
+            inputs=[current_room_name],
+            outputs=[episodic_date_dropdown, episodic_detail_text, episodic_year_filter, episodic_month_filter]
+        )
+        
+        episodic_year_filter.change(
+            fn=ui_handlers.handle_episodic_filter_change,
+            inputs=[current_room_name, episodic_year_filter, episodic_month_filter],
+            outputs=[episodic_date_dropdown]
+        )
+        
+        episodic_month_filter.change(
+            fn=ui_handlers.handle_episodic_filter_change,
+            inputs=[current_room_name, episodic_year_filter, episodic_month_filter],
+            outputs=[episodic_date_dropdown]
+        )
+        
+        episodic_date_dropdown.change(
+            fn=ui_handlers.handle_episodic_selection_from_dropdown,
+            inputs=[current_room_name, episodic_date_dropdown],
+            outputs=[episodic_detail_text]
         )
 
         # --- 睡眠時記憶整理チェックボックス即保存 ---
@@ -2300,6 +2379,13 @@ try:
             fn=ui_handlers.handle_compress_episodes,
             inputs=[current_room_name, current_api_key_name_state],
             outputs=[compress_episodes_status]
+        )
+        
+        # --- [Phase 13] 話題クラスタ手動更新 ---
+        update_topic_cluster_button.click(
+            fn=ui_handlers.handle_update_topic_clusters,
+            inputs=[current_room_name, current_api_key_name_state],
+            outputs=[topic_cluster_status]
         )
         
         # --- エンベディングモード設定 ---
