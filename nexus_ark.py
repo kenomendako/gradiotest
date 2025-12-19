@@ -1206,21 +1206,27 @@ try:
                         # --- 夢日記 ---
                         with gr.Accordion("🌙 夢日記 (Dream Journal)", open=False):
                             gr.Markdown("AIが通知禁止時間帯（寝ている間）に見た夢の記録です。\n過去の記憶と直近の出来事を照らし合わせ、AIが得た「洞察」や「深層心理」を閲覧できます。")
-                            dream_journal_df = gr.Dataframe(
-                                headers=["日付", "トリガー (検索語)", "得られた洞察"],
-                                datatype=["str", "str", "str"],
-                                row_count=(5, "dynamic"),
-                                col_count=(3, "fixed"),
-                                interactive=True,
-                                wrap=True
-                            )
-                            dream_detail_text = gr.Textbox(
-                                label="夢の詳細・深層心理",
-                                lines=10,
-                                interactive=False,
-                                placeholder="リストを選択すると、ここに詳細が表示されます。"
-                            )
-                            refresh_dream_button = gr.Button("夢日記を読み込む", variant="secondary")
+                            refresh_dream_button = gr.Button("🌛 夢日記を読み込む", variant="primary")
+                            
+                            with gr.Row():
+                                dream_year_filter = gr.Dropdown(label="年で絞り込む", choices=["すべて"], value="すべて", scale=1)
+                                dream_month_filter = gr.Dropdown(label="月で絞り込む", choices=["すべて"], value="すべて", scale=1)
+                            
+                            with gr.Row():
+                                with gr.Column(scale=1):
+                                    dream_date_dropdown = gr.Dropdown(
+                                        label="閲覧する日記の日付を選択",
+                                        choices=[],
+                                        interactive=True,
+                                        info="最新の日記が上に表示されます。"
+                                    )
+                                with gr.Column(scale=2):
+                                    dream_detail_text = gr.Textbox(
+                                        label="夢の詳細・深層心理",
+                                        lines=15,
+                                        interactive=False,
+                                        placeholder="日付を選択すると、ここに詳細が表示されます。"
+                                    )
                             
                         # --- 睡眠時記憶整理 ---
                         with gr.Accordion("🌛 睡眠時記憶整理 (Sleep Consolidation)", open=False):
@@ -1509,6 +1515,11 @@ try:
             # ---
             save_room_theme_button,
             style_injector,
+            # --- [Phase 11/12] 夢日記対応 ---
+            dream_date_dropdown,
+            dream_detail_text,
+            dream_year_filter,
+            dream_month_filter
         ]
 
         initial_load_outputs = [
@@ -2228,12 +2239,24 @@ try:
         refresh_dream_button.click(
             fn=ui_handlers.handle_refresh_dream_journal,
             inputs=[current_room_name],
-            outputs=[dream_journal_df, dream_detail_text]
+            outputs=[dream_date_dropdown, dream_detail_text, dream_year_filter, dream_month_filter]
         )
         
-        dream_journal_df.select(
-            fn=ui_handlers.handle_dream_journal_selection,
-            inputs=[current_room_name],
+        dream_year_filter.change(
+            fn=ui_handlers.handle_dream_filter_change,
+            inputs=[current_room_name, dream_year_filter, dream_month_filter],
+            outputs=[dream_date_dropdown]
+        )
+        
+        dream_month_filter.change(
+            fn=ui_handlers.handle_dream_filter_change,
+            inputs=[current_room_name, dream_year_filter, dream_month_filter],
+            outputs=[dream_date_dropdown]
+        )
+        
+        dream_date_dropdown.change(
+            fn=ui_handlers.handle_dream_journal_selection_from_dropdown,
+            inputs=[current_room_name, dream_date_dropdown],
             outputs=[dream_detail_text]
         )
 

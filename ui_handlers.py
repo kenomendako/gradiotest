@@ -222,6 +222,11 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             # ---
             gr.update(), # save_room_theme_button
             gr.update(value="<style></style>"),  # style_injector
+            # --- [Phase 11/12] 夢日記リセット対応 ---
+            gr.update(choices=[], value=None), # dream_date_dropdown
+            gr.update(value="日付を選択すると、ここに詳細が表示されます。"), # dream_detail_text
+            gr.update(choices=["すべて"], value="すべて"), # dream_year_filter
+            gr.update(choices=["すべて"], value="すべて")  # dream_month_filter
         )
 
     # --- 【通常モード】 ---
@@ -439,7 +444,12 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         
         # CSS注入
         gr.update(), # save_room_theme_button
-        gr.update(value=_generate_style_from_settings(room_name, effective_settings))
+        gr.update(value=_generate_style_from_settings(room_name, effective_settings)),
+        # --- [Phase 11/12] 夢日記リセット対応 ---
+        gr.update(choices=[], value=None), # dream_date_dropdown
+        gr.update(value="日付を選択すると、ここに詳細が表示されます。"), # dream_detail_text
+        gr.update(choices=["すべて"], value="すべて"), # dream_year_filter
+        gr.update(choices=["すべて"], value="すべて")  # dream_month_filter
     )
 
 
@@ -2645,64 +2655,121 @@ def handle_update_episodic_memory(room_name: str, api_key_name: str):
 # --- [Project Morpheus] Dream Journal Handlers ---
 
 def handle_refresh_dream_journal(room_name: str):
-    """夢日記（insights.json）を読み込み、Dataframe形式で返す"""
+    """夢日記（insights.json）を読み込み、Dropdown の選択肢とフィルタの選択肢を返す"""
     if not room_name:
-        return pd.DataFrame(), ""
+        return gr.update(choices=[]), "", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
 
     try:
         from dreaming_manager import DreamingManager
-        # APIキーは読み込みだけなら不要だが、初期化に必要なのでダミーかconfigから取得
-        # ここでは簡易的に空文字でも動くようにDreamingManagerが設計されていればよいが、
-        # ディレクトリパス解決だけならAPIキーは使わないので適当な値を入れる
         dm = DreamingManager(room_name, "dummy_key")
         insights = dm._load_insights()
         
-        data = []
+        # 最新順にソート (created_at は YYYY-MM-DD HH:MM:SS 形式)
+        insights.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        
+        choices = []
+        years = set()
+        months = set()
+        
         for item in insights:
-            data.append([
-                item.get("created_at", "").split(" ")[0], # 日付のみ
-                item.get("trigger_topic", ""),
-                item.get("insight", "")
-            ])
+            created_at = item.get("created_at", "")
+            if not created_at:
+                continue
             
-        df = pd.DataFrame(data, columns=["日付", "トリガー (検索語)", "得られた洞察"])
-        gr.Info(f"{len(data)}件の夢日記を読み込みました。")
-        return df, ""
+            date_part = created_at.split(" ")[0] # YYYY-MM-DD
+            y, m, d = date_part.split("-")
+            years.add(y)
+            months.add(m)
+            
+            topic = item.get("trigger_topic", "話題なし")
+            # トピックを15文字で短縮
+            topic_short = (topic[:15] + "..") if len(topic) > 15 else topic
+            
+            # ラベルは「日付 (トピック短縮)」、値は「created_at (一意なキー)」
+            label = f"{date_part} ({topic_short})"
+            choices.append((label, created_at))
+            
+        year_choices = ["すべて"] + sorted(list(years), reverse=True)
+        month_choices = ["すべて"] + sorted(list(months))
+        
+        gr.Info(f"{len(choices)}件の夢日記を読み込みました。")
+        return (
+            gr.update(choices=choices, value=None),
+            "日付を選択すると、ここに詳細が表示されます。",
+            gr.update(choices=year_choices, value="すべて"),
+            gr.update(choices=month_choices, value="すべて")
+        )
         
     except Exception as e:
         print(f"夢日記読み込みエラー: {e}")
-        return pd.DataFrame(), f"エラー: {e}"
+        return gr.update(choices=[]), f"エラー: {e}", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
 
-def handle_dream_journal_selection(room_name: str, evt: gr.SelectData):
-    """夢日記のリストから行を選択した際、詳細を表示する"""
-    if not room_name or evt.index is None:
+def handle_dream_filter_change(room_name: str, year: str, month: str):
+    """年・月のフィルタ変更に合わせて、日付ドロップダウンの選択肢を絞り込む"""
+    if not room_name:
+        return gr.update(choices=[])
+    
+    try:
+        from dreaming_manager import DreamingManager
+        dm = DreamingManager(room_name, "dummy_key")
+        insights = dm._load_insights()
+        insights.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        
+        filtered_choices = []
+        for item in insights:
+            created_at = item.get("created_at", "")
+            if not created_at: continue
+            
+            date_part = created_at.split(" ")[0]
+            y, m, _d = date_part.split("-")
+            
+            if year != "すべて" and y != year:
+                continue
+            if month != "すべて" and m != month:
+                continue
+                
+            topic = item.get("trigger_topic", "話題なし")
+            topic_short = (topic[:15] + "..") if len(topic) > 15 else topic
+            label = f"{date_part} ({topic_short})"
+            filtered_choices.append((label, created_at))
+            
+        return gr.update(choices=filtered_choices, value=None)
+    except Exception as e:
+        print(f"夢日記フィルタリングエラー: {e}")
+        return gr.update(choices=[])
+
+def handle_dream_journal_selection_from_dropdown(room_name: str, selected_created_at: str):
+    """夢日記のドロップダウンから選択した際、詳細を表示する"""
+    if not room_name or not selected_created_at:
         return ""
     
     try:
-        row_index = evt.index[0]
         from dreaming_manager import DreamingManager
         dm = DreamingManager(room_name, "dummy_key")
         insights = dm._load_insights()
         
-        if 0 <= row_index < len(insights):
-            selected_dream = insights[row_index]
-            
+        # created_at が一意のキーとして動作する
+        selected_dream = next((item for item in insights if item.get("created_at") == selected_created_at), None)
+        
+        if selected_dream:
             # 詳細テキストを構築
             details = (
                 f"【日付】 {selected_dream.get('created_at')}\n"
                 f"【トリガー】 {selected_dream.get('trigger_topic')}\n\n"
-                f"## 💭 夢の日記 (Dream Log)\n"
-                f"{selected_dream.get('log_entry', '（記録なし）')}\n\n"
                 f"## 💡 得られた洞察 (Insight)\n"
                 f"{selected_dream.get('insight', '（記録なし）')}\n\n"
+                f"## 💭 夢の日記 (Dream Log)\n"
+                f"{selected_dream.get('log_entry', '（記録なし）')}\n\n"
                 f"## 🧭 今後の指針 (Strategy)\n"
                 f"{selected_dream.get('strategy', '（記録なし）')}"
             )
             return details
             
-        return ""
+        return "選択された日記が見つかりませんでした。"
     except Exception as e:
         return f"詳細表示エラー: {e}"
+
+# 古い handle_dream_journal_selection は Dropdown 移行に伴い廃止
 
 def load_notepad_content(room_name: str) -> str:
     if not room_name: return ""
@@ -3683,7 +3750,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
     """
     # 契約する戻り値の総数 (unified_full_room_refresh_outputs の要素数)
-    EXPECTED_OUTPUT_COUNT = 127
+    EXPECTED_OUTPUT_COUNT = 131
     if room_name == current_room_state:
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
 
