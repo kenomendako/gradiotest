@@ -119,6 +119,12 @@ class TopicClusterManager:
         effective_settings = config_manager.get_effective_settings(room_name)
         self.embedding_mode = effective_settings.get("embedding_mode", "api")
         
+        # [v25] クラスタリングパラメータを設定から取得（デフォルト値はクラス定数）
+        self.min_cluster_size = effective_settings.get("topic_cluster_min_size", self.MIN_CLUSTER_SIZE)
+        self.min_samples = effective_settings.get("topic_cluster_min_samples", self.MIN_SAMPLES)
+        self.cluster_selection_method = effective_settings.get("topic_cluster_selection_method", "eom")
+        self.fixed_topics = effective_settings.get("topic_cluster_fixed_topics", [])
+        
         self._embedding_provider: Optional[EmbeddingProvider] = None
     
     def _get_embedding_provider(self) -> EmbeddingProvider:
@@ -167,8 +173,8 @@ class TopicClusterManager:
         
         # 1. エピソード記憶を読み込み
         episodes = self._load_episodes()
-        if len(episodes) < self.MIN_CLUSTER_SIZE:
-            msg = f"エピソード記憶が少なすぎます（{len(episodes)}件）。最低{self.MIN_CLUSTER_SIZE}件必要です。"
+        if len(episodes) < self.min_cluster_size:
+            msg = f"エピソード記憶が少なすぎます（{len(episodes)}件）。最低{self.min_cluster_size}件必要です。"
             print(f"  - [TopicCluster] {msg}")
             return msg
         
@@ -183,7 +189,7 @@ class TopicClusterManager:
                 episode_texts.append(f"日付: {date}\n{summary}")
                 episode_dates.append(date)
         
-        if len(episode_texts) < self.MIN_CLUSTER_SIZE:
+        if len(episode_texts) < self.min_cluster_size:
             msg = f"有効なエピソードが少なすぎます（{len(episode_texts)}件）"
             print(f"  - [TopicCluster] {msg}")
             return msg
@@ -201,69 +207,176 @@ class TopicClusterManager:
             traceback.print_exc()
             return msg
         
-        # 4. クラスタリング（HDBSCAN）
-        try:
-            import hdbscan
-            clusterer = hdbscan.HDBSCAN(
-                min_cluster_size=self.MIN_CLUSTER_SIZE,
-                min_samples=self.MIN_SAMPLES,
-                metric='euclidean'
-            )
-            labels = clusterer.fit_predict(embeddings)
-            unique_labels = set(labels)
-            n_clusters = len([l for l in unique_labels if l >= 0])
-            n_noise = len([l for l in labels if l == -1])
-            
-            print(f"  - [TopicCluster] クラスタリング完了: {n_clusters}クラスタ, {n_noise}件はノイズ")
-        except ImportError:
-            msg = "hdbscanがインストールされていません。pip install hdbscan でインストールしてください。"
-            print(f"  - [TopicCluster] {msg}")
-            return msg
-        except Exception as e:
-            msg = f"クラスタリングエラー: {e}"
-            print(f"  - [TopicCluster] {msg}")
-            traceback.print_exc()
-            return msg
-        
-        # 5. クラスタ情報を構築
+        # [Phase 2] ハイブリッド分類ロジック
         clusters_data = {"version": "1.0", "clusters": []}
+        fixed_cluster_count = 0
         
-        for cluster_id in sorted([l for l in unique_labels if l >= 0]):
-            # このクラスタに属するエピソードのインデックス
-            cluster_indices = [i for i, l in enumerate(labels) if l == cluster_id]
-            cluster_episode_dates = [episode_dates[i] for i in cluster_indices]
-            cluster_embeddings = embeddings[cluster_indices]
+        unassigned_indices = list(range(len(episode_texts)))
+        
+        # 固定トピックへの分類
+        if self.fixed_topics:
+            print(f"  - [TopicCluster] 固定トピックへの分類を実行中: {self.fixed_topics}")
+            try:
+                # 固定トピックをベクトル化
+                topic_embeddings = provider.embed_documents(self.fixed_topics)
+                
+                # トピックごとのバケツを用意
+                topic_buckets = {i: [] for i in range(len(self.fixed_topics))} # topic_index -> List[episode_index]
+                
+                # 未割り当てインデックスを更新するためのリスト
+                remaining_indices = []
+                
+                # 各エピソードとトピックの類似度判定
+                SIMILARITY_THRESHOLD = 0.6 # 閾値
+                
+                for idx in unassigned_indices:
+                    ep_embedding = embeddings[idx]
+                    
+                    # 各トピックとの類似度を計算
+                    similarities = np.dot(topic_embeddings, ep_embedding) / (
+                        np.linalg.norm(topic_embeddings, axis=1) * np.linalg.norm(ep_embedding) + 1e-10
+                    )
+                    
+                    best_match_idx = np.argmax(similarities)
+                    max_sim = similarities[best_match_idx]
+                    
+                    if max_sim >= SIMILARITY_THRESHOLD:
+                        topic_buckets[best_match_idx].append(idx)
+                    else:
+                        remaining_indices.append(idx)
+                
+                unassigned_indices = remaining_indices
+                
+                # 固定トピッククラスタを作成
+                for i, topic_name in enumerate(self.fixed_topics):
+                    indices = topic_buckets[i]
+                    if indices:
+                        cluster_episode_dates = [episode_dates[idx] for idx in indices]
+                        cluster_embeddings = embeddings[indices]
+                        centroid = np.mean(cluster_embeddings, axis=0)
+                        
+                        cluster_info = {
+                            "cluster_id": f"cluster_fixed_{i:02d}",
+                            "auto_label": topic_name, # 固定名はそのままラベルに
+                            "persona_label": None,
+                            "centroid_embedding": centroid.tolist(),
+                            "episode_dates": cluster_episode_dates,
+                            "episode_count": len(indices),
+                            "summary": f"{topic_name} に関するエピソードグループ", # 簡易要約
+                            "created_at": datetime.datetime.now().isoformat(),
+                            "is_fixed": True, # 固定トピックフラグ
+                            "episode_indices": indices # [一時的] ラベル生成用
+                        }
+                        clusters_data["clusters"].append(cluster_info)
+                        fixed_cluster_count += 1
+                        
+                print(f"  - [TopicCluster] 固定トピック分類完了: {fixed_cluster_count}クラスタ ({len(episode_texts) - len(unassigned_indices)}件分類済み)")
+                
+            except Exception as e:
+                print(f"  - [TopicCluster] 固定トピック分類エラー (スキップ): {e}")
+                traceback.print_exc()
+
+        # 残りのエピソードでHDBSCAN (自動クラスタリング)
+        if len(unassigned_indices) >= self.min_cluster_size:
+            # 部分ベクトル抽出
+            partial_embeddings = embeddings[unassigned_indices]
             
-            # クラスタの重心を計算
-            centroid = np.mean(cluster_embeddings, axis=0)
-            
-            # このクラスタのテキストを抽出（ラベル生成用）
-            cluster_texts = [episode_texts[i] for i in cluster_indices]
-            
-            cluster_info = {
-                "cluster_id": f"cluster_{cluster_id:03d}",
-                "auto_label": None,  # 後でAIが生成
-                "persona_label": None,
-                "centroid_embedding": centroid.tolist(),
-                "episode_dates": cluster_episode_dates,
-                "episode_count": len(cluster_indices),
-                "summary": None,  # 後でAIが生成
-                "created_at": datetime.datetime.now().isoformat()
-            }
-            clusters_data["clusters"].append(cluster_info)
+            # 4. クラスタリング（HDBSCAN）
+            try:
+                import hdbscan
+                print(f"  - [TopicCluster] HDBSCAN実行中 (対象: {len(unassigned_indices)}件, min_cluster_size={self.min_cluster_size}, min_samples={self.min_samples}, method={self.cluster_selection_method})")
+                clusterer = hdbscan.HDBSCAN(
+                    min_cluster_size=self.min_cluster_size,
+                    min_samples=self.min_samples,
+                    cluster_selection_method=self.cluster_selection_method,
+                    metric='euclidean'
+                )
+                labels = clusterer.fit_predict(partial_embeddings)
+                unique_labels = set(labels)
+                n_clusters = len([l for l in unique_labels if l >= 0])
+                n_noise = len([l for l in labels if l == -1])
+                
+                print(f"  - [TopicCluster] 自動クラスタリング完了: {n_clusters}クラスタ, {n_noise}件はノイズ")
+                
+                # 自動クラスタ情報を追加
+                # 既存のクラスタIDと衝突しないようにオフセット
+                id_offset = fixed_cluster_count 
+                
+                for cluster_id in sorted([l for l in unique_labels if l >= 0]):
+                    # label上のインデックスは partial_embeddings に対するもの。
+                    # 元の episode_texts に対するインデックスに変換が必要
+                    # labels[local_idx] == cluster_id なる local_idx を探し、
+                    # unassigned_indices[local_idx] で元の index を得る
+                    
+                    local_indices = [i for i, l in enumerate(labels) if l == cluster_id]
+                    original_indices = [unassigned_indices[i] for i in local_indices]
+                    
+                    cluster_episode_dates = [episode_dates[i] for i in original_indices]
+                    cluster_embeddings_subset = embeddings[original_indices]
+                    
+                    # クラスタの重心を計算
+                    centroid = np.mean(cluster_embeddings_subset, axis=0)
+                    
+                    cluster_info = {
+                        "cluster_id": f"cluster_{id_offset + cluster_id:03d}",
+                        "auto_label": None,  # 後でAIが生成
+                        "persona_label": None,
+                        "centroid_embedding": centroid.tolist(),
+                        "episode_dates": cluster_episode_dates,
+                        "episode_count": len(original_indices),
+                        "summary": None,  # 後でAIが生成
+                        "created_at": datetime.datetime.now().isoformat(),
+                        "is_fixed": False,
+                        "episode_indices": original_indices # [一時的] ラベル生成用
+                    }
+                    clusters_data["clusters"].append(cluster_info)
+                    
+            except ImportError:
+                msg = "hdbscanがインストールされていません。pip install hdbscan でインストールしてください。"
+                print(f"  - [TopicCluster] {msg}")
+                # ここでリターンせず、固定トピック分だけでも保存するなら続行すべきだが、
+                # 一旦エラーメッセージを出して終了する（従来通り）
+                return msg
+            except Exception as e:
+                msg = f"クラスタリングエラー: {e}"
+                print(f"  - [TopicCluster] {msg}")
+                traceback.print_exc()
+                return msg
+        else:
+             print(f"  - [TopicCluster] 残存エピソードが少なすぎるため自動クラスタリングはスキップ ({len(unassigned_indices)} < {self.min_cluster_size})")
+
+        # 6. 自動クラスタのラベルと要約を生成 (is_fixed=Falseのものだけ)
+        # ラベル生成ロジック側でインデックス参照が必要なので、ここでの呼び出し方を少し変えるか、
+        # _generate_cluster_labels を改修する必要がある。
+        # 現在の _generate_cluster_labels は labels 配列と全テキストを渡す前提になっている。
+        # しかしここでは「固定トピック割り当て済み」と「HDBSCAN結果」が混ざっている。
+        
+        # 解決策: _generate_cluster_labels は clusters_data を元に処理するように変更するのが最もクリーン。
+        # episode_texts全体と、各クラスタが保持する(保持してない！) テキスト情報が必要。
+        # -> クラスタ情報内にテキストインデックスかテキストそのものを持たせるのが良さそうだが、
+        # 容量節約のためテキストは持っていない。
+        # しかし _generate_cluster_labels は labels (numpy array) を使ってインデックスを逆引きしている。
+        # 今回のハイブリッド化で labels 配列一つで全エピソードを表現できなくなった（固定割当があるため）。
+        
+        # よって、cluster_info に一時的に `episode_indices` を持たせて、ラベル生成後に削除する方式に修正する。
+        # 上記のコードブロック内で episode_indices を追加する必要がある。
+        
+        # 修正: 上記ループ内で `episode_indices` を追加する。
+
         
         # 6. 各クラスタのラベルと要約を生成
         print(f"  - [TopicCluster] クラスタラベルを生成中...")
-        clusters_data = self._generate_cluster_labels(clusters_data, episode_texts, labels)
+        clusters_data = self._generate_cluster_labels(clusters_data, episode_texts)
         
         # 7. 保存
         self._save_clusters(clusters_data)
         
-        msg = f"{n_clusters}個の話題クラスタを作成しました"
+        total_clusters = len(clusters_data["clusters"])
+        msg = f"{total_clusters}個の話題クラスタを作成しました"
         print(f"--- [TopicCluster] 完了: {msg} ---")
         return msg
     
-    def _generate_cluster_labels(self, clusters_data: Dict, episode_texts: List[str], labels: np.ndarray) -> Dict:
+    def _generate_cluster_labels(self, clusters_data: Dict, episode_texts: List[str]) -> Dict:
         """
         各クラスタにラベルと要約を生成する
         
@@ -279,10 +392,19 @@ class TopicClusterManager:
             return clusters_data
         
         for cluster_info in clusters_data["clusters"]:
-            cluster_id_num = int(cluster_info["cluster_id"].split("_")[1])
-            cluster_indices = [i for i, l in enumerate(labels) if l == cluster_id_num]
+            # 固定トピックかつ既にラベルがある場合はスキップも可能だが、要約生成のためにAIには通す
+            # ただしラベルは固定名を変えないようにする
+            
+            cluster_indices = cluster_info.get("episode_indices", [])
             cluster_texts = [episode_texts[i] for i in cluster_indices[:5]]  # 最大5件
             
+            # 使用済みインデックスは削除（保存ファイルに含めない）
+            if "episode_indices" in cluster_info:
+                del cluster_info["episode_indices"]
+            
+            if not cluster_texts:
+                continue
+
             combined_text = "\n---\n".join(cluster_texts)
             
             prompt = f"""以下は同じ話題に関連する会話エピソードです。
@@ -302,13 +424,14 @@ class TopicClusterManager:
                 lines = response.split("\n")
                 for line in lines:
                     if line.startswith("ラベル:") or line.startswith("ラベル："):
-                        cluster_info["auto_label"] = line.split(":", 1)[1].strip() if ":" in line else line.split("：", 1)[1].strip()
+                        if not cluster_info.get("is_fixed"):
+                            cluster_info["auto_label"] = line.split(":", 1)[1].strip() if ":" in line else line.split("：", 1)[1].strip()
                     elif line.startswith("要約:") or line.startswith("要約："):
                         cluster_info["summary"] = line.split(":", 1)[1].strip() if ":" in line else line.split("：", 1)[1].strip()
                 
                 # フォールバック
                 if not cluster_info["auto_label"]:
-                    cluster_info["auto_label"] = f"話題グループ {cluster_id_num + 1}"
+                    cluster_info["auto_label"] = f"話題グループ {cluster_info['cluster_id']}"
                 if not cluster_info["summary"]:
                     cluster_info["summary"] = f"{len(cluster_indices)}件のエピソードを含むクラスタ"
                 
@@ -319,7 +442,8 @@ class TopicClusterManager:
                 
             except Exception as e:
                 print(f"    ! {cluster_info['cluster_id']} のラベル生成エラー: {e}")
-                cluster_info["auto_label"] = f"話題グループ {cluster_id_num + 1}"
+                if not cluster_info.get("auto_label"):
+                    cluster_info["auto_label"] = f"話題グループ {cluster_info['cluster_id']}"
                 cluster_info["summary"] = f"{len(cluster_indices)}件のエピソードを含むクラスタ"
         
         return clusters_data

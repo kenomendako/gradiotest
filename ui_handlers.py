@@ -384,6 +384,24 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     # エピソード更新/話題クラスタ更新のステータス復元
     last_episodic_update = room_config.get("last_episodic_update", "未実行")
     last_topic_cluster_update = room_config.get("last_topic_cluster_update", "未実行")
+    
+    # トピッククラスタのDataFrame用データを読み込む
+    cluster_df_data = []
+    try:
+        clusters_path = os.path.join(constants.ROOMS_DIR, room_name, "topic_clusters.json")
+        if os.path.exists(clusters_path):
+            with open(clusters_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for c in data.get("clusters", []):
+                    cluster_df_data.append([
+                        c.get("cluster_id", ""),
+                        c.get("auto_label", "No Label"),
+                        c.get("episode_count", 0),
+                        c.get("summary", "")
+                    ])
+        cluster_df_data.sort(key=lambda x: x[0])
+    except Exception as e:
+        print(f"Error loading clusters for room change: {e}")
 
     return (
         room_name, chat_history, mapping_list,
@@ -439,6 +457,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=sleep_current_log),
         gr.update(value=sleep_topic_clusters),
         gr.update(value=sleep_compress),
+        gr.update(value=effective_settings.get("topic_cluster_min_size", 3)),
+        gr.update(value=effective_settings.get("topic_cluster_min_samples", 2)),
+        gr.update(value=effective_settings.get("topic_cluster_selection_method", "eom")),
+        gr.update(value=", ".join(effective_settings.get("topic_cluster_fixed_topics", []))),
         gr.update(value=last_compression_result),
         # --- [v25] テーマ設定 ---
         gr.update(value=effective_settings.get("room_theme_enabled", False)),  # 個別テーマのオンオフ
@@ -502,11 +524,12 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(choices=["すべて"], value="すべて"), # episodic_month_filter
         gr.update(value=last_episodic_update), # episodic_update_status
         gr.update(value=last_topic_cluster_update), # topic_cluster_status
+        gr.update(value=cluster_df_data), # topic_cluster_list_display [Phase 3]
         gr.update(value=effective_settings.get("embedding_mode", "api")) # embedding_mode_radio
     )
 
 
-def handle_initial_load(room_name: str = None, expected_count: int = 151):
+def handle_initial_load(room_name: str = None, expected_count: int = 153):
     """
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
@@ -596,7 +619,8 @@ def handle_initial_load(room_name: str = None, expected_count: int = 151):
         gr.update(value=current_openai_profile_name),            # openai_profile_dropdown
         gr.update(value=openai_setting.get("base_url", "")),     # openai_base_url_input
         gr.update(value=openai_setting.get("api_key", "")),      # openai_api_key_input
-        gr.update(choices=available_models, value=default_model) # openai_model_dropdown
+        gr.update(choices=available_models, value=default_model),# openai_model_dropdown
+        gr.update(value=openai_setting.get("tool_use_enabled", True)) # room_openai_tool_use_checkbox
     )
 
     # --- 6. 索引の最終更新日時を取得 ---
@@ -636,6 +660,7 @@ def handle_save_room_settings(
     send_current_time: bool, 
     send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool,
+    send_scenery: bool,
     enable_scenery_system: bool,
     auto_memory_enabled: bool,
     api_history_limit: str,
@@ -658,7 +683,11 @@ def handle_save_room_settings(
     sleep_update_memory_index: bool = True,
     sleep_update_current_log: bool = False,
     sleep_update_topic_clusters: bool = True,
-    sleep_update_compress: bool = False
+    sleep_update_compress: bool = False,
+    topic_cluster_min_size: int = 3,
+    topic_cluster_min_samples: int = 2,
+    topic_cluster_selection_method: str = "eom",
+    topic_cluster_fixed_topics: str = ""
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -700,9 +729,8 @@ def handle_save_room_settings(
         "send_notepad": bool(send_notepad),
         "use_common_prompt": bool(use_common_prompt),
         "send_core_memory": bool(send_core_memory),
-        # ここで2つの設定を連動させる
+        "send_scenery": bool(send_scenery),
         "enable_scenery_system": bool(enable_scenery_system),
-        "send_scenery": bool(enable_scenery_system),
         "auto_memory_enabled": bool(auto_memory_enabled),
         "api_history_limit": history_limit_key,
         "episode_memory_lookback_days": episode_days_key,
@@ -729,30 +757,16 @@ def handle_save_room_settings(
             "update_current_log_index": bool(sleep_update_current_log),
             "update_topic_clusters": bool(sleep_update_topic_clusters),
             "compress_old_episodes": bool(sleep_update_compress)
-        }
+        },
+        "topic_cluster_min_size": int(topic_cluster_min_size),
+        "topic_cluster_min_samples": int(topic_cluster_min_samples),
+        "topic_cluster_selection_method": str(topic_cluster_selection_method),
+        "topic_cluster_fixed_topics": [t.strip() for t in topic_cluster_fixed_topics.split(",") if t.strip()]
     }
-    try:
-        room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
-        config = {}
-        if os.path.exists(room_config_path):
-             if os.path.getsize(room_config_path) > 0:
-                with open(room_config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-        else:
-            gr.Warning(f"設定ファイルが見つからなかったため、新しく作成します: {room_config_path}")
-            config = {
-                "version": 1, "room_name": room_name, "user_display_name": "ユーザー",
-                "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                "description": "自動生成された設定ファイルです"
-            }
-
-        if "override_settings" not in config: config["override_settings"] = {}
-        config["override_settings"].update(new_settings)
-        config["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        with open(room_config_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
+    if room_manager.update_room_config(room_name, new_settings):
         gr.Info(f"「{room_name}」の個別設定を保存しました。")
-    except Exception as e: gr.Error(f"個別設定の保存中にエラーが発生しました: {e}"); traceback.print_exc()
+    else:
+        gr.Error("個別設定の保存中にエラーが発生しました。詳細はログを確認してください。")
 
 def handle_context_settings_change(
     room_name: str, api_key_name: str, api_history_limit: str, 
@@ -1754,7 +1768,7 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
     unified_full_room_refresh_outputs と完全に一致する99個の値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 127
+    EXPECTED_OUTPUT_COUNT = 131
     
     if str(confirmed).lower() != 'true':
         return (gr.update(),) * EXPECTED_OUTPUT_COUNT
@@ -1821,83 +1835,53 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 gr.update(value=False),  # sleep_consolidation_current_log_cb
                 gr.update(value=True),  # sleep_consolidation_topic_clusters_cb
                 gr.update(value=False), # sleep_consolidation_compress_cb
+                gr.update(value=3),     # topic_cluster_min_size
+                gr.update(value=2),     # topic_cluster_min_samples
+                gr.update(value="eom"), # topic_cluster_selection_method
+                gr.update(value=""),    # topic_cluster_fixed_topics
                 gr.update(value="未実行"), # compress_episodes_status
                 # --- [v25] テーマ設定 ---
-                # --- [v25] テーマ設定 ---
-                gr.update(value=False),  # room_theme_enabled
-                gr.update(value="Chat (Default)"),  # chat_style
-                gr.update(value=15),  # font_size
-                gr.update(value=1.6),  # line_height
-                gr.update(value=None),  # primary
-                gr.update(value=None),  # secondary
-                gr.update(value=None),  # bg
-                gr.update(value=None),  # text
-                gr.update(value=None),  # accent_soft
-                # 詳細設定
-                gr.update(value=None),  # input_bg
-                gr.update(value=None),  # input_border
-                gr.update(value=None),  # code_bg
-                gr.update(value=None),  # subdued_text
-                gr.update(value=None),  # button_bg
-                gr.update(value=None),  # button_hover
-                gr.update(value=None),  # stop_button_bg
-                gr.update(value=None),  # stop_button_hover
-                gr.update(value=None),  # checkbox_off
-                gr.update(value=None),  # table_bg
-                gr.update(value=None),  # radio_label
-                gr.update(value=None),  # dropdown_list_bg
-                gr.update(value=0.9),  # ui_opacity
-                # 背景画像設定
-                gr.update(value=None),  # bg_image
-                gr.update(value=0.4),  # bg_opacity
-                gr.update(value=0),    # bg_blur
-                gr.update(value="cover"), # bg_size
-                gr.update(value="center"), # bg_position
-                gr.update(value="no-repeat"), # theme_bg_repeat
-                gr.update(value="300px"), # theme_bg_custom_width
-                gr.update(value=0), # theme_bg_radius
-                gr.update(value=0), # theme_bg_mask_blur
-                gr.update(value=False), # theme_bg_front_layer
-                gr.update(value="画像を指定 (Manual)"), # theme_bg_src_mode
-                # Sync設定
-                gr.update(value=0.4),
-                gr.update(value=0),
-                gr.update(value="cover"),
-                gr.update(value="center"),
-                gr.update(value="no-repeat"),
-                gr.update(value="300px"),
-                gr.update(value=0),
-                gr.update(value=0),
-                gr.update(value=False),
-                # ---
+                gr.update(value=False), # room_theme_enabled_checkbox
+                *[gr.update()]*8,       # chat_style to accent_soft (9 items total)
+                *[gr.update()]*13,      # theme detailed (13 items)
+                *[gr.update()]*11,      # bg images (11 items)
+                *[gr.update()]*9,       # bg sync (9 items)
                 gr.update(), # save_room_theme_button
-                gr.update(value="<style></style>"),  # style_injector
+                gr.update(value=""), # style_injector
+                *[gr.update()]*4, # dream diary (4 items)
+                *[gr.update()]*4, # episodic browser (4 items)
+                gr.update(value="未実行"), # episodic_update_status
+                gr.update(value="未実行"), # topic_cluster_status
+                [], # topic_cluster_list_display
+                gr.update(value="api") # embedding_mode_radio
             )
-            empty_world_updates = ({}, gr.update(choices=[], value=None), "", gr.update(choices=[], value=None))
-            empty_session_updates = ([], "ルームがありません", gr.update(choices=[]))
-            empty_df = pd.DataFrame(columns=["元の文字列 (Find)", "置換後の文字列 (Replace)", "背景色"])
-            empty_attach_df = pd.DataFrame(columns=["ファイル名", "種類", "サイズ(KB)", "添付日時"])
+
+            # ケース2の全項目を組み立てる (unified_full_room_refresh_outputs に合わせる)
+            world_outputs = (None, None, "", None) # 4 items
+            session_outputs = ([], "", []) # 3 items
+            tail_outputs = (
+                gr.update(value=[]), # redaction_rules_df
+                gr.update(choices=[], value=None), # archive_date_dropdown
+                gr.update(value="リアル連動"), # time_mode_radio
+                gr.update(value="秋"), # fixed_season
+                gr.update(value="夜"), # fixed_time_of_day
+                gr.update(visible=False), # fixed_time_controls
+                [], # attachments_df
+                "現在アクティブな添付ファイルはありません。", # active_attachments_display
+                gr.update(choices=[], value=None), # custom_scenery_location
+                "トークン数: (ルーム未選択)", # token_count
+                "", # room_delete_confirmed_state
+                "最終更新: -", # memory_reindex_status
+                "最終更新: -"  # current_log_reindex_status
+            )
             
-            return (
-                *empty_chat_updates, 
-                *empty_world_updates, 
-                *empty_session_updates,
-                empty_df, 
-                gr.update(choices=[]), # archive_date_dropdown
-                *[gr.update()]*4, # time_settings
-                empty_attach_df, 
-                "現在アクティブな添付ファイルはありません。", 
-                gr.update(choices=[]), # custom_scenery_location_dropdown
-                "トークン数: -", # token_count_display
-                "",              # room_delete_confirmed_state
-                "最終更新: -",  # memory_reindex_status
-                "最終更新: -"   # current_log_reindex_status
-            )
-        
+            final_reset_outputs = empty_chat_updates + world_outputs + session_outputs + tail_outputs
+            return _ensure_output_count(final_reset_outputs, expected_count)
+            
     except Exception as e:
         gr.Error(f"ルームの削除中にエラーが発生しました: {e}")
         traceback.print_exc()
-        return (gr.update(),) * EXPECTED_OUTPUT_COUNT
+        return (gr.update(),) * expected_count
     
 def load_core_memory_content(room_name: str) -> str:
     """core_memory.txtの内容を安全に読み込むヘルパー関数。"""
@@ -2939,20 +2923,34 @@ def handle_episodic_selection_from_dropdown(room_name: str, selected_date: str):
     except Exception as e:
         return f"エピソード表示エラー: {e}"
 
-def handle_update_topic_clusters(room_name: str, api_key_name: str):
+def handle_update_topic_clusters(room_name: str, api_key_name: str, min_size=None, min_samples=None, method=None, fixed_topics_str=None):
     """話題クラスタ（記憶の分類）を手動で更新する"""
     if not room_name:
-        return "ルーム名が指定されていません。"
+        return "ルーム名が指定されていません。", [] # DataFrame用に空リストを返す
     
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        return "⚠️ 有効なAPIキーが設定されていません。"
+        return "⚠️ 有効なAPIキーが設定されていません。", []
     
+    # 引数が渡された場合のみ、settingsを保存する (New Call with 6 args)
+    if fixed_topics_str is not None:
+        fixed_topics = [t.strip() for t in fixed_topics_str.split(",") if t.strip()]
+        updates = {
+            "topic_cluster_min_size": int(min_size) if min_size is not None else None,
+            "topic_cluster_min_samples": int(min_samples) if min_samples is not None else None,
+            "topic_cluster_selection_method": str(method) if method is not None else None,
+            "topic_cluster_fixed_topics": fixed_topics
+        }
+        # Noneの項目を除去
+        updates = {k: v for k, v in updates.items() if v is not None}
+        room_manager.update_room_config(room_name, updates)
+
     try:
         from topic_cluster_manager import TopicClusterManager
         tcm = TopicClusterManager(room_name, api_key)
         
         # クラスタリング実行
+        # TopicClusterManagerは内部でconfigを読み込むため、引数がなくても保存済み設定で動作する
         result_msg = tcm.run_clustering()
         
         # 最終更新日時も含めてステータスを表示
@@ -2960,25 +2958,37 @@ def handle_update_topic_clusters(room_name: str, api_key_name: str):
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         status_text = f"✅ 更新完了 ({now_str}): {result_msg}"
         
-        # 実行結果を room_config.json に保存
+        # 実行結果を room_config.json のステータス欄にも保存
+        room_manager.update_room_config(room_name, {"last_topic_cluster_update": status_text})
+        
+        # 可視化用データの作成
+        df_data = []
         try:
-            room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
-            if os.path.exists(room_config_path):
-                with open(room_config_path, "r", encoding="utf-8") as f:
+            clusters_path = os.path.join(constants.ROOMS_DIR, room_name, "topic_clusters.json")
+            if os.path.exists(clusters_path):
+                with open(clusters_path, "r", encoding="utf-8") as f:
                     import json
-                    room_config = json.load(f)
-                room_config["last_topic_cluster_update"] = status_text
-                with open(room_config_path, "w", encoding="utf-8") as f:
-                    json.dump(room_config, f, indent=2, ensure_ascii=False)
-        except:
-            pass
+                    data = json.load(f)
+                    for c in data.get("clusters", []):
+                        df_data.append([
+                            c.get("cluster_id", ""),
+                            c.get("auto_label", "No Label"),
+                            c.get("episode_count", 0),
+                            c.get("summary", "")
+                        ])
+            # クラスタID順にソート（必要なら）
+            df_data.sort(key=lambda x: x[0])
             
-        return status_text
+        except Exception as e:
+            print(f"Cluster dataframe creation error: {e}")
+            df_data = []
+
+        return status_text, df_data
         
     except Exception as e:
         print(f"話題クラスタ更新エラー: {e}")
         traceback.print_exc()
-        return f"❌ エラーが発生しました: {e}"
+        return f"❌ エラーが発生しました: {e}", []
 
 # 古い handle_dream_journal_selection は Dropdown 移行に伴い廃止
 
@@ -3955,7 +3965,7 @@ def handle_world_builder_load(room_name: str):
         gr.update(choices=place_choices_for_selected_area, value=current_location)
     )
 
-def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 132):
+def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 143):
     """
     【v11: 最終契約遵守版】
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
@@ -4023,22 +4033,109 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     
     return _ensure_output_count(final_outputs, expected_count)
 
-def handle_delete_room(room_name: str, api_key_name: str, current_room_name: str, expected_count: int = 132):
+def handle_delete_room(room_name: str, api_key_name: str, current_room_name: str, expected_count: int = 143):
     """
     ルームを削除し、UIを別のルームにリダイレクトする。
     """
     if not room_name:
         return _ensure_output_count((gr.update(),), expected_count)
     
-    print(f"--- ルーム削除実行: {room_name} ---")
-    room_manager.delete_room(room_name)
-    
-    # 代わりのルームに移動
-    room_list = room_manager.get_room_list_for_ui()
-    next_room = room_list[0][1] if room_list else "Default"
-    
-    # 【司令塔】に委ねる
-    return handle_room_change_for_all_tabs(next_room, api_key_name, current_room_name, expected_count)
+    try:
+        print(f"--- ルーム削除実行: {room_name} ---")
+        room_manager.delete_room(room_name)
+        
+        # 代わりのルームに移動
+        room_list = room_manager.get_room_list_for_ui()
+        if room_list:
+            next_room = room_list[0][1]
+            # 【司令塔】に委ねる
+            return handle_room_change_for_all_tabs(next_room, api_key_name, "", expected_count)
+        else:
+            # ケース2: これが最後のルームだった場合
+            gr.Warning("全てのルームが削除されました。新しいルームを作成してください。")
+            
+            # initial_load_chat_outputs (123個) に対応するリセット値
+            empty_chat_updates = (
+                None, [], [], gr.update(interactive=False, placeholder="ルームを作成してください。"), 
+                None, "", "", "", "",  # room_name, chatbot, mapping, input, profile, memory, notepad, system_prompt, core_memory
+                gr.update(choices=[], value=None), gr.update(choices=[], value=None), 
+                gr.update(choices=[], value=None), gr.update(choices=[], value=None),  # room_dropdown, alarm_dd, timer_dd, manage_dd
+                gr.update(choices=[], value=None),  # location_dropdown
+                "（ルームがありません）",  # current_scenery_display
+                list(config_manager.SUPPORTED_VOICES.values())[0], "", True, 0.01,  # voice_dd, voice_style, typewriter, speed
+                0.8, 0.95, *[gr.update()]*4,  # temp, top_p, 4 safety settings
+                False, # display_thoughts
+                False, # send_thoughts
+                True,  # enable_auto_retrieval
+                True,  # add_timestamp
+                True,  # send_current_time
+                True,  # send_notepad
+                True,  # use_common_prompt
+                True,  # send_core_memory
+                False, # send_scenery
+                False, # auto_memory_enabled
+                "ℹ️ *ルームを選択してください*", None,  # room_settings_info, scenery_image
+                True, gr.update(open=False),  # enable_scenery_system, profile_scenery_accordion
+                gr.update(value="全ログ"),  # room_api_history_limit_dropdown
+                "all",  # api_history_limit_state
+                gr.update(value="過去 2週間"),  # room_episode_memory_days_dropdown
+                gr.update(value="昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** -"),  # episodic_memory_info_display
+                gr.update(value=False),  # room_enable_autonomous_checkbox
+                gr.update(value=120),  # room_autonomous_inactivity_slider
+                gr.update(value="00:00"),  # room_quiet_hours_start
+                gr.update(value="07:00"),  # room_quiet_hours_end
+                *[gr.update()]*8,  # room_model_dropdown, provider_radio, google_group, openai_group, api_key_dd, openai_profile, base_url, api_key
+                gr.update(),  # openai_model_dropdown
+                gr.update(value=True),  # openai_tool_use_checkbox
+                # --- 睡眠時記憶整理 ---
+                *[gr.update()]*5,       # sleep cb's (5 items)
+                gr.update(value=3),     # topic_cluster_min_size
+                gr.update(value=2),     # topic_cluster_min_samples
+                gr.update(value="eom"), # topic_cluster_selection_method
+                gr.update(value=""),    # topic_cluster_fixed_topics
+                gr.update(value="未実行"), # compress_episodes_status
+                # --- [v25] テーマ設定 ---
+                gr.update(value=False), # room_theme_enabled_checkbox
+                *[gr.update()]*8,       # chat_style to accent_soft (9 items total)
+                *[gr.update()]*13,      # theme detailed (13 items)
+                *[gr.update()]*11,      # bg images (11 items)
+                *[gr.update()]*9,       # bg sync (9 items)
+                gr.update(), # save_room_theme_button
+                gr.update(value=""), # style_injector
+                *[gr.update()]*4, # dream diary (4 items)
+                *[gr.update()]*4, # episodic browser (4 items)
+                gr.update(value="未実行"), # episodic_update_status
+                gr.update(value="未実行"), # topic_cluster_status
+                [], # topic_cluster_list_display
+                gr.update(value="api") # embedding_mode_radio
+            )
+
+            # 共通部分の組み立て (123 + 4 + 3 + 13 = 143 items)
+            world_outputs = (None, None, "", None) # 4 items
+            session_outputs = ([], "", []) # 3 items
+            tail_outputs = (
+                gr.update(value=[]), # redaction_rules_df
+                gr.update(choices=[], value=None), # archive_date_dropdown
+                gr.update(value="リアル連動"), # time_mode_radio
+                gr.update(value="秋"), # fixed_season
+                gr.update(value="夜"), # fixed_time_of_day
+                gr.update(visible=False), # fixed_time_controls
+                [], # attachments_df
+                "現在アクティブな添付ファイルはありません。", # active_attachments_display
+                gr.update(choices=[], value=None), # custom_scenery_location
+                "トークン数: (ルーム未選択)", # token_count
+                "", # room_delete_confirmed_state
+                "最終更新: -", # memory_reindex_status
+                "最終更新: -"  # current_log_reindex_status
+            )
+            
+            final_reset_outputs = empty_chat_updates + world_outputs + session_outputs + tail_outputs
+            return _ensure_output_count(final_reset_outputs, expected_count)
+            
+    except Exception as e:
+        gr.Error(f"ルームの削除中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return (gr.update(),) * expected_count
 
 def handle_start_session(main_room: str, participant_list: list) -> tuple:
     if not participant_list:
@@ -5220,33 +5317,27 @@ def _get_rag_index_last_updated(room_name: str, index_type: str = "memory") -> s
     except Exception:
         return "取得失敗"
 
-def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, update_memory_index: bool, update_current_log: bool, update_topic_clusters: bool = True, compress_episodes: bool = False):
+def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, update_memory_index: bool, update_current_log: bool, update_topic_clusters: bool = True, compress_episodes: bool = False, min_size: int = 3, min_samples: int = 2, selection_method: str = "eom", fixed_topics: str = ""):
     """睡眠時記憶整理設定を即座に保存する"""
     if not room_name:
         return
     
     try:
-        room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
-        config = {}
-        if os.path.exists(room_config_path) and os.path.getsize(room_config_path) > 0:
-            with open(room_config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-        
-        if "override_settings" not in config:
-            config["override_settings"] = {}
-        
-        config["override_settings"]["sleep_consolidation"] = {
-            "update_episodic_memory": bool(update_episodic),
-            "update_memory_index": bool(update_memory_index),
-            "update_current_log_index": bool(update_current_log),
-            "update_topic_clusters": bool(update_topic_clusters),
-            "compress_old_episodes": bool(compress_episodes)
+        updates = {
+            "sleep_consolidation": {
+                "update_episodic_memory": bool(update_episodic),
+                "update_memory_index": bool(update_memory_index),
+                "update_current_log_index": bool(update_current_log),
+                "update_topic_clusters": bool(update_topic_clusters),
+                "compress_old_episodes": bool(compress_episodes)
+            },
+            "topic_cluster_min_size": int(min_size),
+            "topic_cluster_min_samples": int(min_samples),
+            "topic_cluster_selection_method": str(selection_method),
+            "topic_cluster_fixed_topics": [t.strip() for t in fixed_topics.split(",") if t.strip()]
         }
-        
-        with open(room_config_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
-        
-        print(f"--- [睡眠時記憶整理] 設定保存: {room_name} ---")
+        room_manager.update_room_config(room_name, updates)
+        # print(f"--- [睡眠時記憶整理] 設定保存: {room_name} ---")
     except Exception as e:
         print(f"--- [睡眠時記憶整理] 設定保存エラー: {e} ---")
 
@@ -5295,19 +5386,7 @@ def handle_embedding_mode_change(room_name: str, embedding_mode: str):
         return
     
     try:
-        room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
-        config = {}
-        if os.path.exists(room_config_path) and os.path.getsize(room_config_path) > 0:
-            with open(room_config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-        
-        if "override_settings" not in config:
-            config["override_settings"] = {}
-        
-        config["override_settings"]["embedding_mode"] = embedding_mode
-        
-        with open(room_config_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
+        room_manager.update_room_config(room_name, {"embedding_mode": embedding_mode})
         
         mode_name = "ローカル" if embedding_mode == "local" else "Gemini API"
         gr.Info(f"📌 エンベディングモードを「{mode_name}」に変更しました。次回の索引更新から適用されます。")

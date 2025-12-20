@@ -72,6 +72,7 @@ def ensure_room_files(room_name: str) -> bool:
             os.path.join(backup_base_dir, "system_prompts"),
             os.path.join(backup_base_dir, "core_memories"),
             os.path.join(backup_base_dir, "secret_diaries"),
+            os.path.join(backup_base_dir, "configs"),
         ]
         dirs_to_create.append(backup_base_dir)
         dirs_to_create.extend(backup_sub_dirs)
@@ -253,12 +254,14 @@ def create_backup(room_name: str, file_type: str) -> Optional[str]:
         'world_setting': ("world_settings.txt", get_world_settings_path(room_name)),
         'system_prompt': ("SystemPrompt.txt", os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")),
         'core_memory': ("core_memory.txt", os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")),
-        'secret_diary': ("secret_diary.txt", os.path.join(constants.ROOMS_DIR, room_name, "private", "secret_diary.txt"))
+        'secret_diary': ("secret_diary.txt", os.path.join(constants.ROOMS_DIR, room_name, "private", "secret_diary.txt")),
+        'room_config': ("room_config.json", os.path.join(constants.ROOMS_DIR, room_name, "room_config.json"))
     }
     folder_map = {
         'log': "logs", 'memory': "memories", 'notepad': "notepads",
         'world_setting': "world_settings", 'system_prompt': "system_prompts",
-        'core_memory': "core_memories", 'secret_diary': "secret_diaries"
+        'core_memory': "core_memories", 'secret_diary': "secret_diaries",
+        'room_config': "configs"
     }
 
     if file_type not in file_map:
@@ -309,33 +312,75 @@ def create_backup(room_name: str, file_type: str) -> Optional[str]:
         traceback.print_exc()
         raise IOError(error_msg) from e
 
-def save_room_override_settings(room_name: str, settings: dict) -> bool:
+def update_room_config(room_name: str, updates: dict) -> bool:
     """
-    ルーム個別の設定(override_settings)を room_config.json に保存する。
-    既存の設定は保持し、新しい設定値のみをマージ(更新)する。
+    ルーム設定ファイル(room_config.json)を安全に更新する。
+    - ファイルが存在しない場合は初期作成を試みる
+    - 指定されたキーがルート要素(user_display_name等)ならルートを更新
+    - それ以外は override_settings 内にマージする
+    - 保存前にバックアップを作成し、一時ファイルによるアトミックな書き込みを行う
     """
     if not room_name: return False
 
     config = get_room_config(room_name)
     if not config:
-        # Configがない場合は新規作成はせずエラーとする（通常ありえないため）
-        print(f"エラー: ルーム '{room_name}' の設定ファイルが見つかりません。")
-        return False
+        # Configがない場合のフォールバック（ensure_room_filesを呼ぶ）
+        if not ensure_room_files(room_name):
+            print(f"エラー: ルーム '{room_name}' の初期化に失敗しました。")
+            return False
+        config = get_room_config(room_name)
+        if not config: return False
 
-    current_overrides = config.get("override_settings", {})
+    # 変更検知のために元の状態をコピー
+    import copy
+    old_config = copy.deepcopy(config)
+
+    if "override_settings" not in config:
+        config["override_settings"] = {}
+
+    root_keys = ["room_name", "user_display_name", "description", "version"]
     
-    # マージ
-    current_overrides.update(settings)
-    config["override_settings"] = current_overrides
+    overrides = config["override_settings"]
+    for k, v in updates.items():
+        if k in root_keys:
+            config[k] = v
+        elif k == "override_settings" and isinstance(v, dict):
+            overrides.update(v)
+        else:
+            # ネストされた辞書の場合のマージ考慮 (現状は単純な上書き)
+            overrides[k] = v
+
+    # 変更があるかチェック（タイムスタンプ更新前に行う）
+    if config == old_config:
+        # print(f"--- [Room Manager] No changes detected for '{room_name}'. Skipping save/backup. ---")
+        return True
+
+    config["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     config["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
+    # 保存前にバックアップを作成
+    try:
+        create_backup(room_name, 'room_config')
+    except Exception as e:
+        print(f"Warning: Backup creation failed for room_config: {e}")
+
+    # アトミックな書き込み処理
     try:
         config_file = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
-        with open(config_file, "w", encoding="utf-8") as f:
+        temp_file = config_file + ".tmp"
+        with open(temp_file, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
-        print(f"ルーム '{room_name}' の個別設定を保存しました。")
+        os.replace(temp_file, config_file)
+        print(f"ルーム '{room_name}' の設定を更新しました。")
         return True
     except Exception as e:
         print(f"ルーム '{room_name}' の設定保存エラー: {e}")
         traceback.print_exc()
         return False
+
+def save_room_override_settings(room_name: str, settings: dict) -> bool:
+    """
+    [後方互換用] ルーム個別の設定を保存する。
+    内部で新しい update_room_config を呼び出すように変更。
+    """
+    return update_room_config(room_name, {"override_settings": settings})

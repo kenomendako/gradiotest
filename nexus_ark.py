@@ -1276,6 +1276,7 @@ try:
                                 interactive=True,
                                 info="エピソード記憶を話題ごとに分類"
                             )
+                            # Parameters moved to Maintenance Accordion
                             sleep_consolidation_compress_cb = gr.Checkbox(
                                 label="📦 古い記憶を圧縮する",
                                 value=False,  # デフォルトOFF（破壊的操作のため）
@@ -1295,8 +1296,43 @@ try:
                                 
                                 with gr.Column():
                                     gr.Markdown("### 🏷️ 話題クラスタの更新")
+                                    with gr.Group():
+                                        gr.Markdown("#### 基本設定", elem_id="topic_cluster_settings_header")
+                                        with gr.Row():
+                                            topic_cluster_min_size_slider = gr.Slider(
+                                                minimum=2, maximum=10, value=3, step=1,
+                                                label="最小クラスタサイズ",
+                                                info="話題とみなす最小の記憶数"
+                                            )
+                                            topic_cluster_min_samples_slider = gr.Slider(
+                                                minimum=1, maximum=10, value=2, step=1,
+                                                label="最小サンプル数 (保守性)",
+                                                info="分類の厳しさ"
+                                            )
+                                        topic_cluster_selection_method_radio = gr.Radio(
+                                            choices=[("安定 (EOM)", "eom"), ("細分化 (Leaf)", "leaf")],
+                                            value="eom",
+                                            show_label=False,
+                                            container=False, # ラベル無しでコンパクトに
+                                            info="モード選択 (EOM/Leaf)"
+                                        )
+                                        topic_cluster_fixed_topics_textbox = gr.Textbox(
+                                            label="固定トピック (カンマ区切り)",
+                                            placeholder="例: Nexus Ark開発, 家族, 料理",
+                                            info="優先的に分類したいトピックを指定",
+                                            lines=1
+                                        )
+
                                     update_topic_cluster_button = gr.Button("話題クラスタを更新する", variant="primary")
-                                    topic_cluster_status = gr.Textbox(label="話題クラスタステータス", interactive=False, placeholder="「すべて」等の年月フィルタを切り替えると更新されます")
+                                    topic_cluster_status = gr.Textbox(label="ステータス", interactive=False)
+                                    
+                                    topic_cluster_list_display = gr.DataFrame(
+                                        label="現在の話題クラスタ一覧",
+                                        headers=["ID", "トピック", "件数", "要約"],
+                                        datatype=["str", "str", "number", "str"],
+                                        interactive=False,
+                                        wrap=True
+                                    )
 
                             gr.Markdown("---")
                             with gr.Row():
@@ -1502,6 +1538,10 @@ try:
             sleep_consolidation_current_log_cb,
             sleep_consolidation_topic_clusters_cb,
             sleep_consolidation_compress_cb,
+            topic_cluster_min_size_slider,
+            topic_cluster_min_samples_slider,
+            topic_cluster_selection_method_radio,
+            topic_cluster_fixed_topics_textbox,
             compress_episodes_status,
             # --- [v25] テーマ設定 ---
             room_theme_enabled_checkbox,  # 個別テーマのオンオフ
@@ -1564,6 +1604,7 @@ try:
             episodic_month_filter,
             episodic_update_status, # [Phase 14 追加] エピソード更新ステータス
             topic_cluster_status, # [Phase 13] 話題クラスタステータス
+            topic_cluster_list_display, # [Phase 3] 可視化用データフレーム
             embedding_mode_radio # [Phase 16 追加] エンベディングモード同期用
         ]
 
@@ -1594,6 +1635,7 @@ try:
             openai_base_url_input,
             openai_api_key_input,
             openai_model_dropdown,
+            openai_tool_use_checkbox,
             # --- 索引ステータス欄（最終更新日時表示用）---
             memory_reindex_status,
             current_log_reindex_status
@@ -1618,15 +1660,7 @@ try:
             token_count_display,
             room_delete_confirmed_state, # handle_delete_room が返すリセット値用
             memory_reindex_status,
-            current_log_reindex_status,
-            # --- [Phase 14] エピソード記憶閲覧 ---
-            episodic_date_dropdown,
-            episodic_detail_text,
-            episodic_year_filter,
-            episodic_month_filter,
-            episodic_update_status,
-            topic_cluster_status,     # unified にも追加（initial_load_chat_outputs の変更が波及するため個別に足す必要はないかもしれないが明示的に）
-            embedding_mode_radio
+            current_log_reindex_status
         ]
         full_refresh_output_count = gr.State(len(unified_full_room_refresh_outputs))
         
@@ -1935,6 +1969,7 @@ try:
                 room_send_current_time_checkbox, 
                 room_send_notepad_checkbox,
                 room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
+                room_send_scenery_checkbox, # [修正] ズレ防止のため追加
                 enable_scenery_system_checkbox,
                 auto_memory_enabled_checkbox,
                 room_api_history_limit_dropdown,
@@ -1958,6 +1993,10 @@ try:
                 sleep_consolidation_current_log_cb,
                 sleep_consolidation_topic_clusters_cb,
                 sleep_consolidation_compress_cb,
+                topic_cluster_min_size_slider,
+                topic_cluster_min_samples_slider,
+                topic_cluster_selection_method_radio,
+                topic_cluster_fixed_topics_textbox,
             ],
             outputs=None
         )
@@ -2346,7 +2385,11 @@ try:
             sleep_consolidation_memory_index_cb,
             sleep_consolidation_current_log_cb,
             sleep_consolidation_topic_clusters_cb,
-            sleep_consolidation_compress_cb
+            sleep_consolidation_compress_cb,
+            topic_cluster_min_size_slider,
+            topic_cluster_min_samples_slider,
+            topic_cluster_selection_method_radio,
+            topic_cluster_fixed_topics_textbox
         ]
         sleep_consolidation_episodic_cb.change(
             fn=ui_handlers.handle_sleep_consolidation_change,
@@ -2368,7 +2411,27 @@ try:
             inputs=sleep_consolidation_inputs,
             outputs=None
         )
+        topic_cluster_selection_method_radio.change(
+            fn=ui_handlers.handle_sleep_consolidation_change,
+            inputs=sleep_consolidation_inputs,
+            outputs=None
+        )
+        topic_cluster_fixed_topics_textbox.change(
+            fn=ui_handlers.handle_sleep_consolidation_change,
+            inputs=sleep_consolidation_inputs,
+            outputs=None
+        )
         sleep_consolidation_compress_cb.change(
+            fn=ui_handlers.handle_sleep_consolidation_change,
+            inputs=sleep_consolidation_inputs,
+            outputs=None
+        )
+        topic_cluster_min_size_slider.change(
+            fn=ui_handlers.handle_sleep_consolidation_change,
+            inputs=sleep_consolidation_inputs,
+            outputs=None
+        )
+        topic_cluster_min_samples_slider.change(
             fn=ui_handlers.handle_sleep_consolidation_change,
             inputs=sleep_consolidation_inputs,
             outputs=None
@@ -2816,6 +2879,16 @@ try:
             fn=ui_handlers.handle_current_log_reindex,
             inputs=[current_room_name, current_api_key_name_state],
             outputs=[current_log_reindex_status, current_log_reindex_button]
+        )
+
+        update_topic_cluster_button.click(
+            fn=ui_handlers.handle_update_topic_clusters,
+            inputs=[
+                current_room_name, current_api_key_name_state,
+                topic_cluster_min_size_slider, topic_cluster_min_samples_slider,
+                topic_cluster_selection_method_radio, topic_cluster_fixed_topics_textbox
+            ],
+            outputs=[topic_cluster_status, topic_cluster_list_display]
         )
 
         play_audio_event = play_audio_button.click(
