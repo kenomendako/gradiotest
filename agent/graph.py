@@ -758,7 +758,9 @@ def agent_node(state: AgentState):
             print(f"  - ストリーム完了: {len(chunks)}チャンク受信, 合計{total_stream_time:.2f}秒")
 
             # --- 正攻法のチャンク結合 (LangChain標準の ++ 演算相当) ---
-            # これにより、複数チャンクに跨るツールコールのデルタ等が正しくマージされる
+            # ただしcontentの抽出は手動で行う（++演算子がlist+strで壊れるため）
+            
+            # ツールコールやメタデータ用には++で結合
             merged_chunk = chunks[0]
             for c in chunks[1:]:
                 merged_chunk += c
@@ -767,61 +769,38 @@ def agent_node(state: AgentState):
             response_metadata = getattr(merged_chunk, "response_metadata", {}) or {}
             additional_kwargs = getattr(merged_chunk, "additional_kwargs", {}) or {}
 
-            # コンテンツの抽出（マージ済みのチャンクから取得）
-            # 【重要】個々のchunksではなく、merged_chunkを使用することで重複を防ぐ
+            # 【重要】contentは手動で抽出・連結する（++演算子がlist+strで壊れるため）
+            # Gemini APIは最初のチャンクでlist形式（dict+str）を返し、後続はstrを返す
+            # 最初のチャンクのdict["text"]と、後続チャンクのstrを連結する必要がある
             text_parts = []
             display_thoughts = state.get("display_thoughts", True)
 
-            merged_content = merged_chunk.content
-            # デバッグ: merged_contentの型と先頭/末尾を出力
-            print(f"  - [DEBUG] merged_content type: {type(merged_content)}")
-            if isinstance(merged_content, str):
-                print(f"  - [DEBUG] merged_content length: {len(merged_content)} chars")
-                print(f"  - [DEBUG] merged_content first 100: {merged_content[:100]}...")
-                print(f"  - [DEBUG] merged_content last 100: ...{merged_content[-100:]}")
-            elif isinstance(merged_content, list):
-                print(f"  - [DEBUG] merged_content is list with {len(merged_content)} items")
-                for idx, item in enumerate(merged_content):
-                    if isinstance(item, dict):
-                        print(f"  - [DEBUG] Item {idx}: type=dict, keys={item.keys()}, text[:50]={str(item.get('text', ''))[:50]}...")
-                    else:
-                        print(f"  - [DEBUG] Item {idx}: type={type(item)}, value[:50]={str(item)[:50]}...")
-            if merged_content:
-                if isinstance(merged_content, str):
-                    text_parts.append(merged_content)
-                elif isinstance(merged_content, list):
-                    # 【重複防止 v2】LangChainチャンク累積により、リスト内にdict型とstr型が混在する場合がある。
-                    # dictからテキストを抽出し、strは「dictテキストの末尾と重複」している場合のみ無視する。
-                    dict_texts = []
-                    str_texts = []
-                    for part in merged_content:
+            for i, chunk in enumerate(chunks):
+                chunk_content = chunk.content
+                if not chunk_content:
+                    continue
+                
+                if isinstance(chunk_content, str):
+                    # str型の場合: 最初のチャンク以外から来るストリーミングテキスト
+                    # ただし、最初のチャンク（i==0）がstr型ならそのまま追加
+                    if chunk_content.strip():
+                        text_parts.append(chunk_content)
+                elif isinstance(chunk_content, list):
+                    # list型の場合（通常は最初のチャンク）: dict型の"text"のみを抽出
+                    for part in chunk_content:
                         if isinstance(part, dict):
                             part_type = part.get("type")
                             if part_type == "text":
-                                dict_texts.append(part.get("text", ""))
+                                text_val = part.get("text", "")
+                                if text_val:
+                                    text_parts.append(text_val)
                             elif part_type == "thought":
                                 if display_thoughts:
                                     thought_text = part.get("thought", "")
                                     if thought_text.strip():
                                         text_parts.append(f"[THOUGHT]\n{thought_text}\n[/THOUGHT]\n")
-                        elif isinstance(part, str) and part.strip():
-                            str_texts.append(part)
-                    
-                    # dictテキストを結合
-                    combined_dict_text = "".join(dict_texts)
-                    if combined_dict_text:
-                        text_parts.append(combined_dict_text)
-                    
-                    # strテキストを検証: dictテキストの末尾と重複していれば無視
-                    for str_text in str_texts:
-                        if combined_dict_text:
-                            # strの冒頭100文字がdictテキストに含まれているかチェック
-                            str_start = str_text[:100] if len(str_text) > 100 else str_text
-                            if str_start in combined_dict_text:
-                                print(f"  - [DEBUG] Skipping str as duplicate: {str_start[:50]}...")
-                                continue
-                        # 重複でなければ追加
-                        text_parts.append(str_text)
+                        # str型はlist内では無視（これがdict内テキストの重複断片）
+                        # elif isinstance(part, str): pass
             
             # contentの外側の思考プロンプト（一部のSDKバージョン用）
             if hasattr(merged_chunk, 'additional_kwargs'):
