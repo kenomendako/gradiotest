@@ -1431,13 +1431,14 @@ def handle_message_submission(
                             "type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
                         })
                     elif mime_type.startswith('audio/') or mime_type.startswith('video/'):
-                        # 音声/動画: media形式でBase64エンコード
+                        # 音声/動画: media形式でバイトデータとして送信
+                        # LangChainの'media'タイプはバイトデータを期待している
                         with open(file_path, "rb") as f:
-                            encoded_string = base64.b64encode(f.read()).decode("utf-8")
+                            file_bytes = f.read()
                         user_prompt_parts_for_api.append({
                             "type": "media",
                             "mime_type": mime_type,
-                            "data": encoded_string
+                            "data": file_bytes  # Base64文字列ではなくバイトデータ
                         })
                     else:
                         # テキスト系ファイル: 内容を読み込んでテキストとして送信
