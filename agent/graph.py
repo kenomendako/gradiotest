@@ -773,10 +773,27 @@ def agent_node(state: AgentState):
             display_thoughts = state.get("display_thoughts", True)
 
             merged_content = merged_chunk.content
+            # デバッグ: merged_contentの型と先頭/末尾を出力
+            print(f"  - [DEBUG] merged_content type: {type(merged_content)}")
+            if isinstance(merged_content, str):
+                print(f"  - [DEBUG] merged_content length: {len(merged_content)} chars")
+                print(f"  - [DEBUG] merged_content first 100: {merged_content[:100]}...")
+                print(f"  - [DEBUG] merged_content last 100: ...{merged_content[-100:]}")
+            elif isinstance(merged_content, list):
+                print(f"  - [DEBUG] merged_content is list with {len(merged_content)} items")
+                for idx, item in enumerate(merged_content):
+                    if isinstance(item, dict):
+                        print(f"  - [DEBUG] Item {idx}: type=dict, keys={item.keys()}, text[:50]={str(item.get('text', ''))[:50]}...")
+                    else:
+                        print(f"  - [DEBUG] Item {idx}: type={type(item)}, value[:50]={str(item)[:50]}...")
             if merged_content:
                 if isinstance(merged_content, str):
                     text_parts.append(merged_content)
                 elif isinstance(merged_content, list):
+                    # 【重複防止】LangChainチャンク累積により、リスト内にdict型（構造化された完全テキスト）と
+                    # str型（後続ストリーミングの断片）が混在する場合がある。
+                    # dict型のみを使用し、str型は重複の原因となるので無視する。
+                    has_dict_text = any(isinstance(p, dict) and p.get("type") == "text" for p in merged_content)
                     for part in merged_content:
                         if isinstance(part, dict):
                             part_type = part.get("type")
@@ -788,7 +805,10 @@ def agent_node(state: AgentState):
                                     if thought_text.strip():
                                         text_parts.append(f"[THOUGHT]\n{thought_text}\n[/THOUGHT]\n")
                         elif isinstance(part, str):
-                            text_parts.append(part)
+                            # dict型のtextがある場合、strは重複断片なので無視
+                            # dict型のtextがない場合のみstrを使用
+                            if not has_dict_text:
+                                text_parts.append(part)
             
             # contentの外側の思考プロンプト（一部のSDKバージョン用）
             if hasattr(merged_chunk, 'additional_kwargs'):
@@ -798,6 +818,14 @@ def agent_node(state: AgentState):
                          text_parts.append(f"[THOUGHT]\n{reasoning}\n[/THOUGHT]\n")
             
             combined_text = "".join(text_parts)
+            
+            # デバッグ: combined_textの結果を出力
+            print(f"  - [DEBUG] text_parts count: {len(text_parts)}")
+            print(f"  - [DEBUG] combined_text length: {len(combined_text)} chars")
+            # 重複確認: 後半が前半とほぼ同じ場合は警告
+            half_len = len(combined_text) // 2
+            if half_len > 100 and combined_text[:100] in combined_text[half_len:]:
+                print(f"  - [DEBUG] WARNING: Potential duplication detected in combined_text!")
             
             if not combined_text.strip() and not all_tool_calls_chunks:
                 print("  - [GEMINI3_DEBUG] WARNING: Response is effectively empty.")
