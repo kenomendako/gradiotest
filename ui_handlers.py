@@ -1197,6 +1197,7 @@ def _stream_and_handle_response(
                         if formatted_text:
                             # アニメーション用のカーソルを追加して開始
                             chatbot_history.append((None, "▌"))
+                            streamed_text = ""  # ★重要: 毎回初期化（前回の応答が引き継がれないように）
                             
                             for char in formatted_text:
                                 streamed_text += char
