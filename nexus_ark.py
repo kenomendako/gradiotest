@@ -1150,6 +1150,7 @@ try:
 
                     chat_input_multimodal = gr.MultimodalTextbox(
                         file_types=["image", "audio", "video", "text", ".pdf", ".md", ".py", ".json", ".html", ".css", ".js"],
+                        file_count="multiple",  # 複数ファイルの添付を許可
                         max_plain_text_length=100000,
                         placeholder="メッセージを入力してください (Shift+Enterで送信)",
                         show_label=False,
