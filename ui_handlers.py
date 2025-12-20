@@ -6443,29 +6443,38 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
         overrides.append(f"--block-label-background-fill: {secondary} !important;")
         # Custom CSS variable often used for bot bubbles in Nexus Ark
         overrides.append(f"--secondary-500: {secondary} !important;")
-        # タブのオーバーフローメニュー（…）とチャット入力欄にもサブカラーを適用
+        # タブのオーバーフローメニュー（…）のホバー時にサブカラーを適用
         css += f"""
-        /* タブのオーバーフローメニュー（…）の背景色 */
-        div.overflow-dropdown,
-        .overflow-dropdown {{
+        /* タブのオーバーフローメニューのホバー時 - サブカラーを適用 */
+        div.overflow-dropdown button:hover,
+        .overflow-dropdown button:hover {{
             background-color: {secondary} !important;
             background: {secondary} !important;
         }}
-        /* タブのオーバーフローメニューのホバー時 - メインカラーを適用 */
-        div.overflow-dropdown button:hover,
-        .overflow-dropdown button:hover {{
-            background-color: {primary if primary else secondary} !important;
-            background: {primary if primary else secondary} !important;
-        }}
-        /* チャット入力欄全体の背景色（MultiModalTextbox） */
+        /* チャット入力欄全体の背景色（MultiModalTextbox）- サブカラーを適用 */
+        #chat_input_multimodal,
+        #chat_input_multimodal > div,
+        #chat_input_multimodal .block,
         div.block.multimodal-textbox,
         div.block.multimodal-textbox.svelte-1svsvh2,
         div[class*="multimodal-textbox"][class*="block"],
         div.full-container,
         div.full-container.svelte-5gfv2q,
-        [aria-label*="ultimedia input field"] {{
+        [aria-label*="ultimedia input field"],
+        [aria-label*="ultimedia input field"] > div {{
             background-color: {secondary} !important;
             background: {secondary} !important;
+        }}
+        """
+    
+    # タブのオーバーフローメニュー（…）の非ホバー時 - 背景色を適用
+    if bg:
+        css += f"""
+        /* タブのオーバーフローメニュー（…）の背景色 - 非ホバー時 */
+        div.overflow-dropdown,
+        .overflow-dropdown {{
+            background-color: {bg} !important;
+            background: {bg} !important;
         }}
         """  
 
