@@ -1012,7 +1012,7 @@ def safe_tool_executor(state: AgentState):
             for attempt in range(max_retries):
                 try:
                     response = llm_persona.invoke(final_context_for_editing)
-                    edited_content_document = response.content.strip()
+                    edited_content_document = utils.get_content_as_string(response).strip()
                     break
                 except google_exceptions.ResourceExhausted as e:
                     error_str = str(e)
