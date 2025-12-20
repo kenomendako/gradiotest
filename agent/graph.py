@@ -790,25 +790,38 @@ def agent_node(state: AgentState):
                 if isinstance(merged_content, str):
                     text_parts.append(merged_content)
                 elif isinstance(merged_content, list):
-                    # 【重複防止】LangChainチャンク累積により、リスト内にdict型（構造化された完全テキスト）と
-                    # str型（後続ストリーミングの断片）が混在する場合がある。
-                    # dict型のみを使用し、str型は重複の原因となるので無視する。
-                    has_dict_text = any(isinstance(p, dict) and p.get("type") == "text" for p in merged_content)
+                    # 【重複防止 v2】LangChainチャンク累積により、リスト内にdict型とstr型が混在する場合がある。
+                    # dictからテキストを抽出し、strは「dictテキストの末尾と重複」している場合のみ無視する。
+                    dict_texts = []
+                    str_texts = []
                     for part in merged_content:
                         if isinstance(part, dict):
                             part_type = part.get("type")
                             if part_type == "text":
-                                text_parts.append(part.get("text", ""))
+                                dict_texts.append(part.get("text", ""))
                             elif part_type == "thought":
                                 if display_thoughts:
                                     thought_text = part.get("thought", "")
                                     if thought_text.strip():
                                         text_parts.append(f"[THOUGHT]\n{thought_text}\n[/THOUGHT]\n")
-                        elif isinstance(part, str):
-                            # dict型のtextがある場合、strは重複断片なので無視
-                            # dict型のtextがない場合のみstrを使用
-                            if not has_dict_text:
-                                text_parts.append(part)
+                        elif isinstance(part, str) and part.strip():
+                            str_texts.append(part)
+                    
+                    # dictテキストを結合
+                    combined_dict_text = "".join(dict_texts)
+                    if combined_dict_text:
+                        text_parts.append(combined_dict_text)
+                    
+                    # strテキストを検証: dictテキストの末尾と重複していれば無視
+                    for str_text in str_texts:
+                        if combined_dict_text:
+                            # strの冒頭100文字がdictテキストに含まれているかチェック
+                            str_start = str_text[:100] if len(str_text) > 100 else str_text
+                            if str_start in combined_dict_text:
+                                print(f"  - [DEBUG] Skipping str as duplicate: {str_start[:50]}...")
+                                continue
+                        # 重複でなければ追加
+                        text_parts.append(str_text)
             
             # contentの外側の思考プロンプト（一部のSDKバージョン用）
             if hasattr(merged_chunk, 'additional_kwargs'):
