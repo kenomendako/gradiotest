@@ -1443,10 +1443,14 @@ def handle_message_submission(
                         })
                     else:
                         # テキスト系ファイル: 内容を読み込んでテキストとして送信
+                        # ユーザーの直接入力と区別しやすいよう、XMLタグ形式で囲む
                         try:
                             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                                 content = f.read()
-                            user_prompt_parts_for_api.append({"type": "text", "text": f"添付ファイル「{file_basename}」の内容:\n---\n{content}\n---"})
+                            user_prompt_parts_for_api.append({
+                                "type": "text", 
+                                "text": f"[ATTACHED_FILE: {file_basename}]\n```\n{content}\n```\n[/ATTACHED_FILE]"
+                            })
                         except Exception as read_e:
                             user_prompt_parts_for_api.append({"type": "text", "text": f"（ファイル「{file_basename}」の読み込み中にエラーが発生しました: {read_e}）"})
             except Exception as e:
