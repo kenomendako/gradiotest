@@ -1097,10 +1097,16 @@ def _stream_and_handle_response(
                             if content_str and content_str.strip():
                                 # AI応答にもタイムスタンプ・モデル名を追加（ユーザー発言と同じ形式）
                                 # 【修正】既にタイムスタンプが含まれている場合は追加しない
-                                timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2} \([A-Za-z]{3}\) \d{2}:\d{2}:\d{2}'
+                                # サフィックス | ... を含む正規表現に更新
+                                timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2} \([A-Za-z]{3}\) \d{2}:\d{2}:\d{2}(?: \| .*)?$'
                                 if not re.search(timestamp_pattern, content_str):
                                     # 使用モデル名を取得（実際に推論に使用されたモデル名が final_state に格納されている）
-                                    actual_model_name = final_state.get("model_name", global_model)
+                                    # final_state が無かったり不十分な場合のフォールバックを強化
+                                    actual_model_name = final_state.get("model_name") if final_state else None
+                                    if not actual_model_name:
+                                        effective_settings = config_manager.get_effective_settings(current_room, global_model_from_ui=global_model)
+                                        actual_model_name = effective_settings.get("model_name", global_model)
+                                    
                                     timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
                                     content_to_log = content_str + timestamp
                                 else:

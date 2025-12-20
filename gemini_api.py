@@ -161,7 +161,7 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
     """
     from langchain_core.messages import HumanMessage, AIMessage
     lc_messages = []
-    timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$')
+    timestamp_pattern = re.compile(r'\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}(?: \| .*)?$')
 
     # 1. JSONファイルから最新のターンコンテキストを取得
     # これらは「直近にAIが行ったツール呼び出し」の情報
@@ -172,8 +172,9 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
     # --- フェーズ1: まずはログから基本的なメッセージリストを構築 ---
     for h_item in raw_history:
         content = h_item.get('content', '').strip()
-        if not add_timestamp:
-            content = timestamp_pattern.sub('', content)
+        
+        # 【重要】AIに渡す履歴からは、設定に関わらず常にタイムスタンプ（とモデル名）を除去する
+        content = timestamp_pattern.sub('', content)
         responder_id = h_item.get('responder', '')
         role = h_item.get('role', '')
         
