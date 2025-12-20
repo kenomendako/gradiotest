@@ -6451,14 +6451,23 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
             background-color: {secondary} !important;
             background: {secondary} !important;
         }}
-        /* チャット入力欄全体の背景色（最下層レイヤー） */
+        /* タブのオーバーフローメニューのホバー時 - メインカラーを適用 */
+        div.overflow-dropdown button:hover,
+        .overflow-dropdown button:hover {{
+            background-color: {primary if primary else secondary} !important;
+            background: {primary if primary else secondary} !important;
+        }}
+        /* チャット入力欄全体の背景色（MultiModalTextbox） */
+        div.block.multimodal-textbox,
+        div.block.multimodal-textbox.svelte-1svsvh2,
+        div[class*="multimodal-textbox"][class*="block"],
         div.full-container,
         div.full-container.svelte-5gfv2q,
         [aria-label*="ultimedia input field"] {{
             background-color: {secondary} !important;
             background: {secondary} !important;
         }}
-        """ 
+        """  
 
     # 背景色: Overall App Background & Content Boxes
     if bg:
