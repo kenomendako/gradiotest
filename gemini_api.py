@@ -315,25 +315,16 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
                         encoded_string = base64.b64encode(f.read()).decode("utf-8")
                     final_prompt_parts.append({"type": "text", "text": f"- [{display_name}]"})
                     final_prompt_parts.append({"type": "image_url", "image_url": {"url": f"data:{kind.mime};base64,{encoded_string}"}})
-                elif kind and kind.mime.startswith('audio/'):
-                    # 音声: audio形式でBase64エンコード（LangChain公式ドキュメント準拠）
+                elif kind and (kind.mime.startswith('audio/') or kind.mime.startswith('video/')):
+                    # 音声/動画: file形式でBase64エンコード（LangChainソースコードのdocstring準拠）
                     with open(file_path_str, "rb") as f:
                         encoded_string = base64.b64encode(f.read()).decode("utf-8")
                     final_prompt_parts.append({"type": "text", "text": f"- [{display_name}]"})
                     final_prompt_parts.append({
-                        "type": "audio",
-                        "base64": encoded_string,
-                        "mime_type": kind.mime
-                    })
-                elif kind and kind.mime.startswith('video/'):
-                    # 動画: video形式でBase64エンコード（LangChain公式ドキュメント準拠）
-                    with open(file_path_str, "rb") as f:
-                        encoded_string = base64.b64encode(f.read()).decode("utf-8")
-                    final_prompt_parts.append({"type": "text", "text": f"- [{display_name}]"})
-                    final_prompt_parts.append({
-                        "type": "video",
-                        "base64": encoded_string,
-                        "mime_type": kind.mime
+                        "type": "file",
+                        "source_type": "base64",
+                        "mime_type": kind.mime,
+                        "data": encoded_string
                     })
                 else:
                     # テキスト系ファイル: 内容を読み込んでテキストとして送信

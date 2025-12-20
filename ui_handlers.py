@@ -1430,23 +1430,15 @@ def handle_message_submission(
                         user_prompt_parts_for_api.append({
                             "type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
                         })
-                    elif mime_type.startswith('audio/'):
-                        # 音声: audio形式でBase64エンコード（LangChain公式ドキュメント準拠）
+                    elif mime_type.startswith('audio/') or mime_type.startswith('video/'):
+                        # 音声/動画: file形式でBase64エンコード（LangChainソースコードのdocstring準拠）
                         with open(file_path, "rb") as f:
                             encoded_string = base64.b64encode(f.read()).decode("utf-8")
                         user_prompt_parts_for_api.append({
-                            "type": "audio",
-                            "base64": encoded_string,
-                            "mime_type": mime_type
-                        })
-                    elif mime_type.startswith('video/'):
-                        # 動画: video形式でBase64エンコード（LangChain公式ドキュメント準拠）
-                        with open(file_path, "rb") as f:
-                            encoded_string = base64.b64encode(f.read()).decode("utf-8")
-                        user_prompt_parts_for_api.append({
-                            "type": "video",
-                            "base64": encoded_string,
-                            "mime_type": mime_type
+                            "type": "file",
+                            "source_type": "base64",
+                            "mime_type": mime_type,
+                            "data": encoded_string
                         })
                     else:
                         # テキスト系ファイル: 内容を読み込んでテキストとして送信
