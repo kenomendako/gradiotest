@@ -767,18 +767,17 @@ def agent_node(state: AgentState):
             response_metadata = getattr(merged_chunk, "response_metadata", {}) or {}
             additional_kwargs = getattr(merged_chunk, "additional_kwargs", {}) or {}
 
-            # コンテンツの抽出（各チャンクの内部構造を尊重しつつテキストを連結）
+            # コンテンツの抽出（マージ済みのチャンクから取得）
+            # 【重要】個々のchunksではなく、merged_chunkを使用することで重複を防ぐ
             text_parts = []
             display_thoughts = state.get("display_thoughts", True)
 
-            for i, chunk in enumerate(chunks):
-                chunk_content = chunk.content
-                if not chunk_content: continue
-                
-                if isinstance(chunk_content, str):
-                    text_parts.append(chunk_content)
-                elif isinstance(chunk_content, list):
-                    for part in chunk_content:
+            merged_content = merged_chunk.content
+            if merged_content:
+                if isinstance(merged_content, str):
+                    text_parts.append(merged_content)
+                elif isinstance(merged_content, list):
+                    for part in merged_content:
                         if isinstance(part, dict):
                             part_type = part.get("type")
                             if part_type == "text":
@@ -790,13 +789,13 @@ def agent_node(state: AgentState):
                                         text_parts.append(f"[THOUGHT]\n{thought_text}\n[/THOUGHT]\n")
                         elif isinstance(part, str):
                             text_parts.append(part)
-                
-                # contentの外側の思考プロンプト（一部のSDKバージョン用）
-                if hasattr(chunk, 'additional_kwargs'):
-                    reasoning = chunk.additional_kwargs.get("reasoning_content") or chunk.additional_kwargs.get("thought")
-                    if reasoning and display_thoughts:
-                        if isinstance(reasoning, str) and reasoning.strip():
-                             text_parts.append(f"[THOUGHT]\n{reasoning}\n[/THOUGHT]\n")
+            
+            # contentの外側の思考プロンプト（一部のSDKバージョン用）
+            if hasattr(merged_chunk, 'additional_kwargs'):
+                reasoning = merged_chunk.additional_kwargs.get("reasoning_content") or merged_chunk.additional_kwargs.get("thought")
+                if reasoning and display_thoughts:
+                    if isinstance(reasoning, str) and reasoning.strip():
+                         text_parts.append(f"[THOUGHT]\n{reasoning}\n[/THOUGHT]\n")
             
             combined_text = "".join(text_parts)
             
