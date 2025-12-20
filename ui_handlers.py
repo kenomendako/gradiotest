@@ -6801,14 +6801,18 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
         }}
         
         /* サイドバー（左カラム）のスクロール設定を明示的に保証 */
+        /* NOTE: .tabs > div はGradioのタブオーバーフローメニュー（…）に干渉するため除外 */
         .gradio-container > div > div,
         .contain > div,
         [class*="column"],
-        .tabs > div,
         .tabitem > div {{
             overflow-y: auto !important;
             overflow-x: hidden !important;
             -webkit-overflow-scrolling: touch !important;
+        }}
+        /* タブのオーバーフローメニュー（…）を正常に表示するため */
+        .tabs > div {{
+            overflow: visible !important;
         }}
 
         /* チャットバブルの背景を直接透過 (CSS変数が効かない場合の対策) */
