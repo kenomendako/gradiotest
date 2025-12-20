@@ -1407,9 +1407,6 @@ def handle_message_submission(
         user_prompt_parts_for_api.append({"type": "text", "text": user_prompt_from_textbox})
 
     if file_input_list:
-        print(f"--- [DEBUG] file_input_list count: {len(file_input_list)} ---")
-        for idx, f in enumerate(file_input_list):
-            print(f"  File {idx}: {type(f)} - {f if isinstance(f, str) else getattr(f, 'name', 'unknown')}")
         for file_obj in file_input_list:
             try:
                 file_path = None
@@ -1457,11 +1454,6 @@ def handle_message_submission(
                 traceback.print_exc()
                 user_prompt_parts_for_api.append({"type": "text", "text": f"（添付ファイルの処理中に致命的なエラーが発生しました）"})
 
-    # デバッグ: API用パーツの確認
-    print(f"--- [DEBUG] user_prompt_parts_for_api count: {len(user_prompt_parts_for_api)} ---")
-    for i, part in enumerate(user_prompt_parts_for_api):
-        print(f"  Part {i}: type={part.get('type')}")
-    
     # 4. 中核となるストリーミング関数を呼び出す (変更なし)
     yield from _stream_and_handle_response(
         room_to_respond=soul_vessel_room,

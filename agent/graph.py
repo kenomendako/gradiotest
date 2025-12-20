@@ -811,14 +811,6 @@ def agent_node(state: AgentState):
             
             combined_text = "".join(text_parts)
             
-            # デバッグ: combined_textの結果を出力
-            print(f"  - [DEBUG] text_parts count: {len(text_parts)}")
-            print(f"  - [DEBUG] combined_text length: {len(combined_text)} chars")
-            # 重複確認: 後半が前半とほぼ同じ場合は警告
-            half_len = len(combined_text) // 2
-            if half_len > 100 and combined_text[:100] in combined_text[half_len:]:
-                print(f"  - [DEBUG] WARNING: Potential duplication detected in combined_text!")
-            
             if not combined_text.strip() and not all_tool_calls_chunks:
                 print("  - [GEMINI3_DEBUG] WARNING: Response is effectively empty.")
                 combined_text = "（AIからの応答が空でした。設定の『Thinking レベル』を調整するか、ツール使用をOFFにして再度お試しください。）"
