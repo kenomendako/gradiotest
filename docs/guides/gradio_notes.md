@@ -913,3 +913,53 @@ Gemini 3 Flash PreviewモデルをLangChainで利用しようとした際、複�
 #### 教訓
 最新のプレビューモデルを使用する場合、**SDKのドキュメントと実際のパラメータ仕様の乖離**、そして**モデル特有の挙動（Systemロールの扱いなど）**に常に疑いを持つこと。そして、フレームワーク（LangChain）のバリデーションエラーに対しては、入力を調整するだけでなく、**出力生成直前での防御的な書き換え**も有効な手段である。
 
+---
+
+### レッスン38: GradioのカスタムCSSとタブオーバーフローメニュー（2025-12-20）
+
+#### 問題の症状
+1. **タブの省略記号「…」がクリックできない**: 縦長画面でタブが省略され「…」が表示された際、クリックしてもドロップダウンが開かない。
+2. **カスタムCSSが適用されない**: ルーム別テーマで設定したサブカラーがチャット入力欄に反映されない。
+
+#### 根本原因と解決策
+
+1. **タブのオーバーフローメニューがブロックされる問題**
+   - **原因**: `ui_handlers.py`の`generate_room_style_css`関数で背景画像機能のために追加したCSS `.tabs > div { overflow-x: hidden !important; }` が、Gradioのタブオーバーフローメニュー（`div.overflow-dropdown`）をブロックしていた。
+   - **解決策**: `.tabs > div`を他のセレクターから分離し、`overflow: visible !important;`を明示的に設定した。
+
+   ```css
+   /* タブのオーバーフローメニュー（…）を正常に表示するため */
+   .tabs > div {
+       overflow: visible !important;
+   }
+   ```
+
+2. **カスタムCSSが適用されない問題**
+   - **原因**: `generate_room_style_css`関数は`enabled=True`（個別テーマを有効にする）の場合のみCSSを生成する。また、動的に生成したCSSのセレクターが実際のDOM構造にマッチしていなかった。
+   - **解決策**: 重要なUIスタイル（チャット入力欄の背景色など）は、`nexus_ark.py`の`custom_css`変数（常に適用されるCSS）に配置し、**CSS変数**（`var(--background-fill-secondary)`など）を使用してテーマに連動させる。
+
+   ```css
+   /* チャット入力欄全体の背景色をテーマのサブカラーに連動 */
+   #chat_input_multimodal,
+   div.block.multimodal-textbox,
+   div.full-container,
+   [aria-label*="ultimedia input field"] {
+       background-color: var(--background-fill-secondary) !important;
+   }
+   ```
+
+#### 重要な設計原則
+
+| CSS配置場所 | 用途 | 適用条件 |
+|---|---|---|
+| `nexus_ark.py` の `custom_css` | 常に適用されるべき基本スタイル | 常に適用 |
+| `ui_handlers.py` の `generate_room_style_css` | ルーム別の動的カスタマイズ | 個別テーマ有効時のみ |
+
+#### GradioのDOM構造に関する知見
+- Gradioのコンポーネントは`svelte-XXXXX`のような動的なクラス名を持つ。これらは**Gradioのバージョンによって変わる可能性がある**ため、セレクターに依存しすぎるのは危険。
+- より安定したセレクターとして、**ID**（`#chat_input_multimodal`）、**aria-label属性**（`[aria-label*="..."]`）、または**意味的なクラス名**（`div.block.multimodal-textbox`）を優先的に使用すること。
+- CSS変数（`var(--xxx)`）を使うことで、Gradioのテーマシステムと連動させることができ、ハードコードした色値よりも保守性が高い。
+
+#### 教訓
+GradioのUIをカスタマイズする際、`overflow: hidden`などの制限的なCSSは慎重に適用すること。特に**タブやドロップダウンメニュー**など、子要素がコンテナ外に表示される必要があるコンポーネントには、意図しない副作用が発生しやすい。
+
