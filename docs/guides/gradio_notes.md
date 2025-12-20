@@ -963,3 +963,80 @@ Gemini 3 Flash PreviewモデルをLangChainで利用しようとした際、複�
 #### 教訓
 GradioのUIをカスタマイズする際、`overflow: hidden`などの制限的なCSSは慎重に適用すること。特に**タブやドロップダウンメニュー**など、子要素がコンテナ外に表示される必要があるコンポーネントには、意図しない副作用が発生しやすい。
 
+---
+
+### レッスン38: MultimodalTextboxで複数ファイルを添付するための設定（2024-12-20）
+
+#### 問題の症状
+
+`gr.MultimodalTextbox`を使用したチャット入力欄で、1枚目の画像を添付すると**クリップアイコンが消え**、2枚目以降のファイルを添付できなくなる。
+
+#### 根本原因
+
+`gr.MultimodalTextbox`のコンストラクタで`file_count`パラメータが指定されていなかったため、**デフォルトの`"single"`**（1ファイルのみ許可）が適用されていた。
+
+#### 解決策
+
+`file_count="multiple"`を明示的に指定する。
+
+```python
+chat_input_multimodal = gr.MultimodalTextbox(
+    file_types=["image", "audio", "video", "text", ".pdf", ".md"],
+    file_count="multiple",  # ★これを追加
+    max_plain_text_length=100000,
+    ...
+)
+```
+
+#### 教訓
+
+1. **Gradioのデフォルト値に注意**: パラメータを省略した場合のデフォルト値がドキュメント通りとは限らない。
+2. **file_countの選択肢**: `"single"`（1ファイル）、`"multiple"`（複数ファイル）、`"directory"`（ディレクトリ全体）
+
+#### 関連ファイル
+
+- `nexus_ark.py`: `chat_input_multimodal`の定義
+
+---
+
+### レッスン39: LangChainでの音声/動画ファイル添付形式（2024-12-20）
+
+#### 問題の症状
+
+音声ファイル（MP3）や動画ファイル（MP4）を添付しても、AIが内容を認識できない。`500 Internal Server Error`や`429 RESOURCE_EXHAUSTED`エラーが発生することもあった。
+
+#### 根本原因
+
+LangChainの`ChatGoogleGenerativeAI`がサポートする音声/動画の添付形式が、画像とは異なるフォーマットを要求していた。
+
+#### 解決策
+
+**LangChainのソースコードdocstringに従い**、`type="file"`と`source_type="base64"`を使用する。
+
+```python
+# 正しい形式（音声/動画）
+user_prompt_parts_for_api.append({
+    "type": "file",
+    "source_type": "base64",
+    "mime_type": mime_type,  # 例: "audio/mpeg"
+    "data": encoded_string  # Base64エンコードされた文字列
+})
+
+# 参考: 画像の場合（変更なし）
+user_prompt_parts_for_api.append({
+    "type": "image_url",
+    "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
+})
+```
+
+#### 教訓
+
+1. **LangChainのソースコードdocstringを確認**: 公式ドキュメントよりもソースコード内のdocstringの方が最新情報を含んでいることがある。
+2. **形式の違い**: 画像は`image_url`タイプ、音声/動画は`file`タイプ。
+3. **動画のAPI制限**: Gemini APIには動画処理に関するサーバー側の制限がある可能性（`429`/`500`エラーはAPIの過負荷を示すことがある）。
+
+#### 関連ファイル
+
+- `ui_handlers.py`: `handle_message_submission`関数のファイル添付処理
+- `gemini_api.py`: `invoke_nexus_agent_stream`関数（`active_attachments`の処理）
+
