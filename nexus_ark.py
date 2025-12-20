@@ -737,7 +737,7 @@ try:
                             with gr.Accordion("詳細配色", open=False):
                                 gr.Markdown("ドロップダウンやテキストボックス、コードブロック、ボタンなどの色を個別に設定できます。")
                                 with gr.Row():
-                                    theme_input_bg_picker = gr.ColorPicker(label="入力欄の背景色", interactive=True)
+                                    theme_input_bg_picker = gr.ColorPicker(label="テキストボックス・スクロールバー", interactive=True)
                                     theme_input_border_picker = gr.ColorPicker(label="入力欄の枠線色", interactive=True)
                                     theme_code_bg_picker = gr.ColorPicker(label="コードブロック背景色", interactive=True)
                                 with gr.Row():

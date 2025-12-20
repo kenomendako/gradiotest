@@ -6442,7 +6442,23 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
         overrides.append(f"--background-fill-secondary: {secondary} !important;") 
         overrides.append(f"--block-label-background-fill: {secondary} !important;")
         # Custom CSS variable often used for bot bubbles in Nexus Ark
-        overrides.append(f"--secondary-500: {secondary} !important;") 
+        overrides.append(f"--secondary-500: {secondary} !important;")
+        # タブのオーバーフローメニュー（…）とチャット入力欄にもサブカラーを適用
+        css += f"""
+        /* タブのオーバーフローメニュー（…）の背景色 */
+        div.overflow-dropdown,
+        .overflow-dropdown {{
+            background-color: {secondary} !important;
+            background: {secondary} !important;
+        }}
+        /* チャット入力欄全体の背景色（最下層レイヤー） */
+        div.full-container,
+        div.full-container.svelte-5gfv2q,
+        [aria-label*="ultimedia input field"] {{
+            background-color: {secondary} !important;
+            background: {secondary} !important;
+        }}
+        """ 
 
     # 背景色: Overall App Background & Content Boxes
     if bg:
