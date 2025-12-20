@@ -270,6 +270,18 @@ try:
         border-radius: 12px; /* Ensure border radius matches if needed */
     }
 
+    /* --- [Chat Input Area Styling] --- */
+    /* チャット入力欄全体の背景色をテーマのサブカラーに連動 */
+    #chat_input_multimodal,
+    #chat_input_multimodal > div,
+    #chat_input_multimodal .block,
+    div.block.multimodal-textbox,
+    div.full-container,
+    [aria-label*="ultimedia input field"] {
+        background-color: var(--background-fill-secondary) !important;
+        background: var(--background-fill-secondary) !important;
+    }
+
     """
     custom_js = """
     function() {
