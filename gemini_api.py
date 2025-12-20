@@ -173,8 +173,12 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
     for h_item in raw_history:
         content = h_item.get('content', '').strip()
         
-        # 【重要】AIに渡す履歴からは、設定に関わらず常にタイムスタンプ（とモデル名）を除去する
-        content = timestamp_pattern.sub('', content)
+        # タイムスタンプ・モデル名の除去（設定がOFFの場合のみ）
+        if not add_timestamp:
+            cleaned = timestamp_pattern.sub('', content)
+            if cleaned != content:
+                 print(f"  - [DEBUG: History Cleaning] Removed timestamp from content.")
+            content = cleaned
         responder_id = h_item.get('responder', '')
         role = h_item.get('role', '')
         
@@ -261,6 +265,11 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     display_thoughts = effective_settings.get("display_thoughts", True)
     send_thoughts_final = display_thoughts and effective_settings.get("send_thoughts", True)
     model_name = effective_settings["model_name"]
+    # APIキーの決定: ルーム個別設定があればそれを優先、なければUIからの引数を使用
+    room_api_key_name = effective_settings.get("api_key_name")
+    if room_api_key_name:
+        api_key_name = room_api_key_name
+        
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -641,20 +650,69 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     }
     config = generation_config or {}
 
-    safety_settings = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(config.get("safety_block_threshold_harassment", "BLOCK_ONLY_HIGH")),
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(config.get("safety_block_threshold_hate_speech", "BLOCK_ONLY_HIGH")),
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: threshold_map.get(config.get("safety_block_threshold_sexually_explicit", "BLOCK_ONLY_HIGH")),
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(config.get("safety_block_threshold_dangerous_content", "BLOCK_ONLY_HIGH")),
-    }
+    # 推論モデル (Gemini 3系など) のための特別な処理
+    is_reasoning_model = "gemini-3" in model_name or "thinking" in model_name.lower()
+    
+    if is_reasoning_model:
+        # Gemini 3 Previewは非常に厳しいため、デバッグ中は安全設定を最小にする
+        safety_settings = {
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        }
+    else:
+        safety_settings = {
+            HarmCategory.HARM_CATEGORY_HARASSMENT: threshold_map.get(config.get("safety_block_threshold_harassment", "BLOCK_ONLY_HIGH")),
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: threshold_map.get(config.get("safety_block_threshold_hate_speech", "BLOCK_ONLY_HIGH")),
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: threshold_map.get(config.get("safety_block_threshold_sexually_explicit", "BLOCK_ONLY_HIGH")),
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(config.get("safety_block_threshold_dangerous_content", "BLOCK_ONLY_HIGH")),
+        }
+
+    # --- Thinking Level / Budget Mapping ---
+    thinking_level = config.get("thinking_level", "auto")
+    extra_params = {}
+    
+    # 推論が有効な場合、温度は 1.0 である必要がある（Google AI Studioの制約に準拠）
+    # ユーザーが明示的に設定している場合を除き、デフォルトを 1.0 に引き上げる
+    effective_temp = config.get("temperature", 0.8)
+    if is_reasoning_model and thinking_level != "none":
+        if effective_temp != 1.0:
+            effective_temp = 1.0
+        # 明示的にinclude_thoughtsを有効化
+        extra_params["include_thoughts"] = True
+
+    if thinking_level == "none":
+        # 思考を明示的に無効化
+        extra_params["include_thoughts"] = False
+    elif thinking_level in ["low", "medium", "high", "extreme"]:
+        # 【重要】現在のライブラリバージョンでは 'thinking_level' パラメータが ThinkingConfig に存在しないため、
+        # Gemini 3 では include_thoughts=True のみを使用し、詳細なレベル指定は行わない（API既定値に任せる）。
+        # 古いモデル(thinking_budget対応)の場合のみ budget を設定する手もあるが、
+        # 混乱を避けるため、一旦 Gemini 3 は考えさせるか否か(bool)のみで制御する。
+        if not is_reasoning_model:
+             # 旧モデル用の予算設定 (Gemini 2.5 thinkingなどがあれば)
+             pass 
+        else:
+             # Gemini 3: レベル指定は現在のSDKではエラーになるためスキップ
+             # print(f"  - [Thinking] Config: thinking_level='{thinking_level}' (ignored due to library limitations)")
+             pass
+    
+    # "auto" は何も渡さない（API既定値またはモデル側制御に従う）
+
+    # デバッグ用にパラメータを出力
+    if thinking_level != "auto":
+        print(f"  - [Thinking] Parameters: {extra_params}")
 
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
-        convert_system_message_to_human=False,
+        convert_system_message_to_human=is_reasoning_model, # 推論モデルはHuman扱いを好む場合がある
         max_retries=0,
-        temperature=config.get("temperature", 0.8),
+        temperature=effective_temp,
         top_p=config.get("top_p", 0.95),
+        max_output_tokens=config.get("max_output_tokens", 8192) if is_reasoning_model else config.get("max_output_tokens"),
         safety_settings=safety_settings,
-        timeout=600  # 10分のタイムアウト：Gemini 3などの新しいモデルは処理に時間がかかる場合がある
+        timeout=600,  # 10分のタイムアウト：Gemini 3などの新しいモデルは処理に時間がかかる場合がある
+        **extra_params
     )

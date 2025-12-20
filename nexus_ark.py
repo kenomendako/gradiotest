@@ -535,6 +535,13 @@ try:
                                     info="共通設定で登録したAPIキーから選択します。",
                                     interactive=True
                                 )
+                                
+                                room_thinking_level_dropdown = gr.Dropdown(
+                                    choices=list(constants.THINKING_LEVEL_OPTIONS.values()),
+                                    label="Thinking レベル (Gemini 3系)",
+                                    info="思考モデルの予算を指定します。高いほど深い推論が可能ですが、待ち時間が長くなります。",
+                                    interactive=True
+                                )
                                         
                             # --- OpenAI互換設定グループ ---
                             with gr.Group(visible=False) as room_openai_settings_group:
@@ -647,6 +654,7 @@ try:
                                 info="AIに送信する直近の会話ログの長さを設定します。",
                                 interactive=True
                             )
+                            
 
                             room_episode_memory_days_dropdown = gr.Dropdown(
                                 choices=list(constants.EPISODIC_MEMORY_OPTIONS.values()),
@@ -1514,6 +1522,7 @@ try:
             enable_scenery_system_checkbox,
             profile_scenery_accordion,
             room_api_history_limit_dropdown,
+            room_thinking_level_dropdown,
             api_history_limit_state,
             room_episode_memory_days_dropdown,
             episodic_memory_info_display,
@@ -1973,6 +1982,7 @@ try:
                 enable_scenery_system_checkbox,
                 auto_memory_enabled_checkbox,
                 room_api_history_limit_dropdown,
+                room_thinking_level_dropdown,
                 room_episode_memory_days_dropdown,
                 room_enable_autonomous_checkbox,
                 room_autonomous_inactivity_slider,

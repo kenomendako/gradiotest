@@ -181,6 +181,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", None,
             True, gr.update(open=True),
             gr.update(value="全ログ"),  # room_api_history_limit_dropdown
+            gr.update(value="既定 (AIに任せる / 通常モデル)"),  # room_thinking_level_dropdown
             "all",  # api_history_limit_state
             gr.update(value="過去 2週間"),  # room_episode_memory_days_dropdown
             gr.update(value="昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** 取得エラー"),  # episodic_memory_info_display
@@ -433,6 +434,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings.get("enable_scenery_system", True),
         gr.update(open=effective_settings.get("enable_scenery_system", True)),
         gr.update(value=limit_display), # room_api_history_limit_dropdown
+        gr.update(value=constants.THINKING_LEVEL_OPTIONS.get(effective_settings.get("thinking_level", "auto"), "既定 (AIに任せる / 通常モデル)")),
         limit_key, # api_history_limit_state (これはUIコンポーネントではないが、State更新用)
         gr.update(value=episode_display),
         gr.update(value=episodic_info_text),
@@ -529,7 +531,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     )
 
 
-def handle_initial_load(room_name: str = None, expected_count: int = 153):
+def handle_initial_load(room_name: str = None, expected_count: int = 154):
     """
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
@@ -664,6 +666,7 @@ def handle_save_room_settings(
     enable_scenery_system: bool,
     auto_memory_enabled: bool,
     api_history_limit: str,
+    thinking_level: str,
     episode_memory_days: str,
     enable_autonomous: bool,
     autonomous_inactivity: float,
@@ -707,6 +710,7 @@ def handle_save_room_settings(
     history_limit_key = next((k for k, v in constants.API_HISTORY_LIMIT_OPTIONS.items() if v == api_history_limit), "all")
 
     episode_days_key = next((k for k, v in constants.EPISODIC_MEMORY_OPTIONS.items() if v == episode_memory_days), constants.DEFAULT_EPISODIC_MEMORY_DAYS)
+    thinking_level_key = next((k for k, v in constants.THINKING_LEVEL_OPTIONS.items() if v == thinking_level), "auto")
 
     new_settings = {
         # ルーム個別モデル設定: 「共通設定に従う」の場合はNullにリセット
@@ -733,6 +737,7 @@ def handle_save_room_settings(
         "enable_scenery_system": bool(enable_scenery_system),
         "auto_memory_enabled": bool(auto_memory_enabled),
         "api_history_limit": history_limit_key,
+        "thinking_level": thinking_level_key,
         "episode_memory_lookback_days": episode_days_key,
         "autonomous_settings": {
             "enabled": bool(enable_autonomous),
@@ -1103,9 +1108,17 @@ def _stream_and_handle_response(
                                     # 使用モデル名を取得（実際に推論に使用されたモデル名が final_state に格納されている）
                                     # final_state が無かったり不十分な場合のフォールバックを強化
                                     actual_model_name = final_state.get("model_name") if final_state else None
+                                    
+                                    # デバッグ用
+                                    print(f"--- [DEBUG: Model Name Check] ---")
+                                    print(f"  - final_state['model_name']: {actual_model_name}")
+                                    print(f"  - global_model from UI: {global_model}")
+
                                     if not actual_model_name:
                                         effective_settings = config_manager.get_effective_settings(current_room, global_model_from_ui=global_model)
                                         actual_model_name = effective_settings.get("model_name", global_model)
+                                    
+                                    print(f"  - Final decision for timestamp: {actual_model_name}")
                                     
                                     timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
                                     content_to_log = content_str + timestamp
@@ -1251,9 +1264,13 @@ def _stream_and_handle_response(
             print(f"--- 警告: 応答後の情景更新に失敗しました (API制限の可能性): {e} ---")
         try:
             token_calc_kwargs = config_manager.get_effective_settings(soul_vessel_room, global_model_from_ui=global_model)
+            
+            # トークン計算用のAPIキー決定: ルーム個別設定があればそれを優先
+            token_api_key_name = token_calc_kwargs.get("api_key_name", api_key_name)
+            
             token_calc_kwargs.pop("api_history_limit", None)
             token_calc_kwargs.pop("api_key_name", None)  # 重複防止
-            token_count_text = gemini_api.count_input_tokens(room_name=soul_vessel_room, api_key_name=api_key_name, api_history_limit=api_history_limit, parts=[], **token_calc_kwargs)
+            token_count_text = gemini_api.count_input_tokens(room_name=soul_vessel_room, api_key_name=token_api_key_name, api_history_limit=api_history_limit, parts=[], **token_calc_kwargs)
         except Exception as e:
             print(f"--- 警告: 応答後のトークン数更新に失敗しました: {e} ---")
 
@@ -3970,7 +3987,7 @@ def handle_world_builder_load(room_name: str):
         gr.update(choices=place_choices_for_selected_area, value=current_location)
     )
 
-def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 143):
+def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 144):
     """
     【v11: 最終契約遵守版】
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
@@ -4014,13 +4031,17 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     )
     
     effective_settings = config_manager.get_effective_settings(room_name)
+    
+    # トークン計算用のAPIキー決定: ルーム個別設定があればそれを優先
+    token_api_key_name = effective_settings.get("api_key_name", api_key_name)
+    
     api_history_limit_key = config_manager.CONFIG_GLOBAL.get("last_api_history_limit_option", "all")
     token_calc_kwargs = {k: effective_settings.get(k) for k in [
         "display_thoughts", "add_timestamp", "send_current_time", "send_thoughts", 
         "send_notepad", "use_common_prompt", "send_core_memory", "send_scenery"
     ]}
     token_count_text = gemini_api.count_input_tokens(
-        room_name=room_name, api_key_name=api_key_name, parts=[],
+        room_name=room_name, api_key_name=token_api_key_name, parts=[],
         api_history_limit=api_history_limit_key, **token_calc_kwargs
     )
 
@@ -4038,7 +4059,7 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
     
     return _ensure_output_count(final_outputs, expected_count)
 
-def handle_delete_room(room_name: str, api_key_name: str, current_room_name: str, expected_count: int = 143):
+def handle_delete_room(room_name: str, api_key_name: str, current_room_name: str, expected_count: int = 144):
     """
     ルームを削除し、UIを別のルームにリダイレクトする。
     """

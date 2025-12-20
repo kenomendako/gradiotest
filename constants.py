@@ -42,3 +42,14 @@ EPISODIC_MEMORY_OPTIONS = {
     "90": "過去 3ヶ月"
 }
 DEFAULT_EPISODIC_MEMORY_DAYS = "14"
+
+# --- Thinking (Reasoning) モデル設定 ---
+THINKING_LEVEL_OPTIONS = {
+    "auto": "既定 (AIに任せる / 通常モデル)",
+    "none": "無効 (思考プロセスをスキップ)",
+    "low": "低 (1,024 tokens)",
+    "medium": "中 (4,096 tokens)",
+    "high": "高 (16,384 tokens)",
+    "extreme": "極高 (32,768 tokens)"
+}
+DEFAULT_THINKING_LEVEL = "auto"

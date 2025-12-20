@@ -679,11 +679,19 @@ def agent_node(state: AgentState):
             "<system_prompt>", f"<system_prompt>\n{persona_lock_prompt}"
         )
 
-    final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
-
-    # 2. 履歴取得
+    # Gemini 3などの推論モデルはSystemMessageを嫌う場合があるため、最初のHumanMessageに結合する
+    is_reasoning_model = "gemini-3" in state['model_name'] or "thinking" in state['model_name'].lower()
     history_messages = state['messages']
-    messages_for_agent = [final_system_prompt_message] + history_messages
+    
+    if is_reasoning_model and history_messages and isinstance(history_messages[0], HumanMessage):
+        print("  - [Thinking Support] SystemMessageを最初のHumanMessageに統合します。")
+        first_human = history_messages[0]
+        combined_content = f"### System Instructions\n{final_system_prompt_text}\n\n### Conversation History\n{first_human.content}"
+        new_first_human = HumanMessage(content=combined_content, additional_kwargs=first_human.additional_kwargs)
+        messages_for_agent = [new_first_human] + history_messages[1:]
+    else:
+        final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
+        messages_for_agent = [final_system_prompt_message] + history_messages
 
     # --- [Dual-State Architecture] 復元ロジック（変更なし）---
     turn_context = signature_manager.get_turn_context(current_room)
@@ -727,74 +735,97 @@ def agent_node(state: AgentState):
         chunks = []
         captured_signature = None
         
-        # --- ストリーム実行 ---
-        for chunk in llm_or_llm_with_tools.stream(messages_for_agent):
+        # --- ストリーム実行の堅牢化 ---
+        try:
+            for chunk in llm_or_llm_with_tools.stream(messages_for_agent):
+                if not chunks:
+                    print(f"  - 最初のチャンク受信: {time.time() - stream_start_time:.2f}秒後")
+                chunks.append(chunk)
+        except Exception as e:
+            print(f"--- [警告] ストリーム受信中に例外が発生しました: {e} ---")
             if not chunks:
-                # 最初のチャンク受信時にログ出力
-                first_chunk_time = time.time() - stream_start_time
-                print(f"  - 最初のチャンク受信: {first_chunk_time:.2f}秒後")
-            chunks.append(chunk)
-            if not captured_signature:
-                sig = chunk.additional_kwargs.get("thought_signature")
-                if not sig and hasattr(chunk, "response_metadata"):
-                    sig = chunk.response_metadata.get("thought_signature")
-                if sig:
-                    captured_signature = sig
-        
-        # ストリーム完了後のログ
-        if chunks:
+                raise e
+
+        if not chunks:
+            print(f"  - 警告: チャンクが0個でした（サーバー不調や安全フィルターの可能性があります）")
+            # 最小限の応答内容を設定
+            combined_text = "（AIからの応答が空でした。モデルの制限や安全フィルターにより出力が抑制された可能性があります。設定の『Thinking レベル』を調整して再度お試しください。）"
+            all_tool_calls_chunks = []
+            response_metadata = {}
+            additional_kwargs = {}
+        else:
             total_stream_time = time.time() - stream_start_time
             print(f"  - ストリーム完了: {len(chunks)}チャンク受信, 合計{total_stream_time:.2f}秒")
-        else:
-            print(f"  - 警告: チャンクが0個でした（タイムアウトの可能性）")
 
-
-        if chunks:
-            # 【Gemini 2.5 Pro思考モデル対応】チャンク連結の改善（2024-12-11修正）
-            # 思考モデルはChunk[0]をリスト形式（署名付き）で、それ以降を文字列形式で送信する。
-            # さらに、Chunk[0]のリスト内にstr型パーツ（Chunk[1]以降と重複するテキスト）が
-            # 含まれる場合があるため、type=textの辞書パーツのみを抽出する。
+            # --- 正攻法のチャンク結合 (LangChain標準の ++ 演算相当) ---
+            # これにより、複数チャンクに跨るツールコールのデルタ等が正しくマージされる
+            merged_chunk = chunks[0]
+            for c in chunks[1:]:
+                merged_chunk += c
             
+            all_tool_calls_chunks = getattr(merged_chunk, "tool_calls", [])
+            response_metadata = getattr(merged_chunk, "response_metadata", {}) or {}
+            additional_kwargs = getattr(merged_chunk, "additional_kwargs", {}) or {}
+
+            # コンテンツの抽出（各チャンクの内部構造を尊重しつつテキストを連結）
             text_parts = []
-            for chunk in chunks:
+            display_thoughts = state.get("display_thoughts", True)
+
+            for i, chunk in enumerate(chunks):
                 chunk_content = chunk.content
+                if not chunk_content: continue
                 
-                if chunk_content is None or chunk_content == "":
-                    continue
-                elif isinstance(chunk_content, str):
+                if isinstance(chunk_content, str):
                     text_parts.append(chunk_content)
                 elif isinstance(chunk_content, list):
-                    # リスト形式の場合、type=textの辞書パーツのみを抽出
-                    # str型パーツはChunk[1]以降と重複するため除外
                     for part in chunk_content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            text_parts.append(part.get("text", ""))
+                        if isinstance(part, dict):
+                            part_type = part.get("type")
+                            if part_type == "text":
+                                text_parts.append(part.get("text", ""))
+                            elif part_type == "thought":
+                                if display_thoughts:
+                                    thought_text = part.get("thought", "")
+                                    if thought_text.strip():
+                                        text_parts.append(f"[THOUGHT]\n{thought_text}\n[/THOUGHT]\n")
+                        elif isinstance(part, str):
+                            text_parts.append(part)
+                
+                # contentの外側の思考プロンプト（一部のSDKバージョン用）
+                if hasattr(chunk, 'additional_kwargs'):
+                    reasoning = chunk.additional_kwargs.get("reasoning_content") or chunk.additional_kwargs.get("thought")
+                    if reasoning and display_thoughts:
+                        if isinstance(reasoning, str) and reasoning.strip():
+                             text_parts.append(f"[THOUGHT]\n{reasoning}\n[/THOUGHT]\n")
             
             combined_text = "".join(text_parts)
             
-            # 署名やツールコールを最初のチャンクから取得
-            first_chunk = chunks[0]
-            additional_kwargs = getattr(first_chunk, 'additional_kwargs', {}) or {}
-            response_metadata = getattr(first_chunk, 'response_metadata', {}) or {}
-            tool_calls = getattr(first_chunk, 'tool_calls', []) or []
-            
-            # 新しいAIMessageを作成（contentは単純な文字列）
-            response = AIMessage(
-                content=combined_text,
-                additional_kwargs=additional_kwargs,
-                response_metadata=response_metadata,
-                tool_calls=tool_calls
-            )
-        else:
-            raise RuntimeError("AIからの応答が空でした。")
+            if not combined_text.strip() and not all_tool_calls_chunks:
+                print("  - [GEMINI3_DEBUG] WARNING: Response is effectively empty.")
+                combined_text = "（AIからの応答が空でした。設定の『Thinking レベル』を調整するか、ツール使用をOFFにして再度お試しください。）"
 
-        # 署名確保（今後のライブラリ対応に備えて残しておく）
+            # 署名などを統合メッセージから取得
+            if not captured_signature:
+                captured_signature = additional_kwargs.get("thought_signature") or response_metadata.get("thought_signature")
+
+        # --- [FINAL SAFETY CHECK] ---
+        # LangChain Coreのバリデーション回避: "model output must contain either output text or tool calls"
+        # combined_textが空文字かつツールコールが無い場合、強制的にテキストを入れる。
+        if not combined_text and not all_tool_calls_chunks:
+             print("DEBUG: [FINAL SAFETY] Forcing fallback text to prevent validation error.")
+             combined_text = "（AIからの応答が空でした。ここでのテキスト代入によりクラッシュを回避しました。）"
+        
+        # 新しいAIMessageを作成
+        response = AIMessage(
+            content=combined_text,
+            additional_kwargs=additional_kwargs,
+            response_metadata=response_metadata,
+            tool_calls=all_tool_calls_chunks
+        )
+        
+        # 署名確保
         if captured_signature:
-            if not response.additional_kwargs: response.additional_kwargs = {}
-            response.additional_kwargs["thought_signature"] = captured_signature
-            
-            t_calls = response.tool_calls if hasattr(response, "tool_calls") else []
-            signature_manager.save_turn_context(state['room_name'], captured_signature, t_calls)
+            signature_manager.save_turn_context(state['room_name'], captured_signature, all_tool_calls_chunks)
 
         loop_count += 1
         if not getattr(response, "tool_calls", None):
@@ -808,7 +839,6 @@ def agent_node(state: AgentState):
         if "thought_signature" in error_str:
             print(f"  - [Thinking] Gemini 3 思考署名エラーを検知しました。ツール実行結果を含めて終了します。")
             
-            # 直前のメッセージ（ツール実行結果）を取得して表示する
             tool_result_text = ""
             if history_messages and isinstance(history_messages[-1], ToolMessage):
                 tool_result_text = f"\n\n【システム報告：ツール実行結果】\n{history_messages[-1].content}"
@@ -825,8 +855,6 @@ def agent_node(state: AgentState):
         else:
             print(f"--- [警告] agent_nodeでAPIエラーを捕捉しました: {e} ---")
             raise e
-    # ▲▲▲ ここまで ▲▲▲
-    
     # ▼▼▼ 【マルチモデル対応】OpenAIエラーハンドリング ▼▼▼
     except OPENAI_ERRORS as e:
         error_str = str(e).lower()
@@ -843,8 +871,6 @@ def agent_node(state: AgentState):
         
         if is_tool_error:
             print(f"  - [OpenAI] ツール非対応モデルエラーを検知: {model_name}")
-            # ui_handlers.py側でシステムエラーとして処理するため、例外として再スロー
-            # エラーメッセージをユーザーフレンドリーに書き換え
             raise RuntimeError(
                 f"⚠️ モデル非対応エラー: 選択されたモデル `{model_name}` はツール呼び出し（Function Calling）に対応していません。"
                 f"\n\n【解決方法】"
@@ -853,10 +879,15 @@ def agent_node(state: AgentState):
                 f"\n3. または、Geminiプロバイダに切り替える"
             ) from e
         else:
-            # その他のOpenAIエラーは従来通り再スロー
             print(f"--- [警告] agent_nodeでOpenAIエラーを捕捉しました: {e} ---")
             raise e
-    # ▲▲▲ OpenAIエラーハンドリング ここまで ▲▲▲
+    except Exception as e:
+        print(f"--- [致命的エラー] agent_nodeで予期せぬエラーが発生しました: {e} ---")
+        import traceback
+        traceback.print_exc()
+        error_msg = f"（エラーが発生しました: {str(e)}。設定や通信状況を再度ご確認ください。）"
+        return {"messages": [AIMessage(content=error_msg)], "loop_count": loop_count, "force_end": True}
+    # ▲▲▲ ここまで ▲▲▲
     
 def safe_tool_executor(state: AgentState):
     """

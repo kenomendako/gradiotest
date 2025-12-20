@@ -580,6 +580,7 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         "send_scenery": True,
         "send_current_time": True,
         "auto_memory_enabled": False,
+        "thinking_level": "auto",
         "enable_typewriter_effect": True,
         "streaming_speed": 0.01,
         "temperature": 0.8, "top_p": 0.95,
