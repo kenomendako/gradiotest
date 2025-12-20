@@ -1424,14 +1424,26 @@ def handle_message_submission(
                     mime_type = kind.mime if kind else "application/octet-stream"
 
                     if mime_type.startswith('image/'):
+                        # 画像: image_url形式でBase64エンコード
                         with open(file_path, "rb") as f:
                             encoded_string = base64.b64encode(f.read()).decode("utf-8")
                         user_prompt_parts_for_api.append({
                             "type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
                         })
+                    elif mime_type.startswith('audio/') or mime_type.startswith('video/'):
+                        # 音声/動画: media形式でBase64エンコード
+                        with open(file_path, "rb") as f:
+                            encoded_string = base64.b64encode(f.read()).decode("utf-8")
+                        user_prompt_parts_for_api.append({
+                            "type": "media",
+                            "mime_type": mime_type,
+                            "data": encoded_string
+                        })
                     else:
+                        # テキスト系ファイル: 内容を読み込んでテキストとして送信
                         try:
-                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f: content = f.read()
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
                             user_prompt_parts_for_api.append({"type": "text", "text": f"添付ファイル「{file_basename}」の内容:\n---\n{content}\n---"})
                         except Exception as read_e:
                             user_prompt_parts_for_api.append({"type": "text", "text": f"（ファイル「{file_basename}」の読み込み中にエラーが発生しました: {read_e}）"})
