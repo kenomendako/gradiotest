@@ -38,6 +38,10 @@
   - Gemini 3 Flash Previewは応答遅延問題あり（[gradio_notes.md](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/guides/gradio_notes.md) レッスン33）
   - おすすめモデルだけのリストを作成
 
+- [ ] **モデルリストのUI管理機能強化**
+  - UI上からモデルの削除を可能にする
+  - デフォルトモデルリストで上書きして初期状態に戻す機能
+
 - [ ] **Gemini 3シリーズの空応答・思考タグ問題**
   - 空応答が頻発（思考レベル変更で解消せず）
   - ツール使用のみ成功して応答テキストが空になるケースあり

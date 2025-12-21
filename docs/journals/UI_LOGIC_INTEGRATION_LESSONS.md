@@ -332,3 +332,26 @@ GradioアプリケーションにおけるUIとロジックの連携は、目に
 
 *   **教訓:**
     AI agent と協業する際、AIの内部知識は常に最新ではないことを前提にしなければならない。重要なリスト（利用可能モデル等）の管理においては、プログラム内の静的な定義を「守護者」とし、設定ファイルを動的にクリーンアップし続ける仕組みが不可欠である。
+
+---
+
+### 教訓17：LangGraphのストリームは「途中経過」を自ら記録せよ（2025-12-21）
+
+*   **問題の核心:**
+    `agent_node`が正しいモデル名を返しているにも関わらず、UI側で取得する`final_state`には古いモデル名が残るという不可解な現象が発生。ターミナルでは`gemini-3-flash-preview`、タイムスタンプでは`gemini-2.5-`と表示食い違い。
+
+*   **原因：LangGraphのストリーム仕様**
+    `app.stream()`は各ノード実行後に`values`モードのペイロードを発行する。最終的な`final_state`は、**最後に実行されたノード**の返り値で状態が更新される。`agent_node`が`model_name`を返しても、その後に実行される`safe_tool_node`等が`model_name`を返さない場合、状態は更新されず初期値のままとなる。
+
+*   **解決アーキテクチャ：「途中経過のキャプチャ」**
+    ストリーム処理中に、各`values`ペイロードから必要な値を都度キャプチャして別変数に保持する。
+    ```python
+    captured_model_name = None
+    for mode, chunk in app.stream(initial_state):
+        if mode == "values" and chunk.get("model_name"):
+            captured_model_name = chunk.get("model_name")  # 途中経過を記録
+    # 後続処理では captured_model_name を優先使用
+    ```
+
+*   **教訓:**
+    LangGraphのような複数ノードを持つグラフにおいて、最終状態だけを信頼してはならない。途中のノードが返した重要な値は、ストリーム処理中に能動的にキャプチャする必要がある。
