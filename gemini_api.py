@@ -29,6 +29,9 @@ from episodic_memory_manager import EpisodicMemoryManager
 
 # --- トークン計算関連 (変更なし) ---
 def get_model_token_limits(model_name: str, api_key: str, provider: str = None) -> Optional[Dict[str, int]]:
+    # 注釈（かっこ書き）を除去
+    model_name = model_name.split(" (")[0].strip() if model_name else model_name
+    
     if model_name in utils._model_token_limits_cache: return utils._model_token_limits_cache[model_name]
     if not api_key or api_key.startswith("YOUR_API_KEY"): return None
     
@@ -93,6 +96,8 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
     if not messages: return 0
+    # 注釈（かっこ書き）を除去
+    model_name = model_name.split(" (")[0].strip() if model_name else model_name
 
     # モデル名に "gemini" が含まれていない、または active_provider が openai の場合
     active_provider = config_manager.get_active_provider()

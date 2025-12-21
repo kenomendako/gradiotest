@@ -690,7 +690,8 @@ def handle_save_room_settings(
     topic_cluster_min_size: int = 3,
     topic_cluster_min_samples: int = 2,
     topic_cluster_selection_method: str = "eom",
-    topic_cluster_fixed_topics: str = ""
+    topic_cluster_fixed_topics: str = "",
+    silent: bool = False
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -768,8 +769,13 @@ def handle_save_room_settings(
         "topic_cluster_selection_method": str(topic_cluster_selection_method),
         "topic_cluster_fixed_topics": [t.strip() for t in topic_cluster_fixed_topics.split(",") if t.strip()]
     }
-    if room_manager.update_room_config(room_name, new_settings):
-        gr.Info(f"「{room_name}」の個別設定を保存しました。")
+    result = room_manager.update_room_config(room_name, new_settings)
+    if result == True:
+        if not silent:
+            gr.Info(f"「{room_name}」の個別設定を保存しました。")
+    elif result == "no_change":
+        # 変更なしの場合は何もしない
+        pass
     else:
         gr.Error("個別設定の保存中にエラーが発生しました。詳細はログを確認してください。")
 
@@ -1128,7 +1134,14 @@ def _stream_and_handle_response(
                                     # デバッグ用ログ
                                     print(f"--- [タイムスタンプ重複防止] 既にタイムスタンプが含まれているためスキップ ---")
                                     content_to_log = content_str
-                                header = f"## AGENT:{current_room}"                        
+                                
+                                # (System): プレフィックスのチェックと処理
+                                if content_to_log.startswith("(System):"):
+                                    header = "## SYSTEM:Nexus Ark"
+                                    # プレフィックスを削除（タイムスタンプは維持）
+                                    content_to_log = content_to_log[len("(System):"):].strip()
+                                else:
+                                    header = f"## AGENT:{current_room}"                        
                         
                         elif isinstance(msg, ToolMessage):
                             formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))

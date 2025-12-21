@@ -185,13 +185,13 @@ try:
     }
 
     /* --- [Layout & Utility Styles] --- */
-    #memory_json_editor_code .cm-editor, #core_memory_editor_code textarea {
+    #memory_txt_editor_code textarea, #core_memory_editor_code textarea {
         max-height: 400px !important; overflow-y: auto !important;
     }
     #notepad_editor_code textarea, #system_prompt_editor textarea {
         max-height: 400px !important; overflow-y: auto !important; box-sizing: border-box;
     }
-    #memory_json_editor_code, #notepad_editor_code, #system_prompt_editor, #core_memory_editor_code {
+    #memory_txt_editor_code, #notepad_editor_code, #system_prompt_editor, #core_memory_editor_code {
         max-height: 410px; border: 1px solid var(--border-color-primary); border-radius: 8px; padding: 0;
     }
 
@@ -1976,53 +1976,64 @@ try:
             room_safety_harassment_dropdown, room_safety_hate_speech_dropdown,
             room_safety_sexually_explicit_dropdown, room_safety_dangerous_content_dropdown
         ]
+        room_individual_settings_inputs = [
+            current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox
+        ] + gen_settings_inputs + [
+            enable_typewriter_effect_checkbox,
+            streaming_speed_slider,
+        ] + [
+            room_display_thoughts_checkbox,
+            room_send_thoughts_checkbox, 
+            room_enable_retrieval_checkbox, 
+            room_add_timestamp_checkbox, 
+            room_send_current_time_checkbox, 
+            room_send_notepad_checkbox,
+            room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
+            room_send_scenery_checkbox,
+            enable_scenery_system_checkbox,
+            auto_memory_enabled_checkbox,
+            room_api_history_limit_dropdown,
+            room_thinking_level_dropdown,
+            room_episode_memory_days_dropdown,
+            room_enable_autonomous_checkbox,
+            room_autonomous_inactivity_slider,
+            room_quiet_hours_start,
+            room_quiet_hours_end,
+            room_model_dropdown,
+            room_provider_radio,
+            room_api_key_dropdown,
+            room_openai_profile_dropdown,
+            room_openai_base_url_input,
+            room_openai_api_key_input,
+            room_openai_model_dropdown,
+            room_openai_tool_use_checkbox,
+            # --- 睡眠時記憶整理 ---
+            sleep_consolidation_episodic_cb,
+            sleep_consolidation_memory_index_cb,
+            sleep_consolidation_current_log_cb,
+            sleep_consolidation_topic_clusters_cb,
+            sleep_consolidation_compress_cb,
+            topic_cluster_min_size_slider,
+            topic_cluster_min_samples_slider,
+            topic_cluster_selection_method_radio,
+            topic_cluster_fixed_topics_textbox,
+        ]
+
         save_room_settings_button.click(
             fn=ui_handlers.handle_save_room_settings,
-            inputs=[
-                current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox
-            ] + gen_settings_inputs + [
-                enable_typewriter_effect_checkbox,
-                streaming_speed_slider,
-            ] + [
-                room_display_thoughts_checkbox,
-                room_send_thoughts_checkbox, 
-                room_enable_retrieval_checkbox, 
-                room_add_timestamp_checkbox, 
-                room_send_current_time_checkbox, 
-                room_send_notepad_checkbox,
-                room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
-                room_send_scenery_checkbox, # [修正] ズレ防止のため追加
-                enable_scenery_system_checkbox,
-                auto_memory_enabled_checkbox,
-                room_api_history_limit_dropdown,
-                room_thinking_level_dropdown,
-                room_episode_memory_days_dropdown,
-                room_enable_autonomous_checkbox,
-                room_autonomous_inactivity_slider,
-                room_quiet_hours_start,
-                room_quiet_hours_end,
-                room_model_dropdown,  # [追加] ルーム個別モデル設定 (Dropdown)
-                # [Phase 3] 個別プロバイダ設定
-                room_provider_radio,
-                room_api_key_dropdown,
-                room_openai_profile_dropdown,  # 追加: プロファイル選択
-                room_openai_base_url_input,
-                room_openai_api_key_input,
-                room_openai_model_dropdown,
-                room_openai_tool_use_checkbox,  # 追加: ツール使用オンオフ
-                # --- 睡眠時記憶整理 ---
-                sleep_consolidation_episodic_cb,
-                sleep_consolidation_memory_index_cb,
-                sleep_consolidation_current_log_cb,
-                sleep_consolidation_topic_clusters_cb,
-                sleep_consolidation_compress_cb,
-                topic_cluster_min_size_slider,
-                topic_cluster_min_samples_slider,
-                topic_cluster_selection_method_radio,
-                topic_cluster_fixed_topics_textbox,
-            ],
+            inputs=room_individual_settings_inputs,
             outputs=None
         )
+
+        # 個別設定の即時保存対応: 各コンポーネントに変更イベントを登録
+        # (ただし、current_room_name 自身やボタン自体には不要)
+        for comp in room_individual_settings_inputs[1:]:
+            comp.change(
+                fn=lambda *args: ui_handlers.handle_save_room_settings(*args, silent=False),
+                inputs=room_individual_settings_inputs,
+                outputs=None
+            )
+
         preview_event = room_preview_voice_button.click(
             fn=ui_handlers.handle_voice_preview, 
             inputs=[current_room_name, room_voice_dropdown, room_voice_style_prompt_textbox, room_preview_text_textbox, api_key_dropdown], 

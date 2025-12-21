@@ -749,7 +749,7 @@ def agent_node(state: AgentState):
         if not chunks:
             print(f"  - 警告: チャンクが0個でした（サーバー不調や安全フィルターの可能性があります）")
             # 最小限の応答内容を設定
-            combined_text = "（AIからの応答が空でした。モデルの制限や安全フィルターにより出力が抑制された可能性があります。設定の『Thinking レベル』を調整して再度お試しください。）"
+            combined_text = "(System): （AIからの応答が空でした。モデルの制限や安全フィルターにより出力が抑制された可能性があります。設定の『Thinking レベル』を調整して再度お試しください。）"
             all_tool_calls_chunks = []
             response_metadata = {}
             additional_kwargs = {}
@@ -813,7 +813,7 @@ def agent_node(state: AgentState):
             
             if not combined_text.strip() and not all_tool_calls_chunks:
                 print("  - [GEMINI3_DEBUG] WARNING: Response is effectively empty.")
-                combined_text = "（AIからの応答が空でした。設定の『Thinking レベル』を調整するか、ツール使用をOFFにして再度お試しください。）"
+                combined_text = "(System): （AIからの応答が空でした。設定の『Thinking レベル』を調整するか、ツール使用をOFFにして再度お試しください。）"
 
             # 署名などを統合メッセージから取得
             if not captured_signature:
@@ -824,7 +824,7 @@ def agent_node(state: AgentState):
         # combined_textが空文字かつツールコールが無い場合、強制的にテキストを入れる。
         if not combined_text and not all_tool_calls_chunks:
              print("DEBUG: [FINAL SAFETY] Forcing fallback text to prevent validation error.")
-             combined_text = "（AIからの応答が空でした。ここでのテキスト代入によりクラッシュを回避しました。）"
+             combined_text = "(System): （AIからの応答が空でした。ここでのテキスト代入によりクラッシュを回避しました。）"
         
         # 新しいAIMessageを作成
         response = AIMessage(

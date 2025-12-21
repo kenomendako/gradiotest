@@ -34,6 +34,10 @@ class LLMFactory:
         """
         config_manager.load_config() 
         
+        # モデル名から注釈（かっこ書き）を除去する
+        # 例: "gemini-3-flash-preview (Slow Response)" -> "gemini-3-flash-preview"
+        internal_model_name = model_name.split(" (")[0].strip() if model_name else model_name
+
         # ルーム名を渡してルーム個別のプロバイダ設定を優先する
         active_provider = config_manager.get_active_provider(room_name)
         
@@ -41,7 +45,7 @@ class LLMFactory:
         # ユーザー設定のプロバイダ（OpenAI等）に関係なく、Gemini固定が必要な処理用
         if force_google:
             print(f"--- [LLM Factory] Force Google mode: Using Gemini Native for internal processing ---")
-            print(f"  - Model: {model_name}")
+            print(f"  - Model: {internal_model_name}")
             active_provider = "google"
 
         # --- Google Gemini (Native) ---
@@ -52,7 +56,7 @@ class LLMFactory:
                 raise ValueError("Google provider requires an API key.")
                 
             return gemini_api.get_configured_llm(
-                model_name=model_name,
+                model_name=internal_model_name,
                 api_key=api_key,
                 generation_config=generation_config
             )

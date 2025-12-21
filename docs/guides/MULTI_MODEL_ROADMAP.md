@@ -72,7 +72,7 @@
 
 ---
 
-### Phase 1.5: モデル選択UIの強化 ✅ 完了 (2024-12-12)
+### Phase 1.5: モデル選択UIの強化 ✅ 完了 (2025-12-12)
 *   [x] 設定構造の設計完了
 *   [x] `config_manager.py`: 各プロバイダの `available_models` を最新モデルで更新
 *   [x] `nexus_ark.py`: モデル選択を **Textbox → Dropdown** に変更
@@ -97,14 +97,14 @@
 *   [x] `gemini_api.py`: `get_model_token_limits` がOpenAIモデル（gpt-、o1-等）を正しく処理するように修正。
 *   [x] **ツール不使用モード**: `tool_use_enabled` 設定により、Function Calling非対応モデルでも会話が可能に。
 
-#### 2024-12-13 修正: ツール不使用モード実装
+#### 2025-12-13 修正: ツール不使用モード実装
 OllamaやGPT-3.5等のFunction Calling非対応モデル使用時にエラーが発生していた問題を解決：
 - プロバイダ設定に `tool_use_enabled` フラグを追加（Local Ollamaはデフォルトでfalse）
 - `config_manager.is_tool_use_enabled()` で現在の設定を取得
 - `agent_node` でフラグに応じてツールバインドをスキップ
 - UIの「ツール使用（Function Calling）を有効にする」チェックボックスで切り替え可能
 
-#### 2024-12-13 修正: 内部処理モデルとプロバイダ分離
+#### 2025-12-13 修正: 内部処理モデルとプロバイダ分離
 OpenAIプロバイダ使用時に以下のエラーが発生していた問題を修正：
 - `gemini-2.5-flash-lite does not exist` → 内部処理が誤ってOpenAI APIに送信されていた
 - `Model is not found: models/gpt-X` → モデル情報取得がGemini API専用だった
@@ -121,13 +121,13 @@ OpenAIプロバイダ使用時に以下のエラーが発生していた問題�
 
 ---
 
-### Phase 4: ルームごとのAI設定 ✅ 完了 (2024-12-15)
+### Phase 4: ルームごとのAI設定 ✅ 完了 (2025-12-15)
 *   [x] 各ルームで異なるプロバイダ/モデルを設定可能に
 *   [x] `room_config.json` の `override_settings` にAI設定（provider, openai_settings）を追加
 *   [x] ルーム個別のツール使用設定（tool_use_enabled）
 *   [x] AI応答にタイムスタンプ + 使用モデル名を表示
 
-#### 2024-12-15 実装: ルーム個別プロバイダ設定
+#### 2025-12-15 実装: ルーム個別プロバイダ設定
 
 **機能概要:**
 - ルームごとに「共通設定に従う」「Google (Gemini)」「OpenAI互換」を選択可能

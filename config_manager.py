@@ -14,7 +14,7 @@ import constants
 CONFIG_GLOBAL = {}
 GEMINI_API_KEYS = {}
 AVAILABLE_MODELS_GLOBAL = []
-DEFAULT_MODEL_GLOBAL = "gemini-2.5-pro"
+DEFAULT_MODEL_GLOBAL = "gemini-2.5-flash"
 NOTIFICATION_SERVICE_GLOBAL = "discord"
 NOTIFICATION_WEBHOOK_URL_GLOBAL = None
 PUSHOVER_CONFIG = {}
@@ -418,12 +418,18 @@ def load_config():
         # ---------------------------------
         "gemini_api_keys": {"your_key_name": "YOUR_API_KEY_HERE"},
         "paid_api_key_names": [],
-        "available_models": ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
-        "default_model": "gemini-2.5-pro",
+        "available_models": [
+            "gemini-2.5-flash", 
+            "gemini-2.5-pro", 
+            "gemini-2.5-flash-lite",
+            "gemini-3-flash-preview (Slow Response)", 
+            "gemini-3-pro-preview (Slow Response)"
+        ],
+        "default_model": "gemini-2.5-flash",
         "image_generation_mode": "new", 
         "search_provider": "google",
         "last_room": "Default",
-        "last_model": "gemini-2.5-pro",
+        "last_model": "gemini-2.5-flash",
         "last_api_key_name": None,
         "last_send_thoughts_to_api": True,
         "last_api_history_limit_option": constants.DEFAULT_API_HISTORY_LIMIT_OPTION,
@@ -453,10 +459,37 @@ def load_config():
         "custom_themes": user_theme_settings.get("custom_themes", {})
     }
 
-    # ステップ4：【賢いマージ】available_modelsを統合する
-    default_models_set = set(default_config["available_models"])
-    user_models_set = set(user_config.get("available_models", []))
-    merged_models = sorted(list(default_models_set | user_models_set))
+    # ステップ4：【厳格なマージ】available_modelsを統合する
+    # デフォルトを真の源泉 (Single Source of Truth) とし、ユーザー設定にある古いモデルや注釈なしの名前を排除する。
+    default_models = default_config["available_models"]
+    user_models = user_config.get("available_models", [])
+    
+    # 基本方針:
+    # 1. デフォルトに含まれるモデルはそのまま採用（注釈付きを含む）。
+    # 2. ユーザー設定にあるモデルのうち、注釈なしの古い名前（例: gemini-3-flash-preview）が、
+    #    デフォルトに注釈付き（例: gemini-3-flash-preview (Slow Response)）として存在する場合、古い方は捨てる。
+    # 3. リストに含まれない「gemini-2.0」などの古いエクスプレスモデルも除外対象とする。
+    
+    merged_models = default_models.copy()
+    
+    # 注釈付きモデルの「ベース名」リストを作成
+    annotated_base_names = [m.split(" (")[0] for m in default_models if " (" in m]
+    obsolete_keywords = ["gemini-1.5", "gemini-2.0"]
+
+    for m in user_models:
+        # すでにリストにある（完全一致）ならスキップ
+        if m in merged_models:
+            continue
+            
+        # 除外判定
+        is_obsolete = any(k in m for k in obsolete_keywords)
+        is_unannotated_duplicate = m in annotated_base_names
+        
+        if not is_obsolete and not is_unannotated_duplicate:
+            # どちらにも該当せず、かつデフォルトにない（ユーザーが手動で追加したカスタムモデル等）場合のみ追加を許可
+            merged_models.append(m)
+        else:
+            print(f"--- [Config Manager] Cleaning up obsolete/duplicate model: {m} ---")
 
     # ステップ4.5：【賢いマージ】OpenAI互換プロバイダのavailable_modelsを統合する
     # デフォルトのモデルリストとユーザーが追加したモデルをマージし、ユーザー追加モデルが消えないようにする

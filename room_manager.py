@@ -353,7 +353,7 @@ def update_room_config(room_name: str, updates: dict) -> bool:
     # 変更があるかチェック（タイムスタンプ更新前に行う）
     if config == old_config:
         # print(f"--- [Room Manager] No changes detected for '{room_name}'. Skipping save/backup. ---")
-        return True
+        return "no_change"
 
     config["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     config["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
