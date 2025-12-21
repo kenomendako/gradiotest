@@ -207,10 +207,20 @@ class UnifiedTimer:
             if response_text and not response_text.startswith("[エラー"):
                 # ヘッダー（自律行動 or タイマー）でシステムログを記録
                 utils.save_message_to_log(log_f, log_header, message_for_log)
-                # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
+                
+                # 【修正】AIが既にタイムスタンプを生成している場合は追加しない
+                # 英語曜日（Sun等）と日本語曜日（日）の両形式に対応
                 import datetime as dt_timers
-                timestamp = f"\n\n{dt_timers.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
-                utils.save_message_to_log(log_f, f"## AGENT:{self.room_name}", raw_response + timestamp)
+                timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2}\s*\([A-Za-z月火水木金土日]{1,3}\)\s*\d{2}:\d{2}:\d{2}'
+                if re.search(timestamp_pattern, raw_response):
+                    print(f"--- [タイムスタンプ重複防止] AIが既にタイムスタンプを生成しているためスキップ ---")
+                    content_to_log = raw_response
+                else:
+                    # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
+                    timestamp = f"\n\n{dt_timers.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
+                    content_to_log = raw_response + timestamp
+                
+                utils.save_message_to_log(log_f, f"## AGENT:{self.room_name}", content_to_log)
             else:
                 # エラー時
                 fallback_text = f"設定された行動（{theme}）を実行しようとしましたが、応答を生成できませんでした。"

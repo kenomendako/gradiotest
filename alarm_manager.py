@@ -28,6 +28,9 @@ except ImportError:
 alarms_data_global = []
 alarm_thread_stop_event = threading.Event()
 
+# 重複発火防止用（ルーム名 -> 最後の発火時刻）
+_last_autonomous_trigger_time = {}
+
 def load_alarms():
     global alarms_data_global
     if not os.path.exists(constants.ALARMS_FILE):
@@ -236,9 +239,19 @@ def trigger_alarm(alarm_config, current_api_key_name):
     # AIの応答生成に成功した場合
     if response_text and not response_text.startswith("[エラー"):
         utils.save_message_to_log(log_f, "## SYSTEM:alarm", message_for_log)
-        # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
-        timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
-        utils.save_message_to_log(log_f, f"## AGENT:{room_name}", raw_response + timestamp)
+        
+        # 【修正】AIが既にタイムスタンプを生成している場合は追加しない
+        # 英語曜日（Sun等）と日本語曜日（日）の両形式に対応
+        timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2}\s*\([A-Za-z月火水木金土日]{1,3}\)\s*\d{2}:\d{2}:\d{2}'
+        if re.search(timestamp_pattern, raw_response):
+            print(f"--- [タイムスタンプ重複防止] AIが既にタイムスタンプを生成しているためスキップ ---")
+            content_to_log = raw_response
+        else:
+            # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
+            timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
+            content_to_log = raw_response + timestamp
+        
+        utils.save_message_to_log(log_f, f"## AGENT:{room_name}", content_to_log)
         print(f"アラームログ記録完了 (ID:{alarm_id})")
         
     # AIの応答生成に失敗した場合（フォールバック）
@@ -263,6 +276,10 @@ def trigger_alarm(alarm_config, current_api_key_name):
 
 def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: bool):
     """自律行動を実行させる"""
+    # 発火時刻を記録（重複防止）
+    global _last_autonomous_trigger_time
+    _last_autonomous_trigger_time[room_name] = datetime.datetime.now()
+    
     print(f"🤖 自律行動トリガー: {room_name} (Quiet: {quiet_mode})")
     
     log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
@@ -355,14 +372,25 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
         # ただし、タイマーをリセットするために「見えない更新」が必要かもしれないが、
         # 次のチェック時も「最終更新時刻」は変わらないため、またトリガーされてしまう。
         # 対策: 沈黙の場合でも、システムログとして「（静観中...）」と記録して時間を進める。
-        utils.save_message_to_log(log_f, "## SYSTEM:autonomous_status", "（AIは静観を選択しました）")
+        timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')}"
+        utils.save_message_to_log(log_f, "## SYSTEM:autonomous_status", f"（AIは静観を選択しました）{timestamp}")
         return
 
     # 行動した場合
     utils.save_message_to_log(log_f, "## SYSTEM:autonomous_trigger", "（自律行動モードにより起動）")
-    # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
-    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
-    utils.save_message_to_log(log_f, f"## AGENT:{room_name}", final_response_text + timestamp)
+    
+    # 【修正】AIが既にタイムスタンプを生成している場合は追加しない
+    # 英語曜日（Sun等）と日本語曜日（日）の両形式に対応
+    timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2}\s*\([A-Za-z月火水木金土日]{1,3}\)\s*\d{2}:\d{2}:\d{2}'
+    if re.search(timestamp_pattern, final_response_text):
+        print(f"--- [タイムスタンプ重複防止] AIが既にタイムスタンプを生成しているためスキップ ---")
+        content_to_log = final_response_text
+    else:
+        # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
+        timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
+        content_to_log = final_response_text + timestamp
+    
+    utils.save_message_to_log(log_f, f"## AGENT:{room_name}", content_to_log)
     print(f"  - {room_name} が自律行動しました。")
 
     # 通知（Quiet Hoursでなければ）
@@ -442,6 +470,13 @@ def check_autonomous_actions():
             # print(f"  - [{room_folder}] 経過: {int(elapsed_minutes)}分 / 設定: {inactivity_limit}分 (最終: {last_active.strftime('%H:%M')})")
 
             if elapsed_minutes >= inactivity_limit:
+                # 重複発火防止チェック
+                last_trigger = _last_autonomous_trigger_time.get(room_folder)
+                if last_trigger:
+                    minutes_since_trigger = (now - last_trigger).total_seconds() / 60
+                    if minutes_since_trigger < inactivity_limit:
+                        continue  # まだ間隔が空いていないのでスキップ
+                
                 quiet_start = auto_settings.get("quiet_hours_start", "00:00")
                 quiet_end = auto_settings.get("quiet_hours_end", "07:00")
                 is_quiet = utils.is_in_quiet_hours(quiet_start, quiet_end)
