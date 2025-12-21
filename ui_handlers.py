@@ -1519,10 +1519,11 @@ def handle_rerun_button_click(
 
     # 1. ログを巻き戻し、再送信するユーザー発言を取得
     log_f, _, _, _, _ = get_room_files_paths(room_name)
-    is_ai_message = selected_message.get("role") == "AGENT"
+    # SYSTEMメッセージもAI応答と同様に扱い、直前のユーザー発言から再生成する
+    is_ai_or_system_message = selected_message.get("role") in ("AGENT", "SYSTEM")
 
     restored_input_text = None
-    if is_ai_message:
+    if is_ai_or_system_message:
         restored_input_text = utils.delete_and_get_previous_user_input(log_f, selected_message)
     else: # ユーザー発言の場合
         restored_input_text = utils.delete_user_message_and_after(log_f, selected_message)
