@@ -775,7 +775,31 @@ def agent_node(state: AgentState):
             text_parts = []
             display_thoughts = state.get("display_thoughts", True)
 
+            # ▼▼▼ [Gemini 3 Debug] チャンク構造の詳細ログ ▼▼▼
+            if state.get("debug_mode", False):
+                print(f"\n--- [GEMINI3_DEBUG] チャンク処理開始 ({len(chunks)}チャンク受信) ---")
+                for idx, chunk in enumerate(chunks):
+                    chunk_content = chunk.content
+                    print(f"  Chunk[{idx}] content type: {type(chunk_content).__name__}")
+                    if isinstance(chunk_content, list):
+                        for j, part in enumerate(chunk_content):
+                            if isinstance(part, dict):
+                                print(f"    Part[{j}] dict: type={part.get('type')}, keys={list(part.keys())}")
+                                if part.get("type") == "text":
+                                    text_preview = (part.get("text", "")[:80] + "...") if len(part.get("text", "")) > 80 else part.get("text", "")
+                                    print(f"      text preview: {text_preview}")
+                                elif part.get("type") == "thought":
+                                    thought_preview = (part.get("thought", "")[:80] + "...") if len(part.get("thought", "")) > 80 else part.get("thought", "")
+                                    print(f"      thought preview: {thought_preview}")
+                            else:
+                                print(f"    Part[{j}] other ({type(part).__name__}): {str(part)[:80]}...")
+                    elif isinstance(chunk_content, str):
+                        content_preview = (chunk_content[:80] + "...") if len(chunk_content) > 80 else chunk_content
+                        print(f"    str content: {content_preview}")
+            # ▲▲▲ [Gemini 3 Debug] ここまで ▲▲▲
+
             for i, chunk in enumerate(chunks):
+
                 chunk_content = chunk.content
                 if not chunk_content:
                     continue
@@ -811,9 +835,27 @@ def agent_node(state: AgentState):
             
             combined_text = "".join(text_parts)
             
+            # ▼▼▼ [Gemini 3 Debug] 生成テキストと思考タグの分析 ▼▼▼
+            if state.get("debug_mode", False):
+                print(f"--- [GEMINI3_DEBUG] combined_text 分析 ---")
+                has_open_tag = "[THOUGHT]" in combined_text
+                has_close_tag = "[/THOUGHT]" in combined_text
+                open_count = combined_text.count("[THOUGHT]")
+                close_count = combined_text.count("[/THOUGHT]")
+                print(f"  - [THOUGHT]開始タグ: {open_count}個")
+                print(f"  - [/THOUGHT]終了タグ: {close_count}個")
+                print(f"  - タグバランス不整合: {open_count != close_count}")
+                print(f"  - 全体長: {len(combined_text)}文字")
+                print(f"  - ツールコール: {len(all_tool_calls_chunks)}件")
+                if combined_text:
+                    print(f"  - 先頭80文字: {combined_text[:80]}...")
+                    print(f"  - 末尾80文字: ...{combined_text[-80:]}")
+            # ▲▲▲ [Gemini 3 Debug] ここまで ▲▲▲
+            
             if not combined_text.strip() and not all_tool_calls_chunks:
                 print("  - [GEMINI3_DEBUG] WARNING: Response is effectively empty.")
                 combined_text = "(System): （AIからの応答が空でした。設定の『Thinking レベル』を調整するか、ツール使用をOFFにして再度お試しください。）"
+
 
             # 署名などを統合メッセージから取得
             if not captured_signature:
