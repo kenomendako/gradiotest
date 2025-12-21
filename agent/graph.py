@@ -840,9 +840,9 @@ def agent_node(state: AgentState):
 
         loop_count += 1
         if not getattr(response, "tool_calls", None):
-            return {"messages": [response], "loop_count": loop_count, "last_successful_response": response}
+            return {"messages": [response], "loop_count": loop_count, "last_successful_response": response, "model_name": state['model_name']}
         else:
-            return {"messages": [response], "loop_count": loop_count}
+            return {"messages": [response], "loop_count": loop_count, "model_name": state['model_name']}
 
     # ▼▼▼ Gemini 3 思考署名エラーのソフトランディング処理 (結果表示版) ▼▼▼
     except (google_exceptions.InvalidArgument, ChatGoogleGenerativeAIError) as e:
@@ -861,7 +861,8 @@ def agent_node(state: AgentState):
             return {
                 "messages": [fallback_msg], 
                 "loop_count": loop_count, 
-                "force_end": True
+                "force_end": True,
+                "model_name": state['model_name']
             }
         else:
             print(f"--- [警告] agent_nodeでAPIエラーを捕捉しました: {e} ---")
@@ -897,7 +898,7 @@ def agent_node(state: AgentState):
         import traceback
         traceback.print_exc()
         error_msg = f"（エラーが発生しました: {str(e)}。設定や通信状況を再度ご確認ください。）"
-        return {"messages": [AIMessage(content=error_msg)], "loop_count": loop_count, "force_end": True}
+        return {"messages": [AIMessage(content=error_msg)], "loop_count": loop_count, "force_end": True, "model_name": state['model_name']}
     # ▲▲▲ ここまで ▲▲▲
     
 def safe_tool_executor(state: AgentState):
