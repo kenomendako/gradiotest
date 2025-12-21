@@ -1102,8 +1102,10 @@ def _stream_and_handle_response(
                             if content_str and content_str.strip():
                                 # AI応答にもタイムスタンプ・モデル名を追加（ユーザー発言と同じ形式）
                                 # 【修正】既にタイムスタンプが含まれている場合は追加しない
-                                # サフィックス | ... を含む正規表現に更新
-                                timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2} \([A-Za-z]{3}\) \d{2}:\d{2}:\d{2}(?: \| .*)?$'
+                                # 英語曜日（Sun等）と日本語曜日（日）の両形式に対応
+                                # 形式1: 2025-12-21 (Sun) 10:59:45（英語、括弧前スペース）
+                                # 形式2: 2025-12-21(日) 10:59:30（日本語、括弧前スペースなし）
+                                timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2}\s*\([A-Za-z月火水木金土日]{1,3}\)\s*\d{2}:\d{2}:\d{2}(?: \| .*)?$'
                                 if not re.search(timestamp_pattern, content_str):
                                     # 使用モデル名を取得（実際に推論に使用されたモデル名が final_state に格納されている）
                                     # final_state が無かったり不十分な場合のフォールバックを強化

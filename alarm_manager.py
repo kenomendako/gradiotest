@@ -239,9 +239,19 @@ def trigger_alarm(alarm_config, current_api_key_name):
     # AIの応答生成に成功した場合
     if response_text and not response_text.startswith("[エラー"):
         utils.save_message_to_log(log_f, "## SYSTEM:alarm", message_for_log)
-        # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
-        timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
-        utils.save_message_to_log(log_f, f"## AGENT:{room_name}", raw_response + timestamp)
+        
+        # 【修正】AIが既にタイムスタンプを生成している場合は追加しない
+        # 英語曜日（Sun等）と日本語曜日（日）の両形式に対応
+        timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2}\s*\([A-Za-z月火水木金土日]{1,3}\)\s*\d{2}:\d{2}:\d{2}'
+        if re.search(timestamp_pattern, raw_response):
+            print(f"--- [タイムスタンプ重複防止] AIが既にタイムスタンプを生成しているためスキップ ---")
+            content_to_log = raw_response
+        else:
+            # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
+            timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
+            content_to_log = raw_response + timestamp
+        
+        utils.save_message_to_log(log_f, f"## AGENT:{room_name}", content_to_log)
         print(f"アラームログ記録完了 (ID:{alarm_id})")
         
     # AIの応答生成に失敗した場合（フォールバック）
@@ -368,9 +378,19 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
 
     # 行動した場合
     utils.save_message_to_log(log_f, "## SYSTEM:autonomous_trigger", "（自律行動モードにより起動）")
-    # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
-    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
-    utils.save_message_to_log(log_f, f"## AGENT:{room_name}", final_response_text + timestamp)
+    
+    # 【修正】AIが既にタイムスタンプを生成している場合は追加しない
+    # 英語曜日（Sun等）と日本語曜日（日）の両形式に対応
+    timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2}\s*\([A-Za-z月火水木金土日]{1,3}\)\s*\d{2}:\d{2}:\d{2}'
+    if re.search(timestamp_pattern, final_response_text):
+        print(f"--- [タイムスタンプ重複防止] AIが既にタイムスタンプを生成しているためスキップ ---")
+        content_to_log = final_response_text
+    else:
+        # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
+        timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
+        content_to_log = final_response_text + timestamp
+    
+    utils.save_message_to_log(log_f, f"## AGENT:{room_name}", content_to_log)
     print(f"  - {room_name} が自律行動しました。")
 
     # 通知（Quiet Hoursでなければ）
