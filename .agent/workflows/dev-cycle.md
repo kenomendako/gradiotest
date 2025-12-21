@@ -89,6 +89,7 @@ git commit -m "[prefix]: [変更内容の簡潔な説明]"
 ```
 
 ### 4.4 マージ & プッシュ
+動作チェックと承認があってから行う。
 ```bash
 git checkout main
 git pull origin main

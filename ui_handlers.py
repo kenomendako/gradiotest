@@ -1000,6 +1000,9 @@ def _stream_and_handle_response(
                     }
                     
                     # デバッグモードがONの場合のみ、標準出力をキャプチャする
+                    # 【重要】model_nameはストリームの途中で取得できた値を保持する
+                    # LangGraphの最終stateでは後続ノードによりmodel_nameが欠落する可能性があるため
+                    captured_model_name = None
                     if debug_mode:
                         with utils.capture_prints() as captured_output:
                             for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
@@ -1007,6 +1010,8 @@ def _stream_and_handle_response(
                                     initial_message_count = chunk
                                 elif mode == "values":
                                     final_state = chunk
+                                    if chunk.get("model_name"):
+                                        captured_model_name = chunk.get("model_name")
                         current_console_content += captured_output.getvalue()
                     else:
                         for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
@@ -1014,6 +1019,8 @@ def _stream_and_handle_response(
                                 initial_message_count = chunk
                             elif mode == "values":
                                 final_state = chunk
+                                if chunk.get("model_name"):
+                                    captured_model_name = chunk.get("model_name")
                             
                     break # 成功したのでリトライループを抜ける
                 
@@ -1115,11 +1122,13 @@ def _stream_and_handle_response(
                                 if not re.search(timestamp_pattern, content_str):
                                     # 使用モデル名を取得（実際に推論に使用されたモデル名が final_state に格納されている）
                                     # final_state が無かったり不十分な場合のフォールバックを強化
-                                    actual_model_name = final_state.get("model_name") if final_state else None
+                                    # 使用モデル名の取得（優先順位: 1.ストリーム中に取得したmodel_name, 2.final_state, 3.effective_settings）
+                                    actual_model_name = captured_model_name or (final_state.get("model_name") if final_state else None)
                                     
                                     # デバッグ用
                                     print(f"--- [DEBUG: Model Name Check] ---")
-                                    print(f"  - final_state['model_name']: {actual_model_name}")
+                                    print(f"  - captured_model_name: {captured_model_name}")
+                                    print(f"  - final_state['model_name']: {final_state.get('model_name') if final_state else None}")
                                     print(f"  - global_model from UI: {global_model}")
 
                                     if not actual_model_name:
