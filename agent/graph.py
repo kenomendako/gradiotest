@@ -818,9 +818,11 @@ def agent_node(state: AgentState):
                                 text_val = part.get("text", "")
                                 if text_val:
                                     text_parts.append(text_val)
-                            elif part_type == "thought":
+                            # Gemini 3は "thinking" を使用、従来モデルは "thought" を使用
+                            elif part_type in ("thought", "thinking"):
                                 if display_thoughts:
-                                    thought_text = part.get("thought", "")
+                                    # 両方のキーを試す（"thinking" が優先）
+                                    thought_text = part.get("thinking") or part.get("thought", "")
                                     if thought_text.strip():
                                         text_parts.append(f"[THOUGHT]\n{thought_text}\n[/THOUGHT]\n")
                         # str型はlist内では無視（これがdict内テキストの重複断片）
