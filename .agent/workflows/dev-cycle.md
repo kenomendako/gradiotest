@@ -90,6 +90,7 @@ git commit -m "[prefix]: [変更内容の簡潔な説明]"
 
 ### 4.4 マージ & プッシュ
 動作チェックと承認があってから行う。
+特にメインブランチへのマージ前には必ずユーザーへの確認を取ること。
 ```bash
 git checkout main
 git pull origin main
@@ -97,11 +98,20 @@ git merge [ブランチ名]
 git push origin main
 ```
 
-### 4.5 タスクリスト更新
+### 4.5 CHANGELOG更新
+`CHANGELOG.md` に変更内容を追記する。
+
+**セクション:**
+- `Added` - 新機能
+- `Fixed` - バグ修正
+- `Changed` - 仕様変更
+- `Removed` - 削除された機能
+
+### 4.6 タスクリスト更新
 `docs/plans/TASK_LIST.md` の該当タスクを `[x]` に変更し、
 レポートへのリンクを追記する。
 
-### 4.6 ブランチ削除（任意）
+### 4.7 ブランチ削除（任意）
 ```bash
 git branch -d [ブランチ名]
 ```

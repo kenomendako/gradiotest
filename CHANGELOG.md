@@ -35,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 #### UI / 表示
 - 自律行動の重複発火バグ
 - タイムスタンプ二重付記バグ（AIが日本語曜日形式でタイムスタンプ生成）
+- AI模倣タイムスタンプ問題（AIが過去の応答のタイムスタンプを模倣→除去して正しいモデル名で再付記）
 - AI応答の二重表示バグ
 - LangGraphが生成する末尾の空AIMessageを除去
 - `redaction_rules_state`の初期化時TypeError修正
