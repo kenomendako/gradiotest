@@ -29,7 +29,8 @@
 
 - [x] **モデル名付記バグ**
   - 個別設定でモデル変更後、古いモデル名がタイムスタンプに付記される問題を修正
-  - レポート: [2025-12-21_model_name_timestamp_fix_report.md](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/reports/2025-12-21_model_name_timestamp_fix_report.md)
+  - さらにAI模倣タイムスタンプ問題（AIが過去の応答のタイムスタンプを模倣）を根本修正
+  - レポート: [2025-12-22_ai_timestamp_mimicry_fix.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-22_ai_timestamp_mimicry_fix.md)
 
 ### 安定性
 

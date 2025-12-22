@@ -1114,35 +1114,29 @@ def _stream_and_handle_response(
                             content_str = utils.get_content_as_string(msg)
                             if content_str and content_str.strip():
                                 # AI応答にもタイムスタンプ・モデル名を追加（ユーザー発言と同じ形式）
-                                # 【修正】既にタイムスタンプが含まれている場合は追加しない
+                                # 【修正】AIが模倣したタイムスタンプを除去してから、正しいモデル名でタイムスタンプを追加
                                 # 英語曜日（Sun等）と日本語曜日（日）の両形式に対応
                                 # 形式1: 2025-12-21 (Sun) 10:59:45（英語、括弧前スペース）
                                 # 形式2: 2025-12-21(日) 10:59:30（日本語、括弧前スペースなし）
                                 timestamp_pattern = r'\n\n\d{4}-\d{2}-\d{2}\s*\([A-Za-z月火水木金土日]{1,3}\)\s*\d{2}:\d{2}:\d{2}(?: \| .*)?$'
-                                if not re.search(timestamp_pattern, content_str):
-                                    # 使用モデル名を取得（実際に推論に使用されたモデル名が final_state に格納されている）
-                                    # final_state が無かったり不十分な場合のフォールバックを強化
-                                    # 使用モデル名の取得（優先順位: 1.ストリーム中に取得したmodel_name, 2.final_state, 3.effective_settings）
-                                    actual_model_name = captured_model_name or (final_state.get("model_name") if final_state else None)
-                                    
-                                    # デバッグ用
-                                    print(f"--- [DEBUG: Model Name Check] ---")
-                                    print(f"  - captured_model_name: {captured_model_name}")
-                                    print(f"  - final_state['model_name']: {final_state.get('model_name') if final_state else None}")
-                                    print(f"  - global_model from UI: {global_model}")
+                                existing_timestamp_match = re.search(timestamp_pattern, content_str)
+                                if existing_timestamp_match:
+                                    # AIが模倣したタイムスタンプを検出・除去
+                                    print(f"--- [AI模倣タイムスタンプ除去] ---")
+                                    print(f"  - 除去されたパターン: {existing_timestamp_match.group()}")
+                                    content_str = re.sub(timestamp_pattern, '', content_str)
+                                
+                                # 使用モデル名を取得（実際に推論に使用されたモデル名が final_state に格納されている）
+                                # 使用モデル名の取得（優先順位: 1.ストリーム中に取得したmodel_name, 2.final_state, 3.effective_settings）
+                                actual_model_name = captured_model_name or (final_state.get("model_name") if final_state else None)
 
-                                    if not actual_model_name:
-                                        effective_settings = config_manager.get_effective_settings(current_room, global_model_from_ui=global_model)
-                                        actual_model_name = effective_settings.get("model_name", global_model)
-                                    
-                                    print(f"  - Final decision for timestamp: {actual_model_name}")
-                                    
-                                    timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
-                                    content_to_log = content_str + timestamp
-                                else:
-                                    # デバッグ用ログ
-                                    print(f"--- [タイムスタンプ重複防止] 既にタイムスタンプが含まれているためスキップ ---")
-                                    content_to_log = content_str
+                                if not actual_model_name:
+                                    effective_settings = config_manager.get_effective_settings(current_room, global_model_from_ui=global_model)
+                                    actual_model_name = effective_settings.get("model_name", global_model)
+                                
+                                # システムの正しいタイムスタンプを追加
+                                timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
+                                content_to_log = content_str + timestamp
                                 
                                 # (System): プレフィックスのチェックと処理
                                 if content_to_log.startswith("(System):"):
