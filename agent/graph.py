@@ -852,6 +852,16 @@ def agent_node(state: AgentState):
                     print(f"  - 末尾80文字: ...{combined_text[-80:]}")
             # ▲▲▲ [Gemini 3 Debug] ここまで ▲▲▲
             
+            # ▼▼▼ [異常検知ログ] デバッグモード不要、チャンク受信したのにテキスト抽出が0件の場合のみ出力 ▼▼▼
+            if len(chunks) > 0 and not text_parts:
+                print(f"  - ⚠️ [ANOMALY] {len(chunks)}チャンク受信したが、抽出テキストが0件でした。")
+                print("  - 以下、先頭3チャンクの構造（デバッグモード不要）:")
+                for idx, chunk in enumerate(chunks[:3]):
+                    content = chunk.content
+                    content_repr = repr(content)[:200] if content else "(None)"
+                    print(f"    Chunk[{idx}]: type={type(content).__name__}, repr={content_repr}...")
+            # ▲▲▲ [異常検知ログ] ここまで ▲▲▲
+            
             if not combined_text.strip() and not all_tool_calls_chunks:
                 print("  - [GEMINI3_DEBUG] WARNING: Response is effectively empty.")
                 combined_text = "(System): （AIからの応答が空でした。設定の『Thinking レベル』を調整するか、ツール使用をOFFにして再度お試しください。）"
