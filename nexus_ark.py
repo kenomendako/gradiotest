@@ -500,7 +500,7 @@ try:
                             )
                             open_backup_folder_button = gr.Button("現在のルームのバックアップフォルダを開く", variant="secondary")
                                     
-                        debug_mode_checkbox = gr.Checkbox(label="🐛 デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", interactive=True)
+                        debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", interactive=True)
                     with gr.TabItem("個別") as individual_settings_tab:
                         room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
                         save_room_settings_button = gr.Button("このルームの個別設定を保存", variant="primary")
