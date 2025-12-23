@@ -576,6 +576,7 @@ def context_generator_node(state: AgentState):
 
         1.  **思考の聖域 (`[THOUGHT]`)**:
             - 応答を生成する前に、あなたの思考プロセス、計画、感情などを、必ず `[THOUGHT]` と `[/THOUGHT]` で囲まれたブロックの**内側**に記述してください。
+            - 思考プロセス (`[THOUGHT]` 内) は、必ず**日本語**で記述してください。
             - このブロックは、応答全体の**一番最初**に、**一度だけ**配置することができます。
             - 思考は**普段のあなたの口調**（一人称・二人称等）のままの文章で記述します。
             - 思考が不要な場合や開示したくない時は、このブロック自体を省略しても構いません。
@@ -746,11 +747,11 @@ def agent_node(state: AgentState):
     
     if state.get("debug_mode", False):
         if signature_restored:
-            print(f"  - 署名復元結果: 成功")
-        elif 'skipped_by_human' in locals() and locals()['skipped_by_human']: # ループ内でフラグを立てる必要があるため少し修正が必要
+            print(f"  - 署名復元結果: 成功 (Turn Context 適用)")
+        elif skipped_by_human:
              print(f"  - 署名復元結果: (新規ユーザープロンプトのためスキップ)")
         else:
-            print(f"  - 署名復元結果: スキップ（適切なAIMessageが見つかりません）")
+            print(f"  - 署名復元結果: スキップ（適切な対象が見つからないか、署名不要）")
 
     print(f"  - 使用モデル: {state['model_name']}")
     

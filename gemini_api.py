@@ -844,6 +844,15 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     thinking_level = config.get("thinking_level", "auto")
     extra_params = {}
     
+    # Gemini 3 用の思考バジェット設定 (トークン数)
+    # Ref: Google Cloud / AI Studio documentation
+    budget_map = {
+        "minimal": 4000,
+        "low": 16000,
+        "medium": 64000,
+        "high": 64000  # Flash Preview は現在最大 64k 程度とされる
+    }
+
     # 推論が有効な場合、温度は 1.0 である必要がある（Google AI Studioの制約に準拠）
     # ユーザーが明示的に設定している場合を除き、デフォルトを 1.0 に引き上げる
     effective_temp = config.get("temperature", 0.8)
@@ -859,9 +868,10 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     elif thinking_level == "none":
         extra_params["include_thoughts"] = False
     else:
-        # 明示的にレベル（low/medium/high/minimal等）が指定された場合はオンにする
+        # 明示的にレベル（minimal/low/medium/high/low等）が指定された場合はオンにする
         extra_params["include_thoughts"] = True
-        # SDKがサポートしていればレベルも渡す（現在は include_thoughts のみで制御）
+        if thinking_level in budget_map:
+            extra_params["thinking_budget_tokens"] = budget_map[thinking_level]
     
     # 【重要】Thinking（include_thoughts）が有効な場合、温度は 1.0 である必要がある
     if extra_params.get("include_thoughts"):
