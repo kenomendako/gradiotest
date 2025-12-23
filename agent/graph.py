@@ -801,6 +801,22 @@ def agent_node(state: AgentState):
                 cleaned_messages.append(msg)
         messages_for_agent = cleaned_messages
 
+    # --- [Gemini 3 DEBUG] 送信前のメッセージ履歴構造を出力 ---
+    if state.get("debug_mode", False) and ("gemini-3" in state.get('model_name', '').lower()):
+        print(f"\n--- [GEMINI3_DEBUG] 送信メッセージ構造 ({len(messages_for_agent)}件) ---")
+        for idx, msg in enumerate(messages_for_agent[-10:]):  # 最後の10件のみ表示
+            actual_idx = len(messages_for_agent) - 10 + idx if len(messages_for_agent) > 10 else idx
+            msg_type = type(msg).__name__
+            has_tool_calls = hasattr(msg, 'tool_calls') and msg.tool_calls
+            has_sig = msg.additional_kwargs.get('__gemini_function_call_thought_signatures__') if hasattr(msg, 'additional_kwargs') and msg.additional_kwargs else None
+            content_preview = ""
+            if isinstance(msg.content, str):
+                content_preview = (msg.content[:50] + "...") if len(msg.content) > 50 else msg.content
+            elif isinstance(msg.content, list):
+                content_preview = f"[マルチパート: {len(msg.content)}部分]"
+            print(f"  [{actual_idx:3d}] {msg_type:15} | tool_calls={1 if has_tool_calls else 0} | sig={1 if has_sig else 0} | {content_preview[:40]}")
+        print(f"--- [GEMINI3_DEBUG] 送信メッセージ構造 完了 ---\n")
+
     try:
         print("  - AIモデルにリクエストを送信中 (Streaming)...")
         stream_start_time = time.time()  # デバッグ用: ストリーム開始時刻
