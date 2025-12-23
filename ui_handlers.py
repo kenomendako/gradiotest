@@ -770,12 +770,9 @@ def handle_save_room_settings(
         "topic_cluster_fixed_topics": [t.strip() for t in topic_cluster_fixed_topics.split(",") if t.strip()]
     }
     result = room_manager.update_room_config(room_name, new_settings)
-    if result == True:
+    if result == True or result == "no_change":
         if not silent:
             gr.Info(f"「{room_name}」の個別設定を保存しました。")
-    elif result == "no_change":
-        # 変更なしの場合は何もしない
-        pass
     else:
         gr.Error("個別設定の保存中にエラーが発生しました。詳細はログを確認してください。")
 
@@ -7130,7 +7127,8 @@ def handle_save_theme_settings(*args, silent: bool = False):
         }
         
         # Use the centralized save function in room_manager
-        if room_manager.save_room_override_settings(room_name, settings):
+        result = room_manager.save_room_override_settings(room_name, settings)
+        if result == True or result == "no_change":
             if not silent:
                 mode_val = settings.get("theme_bg_src_mode")
                 gr.Info(f"「{room_name}」のテーマ設定を保存しました。\n保存モード: {mode_val}")
