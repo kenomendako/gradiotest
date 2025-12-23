@@ -7044,7 +7044,7 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
 
     return f"<style>{css}</style>"
 
-def handle_save_theme_settings(*args):
+def handle_save_theme_settings(*args, silent: bool = False):
     """詳細なテーマ設定を保存する (Robust Debug Version)"""
     
     try:
@@ -7131,8 +7131,9 @@ def handle_save_theme_settings(*args):
         
         # Use the centralized save function in room_manager
         if room_manager.save_room_override_settings(room_name, settings):
-            mode_val = settings.get("theme_bg_src_mode")
-            gr.Info(f"「{room_name}」のテーマ設定を保存しました。\n保存モード: {mode_val}")
+            if not silent:
+                mode_val = settings.get("theme_bg_src_mode")
+                gr.Info(f"「{room_name}」のテーマ設定を保存しました。\n保存モード: {mode_val}")
         else:
             gr.Error(f"テーマ保存に失敗しました。コンソールを確認してください。")
 

@@ -2029,7 +2029,7 @@ try:
         # (ただし、current_room_name 自身やボタン自体には不要)
         for comp in room_individual_settings_inputs[1:]:
             comp.change(
-                fn=lambda *args: ui_handlers.handle_save_room_settings(*args, silent=False),
+                fn=lambda *args: ui_handlers.handle_save_room_settings(*args, silent=True),
                 inputs=room_individual_settings_inputs,
                 outputs=None
             )
