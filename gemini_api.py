@@ -858,10 +858,24 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
     is_gemini_3 = is_pro_reasoning or is_flash_reasoning
 
     if is_flash_reasoning:
-        # Gemini 3 Flash: thinking 関連パラメータを一切渡さない（サポートされていないため）
-        # 温度はユーザー設定を尊重
+        # Gemini 3 Flash: thinking_level は必須（公式ドキュメントより）
+        # include_thoughts は Flash ではサポートされないが、thinking_level は動作に必要。
+        # 署名の循環も必須（even when set to minimal）。
+        # 参照: https://ai.google.dev/gemini-api/docs/thinking
+        if thinking_level == "auto" or thinking_level == "none":
+            # デフォルトは 'minimal'（思考を最小限に、低レイテンシ）
+            extra_params["thinking_level"] = "minimal"
+        elif thinking_level in ["minimal", "low", "medium", "high"]:
+            extra_params["thinking_level"] = thinking_level
+        else:
+            extra_params["thinking_level"] = "minimal"
+        
+        # Flash では include_thoughts はサポートされないので渡さない
+        # 温度は thinking_level 設定時は 1.0 が推奨
+        effective_temp = 1.0
+        
         if is_reasoning_model:
-            print(f"  - [Thinking] Gemini 3 Flash: thinking パラメータはサポートされていないためスキップ")
+            print(f"  - [Thinking] Gemini 3 Flash: thinking_level='{extra_params.get('thinking_level')}', temp={effective_temp}")
     elif is_pro_reasoning:
         # Gemini 3 Pro: thinking パラメータをサポート
         if thinking_level == "auto" or thinking_level == "high":
@@ -875,7 +889,7 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
             extra_params["thinking_level"] = thinking_level
             effective_temp = 1.0
         if is_reasoning_model:
-            print(f"  - [Thinking] Config: level='{thinking_level}', thinking_level_param='{extra_params.get('thinking_level')}', include_thoughts={extra_params.get('include_thoughts')}, temp={effective_temp}")
+            print(f"  - [Thinking] Gemini 3 Pro: level='{thinking_level}', thinking_level_param='{extra_params.get('thinking_level')}', include_thoughts={extra_params.get('include_thoughts')}, temp={effective_temp}")
     elif is_gemini_25_thinking:
         # Gemini 2.5 Thinking 系: thinking_budget を使用（従来のロジック）
         # このブランチは主にフォールバック用
