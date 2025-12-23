@@ -686,59 +686,56 @@ def agent_node(state: AgentState):
     history_messages = state['messages']
     
     # --- [Gemini 3 履歴平坡化] ---
-    # Gemini 3 Flash Preview は、長いメッセージリストで不安定になるため、
-    # 古い履歴をテキストとしてシステムプロンプトに埋め込み、
-    # 最新の 2-4 件のみをメッセージリスト形式で保持する。
-    is_gemini_3 = "gemini-3" in state.get('model_name', '').lower()
-    GEMINI3_KEEP_RECENT = 2  # 最新 N 件をメッセージリストに残す（動作確認済みの最小値）
-    GEMINI3_FLATTEN_MAX = 0  # 【テスト用】0に設定して平坦化を無効化（問題の切り分け用）
-    
-    if is_gemini_3 and len(history_messages) > GEMINI3_KEEP_RECENT:
-        # 古い履歴をテキストに変換
-        older_messages = history_messages[:-GEMINI3_KEEP_RECENT]
-        recent_messages = history_messages[-GEMINI3_KEEP_RECENT:]
-        
-        # 古い履歴が多すぎる場合は、最新の GEMINI3_FLATTEN_MAX 件のみを平坦化
-        discarded_count = 0
-        if GEMINI3_FLATTEN_MAX == 0:
-            # 平坦化を完全に無効化
-            discarded_count = len(older_messages)
-            older_messages = []
-        elif len(older_messages) > GEMINI3_FLATTEN_MAX:
-            discarded_count = len(older_messages) - GEMINI3_FLATTEN_MAX
-            older_messages = older_messages[-GEMINI3_FLATTEN_MAX:]  # 最新 N 件のみ保持
-        
-        history_text_lines = []
-        for msg in older_messages:
-            if isinstance(msg, HumanMessage):
-                speaker = "ユーザー"
-            elif isinstance(msg, AIMessage):
-                speaker = "あなた"
-            else:
-                continue  # SystemMessage, ToolMessage はスキップ
-            
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            # 情報量削減のため、各メッセージを適度に切り詰める（全文保持も可能だが安全のため）
-            if len(content) > 300:
-                content = content[:300] + "...（中略）"
-            history_text_lines.append(f"{speaker}: {content}")
-        
-        if history_text_lines:
-            flattened_history = (
-                "\n\n### 直近の会話履歴（参考情報）\n"
-                "以下は、この会話セッションの直近のやり取りです。文脈として参考にしてください。\n"
-                "---\n" + "\n\n".join(history_text_lines) + "\n---\n"
-            )
-            # システムプロンプトの末尾に追加
-            final_system_prompt_text_with_history = final_system_prompt_text + flattened_history
-            final_system_prompt_message = SystemMessage(content=final_system_prompt_text_with_history)
-        
-        history_messages = recent_messages
-        if state.get("debug_mode", False):
-            if discarded_count > 0:
-                print(f"  - [Gemini 3 履歴平坦化] {len(older_messages)}件を埋め込み、{len(recent_messages)}件をリストに保持（{discarded_count}件は破棄）")
-            else:
-                print(f"  - [Gemini 3 履歴平坦化] {len(older_messages)}件を埋め込み、{len(recent_messages)}件をリストに保持")
+    # 【2025-12-23 無効化】
+    # Gemini 3 Flash Preview の空応答問題はAPIの不安定性が原因と判明。
+    # 履歴制限はUIから手動で設定可能なため、この自動制限は無効化する。
+    # APIが安定すれば、通常の履歴送信で問題なく動作するはず。
+    # 必要に応じて以下のコードを有効化できる。
+    #
+    # is_gemini_3 = "gemini-3" in state.get('model_name', '').lower()
+    # GEMINI3_KEEP_RECENT = 2  # 最新 N 件をメッセージリストに残す
+    # GEMINI3_FLATTEN_MAX = 0  # 0 = 平坦化を無効化
+    # 
+    # if is_gemini_3 and len(history_messages) > GEMINI3_KEEP_RECENT:
+    #     older_messages = history_messages[:-GEMINI3_KEEP_RECENT]
+    #     recent_messages = history_messages[-GEMINI3_KEEP_RECENT:]
+    #     discarded_count = 0
+    #     if GEMINI3_FLATTEN_MAX == 0:
+    #         discarded_count = len(older_messages)
+    #         older_messages = []
+    #     elif len(older_messages) > GEMINI3_FLATTEN_MAX:
+    #         discarded_count = len(older_messages) - GEMINI3_FLATTEN_MAX
+    #         older_messages = older_messages[-GEMINI3_FLATTEN_MAX:]
+    #     
+    #     history_text_lines = []
+    #     for msg in older_messages:
+    #         if isinstance(msg, HumanMessage):
+    #             speaker = "ユーザー"
+    #         elif isinstance(msg, AIMessage):
+    #             speaker = "あなた"
+    #         else:
+    #             continue
+    #         content = msg.content if isinstance(msg.content, str) else str(msg.content)
+    #         if len(content) > 300:
+    #             content = content[:300] + "...（中略）"
+    #         history_text_lines.append(f"{speaker}: {content}")
+    #     
+    #     if history_text_lines:
+    #         flattened_history = (
+    #             "\n\n### 直近の会話履歴（参考情報）\n"
+    #             "以下は、この会話セッションの直近のやり取りです。文脈として参考にしてください。\n"
+    #             "---\n" + "\n\n".join(history_text_lines) + "\n---\n"
+    #         )
+    #         final_system_prompt_text_with_history = final_system_prompt_text + flattened_history
+    #         final_system_prompt_message = SystemMessage(content=final_system_prompt_text_with_history)
+    #     
+    #     history_messages = recent_messages
+    #     if state.get("debug_mode", False):
+    #         if discarded_count > 0:
+    #             print(f"  - [Gemini 3 履歴平坦化] {len(older_messages)}件を埋め込み、{len(recent_messages)}件をリストに保持（{discarded_count}件は破棄）")
+    #         else:
+    #             print(f"  - [Gemini 3 履歴平坦化] {len(older_messages)}件を埋め込み、{len(recent_messages)}件をリストに保持")
+
     
     messages_for_agent = [final_system_prompt_message] + history_messages
 
