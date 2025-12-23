@@ -801,6 +801,30 @@ EXPECTED_OUTPUT_COUNT =
 2. **タイムアウト設定は維持** - 600秒のタイムアウトがあるので、待てば応答は返ってくる
 3. **Google側のサービス改善を待つ** - プレビューモデルは今後安定する可能性がある
 
+**【2025-12-23 追記】問題の根本原因と解決策が判明：**
+
+上記の問題は、**`thinking_level` パラメータが渡されていなかったこと**が原因であった。
+
+**根本原因:**
+- Gemini 3 Flash は `thinking_level` パラメータ（`minimal`, `low`, `medium`, `high`）が**必須**
+- このパラメータなしでは、モデルは281秒以上の遅延や空の応答を返す
+- `include_thoughts` は Gemini 3 Flash ではサポートされない（思考トークンは返されない）
+
+**解決策:**
+```python
+# gemini_api.py での正しい設定
+if is_flash_reasoning:
+    extra_params["thinking_level"] = "minimal"  # または "low", "medium", "high"
+    # include_thoughts は渡さない
+    effective_temp = 1.0  # 推奨
+```
+
+**長い会話履歴の問題:**
+- Gemini 3 Flash は長いメッセージリスト（10往復以上）で不安定
+- 解決策: 履歴を最新2件に制限（`agent/graph.py` の `GEMINI3_KEEP_RECENT = 2`）
+
+**詳細ドキュメント:** [gemini3_flash_setup.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/guides/gemini3_flash_setup.md)
+
 ---
 
 ### レッスン34: Gradio UI同期の「最終契約」：戻り値の数の厳密な管理（2025-12-20）
@@ -833,7 +857,7 @@ Gradioの `outputs` に渡されるコンポーネントの数は、`handle_init
 
 #### 解決策：中央集権的な安全マージシステム
 1. **`room_manager.update_room_config` の導入**: 各ハンドラが個別にファイルを書き込むのをやめ、中央の管理関数に「更新したい差分」だけを投げる方式に変更。
-2. **Load-Merge-Backup-Save**: この管理関数内で「最新の設定をロード → 変更分をディープマージ → バックアップ作成 → 保存」を一貫して行う。
+2. **Load-Merge-Backup-Save**: この管理関数内で「最新の設定をロードして、変更分をディープマージ → バックアップ作成 → 保存」を一貫して行う。
 
 #### 教訓
 **「一部だけ保存する」という考え方は常に危険を伴う。** 常に「全体をロードして、一部を書き換えて、全体を保存する」というアトミックな姿勢が、設定ファイルの整合性を守る唯一の鍵である。
