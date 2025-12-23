@@ -840,38 +840,36 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(config.get("safety_block_threshold_dangerous_content", "BLOCK_ONLY_HIGH")),
         }
 
-    # --- Thinking Level / Budget Mapping ---
+    # --- Thinking Level Mapping (Gemini 3) ---
+    # Gemini 3 では thinking_budget (トークン数) ではなく thinking_level (文字列) を使用する。
+    # 許容値: 'minimal', 'low', 'medium', 'high'
     thinking_level = config.get("thinking_level", "auto")
     extra_params = {}
-    
-    # Gemini 3 用の思考バジェット設定 (トークン数)
-    # Ref: Google Cloud / AI Studio documentation
-    budget_map = {
-        "minimal": 4000,
-        "low": 16000,
-        "medium": 64000,
-        "high": 64000  # Flash Preview は現在最大 64k 程度とされる
-    }
 
-    # 推論が有効な場合、温度は 1.0 である必要がある（Google AI Studioの制約に準拠）
-    # ユーザーが明示的に設定している場合を除き、デフォルトを 1.0 に引き上げる
+    # Gemini 3 Flash / Pro 判定
     effective_temp = config.get("temperature", 0.8)
     is_pro_reasoning = "gemini-3-pro" in model_name or "thinking" in model_name.lower()
     is_flash_reasoning = "gemini-3-flash" in model_name
+    is_gemini_3 = is_pro_reasoning or is_flash_reasoning
 
     if thinking_level == "auto":
-        # Proモデルは思考をデフォルトでオン、Flashモデルはオフにする（安定性と速度のため）
+        # auto: Proモデルは思考をデフォルトで 'high' 、Flashモデルは 'none' (思考なし) にする
         if is_pro_reasoning:
             extra_params["include_thoughts"] = True
+            extra_params["thinking_level"] = "high"
         elif is_flash_reasoning:
             extra_params["include_thoughts"] = False
+            # auto で Flash の場合は thinking_level を渡さない（思考オフ）
     elif thinking_level == "none":
         extra_params["include_thoughts"] = False
-    else:
-        # 明示的にレベル（minimal/low/medium/high/low等）が指定された場合はオンにする
+        # 'none' の場合も thinking_level を渡さない
+    elif thinking_level in ["minimal", "low", "medium", "high"]:
+        # 明示的にレベルが指定された場合
         extra_params["include_thoughts"] = True
-        if thinking_level in budget_map:
-            extra_params["thinking_budget_tokens"] = budget_map[thinking_level]
+        extra_params["thinking_level"] = thinking_level
+    else:
+        # 未知の値の場合はデフォルト動作（思考オフ）
+        extra_params["include_thoughts"] = False
     
     # 【重要】Thinking（include_thoughts）が有効な場合、温度は 1.0 である必要がある
     if extra_params.get("include_thoughts"):
@@ -879,7 +877,7 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
 
     # デバッグ用にパラメータを出力
     if is_reasoning_model:
-        print(f"  - [Thinking] Config: level='{thinking_level}', include_thoughts={extra_params.get('include_thoughts')}, temp={effective_temp}")
+        print(f"  - [Thinking] Config: level='{thinking_level}', thinking_level_param='{extra_params.get('thinking_level')}', include_thoughts={extra_params.get('include_thoughts')}, temp={effective_temp}")
 
     return ChatGoogleGenerativeAI(
         model=model_name,
