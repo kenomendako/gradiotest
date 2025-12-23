@@ -48,3 +48,26 @@ Gemini 3 Flash Preview の統合において、発生した問題とこれまで
 ## 結論
 「一向に解決していない」ように見えますが、実際には **「通信エラー(400)で止まる」段階を突破し、「モデルの出力内容の不備(Malformed)」という、より高度な（モデルの賢さに依存する）フェーズに移行** しています。
 コード側の受け皿（プロトコル）は整いつつあるため、現在は「モデルをどうなだめて正しく出力させるか」というプロンプトエンジニアリングの領域に入っています。
+
+---
+
+## 5. 追加対応：`thinking_level` パラメータの修正 (2025-12-23 18:20)
+
+LangChain の警告ログから、パラメータ名が誤っていたことが判明しました。
+
+```
+WARNING - Unexpected argument 'thinking_budget_tokens' provided to ChatGoogleGenerativeAI.
+Did you mean: 'thinking_budget'?
+```
+
+公式情報を再調査した結果：
+
+| モデル世代 | パラメータ名 | 型 | 備考 |
+| :--- | :--- | :--- | :--- |
+| **Gemini 2.5 以前** | `thinking_budget` | 整数 (トークン数) | 2.5 Flash, 2.5 Pro 用 |
+| **Gemini 3 系列** | `thinking_level` | 文字列 (`'minimal'`, `'low'`, `'medium'`, `'high'`) | 3 Flash, 3 Pro 用 |
+
+コードは訤った `thinking_budget_tokens` を渡しており、これが無視され、モデルがデフォルト（予期せぬ設定）で動作していた可能性があります。
+
+**対応策:**
+`gemini_api.py` の `get_configured_llm` 関数を修正し、Gemini 3 に対しては `thinking_level` (文字列) を正しく渡すようにしました。
