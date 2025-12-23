@@ -841,43 +841,49 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
         }
 
     # --- Thinking Level Mapping (Gemini 3) ---
-    # Gemini 3 では thinking_budget (トークン数) ではなく thinking_level (文字列) を使用する。
-    # 許容値: 'minimal', 'low', 'medium', 'high'
+    # 【重要な発見 2024-12】
+    # Gemini 3 Flash は include_thoughts をサポートしていない（GitHubで確認済み）。
+    # thinking_level パラメータを渡しても、思考トークンは返されない。
+    # これらのパラメータを渡すと不安定な挙動（空の応答、思考のみ等）を引き起こす可能性がある。
+    # → Gemini 3 Flash では thinking 関連パラメータを一切渡さない。
+    # → Gemini 3 Pro のみでこれらのパラメータを使用する。
     thinking_level = config.get("thinking_level", "auto")
     extra_params = {}
 
     # Gemini 3 Flash / Pro 判定
     effective_temp = config.get("temperature", 0.8)
-    is_pro_reasoning = "gemini-3-pro" in model_name or "thinking" in model_name.lower()
+    is_pro_reasoning = "gemini-3-pro" in model_name
     is_flash_reasoning = "gemini-3-flash" in model_name
+    is_gemini_25_thinking = "gemini-2.5" in model_name and "thinking" in model_name.lower()
     is_gemini_3 = is_pro_reasoning or is_flash_reasoning
 
-    if thinking_level == "auto":
-        # auto: Proモデルは思考をデフォルトで 'high' 、Flashモデルは 'none' (思考なし) にする
-        if is_pro_reasoning:
+    if is_flash_reasoning:
+        # Gemini 3 Flash: thinking 関連パラメータを一切渡さない（サポートされていないため）
+        # 温度はユーザー設定を尊重
+        if is_reasoning_model:
+            print(f"  - [Thinking] Gemini 3 Flash: thinking パラメータはサポートされていないためスキップ")
+    elif is_pro_reasoning:
+        # Gemini 3 Pro: thinking パラメータをサポート
+        if thinking_level == "auto" or thinking_level == "high":
             extra_params["include_thoughts"] = True
             extra_params["thinking_level"] = "high"
-        elif is_flash_reasoning:
+            effective_temp = 1.0  # Thinking 有効時は温度 1.0 必須
+        elif thinking_level == "none":
             extra_params["include_thoughts"] = False
-            # auto で Flash の場合は thinking_level を渡さない（思考オフ）
-    elif thinking_level == "none":
-        extra_params["include_thoughts"] = False
-        # 'none' の場合も thinking_level を渡さない
-    elif thinking_level in ["minimal", "low", "medium", "high"]:
-        # 明示的にレベルが指定された場合
-        extra_params["include_thoughts"] = True
-        extra_params["thinking_level"] = thinking_level
-    else:
-        # 未知の値の場合はデフォルト動作（思考オフ）
-        extra_params["include_thoughts"] = False
-    
-    # 【重要】Thinking（include_thoughts）が有効な場合、温度は 1.0 である必要がある
-    if extra_params.get("include_thoughts"):
-        effective_temp = 1.0
-
-    # デバッグ用にパラメータを出力
-    if is_reasoning_model:
-        print(f"  - [Thinking] Config: level='{thinking_level}', thinking_level_param='{extra_params.get('thinking_level')}', include_thoughts={extra_params.get('include_thoughts')}, temp={effective_temp}")
+        elif thinking_level in ["minimal", "low", "medium"]:
+            extra_params["include_thoughts"] = True
+            extra_params["thinking_level"] = thinking_level
+            effective_temp = 1.0
+        if is_reasoning_model:
+            print(f"  - [Thinking] Config: level='{thinking_level}', thinking_level_param='{extra_params.get('thinking_level')}', include_thoughts={extra_params.get('include_thoughts')}, temp={effective_temp}")
+    elif is_gemini_25_thinking:
+        # Gemini 2.5 Thinking 系: thinking_budget を使用（従来のロジック）
+        # このブランチは主にフォールバック用
+        if thinking_level != "none":
+            extra_params["include_thoughts"] = True
+            effective_temp = 1.0
+        if is_reasoning_model:
+            print(f"  - [Thinking] Gemini 2.5 Thinking: include_thoughts={extra_params.get('include_thoughts')}, temp={effective_temp}")
 
     return ChatGoogleGenerativeAI(
         model=model_name,

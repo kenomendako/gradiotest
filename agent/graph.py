@@ -690,12 +690,23 @@ def agent_node(state: AgentState):
     # 古い履歴をテキストとしてシステムプロンプトに埋め込み、
     # 最新の 2-4 件のみをメッセージリスト形式で保持する。
     is_gemini_3 = "gemini-3" in state.get('model_name', '').lower()
-    GEMINI3_KEEP_RECENT = 4  # 最新 N 件をメッセージリストに残す
+    GEMINI3_KEEP_RECENT = 2  # 最新 N 件をメッセージリストに残す（動作確認済みの最小値）
+    GEMINI3_FLATTEN_MAX = 0  # 【テスト用】0に設定して平坦化を無効化（問題の切り分け用）
     
     if is_gemini_3 and len(history_messages) > GEMINI3_KEEP_RECENT:
         # 古い履歴をテキストに変換
         older_messages = history_messages[:-GEMINI3_KEEP_RECENT]
         recent_messages = history_messages[-GEMINI3_KEEP_RECENT:]
+        
+        # 古い履歴が多すぎる場合は、最新の GEMINI3_FLATTEN_MAX 件のみを平坦化
+        discarded_count = 0
+        if GEMINI3_FLATTEN_MAX == 0:
+            # 平坦化を完全に無効化
+            discarded_count = len(older_messages)
+            older_messages = []
+        elif len(older_messages) > GEMINI3_FLATTEN_MAX:
+            discarded_count = len(older_messages) - GEMINI3_FLATTEN_MAX
+            older_messages = older_messages[-GEMINI3_FLATTEN_MAX:]  # 最新 N 件のみ保持
         
         history_text_lines = []
         for msg in older_messages:
@@ -708,14 +719,14 @@ def agent_node(state: AgentState):
             
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
             # 情報量削減のため、各メッセージを適度に切り詰める（全文保持も可能だが安全のため）
-            if len(content) > 500:
-                content = content[:500] + "...（中略）"
+            if len(content) > 300:
+                content = content[:300] + "...（中略）"
             history_text_lines.append(f"{speaker}: {content}")
         
         if history_text_lines:
             flattened_history = (
                 "\n\n### 直近の会話履歴（参考情報）\n"
-                "以下は、この会話セッションのこれまでのやり取りです。文脈として参考にしてください。\n"
+                "以下は、この会話セッションの直近のやり取りです。文脈として参考にしてください。\n"
                 "---\n" + "\n\n".join(history_text_lines) + "\n---\n"
             )
             # システムプロンプトの末尾に追加
@@ -724,7 +735,10 @@ def agent_node(state: AgentState):
         
         history_messages = recent_messages
         if state.get("debug_mode", False):
-            print(f"  - [Gemini 3 履歴平坡化] {len(older_messages)}件をシステムプロンプトに埋め込み、{len(recent_messages)}件をメッセージリストに保持")
+            if discarded_count > 0:
+                print(f"  - [Gemini 3 履歴平坦化] {len(older_messages)}件を埋め込み、{len(recent_messages)}件をリストに保持（{discarded_count}件は破棄）")
+            else:
+                print(f"  - [Gemini 3 履歴平坦化] {len(older_messages)}件を埋め込み、{len(recent_messages)}件をリストに保持")
     
     messages_for_agent = [final_system_prompt_message] + history_messages
 
