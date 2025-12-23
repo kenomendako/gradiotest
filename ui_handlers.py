@@ -691,7 +691,8 @@ def handle_save_room_settings(
     topic_cluster_min_samples: int = 2,
     topic_cluster_selection_method: str = "eom",
     topic_cluster_fixed_topics: str = "",
-    silent: bool = False
+    silent: bool = False,
+    force_notify: bool = False
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -770,10 +771,10 @@ def handle_save_room_settings(
         "topic_cluster_fixed_topics": [t.strip() for t in topic_cluster_fixed_topics.split(",") if t.strip()]
     }
     result = room_manager.update_room_config(room_name, new_settings)
-    if result == True or result == "no_change":
-        if not silent:
+    if not silent:
+        if result == True or (result == "no_change" and force_notify):
             gr.Info(f"「{room_name}」の個別設定を保存しました。")
-    else:
+    if result == False:
         gr.Error("個別設定の保存中にエラーが発生しました。詳細はログを確認してください。")
 
 def handle_context_settings_change(
@@ -7041,7 +7042,7 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
 
     return f"<style>{css}</style>"
 
-def handle_save_theme_settings(*args, silent: bool = False):
+def handle_save_theme_settings(*args, silent: bool = False, force_notify: bool = False):
     """詳細なテーマ設定を保存する (Robust Debug Version)"""
     
     try:
@@ -7128,11 +7129,11 @@ def handle_save_theme_settings(*args, silent: bool = False):
         
         # Use the centralized save function in room_manager
         result = room_manager.save_room_override_settings(room_name, settings)
-        if result == True or result == "no_change":
-            if not silent:
+        if not silent:
+            if result == True or (result == "no_change" and force_notify):
                 mode_val = settings.get("theme_bg_src_mode")
                 gr.Info(f"「{room_name}」のテーマ設定を保存しました。\n保存モード: {mode_val}")
-        else:
+        if result == False:
             gr.Error(f"テーマ保存に失敗しました。コンソールを確認してください。")
 
     except Exception as e:

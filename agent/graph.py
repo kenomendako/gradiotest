@@ -771,6 +771,35 @@ def agent_node(state: AgentState):
         llm_or_llm_with_tools = llm
         print("  - ツール使用モード: 無効（会話のみ）")
 
+    # --- [Gemini 3 堅牢化] メッセージ履歴の不整合クリーンアップ ---
+    # Gemini 3 は「AIのツール呼び出し(AIMessage.tool_calls) の直後は、必ずツール回答(ToolMessage) でなければならない」という制約が極めて厳しい。
+    # ユーザーが新しい発言をして割り込んだり、システムエラーで中断された履歴が残っていると、400 INVALID_ARGUMENT エラーが発生する。
+    if "gemini" in state.get('model_name', "").lower() or "gemini" in str(llm).lower():
+        cleaned_messages = []
+        for i, msg in enumerate(messages_for_agent):
+            if isinstance(msg, AIMessage) and getattr(msg, 'tool_calls', None):
+                # 次のメッセージを確認
+                has_response = False
+                if i + 1 < len(messages_for_agent):
+                    next_msg = messages_for_agent[i + 1]
+                    if isinstance(next_msg, ToolMessage):
+                        has_response = True
+                
+                if not has_response:
+                    if state.get("debug_mode", False):
+                        print(f"  - [Gemini Cleanup] 未回答のツール呼び出しを検出。情報の整合性を保つため tool_calls をクリアします (index={i})")
+                    import copy
+                    msg_copy = copy.deepcopy(msg)
+                    msg_copy.tool_calls = []
+                    if hasattr(msg_copy, 'additional_kwargs') and msg_copy.additional_kwargs:
+                        msg_copy.additional_kwargs.pop("__gemini_function_call_thought_signatures__", None)
+                    cleaned_messages.append(msg_copy)
+                else:
+                    cleaned_messages.append(msg)
+            else:
+                cleaned_messages.append(msg)
+        messages_for_agent = cleaned_messages
+
     try:
         print("  - AIモデルにリクエストを送信中 (Streaming)...")
         stream_start_time = time.time()  # デバッグ用: ストリーム開始時刻
