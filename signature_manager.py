@@ -9,10 +9,12 @@ def _get_signature_file_path(room_name: str) -> str:
     """署名ファイルのパスを取得 (characters/{room}/private/thought_signatures.json)"""
     return os.path.join(constants.ROOMS_DIR, room_name, "private", "thought_signatures.json")
 
-def save_turn_context(room_name: str, signature: str, tool_calls: list):
+def save_turn_context(room_name: str, signature, tool_calls: list):
     """
     最新のターンコンテキスト（思考署名とツール呼び出し情報）をJSONファイルに保存する。
     Thinkingモデルの整合性を保つために必須。
+    
+    signature: Gemini 3からは list 形式で渡される（__gemini_function_call_thought_signatures__）
     """
     if not room_name:
         return
@@ -21,8 +23,11 @@ def save_turn_context(room_name: str, signature: str, tool_calls: list):
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
     data = {
-        "last_signature": signature,
+        # Gemini 3形式: __gemini_function_call_thought_signatures__ はリスト
+        "gemini_function_call_thought_signatures": signature,
         "last_tool_calls": tool_calls, # ツール呼び出しのリスト（辞書形式）を保存
+        # 後方互換性のため古いキーも残す
+        "last_signature": signature[0] if isinstance(signature, list) and signature else signature,
         "updated_at": str(os.path.getmtime(file_path)) if os.path.exists(file_path) else ""
     }
 

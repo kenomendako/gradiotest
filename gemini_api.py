@@ -171,7 +171,8 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
     # 1. JSONファイルから最新のターンコンテキストを取得
     # これらは「直近にAIが行ったツール呼び出し」の情報
     turn_context = signature_manager.get_turn_context(responding_character_id)
-    stored_signature = turn_context.get("last_signature")
+    # Gemini 3形式の署名を優先、なければ古い形式にフォールバック
+    stored_signature = turn_context.get("gemini_function_call_thought_signatures") or turn_context.get("last_signature")
     stored_tool_calls = turn_context.get("last_tool_calls")
 
     # --- フェーズ1: まずはログから基本的なメッセージリストを構築 ---
@@ -224,13 +225,16 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
                 if stored_tool_calls:
                     msg.tool_calls = stored_tool_calls
                 
-                # 署名の注入
+                # 署名の注入（Gemini 3形式のキーを使用）
                 if stored_signature:
                     if not msg.additional_kwargs: msg.additional_kwargs = {}
-                    msg.additional_kwargs["thought_signature"] = stored_signature
+                    # Gemini 3が期待するキー名を使用
+                    msg.additional_kwargs["__gemini_function_call_thought_signatures__"] = stored_signature
+                    # 後方互換性のため古いキーも設定
+                    msg.additional_kwargs["thought_signature"] = stored_signature[0] if isinstance(stored_signature, list) else stored_signature
                     
                     if not msg.response_metadata: msg.response_metadata = {}
-                    msg.response_metadata["thought_signature"] = stored_signature
+                    msg.response_metadata["thought_signature"] = stored_signature[0] if isinstance(stored_signature, list) else stored_signature
                 
                 # print(f"  - [Thinking] AIMessage(index={i})に署名とツールコールを復元しました。")
                 
@@ -380,8 +384,10 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
              msgs = payload if isinstance(payload, list) else [payload]
              for msg in msgs:
                  if isinstance(msg, AIMessage):
-                     # 署名を抽出
-                     sig = msg.additional_kwargs.get("thought_signature")
+                     # 署名を抽出（Gemini 3形式を優先）
+                     sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                     if not sig:
+                         sig = msg.additional_kwargs.get("thought_signature")
                      if not sig and hasattr(msg, "response_metadata"):
                          sig = msg.response_metadata.get("thought_signature")
                      

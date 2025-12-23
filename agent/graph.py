@@ -693,22 +693,34 @@ def agent_node(state: AgentState):
         final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
         messages_for_agent = [final_system_prompt_message] + history_messages
 
-    # --- [Dual-State Architecture] 復元ロジック（変更なし）---
+    # --- [Dual-State Architecture] 復元ロジック ---
+    # Gemini 3の思考署名を復元（LangChainが期待するキー名を使用）
     turn_context = signature_manager.get_turn_context(current_room)
-    stored_signature = turn_context.get("last_signature")
+    stored_gemini_signatures = turn_context.get("gemini_function_call_thought_signatures")
     stored_tool_calls = turn_context.get("last_tool_calls")
     
-    if stored_signature or stored_tool_calls:
+    # デバッグ: 署名復元プロセスの確認
+    if state.get("debug_mode", False):
+        print(f"--- [GEMINI3_DEBUG] 署名復元プロセス ---")
+        print(f"  - stored_gemini_signatures: {stored_gemini_signatures is not None}")
+        print(f"  - stored_tool_calls: {len(stored_tool_calls) if stored_tool_calls else 0}件")
+        print(f"  - messages_for_agent 内の AIMessage 数: {sum(1 for m in messages_for_agent if isinstance(m, AIMessage))}")
+    
+    signature_restored = False
+    if stored_gemini_signatures or stored_tool_calls:
         for i, msg in enumerate(reversed(messages_for_agent)):
             if isinstance(msg, AIMessage):
                 if stored_tool_calls and not msg.tool_calls:
                      msg.tool_calls = stored_tool_calls
-                if stored_signature:
+                if stored_gemini_signatures:
                     if not msg.additional_kwargs: msg.additional_kwargs = {}
-                    msg.additional_kwargs["thought_signature"] = stored_signature
-                    if not msg.response_metadata: msg.response_metadata = {}
-                    msg.response_metadata["thought_signature"] = stored_signature
+                    # LangChainが期待する正確なキー名を使用
+                    msg.additional_kwargs["__gemini_function_call_thought_signatures__"] = stored_gemini_signatures
+                    signature_restored = True
                 break
+    
+    if state.get("debug_mode", False):
+        print(f"  - 署名復元: {'成功' if signature_restored else '失敗（AIMessageが見つからない）'}")
 
     print(f"  - 使用モデル: {state['model_name']}")
     
@@ -769,6 +781,16 @@ def agent_node(state: AgentState):
             all_tool_calls_chunks = getattr(merged_chunk, "tool_calls", [])
             response_metadata = getattr(merged_chunk, "response_metadata", {}) or {}
             additional_kwargs = getattr(merged_chunk, "additional_kwargs", {}) or {}
+            
+            # ★ デバッグ: Gemini 3 思考署名の確認
+            if state.get("debug_mode", False):
+                print(f"--- [GEMINI3_DEBUG] additional_kwargs 分析 ---")
+                print(f"  - 全キー: {list(additional_kwargs.keys())}")
+                gemini_signatures = additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                if gemini_signatures:
+                    print(f"  - __gemini_function_call_thought_signatures__: 存在 ({len(gemini_signatures)}件)")
+                else:
+                    print(f"  - __gemini_function_call_thought_signatures__: 存在しない")
 
             # 【重要】contentは手動で抽出・連結する（++演算子がlist+strで壊れるため）
             # Gemini APIは最初のチャンクでlist形式（dict+str）を返し、後続はstrを返す
@@ -878,8 +900,9 @@ def agent_node(state: AgentState):
 
 
             # 署名などを統合メッセージから取得
+            # Gemini 3は __gemini_function_call_thought_signatures__ キーを使用
             if not captured_signature:
-                captured_signature = additional_kwargs.get("thought_signature") or response_metadata.get("thought_signature")
+                captured_signature = additional_kwargs.get("__gemini_function_call_thought_signatures__")
 
         # --- [FINAL SAFETY CHECK] ---
         # LangChain Coreのバリデーション回避: "model output must contain either output text or tool calls"
@@ -888,13 +911,20 @@ def agent_node(state: AgentState):
              print("DEBUG: [FINAL SAFETY] Forcing fallback text to prevent validation error.")
              combined_text = "(System): （AIからの応答が空でした。ここでのテキスト代入によりクラッシュを回避しました。）"
         
-        # 新しいAIMessageを作成
-        response = AIMessage(
-            content=combined_text,
-            additional_kwargs=additional_kwargs,
-            response_metadata=response_metadata,
-            tool_calls=all_tool_calls_chunks
-        )
+        # ★ 根本解決: 新しいAIMessageを作成せず、merged_chunkのcontentを上書き
+        # これによりLangChainの内部状態（__gemini_function_call_thought_signatures__ 等）が保持される
+        if chunks and merged_chunk:
+            # merged_chunkのcontentを整形済みテキストで上書き
+            merged_chunk.content = combined_text
+            response = merged_chunk
+        else:
+            # チャンクが無い場合のフォールバック（エラー時など）
+            response = AIMessage(
+                content=combined_text,
+                additional_kwargs=additional_kwargs,
+                response_metadata=response_metadata,
+                tool_calls=all_tool_calls_chunks
+            )
         
         # 署名確保
         if captured_signature:

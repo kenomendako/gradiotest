@@ -422,8 +422,8 @@ def load_config():
             "gemini-2.5-flash", 
             "gemini-2.5-pro", 
             "gemini-2.5-flash-lite",
-            "gemini-3-flash-preview (Slow Response)", 
-            "gemini-3-pro-preview (Slow Response)"
+            "gemini-3-flash-preview", 
+            "gemini-3-pro-preview"
         ],
         "default_model": "gemini-2.5-flash",
         "image_generation_mode": "new", 
@@ -465,10 +465,8 @@ def load_config():
     user_models = user_config.get("available_models", [])
     
     # 基本方針:
-    # 1. デフォルトに含まれるモデルはそのまま採用（注釈付きを含む）。
-    # 2. ユーザー設定にあるモデルのうち、注釈なしの古い名前（例: gemini-3-flash-preview）が、
-    #    デフォルトに注釈付き（例: gemini-3-flash-preview (Slow Response)）として存在する場合、古い方は捨てる。
-    # 3. リストに含まれない「gemini-2.0」などの古いエクスプレスモデルも除外対象とする。
+    # 1. デフォルトに含まれるモデルはそのまま採用。
+    # 2. リストに含まれない「gemini-2.0」などの古いモデルは除外対象とする。
     
     merged_models = default_models.copy()
     
