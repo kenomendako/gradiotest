@@ -721,6 +721,7 @@ def agent_node(state: AgentState):
     
     # 【ツール不使用モード】ツール使用の有効/無効に応じて分岐
     tool_use_enabled = state.get('tool_use_enabled', True)
+    
     if tool_use_enabled:
         llm_or_llm_with_tools = llm.bind_tools(all_tools)
         print("  - ツール使用モード: 有効")
@@ -819,6 +820,7 @@ def agent_node(state: AgentState):
                                 if text_val:
                                     text_parts.append(text_val)
                             # Gemini 3は "thinking" を使用、従来モデルは "thought" を使用
+                            # 注意: Gemini 3のThinkingモードでは応答テキスト(type=text)が空になる場合がある
                             elif part_type in ("thought", "thinking"):
                                 if display_thoughts:
                                     # 両方のキーを試す（"thinking" が優先）
@@ -852,6 +854,12 @@ def agent_node(state: AgentState):
                 if combined_text:
                     print(f"  - 先頭80文字: {combined_text[:80]}...")
                     print(f"  - 末尾80文字: ...{combined_text[-80:]}")
+                # ★ 追加: response_metadataの詳細を出力
+                print(f"--- [GEMINI3_DEBUG] response_metadata 分析 ---")
+                print(f"  - finish_reason: {response_metadata.get('finish_reason', 'N/A')}")
+                print(f"  - prompt_feedback: {response_metadata.get('prompt_feedback', 'N/A')}")
+                print(f"  - safety_ratings: {response_metadata.get('safety_ratings', 'N/A')}")
+                print(f"  - 全キー: {list(response_metadata.keys())}")
             # ▲▲▲ [Gemini 3 Debug] ここまで ▲▲▲
             
             # ▼▼▼ [異常検知ログ] デバッグモード不要、チャンク受信したのにテキスト抽出が0件の場合のみ出力 ▼▼▼
