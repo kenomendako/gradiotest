@@ -862,13 +862,19 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
         # include_thoughts は Flash ではサポートされないが、thinking_level は動作に必要。
         # 署名の循環も必須（even when set to minimal）。
         # 参照: https://ai.google.dev/gemini-api/docs/thinking
+        # 
+        # 【重要】2025-12-23 発見:
+        # 複雑なシステムプロンプト（詳細なペルソナ、ツール定義等）を持つルームでは、
+        # minimal/low では推論能力が不足し、空の応答が返される。
+        # → デフォルトを 'high' に設定する。ユーザーが明示的に指定した場合はそれを尊重。
         if thinking_level == "auto" or thinking_level == "none":
-            # デフォルトは 'minimal'（思考を最小限に、低レイテンシ）
-            extra_params["thinking_level"] = "minimal"
+            # デフォルトは 'high'（複雑なプロンプトへの対応力を優先）
+            extra_params["thinking_level"] = "high"
         elif thinking_level in ["minimal", "low", "medium", "high"]:
             extra_params["thinking_level"] = thinking_level
         else:
-            extra_params["thinking_level"] = "minimal"
+            extra_params["thinking_level"] = "high"
+
         
         # Flash では include_thoughts はサポートされないので渡さない
         # 温度は thinking_level 設定時は 1.0 が推奨
