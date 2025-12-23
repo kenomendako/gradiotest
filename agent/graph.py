@@ -1232,11 +1232,13 @@ def safe_tool_executor(state: AgentState):
             )
             edit_instruction_message = HumanMessage(content=formatted_instruction)
 
-            history_for_editing = [msg for msg in state['messages'] if msg is not last_message]
-            final_context_for_editing = [state['system_prompt']] + history_for_editing + [edit_instruction_message]
+            # 【Gemini 3 対応】ファイル編集用の内部LLM呼び出しは、会話履歴を含めない。
+            # 編集指示は modification_request に完全に含まれており、履歴は不要。
+            # 履歴を含めると、Gemini 3 の厳格なメッセージ順序制約に違反して 400 エラーが発生する。
+            final_context_for_editing = [edit_instruction_message]
 
             if state.get("debug_mode", False):
-                pass # デバッグ出力省略
+                print(f"  - [編集LLM] 履歴なしの単発タスクとして呼び出します。")
 
             edited_content_document = None
             max_retries = 5
