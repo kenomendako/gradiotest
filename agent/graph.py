@@ -684,6 +684,48 @@ def agent_node(state: AgentState):
 
     final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
     history_messages = state['messages']
+    
+    # --- [Gemini 3 履歴平坡化] ---
+    # Gemini 3 Flash Preview は、長いメッセージリストで不安定になるため、
+    # 古い履歴をテキストとしてシステムプロンプトに埋め込み、
+    # 最新の 2-4 件のみをメッセージリスト形式で保持する。
+    is_gemini_3 = "gemini-3" in state.get('model_name', '').lower()
+    GEMINI3_KEEP_RECENT = 4  # 最新 N 件をメッセージリストに残す
+    
+    if is_gemini_3 and len(history_messages) > GEMINI3_KEEP_RECENT:
+        # 古い履歴をテキストに変換
+        older_messages = history_messages[:-GEMINI3_KEEP_RECENT]
+        recent_messages = history_messages[-GEMINI3_KEEP_RECENT:]
+        
+        history_text_lines = []
+        for msg in older_messages:
+            if isinstance(msg, HumanMessage):
+                speaker = "ユーザー"
+            elif isinstance(msg, AIMessage):
+                speaker = "あなた"
+            else:
+                continue  # SystemMessage, ToolMessage はスキップ
+            
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            # 情報量削減のため、各メッセージを適度に切り詰める（全文保持も可能だが安全のため）
+            if len(content) > 500:
+                content = content[:500] + "...（中略）"
+            history_text_lines.append(f"{speaker}: {content}")
+        
+        if history_text_lines:
+            flattened_history = (
+                "\n\n### 直近の会話履歴（参考情報）\n"
+                "以下は、この会話セッションのこれまでのやり取りです。文脈として参考にしてください。\n"
+                "---\n" + "\n\n".join(history_text_lines) + "\n---\n"
+            )
+            # システムプロンプトの末尾に追加
+            final_system_prompt_text_with_history = final_system_prompt_text + flattened_history
+            final_system_prompt_message = SystemMessage(content=final_system_prompt_text_with_history)
+        
+        history_messages = recent_messages
+        if state.get("debug_mode", False):
+            print(f"  - [Gemini 3 履歴平坡化] {len(older_messages)}件をシステムプロンプトに埋め込み、{len(recent_messages)}件をメッセージリストに保持")
+    
     messages_for_agent = [final_system_prompt_message] + history_messages
 
     # --- [Dual-State Architecture] 復元ロジック ---
