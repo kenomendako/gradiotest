@@ -9,6 +9,40 @@ Gemini 3 Flash Preview は高速で高性能なモデルですが、正しいパ
 
 ---
 
+## ⚠️ 重要な警告（2025-12-23）
+
+**Gemini 3 (Flash/Pro) + ツール使用 = 現時点では深刻なバグあり**
+
+### コミュニティからの報告
+
+> "Do not upgrade to Gemini 3 (pro or flash) if you are using tools."
+> "There are many severe bugs such as outputting JSON in the wrong place, or ignoring tool output."
+> — [@maccaw (Alex MacCaw)](https://twitter.com/maccaw) on Twitter, 2025-12-23
+
+### 報告されている問題
+
+- JSONが間違った場所に出力される
+- ツール出力が無視される
+- 「昨日まで動いていたのに今日突然おかしくなった」という報告多数
+- 空の応答が返される（`finish_reason: STOP` なのにテキストなし）
+
+### 参考リンク
+
+- [Google AI Developer Forum: Gemini responds with structured / JSON-like output only when Function Calling is enabled](https://discuss.ai.google.dev/t/gemini-responds-with-structured-json-like-output-only-when-function-calling-is-enabled/112993)
+
+### 推奨対応
+
+| 用途 | 推奨モデル |
+|------|-----------|
+| ツールなしの会話 | Gemini 3 Flash を試す価値あり |
+| ツールありの会話 | **Gemini 2.5 Flash Thinking** を使用 |
+
+> ℹ️ これは Google API 側のバグであり、アプリケーション側での対処には限界があります。
+> Google がバグを修正すれば、現在の設定でそのまま動作するようになるはずです。
+
+---
+
+
 ## 必須パラメータ
 
 ### 1. `thinking_level`（必須）
