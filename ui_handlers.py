@@ -1008,6 +1008,15 @@ def _stream_and_handle_response(
                             for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                                 if mode == "initial_count":
                                     initial_message_count = chunk
+                                elif mode == "messages":
+                                    msgs = chunk if isinstance(chunk, list) else [chunk]
+                                    for msg in msgs:
+                                        if isinstance(msg, AIMessage):
+                                            sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                                            if not sig: sig = msg.additional_kwargs.get("thought_signature")
+                                            t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
+                                            if sig or t_calls:
+                                                signature_manager.save_turn_context(current_room, sig, t_calls)
                                 elif mode == "values":
                                     final_state = chunk
                                     if chunk.get("model_name"):
@@ -1017,6 +1026,21 @@ def _stream_and_handle_response(
                         for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                             if mode == "initial_count":
                                 initial_message_count = chunk
+                            elif mode == "messages":
+                                msgs = chunk if isinstance(chunk, list) else [chunk]
+                                for msg in msgs:
+                                    if isinstance(msg, AIMessage):
+                                        sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                                        if not sig: sig = msg.additional_kwargs.get("thought_signature")
+                                        t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
+                                        
+                                        # 【重要】ツールコールが空の場合は、既存の保存済みツールコールを消さないように保護
+                                        # 二幕構成の二幕目（最終回答）では通常ツールコールは空になるため。
+                                        if sig or t_calls:
+                                            # signature_manager 側でマージ/保護されるべきだが
+                                            # ここでも最小限のチェックを行う
+                                            signature_manager.save_turn_context(current_room, sig, t_calls)
+
                             elif mode == "values":
                                 final_state = chunk
                                 if chunk.get("model_name"):
@@ -1149,7 +1173,8 @@ def _stream_and_handle_response(
                         elif isinstance(msg, ToolMessage):
                             formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                             content_to_log = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"
-                            header = f"## SYSTEM:tool_result"
+                            # ツール名とコールIDをヘッダーに埋め込む
+                            header = f"## SYSTEM:tool_result:{msg.name}:{msg.tool_call_id}"
                         
                         side_effect_tools = ["plan_main_memory_edit", "plan_secret_diary_edit", "plan_notepad_edit", "plan_world_edit", "set_personal_alarm", "set_timer", "set_pomodoro_timer"]
                         if isinstance(msg, ToolMessage) and msg.name in side_effect_tools and "Error" not in str(msg.content) and "エラー" not in str(msg.content):

@@ -428,10 +428,12 @@ def context_generator_node(state: AgentState):
         }
         time_of_day_ja = time_map_en_to_ja.get(time_of_day_en, "不明な時間帯")
         
-        location_display_name = state.get("location_name", "（不明な場所）")
-        scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
-        
+        # 現在地情報の同期的・実体的な取得
         soul_vessel_room = state['all_participants'][0] if state['all_participants'] else state['room_name']
+        current_location_name = utils.get_current_location(soul_vessel_room)
+        location_display_name = current_location_name or state.get("location_name", "（不明な場所）")
+        
+        scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
         space_def = "（場所の定義を取得できませんでした）"
         current_location_name = utils.get_current_location(soul_vessel_room)
         if current_location_name:
@@ -679,19 +681,9 @@ def agent_node(state: AgentState):
             "<system_prompt>", f"<system_prompt>\n{persona_lock_prompt}"
         )
 
-    # Gemini 3などの推論モデルはSystemMessageを嫌う場合があるため、最初のHumanMessageに結合する
-    is_reasoning_model = "gemini-3" in state['model_name'] or "thinking" in state['model_name'].lower()
+    final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
     history_messages = state['messages']
-    
-    if is_reasoning_model and history_messages and isinstance(history_messages[0], HumanMessage):
-        print("  - [Thinking Support] SystemMessageを最初のHumanMessageに統合します。")
-        first_human = history_messages[0]
-        combined_content = f"### System Instructions\n{final_system_prompt_text}\n\n### Conversation History\n{first_human.content}"
-        new_first_human = HumanMessage(content=combined_content, additional_kwargs=first_human.additional_kwargs)
-        messages_for_agent = [new_first_human] + history_messages[1:]
-    else:
-        final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
-        messages_for_agent = [final_system_prompt_message] + history_messages
+    messages_for_agent = [final_system_prompt_message] + history_messages
 
     # --- [Dual-State Architecture] 復元ロジック ---
     # Gemini 3の思考署名を復元（LangChainが期待するキー名を使用）
@@ -707,20 +699,58 @@ def agent_node(state: AgentState):
         print(f"  - messages_for_agent 内の AIMessage 数: {sum(1 for m in messages_for_agent if isinstance(m, AIMessage))}")
     
     signature_restored = False
+    skipped_by_human = False
     if stored_gemini_signatures or stored_tool_calls:
+        # メッセージを後ろから走査
         for i, msg in enumerate(reversed(messages_for_agent)):
+            actual_idx = len(messages_for_agent) - 1 - i
+            
+            # 【重要】HumanMessage (ユーザー発言) を見つけた場合、それより前の AIMessage は
+            # 「前回の完了したターン」であるため、signature_manager からの補完対象外とする。
+            if isinstance(msg, HumanMessage):
+                skipped_by_human = True
+                if state.get("debug_mode", False): print(f"  - [GEMINI3_DEBUG] HumanMessageを検出。これより前の補完をスキップ。")
+                break
+                
+            # 自分の AIMessage を探す
             if isinstance(msg, AIMessage):
-                if stored_tool_calls and not msg.tool_calls:
+                # 既に tool_calls を持っている場合（ログから復元済みの場合）、上書きしない
+                if stored_tool_calls and (not hasattr(msg, 'tool_calls') or not msg.tool_calls):
                      msg.tool_calls = stored_tool_calls
-                if stored_gemini_signatures:
+                     if state.get("debug_mode", False): print(f"  - [GEMINI3_DEBUG] ToolCallsを補完: index={actual_idx}")
+                
+                # 既に署名を持っている場合は上書きしない
+                has_sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__") if msg.additional_kwargs else None
+                if stored_gemini_signatures and not has_sig:
                     if not msg.additional_kwargs: msg.additional_kwargs = {}
-                    # LangChainが期待する正確なキー名を使用
-                    msg.additional_kwargs["__gemini_function_call_thought_signatures__"] = stored_gemini_signatures
-                    signature_restored = True
+                    
+                    # 署名を SDK が期待する {tool_call_id: signature} の辞書形式に変換
+                    final_sig_dict = {}
+                    if isinstance(stored_gemini_signatures, dict):
+                        final_sig_dict = stored_gemini_signatures
+                    else:
+                        # 文字列やリストの場合は、現在の tool_calls と紐付ける
+                        sig_val = stored_gemini_signatures[0] if isinstance(stored_gemini_signatures, list) and stored_gemini_signatures else stored_gemini_signatures
+                        if msg.tool_calls:
+                            for tc in msg.tool_calls:
+                                tc_id = tc.get("id")
+                                if tc_id: final_sig_dict[tc_id] = sig_val
+                    
+                    if final_sig_dict:
+                        msg.additional_kwargs["__gemini_function_call_thought_signatures__"] = final_sig_dict
+                        signature_restored = True
+                        if state.get("debug_mode", False): print(f"  - [GEMINI3_DEBUG] 署名を補完: index={actual_idx}")
+                
+                # 最初に見つかった（最新の）AIMessageのみを対象とする
                 break
     
     if state.get("debug_mode", False):
-        print(f"  - 署名復元: {'成功' if signature_restored else '失敗（AIMessageが見つからない）'}")
+        if signature_restored:
+            print(f"  - 署名復元結果: 成功")
+        elif 'skipped_by_human' in locals() and locals()['skipped_by_human']: # ループ内でフラグを立てる必要があるため少し修正が必要
+             print(f"  - 署名復元結果: (新規ユーザープロンプトのためスキップ)")
+        else:
+            print(f"  - 署名復元結果: スキップ（適切なAIMessageが見つかりません）")
 
     print(f"  - 使用モデル: {state['model_name']}")
     
@@ -790,7 +820,34 @@ def agent_node(state: AgentState):
                 if gemini_signatures:
                     print(f"  - __gemini_function_call_thought_signatures__: 存在 ({len(gemini_signatures)}件)")
                 else:
-                    print(f"  - __gemini_function_call_thought_signatures__: 存在しない")
+                    # ★ すべてのチャンクの extras から直接抽出を試みる（LangChainがマージし損ねることがあるため）
+                    found_sig = None
+                    for c in chunks:
+                        if isinstance(c.content, list):
+                            for part in c.content:
+                                if isinstance(part, dict) and 'extras' in part:
+                                    sig = part['extras'].get('signature')
+                                    if sig:
+                                        found_sig = sig
+                                        break
+                        if found_sig: break
+                    
+                    if found_sig:
+                        print(f"  - __gemini_function_call_thought_signatures__: チャンクスキャンにより抽出成功")
+                        # Gemini 3 SDK は {tool_call_id: signature} の辞書形式を期待する
+                        sig_dict = {}
+                        if all_tool_calls_chunks:
+                            for tc in all_tool_calls_chunks:
+                                tc_id = tc.get("id")
+                                if tc_id: sig_dict[tc_id] = found_sig
+                        
+                        if sig_dict:
+                            additional_kwargs["__gemini_function_call_thought_signatures__"] = sig_dict
+                        else:
+                            # ツールコールがまだ特定できない場合はリスト形式で保持し、後続で変換を試みる
+                            additional_kwargs["__gemini_function_call_thought_signatures__"] = [found_sig]
+                    if not additional_kwargs.get("__gemini_function_call_thought_signatures__"):
+                        print(f"  - __gemini_function_call_thought_signatures__: 存在しない")
 
             # 【重要】contentは手動で抽出・連結する（++演算子がlist+strで壊れるため）
             # Gemini APIは最初のチャンクでlist形式（dict+str）を返し、後続はstrを返す
@@ -821,36 +878,45 @@ def agent_node(state: AgentState):
                         print(f"    str content: {content_preview}")
             # ▲▲▲ [Gemini 3 Debug] ここまで ▲▲▲
 
-            for i, chunk in enumerate(chunks):
+            # 思考情報の統合用バッファ
+            thought_buffer = []
+            is_collecting_thought = False
 
+            for i, chunk in enumerate(chunks):
                 chunk_content = chunk.content
                 if not chunk_content:
                     continue
                 
                 if isinstance(chunk_content, str):
-                    # str型の場合: 最初のチャンク以外から来るストリーミングテキスト
-                    # ただし、最初のチャンク（i==0）がstr型ならそのまま追加
+                    if is_collecting_thought:
+                        if thought_buffer:
+                            text_parts.append(f"[THOUGHT]\n{''.join(thought_buffer)}\n[/THOUGHT]\n")
+                            thought_buffer = []
+                        is_collecting_thought = False
                     if chunk_content.strip():
                         text_parts.append(chunk_content)
                 elif isinstance(chunk_content, list):
-                    # list型の場合（通常は最初のチャンク）: dict型の"text"のみを抽出
                     for part in chunk_content:
-                        if isinstance(part, dict):
-                            part_type = part.get("type")
-                            if part_type == "text":
-                                text_val = part.get("text", "")
-                                if text_val:
-                                    text_parts.append(text_val)
-                            # Gemini 3は "thinking" を使用、従来モデルは "thought" を使用
-                            # 注意: Gemini 3のThinkingモードでは応答テキスト(type=text)が空になる場合がある
-                            elif part_type in ("thought", "thinking"):
-                                if display_thoughts:
-                                    # 両方のキーを試す（"thinking" が優先）
-                                    thought_text = part.get("thinking") or part.get("thought", "")
-                                    if thought_text.strip():
-                                        text_parts.append(f"[THOUGHT]\n{thought_text}\n[/THOUGHT]\n")
-                        # str型はlist内では無視（これがdict内テキストの重複断片）
-                        # elif isinstance(part, str): pass
+                        if not isinstance(part, dict): continue
+                        p_type = part.get("type")
+                        if p_type == "text":
+                            if is_collecting_thought:
+                                if thought_buffer:
+                                    text_parts.append(f"[THOUGHT]\n{''.join(thought_buffer)}\n[/THOUGHT]\n")
+                                    thought_buffer = []
+                                is_collecting_thought = False
+                            text_val = part.get("text", "")
+                            if text_val:
+                                text_parts.append(text_val)
+                        elif p_type in ("thought", "thinking"):
+                            t_text = part.get("thinking") or part.get("thought", "")
+                            if t_text:
+                                thought_buffer.append(t_text)
+                                is_collecting_thought = True
+            
+            # 最終フラッシュ
+            if is_collecting_thought and thought_buffer:
+                text_parts.append(f"[THOUGHT]\n{''.join(thought_buffer)}\n[/THOUGHT]\n")
             
             # contentの外側の思考プロンプト（一部のSDKバージョン用）
             if hasattr(merged_chunk, 'additional_kwargs'):
@@ -900,7 +966,8 @@ def agent_node(state: AgentState):
 
 
             # 署名などを統合メッセージから取得
-            # Gemini 3は __gemini_function_call_thought_signatures__ キーを使用
+            # Gemini 3は {tool_call_id: signature} の辞書形式で渡される
+            # キーを使用
             if not captured_signature:
                 captured_signature = additional_kwargs.get("__gemini_function_call_thought_signatures__")
 

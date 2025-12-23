@@ -14,7 +14,7 @@ def save_turn_context(room_name: str, signature, tool_calls: list):
     最新のターンコンテキスト（思考署名とツール呼び出し情報）をJSONファイルに保存する。
     Thinkingモデルの整合性を保つために必須。
     
-    signature: Gemini 3からは list 形式で渡される（__gemini_function_call_thought_signatures__）
+    signature: Gemini 3からは {tool_call_id: signature} の辞書形式で渡される
     """
     if not room_name:
         return
@@ -22,10 +22,17 @@ def save_turn_context(room_name: str, signature, tool_calls: list):
     file_path = _get_signature_file_path(room_name)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
+    # 二幕構成の Act 2 (最終回答) でツール呼び出し情報が消えないように、マージ処理を行う
+    final_tool_calls = tool_calls
+    if not tool_calls:
+        existing_data = get_turn_context(room_name)
+        if existing_data.get("last_tool_calls"):
+            final_tool_calls = existing_data.get("last_tool_calls")
+
     data = {
         # Gemini 3形式: __gemini_function_call_thought_signatures__ はリスト
         "gemini_function_call_thought_signatures": signature,
-        "last_tool_calls": tool_calls, # ツール呼び出しのリスト（辞書形式）を保存
+        "last_tool_calls": final_tool_calls, # ツール呼び出しのリスト（辞書形式）を保存
         # 後方互換性のため古いキーも残す
         "last_signature": signature[0] if isinstance(signature, list) and signature else signature,
         "updated_at": str(os.path.getmtime(file_path)) if os.path.exists(file_path) else ""

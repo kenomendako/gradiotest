@@ -6,8 +6,13 @@ import re
 import shutil
 import traceback
 import datetime
+import threading
+import time
 from typing import Optional, List, Tuple
 import constants
+
+# スレッドセーフなファイル操作のためのロック
+_room_config_lock = threading.Lock()
 
 def generate_safe_folder_name(room_name: str) -> str:
     """
@@ -161,22 +166,64 @@ def get_room_list_for_ui() -> List[Tuple[str, str]]:
     return sorted(valid_rooms, key=lambda x: x[0])
 
 
+def _restore_room_config_from_backup(folder_name: str) -> bool:
+    """最も新しいバックアップからroom_config.jsonを復元する。"""
+    backup_dir = os.path.join(constants.ROOMS_DIR, folder_name, "backups", "configs")
+    config_file = os.path.join(constants.ROOMS_DIR, folder_name, "room_config.json")
+    
+    if not os.path.isdir(backup_dir):
+        return False
+
+    try:
+        backups = sorted(
+            [f for f in os.listdir(backup_dir) if f.endswith(".bak")],
+            key=lambda f: os.path.getmtime(os.path.join(backup_dir, f)),
+            reverse=True
+        )
+        if not backups:
+            return False
+
+        latest_backup = os.path.join(backup_dir, backups[0])
+        print(f"--- [自己修復] 破損したルーム設定をバックアップ '{backups[0]}' から復元します ---")
+        shutil.copy2(latest_backup, config_file)
+        return True
+    except Exception as e:
+        print(f"!!! エラー: バックアップからの復元に失敗しました ({folder_name}): {e}")
+        return False
+
 def get_room_config(folder_name: str) -> Optional[dict]:
     """
-    指定されたフォルダ名のルーム設定ファイル(room_config.json)を読み込み、辞書として返す。
-    見つからない場合はNoneを返す。
+    指定されたフォルダ名のルーム設定ファイル(room_config.json)を安全に読み込み、辞書として返す。
+    破損している場合はバックアップからの復元を試みる。
     """
     if not folder_name:
         return None
 
     config_file = os.path.join(constants.ROOMS_DIR, folder_name, "room_config.json")
+    
+    def _read_json():
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                if not content.strip():
+                    raise json.JSONDecodeError("File is empty", "", 0)
+                return json.loads(content)
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"警告: ルーム '{folder_name}' の設定ファイルが破損しています: {e}")
+                return None
+        return None
+
+    # 1. 通常の読み込み試行
+    config = _read_json()
+    if config is not None:
+        return config
+
+    # 2. 破損している場合、復元を試みる
     if os.path.exists(config_file):
-        try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"警告: ルーム '{folder_name}' の設定ファイルが読めません: {e}")
-            return None
+        if _restore_room_config_from_backup(folder_name):
+            return _read_json()
+            
     return None
 
 
@@ -315,67 +362,78 @@ def create_backup(room_name: str, file_type: str) -> Optional[str]:
 def update_room_config(room_name: str, updates: dict) -> bool:
     """
     ルーム設定ファイル(room_config.json)を安全に更新する。
-    - ファイルが存在しない場合は初期作成を試みる
-    - 指定されたキーがルート要素(user_display_name等)ならルートを更新
-    - それ以外は override_settings 内にマージする
-    - 保存前にバックアップを作成し、一時ファイルによるアトミックな書き込みを行う
+    - threading.Lock による排他制御
+    - ユニークな一時ファイルによるアトミック書き込み
+    - 変更がない場合は書き込まない
     """
     if not room_name: return False
 
-    config = get_room_config(room_name)
-    if not config:
-        # Configがない場合のフォールバック（ensure_room_filesを呼ぶ）
-        if not ensure_room_files(room_name):
-            print(f"エラー: ルーム '{room_name}' の初期化に失敗しました。")
-            return False
+    with _room_config_lock:
         config = get_room_config(room_name)
-        if not config: return False
+        if not config:
+            # Configがない場合（または破損して復旧不能な場合）のフォールバック
+            if not ensure_room_files(room_name):
+                print(f"エラー: ルーム '{room_name}' の初期化に失敗しました。")
+                return False
+            config = get_room_config(room_name)
+            if not config: return False
 
-    # 変更検知のために元の状態をコピー
-    import copy
-    old_config = copy.deepcopy(config)
+        # 変更検知のために元の状態をコピー
+        import copy
+        old_config = copy.deepcopy(config)
 
-    if "override_settings" not in config:
-        config["override_settings"] = {}
+        if "override_settings" not in config:
+            config["override_settings"] = {}
 
-    root_keys = ["room_name", "user_display_name", "description", "version"]
-    
-    overrides = config["override_settings"]
-    for k, v in updates.items():
-        if k in root_keys:
-            config[k] = v
-        elif k == "override_settings" and isinstance(v, dict):
-            overrides.update(v)
-        else:
-            # ネストされた辞書の場合のマージ考慮 (現状は単純な上書き)
-            overrides[k] = v
+        root_keys = ["room_name", "user_display_name", "description", "version"]
+        
+        overrides = config["override_settings"]
+        for k, v in updates.items():
+            if k in root_keys:
+                config[k] = v
+            elif k == "override_settings" and isinstance(v, dict):
+                overrides.update(v)
+            else:
+                # ネストされた辞書の場合のマージ考慮 (現状は単純な上書き)
+                overrides[k] = v
 
-    # 変更があるかチェック（タイムスタンプ更新前に行う）
-    if config == old_config:
-        # print(f"--- [Room Manager] No changes detected for '{room_name}'. Skipping save/backup. ---")
-        return "no_change"
+        # 変更があるかチェック
+        if config == old_config:
+            return "no_change"
 
-    config["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    config["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        config["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        config["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    # 保存前にバックアップを作成
-    try:
-        create_backup(room_name, 'room_config')
-    except Exception as e:
-        print(f"Warning: Backup creation failed for room_config: {e}")
+        # 保存前にバックアップを作成
+        try:
+            create_backup(room_name, 'room_config')
+        except Exception as e:
+            print(f"Warning: Backup creation failed for room_config: {e}")
 
-    # アトミックな書き込み処理
-    try:
+        # アトミックな書き込み処理 (ユニークな一時ファイル名を使用)
         config_file = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
-        temp_file = config_file + ".tmp"
-        with open(temp_file, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
-        os.replace(temp_file, config_file)
-        print(f"ルーム '{room_name}' の設定を更新しました。")
-        return True
-    except Exception as e:
-        print(f"ルーム '{room_name}' の設定保存エラー: {e}")
-        traceback.print_exc()
+        # thread_id と pid を含めて衝突を避ける
+        temp_file = f"{config_file}.{os.getpid()}.{threading.get_ident()}.tmp"
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    json.dump(config, f, indent=2, ensure_ascii=False)
+                os.replace(temp_file, config_file)
+                print(f"ルーム '{room_name}' の設定を更新しました。")
+                return True
+            except PermissionError:
+                if attempt < max_retries - 1:
+                    time.sleep(0.1)
+                else:
+                    raise
+            except Exception as e:
+                print(f"ルーム '{room_name}' の設定保存エラー: {e}")
+                if os.path.exists(temp_file):
+                    try: os.remove(temp_file)
+                    except: pass
+                return False
         return False
 
 def save_room_override_settings(room_name: str, settings: dict) -> bool:
