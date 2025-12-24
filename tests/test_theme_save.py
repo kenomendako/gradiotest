@@ -24,48 +24,38 @@ with open(CONFIG_PATH, "w", encoding="utf-8") as f:
 
 print(f"Created test room: {TEST_ROOM}")
 
-# Prepare 31 arguments
+# Prepare 43 arguments
 # 0: Room Name
 args = [TEST_ROOM]
 
-# 1-19: Settings (19 items)
+# 1-4: Basic flags/style
 # enabled, font, line, chat(4)
-args.extend([True, 15, 1.6, "Chat"])
-# basic(5)
-args.extend(["#000"]*5)
-# detailed(10)
-args.extend(["#111"]*10)
-# table(1) - Index 19
-# args[19] is "TableBG"
-# Wait, if I put "#111" for detailed, that is 10 items.
-# Detailed indices: 10..19. 
-# Oh wait, detailed in code is lines 6251-6260.
-# 6260: "theme_table_bg": args[19].
-# My detailed count was correct.
-# So args[19] will be the LAST of "detailed" extension if I extend 10?
-# No.
-# args list so far: [Room] (1)
-# extend([True, 15, 1.6, "Chat"]) (4) -> len 5
-# extend(["#000"]*5) (5) -> len 10
-# extend(["#111"]*10) (10) -> len 20.
-# The last item is at index 19.
-# So args[19] is one of the "#111".
-# BUT table is args[19]. So correct.
+args.extend([True, 15, 1.6, "Chat"]) # len 5
 
-# 20: bg_image
-args.append("test_image.png") 
+# 5-9: basic colors (5 items)
+args.extend(["#000"]*5) # len 10
 
-# 21-29: bg props (9 items)
+# 10-21: detailed colors (12 items)
+args.extend(["#111"]*12) # len 22
+
+# 22: ui_opacity
+args.append(0.9) # len 23
+
+# 23: bg_image
+args.append(None) # len 24
+
+# 24-32: bg props (9 items)
 # opacity, blur, size, pos, repeat, width, radius, mask, overlay
-args.extend([0.5, 5, "cover", "center", "no-repeat", "300px", 10, 20, "OverlayValue"]) 
-# args[21]..args[29]
-# args[29] is "OverlayValue"
+args.extend([0.5, 5, "cover", "center", "no-repeat", "300px", 10, 20, False]) # len 33
 
-# 30: src_mode
+# 33: src_mode
 SYNC_MODE = "現在地と連動 (Sync)"
-args.append(SYNC_MODE)
+args.append(SYNC_MODE) # len 34
 
-print(f"Total Args: {len(args)}") # Expect 31
+# 34-42: Sync settings (9 items)
+args.extend([0.1, 2, "auto", "center", "no-repeat", "300px", 0, 0, False]) # len 43
+
+print(f"Total Args: {len(args)}") # Expect 43
 
 # Execute
 print("Calling handle_save_theme_settings...")

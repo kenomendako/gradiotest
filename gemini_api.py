@@ -171,73 +171,215 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
     # 1. JSONファイルから最新のターンコンテキストを取得
     # これらは「直近にAIが行ったツール呼び出し」の情報
     turn_context = signature_manager.get_turn_context(responding_character_id)
-    stored_signature = turn_context.get("last_signature")
+    # Gemini 3形式の署名を優先、なければ古い形式にフォールバック
+    stored_signature = turn_context.get("gemini_function_call_thought_signatures") or turn_context.get("last_signature")
     stored_tool_calls = turn_context.get("last_tool_calls")
 
-    # --- フェーズ1: まずはログから基本的なメッセージリストを構築 ---
-    for h_item in raw_history:
+    # --- フェーズ1: 基本的なメッセージリストの構築 ---
+    # 【追加項目】履歴の平滑化 (History Flattening)
+    # 過去のツール使用履歴をプレーンテキストに変換し、Gemini 3 の推論負荷を軽減する。
+    flatten_historical_tools = "gemini-3" in responding_character_id or "thinking" in responding_character_id.lower() or True # 基本有効
+
+    for idx, h_item in enumerate(raw_history):
         content = h_item.get('content', '').strip()
-        
-        # タイムスタンプ・モデル名の除去（設定がOFFの場合のみ）
-        if not add_timestamp:
-            cleaned = timestamp_pattern.sub('', content)
-            if cleaned != content:
-                 print(f"  - [DEBUG: History Cleaning] Removed timestamp from content.")
-            content = cleaned
         responder_id = h_item.get('responder', '')
         role = h_item.get('role', '')
-        
         if not responder_id or not role: continue
         
+        # タイムスタンプの抽出（メタデータ保持用）
+        ts_match = timestamp_pattern.search(content)
+        extracted_ts = ts_match.group(0).strip() if ts_match else None
+
+        # タイムスタンプ除去
+        if not add_timestamp:
+            content = timestamp_pattern.sub('', content)
+
         is_user = (role == 'USER')
         is_self = (responder_id == responding_character_id)
         
+        common_kwargs = {"timestamp": extracted_ts} if extracted_ts else {}
+
         if is_user:
             text_only_content = re.sub(r"\[ファイル添付:.*?\]", "", content, flags=re.DOTALL).strip()
             if text_only_content:
-                lc_messages.append(HumanMessage(content=text_only_content))
+                lc_messages.append(HumanMessage(content=text_only_content, additional_kwargs=common_kwargs))
         elif is_self:
-            content_for_api = content
-            if not send_thoughts:
-                content_for_api = utils.remove_thoughts_from_text(content)
+            # AIメッセージ。後続の履歴を確認し、これが「完了したツール呼び出し」かどうかを判定。
+            is_historical_tool_call = False
+            if flatten_historical_tools:
+                # このメッセージより後に「ユーザーの発言」または「別の自分の発言」があれば、
+                # このツール呼び出しは過去の会話の一部として平滑化しても良い。
+                for next_item in raw_history[idx+1:]:
+                    if next_item.get('role') == 'USER' or (next_item.get('responder') == responding_character_id and next_item.get('role') == 'AGENT'):
+                        is_historical_tool_call = True
+                        break
+
+            # 歴史的な思考ログは、推論の混乱を招くため常に除去する。
+            clean_content = utils.remove_thoughts_from_text(content)
             
-            # テキストがある場合のみメッセージを作成
+            content_for_api = clean_content
+            if not send_thoughts:
+                # 明示的に非表示設定の場合は再確認して除去
+                content_for_api = utils.remove_thoughts_from_text(clean_content)
+            
             if content_for_api:
-                ai_msg = AIMessage(content=content_for_api, name=responder_id)
+                # 過去のツール呼び出しを含むメッセージは、属性としての tool_calls を持たない
+                # 純粋なテキストの AIMessage として追加することで「平滑化」を実現する。
+                ai_msg = AIMessage(content=content_for_api, name=responder_id, additional_kwargs=common_kwargs)
                 lc_messages.append(ai_msg)
+                     
+        elif role == 'SYSTEM' and responder_id.startswith('tool_result'):
+            # 形式: ## SYSTEM:tool_result:<tool_name>:<tool_call_id>
+            parts = responder_id.split(':')
+            tool_name = parts[1] if len(parts) > 1 else "unknown"
+            tool_call_id = parts[2] if len(parts) > 2 else "unknown"
+            
+            raw_match = re.search(r'\[RAW_RESULT\]\n(.*?)\n\[/RAW_RESULT\]', content, re.DOTALL)
+            tool_content = raw_match.group(1) if raw_match else content
+
+            # 【重要】これが「過去のツール結果」かどうかを判定。
+            # 直後（またはそれ以降）に AI の返答があれば、それは過去の記録。
+            is_historical_result = False
+            if flatten_historical_tools:
+                for next_item in raw_history[idx+1:]:
+                    if next_item.get('responder') == responding_character_id and next_item.get('role') == 'AGENT':
+                        is_historical_result = True
+                        break
+            
+            # ただし、直前の AIMessage がまだ tool_calls を持っている（平滑化されていない）場合は
+            # プロトコル維持のため、この結果を消してはならない。
+            if is_historical_result:
+                last_ai_flat = True
+                for i in range(len(lc_messages)-1, -1, -1):
+                    if isinstance(lc_messages[i], AIMessage) and lc_messages[i].name == responding_character_id:
+                        if hasattr(lc_messages[i], 'tool_calls') and lc_messages[i].tool_calls:
+                            last_ai_flat = False
+                        break
+                if not last_ai_flat:
+                    is_historical_result = False
+
+            if is_historical_result:
+                # 【Phase 7】過去のツール実行結果は履歴から完全に除外する。
+                # これにより、ユーザーとAIの純粋な対話のみが維持され、プロンプトの肥大化や文脈の混乱を防ぐ。
+                continue
+            else:
+                # 最新の（まだ返答されていない）ツール結果のみを構造化メッセージとして保持
+                tool_msg = ToolMessage(content=tool_content, tool_name=tool_name, tool_call_id=tool_call_id)
+                lc_messages.append(tool_msg)
+
+                # 直前の AIMessage を探し、tool_calls をバックフィルする（最新のセッションのみ）
+                for i in range(len(lc_messages) - 2, -1, -1):
+                    prev_msg = lc_messages[i]
+                    if isinstance(prev_msg, AIMessage) and prev_msg.name == responding_character_id:
+                        if not hasattr(prev_msg, 'tool_calls') or not prev_msg.tool_calls:
+                            prev_msg.tool_calls = []
+                        if not any(tc.get('id') == tool_call_id for tc in prev_msg.tool_calls):
+                            prev_msg.tool_calls.append({"id": tool_call_id, "name": tool_name, "args": {}})
+                        break
         else:
             other_agent_config = room_manager.get_room_config(responder_id)
             display_name = other_agent_config.get("room_name", responder_id) if other_agent_config else responder_id
             clean_content = utils.remove_thoughts_from_text(content)
             lc_messages.append(HumanMessage(content=f"（{display_name}の発言）:\n{clean_content}"))
 
-    # --- フェーズ2: 署名とツールコールの注入 ---
-    # 履歴を「後ろから」走査し、最初に見つかった「自分のAIMessage」に情報を注入する。
-    # これにより、末尾がToolMessageであっても、その直前のAIMessageを正しく特定できる。
+    # --- フェーズ2: 最新ターンの署名とツールコールの注入 ---
+    # JSONから取得したコンテキスト（未解決の呼び出し等）を、末尾のAIMessageに注入する。
     if stored_tool_calls or stored_signature:
         for i in range(len(lc_messages) - 1, -1, -1):
             msg = lc_messages[i]
             if isinstance(msg, AIMessage) and msg.name == responding_character_id:
-                # ターゲット発見。情報を注入する。
-                
-                # ツールコールの復元
                 if stored_tool_calls:
-                    msg.tool_calls = stored_tool_calls
+                    # 既に tool_calls がある場合は、重複しなければマージ
+                    if not msg.tool_calls: msg.tool_calls = []
+                    for tc in stored_tool_calls:
+                        if not any(existing.get('id') == tc.get('id') for existing in msg.tool_calls):
+                            msg.tool_calls.append(tc)
                 
-                # 署名の注入
                 if stored_signature:
                     if not msg.additional_kwargs: msg.additional_kwargs = {}
-                    msg.additional_kwargs["thought_signature"] = stored_signature
                     
-                    if not msg.response_metadata: msg.response_metadata = {}
-                    msg.response_metadata["thought_signature"] = stored_signature
-                
-                # print(f"  - [Thinking] AIMessage(index={i})に署名とツールコールを復元しました。")
-                
-                # 最新の1つだけに適用すれば十分なので、ここでループを抜ける
+                    # 署名を SDK が期待する {tool_call_id: signature} の辞書形式に変換
+                    final_sig_dict = {}
+                    if isinstance(stored_signature, dict):
+                        final_sig_dict = stored_signature
+                    else:
+                        # 文字列やリストの場合は、現在の tool_calls と紐付ける
+                        sig_val = stored_signature[0] if isinstance(stored_signature, list) and stored_signature else stored_signature
+                        if msg.tool_calls:
+                            for tc in msg.tool_calls:
+                                tc_id = tc.get("id")
+                                if tc_id: final_sig_dict[tc_id] = sig_val
+                    
+                    if final_sig_dict:
+                        msg.additional_kwargs["__gemini_function_call_thought_signatures__"] = final_sig_dict
                 break
             
-    return lc_messages
+    return merge_consecutive_messages(lc_messages, add_timestamp=add_timestamp)
+
+def merge_consecutive_messages(lc_messages: list, add_timestamp: bool = False) -> list:
+    """
+    同一ロール（AI同士、Human同士）が連続するメッセージリストを、1つのメッセージに統合する。
+    Gemini API プロトコル遵守のためのユーティリティ。
+    """
+    if not lc_messages:
+        return []
+
+    merged_messages = []
+    curr_msg = lc_messages[0]
+    
+    for next_msg in lc_messages[1:]:
+        # 同じクラス（HumanMessage, AIMessage）が連続し、かつ名前(name)も一致する場合、内容を結合する。
+        # ToolMessage は結合対象外（AI->Tool->AIの順を保つため）。
+        from langchain_core.messages import ToolMessage
+        is_same_role = type(curr_msg) == type(next_msg) and not isinstance(curr_msg, ToolMessage)
+        is_same_name = getattr(curr_msg, 'name', None) == getattr(next_msg, 'name', None)
+
+        if is_same_role and is_same_name:
+            # 結合部にタイムスタンプを注入して、AIが時間経過を把握できるようにする。
+            # ただしユーザー設定でタイムスタンプがオフの場合は、詳細な時刻は伏せる。
+            next_ts = next_msg.additional_kwargs.get("timestamp")
+            if add_timestamp and next_ts:
+                sep = f"\n\n--- (別タイミングの発言 / タイムスタンプ: {next_ts}) ---\n\n"
+            else:
+                sep = f"\n\n--- (別のタイミングの発言) ---\n\n" if next_ts else "\n\n"
+            
+            # コンテンツの結合 (Multipart リスト対応)
+            def to_parts(content):
+                if isinstance(content, list): return content
+                return [{"type": "text", "text": str(content)}]
+
+            c_parts = to_parts(curr_msg.content)
+            n_parts = to_parts(next_msg.content)
+            
+            if isinstance(curr_msg.content, str) and isinstance(next_msg.content, str):
+                # 両方文字列なら文字列として結合（シンプルさを維持）
+                new_content = curr_msg.content + sep + next_msg.content
+            else:
+                # どちらかがリストなら、リストとして結合
+                sep_part = [{"type": "text", "text": sep}] if sep.strip() else []
+                new_content = c_parts + sep_part + n_parts
+            
+            # 属性（tool_calls, signatures 等）のマージ
+            m_kwargs = {**curr_msg.additional_kwargs, **next_msg.additional_kwargs}
+            m_tool_calls = []
+            if hasattr(curr_msg, "tool_calls") and curr_msg.tool_calls:
+                m_tool_calls.extend(curr_msg.tool_calls)
+            if hasattr(next_msg, "tool_calls") and next_msg.tool_calls:
+                for tc in next_msg.tool_calls:
+                    if not any(existing.get('id') == tc.get('id') for existing in m_tool_calls):
+                        m_tool_calls.append(tc)
+            
+            # 更新（in-place）
+            curr_msg.content = new_content
+            curr_msg.additional_kwargs = m_kwargs
+            if hasattr(curr_msg, "tool_calls"):
+                curr_msg.tool_calls = m_tool_calls
+        else:
+            merged_messages.append(curr_msg)
+            curr_msg = next_msg
+            
+    merged_messages.append(curr_msg)
+    return merged_messages
 
 def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     from agent.graph import app
@@ -342,7 +484,16 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         final_prompt_parts.extend(user_prompt_parts)
 
     if final_prompt_parts:
-        messages.append(HumanMessage(content=final_prompt_parts))
+        # 画像がない場合は、文字列として結合して送信することで、Gemini API との相性を最大化する。
+        has_images = any(isinstance(p, dict) and p.get('type') == 'file' for p in final_prompt_parts)
+        if not has_images:
+            flat_content = "\n".join([p.get('text', '') if isinstance(p, dict) else str(p) for p in final_prompt_parts])
+            messages.append(HumanMessage(content=flat_content))
+        else:
+            messages.append(HumanMessage(content=final_prompt_parts))
+
+    # 【重要】最終的なメッセージリストを走査し、ロールの重複を排除
+    messages = merge_consecutive_messages(messages, add_timestamp=add_timestamp)
 
     # 履歴制限
     limit = int(api_history_limit) if api_history_limit.isdigit() else 0
@@ -380,8 +531,10 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
              msgs = payload if isinstance(payload, list) else [payload]
              for msg in msgs:
                  if isinstance(msg, AIMessage):
-                     # 署名を抽出
-                     sig = msg.additional_kwargs.get("thought_signature")
+                     # 署名を抽出（Gemini 3形式を優先）
+                     sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                     if not sig:
+                         sig = msg.additional_kwargs.get("thought_signature")
                      if not sig and hasattr(msg, "response_metadata"):
                          sig = msg.response_metadata.get("thought_signature")
                      
@@ -687,50 +840,83 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: threshold_map.get(config.get("safety_block_threshold_dangerous_content", "BLOCK_ONLY_HIGH")),
         }
 
-    # --- Thinking Level / Budget Mapping ---
+    # --- Thinking Level Mapping (Gemini 3) ---
+    # 【重要な発見 2024-12】
+    # Gemini 3 Flash は include_thoughts をサポートしていない（GitHubで確認済み）。
+    # thinking_level パラメータを渡しても、思考トークンは返されない。
+    # これらのパラメータを渡すと不安定な挙動（空の応答、思考のみ等）を引き起こす可能性がある。
+    # → Gemini 3 Flash では thinking 関連パラメータを一切渡さない。
+    # → Gemini 3 Pro のみでこれらのパラメータを使用する。
     thinking_level = config.get("thinking_level", "auto")
     extra_params = {}
-    
-    # 推論が有効な場合、温度は 1.0 である必要がある（Google AI Studioの制約に準拠）
-    # ユーザーが明示的に設定している場合を除き、デフォルトを 1.0 に引き上げる
+
+    # Gemini 3 Flash / Pro 判定
     effective_temp = config.get("temperature", 0.8)
-    if is_reasoning_model and thinking_level != "none":
-        if effective_temp != 1.0:
-            effective_temp = 1.0
-        # 明示的にinclude_thoughtsを有効化
-        extra_params["include_thoughts"] = True
+    is_pro_reasoning = "gemini-3-pro" in model_name
+    is_flash_reasoning = "gemini-3-flash" in model_name
+    is_gemini_25_thinking = "gemini-2.5" in model_name and "thinking" in model_name.lower()
+    is_gemini_3 = is_pro_reasoning or is_flash_reasoning
 
-    if thinking_level == "none":
-        # 思考を明示的に無効化
-        extra_params["include_thoughts"] = False
-    elif thinking_level in ["low", "medium", "high", "extreme"]:
-        # 【重要】現在のライブラリバージョンでは 'thinking_level' パラメータが ThinkingConfig に存在しないため、
-        # Gemini 3 では include_thoughts=True のみを使用し、詳細なレベル指定は行わない（API既定値に任せる）。
-        # 古いモデル(thinking_budget対応)の場合のみ budget を設定する手もあるが、
-        # 混乱を避けるため、一旦 Gemini 3 は考えさせるか否か(bool)のみで制御する。
-        if not is_reasoning_model:
-             # 旧モデル用の予算設定 (Gemini 2.5 thinkingなどがあれば)
-             pass 
+    if is_flash_reasoning:
+        # Gemini 3 Flash: thinking_level は必須（公式ドキュメントより）
+        # include_thoughts は Flash ではサポートされないが、thinking_level は動作に必要。
+        # 署名の循環も必須（even when set to minimal）。
+        # 参照: https://ai.google.dev/gemini-api/docs/thinking
+        # 
+        # 【重要】2025-12-23 発見:
+        # 複雑なシステムプロンプト（詳細なペルソナ、ツール定義等）を持つルームでは、
+        # minimal/low では推論能力が不足し、空の応答が返される。
+        # → デフォルトを 'high' に設定する。ユーザーが明示的に指定した場合はそれを尊重。
+        if thinking_level == "auto" or thinking_level == "none":
+            # デフォルトは 'high'（複雑なプロンプトへの対応力を優先）
+            extra_params["thinking_level"] = "high"
+        elif thinking_level in ["minimal", "low", "medium", "high"]:
+            extra_params["thinking_level"] = thinking_level
         else:
-             # Gemini 3: レベル指定は現在のSDKではエラーになるためスキップ
-             # print(f"  - [Thinking] Config: thinking_level='{thinking_level}' (ignored due to library limitations)")
-             pass
-    
-    # "auto" は何も渡さない（API既定値またはモデル側制御に従う）
+            extra_params["thinking_level"] = "high"
 
-    # デバッグ用にパラメータを出力
-    if thinking_level != "auto":
-        print(f"  - [Thinking] Parameters: {extra_params}")
+        
+        # Flash では include_thoughts はサポートされないので渡さない
+        # 温度は thinking_level 設定時は 1.0 が推奨
+        effective_temp = 1.0
+        
+        if is_reasoning_model:
+            print(f"  - [Thinking] Gemini 3 Flash: thinking_level='{extra_params.get('thinking_level')}', temp={effective_temp}")
+    elif is_pro_reasoning:
+        # Gemini 3 Pro: thinking パラメータをサポート
+        if thinking_level == "auto" or thinking_level == "high":
+            extra_params["include_thoughts"] = True
+            extra_params["thinking_level"] = "high"
+            effective_temp = 1.0  # Thinking 有効時は温度 1.0 必須
+        elif thinking_level == "none":
+            extra_params["include_thoughts"] = False
+        elif thinking_level in ["minimal", "low", "medium"]:
+            extra_params["include_thoughts"] = True
+            extra_params["thinking_level"] = thinking_level
+            effective_temp = 1.0
+        if is_reasoning_model:
+            print(f"  - [Thinking] Gemini 3 Pro: level='{thinking_level}', thinking_level_param='{extra_params.get('thinking_level')}', include_thoughts={extra_params.get('include_thoughts')}, temp={effective_temp}")
+    elif is_gemini_25_thinking:
+        # Gemini 2.5 Thinking 系: thinking_budget を使用（従来のロジック）
+        # このブランチは主にフォールバック用
+        if thinking_level != "none":
+            extra_params["include_thoughts"] = True
+            effective_temp = 1.0
+        if is_reasoning_model:
+            print(f"  - [Thinking] Gemini 2.5 Thinking: include_thoughts={extra_params.get('include_thoughts')}, temp={effective_temp}")
 
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=api_key,
-        convert_system_message_to_human=is_reasoning_model, # 推論モデルはHuman扱いを好む場合がある
+        # Gemini 3 は公式に system ロールをサポートしているため、Human変換は不要。
+        # むしろ変換するとAct 1/2 の署名プロトコルを乱す可能性がある。
+        convert_system_message_to_human=False, 
         max_retries=0,
         temperature=effective_temp,
         top_p=config.get("top_p", 0.95),
-        max_output_tokens=config.get("max_output_tokens", 8192) if is_reasoning_model else config.get("max_output_tokens"),
+        # 公式上限: 65,536 (Gemini 3 Flash)
+        max_output_tokens=config.get("max_output_tokens", 65536) if is_reasoning_model else config.get("max_output_tokens"),
         safety_settings=safety_settings,
-        timeout=600,  # 10分のタイムアウト：Gemini 3などの新しいモデルは処理に時間がかかる場合がある
+        timeout=600,
         **extra_params
     )

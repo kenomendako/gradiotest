@@ -691,7 +691,8 @@ def handle_save_room_settings(
     topic_cluster_min_samples: int = 2,
     topic_cluster_selection_method: str = "eom",
     topic_cluster_fixed_topics: str = "",
-    silent: bool = False
+    silent: bool = False,
+    force_notify: bool = False
 ):
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
@@ -770,13 +771,10 @@ def handle_save_room_settings(
         "topic_cluster_fixed_topics": [t.strip() for t in topic_cluster_fixed_topics.split(",") if t.strip()]
     }
     result = room_manager.update_room_config(room_name, new_settings)
-    if result == True:
-        if not silent:
+    if not silent:
+        if result == True or (result == "no_change" and force_notify):
             gr.Info(f"「{room_name}」の個別設定を保存しました。")
-    elif result == "no_change":
-        # 変更なしの場合は何もしない
-        pass
-    else:
+    if result == False:
         gr.Error("個別設定の保存中にエラーが発生しました。詳細はログを確認してください。")
 
 def handle_context_settings_change(
@@ -1008,6 +1006,15 @@ def _stream_and_handle_response(
                             for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                                 if mode == "initial_count":
                                     initial_message_count = chunk
+                                elif mode == "messages":
+                                    msgs = chunk if isinstance(chunk, list) else [chunk]
+                                    for msg in msgs:
+                                        if isinstance(msg, AIMessage):
+                                            sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                                            if not sig: sig = msg.additional_kwargs.get("thought_signature")
+                                            t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
+                                            if sig or t_calls:
+                                                signature_manager.save_turn_context(current_room, sig, t_calls)
                                 elif mode == "values":
                                     final_state = chunk
                                     if chunk.get("model_name"):
@@ -1017,6 +1024,21 @@ def _stream_and_handle_response(
                         for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args_dict):
                             if mode == "initial_count":
                                 initial_message_count = chunk
+                            elif mode == "messages":
+                                msgs = chunk if isinstance(chunk, list) else [chunk]
+                                for msg in msgs:
+                                    if isinstance(msg, AIMessage):
+                                        sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                                        if not sig: sig = msg.additional_kwargs.get("thought_signature")
+                                        t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
+                                        
+                                        # 【重要】ツールコールが空の場合は、既存の保存済みツールコールを消さないように保護
+                                        # 二幕構成の二幕目（最終回答）では通常ツールコールは空になるため。
+                                        if sig or t_calls:
+                                            # signature_manager 側でマージ/保護されるべきだが
+                                            # ここでも最小限のチェックを行う
+                                            signature_manager.save_turn_context(current_room, sig, t_calls)
+
                             elif mode == "values":
                                 final_state = chunk
                                 if chunk.get("model_name"):
@@ -1149,7 +1171,8 @@ def _stream_and_handle_response(
                         elif isinstance(msg, ToolMessage):
                             formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                             content_to_log = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"
-                            header = f"## SYSTEM:tool_result"
+                            # ツール名とコールIDをヘッダーに埋め込む
+                            header = f"## SYSTEM:tool_result:{msg.name}:{msg.tool_call_id}"
                         
                         side_effect_tools = ["plan_main_memory_edit", "plan_secret_diary_edit", "plan_notepad_edit", "plan_world_edit", "set_personal_alarm", "set_timer", "set_pomodoro_timer"]
                         if isinstance(msg, ToolMessage) and msg.name in side_effect_tools and "Error" not in str(msg.content) and "エラー" not in str(msg.content):
@@ -7019,7 +7042,7 @@ def generate_room_style_css(enabled=True, font_size=15, line_height=1.6, chat_st
 
     return f"<style>{css}</style>"
 
-def handle_save_theme_settings(*args):
+def handle_save_theme_settings(*args, silent: bool = False, force_notify: bool = False):
     """詳細なテーマ設定を保存する (Robust Debug Version)"""
     
     try:
@@ -7105,10 +7128,12 @@ def handle_save_theme_settings(*args):
         }
         
         # Use the centralized save function in room_manager
-        if room_manager.save_room_override_settings(room_name, settings):
-            mode_val = settings.get("theme_bg_src_mode")
-            gr.Info(f"「{room_name}」のテーマ設定を保存しました。\n保存モード: {mode_val}")
-        else:
+        result = room_manager.save_room_override_settings(room_name, settings)
+        if not silent:
+            if result == True or (result == "no_change" and force_notify):
+                mode_val = settings.get("theme_bg_src_mode")
+                gr.Info(f"「{room_name}」のテーマ設定を保存しました。\n保存モード: {mode_val}")
+        if result == False:
             gr.Error(f"テーマ保存に失敗しました。コンソールを確認してください。")
 
     except Exception as e:

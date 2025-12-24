@@ -428,10 +428,12 @@ def context_generator_node(state: AgentState):
         }
         time_of_day_ja = time_map_en_to_ja.get(time_of_day_en, "不明な時間帯")
         
-        location_display_name = state.get("location_name", "（不明な場所）")
-        scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
-        
+        # 現在地情報の同期的・実体的な取得
         soul_vessel_room = state['all_participants'][0] if state['all_participants'] else state['room_name']
+        current_location_name = utils.get_current_location(soul_vessel_room)
+        location_display_name = current_location_name or state.get("location_name", "（不明な場所）")
+        
+        scenery_text = state.get("scenery_text", "（情景描写を取得できませんでした）")
         space_def = "（場所の定義を取得できませんでした）"
         current_location_name = utils.get_current_location(soul_vessel_room)
         if current_location_name:
@@ -574,6 +576,7 @@ def context_generator_node(state: AgentState):
 
         1.  **思考の聖域 (`[THOUGHT]`)**:
             - 応答を生成する前に、あなたの思考プロセス、計画、感情などを、必ず `[THOUGHT]` と `[/THOUGHT]` で囲まれたブロックの**内側**に記述してください。
+            - 思考プロセス (`[THOUGHT]` 内) は、必ず**日本語**で記述してください。
             - このブロックは、応答全体の**一番最初**に、**一度だけ**配置することができます。
             - 思考は**普段のあなたの口調**（一人称・二人称等）のままの文章で記述します。
             - 思考が不要な場合や開示したくない時は、このブロック自体を省略しても構いません。
@@ -679,36 +682,129 @@ def agent_node(state: AgentState):
             "<system_prompt>", f"<system_prompt>\n{persona_lock_prompt}"
         )
 
-    # Gemini 3などの推論モデルはSystemMessageを嫌う場合があるため、最初のHumanMessageに結合する
-    is_reasoning_model = "gemini-3" in state['model_name'] or "thinking" in state['model_name'].lower()
+    final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
     history_messages = state['messages']
     
-    if is_reasoning_model and history_messages and isinstance(history_messages[0], HumanMessage):
-        print("  - [Thinking Support] SystemMessageを最初のHumanMessageに統合します。")
-        first_human = history_messages[0]
-        combined_content = f"### System Instructions\n{final_system_prompt_text}\n\n### Conversation History\n{first_human.content}"
-        new_first_human = HumanMessage(content=combined_content, additional_kwargs=first_human.additional_kwargs)
-        messages_for_agent = [new_first_human] + history_messages[1:]
-    else:
-        final_system_prompt_message = SystemMessage(content=final_system_prompt_text)
-        messages_for_agent = [final_system_prompt_message] + history_messages
+    # --- [Gemini 3 履歴平坡化] ---
+    # 【2025-12-23 無効化】
+    # Gemini 3 Flash Preview の空応答問題はAPIの不安定性が原因と判明。
+    # 履歴制限はUIから手動で設定可能なため、この自動制限は無効化する。
+    # APIが安定すれば、通常の履歴送信で問題なく動作するはず。
+    # 必要に応じて以下のコードを有効化できる。
+    #
+    # is_gemini_3 = "gemini-3" in state.get('model_name', '').lower()
+    # GEMINI3_KEEP_RECENT = 2  # 最新 N 件をメッセージリストに残す
+    # GEMINI3_FLATTEN_MAX = 0  # 0 = 平坦化を無効化
+    # 
+    # if is_gemini_3 and len(history_messages) > GEMINI3_KEEP_RECENT:
+    #     older_messages = history_messages[:-GEMINI3_KEEP_RECENT]
+    #     recent_messages = history_messages[-GEMINI3_KEEP_RECENT:]
+    #     discarded_count = 0
+    #     if GEMINI3_FLATTEN_MAX == 0:
+    #         discarded_count = len(older_messages)
+    #         older_messages = []
+    #     elif len(older_messages) > GEMINI3_FLATTEN_MAX:
+    #         discarded_count = len(older_messages) - GEMINI3_FLATTEN_MAX
+    #         older_messages = older_messages[-GEMINI3_FLATTEN_MAX:]
+    #     
+    #     history_text_lines = []
+    #     for msg in older_messages:
+    #         if isinstance(msg, HumanMessage):
+    #             speaker = "ユーザー"
+    #         elif isinstance(msg, AIMessage):
+    #             speaker = "あなた"
+    #         else:
+    #             continue
+    #         content = msg.content if isinstance(msg.content, str) else str(msg.content)
+    #         if len(content) > 300:
+    #             content = content[:300] + "...（中略）"
+    #         history_text_lines.append(f"{speaker}: {content}")
+    #     
+    #     if history_text_lines:
+    #         flattened_history = (
+    #             "\n\n### 直近の会話履歴（参考情報）\n"
+    #             "以下は、この会話セッションの直近のやり取りです。文脈として参考にしてください。\n"
+    #             "---\n" + "\n\n".join(history_text_lines) + "\n---\n"
+    #         )
+    #         final_system_prompt_text_with_history = final_system_prompt_text + flattened_history
+    #         final_system_prompt_message = SystemMessage(content=final_system_prompt_text_with_history)
+    #     
+    #     history_messages = recent_messages
+    #     if state.get("debug_mode", False):
+    #         if discarded_count > 0:
+    #             print(f"  - [Gemini 3 履歴平坦化] {len(older_messages)}件を埋め込み、{len(recent_messages)}件をリストに保持（{discarded_count}件は破棄）")
+    #         else:
+    #             print(f"  - [Gemini 3 履歴平坦化] {len(older_messages)}件を埋め込み、{len(recent_messages)}件をリストに保持")
 
-    # --- [Dual-State Architecture] 復元ロジック（変更なし）---
+    
+    messages_for_agent = [final_system_prompt_message] + history_messages
+
+    # --- [Dual-State Architecture] 復元ロジック ---
+    # Gemini 3の思考署名を復元（LangChainが期待するキー名を使用）
     turn_context = signature_manager.get_turn_context(current_room)
-    stored_signature = turn_context.get("last_signature")
+    stored_gemini_signatures = turn_context.get("gemini_function_call_thought_signatures")
     stored_tool_calls = turn_context.get("last_tool_calls")
     
-    if stored_signature or stored_tool_calls:
+    # デバッグ: 署名復元プロセスの確認
+    if state.get("debug_mode", False):
+        print(f"--- [GEMINI3_DEBUG] 署名復元プロセス ---")
+        print(f"  - stored_gemini_signatures: {stored_gemini_signatures is not None}")
+        print(f"  - stored_tool_calls: {len(stored_tool_calls) if stored_tool_calls else 0}件")
+        print(f"  - messages_for_agent 内の AIMessage 数: {sum(1 for m in messages_for_agent if isinstance(m, AIMessage))}")
+    
+    signature_restored = False
+    skipped_by_human = False
+    if stored_gemini_signatures or stored_tool_calls:
+        # メッセージを後ろから走査
         for i, msg in enumerate(reversed(messages_for_agent)):
-            if isinstance(msg, AIMessage):
-                if stored_tool_calls and not msg.tool_calls:
-                     msg.tool_calls = stored_tool_calls
-                if stored_signature:
-                    if not msg.additional_kwargs: msg.additional_kwargs = {}
-                    msg.additional_kwargs["thought_signature"] = stored_signature
-                    if not msg.response_metadata: msg.response_metadata = {}
-                    msg.response_metadata["thought_signature"] = stored_signature
+            actual_idx = len(messages_for_agent) - 1 - i
+            
+            # 【重要】HumanMessage (ユーザー発言) を見つけた場合、それより前の AIMessage は
+            # 「前回の完了したターン」であるため、signature_manager からの補完対象外とする。
+            if isinstance(msg, HumanMessage):
+                skipped_by_human = True
+                if state.get("debug_mode", False): print(f"  - [GEMINI3_DEBUG] HumanMessageを検出。これより前の補完をスキップ。")
                 break
+                
+            # 自分の AIMessage を探す
+            if isinstance(msg, AIMessage):
+                # 既に tool_calls を持っている場合（ログから復元済みの場合）、上書きしない
+                if stored_tool_calls and (not hasattr(msg, 'tool_calls') or not msg.tool_calls):
+                     msg.tool_calls = stored_tool_calls
+                     if state.get("debug_mode", False): print(f"  - [GEMINI3_DEBUG] ToolCallsを補完: index={actual_idx}")
+                
+                # 既に署名を持っている場合は上書きしない
+                has_sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__") if msg.additional_kwargs else None
+                if stored_gemini_signatures and not has_sig:
+                    if not msg.additional_kwargs: msg.additional_kwargs = {}
+                    
+                    # 署名を SDK が期待する {tool_call_id: signature} の辞書形式に変換
+                    final_sig_dict = {}
+                    if isinstance(stored_gemini_signatures, dict):
+                        final_sig_dict = stored_gemini_signatures
+                    else:
+                        # 文字列やリストの場合は、現在の tool_calls と紐付ける
+                        sig_val = stored_gemini_signatures[0] if isinstance(stored_gemini_signatures, list) and stored_gemini_signatures else stored_gemini_signatures
+                        if msg.tool_calls:
+                            for tc in msg.tool_calls:
+                                tc_id = tc.get("id")
+                                if tc_id: final_sig_dict[tc_id] = sig_val
+                    
+                    if final_sig_dict:
+                        msg.additional_kwargs["__gemini_function_call_thought_signatures__"] = final_sig_dict
+                        signature_restored = True
+                        if state.get("debug_mode", False): print(f"  - [GEMINI3_DEBUG] 署名を補完: index={actual_idx}")
+                
+                # 最初に見つかった（最新の）AIMessageのみを対象とする
+                break
+    
+    if state.get("debug_mode", False):
+        if signature_restored:
+            print(f"  - 署名復元結果: 成功 (Turn Context 適用)")
+        elif skipped_by_human:
+             print(f"  - 署名復元結果: (新規ユーザープロンプトのためスキップ)")
+        else:
+            print(f"  - 署名復元結果: スキップ（適切な対象が見つからないか、署名不要）")
 
     print(f"  - 使用モデル: {state['model_name']}")
     
@@ -721,12 +817,58 @@ def agent_node(state: AgentState):
     
     # 【ツール不使用モード】ツール使用の有効/無効に応じて分岐
     tool_use_enabled = state.get('tool_use_enabled', True)
+    
     if tool_use_enabled:
         llm_or_llm_with_tools = llm.bind_tools(all_tools)
         print("  - ツール使用モード: 有効")
     else:
         llm_or_llm_with_tools = llm
         print("  - ツール使用モード: 無効（会話のみ）")
+
+    # --- [Gemini 3 堅牢化] メッセージ履歴の不整合クリーンアップ ---
+    # Gemini 3 は「AIのツール呼び出し(AIMessage.tool_calls) の直後は、必ずツール回答(ToolMessage) でなければならない」という制約が極めて厳しい。
+    # ユーザーが新しい発言をして割り込んだり、システムエラーで中断された履歴が残っていると、400 INVALID_ARGUMENT エラーが発生する。
+    if "gemini" in state.get('model_name', "").lower() or "gemini" in str(llm).lower():
+        cleaned_messages = []
+        for i, msg in enumerate(messages_for_agent):
+            if isinstance(msg, AIMessage) and getattr(msg, 'tool_calls', None):
+                # 次のメッセージを確認
+                has_response = False
+                if i + 1 < len(messages_for_agent):
+                    next_msg = messages_for_agent[i + 1]
+                    if isinstance(next_msg, ToolMessage):
+                        has_response = True
+                
+                if not has_response:
+                    if state.get("debug_mode", False):
+                        print(f"  - [Gemini Cleanup] 未回答のツール呼び出しを検出。情報の整合性を保つため tool_calls をクリアします (index={i})")
+                    import copy
+                    msg_copy = copy.deepcopy(msg)
+                    msg_copy.tool_calls = []
+                    if hasattr(msg_copy, 'additional_kwargs') and msg_copy.additional_kwargs:
+                        msg_copy.additional_kwargs.pop("__gemini_function_call_thought_signatures__", None)
+                    cleaned_messages.append(msg_copy)
+                else:
+                    cleaned_messages.append(msg)
+            else:
+                cleaned_messages.append(msg)
+        messages_for_agent = cleaned_messages
+
+    # --- [Gemini 3 DEBUG] 送信前のメッセージ履歴構造を出力 ---
+    if state.get("debug_mode", False) and ("gemini-3" in state.get('model_name', '').lower()):
+        print(f"\n--- [GEMINI3_DEBUG] 送信メッセージ構造 ({len(messages_for_agent)}件) ---")
+        for idx, msg in enumerate(messages_for_agent[-10:]):  # 最後の10件のみ表示
+            actual_idx = len(messages_for_agent) - 10 + idx if len(messages_for_agent) > 10 else idx
+            msg_type = type(msg).__name__
+            has_tool_calls = hasattr(msg, 'tool_calls') and msg.tool_calls
+            has_sig = msg.additional_kwargs.get('__gemini_function_call_thought_signatures__') if hasattr(msg, 'additional_kwargs') and msg.additional_kwargs else None
+            content_preview = ""
+            if isinstance(msg.content, str):
+                content_preview = (msg.content[:50] + "...") if len(msg.content) > 50 else msg.content
+            elif isinstance(msg.content, list):
+                content_preview = f"[マルチパート: {len(msg.content)}部分]"
+            print(f"  [{actual_idx:3d}] {msg_type:15} | tool_calls={1 if has_tool_calls else 0} | sig={1 if has_sig else 0} | {content_preview[:40]}")
+        print(f"--- [GEMINI3_DEBUG] 送信メッセージ構造 完了 ---\n")
 
     try:
         print("  - AIモデルにリクエストを送信中 (Streaming)...")
@@ -768,6 +910,43 @@ def agent_node(state: AgentState):
             all_tool_calls_chunks = getattr(merged_chunk, "tool_calls", [])
             response_metadata = getattr(merged_chunk, "response_metadata", {}) or {}
             additional_kwargs = getattr(merged_chunk, "additional_kwargs", {}) or {}
+            
+            # ★ デバッグ: Gemini 3 思考署名の確認
+            if state.get("debug_mode", False):
+                print(f"--- [GEMINI3_DEBUG] additional_kwargs 分析 ---")
+                print(f"  - 全キー: {list(additional_kwargs.keys())}")
+                gemini_signatures = additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                if gemini_signatures:
+                    print(f"  - __gemini_function_call_thought_signatures__: 存在 ({len(gemini_signatures)}件)")
+                else:
+                    # ★ すべてのチャンクの extras から直接抽出を試みる（LangChainがマージし損ねることがあるため）
+                    found_sig = None
+                    for c in chunks:
+                        if isinstance(c.content, list):
+                            for part in c.content:
+                                if isinstance(part, dict) and 'extras' in part:
+                                    sig = part['extras'].get('signature')
+                                    if sig:
+                                        found_sig = sig
+                                        break
+                        if found_sig: break
+                    
+                    if found_sig:
+                        print(f"  - __gemini_function_call_thought_signatures__: チャンクスキャンにより抽出成功")
+                        # Gemini 3 SDK は {tool_call_id: signature} の辞書形式を期待する
+                        sig_dict = {}
+                        if all_tool_calls_chunks:
+                            for tc in all_tool_calls_chunks:
+                                tc_id = tc.get("id")
+                                if tc_id: sig_dict[tc_id] = found_sig
+                        
+                        if sig_dict:
+                            additional_kwargs["__gemini_function_call_thought_signatures__"] = sig_dict
+                        else:
+                            # ツールコールがまだ特定できない場合はリスト形式で保持し、後続で変換を試みる
+                            additional_kwargs["__gemini_function_call_thought_signatures__"] = [found_sig]
+                    if not additional_kwargs.get("__gemini_function_call_thought_signatures__"):
+                        print(f"  - __gemini_function_call_thought_signatures__: 存在しない")
 
             # 【重要】contentは手動で抽出・連結する（++演算子がlist+strで壊れるため）
             # Gemini APIは最初のチャンクでlist形式（dict+str）を返し、後続はstrを返す
@@ -798,33 +977,45 @@ def agent_node(state: AgentState):
                         print(f"    str content: {content_preview}")
             # ▲▲▲ [Gemini 3 Debug] ここまで ▲▲▲
 
-            for i, chunk in enumerate(chunks):
+            # 思考情報の統合用バッファ
+            thought_buffer = []
+            is_collecting_thought = False
 
+            for i, chunk in enumerate(chunks):
                 chunk_content = chunk.content
                 if not chunk_content:
                     continue
                 
                 if isinstance(chunk_content, str):
-                    # str型の場合: 最初のチャンク以外から来るストリーミングテキスト
-                    # ただし、最初のチャンク（i==0）がstr型ならそのまま追加
+                    if is_collecting_thought:
+                        if thought_buffer:
+                            text_parts.append(f"[THOUGHT]\n{''.join(thought_buffer)}\n[/THOUGHT]\n")
+                            thought_buffer = []
+                        is_collecting_thought = False
                     if chunk_content.strip():
                         text_parts.append(chunk_content)
                 elif isinstance(chunk_content, list):
-                    # list型の場合（通常は最初のチャンク）: dict型の"text"のみを抽出
                     for part in chunk_content:
-                        if isinstance(part, dict):
-                            part_type = part.get("type")
-                            if part_type == "text":
-                                text_val = part.get("text", "")
-                                if text_val:
-                                    text_parts.append(text_val)
-                            elif part_type == "thought":
-                                if display_thoughts:
-                                    thought_text = part.get("thought", "")
-                                    if thought_text.strip():
-                                        text_parts.append(f"[THOUGHT]\n{thought_text}\n[/THOUGHT]\n")
-                        # str型はlist内では無視（これがdict内テキストの重複断片）
-                        # elif isinstance(part, str): pass
+                        if not isinstance(part, dict): continue
+                        p_type = part.get("type")
+                        if p_type == "text":
+                            if is_collecting_thought:
+                                if thought_buffer:
+                                    text_parts.append(f"[THOUGHT]\n{''.join(thought_buffer)}\n[/THOUGHT]\n")
+                                    thought_buffer = []
+                                is_collecting_thought = False
+                            text_val = part.get("text", "")
+                            if text_val:
+                                text_parts.append(text_val)
+                        elif p_type in ("thought", "thinking"):
+                            t_text = part.get("thinking") or part.get("thought", "")
+                            if t_text:
+                                thought_buffer.append(t_text)
+                                is_collecting_thought = True
+            
+            # 最終フラッシュ
+            if is_collecting_thought and thought_buffer:
+                text_parts.append(f"[THOUGHT]\n{''.join(thought_buffer)}\n[/THOUGHT]\n")
             
             # contentの外側の思考プロンプト（一部のSDKバージョン用）
             if hasattr(merged_chunk, 'additional_kwargs'):
@@ -850,7 +1041,23 @@ def agent_node(state: AgentState):
                 if combined_text:
                     print(f"  - 先頭80文字: {combined_text[:80]}...")
                     print(f"  - 末尾80文字: ...{combined_text[-80:]}")
+                # ★ 追加: response_metadataの詳細を出力
+                print(f"--- [GEMINI3_DEBUG] response_metadata 分析 ---")
+                print(f"  - finish_reason: {response_metadata.get('finish_reason', 'N/A')}")
+                print(f"  - prompt_feedback: {response_metadata.get('prompt_feedback', 'N/A')}")
+                print(f"  - safety_ratings: {response_metadata.get('safety_ratings', 'N/A')}")
+                print(f"  - 全キー: {list(response_metadata.keys())}")
             # ▲▲▲ [Gemini 3 Debug] ここまで ▲▲▲
+            
+            # ▼▼▼ [異常検知ログ] デバッグモード不要、チャンク受信したのにテキスト抽出が0件の場合のみ出力 ▼▼▼
+            if len(chunks) > 0 and not text_parts:
+                print(f"  - ⚠️ [ANOMALY] {len(chunks)}チャンク受信したが、抽出テキストが0件でした。")
+                print("  - 以下、先頭3チャンクの構造（デバッグモード不要）:")
+                for idx, chunk in enumerate(chunks[:3]):
+                    content = chunk.content
+                    content_repr = repr(content)[:200] if content else "(None)"
+                    print(f"    Chunk[{idx}]: type={type(content).__name__}, repr={content_repr}...")
+            # ▲▲▲ [異常検知ログ] ここまで ▲▲▲
             
             if not combined_text.strip() and not all_tool_calls_chunks:
                 print("  - [GEMINI3_DEBUG] WARNING: Response is effectively empty.")
@@ -858,8 +1065,10 @@ def agent_node(state: AgentState):
 
 
             # 署名などを統合メッセージから取得
+            # Gemini 3は {tool_call_id: signature} の辞書形式で渡される
+            # キーを使用
             if not captured_signature:
-                captured_signature = additional_kwargs.get("thought_signature") or response_metadata.get("thought_signature")
+                captured_signature = additional_kwargs.get("__gemini_function_call_thought_signatures__")
 
         # --- [FINAL SAFETY CHECK] ---
         # LangChain Coreのバリデーション回避: "model output must contain either output text or tool calls"
@@ -868,13 +1077,20 @@ def agent_node(state: AgentState):
              print("DEBUG: [FINAL SAFETY] Forcing fallback text to prevent validation error.")
              combined_text = "(System): （AIからの応答が空でした。ここでのテキスト代入によりクラッシュを回避しました。）"
         
-        # 新しいAIMessageを作成
-        response = AIMessage(
-            content=combined_text,
-            additional_kwargs=additional_kwargs,
-            response_metadata=response_metadata,
-            tool_calls=all_tool_calls_chunks
-        )
+        # ★ 根本解決: 新しいAIMessageを作成せず、merged_chunkのcontentを上書き
+        # これによりLangChainの内部状態（__gemini_function_call_thought_signatures__ 等）が保持される
+        if chunks and merged_chunk:
+            # merged_chunkのcontentを整形済みテキストで上書き
+            merged_chunk.content = combined_text
+            response = merged_chunk
+        else:
+            # チャンクが無い場合のフォールバック（エラー時など）
+            response = AIMessage(
+                content=combined_text,
+                additional_kwargs=additional_kwargs,
+                response_metadata=response_metadata,
+                tool_calls=all_tool_calls_chunks
+            )
         
         # 署名確保
         if captured_signature:
@@ -1085,11 +1301,13 @@ def safe_tool_executor(state: AgentState):
             )
             edit_instruction_message = HumanMessage(content=formatted_instruction)
 
-            history_for_editing = [msg for msg in state['messages'] if msg is not last_message]
-            final_context_for_editing = [state['system_prompt']] + history_for_editing + [edit_instruction_message]
+            # 【Gemini 3 対応】ファイル編集用の内部LLM呼び出しは、会話履歴を含めない。
+            # 編集指示は modification_request に完全に含まれており、履歴は不要。
+            # 履歴を含めると、Gemini 3 の厳格なメッセージ順序制約に違反して 400 エラーが発生する。
+            final_context_for_editing = [edit_instruction_message]
 
             if state.get("debug_mode", False):
-                pass # デバッグ出力省略
+                print(f"  - [編集LLM] 履歴なしの単発タスクとして呼び出します。")
 
             edited_content_document = None
             max_retries = 5

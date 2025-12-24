@@ -2020,7 +2020,7 @@ try:
         ]
 
         save_room_settings_button.click(
-            fn=ui_handlers.handle_save_room_settings,
+            fn=lambda *args: ui_handlers.handle_save_room_settings(*args, force_notify=True),
             inputs=room_individual_settings_inputs,
             outputs=None
         )
@@ -2029,7 +2029,7 @@ try:
         # (ただし、current_room_name 自身やボタン自体には不要)
         for comp in room_individual_settings_inputs[1:]:
             comp.change(
-                fn=lambda *args: ui_handlers.handle_save_room_settings(*args, silent=False),
+                fn=lambda *args: ui_handlers.handle_save_room_settings(*args, silent=False, force_notify=False),
                 inputs=room_individual_settings_inputs,
                 outputs=None
             )
@@ -2124,7 +2124,7 @@ try:
             )
 
         save_room_theme_button.click(
-            fn=ui_handlers.handle_save_theme_settings,
+            fn=lambda *args: ui_handlers.handle_save_theme_settings(*args, force_notify=True),
             inputs=[room_dropdown] + theme_preview_inputs,
             outputs=None
         )

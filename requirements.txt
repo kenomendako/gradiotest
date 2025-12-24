@@ -6,7 +6,7 @@ gradio==5.47.0
 gradio_client
 langchain
 langchain-core
-langchain-google-genai>=3.1.0
+langchain-google-genai>=4.0.0
 langgraph
 google-genai>=1.50.0
 pillow
