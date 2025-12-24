@@ -1755,17 +1755,17 @@ def handle_create_room(new_room_name: str, new_user_display_name: str, new_agent
                 f.write(initial_system_prompt)
 
         # 5. UI更新
-        gr.Info(f"新しいルーム「{new_room_name}」を作成しました。")
+        gr.Info(f"新しいルーム「{new_room_name}」を作成しました。ルーム選択メニューから切り替えてご利用ください。")
         updated_room_list = room_manager.get_room_list_for_ui()
 
         # フォームのクリア（5つのフィールド分）
         clear_form = (gr.update(value=""), gr.update(value=""), gr.update(value=""), gr.update(value=""), gr.update(value=""))
 
-        # 全てのドロップダウンを更新し、新しいルームを選択状態にする
-        main_dd = gr.update(choices=updated_room_list, value=safe_folder_name)
-        manage_dd = gr.update(choices=updated_room_list, value=safe_folder_name) # 管理タブも更新
-        alarm_dd = gr.update(choices=updated_room_list, value=safe_folder_name)
-        timer_dd = gr.update(choices=updated_room_list, value=safe_folder_name)
+        # ドロップダウンの選択肢を更新（選択値は変更しない）
+        main_dd = gr.update(choices=updated_room_list)
+        manage_dd = gr.update(choices=updated_room_list)
+        alarm_dd = gr.update(choices=updated_room_list)
+        timer_dd = gr.update(choices=updated_room_list)
 
         return main_dd, manage_dd, alarm_dd, timer_dd, *clear_form
 
