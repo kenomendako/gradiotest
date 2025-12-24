@@ -355,3 +355,39 @@ GradioアプリケーションにおけるUIとロジックの連携は、目に
 
 *   **教訓:**
     LangGraphのような複数ノードを持つグラフにおいて、最終状態だけを信頼してはならない。途中のノードが返した重要な値は、ストリーム処理中に能動的にキャプチャする必要がある。
+
+---
+
+### 教訓18：デフォルト値は唯一の泉から汲め（2025-12-24）
+
+*   **問題の核心:**
+    新規ルーム作成時のデフォルト設定を変更するタスクにおいて、`constants.py`の値を変更しても、UIには反映されないという症状が発生。調査の結果、同じデフォルト値が**複数の場所**にハードコードされていた。
+    - `constants.py`: `DEFAULT_API_HISTORY_LIMIT_OPTION = "all"`
+    - `config_manager.py`: `"api_history_limit": "all"`
+    - `ui_handlers.py`: `gr.update(value="全ログ")` (3箇所)
+    
+    これにより、1箇所を変更しても他の箇所が古い値を返し続け、「変わったはずなのに変わらない」という不可解な状態が生まれた。
+
+*   **解決アーキテクチャ：「Single Source of Truth (唯一の真実の源泉)」**
+    デフォルト値は、アプリケーション全体で**ただ一つの場所（`constants.py`）にのみ定義**されるべきである。
+    1.  **定数を `constants.py` に集約**: `DEFAULT_API_HISTORY_LIMIT_OPTION = "20"` のように、意味を持つ定数を一箇所で定義。
+    2.  **他のファイルは定数を参照**: 
+        ```python
+        # config_manager.py
+        "api_history_limit": constants.DEFAULT_API_HISTORY_LIMIT_OPTION
+        
+        # ui_handlers.py
+        gr.update(value=constants.API_HISTORY_LIMIT_OPTIONS.get(
+            constants.DEFAULT_API_HISTORY_LIMIT_OPTION, "20往復"))
+        ```
+    3.  **ハードコードの禁止**: 文字列リテラル（`"all"`, `"全ログ"`）を直接書くことは、将来の保守性を著しく損なう。
+
+*   **検出方法:**
+    grepで疑わしい文字列を検索する。
+    ```bash
+    grep -rn "全ログ" --include="*.py"
+    grep -rn '"all"' --include="*.py" | grep -i history
+    ```
+
+*   **教訓:**
+    デフォルト値は「一度設定すれば終わり」ではなく、将来変更される可能性のある**設定パラメータ**である。**パラメータは定数化し、定数は一箇所に集約し、全てのコードはその唯一の泉から水を汲む。** これこそが、変更に強く、保守しやすいコードの基本原則である。
