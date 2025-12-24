@@ -442,3 +442,48 @@ def save_room_override_settings(room_name: str, settings: dict) -> bool:
     内部で新しい update_room_config を呼び出すように変更。
     """
     return update_room_config(room_name, {"override_settings": settings})
+
+
+def delete_room(room_name: str) -> bool:
+    """
+    指定されたルームのディレクトリを完全に削除する。
+    
+    Args:
+        room_name: 削除するルームのフォルダ名
+        
+    Returns:
+        bool: 削除に成功した場合はTrue、失敗した場合はFalse
+    """
+    if not room_name:
+        print("エラー: ルーム名が指定されていません。")
+        return False
+    
+    # セキュリティチェック: パストラバーサルを防止
+    if ".." in room_name or "/" in room_name or "\\" in room_name:
+        print(f"エラー: 不正なルーム名です: {room_name}")
+        return False
+    
+    room_path = os.path.join(constants.ROOMS_DIR, room_name)
+    
+    if not os.path.exists(room_path):
+        print(f"警告: ルーム '{room_name}' は存在しません。")
+        return False
+    
+    if not os.path.isdir(room_path):
+        print(f"エラー: '{room_name}' はディレクトリではありません。")
+        return False
+    
+    try:
+        # ディレクトリ全体を削除
+        shutil.rmtree(room_path)
+        print(f"--- ルーム '{room_name}' を削除しました ---")
+        return True
+    except PermissionError as e:
+        print(f"エラー: ルーム '{room_name}' の削除に失敗しました（権限エラー）: {e}")
+        traceback.print_exc()
+        return False
+    except Exception as e:
+        print(f"エラー: ルーム '{room_name}' の削除中に予期せぬエラーが発生しました: {e}")
+        traceback.print_exc()
+        return False
+
