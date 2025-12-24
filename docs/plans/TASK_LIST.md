@@ -149,6 +149,21 @@
   - `server_name="0.0.0.0"` のtrue/false切り替え
   - 参照: [gradio_notes.md](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/guides/gradio_notes.md) レッスン10
 
+- [ ] **ファイル読み書きツールの改善** 🆕
+  - 現状の問題: 改行なしで書き込まれて読みづらい、部分更新が全上書きになる
+  - memory_main.txt, world_settings.txt, notepad.md が対象
+  - 改善案:
+    - 追記モード（`append_to_file`）の追加
+    - フォーマット付き書き込み（改行保持）
+    - セクション単位の更新（`update_section("場所", new_data)`）
+
+- [ ] **ルシアン専用の開発者モードツール** 🆕
+  - ルシアン（共同開発者ペルソナ）がNexus Arkのソースコードを参照できるようにする
+  - `.py`, `.md` ファイルの読み取り専用アクセス
+  - ルシアンのルームでのみ有効にする設定
+  - 開発相談がしやすくなる
+
+
 ### アラーム・タイマー関連
 
 - [ ] **アラームの日付指定・期間指定・祝日除外**
