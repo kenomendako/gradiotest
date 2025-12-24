@@ -29,21 +29,22 @@ Antigravityが定期的に確認し、優先順位をつけてタスクリスト
 
 ---
 
-## メモの書き方
+## 📝 新規タスク追加（コピペ用）
 
 ```markdown
-- [ ] やりたいこと / 問題の説明
-  - 詳細があれば追記
-  - スクリーンショットがあればパスを記載
+- [ ] [タスク名/問題の説明]
+  - 詳細: 
+  - 優先度: 🔴高 / 🟡中 / 🟢低
 ```
 
 ---
 
 ## 関連リンク
 
-- **タスクリスト**: [docs/plans/TASK_LIST.md](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/plans/TASK_LIST.md)
+- **ステータス**: [docs/STATUS.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/STATUS.md)
+- **タスクリスト**: [docs/plans/TASK_LIST.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/TASK_LIST.md)
 - **開発サイクル**: `.agent/workflows/dev-cycle.md`
 
 ---
 
-*最終更新: 2025-12-22*
+*最終更新: 2025-12-24*

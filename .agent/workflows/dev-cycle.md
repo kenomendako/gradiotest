@@ -84,6 +84,8 @@ git checkout -b [prefix]/[task-name]
 ### 4.2 レポート作成
 `docs/reports/YYYY-MM-DD_[タスク名].md` に完了レポートを作成。
 
+**テンプレート:** `docs/templates/report_template.md` をコピーして使用
+
 **レポートに含める内容:**
 - 問題の概要
 - 修正内容
@@ -131,8 +133,10 @@ git branch -d [ブランチ名]
 
 | ファイル | 用途 |
 |----------|------|
+| `docs/STATUS.md` | プロジェクト全体の現在状態サマリー |
 | `docs/INBOX.md` | 思いつきタスクの一時置き場 |
 | `docs/plans/TASK_LIST.md` | 優先度順のマスタータスクリスト |
+| `docs/templates/` | レポート・設計判断のテンプレート |
 | `docs/decisions/` | 設計判断の記録 |
 | `docs/guides/` | 仕様書・指示書 |
 | `docs/journals/` | 教訓・知見の蓄積 |
