@@ -21,7 +21,7 @@ REDACTION_RULES_FILE = "redaction_rules.json"
 # (以降、変更なし)
 UI_HISTORY_MAX_LIMIT = 200
 API_HISTORY_LIMIT_OPTIONS = {"1": "1往復", "3": "3往復", "5": "5往復", "10": "10往復", "20": "20往復", "30": "30往復", "40": "40往復", "50": "50往復", "60": "60往復", "70": "70往復", "80": "80往復", "90": "90往復", "100": "100往復", "all": "全ログ"}
-DEFAULT_API_HISTORY_LIMIT_OPTION = "all"
+DEFAULT_API_HISTORY_LIMIT_OPTION = "20"
 DEFAULT_ALARM_API_HISTORY_TURNS = 10
 
 # --- 内部処理用AIモデル ---
@@ -41,7 +41,7 @@ EPISODIC_MEMORY_OPTIONS = {
     "30": "過去 1ヶ月",
     "90": "過去 3ヶ月"
 }
-DEFAULT_EPISODIC_MEMORY_DAYS = "14"
+DEFAULT_EPISODIC_MEMORY_DAYS = "0"
 
 # --- Thinking (Reasoning) モデル設定 ---
 THINKING_LEVEL_OPTIONS = {

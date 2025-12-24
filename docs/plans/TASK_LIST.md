@@ -50,19 +50,18 @@
   - ℹ️ **2025-12-23 調査結果**: API不安定性が原因。対処法は [gemini3_flash_setup.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/guides/gemini3_flash_setup.md) 参照
   - レポート: [2025-12-21_gemini3_debug_log_addition.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-21_gemini3_debug_log_addition.md)
 
-- [ ] **新規ルーム作成時、自動情景画像生成をオフにする** 🆕
-  - 無料画像生成APIが無くなったため
+- [x] **新規ルーム作成時、自動情景画像生成をオフにする** ✅
+  - `enable_scenery_system` を `False` に変更（情景システム無効化により画像生成も発生しない）
 
-- [ ] **APIコンテキスト設定の初期値変更** 🆕
-  - 送信履歴: 30件
-  - エピソード記憶: 無効
+- [x] **APIコンテキスト設定の初期値変更** ✅
+  - 送信履歴: 20件
+  - エピソード記憶: 無効（0日）
   - 記憶の想起: 無効
-  - 考過程をAPIに送信: オフ
+  - 思考過程をAPIに送信: オフ
   - AI生成パラメータの温度: 1.0
 
-- [ ] **モデルリストの「(Slow Response)」除去** 🆕
-  - `gemini-3-flash-preview (Slow Response)` から注釈を削除
-  - タイムスタンプにも影響するため対応必要
+- [x] **モデルリストの「(Slow Response)」除去** ✅
+  - デフォルトモデルリストから注釈を削除済み
 
 ---
 
@@ -204,4 +203,4 @@
 
 ---
 
-*最終更新: 2025-12-22*
+*最終更新: 2025-12-24*
