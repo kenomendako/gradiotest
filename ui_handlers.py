@@ -180,10 +180,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             False, # auto_memory_enabled
             f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", None,
             True, gr.update(open=True),
-            gr.update(value="全ログ"),  # room_api_history_limit_dropdown
+            gr.update(value=constants.API_HISTORY_LIMIT_OPTIONS.get(constants.DEFAULT_API_HISTORY_LIMIT_OPTION, "20往復")),  # room_api_history_limit_dropdown
             gr.update(value="既定 (AIに任せる / 通常モデル)"),  # room_thinking_level_dropdown
-            "all",  # api_history_limit_state
-            gr.update(value="過去 2週間"),  # room_episode_memory_days_dropdown
+            constants.DEFAULT_API_HISTORY_LIMIT_OPTION,  # api_history_limit_state
+            gr.update(value=constants.EPISODIC_MEMORY_OPTIONS.get(constants.DEFAULT_EPISODIC_MEMORY_DAYS, "なし（無効）")),  # room_episode_memory_days_dropdown
             gr.update(value="昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** 取得エラー"),  # episodic_memory_info_display
             gr.update(value=False),  # room_enable_autonomous_checkbox
             gr.update(value=120),  # room_autonomous_inactivity_slider
@@ -1900,9 +1900,9 @@ def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name
                 False, # auto_memory_enabled
                 "ℹ️ *ルームを選択してください*", None,  # room_settings_info, scenery_image
                 True, gr.update(open=False),  # enable_scenery_system, profile_scenery_accordion
-                gr.update(value="全ログ"),  # room_api_history_limit_dropdown
-                "all",  # api_history_limit_state
-                gr.update(value="過去 2週間"),  # room_episode_memory_days_dropdown
+                gr.update(value=constants.API_HISTORY_LIMIT_OPTIONS.get(constants.DEFAULT_API_HISTORY_LIMIT_OPTION, "20往復")),  # room_api_history_limit_dropdown
+                constants.DEFAULT_API_HISTORY_LIMIT_OPTION,  # api_history_limit_state
+                gr.update(value=constants.EPISODIC_MEMORY_OPTIONS.get(constants.DEFAULT_EPISODIC_MEMORY_DAYS, "なし（無効）")),  # room_episode_memory_days_dropdown
                 gr.update(value="昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** -"),  # episodic_memory_info_display
                 gr.update(value=False),  # room_enable_autonomous_checkbox
                 gr.update(value=120),  # room_autonomous_inactivity_slider
@@ -4162,9 +4162,9 @@ def handle_delete_room(room_name: str, api_key_name: str, current_room_name: str
                 False, # auto_memory_enabled
                 "ℹ️ *ルームを選択してください*", None,  # room_settings_info, scenery_image
                 True, gr.update(open=False),  # enable_scenery_system, profile_scenery_accordion
-                gr.update(value="全ログ"),  # room_api_history_limit_dropdown
-                "all",  # api_history_limit_state
-                gr.update(value="過去 2週間"),  # room_episode_memory_days_dropdown
+                gr.update(value=constants.API_HISTORY_LIMIT_OPTIONS.get(constants.DEFAULT_API_HISTORY_LIMIT_OPTION, "20往復")),  # room_api_history_limit_dropdown
+                constants.DEFAULT_API_HISTORY_LIMIT_OPTION,  # api_history_limit_state
+                gr.update(value=constants.EPISODIC_MEMORY_OPTIONS.get(constants.DEFAULT_EPISODIC_MEMORY_DAYS, "なし（無効）")),  # room_episode_memory_days_dropdown
                 gr.update(value="昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** -"),  # episodic_memory_info_display
                 gr.update(value=False),  # room_enable_autonomous_checkbox
                 gr.update(value=120),  # room_autonomous_inactivity_slider
