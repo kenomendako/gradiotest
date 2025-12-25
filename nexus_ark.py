@@ -282,6 +282,16 @@ try:
         background: var(--background-fill-secondary) !important;
     }
 
+    /* --- [RAWログエディタ] 高さ制限とスクロール --- */
+    #chat_log_raw_editor {
+        max-height: 600px;
+        overflow-y: auto !important;
+    }
+    #chat_log_raw_editor .cm-scroller {
+        max-height: 580px;
+        overflow-y: auto !important;
+    }
+
     """
     custom_js = """
     function() {
@@ -1210,7 +1220,7 @@ try:
                             language="markdown",
                             interactive=True,
                             lines=25,
-                            max_height=600  # 高さを制限してスクロールバーを表示
+                            elem_id="chat_log_raw_editor"
                         )
                         with gr.Row():
                             save_chat_log_button = gr.Button("💾 ログを保存", variant="primary")
