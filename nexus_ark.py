@@ -703,8 +703,16 @@ try:
                             room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを送信", interactive=True)
                             room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
                             room_send_scenery_checkbox = gr.Checkbox(
-                                label="情景画像をAIに共有 (場所変更・画像更新時に添付)",
-                                info="▼場所移動、情景画像の再生成、起動時に「今の景色」をAIに見せます。",
+                                label="情景画像をAIに共有",
+                                info="▼現在の景色をAIに見せます。送信タイミングは下で選択。",
+                                interactive=True,
+                                visible=True
+                            )
+                            room_scenery_send_mode_dropdown = gr.Dropdown(
+                                choices=["変更時のみ", "毎ターン"],
+                                value="変更時のみ",
+                                label="送信タイミング",
+                                info="「変更時のみ」=場所移動・画像更新時、「毎ターン」=毎回送信",
                                 interactive=True,
                                 visible=True
                             )
@@ -1535,6 +1543,7 @@ try:
             room_use_common_prompt_checkbox,
             room_send_core_memory_checkbox,
             room_send_scenery_checkbox,
+            room_scenery_send_mode_dropdown,
             auto_memory_enabled_checkbox,
             room_settings_info,
             scenery_image_display,
@@ -1996,6 +2005,7 @@ try:
             room_send_notepad_checkbox,
             room_use_common_prompt_checkbox, room_send_core_memory_checkbox,
             room_send_scenery_checkbox,
+            room_scenery_send_mode_dropdown,
             enable_scenery_system_checkbox,
             auto_memory_enabled_checkbox,
             room_api_history_limit_dropdown,

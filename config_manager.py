@@ -609,6 +609,7 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         "enable_scenery_system": False, 
         "enable_auto_retrieval": False,
         "send_scenery": True,
+        "scenery_send_mode": "変更時のみ",  # 情景画像送信タイミング: 「変更時のみ」or「毎ターン」
         "send_current_time": True,
         "auto_memory_enabled": False,
         "thinking_level": "auto",

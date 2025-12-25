@@ -183,6 +183,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             True,  # use_common_prompt
             True,  # send_core_memory
             False, # send_scenery
+            "変更時のみ", # scenery_send_mode
             False, # auto_memory_enabled
             f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", None,
             True, gr.update(open=True),
@@ -434,6 +435,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings.get("send_current_time", False),
         effective_settings["send_notepad"], effective_settings["use_common_prompt"],
         effective_settings["send_core_memory"], effective_settings["send_scenery"],
+        effective_settings.get("scenery_send_mode", "変更時のみ"),  # room_scenery_send_mode_dropdown
         effective_settings["auto_memory_enabled"],
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path,
@@ -669,6 +671,7 @@ def handle_save_room_settings(
     send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool,
     send_scenery: bool,
+    scenery_send_mode: str,  # 情景画像送信タイミング: 「変更時のみ」 or 「毎ターン」
     enable_scenery_system: bool,
     auto_memory_enabled: bool,
     api_history_limit: str,
@@ -742,6 +745,7 @@ def handle_save_room_settings(
         "use_common_prompt": bool(use_common_prompt),
         "send_core_memory": bool(send_core_memory),
         "send_scenery": bool(send_scenery),
+        "scenery_send_mode": scenery_send_mode if scenery_send_mode in ["変更時のみ", "毎ターン"] else "変更時のみ",
         "enable_scenery_system": bool(enable_scenery_system),
         "auto_memory_enabled": bool(auto_memory_enabled),
         "api_history_limit": history_limit_key,
@@ -1515,8 +1519,9 @@ def handle_message_submission(
     try:
         effective_settings = config_manager.get_effective_settings(soul_vessel_room)
         send_scenery_image_enabled = effective_settings.get("send_scenery", False)
+        scenery_send_mode = effective_settings.get("scenery_send_mode", "変更時のみ")
         
-        print(f"--- [情景画像AI共有] 設定チェック: send_scenery = {send_scenery_image_enabled} ---")
+        print(f"--- [情景画像AI共有] 設定チェック: send_scenery = {send_scenery_image_enabled}, mode = {scenery_send_mode} ---")
         
         if send_scenery_image_enabled:
             # 現在の情景画像パスを取得
@@ -1536,9 +1541,12 @@ def handle_message_submission(
                 
                 print(f"  - 最後に送信した画像: {last_sent_image}")
                 
-                # 新しい画像の場合のみ送信
-                if current_scenery_image != last_sent_image:
-                    print(f"  - ✅ 新しい景色を検出！画像をAIに送信します")
+                # 送信判定: 「毎ターン」モードなら常に送信、「変更時のみ」なら画像が異なる場合のみ
+                should_send = (scenery_send_mode == "毎ターン") or (current_scenery_image != last_sent_image)
+                
+                if should_send:
+                    reason = "毎ターン送信" if scenery_send_mode == "毎ターン" else "新しい景色を検出"
+                    print(f"  - ✅ {reason}！画像をAIに送信します")
                     
                     # 画像をリサイズしてBase64エンコード（コスト削減）
                     encoded_image = utils.resize_image_for_api(current_scenery_image, max_size=512)
@@ -1552,7 +1560,7 @@ def handle_message_submission(
                         ]
                         user_prompt_parts_for_api = scenery_parts + user_prompt_parts_for_api
                         
-                        # 送信済みとして記録
+                        # 送信済みとして記録（変更時のみモードでの重複送信防止用）
                         room_manager.update_room_config(
                             soul_vessel_room, 
                             {"last_sent_scenery_image": current_scenery_image}
@@ -1967,6 +1975,7 @@ def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name:
                 True,  # use_common_prompt
                 True,  # send_core_memory
                 False, # send_scenery
+                "変更時のみ", # scenery_send_mode
                 False, # auto_memory_enabled
                 "ℹ️ *ルームを選択してください*", None,  # room_settings_info, scenery_image
                 True, gr.update(open=False),  # enable_scenery_system, profile_scenery_accordion
