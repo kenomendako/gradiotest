@@ -4806,8 +4806,13 @@ def handle_save_cropped_image(room_name: str, original_image_path: str, cropped_
     try:
         # Gradioの 'ImageEditor' は、type="pil" の場合、
         # 編集後の画像をPIL Imageオブジェクトとして 'composite' キーに格納します。
-        # したがって、NumPy配列からの変換は不要です。
-        cropped_img = cropped_image_data["composite"]
+        # ただし、ユーザーが編集操作（クロップ範囲選択など）をしなかった場合、
+        # 'composite' が None になることがあるため、'background' にフォールバックします。
+        cropped_img = cropped_image_data.get("composite") or cropped_image_data.get("background")
+
+        if cropped_img is None:
+            gr.Warning("画像データが取得できませんでした。画像を再度アップロードしてください。")
+            return gr.update(), gr.update(visible=False), gr.update(visible=False)
 
         save_path = os.path.join(constants.ROOMS_DIR, room_name, constants.PROFILE_IMAGE_FILENAME)
 
