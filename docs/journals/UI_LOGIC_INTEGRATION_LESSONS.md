@@ -391,3 +391,39 @@ GradioアプリケーションにおけるUIとロジックの連携は、目に
 
 *   **教訓:**
     デフォルト値は「一度設定すれば終わり」ではなく、将来変更される可能性のある**設定パラメータ**である。**パラメータは定数化し、定数は一箇所に集約し、全てのコードはその唯一の泉から水を汲む。** これこそが、変更に強く、保守しやすいコードの基本原則である。
+
+---
+
+### 教訓27：Stateをトリガーにするなら、inputsにも必ず含めよ (2025-12-25)
+
+*   **現象**: ルーム削除時に、ユーザーが選択したルームとは**別のルーム**が削除ターゲットになった。
+
+*   **真因**: `room_delete_confirmed_state.change` イベントで `handle_delete_room` を呼び出していたが、**トリガーとなった `room_delete_confirmed_state` 自体がinputsに含まれていなかった**。
+    ```python
+    # 誤
+    inputs=[manage_folder_name_display, api_key_dropdown, current_room_name, ...]
+    def handle_delete_room(folder_name, confirmed, api_key, ...):  # ズレる！
+    
+    # 正
+    inputs=[room_delete_confirmed_state, manage_folder_name_display, api_key_dropdown, ...]
+    def handle_delete_room(confirmed, folder_name, api_key, ...):  # 一致！
+    ```
+
+*   **戒律（解決策）**:
+    `.change` イベントのトリガーとなる State は、**必ず inputs の先頭に含め**、関数シグネチャの第1引数と一致させること。
+
+---
+
+### 教訓28：削除は「ゴミ箱移動」を基本とせよ (2025-12-25)
+
+*   **現象**: ルーム削除バグにより、誤って大切なルームのファイルが完全削除された。
+
+*   **真因**: `shutil.rmtree()` は即座にファイルを完全削除するため、復元手段がなかった。
+
+*   **戒律（解決策）**:
+    ユーザーデータの削除には **`send2trash`** ライブラリを使用し、Windowsゴミ箱に移動させること。
+    ```python
+    from send2trash import send2trash
+    send2trash(room_path)  # 復元可能！
+    ```
+    また、重要なデータは **Git でローカルバックアップ** を取り、定期的に自動コミットするスクリプトを用意すること。
