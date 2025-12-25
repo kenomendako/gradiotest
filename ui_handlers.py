@@ -1510,6 +1510,52 @@ def handle_message_submission(
                 traceback.print_exc()
                 user_prompt_parts_for_api.append({"type": "text", "text": f"（添付ファイルの処理中に致命的なエラーが発生しました）"})
 
+    # --- [情景画像のAI共有] ---
+    # 場所移動、画像更新、起動後初回の場合のみ画像を添付（コスト効率化）
+    try:
+        effective_settings = config_manager.get_effective_settings(soul_vessel_room)
+        send_scenery_image_enabled = effective_settings.get("send_scenery", False)
+        
+        if send_scenery_image_enabled:
+            # 現在の情景画像パスを取得
+            season_en, time_of_day_en = utils._get_current_time_context(soul_vessel_room)
+            current_location = utils.get_current_location(soul_vessel_room)
+            current_scenery_image = utils.find_scenery_image(
+                soul_vessel_room, current_location, season_en, time_of_day_en
+            )
+            
+            if current_scenery_image and os.path.exists(current_scenery_image):
+                # room_config から「最後に送信した画像パス」を取得
+                room_config = room_manager.get_room_config(soul_vessel_room) or {}
+                last_sent_image = room_config.get("last_sent_scenery_image")
+                
+                # 新しい画像の場合のみ送信
+                if current_scenery_image != last_sent_image:
+                    print(f"--- [情景画像AI共有] 新しい景色をAIに送信します: {current_scenery_image} ---")
+                    
+                    # 画像をリサイズしてBase64エンコード（コスト削減）
+                    encoded_image = utils.resize_image_for_api(current_scenery_image, max_size=512)
+                    
+                    if encoded_image:
+                        # ユーザーの発言の前に情景画像を挿入
+                        scenery_parts = [
+                            {"type": "text", "text": "（あなたの視界：現在の周囲の景色）"},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded_image}"}}
+                        ]
+                        user_prompt_parts_for_api = scenery_parts + user_prompt_parts_for_api
+                        
+                        # 送信済みとして記録
+                        room_manager.update_room_config(
+                            soul_vessel_room, 
+                            {"last_sent_scenery_image": current_scenery_image}
+                        )
+                else:
+                    print(f"--- [情景画像AI共有] 前回と同じ景色のためスキップ ---")
+    except Exception as e:
+        print(f"--- [情景画像AI共有 警告] 処理中にエラーが発生しました: {e} ---")
+        traceback.print_exc()
+    # --- [情景画像のAI共有 ここまで] ---
+
     # 4. 中核となるストリーミング関数を呼び出す (変更なし)
     yield from _stream_and_handle_response(
         room_to_respond=soul_vessel_room,

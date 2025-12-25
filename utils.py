@@ -741,3 +741,41 @@ def get_content_as_string(message) -> str:
         return "\n".join(text_parts)
         
     return str(content)
+
+
+def resize_image_for_api(image_path: str, max_size: int = 512) -> Optional[str]:
+    """
+    画像をリサイズし、Base64エンコードした文字列を返す。
+    APIへの送信前に呼び出すことで、トークン消費を削減できる。
+    
+    Args:
+        image_path: 画像ファイルのパス
+        max_size: 最大辺のピクセル数（デフォルト512）
+    
+    Returns:
+        Base64エンコードされた画像文字列。失敗時はNone。
+    """
+    try:
+        from PIL import Image
+        import base64
+        
+        if not image_path or not os.path.exists(image_path):
+            return None
+        
+        with Image.open(image_path) as img:
+            # アスペクト比を維持してリサイズ
+            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            
+            # RGBAの場合はRGBに変換（PNGの透過対応）
+            if img.mode == 'RGBA':
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                background.paste(img, mask=img.split()[3])
+                img = background
+            
+            buffer = io.BytesIO()
+            img.save(buffer, format="PNG", optimize=True)
+            return base64.b64encode(buffer.getvalue()).decode("utf-8")
+            
+    except Exception as e:
+        print(f"警告: 画像のリサイズに失敗しました ({image_path}): {e}")
+        return None

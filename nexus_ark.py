@@ -343,6 +343,7 @@ try:
         redaction_rule_color_state = gr.State("#62827e")
         imported_theme_params_state = gr.State({}) # インポートされたテーマの詳細設定を一時保持
         selected_knowledge_file_index_state = gr.State(None)
+        last_sent_scenery_image_state = gr.State(None)  # 情景画像のAI送信用：最後に送信した画像パスを記憶
         # --- グローバル・左サイドバー (設定) ---
         with gr.Sidebar(label="設定", width=320, open=True):
             room_dropdown = gr.Dropdown(label="ルームを選択", interactive=True)
@@ -702,8 +703,9 @@ try:
                             room_use_common_prompt_checkbox = gr.Checkbox(label="共通ツールプロンプトを送信", interactive=True)
                             room_send_core_memory_checkbox = gr.Checkbox(label="コアメモリをAPIに送信", interactive=True)
                             room_send_scenery_checkbox = gr.Checkbox(
-                                label="空間描写・設定をAPIに送信 (情景システムと連動)",
-                                interactive=False,
+                                label="情景画像をAIに共有 (場所変更・画像更新時に添付)",
+                                info="▼場所移動、情景画像の再生成、起動時に「今の景色」をAIに見せます。",
+                                interactive=True,
                                 visible=True
                             )
                             auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True, visible=False)
