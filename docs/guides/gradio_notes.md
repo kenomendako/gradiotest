@@ -1066,3 +1066,55 @@ user_prompt_parts_for_api.append({
 - `ui_handlers.py`: `handle_message_submission`関数のファイル添付処理
 - `gemini_api.py`: `invoke_nexus_agent_stream`関数（`active_attachments`の処理）
 
+---
+
+### レッスン40: LangGraphの複数ツール連続使用（グラフループ）（2025-12-25）
+
+#### 仕様
+
+LangGraphのワークフロー設計により、AIは**1回のユーザー入力に対して複数のツールを連続して使用**できる。
+
+#### 仕組み
+
+```mermaid
+graph LR
+    A[agent_node] -->|ツール呼び出し| B[safe_tool_node]
+    B -->|結果を返す| A
+    A -->|追加のツール呼び出し| B
+    B -->|結果を返す| A
+    A -->|完了判断| C[終了]
+```
+
+`agent/graph.py` L1534-1535 で定義：
+```python
+workflow.add_edge("safe_tool_node", "agent")  # ツール実行後はagentに戻る
+```
+
+#### 動作例
+
+ユーザーが「日記を書いて、現在地もキッチンに変えて」と依頼した場合：
+
+1. `agent_node` → 日記整理ツール（`plan_main_memory_edit`）を呼び出す
+2. `safe_tool_node` → ツール実行、結果を返す
+3. `agent_node` に戻る → AIが「もう1つタスクがある」と判断
+4. `agent_node` → 現在地変更ツール（`set_current_location`）を呼び出す
+5. `safe_tool_node` → ツール実行、結果を返す
+6. `agent_node` に戻る → AIが「完了」と判断し、最終応答を生成
+
+#### 無限ループ防止
+
+`loop_count` 変数でループ回数を追跡し、上限（デフォルト10回）を超えると強制終了する。
+
+#### 適用場面
+
+| 場面 | 複数ツール使用の傾向 |
+|------|---------------------|
+| 通常チャット | ユーザーの依頼内容次第（明示的に複数タスクを依頼すれば可能） |
+| 自律行動モード | AIが自由に判断するため、複数行動しやすい |
+| アラーム発火時 | 通常は1つの行動に収まることが多い |
+
+#### 注意事項
+
+- これはバグではなく**期待動作**である
+- ユーザーが「1つずつ行動してほしい」場合は、プロンプトで指示する
+
