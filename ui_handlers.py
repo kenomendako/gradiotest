@@ -7228,3 +7228,53 @@ def handle_room_theme_reload(room_name: str):
         # CSS生成
         gr.update(value=_generate_style_from_settings(room_name, effective_settings)),
     )
+
+
+# --- 書き置き機能（自律行動向けメッセージ）---
+
+def _get_user_memo_path(room_name: str) -> str:
+    """書き置きファイルのパスを取得する。"""
+    return os.path.join(constants.ROOMS_DIR, room_name, "user_memo.txt")
+
+
+def load_user_memo(room_name: str) -> str:
+    """書き置き内容を読み込む。"""
+    if not room_name:
+        return ""
+    memo_path = _get_user_memo_path(room_name)
+    if os.path.exists(memo_path):
+        with open(memo_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    return ""
+
+
+def handle_save_user_memo(room_name: str, memo_content: str) -> None:
+    """書き置きを保存する。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return
+    
+    memo_path = _get_user_memo_path(room_name)
+    try:
+        with open(memo_path, "w", encoding="utf-8") as f:
+            f.write(memo_content.strip())
+        gr.Info("📝 書き置きを保存しました。次回の自律行動時にAIに渡されます。")
+    except Exception as e:
+        gr.Error(f"書き置きの保存に失敗しました: {e}")
+
+
+def handle_clear_user_memo(room_name: str) -> str:
+    """書き置きをクリアする。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return ""
+    
+    memo_path = _get_user_memo_path(room_name)
+    try:
+        with open(memo_path, "w", encoding="utf-8") as f:
+            f.write("")
+        gr.Info("書き置きをクリアしました。")
+        return ""
+    except Exception as e:
+        gr.Error(f"書き置きのクリアに失敗しました: {e}")
+        return ""

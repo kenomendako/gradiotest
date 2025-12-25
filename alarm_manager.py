@@ -287,10 +287,28 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
     
     if not log_f or not api_key: return
 
+    # --- 書き置き機能: ユーザーからのメモを読み込む ---
+    user_memo = ""
+    memo_path = os.path.join(constants.ROOMS_DIR, room_name, "user_memo.txt")
+    if os.path.exists(memo_path):
+        with open(memo_path, "r", encoding="utf-8") as f:
+            user_memo = f.read().strip()
+
     # プロンプトの構築
     now_str = datetime.datetime.now().strftime('%H:%M')
     
+    # 書き置きがあればプロンプトの先頭に追加
+    memo_section = ""
+    if user_memo:
+        memo_section = (
+            f"（🗒️ ユーザーからの書き置き）\n"
+            f"{user_memo}\n\n"
+            f"**この書き置きを確認し、内容に応じて適切に反応してください。**\n\n"
+        )
+        print(f"  📝 書き置きを検出: {user_memo[:50]}...")
+    
     system_instruction = (
+        f"{memo_section}"
         f"（システム通知：現在時刻は {now_str} です。ユーザーからの応答がしばらくありません。）\n\n"
         f"あなたは今、自由に行動できます。以下の選択肢から、今の状況に相応しい行動を自律的に選択してください。\n"
         f"1. **話しかける:** ユーザーを気遣う言葉や、ふと思いついた話題を投げかける。\n"
@@ -299,6 +317,12 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
         f"4. **静観する:** 今は動くべき時ではないと判断した場合、**[SILENT]** とだけ出力して沈黙を守る。\n\n"
         f"**重要:** 行動する場合は、ユーザーへの通知メッセージを含めてください。静観する場合は `[SILENT]` 以外のテキストを出力しないでください。"
     )
+    
+    # --- 書き置きを読み取ったらクリア ---
+    if user_memo:
+        with open(memo_path, "w", encoding="utf-8") as f:
+            f.write("")
+        print(f"  ✅ 書き置きをクリアしました")
 
     # 共通処理（情景生成など）
     from agent.graph import generate_scenery_context

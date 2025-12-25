@@ -1042,6 +1042,18 @@ try:
                             open_attachments_folder_button = gr.Button("📂 添付ファイルフォルダを開く", variant="secondary")
                             delete_attachment_button = gr.Button("選択したファイルを削除", variant="stop")
 
+            with gr.Accordion("📝 書き置き（自律行動時に伝える）", open=False):
+                gr.Markdown("次回の自律行動時にAIに渡されます。送信後は自動でクリアされます。")
+                user_memo_textbox = gr.Textbox(
+                    label="書き置き内容",
+                    lines=3,
+                    placeholder="例: 今から外出するよ / 今日は仕事でバタバタ",
+                    interactive=True
+                )
+                with gr.Row():
+                    save_user_memo_button = gr.Button("💾 保存", size="sm", variant="primary")
+                    clear_user_memo_button = gr.Button("🗑️ クリア", size="sm", variant="secondary")
+
             gr.Markdown(f"Nexus Ark {constants.APP_VERSION} (Beta)", elem_id="app_version_display")
 
 
@@ -2641,6 +2653,18 @@ try:
             fn=ui_handlers.handle_open_attachments_folder,
             inputs=[current_room_name],
             outputs=None
+        )
+
+        # --- 書き置き機能 Event Handlers ---
+        save_user_memo_button.click(
+            fn=ui_handlers.handle_save_user_memo,
+            inputs=[current_room_name, user_memo_textbox],
+            outputs=None
+        )
+        clear_user_memo_button.click(
+            fn=ui_handlers.handle_clear_user_memo,
+            inputs=[current_room_name],
+            outputs=[user_memo_textbox]
         )
 
         # --- ChatGPT Importer Event Handlers ---
