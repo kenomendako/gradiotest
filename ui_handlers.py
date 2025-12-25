@@ -3,6 +3,7 @@ import subprocess
 import gradio as gr
 import tempfile
 import shutil
+from send2trash import send2trash
 import psutil
 import ast
 import pandas as pd
@@ -1863,8 +1864,8 @@ def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name:
             gr.Error(f"削除対象のフォルダが見つかりません: {room_path_to_delete}")
             return (gr.update(),) * expected_count
 
-        shutil.rmtree(room_path_to_delete)
-        gr.Info(f"ルーム「{folder_name_to_delete}」を完全に削除しました。")
+        send2trash(room_path_to_delete)
+        gr.Info(f"ルーム「{folder_name_to_delete}」をゴミ箱に移動しました。復元が必要な場合はPCのゴミ箱を確認してください。")
 
         new_room_list = room_manager.get_room_list_for_ui()
 

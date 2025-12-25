@@ -9,6 +9,7 @@ import datetime
 import threading
 import time
 from typing import Optional, List, Tuple
+from send2trash import send2trash
 import constants
 
 # スレッドセーフなファイル操作のためのロック
@@ -446,13 +447,14 @@ def save_room_override_settings(room_name: str, settings: dict) -> bool:
 
 def delete_room(room_name: str) -> bool:
     """
-    指定されたルームのディレクトリを完全に削除する。
+    指定されたルームのディレクトリをWindowsのゴミ箱に移動する。
+    完全削除ではなく、ゴミ箱からの復元が可能。
     
     Args:
         room_name: 削除するルームのフォルダ名
         
     Returns:
-        bool: 削除に成功した場合はTrue、失敗した場合はFalse
+        bool: ゴミ箱への移動に成功した場合はTrue、失敗した場合はFalse
     """
     if not room_name:
         print("エラー: ルーム名が指定されていません。")
@@ -474,9 +476,9 @@ def delete_room(room_name: str) -> bool:
         return False
     
     try:
-        # ディレクトリ全体を削除
-        shutil.rmtree(room_path)
-        print(f"--- ルーム '{room_name}' を削除しました ---")
+        # ディレクトリ全体をゴミ箱に移動（復元可能）
+        send2trash(room_path)
+        print(f"--- ルーム '{room_name}' をゴミ箱に移動しました ---")
         return True
     except PermissionError as e:
         print(f"エラー: ルーム '{room_name}' の削除に失敗しました（権限エラー）: {e}")

@@ -35,6 +35,7 @@ pytz==2025.2
 ijson==3.4.0
 ddgs==9.9.1
 concurrent-log-handler==0.9.28
+send2trash>=1.8.0
 
 # --- LangChain/LangGraph Dependencies (Verified) ---
 aiohttp==3.12.15
