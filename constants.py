@@ -10,12 +10,14 @@ import os
 ROOMS_DIR = "characters"
 ASSETS_DIR = "assets"
 SAMPLE_PERSONA_DIR = os.path.join(ASSETS_DIR, "sample_persona")
+AVATAR_DIR = "avatar"  # キャラクターフォルダ内のアバター動画用ディレクトリ
 PROFILE_IMAGE_FILENAME = "profile.png"
 MEMORY_FILENAME = "memory.txt"
 NOTEPAD_FILENAME = "notepad.md"
 CONFIG_FILE = "config.json"
 ALARMS_FILE = "alarms.json"
 REDACTION_RULES_FILE = "redaction_rules.json"
+
 
 # --- UIとAPIの挙動に関する定数 ---
 # (以降、変更なし)

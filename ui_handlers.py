@@ -98,7 +98,82 @@ def hex_to_rgba(hex_code, alpha):
     except:
         return f"#{hex_code}"
 
+
+def get_avatar_html(room_name: str, state: str = "idle") -> str:
+    """
+    ルームのアバター表示用HTMLを生成する。
+    動画ファイル（mp4, webm）が存在すればループ再生するvideoタグを返す。
+    動画がなければ静止画（profile.png）をimgタグで返す。
+    Gradioで正しく表示するため、base64エンコードを使用。
+    
+    Args:
+        room_name: ルームのフォルダ名
+        state: アバターの状態 ("idle", "thinking", "talking")
+        
+    Returns:
+        HTML文字列（videoタグまたはimgタグ）
+    """
+    if not room_name:
+        return ""
+    
+    avatar_dir = os.path.join(constants.ROOMS_DIR, room_name, constants.AVATAR_DIR)
+    
+    # 動画ファイルの優先順位と MIME タイプ
+    video_types = [
+        (".mp4", "video/mp4"),
+        (".webm", "video/webm"),
+        (".gif", "image/gif"),  # GIFはimgタグで表示
+    ]
+    
+    for ext, mime_type in video_types:
+        video_path = os.path.join(avatar_dir, f"{state}{ext}")
+        if os.path.exists(video_path):
+            try:
+                with open(video_path, "rb") as f:
+                    encoded = base64.b64encode(f.read()).decode("utf-8")
+                
+                if ext == ".gif":
+                    # GIFはimgタグで表示
+                    return f'''<img 
+                        src="data:{mime_type};base64,{encoded}" 
+                        style="width:100%; height:200px; object-fit:cover; border-radius:12px;"
+                        alt="アバター">'''
+                else:
+                    # 動画はvideoタグで表示
+                    return f'''<video 
+                        src="data:{mime_type};base64,{encoded}" 
+                        autoplay loop muted playsinline
+                        style="width:100%; height:200px; object-fit:cover; border-radius:12px;">
+                    </video>'''
+            except Exception as e:
+                print(f"--- [Avatar] 動画読み込みエラー: {e} ---")
+    
+    # 動画が見つからない場合は静止画にフォールバック
+    _, _, profile_image_path, _, _ = get_room_files_paths(room_name)
+    
+    if profile_image_path and os.path.exists(profile_image_path):
+        try:
+            with open(profile_image_path, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode("utf-8")
+            # 拡張子からMIMEタイプを判定
+            ext = os.path.splitext(profile_image_path)[1].lower()
+            mime_type = "image/png" if ext == ".png" else "image/jpeg"
+            return f'''<img 
+                src="data:{mime_type};base64,{encoded}" 
+                style="width:100%; height:200px; object-fit:cover; border-radius:12px;"
+                alt="プロフィール画像">'''
+        except Exception as e:
+            print(f"--- [Avatar] 画像読み込みエラー: {e} ---")
+    
+    # 何も見つからない場合はプレースホルダー
+    return '''<div style="width:100%; height:200px; display:flex; align-items:center; justify-content:center; 
+        background:var(--background-fill-secondary); border-radius:12px; color:var(--text-color-secondary);">
+        プロフィール画像なし
+    </div>'''
+
+
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
+
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
 def handle_search_provider_change(provider: str) -> None:
@@ -164,7 +239,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     if not has_valid_key:
         return (
             room_name, [], [], gr.update(interactive=False, placeholder="まず、左の「設定」からAPIキーを設定してください。"),
-            None, "", "", "", "",
+            get_avatar_html(room_name, state="idle"), "", "", "", "",
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
@@ -331,7 +406,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     memory_str = ""
     if mem_p and os.path.exists(mem_p):
         with open(mem_p, "r", encoding="utf-8") as f: memory_str = f.read()
-    profile_image = img_p if img_p and os.path.exists(img_p) else None
+    # 動画アバターをサポートするHTML生成関数を使用
+    profile_image = get_avatar_html(room_name, state="idle")
     notepad_content = load_notepad_content(room_name)
     
     # location_dd_val を、ファイルから読み込んだ（または初期化した）値に修正
@@ -918,7 +994,9 @@ def _stream_and_handle_response(
     # タイプライターエフェクトが正常完了したかのフラグ
     typewriter_completed_successfully = False
 
-    current_profile_update = gr.update(elem_classes=["thinking-pulse"]) # [v19] Animation Start
+    # [v20] 動画アバター対応: thinking状態のアバターHTMLを生成
+    # 動画がない場合は静止画にフォールバックし、CSSアニメーションで表現
+    current_profile_update = gr.update(value=get_avatar_html(soul_vessel_room, state="thinking"))
 
 
     try:
@@ -1337,8 +1415,8 @@ def _stream_and_handle_response(
         latest_location_id = utils.get_current_location(soul_vessel_room)
         location_dropdown_update = gr.update(choices=new_location_choices, value=latest_location_id)
         
-        # [v19] Animation End: remove the class
-        final_profile_update = gr.update(elem_classes=[])
+        # [v20] 動画アバター対応: idle状態のアバターHTMLに戻す
+        final_profile_update = gr.update(value=get_avatar_html(soul_vessel_room, state="idle"))
 
         yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
                location_dropdown_update, new_scenery_text,
@@ -4821,8 +4899,9 @@ def handle_save_cropped_image(room_name: str, original_image_path: str, cropped_
         gr.Info(f"ルーム「{room_name}」のプロフィール画像を更新しました。")
 
         # 最終的なプロフィール画像表示を更新し、編集用UIを非表示に戻す
+        # gr.HTML用にget_avatar_htmlでHTML文字列を生成
         return (
-            gr.update(value=save_path),
+            gr.update(value=get_avatar_html(room_name, state="idle")),
             gr.update(value=None, visible=False),
             gr.update(visible=False)
         )
@@ -4831,9 +4910,7 @@ def handle_save_cropped_image(room_name: str, original_image_path: str, cropped_
         gr.Error(f"トリミング画像の保存中にエラーが発生しました: {e}")
         traceback.print_exc()
         # エラーが発生した場合、元のプロフィール画像表示は変更せず、編集UIのみを閉じる
-        _, _, current_image_path, _, _ = get_room_files_paths(room_name)
-        fallback_path = current_image_path if current_image_path and os.path.exists(current_image_path) else None
-        return gr.update(value=fallback_path), gr.update(visible=False), gr.update(visible=False)
+        return gr.update(value=get_avatar_html(room_name, state="idle")), gr.update(visible=False), gr.update(visible=False)
 
 # --- Theme Management Handlers ---
 

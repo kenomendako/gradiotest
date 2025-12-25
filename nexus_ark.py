@@ -1058,12 +1058,14 @@ try:
         # --- グローバル・右サイドバー (情景・プロフィール) ---
         with gr.Sidebar(label="情景・プロフィール", width=350, open=True, position="right"):
             with gr.Accordion("🖼️ プロフィール・情景", open=True, elem_id="profile_scenery_accordion") as profile_scenery_accordion:
-                # --- プロフィール画像セクション ---
-                # フルスクリーンボタンにバグがあるため無効化
-                profile_image_display = gr.Image(
-                    height=200, interactive=False, show_label=False, elem_id="profile_image_display",
-                    show_fullscreen_button=False
+                # --- プロフィール画像/アバター表示セクション ---
+                # gr.HTMLを使用して動画アバターまたは静止画を表示
+                # 動画がある場合はループ再生、ない場合は静止画にフォールバック
+                profile_image_display = gr.HTML(
+                    value="",  # 初期値は空（handle_initial_loadで設定される）
+                    elem_id="profile_avatar_container"
                 )
+
                 with gr.Accordion("プロフィール画像を変更", open=False) as profile_image_accordion:
                     staged_image_state = gr.State()
                     image_upload_button = gr.UploadButton("新しい画像をアップロード", file_types=["image"])
@@ -1162,7 +1164,7 @@ try:
                                 show_copy_button=True,
                                 show_label=False,
                                 render_markdown=True,
-                                type="tuples", # [v4.x] 明示的にtuplesを指定して警告を回避
+                                type="tuples",
                                 group_consecutive_messages=False,
                                 editable="all" 
                             )
