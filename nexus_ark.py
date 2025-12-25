@@ -1042,18 +1042,6 @@ try:
                             open_attachments_folder_button = gr.Button("📂 添付ファイルフォルダを開く", variant="secondary")
                             delete_attachment_button = gr.Button("選択したファイルを削除", variant="stop")
 
-            with gr.Accordion("📝 書き置き（自律行動時に伝える）", open=False):
-                gr.Markdown("次回の自律行動時にAIに渡されます。送信後は自動でクリアされます。")
-                user_memo_textbox = gr.Textbox(
-                    label="書き置き内容",
-                    lines=3,
-                    placeholder="例: 今から外出するよ / 今日は仕事でバタバタ",
-                    interactive=True
-                )
-                with gr.Row():
-                    save_user_memo_button = gr.Button("💾 保存", size="sm", variant="primary")
-                    clear_user_memo_button = gr.Button("🗑️ クリア", size="sm", variant="secondary")
-
             gr.Markdown(f"Nexus Ark {constants.APP_VERSION} (Beta)", elem_id="app_version_display")
 
 
@@ -1195,6 +1183,19 @@ try:
 
                     with gr.Row():
                         add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1, visible=False)
+
+                    # --- 書き置き機能（自律行動時に伝えるメッセージ）---
+                    with gr.Accordion("📝 書き置き（自律行動時に伝える）", open=False):
+                        gr.Markdown("次回の自律行動時にAIに渡されます。送信後は自動でクリアされます。")
+                        user_memo_textbox = gr.Textbox(
+                            label="書き置き内容",
+                            lines=3,
+                            placeholder="例: 今から外出するよ / 今日は仕事でバタバタ",
+                            interactive=True
+                        )
+                        with gr.Row():
+                            save_user_memo_button = gr.Button("💾 保存", size="sm", variant="primary")
+                            clear_user_memo_button = gr.Button("🗑️ クリア", size="sm", variant="secondary")
 
             with gr.TabItem(" 記憶・メモ・指示"):
                 gr.Markdown("##  記憶・メモ・指示\nルームの根幹をなす設定ファイルを、ここで直接編集できます。")
