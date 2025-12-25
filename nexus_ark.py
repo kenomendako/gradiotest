@@ -391,6 +391,10 @@ try:
                                         
                             # --- Google設定エリア ---
                             with gr.Group(visible=(current_provider == "google")) as google_settings_group:
+                                gr.Markdown(
+                                    "💡 **ここで設定したAPIキーとモデルは、記憶の要約や日記の自動整理などの内部処理でも使用されます。**\n\n"
+                                    "💡 **ルームごとの個別のモデル・APIキー設定は、「個別」タブから行えます。**"
+                                )
                                 model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, label="デフォルトAIモデル", interactive=True)
                                 api_key_dropdown = gr.Dropdown(label="使用するGemini APIキー", interactive=True)
                                 api_test_button = gr.Button("API接続をテスト", variant="secondary")
@@ -915,7 +919,7 @@ try:
                     start_session_button = gr.Button("このメンバーで会話を開始 / 更新", variant="primary")
                     end_session_button = gr.Button("会話を終了 (1対1に戻る)", variant="secondary")
 
-            with gr.Accordion("🗨️ チャットルームの作成・管理", open=False) as manage_room_accordion:
+            with gr.Accordion("🏠 チャットルームの作成・管理", open=False) as manage_room_accordion:
                 with gr.Tabs() as room_management_tabs:
                     with gr.TabItem("作成") as create_room_tab:
                         new_room_name = gr.Textbox(label="ルーム名（必須）", info="UIやグループ会話で表示される名前です。フォルダ名は自動で生成されます。")
