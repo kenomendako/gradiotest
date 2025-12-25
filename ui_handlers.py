@@ -1516,6 +1516,8 @@ def handle_message_submission(
         effective_settings = config_manager.get_effective_settings(soul_vessel_room)
         send_scenery_image_enabled = effective_settings.get("send_scenery", False)
         
+        print(f"--- [情景画像AI共有] 設定チェック: send_scenery = {send_scenery_image_enabled} ---")
+        
         if send_scenery_image_enabled:
             # 現在の情景画像パスを取得
             season_en, time_of_day_en = utils._get_current_time_context(soul_vessel_room)
@@ -1524,19 +1526,25 @@ def handle_message_submission(
                 soul_vessel_room, current_location, season_en, time_of_day_en
             )
             
+            print(f"  - 現在地: {current_location}, 季節: {season_en}, 時間帯: {time_of_day_en}")
+            print(f"  - 画像パス: {current_scenery_image}")
+            
             if current_scenery_image and os.path.exists(current_scenery_image):
                 # room_config から「最後に送信した画像パス」を取得
                 room_config = room_manager.get_room_config(soul_vessel_room) or {}
                 last_sent_image = room_config.get("last_sent_scenery_image")
                 
+                print(f"  - 最後に送信した画像: {last_sent_image}")
+                
                 # 新しい画像の場合のみ送信
                 if current_scenery_image != last_sent_image:
-                    print(f"--- [情景画像AI共有] 新しい景色をAIに送信します: {current_scenery_image} ---")
+                    print(f"  - ✅ 新しい景色を検出！画像をAIに送信します")
                     
                     # 画像をリサイズしてBase64エンコード（コスト削減）
                     encoded_image = utils.resize_image_for_api(current_scenery_image, max_size=512)
                     
                     if encoded_image:
+                        print(f"  - ✅ 画像リサイズ成功 (Base64: {len(encoded_image)} chars)")
                         # ユーザーの発言の前に情景画像を挿入
                         scenery_parts = [
                             {"type": "text", "text": "（あなたの視界：現在の周囲の景色）"},
@@ -1549,8 +1557,15 @@ def handle_message_submission(
                             soul_vessel_room, 
                             {"last_sent_scenery_image": current_scenery_image}
                         )
+                        print(f"  - ✅ 画像送信完了＆記録更新")
+                    else:
+                        print(f"  - ❌ 画像リサイズ失敗")
                 else:
-                    print(f"--- [情景画像AI共有] 前回と同じ景色のためスキップ ---")
+                    print(f"  - ⏭️ 前回と同じ景色のためスキップ")
+            else:
+                print(f"  - ⚠️ 情景画像が見つかりません")
+        else:
+            print(f"  - ⏭️ 情景画像共有は無効")
     except Exception as e:
         print(f"--- [情景画像AI共有 警告] 処理中にエラーが発生しました: {e} ---")
         traceback.print_exc()
