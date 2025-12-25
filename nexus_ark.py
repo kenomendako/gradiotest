@@ -1209,7 +1209,8 @@ try:
                             label="log.txt",
                             language="markdown",
                             interactive=True,
-                            lines=25
+                            lines=25,
+                            max_height=600  # 高さを制限してスクロールバーを表示
                         )
                         with gr.Row():
                             save_chat_log_button = gr.Button("💾 ログを保存", variant="primary")
