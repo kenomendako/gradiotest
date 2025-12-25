@@ -30,6 +30,7 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
+| 2025-12-25 | 情景画像AI認識機能（毎ターン送信オプション） | - |
 | 2025-12-25 | ルーム削除バグ修正・安全化 | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-25_room_deletion_safety.md) |
 | 2025-12-25 | 新規ルーム作成時の通知2回表示修正 | 同上 |
 | 2025-12-24 | 初期設定デフォルト値調整 | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-24_initial_config_defaults.md) |
