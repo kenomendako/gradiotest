@@ -65,6 +65,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - デバウンス処理を追加し、1秒以内の連続通知をスキップ
 - **gemini_api.pyのdatetimeインポート欠落** (2025-12-25)
   - エピソード記憶取得時のNameErrorを修正
+- **プロフィール画像保存時のNoneTypeエラー** (2025-12-25)
+  - ImageEditorのcomposite→backgroundフォールバック追加
 
 #### バックグラウンド処理
 - アラーム・タイマーでAPI制限時もシステム通知を送信
