@@ -1807,6 +1807,10 @@ try:
             fn=ui_handlers.reload_chat_log,
             inputs=[current_room_name, api_history_limit_state, room_add_timestamp_checkbox, room_display_thoughts_checkbox, screenshot_mode_checkbox, redaction_rules_state],
             outputs=[chatbot_display, current_log_map_state]
+        ).then(
+            fn=ui_handlers.load_user_memo,
+            inputs=[current_room_name],
+            outputs=[user_memo_textbox]
         )
 
         # --- 日記アーカイブ機能のイベント接続 ---
