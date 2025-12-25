@@ -7292,7 +7292,7 @@ def handle_load_chat_log_raw(room_name: str) -> gr.update:
         gr.Warning("ルームが選択されていません。")
         return gr.update(value="")
     
-    log_path = utils.get_log_path(room_name)
+    log_path, _, _, _, _ = get_room_files_paths(room_name)
     if log_path and os.path.exists(log_path):
         try:
             with open(log_path, "r", encoding="utf-8") as f:
@@ -7321,7 +7321,7 @@ def handle_save_chat_log_raw(
         gr.Warning("ルームが選択されていません。")
         return gr.update(), gr.update(), gr.update()
     
-    log_path = utils.get_log_path(room_name)
+    log_path, _, _, _, _ = get_room_files_paths(room_name)
     if not log_path:
         gr.Error("ログファイルのパスが取得できませんでした。")
         return gr.update(), gr.update(), gr.update()
@@ -7360,7 +7360,7 @@ def handle_reload_chat_log_raw(room_name: str) -> gr.update:
         gr.Warning("ルームが選択されていません。")
         return gr.update(value="")
     
-    log_path = utils.get_log_path(room_name)
+    log_path, _, _, _, _ = get_room_files_paths(room_name)
     if log_path and os.path.exists(log_path):
         try:
             with open(log_path, "r", encoding="utf-8") as f:
