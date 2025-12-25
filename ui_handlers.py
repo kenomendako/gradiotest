@@ -52,6 +52,11 @@ from room_manager import get_room_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
 from episodic_memory_manager import EpisodicMemoryManager
 
+# --- 通知デバウンス用 ---
+# 同一ルームへの連続通知を抑制するための変数
+_last_save_notification_time = {}  # {room_name: timestamp}
+NOTIFICATION_DEBOUNCE_SECONDS = 1.0
+
 def handle_save_last_room(room_name: str) -> None:
     """
     選択されたルーム名をconfig.jsonに保存するだけの、何も返さない専用ハンドラ。
@@ -774,7 +779,12 @@ def handle_save_room_settings(
     result = room_manager.update_room_config(room_name, new_settings)
     if not silent:
         if result == True or (result == "no_change" and force_notify):
-            gr.Info(f"「{room_name}」の個別設定を保存しました。")
+            # デバウンス: 同一ルームへの連続通知を抑制
+            now = time.time()
+            last_time = _last_save_notification_time.get(room_name, 0)
+            if (now - last_time) > NOTIFICATION_DEBOUNCE_SECONDS:
+                gr.Info(f"「{room_name}」の個別設定を保存しました。")
+                _last_save_notification_time[room_name] = now
     if result == False:
         gr.Error("個別設定の保存中にエラーが発生しました。詳細はログを確認してください。")
 
