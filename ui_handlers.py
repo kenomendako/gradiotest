@@ -7278,3 +7278,96 @@ def handle_clear_user_memo(room_name: str) -> str:
     except Exception as e:
         gr.Error(f"書き置きのクリアに失敗しました: {e}")
         return ""
+
+
+# =============================================================================
+# 会話ログ RAWエディタ (Chat Log Raw Editor)
+# =============================================================================
+
+def handle_load_chat_log_raw(room_name: str) -> gr.update:
+    """
+    RAWログエディタタブが選択された時に、log.txtを全文読み込む。
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(value="")
+    
+    log_path = utils.get_log_path(room_name)
+    if log_path and os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return gr.update(value=content)
+        except Exception as e:
+            gr.Error(f"ログファイルの読み込みに失敗しました: {e}")
+            return gr.update(value="")
+    return gr.update(value="")
+
+
+def handle_save_chat_log_raw(
+    room_name: str,
+    raw_content: str,
+    api_history_limit: str,
+    add_timestamp: bool,
+    display_thoughts: bool,
+    screenshot_mode: bool,
+    redaction_rules: list
+) -> tuple:
+    """
+    RAWログを保存し、チャット表示を更新する。
+    保存前にバックアップを作成して安全性を確保。
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(), gr.update(), gr.update()
+    
+    log_path = utils.get_log_path(room_name)
+    if not log_path:
+        gr.Error("ログファイルのパスが取得できませんでした。")
+        return gr.update(), gr.update(), gr.update()
+    
+    try:
+        # バックアップ作成（安全装置）
+        room_manager.create_backup(room_name, 'log')
+        
+        # ファイル保存
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write(raw_content)
+        gr.Info("会話ログを保存しました。")
+        
+        # チャット表示を更新（reload_chat_log を再利用）
+        history, mapping = reload_chat_log(
+            room_name, api_history_limit, add_timestamp, 
+            display_thoughts, screenshot_mode, redaction_rules
+        )
+        
+        return (
+            gr.update(value=raw_content),  # chat_log_raw_editor
+            history,                        # chatbot_display
+            mapping                         # current_log_map_state
+        )
+    except Exception as e:
+        gr.Error(f"ログの保存中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return gr.update(), gr.update(), gr.update()
+
+
+def handle_reload_chat_log_raw(room_name: str) -> gr.update:
+    """
+    RAWログを再読込する（保存せずに最後に保存した状態に戻す）。
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(value="")
+    
+    log_path = utils.get_log_path(room_name)
+    if log_path and os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            gr.Info("ログファイルを再読み込みしました。")
+            return gr.update(value=content)
+        except Exception as e:
+            gr.Error(f"ログファイルの読み込みに失敗しました: {e}")
+            return gr.update(value="")
+    return gr.update(value="")

@@ -1126,76 +1126,94 @@ try:
 
         with gr.Tabs():
             with gr.TabItem("チャット"):
-                # --- 中央チャットエリア ---
-                with gr.Column(scale=1):
-                    onboarding_guide = gr.Markdown(
-                        """
-                        ## Nexus Arkへようこそ！
-                        **まずはAIと対話するための準備をしましょう。**
-                        1.  **Google AI Studio** などで **Gemini APIキー** を取得してください。
-                        2.  左カラムの **「⚙️ 設定」** を開きます。
-                        3.  **「共通」** タブ内の **「🔑 APIキー / Webhook管理」** を開きます。
-                        4.  **「Gemini APIキー」** の項目に、キーの名前（管理用のあだ名）と、取得したAPIキーの値を入力し、**「Geminiキーを保存」** ボタンを押してください。
+                # サブタブ構造: 会話表示 / RAWログエディタ
+                with gr.Tabs():
+                    with gr.TabItem("💬 会話") as chat_conversation_tab:
+                        # --- 中央チャットエリア ---
+                        with gr.Column(scale=1):
+                            onboarding_guide = gr.Markdown(
+                                """
+                                ## Nexus Arkへようこそ！
+                                **まずはAIと対話するための準備をしましょう。**
+                                1.  **Google AI Studio** などで **Gemini APIキー** を取得してください。
+                                2.  左カラムの **「⚙️ 設定」** を開きます。
+                                3.  **「共通」** タブ内の **「🔑 APIキー / Webhook管理」** を開きます。
+                                4.  **「Gemini APIキー」** の項目に、キーの名前（管理用のあだ名）と、取得したAPIキーの値を入力し、**「Geminiキーを保存」** ボタンを押してください。
 
-                        設定が完了すると、このメッセージは消え、チャットが利用可能になります。
-                        """,
-                        visible=False, # 初期状態では非表示
-                        elem_id="onboarding_guide"
-                    )
+                                設定が完了すると、このメッセージは消え、チャットが利用可能になります。
+                                """,
+                                visible=False, # 初期状態では非表示
+                                elem_id="onboarding_guide"
+                            )
 
-                    chatbot_display = gr.Chatbot(
-                        height=580, 
-                        elem_id="chat_output_area",
-                        show_copy_button=True,
-                        show_label=False,
-                        render_markdown=True,
-                        type="tuples", # [v4.x] 明示的にtuplesを指定して警告を回避
-                        group_consecutive_messages=False,
-                        editable="all" 
-                    )
+                            chatbot_display = gr.Chatbot(
+                                height=580, 
+                                elem_id="chat_output_area",
+                                show_copy_button=True,
+                                show_label=False,
+                                render_markdown=True,
+                                type="tuples", # [v4.x] 明示的にtuplesを指定して警告を回避
+                                group_consecutive_messages=False,
+                                editable="all" 
+                            )
 
-                    with gr.Row():
-                        audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
-                    with gr.Row(visible=False) as action_button_group:
-                        rerun_button = gr.Button("🔄 再生成")
-                        play_audio_button = gr.Button("🔊 選択した発言を再生")
-                        delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
-                        cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
+                            with gr.Row():
+                                audio_player = gr.Audio(label="音声プレーヤー", visible=False, autoplay=True, interactive=True, elem_id="main_audio_player")
+                            with gr.Row(visible=False) as action_button_group:
+                                rerun_button = gr.Button("🔄 再生成")
+                                play_audio_button = gr.Button("🔊 選択した発言を再生")
+                                delete_selection_button = gr.Button("🗑️ 選択した発言を削除", variant="stop")
+                                cancel_selection_button = gr.Button("✖️ 選択をキャンセル")
 
-                    chat_input_multimodal = gr.MultimodalTextbox(
-                        file_types=["image", "audio", "video", "text", ".pdf", ".md", ".py", ".json", ".html", ".css", ".js"],
-                        file_count="multiple",  # 複数ファイルの添付を許可
-                        max_plain_text_length=100000,
-                        placeholder="メッセージを入力してください (Shift+Enterで送信)",
-                        show_label=False,
-                        lines=3,
-                        interactive=True
-                    )
+                            chat_input_multimodal = gr.MultimodalTextbox(
+                                file_types=["image", "audio", "video", "text", ".pdf", ".md", ".py", ".json", ".html", ".css", ".js"],
+                                file_count="multiple",  # 複数ファイルの添付を許可
+                                max_plain_text_length=100000,
+                                placeholder="メッセージを入力してください (Shift+Enterで送信)",
+                                show_label=False,
+                                lines=3,
+                                interactive=True
+                            )
 
-                    token_count_display = gr.Markdown(
-                        "入力トークン数: 0 / 0",
-                        elem_id="token_count_display"
-                    )
+                            token_count_display = gr.Markdown(
+                                "入力トークン数: 0 / 0",
+                                elem_id="token_count_display"
+                            )
 
-                    with gr.Row():
-                        stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
-                        chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
+                            with gr.Row():
+                                stop_button = gr.Button("⏹️ ストップ", variant="stop", visible=False, scale=1)
+                                chat_reload_button = gr.Button("🔄 履歴を更新", scale=1)
 
-                    with gr.Row():
-                        add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1, visible=False)
+                            with gr.Row():
+                                add_log_to_memory_queue_button = gr.Button("現在の対話を記憶に追加", scale=1, visible=False)
 
-                    # --- 書き置き機能（自律行動時に伝えるメッセージ）---
-                    with gr.Accordion("📝 書き置き（自律行動時に伝える）", open=False):
-                        gr.Markdown("次回の自律行動時にAIに渡されます。送信後は自動でクリアされます。")
-                        user_memo_textbox = gr.Textbox(
-                            label="書き置き内容",
-                            lines=3,
-                            placeholder="例: 今から外出するよ / 今日は仕事でバタバタ",
-                            interactive=True
+                            # --- 書き置き機能（自律行動時に伝えるメッセージ）---
+                            with gr.Accordion("📝 書き置き（自律行動時に伝える）", open=False):
+                                gr.Markdown("次回の自律行動時にAIに渡されます。送信後は自動でクリアされます。")
+                                user_memo_textbox = gr.Textbox(
+                                    label="書き置き内容",
+                                    lines=3,
+                                    placeholder="例: 今から外出するよ / 今日は仕事でバタバタ",
+                                    interactive=True
+                                )
+                                with gr.Row():
+                                    save_user_memo_button = gr.Button("💾 保存", size="sm", variant="primary")
+                                    clear_user_memo_button = gr.Button("🗑️ クリア", size="sm", variant="secondary")
+
+                    with gr.TabItem("📝 RAWログエディタ") as chat_raw_editor_tab:
+                        gr.Markdown(
+                            "会話ログファイル (`log.txt`) を直接編集できます。\n\n"
+                            "> **⚠️ 注意:** 保存前にバックアップが自動作成されますが、書式を崩すとチャット表示に影響が出る可能性があります。"
+                        )
+                        chat_log_raw_editor = gr.Code(
+                            label="log.txt",
+                            language="markdown",
+                            interactive=True,
+                            lines=25
                         )
                         with gr.Row():
-                            save_user_memo_button = gr.Button("💾 保存", size="sm", variant="primary")
-                            clear_user_memo_button = gr.Button("🗑️ クリア", size="sm", variant="secondary")
+                            save_chat_log_button = gr.Button("💾 ログを保存", variant="primary")
+                            reload_chat_log_button = gr.Button("🔄 最後に保存した内容を読み込む", variant="secondary")
 
             with gr.TabItem(" 記憶・メモ・指示"):
                 gr.Markdown("##  記憶・メモ・指示\nルームの根幹をなす設定ファイルを、ここで直接編集できます。")
@@ -2621,6 +2639,36 @@ try:
             fn=ui_handlers.handle_reload_world_settings_raw,
             inputs=[current_room_name],
             outputs=world_builder_raw_outputs
+        )
+
+        # --- 会話ログ RAWエディタのイベント接続 ---
+        # タブが選択された時にログを読み込む
+        chat_raw_editor_tab.select(
+            fn=ui_handlers.handle_load_chat_log_raw,
+            inputs=[current_room_name],
+            outputs=[chat_log_raw_editor]
+        )
+        
+        # 保存ボタン: ログを保存してチャット表示を更新
+        save_chat_log_button.click(
+            fn=ui_handlers.handle_save_chat_log_raw,
+            inputs=[
+                current_room_name,
+                chat_log_raw_editor,
+                api_history_limit_state,
+                room_add_timestamp_checkbox,
+                room_display_thoughts_checkbox,
+                screenshot_mode_checkbox,
+                redaction_rules_state
+            ],
+            outputs=[chat_log_raw_editor, chatbot_display, current_log_map_state]
+        )
+        
+        # 再読込ボタン: 最後に保存した内容を読み込む
+        reload_chat_log_button.click(
+            fn=ui_handlers.handle_reload_chat_log_raw,
+            inputs=[current_room_name],
+            outputs=[chat_log_raw_editor]
         )
         clear_debug_console_button.click(
             fn=lambda: ("", ""),
