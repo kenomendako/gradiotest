@@ -392,9 +392,8 @@ try:
                             # --- Google設定エリア ---
                             with gr.Group(visible=(current_provider == "google")) as google_settings_group:
                                 gr.Markdown(
-                                    "💡 **ここで登録・設定したAPIキーは、記憶の要約や日記の自動整理などの内部処理でも使用されます。**\n\n"
-                                    "💡 **内部処理には、パフォーマンスと安定性のために最適化された専用モデル（2.5 Flash / Flash Lite）が自動的に使用されます。**\n\n"
-                                    "💡 **ルームごとの個別のモデル・APIキー設定は、右の「個別」タブから行えます。**"
+                                    "💡 ここで設定したAPIキーは、内部処理でも使用されます。（2.5 Flash / Flash Lite）\n\n"
+                                    "💡 ルームごとのモデル・APIキー設定は、「個別」タブから行えます。"
                                 )
                                 model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, label="デフォルトAIモデル", interactive=True)
                                 api_key_dropdown = gr.Dropdown(label="使用するGemini APIキー", interactive=True)
