@@ -1844,26 +1844,24 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
         traceback.print_exc()
         return gr.update(), gr.update()
 
-def handle_delete_room(folder_name_to_delete: str, confirmed: bool, api_key_name: str):
+def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name: str, current_room_name: str = None, expected_count: int = 131):
     """
-    【v6: 完全契約遵守版】
+    【v7: 引数順序修正版】
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
-    unified_full_room_refresh_outputs と完全に一致する99個の値を返す。
+    unified_full_room_refresh_outputs と完全に一致する値を返す。
     """
-    EXPECTED_OUTPUT_COUNT = 131
-    
     if str(confirmed).lower() != 'true':
-        return (gr.update(),) * EXPECTED_OUTPUT_COUNT
+        return (gr.update(),) * expected_count
 
     if not folder_name_to_delete:
         gr.Warning("削除するルームが選択されていません。")
-        return (gr.update(),) * EXPECTED_OUTPUT_COUNT
+        return (gr.update(),) * expected_count
     
     try:
         room_path_to_delete = os.path.join(constants.ROOMS_DIR, folder_name_to_delete)
         if not os.path.isdir(room_path_to_delete):
             gr.Error(f"削除対象のフォルダが見つかりません: {room_path_to_delete}")
-            return (gr.update(),) * EXPECTED_OUTPUT_COUNT
+            return (gr.update(),) * expected_count
 
         shutil.rmtree(room_path_to_delete)
         gr.Info(f"ルーム「{folder_name_to_delete}」を完全に削除しました。")

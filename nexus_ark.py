@@ -1923,7 +1923,7 @@ try:
         )
         room_delete_confirmed_state.change(
             fn=ui_handlers.handle_delete_room,
-            inputs=[manage_folder_name_display, api_key_dropdown, current_room_name, full_refresh_output_count],
+            inputs=[room_delete_confirmed_state, manage_folder_name_display, api_key_dropdown, current_room_name, full_refresh_output_count],
             outputs=unified_full_room_refresh_outputs
         )
 
