@@ -324,6 +324,63 @@ def get_theme_object(theme_name: str):
     return gr.themes.Soft()
 
 
+# --- デフォルト設定を取得する関数 ---
+def _get_default_config() -> dict:
+    """
+    デフォルト設定を返す。
+    OpenAI互換プロファイルのリセット機能で使用される。
+    """
+    return {
+        "openai_provider_settings": [
+            {
+                "name": "OpenRouter",
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": "",
+                "default_model": "deepseek/deepseek-v3.1:free",
+                "available_models": [
+                    "deepseek/deepseek-v3.1:free",
+                    "meta-llama/llama-3.3-70b:free",
+                    "google/gemma-3-27b-it:free"
+                ]
+            },
+            {
+                "name": "Groq",
+                "base_url": "https://api.groq.com/openai/v1",
+                "api_key": "",
+                "default_model": "llama-3.3-70b-versatile",
+                "available_models": [
+                    "llama-3.3-70b-versatile",
+                    "llama3-groq-70b-8192-tool-use-preview",
+                    "llama-3.1-8b-instant"
+                ]
+            },
+            {
+                "name": "Local Ollama",
+                "base_url": "http://localhost:11434/v1",
+                "api_key": "ollama",
+                "default_model": "phi3.5",
+                "tool_use_enabled": False,
+                "available_models": [
+                    "phi3.5",
+                    "qwen2.5:3b",
+                    "gemma2:2b",
+                    "qwen2.5:0.5b"
+                ]
+            },
+            {
+                "name": "OpenAI Official",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "",
+                "default_model": "gpt-5.2-2025-12-11",
+                "available_models": [
+                    "gpt-5.2-2025-12-11",
+                    "chatgpt-4o-latest"
+                ]
+            }
+        ]
+    }
+
+
 # --- メインの読み込み関数 (真・最終版) ---
 def load_config():
     global CONFIG_GLOBAL, GEMINI_API_KEYS, initial_api_key_name_global, initial_room_global, initial_model_global
@@ -342,21 +399,12 @@ def load_config():
                 "name": "OpenRouter",
                 "base_url": "https://openrouter.ai/api/v1",
                 "api_key": "",
-                "default_model": "google/gemma-2-9b-it:free",
+                "default_model": "deepseek/deepseek-v3.1:free",
                 "available_models": [
-                    # 無料モデル
-                    "google/gemma-2-9b-it:free",
-                    "meta-llama/llama-3-8b-instruct:free",
-                    "mistralai/mistral-7b-instruct:free",
-                    "deepseek/deepseek-chat:free",
-                    "qwen/qwen-2-7b-instruct:free",
-                    # 有料モデル
-                    "anthropic/claude-3.5-sonnet",
-                    "anthropic/claude-3-opus",
-                    "openai/gpt-4o",
-                    "openai/gpt-4o-mini",
-                    "google/gemini-pro-1.5",
-                    "meta-llama/llama-3.1-405b-instruct"
+                    # 無料モデル（コンテキスト長・ツール使用対応を重視）
+                    "deepseek/deepseek-v3.1:free",      # 16.4万トークン、ツール対応
+                    "meta-llama/llama-3.3-70b:free",    # 13万トークン、安定
+                    "google/gemma-3-27b-it:free"        # 12.8万トークン、Function Calling対応
                 ]
             },
             {
@@ -365,12 +413,10 @@ def load_config():
                 "api_key": "",
                 "default_model": "llama-3.3-70b-versatile",
                 "available_models": [
-                    "llama-3.3-70b-versatile",
-                    "llama-3.3-70b-specdec",
-                    "llama-3.1-70b-versatile",
-                    "llama-3.1-8b-instant",
-                    "mixtral-8x7b-32768",
-                    "gemma2-9b-it"
+                    # 無料・高速（14,400リクエスト/日）
+                    "llama-3.3-70b-versatile",              # 最新・汎用
+                    "llama3-groq-70b-8192-tool-use-preview", # ツール使用特化
+                    "llama-3.1-8b-instant"                   # 軽量・高速
                 ]
             },
             {
@@ -380,37 +426,22 @@ def load_config():
                 "default_model": "phi3.5",
                 "tool_use_enabled": False,  # 【ツール不使用モード】Ollamaはデフォルトでツール無効
                 "available_models": [
-                    # 軽量モデル（低スペックPC向け: VRAM 4GB以下）
-                    "phi3.5",
-                    "gemma2:2b",
-                    "qwen2.5:0.5b",
-                    "qwen2.5:1.5b",
-                    # 中量級モデル（中スペックPC向け: VRAM 8GB程度）
-                    "llama3.1:8b",
-                    "gemma2:9b",
-                    "mistral",
-                    "qwen2.5:7b",
-                    "deepseek-coder:6.7b",
-                    # 大型モデル（高スペックPC向け: VRAM 12GB以丈）
-                    "llama3.1:70b",
-                    "mixtral:8x7b",
-                    "qwen2.5:32b",
-                    "deepseek-coder:33b"
+                    # VRAM 4GB対応モデル（低スペックPC向け）
+                    "phi3.5",       # 最適！2.5GB、ツール対応
+                    "qwen2.5:3b",   # バランス良、ツール対応
+                    "gemma2:2b",    # 超軽量
+                    "qwen2.5:0.5b"  # 超々軽量（内部処理用候補）
                 ]
             },
             {
                 "name": "OpenAI Official",
                 "base_url": "https://api.openai.com/v1",
                 "api_key": "",
-                "default_model": "gpt-4o",
+                "default_model": "gpt-5.2-2025-12-11",
                 "available_models": [
-                    "gpt-4o",
-                    "gpt-4o-mini",
-                    "gpt-4-turbo",
-                    "gpt-4",
-                    "gpt-3.5-turbo",
-                    "o1-preview",
-                    "o1-mini"
+                    # 最新・人気モデルのみ（他はユーザー追加）
+                    "gpt-5.2-2025-12-11",   # 最新
+                    "chatgpt-4o-latest"     # 人気（Keep4o運動）
                 ]
             }
         ],
@@ -594,6 +625,52 @@ def load_config():
         initial_api_key_name_global = valid_api_keys[0]
     else:
         initial_api_key_name_global = list(GEMINI_API_KEYS.keys())[0] if GEMINI_API_KEYS else "your_key_name"
+
+
+# --- [モデルリスト管理関数] ---
+
+def get_default_available_models() -> List[str]:
+    """
+    デフォルトのGeminiモデルリストを返す。
+    リセット機能で使用される。
+    """
+    return [
+        "gemini-2.5-flash", 
+        "gemini-2.5-pro", 
+        "gemini-2.5-flash-lite",
+        "gemini-3-flash-preview", 
+        "gemini-3-pro-preview"
+    ]
+
+
+def remove_model_from_list(model_name: str) -> bool:
+    """
+    指定されたモデルをavailable_modelsから削除して保存する。
+    成功した場合はTrue、モデルが見つからない場合はFalseを返す。
+    """
+    global AVAILABLE_MODELS_GLOBAL
+    
+    current_models = list(AVAILABLE_MODELS_GLOBAL)
+    if model_name not in current_models:
+        return False
+    
+    current_models.remove(model_name)
+    AVAILABLE_MODELS_GLOBAL = current_models
+    save_config_if_changed("available_models", current_models)
+    return True
+
+
+def reset_models_to_default() -> List[str]:
+    """
+    モデルリストをデフォルト状態にリセットして保存する。
+    リセット後のモデルリストを返す。
+    """
+    global AVAILABLE_MODELS_GLOBAL
+    
+    default_models = get_default_available_models()
+    AVAILABLE_MODELS_GLOBAL = default_models
+    save_config_if_changed("available_models", default_models)
+    return default_models
 
 
 def get_effective_settings(room_name: str, **kwargs) -> dict:

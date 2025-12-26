@@ -407,6 +407,9 @@ try:
                                     "💡 ルームごとのモデル・APIキー設定は、「個別」タブから行えます。"
                                 )
                                 model_dropdown = gr.Dropdown(choices=config_manager.AVAILABLE_MODELS_GLOBAL, label="デフォルトAIモデル", interactive=True)
+                                with gr.Row():
+                                    delete_model_button = gr.Button("選択中のモデルを削除", variant="secondary", size="sm")
+                                    reset_models_button = gr.Button("デフォルトに戻す", variant="secondary", size="sm")
                                 api_key_dropdown = gr.Dropdown(label="使用するGemini APIキー", interactive=True)
                                 api_test_button = gr.Button("API接続をテスト", variant="secondary")
 
@@ -452,6 +455,10 @@ try:
                                         )
                                         add_custom_model_button = gr.Button("追加", scale=1, variant="secondary")
                                     gr.Markdown("💡 追加したモデルはプロファイルに保存され、次回起動時も利用できます。")
+                                
+                                with gr.Row():
+                                    delete_openai_model_button = gr.Button("選択中のモデルを削除", variant="secondary", size="sm")
+                                    reset_openai_models_button = gr.Button("デフォルトに戻す", variant="secondary", size="sm")
                                             
                                 # 【ツール不使用モード】ツール使用チェックボックス
                                 _tool_use_enabled = _current_openai_setting.get("tool_use_enabled", True)
@@ -555,6 +562,10 @@ try:
                                         )
                                         room_google_add_model_button = gr.Button("追加", scale=1, variant="secondary")
                                     gr.Markdown("💡 追加したモデルは現在のセッション中のみ有効です。")
+                                
+                                with gr.Row():
+                                    room_delete_gemini_model_button = gr.Button("選択中のモデルを削除", variant="secondary", size="sm")
+                                    room_reset_gemini_models_button = gr.Button("デフォルトに戻す", variant="secondary", size="sm")
                                             
                                 room_api_key_dropdown = gr.Dropdown(
                                     choices=config_manager.get_api_key_choices_for_ui(),
@@ -612,6 +623,10 @@ try:
                                         )
                                         room_openai_add_model_button = gr.Button("追加", scale=1, variant="secondary")
                                     gr.Markdown("💡 追加したモデルは現在のセッション中のみ有効です。")
+                                
+                                with gr.Row():
+                                    room_delete_openai_model_button = gr.Button("選択中のモデルを削除", variant="secondary", size="sm")
+                                    room_reset_openai_models_button = gr.Button("デフォルトに戻す", variant="secondary", size="sm")
                                             
                                 # ツール使用オンオフ
                                 room_openai_tool_use_checkbox = gr.Checkbox(
@@ -3108,6 +3123,59 @@ try:
             fn=ui_handlers.handle_add_custom_openai_model,
             inputs=[openai_profile_dropdown, custom_model_name_input],
             outputs=[openai_model_dropdown, custom_model_name_input]
+        )
+
+        # --- Geminiモデルリスト管理ボタンのイベント ---
+        delete_model_button.click(
+            fn=ui_handlers.handle_delete_gemini_model,
+            inputs=[model_dropdown],
+            outputs=[model_dropdown]
+        )
+        
+        reset_models_button.click(
+            fn=ui_handlers.handle_reset_gemini_models_to_default,
+            inputs=None,
+            outputs=[model_dropdown]
+        )
+
+        # --- OpenAI互換モデルリスト管理ボタンのイベント ---
+        delete_openai_model_button.click(
+            fn=ui_handlers.handle_delete_openai_model,
+            inputs=[openai_profile_dropdown, openai_model_dropdown],
+            outputs=[openai_model_dropdown]
+        )
+        
+        reset_openai_models_button.click(
+            fn=ui_handlers.handle_reset_openai_models_to_default,
+            inputs=[openai_profile_dropdown],
+            outputs=[openai_model_dropdown]
+        )
+
+        # --- 個別設定のモデルリスト管理ボタンのイベント ---
+        # Gemini個別設定
+        room_delete_gemini_model_button.click(
+            fn=ui_handlers.handle_delete_gemini_model,
+            inputs=[room_model_dropdown],
+            outputs=[room_model_dropdown]
+        )
+        
+        room_reset_gemini_models_button.click(
+            fn=ui_handlers.handle_reset_gemini_models_to_default,
+            inputs=None,
+            outputs=[room_model_dropdown]
+        )
+        
+        # OpenAI互換個別設定
+        room_delete_openai_model_button.click(
+            fn=ui_handlers.handle_delete_openai_model,
+            inputs=[room_openai_profile_dropdown, room_openai_model_dropdown],
+            outputs=[room_openai_model_dropdown]
+        )
+        
+        room_reset_openai_models_button.click(
+            fn=ui_handlers.handle_reset_openai_models_to_default,
+            inputs=[room_openai_profile_dropdown],
+            outputs=[room_openai_model_dropdown]
         )
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")

@@ -20,9 +20,9 @@
 
 ## 📋 次の予定
 
-1. 使用モデルリストの精査
-2. ChatGPTエクスポートインポート機能の修正
-3. 送信コンテキストの最適化（APIコスト削減）
+1. ChatGPTエクスポートインポート機能の修正
+2. 送信コンテキストの最適化（APIコスト削減）
+3. 送信トークン数の表示機能
 
 ---
 
@@ -30,6 +30,7 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
+| 2025-12-26 | モデルリスト精査・管理機能強化 | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-26_model_list_management.md) |
 | 2025-12-26 | 動画アバター機能（idle/thinking状態切り替え） | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-26_video_avatar.md) |
 | 2025-12-25 | 会話ログRAWエディタ新設 | - |
 | 2025-12-25 | 書き置き機能（自律行動向けメッセージ） | - |

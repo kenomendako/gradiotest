@@ -6547,6 +6547,115 @@ def handle_add_room_custom_model(room_name: str, custom_model_name: str, provide
         gr.Info(f"モデル「{model_name}」を追加しました（共通設定のプロファイルに保存済み）。")
         
         return gr.update(choices=available_models, value=model_name), ""
+
+
+def handle_delete_gemini_model(model_name: str):
+    """
+    選択中のGeminiモデルをリストから削除する。
+    """
+    if not model_name:
+        gr.Warning("削除するモデルを選択してください。")
+        return gr.update()
+    
+    # デフォルトモデルは削除不可
+    default_models = config_manager.get_default_available_models()
+    if model_name in default_models:
+        gr.Warning(f"デフォルトモデル「{model_name}」は削除できません。")
+        return gr.update()
+    
+    success = config_manager.remove_model_from_list(model_name)
+    if success:
+        gr.Info(f"モデル「{model_name}」を削除しました。")
+        new_models = list(config_manager.AVAILABLE_MODELS_GLOBAL)
+        # 削除後は最初のモデルを選択
+        new_value = new_models[0] if new_models else ""
+        return gr.update(choices=new_models, value=new_value)
+    else:
+        gr.Warning(f"モデル「{model_name}」が見つかりませんでした。")
+        return gr.update()
+
+
+def handle_reset_gemini_models_to_default():
+    """
+    Geminiモデルリストをデフォルト状態にリセットする。
+    """
+    new_models = config_manager.reset_models_to_default()
+    gr.Info("モデルリストをデフォルトにリセットしました。")
+    return gr.update(choices=new_models, value=new_models[0] if new_models else "")
+
+
+def handle_delete_openai_model(profile_name: str, model_name: str):
+    """
+    選択中のOpenAI互換モデルをプロファイルから削除する。
+    """
+    if not profile_name:
+        gr.Warning("プロファイルが選択されていません。")
+        return gr.update()
+    
+    if not model_name:
+        gr.Warning("削除するモデルを選択してください。")
+        return gr.update()
+    
+    settings_list = config_manager.get_openai_settings_list()
+    target_index = -1
+    for i, s in enumerate(settings_list):
+        if s["name"] == profile_name:
+            target_index = i
+            break
+    
+    if target_index == -1:
+        gr.Warning("プロファイルが見つかりません。")
+        return gr.update()
+    
+    available_models = settings_list[target_index].get("available_models", [])
+    
+    if model_name not in available_models:
+        gr.Warning(f"モデル「{model_name}」がリストに見つかりませんでした。")
+        return gr.update()
+    
+    available_models.remove(model_name)
+    settings_list[target_index]["available_models"] = available_models
+    config_manager.save_openai_settings_list(settings_list)
+    
+    gr.Info(f"モデル「{model_name}」を削除しました。")
+    new_value = available_models[0] if available_models else ""
+    return gr.update(choices=available_models, value=new_value)
+
+
+def handle_reset_openai_models_to_default(profile_name: str):
+    """
+    OpenAI互換プロファイルのモデルリストをデフォルトにリセットする。
+    """
+    if not profile_name:
+        gr.Warning("プロファイルが選択されていません。")
+        return gr.update()
+    
+    # デフォルト設定を取得
+    default_config = config_manager._get_default_config()
+    default_settings = default_config.get("openai_provider_settings", [])
+    
+    # 対象プロファイルのデフォルトを探す
+    default_models = None
+    for s in default_settings:
+        if s["name"] == profile_name:
+            default_models = s.get("available_models", [])
+            break
+    
+    if default_models is None:
+        gr.Warning(f"プロファイル「{profile_name}」のデフォルト設定が見つかりませんでした。")
+        return gr.update()
+    
+    # 現在の設定を更新
+    settings_list = config_manager.get_openai_settings_list()
+    for s in settings_list:
+        if s["name"] == profile_name:
+            s["available_models"] = default_models.copy()
+            break
+    
+    config_manager.save_openai_settings_list(settings_list)
+    
+    gr.Info(f"プロファイル「{profile_name}」のモデルリストをデフォルトにリセットしました。")
+    return gr.update(choices=default_models, value=default_models[0] if default_models else "")
     
 def _resolve_background_image(room_name: str, settings: dict) -> str:
     """背景画像ソースモードに基づいて、使用すべき画像パスを決定する"""

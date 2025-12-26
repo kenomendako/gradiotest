@@ -52,6 +52,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - AI応答生成中は「思考中」アバター（`thinking.mp4`）に自動切り替え
 - 応答完了後は「待機」アバター（`idle.mp4`）に復帰
 
+#### 🔧 モデルリスト管理機能強化 (2025-12-26)
+- 全プロバイダのデフォルトモデルリストを2025年12月時点の推奨モデルに更新
+- モデル選択画面に「削除」「デフォルトに戻す」ボタンを追加
+- 共通設定・個別設定の両方でGemini/OpenAI互換に対応
+- 低スペックPC向けOllamaモデル（VRAM 4GB対応）をデフォルト設定に追加
+
 
 ### Changed - 仕様変更
 
