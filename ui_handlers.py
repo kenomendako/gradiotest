@@ -130,7 +130,7 @@ def get_avatar_html(room_name: str, state: str = "idle", mode: str = None) -> st
                 mime_type = "image/png" if ext == ".png" else "image/jpeg"
                 return f'''<img 
                     src="data:{mime_type};base64,{encoded}" 
-                    style="width:100%; height:200px; object-fit:cover; border-radius:12px;"
+                    style="width:100%; height:200px; object-fit:contain; border-radius:12px;"
                     alt="プロフィール画像">'''
             except Exception as e:
                 print(f"--- [Avatar] 画像読み込みエラー: {e} ---")
@@ -161,14 +161,14 @@ def get_avatar_html(room_name: str, state: str = "idle", mode: str = None) -> st
                     # GIFはimgタグで表示
                     return f'''<img 
                         src="data:{mime_type};base64,{encoded}" 
-                        style="width:100%; height:200px; object-fit:cover; border-radius:12px;"
+                        style="width:100%; height:200px; object-fit:contain; border-radius:12px;"
                         alt="アバター">'''
                 else:
                     # 動画はvideoタグで表示
                     return f'''<video 
                         src="data:{mime_type};base64,{encoded}" 
                         autoplay loop muted playsinline
-                        style="width:100%; height:200px; object-fit:cover; border-radius:12px;">
+                        style="width:100%; height:200px; object-fit:contain; border-radius:12px;">
                     </video>'''
             except Exception as e:
                 print(f"--- [Avatar] 動画読み込みエラー: {e} ---")
@@ -185,7 +185,7 @@ def get_avatar_html(room_name: str, state: str = "idle", mode: str = None) -> st
             mime_type = "image/png" if ext == ".png" else "image/jpeg"
             return f'''<img 
                 src="data:{mime_type};base64,{encoded}" 
-                style="width:100%; height:200px; object-fit:cover; border-radius:12px;"
+                style="width:100%; height:200px; object-fit:contain; border-radius:12px;"
                 alt="プロフィール画像">'''
         except Exception as e:
             print(f"--- [Avatar] 画像読み込みエラー: {e} ---")
