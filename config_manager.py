@@ -336,11 +336,14 @@ def _get_default_config() -> dict:
                 "name": "OpenRouter",
                 "base_url": "https://openrouter.ai/api/v1",
                 "api_key": "",
-                "default_model": "deepseek/deepseek-v3.1:free",
+                "default_model": "meta-llama/llama-3.3-70b-instruct:free",
                 "available_models": [
-                    "deepseek/deepseek-v3.1:free",
-                    "meta-llama/llama-3.3-70b:free",
-                    "google/gemma-3-27b-it:free"
+                    "meta-llama/llama-3.3-70b-instruct:free",
+                    "nvidia/nemotron-3-nano-30b-a3b:free",
+                    "xiaomi/mimo-v2-flash:free",
+                    "deepseek/deepseek-r1-0528:free",
+                    "google/gemma-3-27b-it:free",
+                    "qwen/qwen3-coder:free"
                 ]
             },
             {
@@ -399,12 +402,15 @@ def load_config():
                 "name": "OpenRouter",
                 "base_url": "https://openrouter.ai/api/v1",
                 "api_key": "",
-                "default_model": "deepseek/deepseek-v3.1:free",
+                "default_model": "meta-llama/llama-3.3-70b-instruct:free",
                 "available_models": [
-                    # 無料モデル（コンテキスト長・ツール使用対応を重視）
-                    "deepseek/deepseek-v3.1:free",      # 16.4万トークン、ツール対応
-                    "meta-llama/llama-3.3-70b:free",    # 13万トークン、安定
-                    "google/gemma-3-27b-it:free"        # 12.8万トークン、Function Calling対応
+                    # 無料モデル（2025年12月時点の有効なモデル）
+                    "meta-llama/llama-3.3-70b-instruct:free",     # 13万トークン、ツール対応、安定
+                    "nvidia/nemotron-3-nano-30b-a3b:free",        # 25.6万トークン、NVIDIA
+                    "xiaomi/mimo-v2-flash:free",                  # 26.2万トークン、Xiaomi
+                    "deepseek/deepseek-r1-0528:free",             # 16.4万トークン、推論特化
+                    "google/gemma-3-27b-it:free",                 # 13万トークン
+                    "qwen/qwen3-coder:free"                       # 26.2万トークン、コード特化
                 ]
             },
             {

@@ -159,11 +159,14 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     return 0
 
 # --- 履歴構築 (Dual-Stateの核心) ---
-def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str, add_timestamp: bool, send_thoughts: bool) -> list:
+def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str, add_timestamp: bool, send_thoughts: bool, provider: str = "google") -> list:
     """
     ログ(テキスト)からメッセージを復元し、signature_manager(JSON) から
     最新の思考署名とツール呼び出し情報を注入して、完全な状態のオブジェクトを返す。
     (v2: ツール実行後の履歴でも正しく注入できるように修正)
+    
+    Args:
+        provider: "google" または "openai"。OpenAI互換の場合は履歴平滑化を無効にする。
     """
     from langchain_core.messages import HumanMessage, AIMessage
     lc_messages = []
@@ -179,7 +182,13 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
     # --- フェーズ1: 基本的なメッセージリストの構築 ---
     # 【追加項目】履歴の平滑化 (History Flattening)
     # 過去のツール使用履歴をプレーンテキストに変換し、Gemini 3 の推論負荷を軽減する。
-    flatten_historical_tools = "gemini-3" in responding_character_id or "thinking" in responding_character_id.lower() or True # 基本有効
+    # 【重要】OpenAI互換API は tool_calls を持つ AIMessage の後に ToolMessage が必須のため、
+    #        OpenAIプロバイダでは平滑化を無効にする。
+    if provider == "openai":
+        flatten_historical_tools = False  # OpenAI互換は tool_calls-ToolMessage の対応必須
+    else:
+        flatten_historical_tools = "gemini-3" in responding_character_id or "thinking" in responding_character_id.lower() or True
+
 
     for idx, h_item in enumerate(raw_history):
         content = h_item.get('content', '').strip()
@@ -230,6 +239,12 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
                 lc_messages.append(ai_msg)
                      
         elif role == 'SYSTEM' and responder_id.startswith('tool_result'):
+            # 【OpenAI互換対応】OpenAI APIはtool_calls→ToolMessageの厳密な対応が必須。
+            # テキストログからはtool_callsを完全に復元できないため、OpenAI互換では
+            # ツール履歴を完全に除外して純粋な対話のみを送信する。
+            if provider == "openai":
+                continue  # OpenAI互換ではツール履歴を完全スキップ
+            
             # 形式: ## SYSTEM:tool_result:<tool_name>:<tool_call_id>
             parts = responder_id.split(':')
             tool_name = parts[1] if len(parts) > 1 else "unknown"
@@ -285,7 +300,12 @@ def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: s
 
     # --- フェーズ2: 最新ターンの署名とツールコールの注入 ---
     # JSONから取得したコンテキスト（未解決の呼び出し等）を、末尾のAIMessageに注入する。
-    if stored_tool_calls or stored_signature:
+    # 【OpenAI互換対応】OpenAI APIはtool_calls-ToolMessageの厳密な対応が必須。
+    #                   テキストログからは完全に復元できないため、OpenAI互換ではこの注入をスキップ。
+    if provider == "openai":
+        # OpenAI互換ではtool_calls注入をスキップ（APIエラー回避）
+        pass
+    elif stored_tool_calls or stored_signature:
         for i in range(len(lc_messages) - 1, -1, -1):
             msg = lc_messages[i]
             if isinstance(msg, AIMessage) and msg.name == responding_character_id:
@@ -428,16 +448,19 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     messages = []
     add_timestamp = effective_settings.get("add_timestamp", False)
     
+    # 【OpenAI互換対応】プロバイダを取得して履歴変換に渡す
+    current_provider = config_manager.get_active_provider(room_to_respond)
+    
     # 自身のログ
     responding_ai_log_f, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
         own_history_raw = utils.load_chat_log(responding_ai_log_f)
-        messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond, add_timestamp, send_thoughts_final)
+        messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond, add_timestamp, send_thoughts_final, provider=current_provider)
 
     # スナップショット
     if history_log_path and os.path.exists(history_log_path) and history_log_path != responding_ai_log_f:
         snapshot_history_raw = utils.load_chat_log(history_log_path)
-        snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond, add_timestamp, send_thoughts_final)
+        snapshot_messages = convert_raw_log_to_lc_messages(snapshot_history_raw, room_to_respond, add_timestamp, send_thoughts_final, provider=current_provider)
         if snapshot_messages:
              messages.extend(snapshot_messages)
 
