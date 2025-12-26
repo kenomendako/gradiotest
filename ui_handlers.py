@@ -99,16 +99,14 @@ def hex_to_rgba(hex_code, alpha):
         return f"#{hex_code}"
 
 
-def get_avatar_html(room_name: str, state: str = "idle") -> str:
+def get_avatar_html(room_name: str, state: str = "idle", mode: str = None) -> str:
     """
     ルームのアバター表示用HTMLを生成する。
-    動画ファイル（mp4, webm）が存在すればループ再生するvideoタグを返す。
-    動画がなければ静止画（profile.png）をimgタグで返す。
-    Gradioで正しく表示するため、base64エンコードを使用。
     
     Args:
         room_name: ルームのフォルダ名
         state: アバターの状態 ("idle", "thinking", "talking")
+        mode: 表示モード ("static"=静止画のみ, "video"=動画優先, None=設定に従う)
         
     Returns:
         HTML文字列（videoタグまたはimgタグ）
@@ -116,6 +114,33 @@ def get_avatar_html(room_name: str, state: str = "idle") -> str:
     if not room_name:
         return ""
     
+    # モードが指定されていない場合はルーム設定から取得
+    if mode is None:
+        effective_settings = config_manager.get_effective_settings(room_name)
+        mode = effective_settings.get("avatar_mode", "video")  # デフォルトは動画優先
+    
+    # 静止画モード: 動画を探さず、直接プロフィール画像を表示
+    if mode == "static":
+        _, _, profile_image_path, _, _ = get_room_files_paths(room_name)
+        if profile_image_path and os.path.exists(profile_image_path):
+            try:
+                with open(profile_image_path, "rb") as f:
+                    encoded = base64.b64encode(f.read()).decode("utf-8")
+                ext = os.path.splitext(profile_image_path)[1].lower()
+                mime_type = "image/png" if ext == ".png" else "image/jpeg"
+                return f'''<img 
+                    src="data:{mime_type};base64,{encoded}" 
+                    style="width:100%; height:200px; object-fit:cover; border-radius:12px;"
+                    alt="プロフィール画像">'''
+            except Exception as e:
+                print(f"--- [Avatar] 画像読み込みエラー: {e} ---")
+        # 画像がない場合はプレースホルダー
+        return '''<div style="width:100%; height:200px; display:flex; align-items:center; justify-content:center; 
+            background:var(--background-fill-secondary); border-radius:12px; color:var(--text-color-secondary);">
+            プロフィール画像なし
+        </div>'''
+    
+    # 動画モード: 動画を優先して探し、なければ静止画にフォールバック
     avatar_dir = os.path.join(constants.ROOMS_DIR, room_name, constants.AVATAR_DIR)
     
     # 動画ファイルの優先順位と MIME タイプ
@@ -170,6 +195,8 @@ def get_avatar_html(room_name: str, state: str = "idle") -> str:
         background:var(--background-fill-secondary); border-radius:12px; color:var(--text-color-secondary);">
         プロフィール画像なし
     </div>'''
+
+
 
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
@@ -4851,22 +4878,92 @@ def handle_log_punctuation_correction(
 
 # ▲▲▲【追加はここまで】▲▲▲
 
-def handle_staging_image_upload(uploaded_file_path: Optional[str]) -> Tuple[Optional[str], gr.update, gr.update, gr.update]:
+def handle_avatar_upload(room_name: str, uploaded_file_path: Optional[str]) -> Tuple[Optional[str], gr.update, gr.update, gr.update, gr.update]:
     """
-    ユーザーが新しい画像をアップロードした際に、編集用プレビューエリアにその画像を表示し、
-    UIを編集モードに切り替える。
+    ユーザーが新しいアバターをアップロードした際の処理。
+    - 動画ファイル (mp4, webm, gif) の場合: 直接 avatar/idle.{ext} に保存
+    - 画像ファイルの場合: 従来通りクロップUIを表示
+
     GradioのUploadButtonは、一時ファイルのパス(文字列)を直接渡してくる。
     """
     if uploaded_file_path is None:
-        return None, gr.update(visible=False), gr.update(visible=False), gr.update()
+        return None, gr.update(visible=False), gr.update(visible=False), gr.update(), gr.update()
 
-    # uploaded_file_path は既にファイルパスの文字列なので、そのまま使用する
-    return (
-        uploaded_file_path,
-        gr.update(value=uploaded_file_path, visible=True),
-        gr.update(visible=True),
-        gr.update(open=True) # アコーディオンを開く
-    )
+    # 拡張子で動画かどうかを判定
+    ext = os.path.splitext(uploaded_file_path)[1].lower()
+    video_extensions = {'.mp4', '.webm', '.gif'}
+
+    if ext in video_extensions:
+        # 動画ファイルの場合: 直接保存
+        if not room_name:
+            gr.Warning("アバターを保存するルームが選択されていません。")
+            return None, gr.update(visible=False), gr.update(visible=False), gr.update(), gr.update()
+
+        try:
+            # avatarディレクトリを作成
+            avatar_dir = os.path.join(constants.ROOMS_DIR, room_name, constants.AVATAR_DIR)
+            os.makedirs(avatar_dir, exist_ok=True)
+
+            # 既存の idle ファイルを削除 (拡張子が異なる可能性があるため)
+            for old_ext in video_extensions:
+                old_file = os.path.join(avatar_dir, f"idle{old_ext}")
+                if os.path.exists(old_file):
+                    os.remove(old_file)
+
+            # 新しいファイルを保存
+            target_path = os.path.join(avatar_dir, f"idle{ext}")
+            shutil.copy2(uploaded_file_path, target_path)
+
+            gr.Info(f"ルーム「{room_name}」のアバター動画を更新しました。")
+
+            # プロフィール表示を更新し、クロップUIは非表示のまま
+            return (
+                None,
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(open=False),
+                gr.update(value=get_avatar_html(room_name, state="idle"))
+            )
+
+        except Exception as e:
+            gr.Error(f"動画アバターの保存中にエラーが発生しました: {e}")
+            traceback.print_exc()
+            return None, gr.update(visible=False), gr.update(visible=False), gr.update(), gr.update()
+
+    else:
+        # 画像ファイルの場合: 従来通りクロップUIを表示
+        return (
+            uploaded_file_path,
+            gr.update(value=uploaded_file_path, visible=True),
+            gr.update(visible=True),
+            gr.update(open=True),
+            gr.update()  # profile_image_display は変更しない
+        )
+
+
+def handle_avatar_mode_change(room_name: str, mode: str) -> gr.update:
+    """
+    アバターモードが変更された際に、設定を保存し表示を更新する。
+    
+    Args:
+        room_name: ルームのフォルダ名
+        mode: "static" または "video"
+        
+    Returns:
+        profile_image_display の更新
+    """
+    if not room_name:
+        return gr.update()
+    
+    # ルーム設定に avatar_mode を保存
+    room_manager.update_room_config(room_name, {"avatar_mode": mode})
+    
+    mode_name = "静止画" if mode == "static" else "動画"
+    gr.Info(f"アバターモードを「{mode_name}」に変更しました。")
+    
+    # 新しいモードでアバターを再生成
+    return gr.update(value=get_avatar_html(room_name, state="idle", mode=mode))
+
 
 def handle_save_cropped_image(room_name: str, original_image_path: str, cropped_image_data: Dict) -> Tuple[gr.update, gr.update, gr.update]:
     """

@@ -1066,9 +1066,16 @@ try:
                     elem_id="profile_avatar_container"
                 )
 
-                with gr.Accordion("プロフィール画像を変更", open=False) as profile_image_accordion:
+                with gr.Accordion("アバターを変更", open=False) as profile_image_accordion:
+                    avatar_mode_radio = gr.Radio(
+                        choices=[("静止画 (profile.png)", "static"), ("動画 (idle.mp4等)", "video")],
+                        value="static",
+                        label="アバターモード",
+                        info="「静止画」は従来のプロフィール画像、「動画」はループ再生されるアニメーション"
+                    )
                     staged_image_state = gr.State()
-                    image_upload_button = gr.UploadButton("新しい画像をアップロード", file_types=["image"])
+                    image_upload_button = gr.UploadButton("新しいアバターをアップロード", file_types=["image", ".mp4", ".webm", ".gif"])
+                    gr.Markdown("💡 動画ファイル (mp4, webm, gif) をアップロードすると、自動的にアバター動画として保存されます。", elem_id="avatar_upload_hint")
                     cropper_image_preview = gr.ImageEditor(
                         sources=["upload"], type="pil", interactive=True, show_label=False,
                         visible=False, transforms=["crop"], brush=None, eraser=None,
@@ -2620,13 +2627,14 @@ try:
             outputs=[new_item_form, new_item_name]
         )
 
-        # --- プロフィール画像編集機能のイベント接続 ---
+        # --- アバターアップロード機能のイベント接続 ---
 
-        # 1. アップロードボタンに画像が渡されたら、編集プレビューを表示する
+        # 1. アップロードボタンにファイルが渡されたら、
+        #    画像の場合は編集プレビューを表示、動画の場合は直接保存
         image_upload_button.upload(
-            fn=ui_handlers.handle_staging_image_upload,
-            inputs=[image_upload_button],
-            outputs=[staged_image_state, cropper_image_preview, save_cropped_image_button, profile_image_accordion]
+            fn=ui_handlers.handle_avatar_upload,
+            inputs=[current_room_name, image_upload_button],
+            outputs=[staged_image_state, cropper_image_preview, save_cropped_image_button, profile_image_accordion, profile_image_display]
         )
 
         # 2. 編集プレビューで範囲が選択され、「保存」ボタンが押されたら、最終処理を呼び出す
@@ -2635,6 +2643,14 @@ try:
             inputs=[current_room_name, staged_image_state, cropper_image_preview],
             outputs=[profile_image_display, cropper_image_preview, save_cropped_image_button]
         )
+
+        # 3. アバターモード切り替えイベント
+        avatar_mode_radio.change(
+            fn=ui_handlers.handle_avatar_mode_change,
+            inputs=[current_room_name, avatar_mode_radio],
+            outputs=[profile_image_display]
+        )
+
         world_builder_raw_outputs = [
             world_data_state,
             area_selector,
