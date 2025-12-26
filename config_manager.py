@@ -353,8 +353,9 @@ def _get_default_config() -> dict:
                 "default_model": "llama-3.3-70b-versatile",
                 "available_models": [
                     "llama-3.3-70b-versatile",
-                    "llama3-groq-70b-8192-tool-use-preview",
-                    "llama-3.1-8b-instant"
+                    "llama-3.1-8b-instant",
+                    "openai/gpt-oss-120b",
+                    "qwen/qwen3-32b"
                 ]
             },
             {
@@ -419,10 +420,11 @@ def load_config():
                 "api_key": "",
                 "default_model": "llama-3.3-70b-versatile",
                 "available_models": [
-                    # 無料・高速（14,400リクエスト/日）
+                    # Production Models (無料・高速)
                     "llama-3.3-70b-versatile",              # 最新・汎用
-                    "llama3-groq-70b-8192-tool-use-preview", # ツール使用特化
-                    "llama-3.1-8b-instant"                   # 軽量・高速
+                    "llama-3.1-8b-instant",                 # 軽量・高速
+                    "openai/gpt-oss-120b",                  # OpenAI OSS
+                    "qwen/qwen3-32b"                        # Qwen3 32B (Preview)
                 ]
             },
             {
