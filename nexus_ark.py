@@ -1074,8 +1074,14 @@ try:
                         info="「静止画」は従来のプロフィール画像、「動画」はループ再生されるアニメーション"
                     )
                     staged_image_state = gr.State()
-                    image_upload_button = gr.UploadButton("新しいアバターをアップロード", file_types=["image", ".mp4", ".webm", ".gif"])
-                    gr.Markdown("💡 動画ファイル (mp4, webm, gif) をアップロードすると、自動的にアバター動画として保存されます。", elem_id="avatar_upload_hint")
+                    
+                    gr.Markdown("### 待機状態 (idle)")
+                    image_upload_button = gr.UploadButton("待機アバターをアップロード", file_types=["image", ".mp4", ".webm", ".gif"])
+                    
+                    gr.Markdown("### 思考中 (thinking)")
+                    thinking_upload_button = gr.UploadButton("思考中アバターをアップロード", file_types=[".mp4", ".webm", ".gif"])
+                    
+                    gr.Markdown("💡 画像は静止画モード用、動画は動画モード用です。思考中アバターはAI応答生成中に表示されます。", elem_id="avatar_upload_hint")
                     cropper_image_preview = gr.ImageEditor(
                         sources=["upload"], type="pil", interactive=True, show_label=False,
                         visible=False, transforms=["crop"], brush=None, eraser=None,
@@ -2649,6 +2655,13 @@ try:
             fn=ui_handlers.handle_avatar_mode_change,
             inputs=[current_room_name, avatar_mode_radio],
             outputs=[profile_image_display]
+        )
+
+        # 4. 思考中アバターアップロードイベント
+        thinking_upload_button.upload(
+            fn=ui_handlers.handle_thinking_avatar_upload,
+            inputs=[current_room_name, thinking_upload_button],
+            outputs=[]  # 特に出力なし（通知のみ）
         )
 
         world_builder_raw_outputs = [
