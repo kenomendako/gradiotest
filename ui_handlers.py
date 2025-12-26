@@ -4941,24 +4941,24 @@ def handle_avatar_upload(room_name: str, uploaded_file_path: Optional[str]) -> T
         )
 
 
-def handle_thinking_avatar_upload(room_name: str, uploaded_file_path: Optional[str]) -> gr.update:
+def handle_thinking_avatar_upload(room_name: str, uploaded_file_path: Optional[str]) -> None:
     """
     思考中アバター動画をアップロードした際の処理。
     動画を avatar/thinking.{ext} として保存する。
     """
     if uploaded_file_path is None:
-        return gr.update()
+        return
 
     if not room_name:
         gr.Warning("アバターを保存するルームが選択されていません。")
-        return gr.update()
+        return
 
     ext = os.path.splitext(uploaded_file_path)[1].lower()
     video_extensions = {'.mp4', '.webm', '.gif'}
 
     if ext not in video_extensions:
         gr.Warning("思考中アバターは動画ファイル (mp4, webm, gif) のみ対応しています。")
-        return gr.update()
+        return
 
     try:
         avatar_dir = os.path.join(constants.ROOMS_DIR, room_name, constants.AVATAR_DIR)
@@ -4975,12 +4975,10 @@ def handle_thinking_avatar_upload(room_name: str, uploaded_file_path: Optional[s
         shutil.copy2(uploaded_file_path, target_path)
 
         gr.Info(f"ルーム「{room_name}」の思考中アバター動画を保存しました。")
-        return gr.update()
 
     except Exception as e:
         gr.Error(f"思考中アバターの保存中にエラーが発生しました: {e}")
         traceback.print_exc()
-        return gr.update()
 
 
 def handle_avatar_mode_change(room_name: str, mode: str) -> gr.update:
