@@ -3114,6 +3114,13 @@ try:
             outputs=None
         )
 
+# --- API Key / Webhook Events ---
+        paid_keys_checkbox_group.change(
+            fn=ui_handlers.handle_paid_keys_change,
+            inputs=[paid_keys_checkbox_group],
+            outputs=[api_key_dropdown]
+        )
+
 # --- Multi-Provider Events ---
         provider_radio.change(
             fn=ui_handlers.handle_provider_change,
