@@ -324,6 +324,122 @@ def get_theme_object(theme_name: str):
     return gr.themes.Soft()
 
 
+# --- モデルリスト取得（API経由） ---
+def fetch_models_from_api(base_url: str, api_key: str = "") -> list[str]:
+    """
+    OpenAI互換API (/v1/models) からモデルリストを取得する。
+    Groq, Ollama, OpenRouter など全てに対応。
+    
+    Args:
+        base_url: プロバイダのベースURL（例: https://api.groq.com/openai/v1）
+        api_key: APIキー（Ollamaは不要）
+    
+    Returns:
+        モデルIDのリスト
+    """
+    import requests
+    
+    # URLの末尾スラッシュを除去し、/modelsを追加
+    models_url = base_url.rstrip('/') + '/models'
+    
+    headers = {"Content-Type": "application/json"}
+    if api_key and api_key != "ollama":
+        headers["Authorization"] = f"Bearer {api_key}"
+    
+    try:
+        response = requests.get(models_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        # OpenAI互換APIのレスポンス形式: {"data": [{"id": "model-name", ...}, ...]}
+        models = []
+        for model_info in data.get("data", []):
+            model_id = model_info.get("id", "")
+            if model_id:
+                models.append(model_id)
+        
+        return sorted(models)
+    except Exception as e:
+        print(f"[config_manager] モデルリスト取得エラー: {e}")
+        return []
+
+
+def toggle_favorite_model(provider_name: str, model_name: str) -> tuple[bool, str]:
+    """
+    モデルのお気に入り状態をトグルする（⭐ マークの付け外し）。
+    
+    Args:
+        provider_name: プロバイダ名（例: "OpenRouter", "Groq", "Local Ollama"）
+        model_name: モデル名
+    
+    Returns:
+        (成功したか, 新しいモデル名)
+    """
+    global CONFIG_GLOBAL
+    
+    # お気に入りマーク
+    FAVORITE_MARK = "⭐ "
+    
+    # 現在のお気に入り状態を確認
+    is_favorite = model_name.startswith(FAVORITE_MARK)
+    
+    # トグル後の新しいモデル名
+    if is_favorite:
+        new_model_name = model_name[len(FAVORITE_MARK):]  # マークを削除
+    else:
+        new_model_name = FAVORITE_MARK + model_name  # マークを追加
+    
+    # 設定内のモデルリストを更新
+    provider_settings = CONFIG_GLOBAL.get("openai_provider_settings", [])
+    for provider in provider_settings:
+        if provider.get("name") == provider_name:
+            available_models = provider.get("available_models", [])
+            
+            # 旧モデル名を新モデル名に置換
+            if model_name in available_models:
+                idx = available_models.index(model_name)
+                available_models[idx] = new_model_name
+                
+                # 設定を保存
+                save_config()
+                return (True, new_model_name)
+    
+    return (False, model_name)
+
+
+def add_model_to_list(provider_name: str, model_name: str) -> bool:
+    """
+    プロバイダのモデルリストにモデルを追加する。
+    
+    Args:
+        provider_name: プロバイダ名
+        model_name: 追加するモデル名
+    
+    Returns:
+        成功したか
+    """
+    global CONFIG_GLOBAL
+    
+    provider_settings = CONFIG_GLOBAL.get("openai_provider_settings", [])
+    for provider in provider_settings:
+        if provider.get("name") == provider_name:
+            available_models = provider.get("available_models", [])
+            
+            # 重複チェック（⭐ マークの有無を無視して比較）
+            clean_model_name = model_name.lstrip("⭐ ")
+            existing_clean = [m.lstrip("⭐ ") for m in available_models]
+            
+            if clean_model_name not in existing_clean:
+                available_models.append(model_name)
+                save_config()
+                return True
+            else:
+                print(f"[config_manager] モデル '{model_name}' は既にリストに存在します")
+                return False
+    
+    return False
+
+
 # --- デフォルト設定を取得する関数 ---
 def _get_default_config() -> dict:
     """

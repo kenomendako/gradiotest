@@ -459,6 +459,10 @@ try:
                                 with gr.Row():
                                     delete_openai_model_button = gr.Button("選択中のモデルを削除", variant="secondary", size="sm")
                                     reset_openai_models_button = gr.Button("デフォルトに戻す", variant="secondary", size="sm")
+                                with gr.Row():
+                                    fetch_models_button = gr.Button("📥 モデルリスト取得", variant="secondary", size="sm")
+                                    toggle_favorite_button = gr.Button("⭐ お気に入りに追加/削除", variant="secondary", size="sm")
+                                gr.Markdown("⚠️ すべてのモデルがNexus Arkで動作するわけではありません。", elem_id="common_openai_model_warning")
                                             
                                 # 【ツール不使用モード】ツール使用チェックボックス
                                 _tool_use_enabled = _current_openai_setting.get("tool_use_enabled", True)
@@ -627,6 +631,10 @@ try:
                                 with gr.Row():
                                     room_delete_openai_model_button = gr.Button("選択中のモデルを削除", variant="secondary", size="sm")
                                     room_reset_openai_models_button = gr.Button("デフォルトに戻す", variant="secondary", size="sm")
+                                with gr.Row():
+                                    room_fetch_models_button = gr.Button("📥 モデルリスト取得", variant="secondary", size="sm")
+                                    room_toggle_favorite_button = gr.Button("⭐ お気に入りに追加/削除", variant="secondary", size="sm")
+                                gr.Markdown("⚠️ すべてのモデルがNexus Arkで動作するわけではありません。", elem_id="openai_model_warning")
                                             
                                 # ツール使用オンオフ
                                 room_openai_tool_use_checkbox = gr.Checkbox(
@@ -3150,6 +3158,18 @@ try:
             inputs=[openai_profile_dropdown],
             outputs=[openai_model_dropdown]
         )
+        
+        fetch_models_button.click(
+            fn=ui_handlers.handle_fetch_models,
+            inputs=[openai_profile_dropdown, openai_base_url_input, openai_api_key_input],
+            outputs=[openai_model_dropdown]
+        )
+        
+        toggle_favorite_button.click(
+            fn=ui_handlers.handle_toggle_favorite,
+            inputs=[openai_profile_dropdown, openai_model_dropdown],
+            outputs=[openai_model_dropdown]
+        )
 
         # --- 個別設定のモデルリスト管理ボタンのイベント ---
         # Gemini個別設定
@@ -3175,6 +3195,18 @@ try:
         room_reset_openai_models_button.click(
             fn=ui_handlers.handle_reset_openai_models_to_default,
             inputs=[room_openai_profile_dropdown],
+            outputs=[room_openai_model_dropdown]
+        )
+        
+        room_fetch_models_button.click(
+            fn=ui_handlers.handle_fetch_models,
+            inputs=[room_openai_profile_dropdown, room_openai_base_url_input, room_openai_api_key_input],
+            outputs=[room_openai_model_dropdown]
+        )
+        
+        room_toggle_favorite_button.click(
+            fn=ui_handlers.handle_toggle_favorite,
+            inputs=[room_openai_profile_dropdown, room_openai_model_dropdown],
             outputs=[room_openai_model_dropdown]
         )
 

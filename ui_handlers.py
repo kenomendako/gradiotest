@@ -6656,6 +6656,93 @@ def handle_reset_openai_models_to_default(profile_name: str):
     
     gr.Info(f"プロファイル「{profile_name}」のモデルリストをデフォルトにリセットしました。")
     return gr.update(choices=default_models, value=default_models[0] if default_models else "")
+
+
+def handle_fetch_models(profile_name: str, base_url: str, api_key: str):
+    """
+    APIからモデルリストを取得し、現在の選択肢に追加する。
+    """
+    if not profile_name:
+        gr.Warning("プロファイルが選択されていません。")
+        return gr.update()
+    
+    if not base_url:
+        gr.Warning("Base URLが設定されていません。")
+        return gr.update()
+    
+    # APIからモデルリストを取得
+    fetched_models = config_manager.fetch_models_from_api(base_url, api_key)
+    
+    if not fetched_models:
+        gr.Warning("モデルリストの取得に失敗しました。APIキーやBase URLを確認してください。")
+        return gr.update()
+    
+    # 現在のプロファイル設定を取得
+    settings_list = config_manager.get_openai_settings_list()
+    for s in settings_list:
+        if s["name"] == profile_name:
+            current_models = s.get("available_models", [])
+            
+            # 既存モデル（⭐ マークを除いた名前）のセット
+            existing_clean = {m.lstrip("⭐ ") for m in current_models}
+            
+            # 新規モデルのみ追加
+            added_count = 0
+            for model in fetched_models:
+                if model not in existing_clean:
+                    current_models.append(model)
+                    added_count += 1
+            
+            s["available_models"] = current_models
+            config_manager.save_openai_settings_list(settings_list)
+            
+            gr.Info(f"{len(fetched_models)} 件のモデルを取得し、{added_count} 件を追加しました。")
+            return gr.update(choices=current_models)
+    
+    gr.Warning(f"プロファイル「{profile_name}」が見つかりませんでした。")
+    return gr.update()
+
+
+def handle_toggle_favorite(profile_name: str, model_name: str):
+    """
+    選択中のモデルのお気に入り状態をトグルする（⭐ マークの付け外し）。
+    """
+    if not profile_name:
+        gr.Warning("プロファイルが選択されていません。")
+        return gr.update()
+    
+    if not model_name:
+        gr.Warning("モデルが選択されていません。")
+        return gr.update()
+    
+    # お気に入りマーク
+    FAVORITE_MARK = "⭐ "
+    is_favorite = model_name.startswith(FAVORITE_MARK)
+    
+    # トグル後の新しいモデル名
+    if is_favorite:
+        new_model_name = model_name[len(FAVORITE_MARK):]
+        action = "解除"
+    else:
+        new_model_name = FAVORITE_MARK + model_name
+        action = "追加"
+    
+    # 設定を更新
+    settings_list = config_manager.get_openai_settings_list()
+    for s in settings_list:
+        if s["name"] == profile_name:
+            available_models = s.get("available_models", [])
+            
+            if model_name in available_models:
+                idx = available_models.index(model_name)
+                available_models[idx] = new_model_name
+                config_manager.save_openai_settings_list(settings_list)
+                
+                gr.Info(f"お気に入り{action}: {new_model_name}")
+                return gr.update(choices=available_models, value=new_model_name)
+    
+    gr.Warning(f"モデル「{model_name}」が見つかりませんでした。")
+    return gr.update()
     
 def _resolve_background_image(room_name: str, settings: dict) -> str:
     """背景画像ソースモードに基づいて、使用すべき画像パスを決定する"""
