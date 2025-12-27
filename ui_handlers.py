@@ -5009,6 +5009,29 @@ def handle_avatar_mode_change(room_name: str, mode: str) -> gr.update:
     return gr.update(value=get_avatar_html(room_name, state="idle", mode=mode))
 
 
+def get_avatar_mode_for_room(room_name: str) -> gr.update:
+    """
+    ルーム切り替え時に avatar_mode_radio を正しい値に更新する。
+    
+    Args:
+        room_name: ルームのフォルダ名
+        
+    Returns:
+        avatar_mode_radio の gr.update
+    """
+    if not room_name:
+        return gr.update(value="static")
+    
+    effective_settings = config_manager.get_effective_settings(room_name)
+    mode = effective_settings.get("avatar_mode", "video")  # デフォルトは動画優先
+    
+    # room_config.json から直接読み込む（effective_settings に含まれていない場合）
+    room_config = room_manager.get_room_config(room_name) or {}
+    mode = room_config.get("avatar_mode", mode)
+    
+    return gr.update(value=mode)
+
+
 def handle_save_cropped_image(room_name: str, original_image_path: str, cropped_image_data: Dict) -> Tuple[gr.update, gr.update, gr.update]:
     """
     ユーザーが「この範囲で保存」ボタンを押した際に、

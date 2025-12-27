@@ -1895,6 +1895,11 @@ try:
             fn=ui_handlers.handle_room_change_for_all_tabs,
             inputs=[room_dropdown, api_key_dropdown, current_room_name, full_refresh_output_count],
             outputs=unified_full_room_refresh_outputs
+        # 3. [v6] アバターモードラジオを更新
+        ).then(
+            fn=ui_handlers.get_avatar_mode_for_room,
+            inputs=[room_dropdown],
+            outputs=[avatar_mode_radio]
         )
 
         chat_reload_button.click(
