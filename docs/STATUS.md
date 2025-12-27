@@ -30,6 +30,7 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
+| 2025-12-27 | 有料プランAPIキー保存問題の修正 | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-27_paid_api_key_save_fix.md)<br>#### 🔄 プロバイダ切り替え・ドロップダウン問題 (2025-12-27)<br>- 共通設定でOpenAI互換を選んでもUI が切り替わらない問題を修正<br>- 個別設定のOpenAI互換モデルドロップダウンが起動時に開かない問題を修正<br><br>#### 🔑 有料プランAPIキー設定の保存修正 (2025-12-27)<br>- 「有料プランのキーを選択」の設定が再起動後に失われる問題を修正 |
 | 2025-12-27 | モデルリスト取得・お気に入り機能・ドロップダウンバグ修正 | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-27_model_list_management.md) |
 | 2025-12-26 | モデルリスト精査・管理機能強化 | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-26_model_list_management.md) |
 | 2025-12-26 | 動画アバター機能（idle/thinking状態切り替え） | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-26_video_avatar.md) |
