@@ -1664,7 +1664,7 @@ def handle_message_submission(
                         print(f"  - ✅ 画像リサイズ成功 (Base64: {len(encoded_image)} chars)")
                         # ユーザーの発言の前に情景画像を挿入
                         scenery_parts = [
-                            {"type": "text", "text": "（あなたの視界：現在の周囲の景色）"},
+                            {"type": "text", "text": "（システム：現在の光景）"},
                             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded_image}"}}
                         ]
                         user_prompt_parts_for_api = scenery_parts + user_prompt_parts_for_api
