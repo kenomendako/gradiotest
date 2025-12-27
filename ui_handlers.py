@@ -735,13 +735,16 @@ def handle_initial_load(room_name: str = None, expected_count: int = 154):
         gr.update(choices=available_models, value=default_model),# openai_model_dropdown
         gr.update(value=openai_setting.get("tool_use_enabled", True)) # room_openai_tool_use_checkbox
     )
+    
+    # 個別設定のOpenAI互換モデルドロップダウン用（visible=Falseグループ内のレンダリング問題回避）
+    room_openai_model_dropdown_update = gr.update(choices=available_models, value=default_model)
 
     # --- 6. 索引の最終更新日時を取得 ---
     memory_index_last_updated = _get_rag_index_last_updated(safe_initial_room, "memory")
     current_log_index_last_updated = _get_rag_index_last_updated(safe_initial_room, "current_log")
 
     # --- 7. 全ての戻り値を正しい順序で組み立てる ---
-    # `initial_load_outputs`のリスト（60個）に対応
+    # `initial_load_outputs`のリスト（61個）に対応
     final_outputs = (
         display_df, df_with_ids, feedback_text,
         *chat_tab_updates,
@@ -755,6 +758,7 @@ def handle_initial_load(room_name: str = None, expected_count: int = 154):
         custom_scenery_dd_update,
         custom_scenery_time_dd_update,
         *openai_updates,
+        room_openai_model_dropdown_update,  # 個別設定のOpenAI互換モデルドロップダウン
         f"最終更新: {memory_index_last_updated}",  # memory_reindex_status
         f"最終更新: {current_log_index_last_updated}"  # current_log_reindex_status
     )
@@ -6238,8 +6242,8 @@ def handle_provider_change(provider_choice: str):
     AIプロバイダの選択（ラジオボタン）が変更された時の処理。
     Google用設定とOpenAI用設定の表示/非表示を切り替える。
     """
-    # UIの表示名から内部IDへ変換 ("Google (Gemini)" -> "google")
-    provider_id = "google" if "Google" in provider_choice else "openai"
+    # ラジオボタンからは内部ID（"google" or "openai"）が渡される
+    provider_id = provider_choice
     
     # 設定ファイルに保存
     config_manager.set_active_provider(provider_id)
@@ -6260,12 +6264,16 @@ def handle_openai_profile_select(profile_name: str):
     target_setting = next((s for s in settings_list if s["name"] == profile_name), None)
     
     if not target_setting:
-        return "", "", ""
-        
+        return "", "", gr.update()
+    
+    # モデルリスト（choices）も含めて更新
+    available_models = target_setting.get("available_models", [])
+    default_model = target_setting.get("default_model", "")
+    
     return (
         target_setting.get("base_url", ""),
         target_setting.get("api_key", ""),
-        target_setting.get("default_model", "")
+        gr.update(choices=available_models, value=default_model)
     )
 
 def _is_redundant_log_update(last_log_content: str, new_content: str) -> bool:

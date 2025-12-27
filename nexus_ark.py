@@ -586,7 +586,7 @@ try:
                                 )
                                         
                             # --- OpenAI互換設定グループ ---
-                            with gr.Group(visible=False) as room_openai_settings_group:
+                            with gr.Column(visible=False) as room_openai_settings_group:
                                 # プロファイル選択
                                 room_openai_profile_dropdown = gr.Dropdown(
                                     choices=[s["name"] for s in config_manager.get_openai_settings_list()],
@@ -609,8 +609,13 @@ try:
                                     )
                                             
                                 # モデル選択（Dropdown + カスタム値入力可能）
+                                # 起動時に最初のプロファイルのモデルリストを取得しておく
+                                _room_openai_settings_list = config_manager.get_openai_settings_list()
+                                _room_initial_models = _room_openai_settings_list[0].get("available_models", []) if _room_openai_settings_list else []
+                                _room_initial_default_model = _room_openai_settings_list[0].get("default_model", "") if _room_openai_settings_list else ""
                                 room_openai_model_dropdown = gr.Dropdown(
-                                    choices=[],
+                                    choices=_room_initial_models,
+                                    value=_room_initial_default_model,
                                     label="デフォルトモデル",
                                     interactive=True,
                                     allow_custom_value=True,
@@ -1753,6 +1758,8 @@ try:
             openai_api_key_input,
             openai_model_dropdown,
             openai_tool_use_checkbox,
+            # --- [追加] 個別設定OpenAI互換のモデルドロップダウン ---
+            room_openai_model_dropdown,
             # --- 索引ステータス欄（最終更新日時表示用）---
             memory_reindex_status,
             current_log_reindex_status
@@ -3209,6 +3216,7 @@ try:
             inputs=[room_openai_profile_dropdown, room_openai_model_dropdown],
             outputs=[room_openai_model_dropdown]
         )
+
 
         print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
         demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=[".", constants.ROOMS_DIR], inbrowser=True)
