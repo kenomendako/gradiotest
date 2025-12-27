@@ -52,13 +52,15 @@ def generate_image(prompt: str, room_name: str, api_key: str, api_key_name: str 
     
         # --- レスポンス処理 (共通化) ---
         image_data = None
+        image_text_response = ""
         if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
             for part in response.candidates[0].content.parts:
                 if part.text:
+                    image_text_response = part.text
                     print(f"  - APIからのテキスト応答: {part.text}")
                 if part.inline_data and part.inline_data.mime_type.startswith("image/"):
                     image_data = io.BytesIO(part.inline_data.data)
-                    break
+                    # break # テキストと画像が両方入っている場合があるため、画像を見つけてもテキストのために完走させるか検討。ここでは最後まで見る。
 
         if not image_data:
             return "【エラー】APIから画像データが返されませんでした。プロンプトが不適切か、安全フィルターにブロックされた可能性があります。"
@@ -71,7 +73,9 @@ def generate_image(prompt: str, room_name: str, api_key: str, api_key_name: str 
         image.save(save_path, "PNG")
         print(f"  - 画像を保存しました: {save_path}")
 
-        return f"[Generated Image: {save_path}]\n📝 Prompt: {prompt}\n画像生成完了。この画像についてコメントを添えてください。"
+        # 画像生成モデルからのテキスト応答があれば含める
+        model_comment = f"\nAI Model Comment: {image_text_response}" if image_text_response else ""
+        return f"[Generated Image: {save_path}]{model_comment}\n📝 Prompt: {prompt}\n画像生成完了。この画像についてコメントを添えてください。"
 
     except httpx.RemoteProtocolError as e:
         print(f"  - 画像生成ツールでサーバー切断エラー: {e}")

@@ -1050,8 +1050,8 @@ def agent_node(state: AgentState):
             # ▲▲▲ [Gemini 3 Debug] ここまで ▲▲▲
             
             # ▼▼▼ [異常検知ログ] デバッグモード不要、チャンク受信したのにテキスト抽出が0件の場合のみ出力 ▼▼▼
-            if len(chunks) > 0 and not text_parts:
-                print(f"  - ⚠️ [ANOMALY] {len(chunks)}チャンク受信したが、抽出テキストが0件でした。")
+            if len(chunks) > 0 and not text_parts and not all_tool_calls_chunks:
+                print(f"  - ⚠️ [ANOMALY] {len(chunks)}チャンク受信したが、抽出テキストおよびツール呼び出しが0件でした。")
                 print("  - 以下、先頭3チャンクの構造（デバッグモード不要）:")
                 for idx, chunk in enumerate(chunks[:3]):
                     content = chunk.content
