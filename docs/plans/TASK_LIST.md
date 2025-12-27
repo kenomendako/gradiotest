@@ -43,7 +43,10 @@
 - [x] **モデルリストのUI管理機能強化** ✅
   - UI上からモデルの削除を可能にする
   - デフォルトモデルリストで上書きして初期状態に戻す機能
-  - レポート: 同上
+  - APIからモデルリスト取得機能追加（Groq/Ollama/OpenRouter対応）
+  - お気に入りモデル機能（⭐マークでトグル）
+  - ドロップダウン未表示バグ修正（visible=Falseグループ内のレンダリング問題）
+  - レポート: [2025-12-27_model_list_management.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-27_model_list_management.md)
 
 - [/] **Gemini 3シリーズの空応答・思考タグ問題**
   - 空応答が頻発（思考レベル変更で解消せず）
