@@ -292,6 +292,26 @@ try:
         overflow-y: auto !important;
     }
 
+    /* --- [Sidebar Scrolling Fix] --- */
+    /* サイドバー全体の高さを確保し、内部のスクロールを有効化 */
+    div.sidebar {
+        height: 100vh !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+    
+    /* サイドバー内のコンテナが柔軟に伸び縮みするように設定 */
+    div.sidebar > div.sidebar-container {
+        overflow-y: auto !important;
+        height: 100% !important;
+        padding-bottom: 50px !important; /* 最下部が隠れないようにマージンを確保 */
+    }
+
+    /* アコーディオンの開閉時に親コンテナの高さ計算が追従するように設定 */
+    .sidebar .accordion {
+        height: auto !important;
+    }
+
     """
     custom_js = """
     function() {
