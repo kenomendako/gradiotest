@@ -550,6 +550,9 @@ def check_autonomous_actions():
                                 em = EpisodicMemoryManager(room_folder)
                                 em_result = em.update_memory(api_key_val)
                                 print(f"  ✅ {room_folder}: {em_result}")
+                                # 更新日時をroom_config.jsonに保存
+                                status_text = f"最終更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                                room_manager.update_room_config(room_folder, {"last_episodic_update": status_text})
                             except Exception as e:
                                 print(f"  ❌ {room_folder}: エピソード記憶更新エラー - {e}")
                         
@@ -582,6 +585,9 @@ def check_autonomous_actions():
                                 tcm = TopicClusterManager(room_folder, api_key_val)
                                 tcm_result = tcm.run_clustering()
                                 print(f"  ✅ {room_folder}: {tcm_result}")
+                                # 更新日時をroom_config.jsonに保存
+                                status_text = f"✅ 更新完了 ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}): {tcm_result}"
+                                room_manager.update_room_config(room_folder, {"last_topic_cluster_update": status_text})
                             except Exception as e:
                                 print(f"  ❌ {room_folder}: 話題クラスタ更新エラー - {e}")
                         

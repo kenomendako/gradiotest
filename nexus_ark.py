@@ -2750,14 +2750,29 @@ try:
         )
 
         # --- 会話ログ RAWエディタのイベント接続 ---
-        # タブが選択された時にログを読み込む
+        # タブが選択された時にログを読み込む → 最下部にスクロール
         chat_raw_editor_tab.select(
             fn=ui_handlers.handle_load_chat_log_raw,
             inputs=[current_room_name],
             outputs=[chat_log_raw_editor]
+        ).then(
+            fn=None,
+            inputs=None,
+            outputs=None,
+            js="""
+            () => {
+                // gr.Code は内部的にCodeMirrorを使用しているので、.cm-scroller をスクロールさせる
+                setTimeout(() => {
+                    const editor = document.querySelector('#chat_log_raw_editor .cm-scroller');
+                    if (editor) {
+                        editor.scrollTop = editor.scrollHeight;
+                    }
+                }, 100);  // コンテンツ更新を待つために少し遅延
+            }
+            """
         )
         
-        # 保存ボタン: ログを保存してチャット表示を更新
+        # 保存ボタン: ログを保存してチャット表示を更新 → 最下部にスクロール
         save_chat_log_button.click(
             fn=ui_handlers.handle_save_chat_log_raw,
             inputs=[
@@ -2770,13 +2785,41 @@ try:
                 redaction_rules_state
             ],
             outputs=[chat_log_raw_editor, chatbot_display, current_log_map_state]
+        ).then(
+            fn=None,
+            inputs=None,
+            outputs=None,
+            js="""
+            () => {
+                setTimeout(() => {
+                    const editor = document.querySelector('#chat_log_raw_editor .cm-scroller');
+                    if (editor) {
+                        editor.scrollTop = editor.scrollHeight;
+                    }
+                }, 100);
+            }
+            """
         )
         
-        # 再読込ボタン: 最後に保存した内容を読み込む
+        # 再読込ボタン: 最後に保存した内容を読み込む → 最下部にスクロール
         reload_chat_log_button.click(
             fn=ui_handlers.handle_reload_chat_log_raw,
             inputs=[current_room_name],
             outputs=[chat_log_raw_editor]
+        ).then(
+            fn=None,
+            inputs=None,
+            outputs=None,
+            js="""
+            () => {
+                setTimeout(() => {
+                    const editor = document.querySelector('#chat_log_raw_editor .cm-scroller');
+                    if (editor) {
+                        editor.scrollTop = editor.scrollHeight;
+                    }
+                }, 100);
+            }
+            """
         )
         clear_debug_console_button.click(
             fn=lambda: ("", ""),
