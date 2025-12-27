@@ -713,13 +713,15 @@ def handle_initial_load(room_name: str = None, expected_count: int = 154):
     # --- 4. [v9] その他の共通設定の初期値を決定 ---
     common_settings_updates = (
         gr.update(value=config.get("last_model", config_manager.DEFAULT_MODEL_GLOBAL)),
-        gr.update(value=config.get("debug_mode", False)),        gr.update(value=config.get("notification_service", "discord").capitalize()),
+        gr.update(value=config.get("debug_mode", False)),
+        gr.update(value=config.get("notification_service", "discord").capitalize()),
         gr.update(value=config.get("backup_rotation_count", 10)),
         gr.update(value=config.get("pushover_user_key", "")),
         gr.update(value=config.get("pushover_app_token", "")),
         gr.update(value=config.get("notification_webhook_url", "")),
         gr.update(value=config.get("image_generation_mode", "new")),
         gr.update(choices=[p[1] for p in latest_api_key_choices], value=config.get("paid_api_key_names", [])),
+        gr.update(value=config.get("allow_external_connection", False)),  # [追加] 外部接続設定
     )
 
     current_openai_profile_name = config_manager.get_active_openai_profile_name()
@@ -4602,6 +4604,16 @@ def handle_paid_keys_change(paid_key_names: List[str]):
     # ドロップダウンの表示も(Paid)ラベル付きで更新するために、新しい選択肢リストを返す
     new_choices_for_ui = config_manager.get_api_key_choices_for_ui()
     return gr.update(choices=new_choices_for_ui)
+
+
+def handle_allow_external_connection_change(allow_external: bool):
+    """外部接続設定が変更されたら即時保存する。"""
+    if config_manager.save_config_if_changed("allow_external_connection", allow_external):
+        if allow_external:
+            gr.Info("外部接続を許可しました。アプリを再起動すると反映されます。")
+        else:
+            gr.Info("外部接続を無効にしました。アプリを再起動すると反映されます。")
+    config_manager.load_config()
 
 def handle_notification_service_change(service_choice: str):
     if service_choice in ["Discord", "Pushover"]:

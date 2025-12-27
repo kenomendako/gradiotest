@@ -545,7 +545,17 @@ try:
                                 info="ファイル（ログ、記憶など）ごとに、ここで指定した数だけ最新のバックアップが保持されます。"
                             )
                             open_backup_folder_button = gr.Button("現在のルームのバックアップフォルダを開く", variant="secondary")
-                                    
+                        
+                        # --- ネットワーク設定 ---
+                        with gr.Accordion("🌐 ネットワーク設定", open=False):
+                            gr.Markdown("⚠️ **設定変更後はアプリの再起動が必要です。**")
+                            allow_external_connection_checkbox = gr.Checkbox(
+                                label="外部接続を許可（同じネットワーク内の他デバイスからアクセス可能）",
+                                interactive=True,
+                                info="有効にすると、スマホなど他のデバイスからアクセスできます。"
+                            )
+                        
+                        # --- デバッグ設定 ---
                         debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", interactive=True)
                     with gr.TabItem("個別") as individual_settings_tab:
                         room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
@@ -1770,6 +1780,7 @@ try:
             discord_webhook_input,
             image_generation_mode_radio,
             paid_keys_checkbox_group,
+            allow_external_connection_checkbox,  # [追加] 外部接続設定
             custom_scenery_location_dropdown,
             custom_scenery_time_dropdown,
             # --- [追加] OpenAI設定UIへの反映 ---
@@ -3145,6 +3156,12 @@ try:
             inputs=[paid_keys_checkbox_group],
             outputs=[api_key_dropdown]
         )
+        
+        allow_external_connection_checkbox.change(
+            fn=ui_handlers.handle_allow_external_connection_change,
+            inputs=[allow_external_connection_checkbox],
+            outputs=None
+        )
 
 # --- Multi-Provider Events ---
         provider_radio.change(
@@ -3250,8 +3267,25 @@ try:
         )
 
 
-        print("\n" + "="*60); print("アプリケーションを起動します..."); print(f"起動後、以下のURLでアクセスしてください。"); print(f"\n  【PCからアクセスする場合】"); print(f"  http://127.0.0.1:7860"); print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】"); print(f"  http://<お使いのPCのIPアドレス>:7860"); print("  (IPアドレスが分からない場合は、PCのコマンドプロモートやターミナルで"); print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)"); print("="*60 + "\n")
-        demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, allowed_paths=[".", constants.ROOMS_DIR], inbrowser=True)
+        # --- 外部接続設定に基づいてserver_nameを決定 ---
+        allow_external = config_manager.CONFIG_GLOBAL.get("allow_external_connection", False)
+        server_name_value = "0.0.0.0" if allow_external else "127.0.0.1"
+        
+        print("\n" + "="*60)
+        print("アプリケーションを起動します...")
+        print(f"起動後、以下のURLでアクセスしてください。")
+        print(f"\n  【PCからアクセスする場合】")
+        print(f"  http://127.0.0.1:7860")
+        if allow_external:
+            print(f"\n  【スマホからアクセスする場合（PCと同じWi-Fiに接続してください）】")
+            print(f"  http://<お使いのPCのIPアドレス>:7860")
+            print("  (IPアドレスが分からない場合は、PCのコマンドプロンプトやターミナルで")
+            print("   `ipconfig` (Windows) または `ifconfig` (Mac/Linux) と入力して確認できます)")
+        else:
+            print(f"\n  ※外部接続は無効です。共通設定で有効化できます。")
+        print("="*60 + "\n")
+        
+        demo.queue().launch(server_name=server_name_value, server_port=7860, share=False, allowed_paths=[".", constants.ROOMS_DIR], inbrowser=True)
 
 except Exception as e:
     print("\n" + "X"*60); print("!!! [致命的エラー] アプリケーションの起動中に、予期せぬ例外が発生しました。"); print("X"*60); traceback.print_exc()
