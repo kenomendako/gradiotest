@@ -1451,13 +1451,18 @@ def _stream_and_handle_response(
         # [v20] 動画アバター対応: idle状態のアバターHTMLに戻す
         final_profile_update = gr.update(value=get_avatar_html(soul_vessel_room, state="idle"))
 
+        # [v21] 現在地連動背景: ツール使用後に背景CSSも更新
+        effective_settings_for_style = config_manager.get_effective_settings(soul_vessel_room)
+        style_css_update = gr.update(value=_generate_style_from_settings(soul_vessel_room, effective_settings_for_style))
+
         yield (final_chatbot_history, final_mapping_list, gr.update(), token_count_text,
                location_dropdown_update, new_scenery_text,
                final_df_with_ids, final_df, scenery_image,
                current_console_content, current_console_content,
                gr.update(visible=False, interactive=True), gr.update(interactive=True),
                gr.update(visible=False),
-               final_profile_update # [v19] Stop Animation
+               final_profile_update, # [v19] Stop Animation
+               style_css_update # [v21] Sync Background
         )
 
 def handle_message_submission(
@@ -6804,6 +6809,12 @@ def _resolve_background_image(room_name: str, settings: dict) -> str:
     else:
         # Manualモード: 設定された画像パスを使用
         return settings.get("theme_bg_image", None)
+
+def handle_refresh_background_css(room_name: str) -> str:
+    """[v21] 現在地連動背景: 画像生成/登録後にstyle_injectorを更新するためのハンドラ"""
+    effective_settings = config_manager.get_effective_settings(room_name)
+    return _generate_style_from_settings(room_name, effective_settings)
+
 
 def _generate_style_from_settings(room_name: str, settings: dict) -> str:
     """設定辞書からCSSを生成するヘルパー（背景画像解決込み）"""

@@ -1886,7 +1886,8 @@ try:
             debug_console_state, debug_console_output,
             stop_button, chat_reload_button,
             action_button_group,
-            profile_image_display # [v19] Added for Thinking Animation
+            profile_image_display, # [v19] Added for Thinking Animation
+            style_injector # [v21] Sync Background
         ]
 
         rerun_event = rerun_button.click(
@@ -2646,11 +2647,26 @@ try:
             outputs=[core_memory_editor]
         )
 
-        generate_scenery_image_button.click(fn=ui_handlers.handle_generate_or_regenerate_scenery_image, inputs=[current_room_name, api_key_dropdown, scenery_style_radio], outputs=[scenery_image_display])
+
+        # [v21] 画像生成後に背景CSSも更新
+        generate_scenery_image_button.click(
+            fn=ui_handlers.handle_generate_or_regenerate_scenery_image,
+            inputs=[current_room_name, api_key_dropdown, scenery_style_radio],
+            outputs=[scenery_image_display]
+        ).then(
+            fn=ui_handlers.handle_refresh_background_css,
+            inputs=[current_room_name],
+            outputs=[style_injector]
+        )
+        # [v21] カスタム画像登録後に背景CSSも更新
         register_custom_scenery_button.click(
             fn=ui_handlers.handle_register_custom_scenery,
             inputs=[current_room_name, api_key_dropdown, custom_scenery_location_dropdown, custom_scenery_season_dropdown, custom_scenery_time_dropdown, custom_scenery_image_upload],
             outputs=[current_scenery_display, scenery_image_display]
+        ).then(
+            fn=ui_handlers.handle_refresh_background_css,
+            inputs=[current_room_name],
+            outputs=[style_injector]
         )
         audio_player.stop(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
         audio_player.pause(fn=lambda: gr.update(visible=False), inputs=None, outputs=[audio_player])
