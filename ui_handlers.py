@@ -1488,9 +1488,9 @@ def handle_message_submission(
     # --- [v9: 空送信ガード] ---
     # テキスト入力がなく、かつファイルも添付されていない場合は、何もせずに終了する
     if not user_prompt_from_textbox and not file_input_list:
-        # 戻り値の数は unified_streaming_outputs の要素数と一致させる必要がある (15個)
+        # 戻り値の数は unified_streaming_outputs の要素数と一致させる必要がある (16個)
         # 既存のUIの状態を維持するため、全て gr.update() を返す
-        yield (gr.update(),) * 15
+        yield (gr.update(),) * 16  # [v21] 16要素
         return
     # --- [ガードここまで] ---
 
@@ -1757,7 +1757,7 @@ def handle_rerun_button_click(
         history, mapping = reload_chat_log(room_name, api_history_limit, add_timestamp)
         yield (history, mapping, gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), console_content, console_content,
-               gr.update(visible=True, interactive=True), gr.update(interactive=True), gr.update(), gr.update())
+               gr.update(visible=True, interactive=True), gr.update(interactive=True), gr.update(), gr.update(), gr.update())  # [v21] 16要素
         return
 
     # 2. 巻き戻したユーザー発言に、新しいタイムスタンプを付加してログに再保存
