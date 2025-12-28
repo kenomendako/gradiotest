@@ -1026,6 +1026,8 @@ def _stream_and_handle_response(
     
     # タイプライターエフェクトが正常完了したかのフラグ
     typewriter_completed_successfully = False
+    # [v21] GeneratorExit後はyieldをスキップするためのフラグ
+    generator_exited = False
 
     # [v20] 動画アバター対応: thinking状態のアバターHTMLを生成
     # 動画がない場合は静止画にフォールバックし、CSSアニメーションで表現
@@ -1055,7 +1057,8 @@ def _stream_and_handle_response(
                gr.update(visible=True, interactive=True),
                gr.update(interactive=False),
                gr.update(visible=False),
-               current_profile_update # [v19]
+               current_profile_update,  # [v19] profile_image_display
+               gr.update()  # [v21] style_injector (16番目)
         )
 
         # AIごとの応答生成ループ
@@ -1071,7 +1074,7 @@ def _stream_and_handle_response(
                 screenshot_mode, redaction_rules
             )
             chatbot_history.append((None, f"思考中 ({current_room})... ▌"))
-            yield (chatbot_history, mapping_list, *([gr.update()] * 12), current_profile_update)
+            yield (chatbot_history, mapping_list, *([gr.update()] * 14))  # [v21] 16要素
 
             # APIに渡す引数を、現在のAI（current_room）のために完全に再構築
             season_en, time_of_day_en = utils._get_current_time_context(soul_vessel_room) # utilsから呼び出
@@ -1196,7 +1199,7 @@ def _stream_and_handle_response(
                             screenshot_mode, redaction_rules
                         )
                         chatbot_history.append((None, retry_message))
-                        yield (chatbot_history, mapping_list, *([gr.update()] * 12), current_profile_update)
+                        yield (chatbot_history, mapping_list, *([gr.update()] * 14))  # [v21] 16要素
                         time.sleep(wait_time)
                     else:
                         final_error_message = f"[エラー] APIのレート制限が頻発しています。時間をおいて再試行してください。"
@@ -1399,8 +1402,13 @@ def _stream_and_handle_response(
 
     except GeneratorExit:
         print("--- [ジェネレータ] ユーザーの操作により、ストリーミング処理が正常に中断されました。 ---")
+        generator_exited = True  # [v21] フラグをセット
     
     finally:
+        # [v21] GeneratorExit後はyieldできないためスキップ
+        if generator_exited:
+            return
+            
         # 処理完了・中断・エラーに関わらず、最終的なUI状態を確定する
         effective_settings = config_manager.get_effective_settings(soul_vessel_room)
         add_timestamp = effective_settings.get("add_timestamp", False)
