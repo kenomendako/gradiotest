@@ -1357,7 +1357,7 @@ def _stream_and_handle_response(
                             else:
                                 # タプル（画像など）の場合はタイプライターをスキップ
                                 chatbot_history.append(formatted_last_message)
-                                yield (chatbot_history, mapping_list, *([gr.update()] * 12), current_profile_update)
+                                yield (chatbot_history, mapping_list, *([gr.update()] * 14))  # [v21] 16要素
                                 typewriter_completed_successfully = True
                                 continue
                         
@@ -1369,13 +1369,13 @@ def _stream_and_handle_response(
                             for char in formatted_text:
                                 streamed_text += char
                                 chatbot_history[-1] = (None, streamed_text + "▌")
-                                yield (chatbot_history, mapping_list, *([gr.update()] * 12), current_profile_update)
+                                yield (chatbot_history, mapping_list, *([gr.update()] * 14))  # [v21] 16要素
                                 time.sleep(streaming_speed)
                             
                             # タイプライター完了後、フォーマット済みの最終形を表示
                             # （生テキストではなく、reload_chat_logから取得したフォーマット済みを使用）
                             chatbot_history[-1] = formatted_last_message
-                            yield (chatbot_history, mapping_list, *([gr.update()] * 12), current_profile_update)
+                            yield (chatbot_history, mapping_list, *([gr.update()] * 14))  # [v21] 16要素
                         
                         typewriter_completed_successfully = True
                         
