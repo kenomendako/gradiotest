@@ -54,7 +54,7 @@ except ImportError:
 all_tools = [
     set_current_location, read_world_settings, plan_world_edit,
     search_memory,
-    search_past_conversations,
+    # search_past_conversations,  # [2024-12-28 最適化] RAG検索(search_knowledge_base)がカバーするため除外
     read_main_memory, plan_main_memory_edit, read_secret_diary, plan_secret_diary_edit,
     read_full_notepad, plan_notepad_edit,
     web_search_tool, read_url_tool,
@@ -331,22 +331,16 @@ def retrieval_node(state: AgentState):
              preview = kb_result[:50].replace('\n', '') if kb_result else "None"
              print(f"    -> 知識ベース: なし (Result: {preview}...)")
 
-        # 3b. 過去ログ
-        from tools.memory_tools import search_past_conversations
-        log_result = search_past_conversations.func(
-            query=search_query, 
-            room_name=room_name, 
-            api_key=api_key, 
-            exclude_recent_messages=exclude_count
-        )
-        # こちらも同様にヘッダーチェックに変更
-        if log_result and "【過去の会話ログからの検索結果：" in log_result:
-             print(f"    -> 過去ログ: ヒット ({len(log_result)} chars)")
-             results.append(log_result)
-        else:
-             print(f"    -> 過去ログ: なし (除外数: {exclude_count})")
+        # ▼▼▼ [2024-12-28 最適化] 過去ログ検索を除外 ▼▼▼
+        # キーワードマッチ方式はノイズが多いため、RAG検索（知識ベース）に統合。
+        # AIが能動的に過去ログを検索したい場合は search_past_conversations ツールを直接使用可能。
+        # ---
+        # 3b. 過去ログ (削除済み - RAGがログアーカイブをカバー)
+        # from tools.memory_tools import search_past_conversations
+        # log_result = search_past_conversations.func(...)
+        # ▲▲▲ 過去ログ検索除外ここまで ▲▲▲
 
-        # 3c. 日記 (Memory)
+        # 3c. 日記 (Memory) - キーワード「思い」「記憶」を含む場合、または他に結果がない場合
         if not results or "思い" in search_query or "記憶" in search_query:
             from tools.memory_tools import search_memory
             mem_result = search_memory.func(query=search_query, room_name=room_name)
@@ -357,33 +351,34 @@ def retrieval_node(state: AgentState):
             else:
                 print(f"    -> 日記: なし")
 
-        # 3d. 話題クラスタ検索
-        try:
-            from topic_cluster_manager import TopicClusterManager
-            tcm = TopicClusterManager(room_name, api_key)
-            
-            # クラスタデータが存在する場合のみ検索を実行
-            if tcm._load_clusters().get("clusters"):
-                relevant_clusters = tcm.get_relevant_clusters(search_query, top_k=2)
-                
-                if relevant_clusters:
-                    cluster_context_parts = []
-                    for cluster in relevant_clusters:
-                        label = cluster.get('label', '不明なトピック')
-                        summary = cluster.get('summary', '')
-                        if summary:
-                            cluster_context_parts.append(f"【{label}に関する記憶】\n{summary}")
-                    
-                    if cluster_context_parts:
-                        cluster_result = "【関連する話題クラスタ：】\n" + "\n\n".join(cluster_context_parts)
-                        print(f"    -> 話題クラスタ: ヒット ({len(relevant_clusters)}件)")
-                        results.append(cluster_result)
-                else:
-                    print(f"    -> 話題クラスタ: 関連なし")
-            else:
-                print(f"    -> 話題クラスタ: データなし（初回クラスタリング未実行）")
-        except Exception as cluster_e:
-            print(f"    -> 話題クラスタ: エラー ({cluster_e})")
+        # ▼▼▼ [2024-12-28 最適化] 話題クラスタ検索を一時無効化 ▼▼▼
+        # 現状のクラスタリング精度が低く、ノイズが多いため一時無効化。
+        # 別タスク「話題クラスタの改良」完了後に再有効化する。
+        # ---
+        # 3d. 話題クラスタ検索 (一時無効化)
+        # try:
+        #     from topic_cluster_manager import TopicClusterManager
+        #     tcm = TopicClusterManager(room_name, api_key)
+        #     if tcm._load_clusters().get("clusters"):
+        #         relevant_clusters = tcm.get_relevant_clusters(search_query, top_k=2)
+        #         if relevant_clusters:
+        #             cluster_context_parts = []
+        #             for cluster in relevant_clusters:
+        #                 label = cluster.get('label', '不明なトピック')
+        #                 summary = cluster.get('summary', '')
+        #                 if summary:
+        #                     cluster_context_parts.append(f"【{label}に関する記憶】\n{summary}")
+        #             if cluster_context_parts:
+        #                 cluster_result = "【関連する話題クラスタ：】\n" + "\n\n".join(cluster_context_parts)
+        #                 print(f"    -> 話題クラスタ: ヒット ({len(relevant_clusters)}件)")
+        #                 results.append(cluster_result)
+        #         else:
+        #             print(f"    -> 話題クラスタ: 関連なし")
+        #     else:
+        #         print(f"    -> 話題クラスタ: データなし（初回クラスタリング未実行）")
+        # except Exception as cluster_e:
+        #     print(f"    -> 話題クラスタ: エラー ({cluster_e})")
+        # ▲▲▲ 話題クラスタ一時無効化ここまで ▲▲▲
                 
         if not results:
             print("  - [Retrieval] 関連情報は検索されませんでした。")
@@ -391,6 +386,17 @@ def retrieval_node(state: AgentState):
             
         final_context = "\n\n".join(results)
         print(f"  - [Retrieval] 検索完了。合計 {len(final_context)} 文字のコンテキストを生成しました。")
+        
+        # ▼▼▼ デバッグ用：検索結果の全内容を出力（必要時にコメント解除） ▼▼▼
+        # print("\n" + "="*60)
+        # print("[RETRIEVAL DEBUG] 検索結果の全内容:")
+        # print("="*60)
+        # for i, res in enumerate(results):
+        #     print(f"\n--- 結果 {i+1} ({len(res)} chars) ---")
+        #     print(res)
+        # print("="*60 + "\n")
+        # ▲▲▲ デバッグ用ここまで ▲▲▲
+        
         return {"retrieved_context": final_context}
 
     except Exception as e:
@@ -605,7 +611,39 @@ def context_generator_node(state: AgentState):
     thought_generation_manual_text = thought_manual_enabled_text if display_thoughts else ""
 
     all_participants = state.get('all_participants', [])
-    tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in current_tools])
+    
+    # ▼▼▼ [2024-12-28 最適化] ツール説明のSkills化 ▼▼▼
+    # 長い説明文を短縮し、トークン消費を削減。
+    # AIがツールを選択した後、LangChainが自動生成するJSON Schemaで詳細が渡される。
+    tool_short_descriptions = {
+        "set_current_location": "現在地を移動する",
+        "read_world_settings": "世界設定を読む",
+        "plan_world_edit": "世界設定の編集を計画する",
+        "search_memory": "日記から記憶を検索する",
+        "read_main_memory": "主観日記を読む",
+        "plan_main_memory_edit": "日記の編集を計画する",
+        "read_secret_diary": "秘密日記を読む",
+        "plan_secret_diary_edit": "秘密日記の編集を計画する",
+        "read_full_notepad": "メモ帳を読む",
+        "plan_notepad_edit": "メモ帳の編集を計画する",
+        "web_search_tool": "ウェブ検索する",
+        "read_url_tool": "URLの内容を読む",
+        "generate_image": "画像を生成する",
+        "set_personal_alarm": "アラームを設定する",
+        "set_timer": "タイマーを設定する",
+        "set_pomodoro_timer": "ポモドーロタイマーを設定する",
+        "search_knowledge_base": "知識ベースと過去の記憶を検索する",
+        "schedule_next_action": "次の行動を予約する",
+        "cancel_action_plan": "行動計画をキャンセルする",
+        "read_current_plan": "現在の行動計画を読む",
+    }
+    tools_list_parts = []
+    for tool in current_tools:
+        short_desc = tool_short_descriptions.get(tool.name, tool.description[:30] + "...")
+        tools_list_parts.append(f"- `{tool.name}`: {short_desc}")
+    tools_list_str = "\n".join(tools_list_parts)
+    # ▲▲▲ Skills化ここまで ▲▲▲
+    
     if len(all_participants) > 1: tools_list_str = "（グループ会話中はツールを使用できません）"
 
     class SafeDict(dict):
