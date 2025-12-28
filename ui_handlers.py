@@ -2654,7 +2654,7 @@ def format_history_for_gradio(
                     agent_name_cache[responder_id] = agent_config.get("agent_display_name") or agent_config.get("room_name", responder_id)
                 speaker_name = agent_name_cache[responder_id]
             elif role == "SYSTEM":
-                if responder_id == "tool_result":
+                if responder_id.startswith("tool_result"):
                     # RAW_RESULT部分を除去したものを、パース対象のコンテンツとして上書き
                     content_to_parse = re.sub(r"\[RAW_RESULT\][\s\S]*?\[/RAW_RESULT\]", "", item['content'], flags=re.DOTALL).strip()
                     speaker_name = "tool_result" # 話者名として表示
