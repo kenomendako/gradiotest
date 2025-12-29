@@ -8380,8 +8380,13 @@ def handle_outing_load_all_sections(room_name: str, episode_days: int, log_count
             with open(system_prompt_path, "r", encoding="utf-8") as f:
                 system_prompt = f.read().strip()
         
-        # コアメモリ分割
-        permanent, diary = _split_core_memory(room_name)
+        # コアメモリを読み込んで分割
+        core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
+        core_memory_text = ""
+        if os.path.exists(core_memory_path):
+            with open(core_memory_path, "r", encoding="utf-8") as f:
+                core_memory_text = f.read()
+        permanent, diary = _split_core_memory(core_memory_text)
         
         # エピソード記憶（この関数は直接文字列を返す）
         episodic = ""
