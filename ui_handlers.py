@@ -7947,6 +7947,7 @@ def _get_recent_log_entries(log_path: str, count: int) -> list:
 def _get_episodic_memory_entries(room_name: str, days: int) -> str:
     """
     エピソード記憶から過去N日分のエントリを取得する。
+    episodic_memory.jsonは配列形式: [{"date": "2025-12-28", "summary": "...", ...}, ...]
     """
     if days <= 0:
         return ""
@@ -7962,18 +7963,26 @@ def _get_episodic_memory_entries(room_name: str, days: int) -> str:
         if not episodic_data:
             return ""
         
-        # 日付でソート（降順）して直近N日分を取得
+        # 配列形式のデータを処理
         from datetime import datetime, timedelta
         cutoff_date = datetime.now() - timedelta(days=days)
         cutoff_str = cutoff_date.strftime("%Y-%m-%d")
         
         filtered_entries = []
-        for date_key, summary in episodic_data.items():
-            if date_key >= cutoff_str:
-                filtered_entries.append((date_key, summary))
+        for entry in episodic_data:
+            # 各エントリは {"date": "...", "summary": "...", ...} の辞書
+            if isinstance(entry, dict):
+                date_key = entry.get("date", "")
+                summary = entry.get("summary", "")
+                
+                # 日付範囲でフィルタリング（日付の最初の部分で比較）
+                # 日付形式: "2025-12-28" または "2025-04-14~2025-04-20" 等
+                date_start = date_key.split("~")[0] if date_key else ""
+                if date_start >= cutoff_str:
+                    filtered_entries.append((date_key, summary))
         
         # 日付順にソート
-        filtered_entries.sort(key=lambda x: x[0])
+        filtered_entries.sort(key=lambda x: x[0].split("~")[0] if x[0] else "")
         
         if not filtered_entries:
             return ""
@@ -8059,24 +8068,25 @@ def handle_export_outing_data(room_name: str, log_count: int, episode_days: int)
 
 ---
 
-## 直近の会話ログ（最新{int(log_count)}件）
-
 """
         
-        if log_entries:
-            for role, content in log_entries:
-                md_content += f"**[{role}]**\n{content}\n\n"
-        else:
-            md_content += "(会話ログがありません)\n\n"
-        
-        md_content += "---\n\n"
-        
+        # エピソード記憶（背景情報として先に配置）
         if int(episode_days) > 0:
             md_content += f"## エピソード記憶（過去{int(episode_days)}日分）\n\n"
             if episodic_text:
                 md_content += episodic_text
             else:
                 md_content += "(エピソード記憶がありません)\n"
+            md_content += "\n---\n\n"
+        
+        # 直近の会話ログ（最新の具体的なやりとり）
+        md_content += f"## 直近の会話ログ（最新{int(log_count)}件）\n\n"
+        
+        if log_entries:
+            for role, content in log_entries:
+                md_content += f"**[{role}]**\n{content}\n\n"
+        else:
+            md_content += "(会話ログがありません)\n\n"
         
         # ファイル保存
         export_folder = _get_outing_export_folder(room_name)
