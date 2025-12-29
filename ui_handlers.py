@@ -8537,3 +8537,28 @@ def handle_outing_export_sections(
         gr.Error(f"エクスポートエラー: {e}")
         traceback.print_exc()
         return gr.update(visible=False)
+
+
+def handle_outing_update_total_chars(
+    sys_text: str, sys_enabled: bool,
+    perm_text: str, perm_enabled: bool,
+    diary_text: str, diary_enabled: bool,
+    ep_text: str, ep_enabled: bool,
+    logs_text: str, logs_enabled: bool
+):
+    """
+    有効なセクションの合計文字数を計算して返す
+    """
+    total = 0
+    if sys_enabled:
+        total += len(sys_text) if sys_text else 0
+    if perm_enabled:
+        total += len(perm_text) if perm_text else 0
+    if diary_enabled:
+        total += len(diary_text) if diary_text else 0
+    if ep_enabled:
+        total += len(ep_text) if ep_text else 0
+    if logs_enabled:
+        total += len(logs_text) if logs_text else 0
+    
+    return f"📝 合計文字数: **{total:,}** 文字"

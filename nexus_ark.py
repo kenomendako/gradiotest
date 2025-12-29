@@ -3497,7 +3497,31 @@ try:
             inputs=[current_room_name],
             outputs=None
         )
-
+        
+        # 合計文字数のリアルタイム更新（テキスト・チェックボックス変更時）
+        outing_total_inputs = [
+            outing_system_prompt_text, outing_system_prompt_enabled,
+            outing_permanent_text, outing_permanent_enabled,
+            outing_diary_text, outing_diary_enabled,
+            outing_episodic_text, outing_episodic_enabled,
+            outing_logs_text, outing_logs_enabled
+        ]
+        
+        # 各テキストボックスのchange
+        for textbox in [outing_system_prompt_text, outing_permanent_text, outing_diary_text, outing_episodic_text, outing_logs_text]:
+            textbox.change(
+                fn=ui_handlers.handle_outing_update_total_chars,
+                inputs=outing_total_inputs,
+                outputs=[outing_total_char_count]
+            )
+        
+        # 各チェックボックスのchange
+        for checkbox in [outing_system_prompt_enabled, outing_permanent_enabled, outing_diary_enabled, outing_episodic_enabled, outing_logs_enabled]:
+            checkbox.change(
+                fn=ui_handlers.handle_outing_update_total_chars,
+                inputs=outing_total_inputs,
+                outputs=[outing_total_char_count]
+            )
 
         # --- 外部接続設定に基づいてserver_nameを決定 ---
         allow_external = config_manager.CONFIG_GLOBAL.get("allow_external_connection", False)
