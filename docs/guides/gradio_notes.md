@@ -1118,3 +1118,35 @@ workflow.add_edge("safe_tool_node", "agent")  # ツール実行後はagentに戻
 - これはバグではなく**期待動作**である
 - ユーザーが「1つずつ行動してほしい」場合は、プロンプトで指示する
 
+#### 36. スクリーンショットモードの制限：HTMLコンテンツとコピー機能の相克
+
+*   **問題:**
+    文字置き換え機能（スクリーンショットモード）で背景色付き `<span>` タグを挿入すると、思考ログの表示が崩れる問題が発生した。さらに、表示を修正しても、コピーボタン使用時にHTMLタグがそのまま含まれる問題が残った。
+
+*   **原因：HTMLエスケープの欠落とGradioのコピー動作**
+    1.  **表示崩れ**: `<span>` タグを含む思考ログをHTMLとして出力する際、`<span>` 以外のテキストをHTMLエスケープしていなかったため、Markdown記法（`**太字**`、`1.`など）がGradioの`render_markdown=True`によって解釈されていた。
+    2.  **コピー問題**: Gradioの`gr.Chatbot`コンポーネントは、Pythonから渡された**元の文字列をそのままコピー**する。Markdown記法を使う場合はプレーンテキストがコピーされるが、HTMLを直接出力した場合はHTMLがコピーされる。
+
+*   **解決策：プレースホルダー方式によるHTMLエスケープ**
+    `<span>` タグを一時的にプレースホルダーに置換し、残りのテキストを `html.escape()` でエスケープした後、プレースホルダーを元に戻す。
+    ```python
+    # ui_handlers.py (format_history_for_gradio内)
+    span_pattern = re.compile(r'(<span style="[^"]*">[^<]*</span>)')
+    spans = span_pattern.findall(inner_content)
+    placeholder_map = {}
+    for i, span in enumerate(spans):
+        placeholder = f"__SPAN_PH_{i}__"
+        placeholder_map[placeholder] = span
+        inner_content = inner_content.replace(span, placeholder, 1)
+    # プレースホルダー以外をHTMLエスケープ
+    escaped_content = html.escape(inner_content)
+    # プレースホルダーを元のspanタグに戻す
+    for placeholder, span in placeholder_map.items():
+        escaped_content = escaped_content.replace(placeholder, span)
+    # 改行を<br>に変換
+    escaped_content = escaped_content.replace('\n', '<br>')
+    ```
+
+*   **許容される制限**
+    コピー機能の問題は、Gradioの内部動作に起因するため根本解決が困難。スクリーンショットモードは画面キャプチャ目的であるため、この制限は許容する。コピーが必要な場合はスクリーンショットモードをOFFにすれば正常動作する。
+

@@ -2746,12 +2746,48 @@ def format_history_for_gradio(
                     inner_content = part[3:-3].strip()
                     has_replacement_html = '<span style' in inner_content
                     if has_replacement_html:
-                        formatted_block = f'<div class="code_wrap"><pre><code>{inner_content}</code></pre></div>'
+                        # 文字置き換えのspanタグを含む場合：
+                        # spanタグを保持しつつ、残りをHTMLエスケープしてMarkdown解釈を防ぐ
+                        span_pattern = re.compile(r'(<span style="[^"]*">[^<]*</span>)')
+                        spans = span_pattern.findall(inner_content)
+                        placeholder_map = {}
+                        for i, span in enumerate(spans):
+                            placeholder = f"__SPAN_PH_{i}__"
+                            placeholder_map[placeholder] = span
+                            inner_content = inner_content.replace(span, placeholder, 1)
+                        # プレースホルダー以外をHTMLエスケープ
+                        escaped_content = html.escape(inner_content)
+                        # プレースホルダーを元のspanタグに戻す
+                        for placeholder, span in placeholder_map.items():
+                            escaped_content = escaped_content.replace(placeholder, span)
+                        # 改行を<br>に置換（\nは削除して二重改行を防ぐ）
+                        escaped_content = escaped_content.replace('\n', '<br>')
+                        formatted_block = f'<div class="code_wrap"><pre><code>{escaped_content}</code></pre></div>'
                     else:
                         formatted_block = f"```\n{html.escape(inner_content)}\n```"
                     final_html_parts.append(formatted_block)
                 else:
-                    final_html_parts.append(part)
+                    # ★レッスン24の適用★：通常テキストにHTMLが含まれる場合も同様の対処
+                    if '<span style' in part:
+                        # <span>タグを保持しつつ、他のテキストはHTMLエスケープ
+                        span_pattern = re.compile(r'(<span style="[^"]*">[^<]*</span>)')
+                        spans = span_pattern.findall(part)
+                        temp_part = part
+                        placeholder_map = {}
+                        for i, span in enumerate(spans):
+                            placeholder = f"__SPAN_PLACEHOLDER_{i}__"
+                            placeholder_map[placeholder] = span
+                            temp_part = temp_part.replace(span, placeholder, 1)
+                        # プレースホルダー以外をHTMLエスケープ
+                        escaped_part = html.escape(temp_part)
+                        # プレースホルダーを元のspanタグに戻す
+                        for placeholder, span in placeholder_map.items():
+                            escaped_part = escaped_part.replace(placeholder, span)
+                        # 改行を <br> に変換
+                        escaped_part = escaped_part.replace('\n', '<br>\n')
+                        final_html_parts.append(f'<div>{escaped_part}</div>')
+                    else:
+                        final_html_parts.append(part)
 
             final_markdown = "\n\n".join(final_html_parts).strip()
             if is_user:
