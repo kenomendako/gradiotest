@@ -798,6 +798,32 @@ EXPECTED_OUTPUT_COUNT =
 #### 推奨される対応
 
 1. **当面は `gemini-2.5-flash` または `gemini-2.5-pro` を使用する** - これらは安定して高速
+
+---
+
+### レッスン34: 長いTextbox/TextAreaをスクロール可能にする (2025-12-29)
+
+#### 問題の症状
+`gr.Textbox(lines=8, max_lines=20)` と設定しても、実際の内容が20行を超えると内容が隠れてしまい、適切にスクロールできない（全文が見えない）という UX 上の問題が発生した。特に、Gradio のデフォルトスタイルだけでは十分な高さを確保できない場合がある。
+
+#### 解決策：CSSによる強制スクロール
+コンポーネントまたは親コンテナに `elem_id` を付与し、カスタムCSSで `textarea` の最大高さとスクロール挙動を直接制御する。
+
+```python
+# nexus_ark.py
+with gr.Tab("..."):
+    with gr.Column(elem_id="my_custom_tab"):
+        content_box = gr.Textbox(lines=10, max_lines=50)
+
+# カスタムCSS
+# #my_custom_tab textarea {
+#     max-height: 400px !important;
+#     overflow-y: auto !important;
+# }
+```
+
+#### 教訓
+Gradio の `max_lines` はあくまで目安であり、特定のブラウザやコンテナの制約下では機能しないことがある。**確実にスクロールさせたい場合は、CSS の `!important` を使って `max-height` と `overflow-y: auto` を指定するのが最も堅牢である。**
 2. **タイムアウト設定は維持** - 600秒のタイムアウトがあるので、待てば応答は返ってくる
 3. **Google側のサービス改善を待つ** - プレビューモデルは今後安定する可能性がある
 
