@@ -8383,11 +8383,10 @@ def handle_outing_load_all_sections(room_name: str, episode_days: int, log_count
         # コアメモリ分割
         permanent, diary = _split_core_memory(room_name)
         
-        # エピソード記憶
+        # エピソード記憶（この関数は直接文字列を返す）
         episodic = ""
         if episode_days > 0:
-            entries = _get_episodic_memory_entries(room_name, episode_days)
-            episodic = "\n".join([f"[{e['date']}] {e['summary']}" for e in entries])
+            episodic = _get_episodic_memory_entries(room_name, episode_days)
         
         # 会話ログ
         logs = ""
