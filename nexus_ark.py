@@ -1127,6 +1127,18 @@ try:
                     "現在のルームのペルソナデータをエクスポートします。\n"
                     "外部AIツール（Antigravity等）で会話する際に使用できます。"
                 )
+                
+                # --- セクション選択チェックボックス ---
+                gr.Markdown("#### エクスポート対象")
+                with gr.Row():
+                    outing_include_system_prompt = gr.Checkbox(label="システムプロンプト", value=True, scale=1)
+                    outing_include_permanent = gr.Checkbox(label="コアメモリ(永続)", value=True, scale=1)
+                    outing_include_diary = gr.Checkbox(label="コアメモリ(日記)", value=True, scale=1)
+                with gr.Row():
+                    outing_include_episodic = gr.Checkbox(label="エピソード記憶", value=True, scale=1)
+                    outing_include_logs = gr.Checkbox(label="会話ログ", value=True, scale=1)
+                
+                # --- 件数調整スライダー ---
                 with gr.Row():
                     outing_log_count_slider = gr.Slider(
                         minimum=5, maximum=50, value=20, step=5,
@@ -1138,7 +1150,21 @@ try:
                         label="エピソード記憶（日数）",
                         info="エクスポートに含める過去N日分の記憶（0で無効）"
                     )
-                outing_export_button = gr.Button("📤 ペルソナデータをエクスポート", variant="primary")
+                
+                # --- プレビュー生成 ---
+                outing_preview_button = gr.Button("📋 プレビュー生成", variant="secondary")
+                outing_char_count = gr.Markdown("📝 推定文字数: ---")
+                outing_preview_text = gr.Textbox(
+                    label="エクスポートプレビュー（編集可能）",
+                    lines=12, max_lines=25, interactive=True,
+                    placeholder="「プレビュー生成」をクリックするとここに表示されます"
+                )
+                
+                # --- AI圧縮ボタン ---
+                outing_summarize_button = gr.Button("✨ AIで圧縮（要約）", variant="secondary")
+                
+                # --- エクスポート ---
+                outing_export_button = gr.Button("📤 エクスポート", variant="primary")
                 outing_download_file = gr.File(label="ダウンロード", visible=False, interactive=False)
                 outing_open_folder_button = gr.Button("📂 エクスポート先フォルダを開く", variant="secondary")
 
@@ -3359,12 +3385,37 @@ try:
         )
 
         # --- 「お出かけ」機能のイベント接続 ---
+        # プレビュー生成
+        outing_preview_button.click(
+            fn=ui_handlers.handle_generate_outing_preview,
+            inputs=[
+                current_room_name,
+                outing_log_count_slider,
+                outing_episode_days_slider,
+                outing_include_system_prompt,
+                outing_include_permanent,
+                outing_include_diary,
+                outing_include_episodic,
+                outing_include_logs
+            ],
+            outputs=[outing_preview_text, outing_char_count]
+        )
+        
+        # AI圧縮
+        outing_summarize_button.click(
+            fn=ui_handlers.handle_summarize_outing_text,
+            inputs=[outing_preview_text, current_room_name],
+            outputs=[outing_preview_text, outing_char_count]
+        )
+        
+        # エクスポート（プレビューテキストから）
         outing_export_button.click(
-            fn=ui_handlers.handle_export_outing_data,
-            inputs=[current_room_name, outing_log_count_slider, outing_episode_days_slider],
+            fn=ui_handlers.handle_export_outing_from_preview,
+            inputs=[outing_preview_text, current_room_name],
             outputs=[outing_download_file]
         )
         
+        # フォルダを開く
         outing_open_folder_button.click(
             fn=ui_handlers.handle_open_outing_folder,
             inputs=[current_room_name],

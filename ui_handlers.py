@@ -8125,3 +8125,213 @@ def handle_open_outing_folder(room_name: str):
     except Exception as e:
         gr.Error(f"フォルダを開けませんでした: {e}")
 
+
+def _split_core_memory(core_memory: str) -> tuple:
+    """
+    コアメモリを永続記憶と日記に分割する。
+    
+    Returns:
+        (permanent, diary): 永続記憶部分と日記部分のタプル
+    """
+    permanent = ""
+    diary = ""
+    
+    # 日記セクションの開始を探す
+    diary_markers = ["--- [日記 (Diary)", "--- [日記(Diary)", "[日記 (Diary)"]
+    diary_start_idx = -1
+    
+    for marker in diary_markers:
+        idx = core_memory.find(marker)
+        if idx != -1:
+            diary_start_idx = idx
+            break
+    
+    if diary_start_idx != -1:
+        permanent = core_memory[:diary_start_idx].strip()
+        diary = core_memory[diary_start_idx:].strip()
+    else:
+        permanent = core_memory.strip()
+    
+    return permanent, diary
+
+
+def handle_generate_outing_preview(
+    room_name: str,
+    log_count: int,
+    episode_days: int,
+    include_system_prompt: bool,
+    include_permanent: bool,
+    include_diary: bool,
+    include_episodic: bool,
+    include_logs: bool
+):
+    """
+    エクスポートプレビューを生成し、文字数を計算する。
+    
+    Returns:
+        (preview_text, char_count_markdown): プレビューテキストと文字数表示
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return "", "📝 推定文字数: ---"
+    
+    try:
+        room_config = room_manager.get_room_config(room_name)
+        display_name = room_config.get("room_name", room_name) if room_config else room_name
+        
+        room_path = os.path.join(constants.ROOMS_DIR, room_name)
+        
+        # データ収集
+        sections = []
+        
+        # 1. システムプロンプト
+        if include_system_prompt:
+            system_prompt_path = os.path.join(room_path, "SystemPrompt.txt")
+            if os.path.exists(system_prompt_path):
+                with open(system_prompt_path, "r", encoding="utf-8") as f:
+                    system_prompt = f.read().strip()
+                if system_prompt:
+                    sections.append(f"## システムプロンプト\n\n```\n{system_prompt}\n```")
+        
+        # 2. コアメモリ（永続記憶・日記を分割）
+        core_memory_path = os.path.join(room_path, "core_memory.txt")
+        if os.path.exists(core_memory_path):
+            with open(core_memory_path, "r", encoding="utf-8") as f:
+                core_memory = f.read().strip()
+            
+            permanent, diary = _split_core_memory(core_memory)
+            
+            if include_permanent and permanent:
+                sections.append(f"## コアメモリ（永続記憶）\n\n{permanent}")
+            
+            if include_diary and diary:
+                sections.append(f"## コアメモリ（日記要約）\n\n{diary}")
+        
+        # 3. エピソード記憶
+        if include_episodic and int(episode_days) > 0:
+            episodic_text = _get_episodic_memory_entries(room_name, int(episode_days))
+            if episodic_text:
+                sections.append(f"## エピソード記憶（過去{int(episode_days)}日分）\n\n{episodic_text}")
+            else:
+                sections.append(f"## エピソード記憶（過去{int(episode_days)}日分）\n\n(エピソード記憶がありません)")
+        
+        # 4. 会話ログ
+        if include_logs:
+            log_path = os.path.join(room_path, "log.txt")
+            log_entries = _get_recent_log_entries(log_path, int(log_count))
+            if log_entries:
+                log_text = ""
+                for role, content in log_entries:
+                    log_text += f"**[{role}]**\n{content}\n\n"
+                sections.append(f"## 直近の会話ログ（最新{int(log_count)}件）\n\n{log_text}")
+            else:
+                sections.append(f"## 直近の会話ログ（最新{int(log_count)}件）\n\n(会話ログがありません)")
+        
+        # ヘッダー
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        header = f"# {display_name} ペルソナデータ\n\n**エクスポート日時:** {timestamp}\n**元ルーム:** {room_name}\n\n---\n\n"
+        
+        # 結合
+        preview_text = header + "\n\n---\n\n".join(sections)
+        
+        # 文字数カウント
+        char_count = len(preview_text)
+        char_count_md = f"📝 推定文字数: **{char_count:,}** 文字"
+        
+        return preview_text, char_count_md
+    
+    except Exception as e:
+        gr.Error(f"プレビュー生成中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return "", "📝 推定文字数: エラー"
+
+
+def handle_summarize_outing_text(preview_text: str, room_name: str):
+    """
+    AIを使ってエクスポートテキストを要約圧縮する。
+    """
+    if not preview_text or not preview_text.strip():
+        gr.Warning("プレビューテキストがありません。先に「プレビュー生成」を実行してください。")
+        return preview_text, "📝 推定文字数: ---"
+    
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return preview_text, "📝 推定文字数: ---"
+    
+    try:
+        import google.generativeai as genai
+        
+        # API設定
+        api_key = config_manager.get_api_key()
+        if not api_key:
+            gr.Error("APIキーが設定されていません。")
+            return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
+        
+        genai.configure(api_key=api_key)
+        
+        # 要約モデル（軽量なFlashを使用）
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        
+        prompt = """以下のAIペルソナデータを、重要な情報を保持しながらできるだけ圧縮してください。
+
+【圧縮のルール】
+- 人格の核心（性格、信念、関係性）は必ず保持
+- 冗長な表現は簡潔に
+- 具体的なエピソードは要点のみに圧縮
+- Markdown形式を維持
+- セクション構造（##見出し）を維持
+
+【元データ】
+""" + preview_text
+        
+        gr.Info("AIで圧縮中...")
+        response = model.generate_content(prompt)
+        
+        if response and response.text:
+            summarized = response.text.strip()
+            char_count = len(summarized)
+            gr.Info(f"圧縮完了！ {len(preview_text):,} → {char_count:,} 文字")
+            return summarized, f"📝 推定文字数: **{char_count:,}** 文字"
+        else:
+            gr.Warning("AIからの応答がありませんでした。")
+            return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
+    
+    except Exception as e:
+        gr.Error(f"AI圧縮中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
+
+
+def handle_export_outing_from_preview(preview_text: str, room_name: str):
+    """
+    プレビューテキスト（編集済み可）をファイルに保存する。
+    """
+    if not preview_text or not preview_text.strip():
+        gr.Warning("エクスポートするテキストがありません。先に「プレビュー生成」を実行してください。")
+        return gr.update(visible=False)
+    
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(visible=False)
+    
+    try:
+        room_config = room_manager.get_room_config(room_name)
+        display_name = room_config.get("room_name", room_name) if room_config else room_name
+        
+        # ファイル保存
+        export_folder = _get_outing_export_folder(room_name)
+        file_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        export_filename = f"{display_name}_outing_{file_timestamp}.md"
+        export_path = os.path.join(export_folder, export_filename)
+        
+        with open(export_path, "w", encoding="utf-8") as f:
+            f.write(preview_text)
+        
+        gr.Info(f"ペルソナデータをエクスポートしました。\n保存先: {export_path}")
+        
+        return gr.update(value=export_path, visible=True)
+    
+    except Exception as e:
+        gr.Error(f"エクスポート中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return gr.update(visible=False)
