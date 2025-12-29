@@ -1179,7 +1179,7 @@ try:
                 
                 # --- エクスポート ---
                 outing_export_button = gr.Button("📤 エクスポート", variant="primary")
-                outing_download_file = gr.File(label="ダウンロード", visible=False, interactive=False)
+                outing_download_file = gr.File(label="ダウンロード", visible=False)
                 outing_open_folder_button = gr.Button("📂 エクスポート先フォルダを開く", variant="secondary")
 
             gr.Markdown(f"Nexus Ark {constants.APP_VERSION} (Beta)", elem_id="app_version_display")
