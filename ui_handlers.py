@@ -8169,7 +8169,7 @@ def handle_generate_outing_preview(
     エクスポートプレビューを生成し、文字数を計算する。
     
     Returns:
-        (preview_text, char_count_markdown): プレビューテキストと文字数表示
+        (preview_text, char_count_markdown): プレビューテキストと文字数表示（内訳付き）
     """
     if not room_name:
         gr.Warning("ルームが選択されていません。")
@@ -8181,8 +8181,9 @@ def handle_generate_outing_preview(
         
         room_path = os.path.join(constants.ROOMS_DIR, room_name)
         
-        # データ収集
+        # データ収集（セクションごとに文字数も記録）
         sections = []
+        section_counts = []  # (セクション名, 文字数)
         
         # 1. システムプロンプト
         if include_system_prompt:
@@ -8191,7 +8192,9 @@ def handle_generate_outing_preview(
                 with open(system_prompt_path, "r", encoding="utf-8") as f:
                     system_prompt = f.read().strip()
                 if system_prompt:
-                    sections.append(f"## システムプロンプト\n\n```\n{system_prompt}\n```")
+                    section_text = f"## システムプロンプト\n\n```\n{system_prompt}\n```"
+                    sections.append(section_text)
+                    section_counts.append(("システムプロンプト", len(section_text)))
         
         # 2. コアメモリ（永続記憶・日記を分割）
         core_memory_path = os.path.join(room_path, "core_memory.txt")
@@ -8202,18 +8205,24 @@ def handle_generate_outing_preview(
             permanent, diary = _split_core_memory(core_memory)
             
             if include_permanent and permanent:
-                sections.append(f"## コアメモリ（永続記憶）\n\n{permanent}")
+                section_text = f"## コアメモリ（永続記憶）\n\n{permanent}"
+                sections.append(section_text)
+                section_counts.append(("コアメモリ(永続)", len(section_text)))
             
             if include_diary and diary:
-                sections.append(f"## コアメモリ（日記要約）\n\n{diary}")
+                section_text = f"## コアメモリ（日記要約）\n\n{diary}"
+                sections.append(section_text)
+                section_counts.append(("コアメモリ(日記)", len(section_text)))
         
         # 3. エピソード記憶
         if include_episodic and int(episode_days) > 0:
             episodic_text = _get_episodic_memory_entries(room_name, int(episode_days))
             if episodic_text:
-                sections.append(f"## エピソード記憶（過去{int(episode_days)}日分）\n\n{episodic_text}")
+                section_text = f"## エピソード記憶（過去{int(episode_days)}日分）\n\n{episodic_text}"
             else:
-                sections.append(f"## エピソード記憶（過去{int(episode_days)}日分）\n\n(エピソード記憶がありません)")
+                section_text = f"## エピソード記憶（過去{int(episode_days)}日分）\n\n(エピソード記憶がありません)"
+            sections.append(section_text)
+            section_counts.append(("エピソード記憶", len(section_text)))
         
         # 4. 会話ログ
         if include_logs:
@@ -8223,9 +8232,11 @@ def handle_generate_outing_preview(
                 log_text = ""
                 for role, content in log_entries:
                     log_text += f"**[{role}]**\n{content}\n\n"
-                sections.append(f"## 直近の会話ログ（最新{int(log_count)}件）\n\n{log_text}")
+                section_text = f"## 直近の会話ログ（最新{int(log_count)}件）\n\n{log_text}"
             else:
-                sections.append(f"## 直近の会話ログ（最新{int(log_count)}件）\n\n(会話ログがありません)")
+                section_text = f"## 直近の会話ログ（最新{int(log_count)}件）\n\n(会話ログがありません)"
+            sections.append(section_text)
+            section_counts.append(("会話ログ", len(section_text)))
         
         # ヘッダー
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -8234,9 +8245,17 @@ def handle_generate_outing_preview(
         # 結合
         preview_text = header + "\n\n---\n\n".join(sections)
         
-        # 文字数カウント
-        char_count = len(preview_text)
-        char_count_md = f"📝 推定文字数: **{char_count:,}** 文字"
+        # 文字数カウント（内訳付き）
+        total_count = len(preview_text)
+        
+        # 内訳を作成
+        breakdown_lines = []
+        for i, (name, count) in enumerate(section_counts):
+            prefix = "└" if i == len(section_counts) - 1 else "├"
+            breakdown_lines.append(f"   {prefix} {name}: **{count:,}**字")
+        
+        breakdown = "\n".join(breakdown_lines)
+        char_count_md = f"📝 推定文字数: **{total_count:,}** 文字\n{breakdown}"
         
         return preview_text, char_count_md
     
