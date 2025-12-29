@@ -5063,13 +5063,17 @@ def handle_avatar_mode_change(room_name: str, mode: str) -> gr.update:
     if not room_name:
         return gr.update()
     
-    # ルーム設定に avatar_mode を保存
-    room_manager.update_room_config(room_name, {"avatar_mode": mode})
+    # 現在のモードを取得して比較
+    effective_settings = config_manager.get_effective_settings(room_name)
+    current_mode = effective_settings.get("avatar_mode", "video")
     
-    mode_name = "静止画" if mode == "static" else "動画"
-    gr.Info(f"アバターモードを「{mode_name}」に変更しました。")
+    # 変更がある場合のみ保存と通知
+    if mode != current_mode:
+        room_manager.update_room_config(room_name, {"avatar_mode": mode})
+        mode_name = "静止画" if mode == "static" else "動画"
+        gr.Info(f"アバターモードを「{mode_name}」に変更しました。")
     
-    # 新しいモードでアバターを再生成
+    # 新しいモードでアバターを再生成 (UIの状態は常に最新に保つ)
     return gr.update(value=get_avatar_html(room_name, state="idle", mode=mode))
 
 

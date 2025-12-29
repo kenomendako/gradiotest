@@ -292,23 +292,35 @@ try:
         overflow-y: auto !important;
     }
 
-    /* --- [Sidebar Scrolling Fix] --- */
-    /* サイドバー全体の高さを確保し、内部のスクロールを有効化 */
+    /* --- [Sidebar & Content Scrolling Fix] --- */
+    /* サイドバー全体の高さを100%（または100dvh）に保ち、内部のスクロールを有効化 */
     div.sidebar {
-        height: 100vh !important;
+        height: 100dvh !important;
         display: flex !important;
         flex-direction: column !important;
+        z-index: 1000 !important; /* 重なり順を保証 */
     }
     
-    /* サイドバー内のコンテナが柔軟に伸び縮みするように設定 */
+    /* サイドバー内のコンテナをスクロール可能にし、中身が詰まらないようにする */
     div.sidebar > div.sidebar-container {
         overflow-y: auto !important;
+        flex-grow: 1 !important;
         height: 100% !important;
-        padding-bottom: 50px !important; /* 最下部が隠れないようにマージンを確保 */
+        padding-bottom: 100px !important; /* スマホやブラウザのUIによる隠れを防止 */
     }
 
-    /* アコーディオンの開閉時に親コンテナの高さ計算が追従するように設定 */
-    .sidebar .accordion {
+    /* メインエリアのスクロール確保（特にスマホ表示時） */
+    @media (max-width: 768px) {
+        /* Gradioのコンテナ自体もスクロールの邪魔をしないように調整 */
+        .gradio-container {
+            overflow-y: auto !important;
+            height: auto !important;
+            min-height: 100dvh !important;
+        }
+    }
+
+    /* アコーディオンの開閉時に高さが正しく再計算されるように設定 */
+    .accordion {
         height: auto !important;
     }
 
