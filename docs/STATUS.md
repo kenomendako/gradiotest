@@ -12,18 +12,14 @@
 
 ## 🔄 作業中
 
-- [x] **Gemini 3シリーズの空応答・思考タグ問題**
-  - ✅ ツール呼び出し時の空テキスト誤検知を修正 (ANOMALYログ抑制)
-  - ✅ 画像生成モデルからの応答テキスト取得改善
-  - レポート: [2025-12-27_agent_anomaly_fix.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-27_agent_anomaly_fix.md)
+- [x] **ペルソナ「お出かけ」機能の全面リニューアル** ✅ (2025-12-29 完了)
+  - ✅ 専用タブ化、AI要約、表示オプション、リセット機能の実装
+  - レポート: [2025-12-29_outing_feature_renewal_report.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-29_outing_feature_renewal_report.md)
 - [x] **UIロジック（ui_handlers.py）の分析と精査** ✅ (2025-12-29 完了)
-  - テーマ設定、CSS生成ロジックの詳細調査
-  - アラーム・タイマー機能のハンドリング調査
 
 ---
 
 ### 次の予定 (ロードマップ)
-- **お出かけメニューのアイコン変更 (🚀 -> 💼)** (Low) - ユーザー様対応予定
 - **APIキー設定の集約管理** (High)
 - **OpenRouterエラー表示の修正** (High)
 
@@ -33,6 +29,7 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
+| 2025-12-29 | ペルソナ「お出かけ」機能の全面リニューアル(専用タブ/AI要約) | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-29_outing_feature_renewal_report.md) |
 | 2025-12-29 | スマホ等縦長画面のスクロール不具合修正、アバター通知抑制 | - |
 | 2025-12-28 | 送信コンテキスト最適化（APIコスト削減） | - |
 | 2025-12-27 | 外部接続設定UI追加 | - |
