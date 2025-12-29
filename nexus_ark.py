@@ -1122,7 +1122,28 @@ try:
                             open_attachments_folder_button = gr.Button("📂 添付ファイルフォルダを開く", variant="secondary")
                             delete_attachment_button = gr.Button("選択したファイルを削除", variant="stop")
 
+            with gr.Accordion("💼 お出かけ", open=False):
+                gr.Markdown(
+                    "現在のルームのペルソナデータをエクスポートします。\n"
+                    "外部AIツール（Antigravity等）で会話する際に使用できます。"
+                )
+                with gr.Row():
+                    outing_log_count_slider = gr.Slider(
+                        minimum=5, maximum=50, value=20, step=5,
+                        label="会話ログ件数（最新N件）",
+                        info="エクスポートに含める直近の会話ログ数"
+                    )
+                    outing_episode_days_slider = gr.Slider(
+                        minimum=0, maximum=30, value=7, step=1,
+                        label="エピソード記憶（日数）",
+                        info="エクスポートに含める過去N日分の記憶（0で無効）"
+                    )
+                outing_export_button = gr.Button("📤 ペルソナデータをエクスポート", variant="primary")
+                outing_download_file = gr.File(label="ダウンロード", visible=False, interactive=False)
+                outing_open_folder_button = gr.Button("📂 エクスポート先フォルダを開く", variant="secondary")
+
             gr.Markdown(f"Nexus Ark {constants.APP_VERSION} (Beta)", elem_id="app_version_display")
+
 
 
         # --- グローバル・右サイドバー (情景・プロフィール) ---
@@ -3337,6 +3358,19 @@ try:
             outputs=[room_openai_model_dropdown]
         )
 
+        # --- 「お出かけ」機能のイベント接続 ---
+        outing_export_button.click(
+            fn=ui_handlers.handle_export_outing_data,
+            inputs=[current_room_name, outing_log_count_slider, outing_episode_days_slider],
+            outputs=[outing_download_file]
+        )
+        
+        outing_open_folder_button.click(
+            fn=ui_handlers.handle_open_outing_folder,
+            inputs=[current_room_name],
+            outputs=None
+        )
+
 
         # --- 外部接続設定に基づいてserver_nameを決定 ---
         allow_external = config_manager.CONFIG_GLOBAL.get("allow_external_connection", False)
@@ -3360,6 +3394,7 @@ try:
 
 except Exception as e:
     print("\n" + "X"*60); print("!!! [致命的エラー] アプリケーションの起動中に、予期せぬ例外が発生しました。"); print("X"*60); traceback.print_exc()
+
 finally:
     utils.release_lock()
     if os.name == "nt": os.system("pause")

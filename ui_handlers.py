@@ -7886,3 +7886,232 @@ def handle_reload_chat_log_raw(room_name: str) -> gr.update:
             gr.Error(f"ログファイルの読み込みに失敗しました: {e}")
             return gr.update(value="")
     return gr.update(value="")
+
+
+# =============================================================================
+# 「お出かけ」機能 - ペルソナデータエクスポート
+# =============================================================================
+
+def _get_outing_export_folder(room_name: str) -> str:
+    """お出かけエクスポート先フォルダのパスを取得・作成する。"""
+    folder_path = os.path.join(constants.ROOMS_DIR, room_name, "private", "outing")
+    os.makedirs(folder_path, exist_ok=True)
+    return folder_path
+
+
+def _get_recent_log_entries(log_path: str, count: int) -> list:
+    """
+    ログファイルから直近N件の会話エントリを取得する。
+    Returns: [(role, content, timestamp), ...]
+    """
+    if not os.path.exists(log_path):
+        return []
+    
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        # ログエントリをパース（[NAME]ヘッダーで分割）
+        import re
+        # パターン: [NAME] または [NAME]タイムスタンプ
+        pattern = r'\[([^\]]+)\]'
+        entries = []
+        
+        lines = content.split('\n')
+        current_entry = None
+        current_content = []
+        
+        for line in lines:
+            header_match = re.match(r'^\[([^\]]+)\](.*)$', line)
+            if header_match:
+                # 前のエントリを保存
+                if current_entry is not None:
+                    entries.append((current_entry, '\n'.join(current_content).strip()))
+                current_entry = header_match.group(1)
+                rest = header_match.group(2).strip()
+                current_content = [rest] if rest else []
+            else:
+                current_content.append(line)
+        
+        # 最後のエントリを保存
+        if current_entry is not None:
+            entries.append((current_entry, '\n'.join(current_content).strip()))
+        
+        # 直近N件を取得
+        return entries[-count:] if len(entries) > count else entries
+    except Exception as e:
+        print(f"Error reading log file: {e}")
+        return []
+
+
+def _get_episodic_memory_entries(room_name: str, days: int) -> str:
+    """
+    エピソード記憶から過去N日分のエントリを取得する。
+    """
+    if days <= 0:
+        return ""
+    
+    episodic_path = os.path.join(constants.ROOMS_DIR, room_name, "memory", "episodic_memory.json")
+    if not os.path.exists(episodic_path):
+        return ""
+    
+    try:
+        with open(episodic_path, "r", encoding="utf-8") as f:
+            episodic_data = json.load(f)
+        
+        if not episodic_data:
+            return ""
+        
+        # 日付でソート（降順）して直近N日分を取得
+        from datetime import datetime, timedelta
+        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_str = cutoff_date.strftime("%Y-%m-%d")
+        
+        filtered_entries = []
+        for date_key, summary in episodic_data.items():
+            if date_key >= cutoff_str:
+                filtered_entries.append((date_key, summary))
+        
+        # 日付順にソート
+        filtered_entries.sort(key=lambda x: x[0])
+        
+        if not filtered_entries:
+            return ""
+        
+        result_lines = []
+        for date_key, summary in filtered_entries:
+            result_lines.append(f"### {date_key}")
+            result_lines.append(summary if isinstance(summary, str) else str(summary))
+            result_lines.append("")
+        
+        return '\n'.join(result_lines)
+    except Exception as e:
+        print(f"Error reading episodic memory: {e}")
+        return ""
+
+
+def handle_export_outing_data(room_name: str, log_count: int, episode_days: int):
+    """
+    ペルソナデータをエクスポートする。
+    
+    収集するデータ:
+    1. システムプロンプト (SystemPrompt.txt)
+    2. コアメモリ (core_memory.txt)
+    3. 直近の会話ログ (log.txt から最新N件)
+    4. エピソード記憶 (memory/episodic_memory.json から過去N日分)
+    
+    出力形式: Markdown
+    出力先: characters/{room_name}/private/outing/
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(visible=False)
+    
+    try:
+        room_config = room_manager.get_room_config(room_name)
+        display_name = room_config.get("room_name", room_name) if room_config else room_name
+        
+        # データ収集
+        room_path = os.path.join(constants.ROOMS_DIR, room_name)
+        
+        # 1. システムプロンプト
+        system_prompt_path = os.path.join(room_path, "SystemPrompt.txt")
+        system_prompt = ""
+        if os.path.exists(system_prompt_path):
+            with open(system_prompt_path, "r", encoding="utf-8") as f:
+                system_prompt = f.read().strip()
+        
+        # 2. コアメモリ
+        core_memory_path = os.path.join(room_path, "core_memory.txt")
+        core_memory = ""
+        if os.path.exists(core_memory_path):
+            with open(core_memory_path, "r", encoding="utf-8") as f:
+                core_memory = f.read().strip()
+        
+        # 3. 直近の会話ログ
+        log_path = os.path.join(room_path, "log.txt")
+        log_entries = _get_recent_log_entries(log_path, int(log_count))
+        
+        # 4. エピソード記憶
+        episodic_text = _get_episodic_memory_entries(room_name, int(episode_days))
+        
+        # Markdownを生成
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        md_content = f"""# {display_name} ペルソナデータ
+
+**エクスポート日時:** {timestamp}  
+**元ルーム:** {room_name}
+
+---
+
+## システムプロンプト
+
+```
+{system_prompt if system_prompt else "(未設定)"}
+```
+
+---
+
+## コアメモリ
+
+{core_memory if core_memory else "(未設定)"}
+
+---
+
+## 直近の会話ログ（最新{int(log_count)}件）
+
+"""
+        
+        if log_entries:
+            for role, content in log_entries:
+                md_content += f"**[{role}]**\n{content}\n\n"
+        else:
+            md_content += "(会話ログがありません)\n\n"
+        
+        md_content += "---\n\n"
+        
+        if int(episode_days) > 0:
+            md_content += f"## エピソード記憶（過去{int(episode_days)}日分）\n\n"
+            if episodic_text:
+                md_content += episodic_text
+            else:
+                md_content += "(エピソード記憶がありません)\n"
+        
+        # ファイル保存
+        export_folder = _get_outing_export_folder(room_name)
+        file_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        export_filename = f"{display_name}_outing_{file_timestamp}.md"
+        export_path = os.path.join(export_folder, export_filename)
+        
+        with open(export_path, "w", encoding="utf-8") as f:
+            f.write(md_content)
+        
+        gr.Info(f"ペルソナデータをエクスポートしました。\n保存先: {export_path}")
+        
+        return gr.update(value=export_path, visible=True)
+    
+    except Exception as e:
+        gr.Error(f"エクスポート中にエラーが発生しました: {e}")
+        traceback.print_exc()
+        return gr.update(visible=False)
+
+
+def handle_open_outing_folder(room_name: str):
+    """エクスポート先フォルダをエクスプローラーで開く。"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return
+    
+    try:
+        folder_path = _get_outing_export_folder(room_name)
+        
+        if os.name == "nt":  # Windows
+            os.startfile(folder_path)
+        elif os.name == "posix":  # macOS / Linux
+            subprocess.run(["open", folder_path] if sys.platform == "darwin" else ["xdg-open", folder_path])
+        
+        gr.Info(f"フォルダを開きました: {folder_path}")
+    except Exception as e:
+        gr.Error(f"フォルダを開けませんでした: {e}")
+
