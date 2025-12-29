@@ -340,6 +340,13 @@ try:
         transform: translateY(-1px);
     }
 
+    /* お出かけタブのテキストエリア高さを制限し、スクロールを強制する */
+    #outing_tab textarea {
+        max-height: 400px !important;
+        overflow-y: auto !important;
+    }
+
+
     """
     custom_js = """
     function() {
@@ -1629,7 +1636,7 @@ try:
                             reload_raw_button = gr.Button("最後に保存した内容を読み込む", variant="secondary")
 
             # ===== 💼 お出かけタブ =====
-            with gr.TabItem("💼 お出かけ"):
+            with gr.TabItem("💼 お出かけ", elem_id="outing_tab"):
                 gr.Markdown("## ペルソナエクスポート\n外部AIツール（Antigravity等）で会話するためのペルソナデータをエクスポートします。")
                 
                 # --- データ読み込みボタン ---
@@ -1646,6 +1653,7 @@ try:
                     )
                     with gr.Row():
                         outing_system_prompt_chars = gr.Markdown("文字数: ---")
+                        outing_system_prompt_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
                         outing_system_prompt_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
                         outing_system_prompt_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
                 
@@ -1657,6 +1665,7 @@ try:
                     )
                     with gr.Row():
                         outing_permanent_chars = gr.Markdown("文字数: ---")
+                        outing_permanent_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
                         outing_permanent_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
                         outing_permanent_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
                 
@@ -1668,6 +1677,7 @@ try:
                     )
                     with gr.Row():
                         outing_diary_chars = gr.Markdown("文字数: ---")
+                        outing_diary_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
                         outing_diary_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
                         outing_diary_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
                 
@@ -1683,21 +1693,26 @@ try:
                     )
                     with gr.Row():
                         outing_episodic_chars = gr.Markdown("文字数: ---")
+                        outing_episodic_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
                         outing_episodic_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
                         outing_episodic_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
                 
                 # 会話ログ
                 with gr.Accordion("💬 会話ログ", open=False):
-                    outing_log_count_slider = gr.Slider(
-                        minimum=5, maximum=50, value=20, step=5,
-                        label="最新N件"
-                    )
+                    with gr.Row():
+                        outing_log_count_slider = gr.Slider(
+                            minimum=5, maximum=50, value=20, step=5,
+                            label="最新N件", scale=2
+                        )
+                        outing_logs_include_timestamp = gr.Checkbox(label="タイムスタンプを含む", value=False, scale=1)
+                        outing_logs_include_model = gr.Checkbox(label="モデル名を含む", value=False, scale=1)
                     outing_logs_text = gr.Textbox(
                         label="会話ログ", lines=8, max_lines=20, interactive=True,
                         placeholder="「データ読み込み」でロードされます"
                     )
                     with gr.Row():
                         outing_logs_chars = gr.Markdown("文字数: ---")
+                        outing_logs_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
                         outing_logs_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
                         outing_logs_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
                 
@@ -3439,7 +3454,10 @@ try:
         # データ読み込み
         outing_load_button.click(
             fn=ui_handlers.handle_outing_load_all_sections,
-            inputs=[current_room_name, outing_episode_days_slider, outing_log_count_slider],
+            inputs=[
+                current_room_name, outing_episode_days_slider, outing_log_count_slider,
+                outing_logs_include_timestamp, outing_logs_include_model
+            ],
             outputs=[
                 outing_system_prompt_text, outing_system_prompt_chars,
                 outing_permanent_text, outing_permanent_chars,
@@ -3531,7 +3549,45 @@ try:
         )
         outing_log_count_slider.change(
             fn=ui_handlers.handle_outing_reload_logs,
-            inputs=[current_room_name, outing_log_count_slider],
+            inputs=[current_room_name, outing_log_count_slider, outing_logs_include_timestamp, outing_logs_include_model],
+            outputs=[outing_logs_text, outing_logs_chars]
+        )
+        
+        # ログ表示オプション変更時に再読み込み
+        for opt in [outing_logs_include_timestamp, outing_logs_include_model]:
+            opt.change(
+                fn=ui_handlers.handle_outing_reload_logs,
+                inputs=[current_room_name, outing_log_count_slider, outing_logs_include_timestamp, outing_logs_include_model],
+                outputs=[outing_logs_text, outing_logs_chars]
+            )
+        
+        # セクション別リセット（🔄）
+        outing_system_prompt_reload.click(
+            fn=ui_handlers.handle_outing_reload_system_prompt,
+            inputs=[current_room_name],
+            outputs=[outing_system_prompt_text, outing_system_prompt_chars]
+        )
+        
+        # 永続記憶と日記要約は同じ core_memory.txt から読み込むため、同じ関数を呼び出してそれぞれの出力を更新
+        outing_permanent_reload.click(
+            fn=lambda room: ui_handlers.handle_outing_reload_core_memory(room)[:2],
+            inputs=[current_room_name],
+            outputs=[outing_permanent_text, outing_permanent_chars]
+        )
+        outing_diary_reload.click(
+            fn=lambda room: ui_handlers.handle_outing_reload_core_memory(room)[2:],
+            inputs=[current_room_name],
+            outputs=[outing_diary_text, outing_diary_chars]
+        )
+        
+        outing_episodic_reload.click(
+            fn=ui_handlers.handle_outing_reload_episodic,
+            inputs=[current_room_name, outing_episode_days_slider],
+            outputs=[outing_episodic_text, outing_episodic_chars]
+        )
+        outing_logs_reload.click(
+            fn=ui_handlers.handle_outing_reload_logs,
+            inputs=[current_room_name, outing_log_count_slider, outing_logs_include_timestamp, outing_logs_include_model],
             outputs=[outing_logs_text, outing_logs_chars]
         )
 

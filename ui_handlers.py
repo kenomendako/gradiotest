@@ -7899,10 +7899,10 @@ def _get_outing_export_folder(room_name: str) -> str:
     return folder_path
 
 
-def _get_recent_log_entries(log_path: str, count: int) -> list:
+def _get_recent_log_entries(log_path: str, count: int, include_timestamp=True, include_model=True) -> list:
     """
     ログファイルから直近N件の会話エントリを取得する。
-    Returns: [(role, content, timestamp), ...]
+    Returns: [(header, content), ...]
     """
     if not os.path.exists(log_path):
         return []
@@ -7911,36 +7911,64 @@ def _get_recent_log_entries(log_path: str, count: int) -> list:
         with open(log_path, "r", encoding="utf-8") as f:
             content = f.read()
         
-        # ログエントリをパース（[NAME]ヘッダーで分割）
+        # ログエントリをパース（## ROLE:NAME または [NAME] ヘッダーで分割）
         import re
-        # パターン: [NAME] または [NAME]タイムスタンプ
-        pattern = r'\[([^\]]+)\]'
         entries = []
         
         lines = content.split('\n')
-        current_entry = None
+        current_header = None
         current_content = []
         
+        # ヘッダーパターン: ## ROLE:NAME または [NAME]
+        header_pattern = r'^(?:## [^:]+:|\[)([^\]\n]+)(?:\])?'
+        
         for line in lines:
-            header_match = re.match(r'^\[([^\]]+)\](.*)$', line)
+            # タイムスタンプ・モデル名行のパターン: YYYY-MM-DD (Day) HH:MM:SS | Model
+            ts_model_pattern = r'^\d{4}-\d{2}-\d{2} \(.*\d{2}:\d{2}:\d{2}(?: \| .*)?$'
+            
+            # ヘッダーチェック
+            header_match = re.match(header_pattern, line)
             if header_match:
                 # 前のエントリを保存
-                if current_entry is not None:
-                    entries.append((current_entry, '\n'.join(current_content).strip()))
-                current_entry = header_match.group(1)
-                rest = header_match.group(2).strip()
-                current_content = [rest] if rest else []
+                if current_header is not None:
+                    entries.append((current_header, '\n'.join(current_content).strip()))
+                current_header = header_match.group(1).strip()
+                current_content = []
             else:
-                current_content.append(line)
+                # コンテンツ行の処理
+                is_ts_model_line = re.match(ts_model_pattern, line)
+                if is_ts_model_line:
+                    filtered_line = line
+                    if not include_timestamp and not include_model:
+                        continue # 両方除外なら行ごとスキップ
+                    
+                    parts = line.split('|')
+                    if len(parts) == 2:
+                        ts = parts[0].strip()
+                        model = parts[1].strip()
+                        if not include_timestamp and include_model:
+                            filtered_line = f"| {model}"
+                        elif include_timestamp and not include_model:
+                            filtered_line = ts
+                    elif not include_timestamp:
+                        # タイムスタンプのみの行で除外設定ならスキップ
+                        if re.match(r'^\d{4}-\d{2}-\d{2} \(.*\d{2}:\d{2}:\d{2}$', line.strip()):
+                            continue
+                    
+                    current_content.append(filtered_line)
+                else:
+                    current_content.append(line)
         
         # 最後のエントリを保存
-        if current_entry is not None:
-            entries.append((current_entry, '\n'.join(current_content).strip()))
+        if current_header is not None:
+            entries.append((current_header, '\n'.join(current_content).strip()))
         
         # 直近N件を取得
         return entries[-count:] if len(entries) > count else entries
     except Exception as e:
         print(f"Error reading log file: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
@@ -8358,7 +8386,7 @@ def handle_export_outing_from_preview(preview_text: str, room_name: str):
 
 # ===== 専用タブ用ハンドラ =====
 
-def handle_outing_load_all_sections(room_name: str, episode_days: int, log_count: int):
+def handle_outing_load_all_sections(room_name: str, episode_days: int, log_count: int, include_timestamp=True, include_model=True):
     """
     お出かけ専用タブ用：全セクションのデータを読み込む
     Returns: (system_prompt, sys_chars, permanent, perm_chars, diary, diary_chars,
@@ -8396,7 +8424,7 @@ def handle_outing_load_all_sections(room_name: str, episode_days: int, log_count
         # 会話ログ
         logs = ""
         if log_path and os.path.exists(log_path):
-            log_entries = _get_recent_log_entries(log_path, log_count)
+            log_entries = _get_recent_log_entries(log_path, log_count, include_timestamp, include_model)
             logs = "\n\n".join([f"[{header}]\n{content}" for header, content in log_entries])
         
         # 文字数計算
@@ -8453,9 +8481,11 @@ def handle_outing_compress_section(text: str, section_name: str, room_name: str)
         
         prompt = f"""以下の{section_name}を、重要な情報を保持しながら圧縮してください。
 
-【圧縮のルール】
-- 人格の核心となる情報は必ず保持
-- 冗長な表現は簡潔に
+【制約事項】
+- 人格の核心となる情報は必ず保持すること
+- 冗長な表現は簡潔にまとめること
+- **出力には「圧縮後のテキストのみ」を含めること**
+- 「はい、承知しました」や「以下に要約します」といった前置きや説明、挨拶は**一切不要**です
 
 【元データ】
 {text}"""
@@ -8578,7 +8608,7 @@ def handle_outing_reload_episodic(room_name: str, episode_days: int):
     return episodic, f"文字数: **{char_count:,}**"
 
 
-def handle_outing_reload_logs(room_name: str, log_count: int):
+def handle_outing_reload_logs(room_name: str, log_count: int, include_timestamp=True, include_model=True):
     """
     スライダー変更時に会話ログを再読み込み
     """
@@ -8588,8 +8618,45 @@ def handle_outing_reload_logs(room_name: str, log_count: int):
     log_path, _, _, _, _ = room_manager.get_room_files_paths(room_name)
     logs = ""
     if log_path and os.path.exists(log_path):
-        log_entries = _get_recent_log_entries(log_path, log_count)
+        log_entries = _get_recent_log_entries(log_path, log_count, include_timestamp, include_model)
         logs = "\n\n".join([f"[{header}]\n{content}" for header, content in log_entries])
     
     char_count = len(logs)
     return logs, f"文字数: **{char_count:,}**"
+
+
+def handle_outing_reload_system_prompt(room_name: str):
+    """
+    システムプロンプトを再読み込み
+    """
+    if not room_name:
+        return "", "文字数: 0"
+    
+    _, system_prompt_path, _, _, _ = room_manager.get_room_files_paths(room_name)
+    text = ""
+    if system_prompt_path and os.path.exists(system_prompt_path):
+        with open(system_prompt_path, "r", encoding="utf-8") as f:
+            text = f.read().strip()
+    
+    char_count = len(text)
+    return text, f"文字数: **{char_count:,}**"
+
+
+def handle_outing_reload_core_memory(room_name: str):
+    """
+    コアメモリ（永続・日記の両方）を再読み込み
+    """
+    if not room_name:
+        return "", "文字数: 0", "", "文字数: 0"
+    
+    core_memory_path = os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")
+    core_memory_text = ""
+    if os.path.exists(core_memory_path):
+        with open(core_memory_path, "r", encoding="utf-8") as f:
+            core_memory_text = f.read()
+    
+    permanent, diary = _split_core_memory(core_memory_text)
+    perm_chars = len(permanent)
+    diary_chars = len(diary)
+    
+    return permanent, f"文字数: **{perm_chars:,}**", diary, f"文字数: **{diary_chars:,}**"
