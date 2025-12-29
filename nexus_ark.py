@@ -1635,7 +1635,7 @@ try:
                 # --- データ読み込みボタン ---
                 with gr.Row():
                     outing_load_button = gr.Button("📥 データ読み込み", variant="primary", scale=1)
-                    outing_total_char_count = gr.Markdown("📝 合計文字数: ---", scale=2)
+                    outing_total_char_count = gr.Markdown("📝 合計文字数: ---")
                 
                 # --- セクション別アコーディオン ---
                 # システムプロンプト
