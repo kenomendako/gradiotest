@@ -16,10 +16,14 @@
   - ✅ ツール呼び出し時の空テキスト誤検知を修正 (ANOMALYログ抑制)
   - ✅ 画像生成モデルからの応答テキスト取得改善
   - レポート: [2025-12-27_agent_anomaly_fix.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-27_agent_anomaly_fix.md)
+- [x] **UIロジック（ui_handlers.py）の分析と精査** ✅ (2025-12-29 完了)
+  - テーマ設定、CSS生成ロジックの詳細調査
+  - アラーム・タイマー機能のハンドリング調査
 
 ---
 
 ### 次の予定 (ロードマップ)
+- **お出かけメニューのアイコン変更 (🚀 -> 💼)** (Low) - ユーザー様対応予定
 - **APIキー設定の集約管理** (High)
 - **OpenRouterエラー表示の修正** (High)
 
