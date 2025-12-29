@@ -8391,7 +8391,8 @@ def handle_outing_load_all_sections(room_name: str, episode_days: int, log_count
         # 会話ログ
         logs = ""
         if log_path and os.path.exists(log_path):
-            logs = _get_recent_logs_text(log_path, log_count)
+            log_entries = _get_recent_log_entries(log_path, log_count)
+            logs = "\n\n".join([f"[{header}]\n{content}" for header, content in log_entries])
         
         # 文字数計算
         sys_chars = len(system_prompt)
