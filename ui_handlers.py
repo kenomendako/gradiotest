@@ -8538,7 +8538,6 @@ def handle_outing_export_sections(
         traceback.print_exc()
         return gr.update(visible=False)
 
-
 def handle_outing_update_total_chars(
     sys_text: str, sys_enabled: bool,
     perm_text: str, perm_enabled: bool,
@@ -8562,3 +8561,35 @@ def handle_outing_update_total_chars(
         total += len(logs_text) if logs_text else 0
     
     return f"📝 合計文字数: **{total:,}** 文字"
+
+
+def handle_outing_reload_episodic(room_name: str, episode_days: int):
+    """
+    スライダー変更時にエピソード記憶を再読み込み
+    """
+    if not room_name:
+        return "", "文字数: 0"
+    
+    episodic = ""
+    if episode_days > 0:
+        episodic = _get_episodic_memory_entries(room_name, episode_days)
+    
+    char_count = len(episodic)
+    return episodic, f"文字数: **{char_count:,}**"
+
+
+def handle_outing_reload_logs(room_name: str, log_count: int):
+    """
+    スライダー変更時に会話ログを再読み込み
+    """
+    if not room_name:
+        return "", "文字数: 0"
+    
+    log_path, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+    logs = ""
+    if log_path and os.path.exists(log_path):
+        log_entries = _get_recent_log_entries(log_path, log_count)
+        logs = "\n\n".join([f"[{header}]\n{content}" for header, content in log_entries])
+    
+    char_count = len(logs)
+    return logs, f"文字数: **{char_count:,}**"

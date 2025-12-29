@@ -3522,6 +3522,18 @@ try:
                 inputs=outing_total_inputs,
                 outputs=[outing_total_char_count]
             )
+        
+        # スライダー変更時にセクションを再読み込み
+        outing_episode_days_slider.change(
+            fn=ui_handlers.handle_outing_reload_episodic,
+            inputs=[current_room_name, outing_episode_days_slider],
+            outputs=[outing_episodic_text, outing_episodic_chars]
+        )
+        outing_log_count_slider.change(
+            fn=ui_handlers.handle_outing_reload_logs,
+            inputs=[current_room_name, outing_log_count_slider],
+            outputs=[outing_logs_text, outing_logs_chars]
+        )
 
         # --- 外部接続設定に基づいてserver_nameを決定 ---
         allow_external = config_manager.CONFIG_GLOBAL.get("allow_external_connection", False)
