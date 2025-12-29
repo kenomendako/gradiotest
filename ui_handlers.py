@@ -8268,11 +8268,6 @@ def handle_generate_outing_preview(
 def handle_summarize_outing_text(preview_text: str, room_name: str, target_section: str = "all"):
     """
     AIを使ってエクスポートテキストを要約圧縮する。
-    
-    Args:
-        preview_text: プレビューテキスト
-        room_name: ルーム名
-        target_section: 圧縮対象セクション ("all", "system_prompt", "permanent", "diary", "episodic", "logs")
     """
     if not preview_text or not preview_text.strip():
         gr.Warning("プレビューテキストがありません。先に「プレビュー生成」を実行してください。")
@@ -8282,94 +8277,40 @@ def handle_summarize_outing_text(preview_text: str, room_name: str, target_secti
         gr.Warning("ルームが選択されていません。")
         return preview_text, "📝 推定文字数: ---"
     
+    # API設定 - 設定された最初の有効なキー名を使用
+    api_key_name = config_manager.initial_api_key_name_global
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    
+    if not api_key:
+        gr.Error("APIキーが設定されていません。")
+        return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
+    
     try:
         from gemini_api import get_configured_llm
-        from langchain_core.messages import HumanMessage
-        import re
         
-        # API設定
-        api_key = config_manager.GEMINI_API_KEYS.get("default")
-        if not api_key:
-            gr.Error("APIキーが設定されていません。")
-            return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
-        
-        # 要約用モデルを使用
         effective_settings = config_manager.get_effective_settings(room_name)
-        model = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
+        llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
         
-        # セクション検出用のパターン
-        section_patterns = {
-            "system_prompt": r"## システムプロンプト",
-            "permanent": r"## コアメモリ（永続記憶）",
-            "diary": r"## コアメモリ（日記要約）",
-            "episodic": r"## エピソード記憶",
-            "logs": r"## 直近の会話ログ"
-        }
-        
-        # 全体圧縮の場合
-        if target_section == "all":
-            prompt = """以下のAIペルソナデータを、重要な情報を保持しながらできるだけ圧縮してください。
+        # 圧縮プロンプト
+        prompt = f"""以下のAIペルソナデータを、重要な情報を保持しながらできるだけ圧縮してください。
 
 【圧縮のルール】
 - 人格の核心（性格、信念、関係性）は必ず保持
 - 冗長な表現は簡潔に
-- 具体的なエピソードは要点のみに圧縮
 - Markdown形式を維持
 - セクション構造（##見出し）を維持
 
 【元データ】
-""" + preview_text
-            gr.Info("AIで全体を圧縮中...")
-        else:
-            # 特定セクションのみ圧縮
-            pattern = section_patterns.get(target_section)
-            if not pattern:
-                gr.Warning(f"不明なセクション: {target_section}")
-                return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
-            
-            # セクションを抽出
-            all_patterns = list(section_patterns.values())
-            section_regex = f"({pattern}.*?)(?={'|'.join([re.escape(p) for p in all_patterns])}|$)"
-            match = re.search(section_regex, preview_text, re.DOTALL)
-            
-            if not match:
-                gr.Warning(f"指定されたセクションが見つかりません。先にプレビューを生成してください。")
-                return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
-            
-            section_text = match.group(1).strip()
-            
-            prompt = f"""以下のセクションを、重要な情報を保持しながらできるだけ圧縮してください。
-
-【圧縮のルール】
-- 人格の核心となる情報は必ず保持
-- 冗長な表現は簡潔に
-- Markdown形式を維持
-- セクションの見出し（##）を維持
-
-【圧縮対象セクション】
-{section_text}"""
-            
-            section_name = {"system_prompt": "システムプロンプト", "permanent": "コアメモリ（永続）", 
-                          "diary": "コアメモリ（日記）", "episodic": "エピソード記憶", "logs": "会話ログ"}
-            gr.Info(f"AIで「{section_name.get(target_section, target_section)}」を圧縮中...")
+{preview_text}"""
         
-        response = model.invoke([HumanMessage(content=prompt)])
+        gr.Info("AIで圧縮中...")
+        result = llm.invoke(prompt)
         
-        if response and response.content:
-            summarized = response.content.strip()
-            
-            # 特定セクションの場合は元のテキストを置換
-            if target_section != "all":
-                # セクションを置換
-                new_text = preview_text[:match.start(1)] + summarized + "\n\n" + preview_text[match.end(1):]
-                new_text = re.sub(r'\n{3,}', '\n\n', new_text)  # 余分な改行を削除
-                char_count = len(new_text)
-                gr.Info(f"圧縮完了！ {len(preview_text):,} → {char_count:,} 文字")
-                return new_text, f"📝 推定文字数: **{char_count:,}** 文字"
-            else:
-                char_count = len(summarized)
-                gr.Info(f"圧縮完了！ {len(preview_text):,} → {char_count:,} 文字")
-                return summarized, f"📝 推定文字数: **{char_count:,}** 文字"
+        if result and result.content:
+            summarized = result.content.strip()
+            char_count = len(summarized)
+            gr.Info(f"圧縮完了！ {len(preview_text):,} → {char_count:,} 文字")
+            return summarized, f"📝 推定文字数: **{char_count:,}** 文字"
         else:
             gr.Warning("AIからの応答がありませんでした。")
             return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
