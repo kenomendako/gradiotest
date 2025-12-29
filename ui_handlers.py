@@ -8371,12 +8371,13 @@ def handle_outing_load_all_sections(room_name: str, episode_days: int, log_count
         return empty, char_str, empty, char_str, empty, char_str, empty, char_str, empty, char_str, "📝 合計文字数: 0"
     
     try:
-        paths = room_manager.get_room_files_paths(room_name)
+        # タプルで返される: (log_file, system_prompt_file, profile_image_path, memory_main_path, notepad_path)
+        log_path, system_prompt_path, _, _, _ = room_manager.get_room_files_paths(room_name)
         
         # システムプロンプト
         system_prompt = ""
-        if os.path.exists(paths.get("system_prompt", "")):
-            with open(paths["system_prompt"], "r", encoding="utf-8") as f:
+        if system_prompt_path and os.path.exists(system_prompt_path):
+            with open(system_prompt_path, "r", encoding="utf-8") as f:
                 system_prompt = f.read().strip()
         
         # コアメモリ分割
@@ -8390,8 +8391,7 @@ def handle_outing_load_all_sections(room_name: str, episode_days: int, log_count
         
         # 会話ログ
         logs = ""
-        log_path = paths.get("log", "")
-        if os.path.exists(log_path):
+        if log_path and os.path.exists(log_path):
             logs = _get_recent_logs_text(log_path, log_count)
         
         # 文字数計算
