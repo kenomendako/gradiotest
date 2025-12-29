@@ -8283,7 +8283,8 @@ def handle_summarize_outing_text(preview_text: str, room_name: str, target_secti
         return preview_text, "📝 推定文字数: ---"
     
     try:
-        import google.generativeai as genai
+        from gemini_api import get_configured_llm
+        from langchain_core.messages import HumanMessage
         import re
         
         # API設定
@@ -8292,10 +8293,9 @@ def handle_summarize_outing_text(preview_text: str, room_name: str, target_secti
             gr.Error("APIキーが設定されていません。")
             return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
         
-        genai.configure(api_key=api_key)
-        
-        # 要約モデル（軽量なFlashを使用）
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        # 要約用モデルを使用
+        effective_settings = config_manager.get_effective_settings(room_name)
+        model = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
         
         # セクション検出用のパターン
         section_patterns = {
@@ -8353,10 +8353,10 @@ def handle_summarize_outing_text(preview_text: str, room_name: str, target_secti
                           "diary": "コアメモリ（日記）", "episodic": "エピソード記憶", "logs": "会話ログ"}
             gr.Info(f"AIで「{section_name.get(target_section, target_section)}」を圧縮中...")
         
-        response = model.generate_content(prompt)
+        response = model.invoke([HumanMessage(content=prompt)])
         
-        if response and response.text:
-            summarized = response.text.strip()
+        if response and response.content:
+            summarized = response.content.strip()
             
             # 特定セクションの場合は元のテキストを置換
             if target_section != "all":
