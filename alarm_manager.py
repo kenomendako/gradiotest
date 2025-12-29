@@ -598,6 +598,8 @@ def check_autonomous_actions():
                                 emm = EpisodicMemoryManager(room_folder)
                                 compress_result = emm.compress_old_episodes(api_key_val)
                                 print(f"  ✅ {room_folder}: {compress_result}")
+                                # 圧縮結果をroom_config.jsonに保存
+                                room_manager.update_room_config(room_folder, {"last_compression_result": compress_result})
                             except Exception as e:
                                 print(f"  ❌ {room_folder}: エピソード圧縮エラー - {e}")
                         
