@@ -324,6 +324,22 @@ try:
         height: auto !important;
     }
 
+    /* --- [お出かけエクスポート ダウンロードリンク] --- */
+    #outing_download_file a {
+        display: inline-block !important;
+        padding: 10px 20px !important;
+        background: var(--primary-500) !important;
+        color: white !important;
+        border-radius: 8px !important;
+        font-weight: bold !important;
+        text-decoration: none !important;
+        margin-top: 8px !important;
+    }
+    #outing_download_file a:hover {
+        background: var(--primary-600) !important;
+        transform: translateY(-1px);
+    }
+
     """
     custom_js = """
     function() {
@@ -1179,7 +1195,7 @@ try:
                 
                 # --- エクスポート ---
                 outing_export_button = gr.Button("📤 エクスポート", variant="primary")
-                outing_download_file = gr.File(label="ダウンロード", visible=False)
+                outing_download_file = gr.File(label="ダウンロード", visible=False, elem_id="outing_download_file")
                 outing_open_folder_button = gr.Button("📂 エクスポート先フォルダを開く", variant="secondary")
 
             gr.Markdown(f"Nexus Ark {constants.APP_VERSION} (Beta)", elem_id="app_version_display")
