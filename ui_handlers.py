@@ -8288,7 +8288,7 @@ def handle_summarize_outing_text(preview_text: str, room_name: str, target_secti
         import re
         
         # API設定
-        api_key = config_manager.get_api_key()
+        api_key = config_manager.GEMINI_API_KEYS.get("default")
         if not api_key:
             gr.Error("APIキーが設定されていません。")
             return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
