@@ -8660,3 +8660,93 @@ def handle_outing_reload_core_memory(room_name: str):
     diary_chars = len(diary)
     
     return permanent, f"文字数: **{perm_chars:,}**", diary, f"文字数: **{diary_chars:,}**"
+    
+
+def handle_import_return_log(
+    file_obj, room_name, source_name, user_header, agent_header,
+    api_history_limit_state, add_timestamp, display_thoughts,
+    screenshot_mode, redaction_rules
+):
+    """
+    お出かけ先からの会話ログを現在のルームにインポート（追記）する
+    """
+    if file_obj is None:
+        return gr.update(), gr.update(), "ステータス: ⚠️ ファイルが選択されていません", gr.update()
+    
+    if not room_name:
+        return gr.update(), gr.update(), "ステータス: ⚠️ ルームが選択されていません", gr.update()
+
+    if not source_name:
+        source_name = "外出先"
+
+    try:
+        # UTF-8で読み込みを試みる
+        try:
+            with open(file_obj.name, "r", encoding="utf-8") as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            # 失敗した場合は cp932 (Windows-31J) を試す
+            with open(file_obj.name, "r", encoding="cp932") as f:
+                content = f.read()
+
+        # 正規表現で分割
+        user_h = re.escape(user_header)
+        agent_h = re.escape(agent_header)
+        pattern = re.compile(f"(^{user_h}|^{agent_h})", re.MULTILINE)
+        
+        parts = pattern.split(content)
+        if len(parts) <= 1:
+            return gr.update(), gr.update(), "ステータス: ⚠️ 指定されたヘッダーが見つかりませんでした", gr.update()
+
+        log_entries = []
+        for i in range(1, len(parts), 2):
+            header = parts[i]
+            text = parts[i+1].strip()
+            if not text: continue
+
+            if header == user_header:
+                log_entries.append(f"## USER:user\n{text}")
+            elif header == agent_header:
+                log_entries.append(f"## AGENT:{room_name}\n{text}")
+
+        if not log_entries:
+            return gr.update(), gr.update(), "ステータス: ⚠️ インポート可能なメッセージが分割後に見つかりませんでした", gr.update()
+
+        # システムマーカーを追加
+        final_entries = []
+        final_entries.append(f"## SYSTEM:外出\n\n--- {source_name} での会話開始 ---")
+        final_entries.extend(log_entries)
+        final_entries.append(f"## SYSTEM:外出\n\n--- {source_name} での会話終了 ---")
+
+        # log.txt に追記
+        log_path, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        
+        # バックアップ作成
+        room_manager.create_backup(room_name, 'log')
+        
+        with open(log_path, "a", encoding="utf-8") as f:
+            # 既存のログの末尾に改行がなければ追加
+            if os.path.exists(log_path) and os.path.getsize(log_path) > 0:
+                f.write("\n\n")
+            
+            # 分かりやすいようにHTMLコメントで区切りを入れる
+            import_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"<!-- Return Home Import: {import_timestamp} from {source_name} -->\n\n")
+            
+            f.write("\n\n".join(final_entries))
+            f.write("\n\n")
+
+        gr.Info(f"{len(log_entries)}件のメッセージをインポートしました。おかえりなさい！")
+        
+        # チャットログをリロードして最新状態にする
+        chatbot_display, current_log_map_state = reload_chat_log(
+            room_name, api_history_limit_state, add_timestamp,
+            display_thoughts, screenshot_mode, redaction_rules
+        )
+        
+        return chatbot_display, current_log_map_state, f"ステータス: ✅ {len(log_entries)}件インポート完了", None
+
+    except Exception as e:
+        print(f"Return Home Import Error: {e}")
+        traceback.print_exc()
+        return gr.update(), gr.update(), f"ステータス: ❌ エラー: {str(e)}", gr.update()

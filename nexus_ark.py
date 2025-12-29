@@ -1636,92 +1636,107 @@ try:
                             reload_raw_button = gr.Button("最後に保存した内容を読み込む", variant="secondary")
 
             # ===== 💼 お出かけタブ =====
-            with gr.TabItem("💼 お出かけ", elem_id="outing_tab"):
-                gr.Markdown("## ペルソナエクスポート\n外部AIツール（Antigravity等）で会話するためのペルソナデータをエクスポートします。")
-                
-                # --- データ読み込みボタン ---
-                with gr.Row():
-                    outing_load_button = gr.Button("📥 データ読み込み", variant="primary", scale=1)
-                    outing_total_char_count = gr.Markdown("📝 合計文字数: ---")
-                
-                # --- セクション別アコーディオン ---
-                # システムプロンプト
-                with gr.Accordion("📜 システムプロンプト", open=False):
-                    outing_system_prompt_text = gr.Textbox(
-                        label="システムプロンプト", lines=8, max_lines=20, interactive=True,
-                        placeholder="「データ読み込み」でロードされます"
-                    )
-                    with gr.Row():
-                        outing_system_prompt_chars = gr.Markdown("文字数: ---")
-                        outing_system_prompt_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
-                        outing_system_prompt_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
-                        outing_system_prompt_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
-                
-                # コアメモリ（永続記憶）
-                with gr.Accordion("💎 コアメモリ（永続記憶）", open=False):
-                    outing_permanent_text = gr.Textbox(
-                        label="永続記憶", lines=8, max_lines=20, interactive=True,
-                        placeholder="「データ読み込み」でロードされます"
-                    )
-                    with gr.Row():
-                        outing_permanent_chars = gr.Markdown("文字数: ---")
-                        outing_permanent_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
-                        outing_permanent_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
-                        outing_permanent_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
-                
-                # コアメモリ（日記要約）
-                with gr.Accordion("📓 コアメモリ（日記要約）", open=False):
-                    outing_diary_text = gr.Textbox(
-                        label="日記要約", lines=8, max_lines=20, interactive=True,
-                        placeholder="「データ読み込み」でロードされます"
-                    )
-                    with gr.Row():
-                        outing_diary_chars = gr.Markdown("文字数: ---")
-                        outing_diary_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
-                        outing_diary_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
-                        outing_diary_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
-                
-                # エピソード記憶
-                with gr.Accordion("📖 エピソード記憶", open=False):
-                    outing_episode_days_slider = gr.Slider(
-                        minimum=0, maximum=30, value=7, step=1,
-                        label="過去N日分", info="0で無効"
-                    )
-                    outing_episodic_text = gr.Textbox(
-                        label="エピソード記憶", lines=8, max_lines=20, interactive=True,
-                        placeholder="「データ読み込み」でロードされます"
-                    )
-                    with gr.Row():
-                        outing_episodic_chars = gr.Markdown("文字数: ---")
-                        outing_episodic_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
-                        outing_episodic_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
-                        outing_episodic_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
-                
-                # 会話ログ
-                with gr.Accordion("💬 会話ログ", open=False):
-                    with gr.Row():
-                        outing_log_count_slider = gr.Slider(
-                            minimum=5, maximum=50, value=20, step=5,
-                            label="最新N件", scale=2
-                        )
-                        outing_logs_include_timestamp = gr.Checkbox(label="タイムスタンプを含む", value=False, scale=1)
-                        outing_logs_include_model = gr.Checkbox(label="モデル名を含む", value=False, scale=1)
-                    outing_logs_text = gr.Textbox(
-                        label="会話ログ", lines=8, max_lines=20, interactive=True,
-                        placeholder="「データ読み込み」でロードされます"
-                    )
-                    with gr.Row():
-                        outing_logs_chars = gr.Markdown("文字数: ---")
-                        outing_logs_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
-                        outing_logs_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
-                        outing_logs_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
-                
-                # --- エクスポート ---
-                gr.Markdown("---")
-                with gr.Row():
-                    outing_export_button = gr.Button("📤 エクスポート", variant="primary", scale=2)
-                    outing_open_folder_button = gr.Button("📂 フォルダを開く", variant="secondary", scale=1)
-                outing_download_file = gr.File(label="ダウンロード", visible=False, elem_id="outing_download_file")
+            # ===== お出かけタブ =====
+            with gr.TabItem("お出かけ", elem_id="outing_tab"):
+                with gr.Tabs():
+                    # --- Tab 1: エクスポート ---
+                    with gr.TabItem("📤 エクスポート", elem_id="outing_export_tab"):
+                        gr.Markdown("## ペルソナエクスポート\n外部AIツール（Antigravity等）で会話するためのペルソナデータをエクスポートします。")
+                        
+                        # --- データ読み込みボタン ---
+                        with gr.Row():
+                            outing_load_button = gr.Button("📥 データ読み込み", variant="primary", scale=1)
+                            outing_total_char_count = gr.Markdown("📝 合計文字数: ---")
+                        
+                        # --- セクション別アコーディオン ---
+                        # システムプロンプト
+                        with gr.Accordion("📜 システムプロンプト", open=False):
+                            outing_system_prompt_text = gr.Textbox(
+                                label="システムプロンプト", lines=8, max_lines=20, interactive=True,
+                                placeholder="「データ読み込み」でロードされます"
+                            )
+                            with gr.Row():
+                                outing_system_prompt_chars = gr.Markdown("文字数: ---")
+                                outing_system_prompt_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
+                                outing_system_prompt_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
+                                outing_system_prompt_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
+                        
+                        # コアメモリ（永続記憶）
+                        with gr.Accordion("🧠 コアメモリ（永続記憶）", open=False):
+                            outing_permanent_text = gr.Textbox(
+                                label="永続記憶", lines=8, max_lines=20, interactive=True,
+                                placeholder="「データ読み込み」でロードされます"
+                            )
+                            with gr.Row():
+                                outing_permanent_chars = gr.Markdown("文字数: ---")
+                                outing_permanent_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
+                                outing_permanent_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
+                                outing_permanent_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
+                        
+                        # コアメモリ（日記要約）
+                        with gr.Accordion("📔 コアメモリ（日記要約）", open=False):
+                            outing_diary_text = gr.Textbox(
+                                label="日記要約", lines=8, max_lines=20, interactive=True,
+                                placeholder="「データ読み込み」でロードされます"
+                            )
+                            with gr.Row():
+                                outing_diary_chars = gr.Markdown("文字数: ---")
+                                outing_diary_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
+                                outing_diary_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
+                                outing_diary_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
+                        
+                        # エピソード記憶
+                        with gr.Accordion("📖 エピソード記憶", open=False):
+                            outing_episode_days_slider = gr.Slider(
+                                minimum=0, maximum=30, value=7, step=1,
+                                label="過去N日分", info="0で無効"
+                            )
+                            outing_episodic_text = gr.Textbox(
+                                label="エピソード記憶", lines=8, max_lines=20, interactive=True,
+                                placeholder="「データ読み込み」でロードされます"
+                            )
+                            with gr.Row():
+                                outing_episodic_chars = gr.Markdown("文字数: ---")
+                                outing_episodic_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
+                                outing_episodic_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
+                                outing_episodic_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
+                        
+                        # 会話ログ
+                        with gr.Accordion("💬 会話ログ", open=False):
+                            with gr.Row():
+                                outing_log_count_slider = gr.Slider(
+                                    minimum=5, maximum=50, value=20, step=5,
+                                    label="最新N件", scale=2
+                                )
+                                outing_logs_include_timestamp = gr.Checkbox(label="タイムスタンプを含む", value=False, scale=1)
+                                outing_logs_include_model = gr.Checkbox(label="モデル名を含む", value=False, scale=1)
+                            outing_logs_text = gr.Textbox(
+                                label="会話ログ", lines=8, max_lines=20, interactive=True,
+                                placeholder="「データ読み込み」でロードされます"
+                            )
+                            with gr.Row():
+                                outing_logs_chars = gr.Markdown("文字数: ---")
+                                outing_logs_reload = gr.Button("🔄", variant="secondary", scale=0, min_width=40)
+                                outing_logs_compress = gr.Button("✨ 圧縮", variant="secondary", scale=0)
+                                outing_logs_enabled = gr.Checkbox(label="エクスポートに含める", value=True)
+                        
+                        # --- エクスポート実行 ---
+                        gr.Markdown("---")
+                        with gr.Row():
+                            outing_export_button = gr.Button("📤 エクスポート", variant="primary", scale=2)
+                            outing_open_folder_button = gr.Button("📂 フォルダを開く", variant="secondary", scale=1)
+                        outing_download_file = gr.File(label="ダウンロード", visible=False, elem_id="outing_download_file")
+                    
+                    # --- Tab 2: 帰宅（インポート） ---
+                    with gr.TabItem("🏠 帰宅 (インポート)", elem_id="outing_import_tab"):
+                        gr.Markdown("## 会話ログの統合\nAntigravity等からエクスポートした会話ログを、現在のルームの履歴に統合（追記）します。")
+                        outing_import_file = gr.File(label="ログファイルをアップロード（MD/TXT）", file_types=[".md", ".txt"])
+                        with gr.Row():
+                            outing_import_source = gr.Textbox(label="お出かけ先の名称", value="Antigravity", placeholder="例: Antigravity, 外出先")
+                            outing_import_user_header = gr.Textbox(label="ユーザーの発言ヘッダー", value="[user]", placeholder="例: [user]")
+                            outing_import_agent_header = gr.Textbox(label="AIの発言ヘッダー", value="[ルシアン]", placeholder="例: [ルシアン]")
+                        outing_import_button = gr.Button("ログを統合して帰宅する", variant="primary")
+                        outing_import_status = gr.Markdown("ステータス: 待機中")
 
             with gr.TabItem("デバッグコンソール"):
                 gr.Markdown("## デバッグコンソール\nアプリケーションの内部的な動作ログ（ターミナルに出力される内容）をここに表示します。")
@@ -3514,6 +3529,19 @@ try:
             fn=ui_handlers.handle_open_outing_folder,
             inputs=[current_room_name],
             outputs=None
+        )
+
+        # 帰宅（インポート）
+        outing_import_button.click(
+            fn=ui_handlers.handle_import_return_log,
+            inputs=[
+                outing_import_file, current_room_name,
+                outing_import_source,
+                outing_import_user_header, outing_import_agent_header,
+                api_history_limit_state, room_add_timestamp_checkbox,
+                room_display_thoughts_checkbox, screenshot_mode_checkbox, redaction_rules_state
+            ],
+            outputs=[chatbot_display, current_log_map_state, outing_import_status, outing_import_file]
         )
         
         # 合計文字数のリアルタイム更新（テキスト・チェックボックス変更時）
