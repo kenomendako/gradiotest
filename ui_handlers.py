@@ -8354,3 +8354,181 @@ def handle_export_outing_from_preview(preview_text: str, room_name: str):
         gr.Error(f"エクスポート中にエラーが発生しました: {e}")
         traceback.print_exc()
         return gr.update(visible=False)
+
+
+# ===== 専用タブ用ハンドラ =====
+
+def handle_outing_load_all_sections(room_name: str, episode_days: int, log_count: int):
+    """
+    お出かけ専用タブ用：全セクションのデータを読み込む
+    Returns: (system_prompt, sys_chars, permanent, perm_chars, diary, diary_chars,
+              episodic, ep_chars, logs, logs_chars, total_chars)
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        empty = ""
+        char_str = "文字数: 0"
+        return empty, char_str, empty, char_str, empty, char_str, empty, char_str, empty, char_str, "📝 合計文字数: 0"
+    
+    try:
+        paths = room_manager.get_room_files_paths(room_name)
+        
+        # システムプロンプト
+        system_prompt = ""
+        if os.path.exists(paths.get("system_prompt", "")):
+            with open(paths["system_prompt"], "r", encoding="utf-8") as f:
+                system_prompt = f.read().strip()
+        
+        # コアメモリ分割
+        permanent, diary = _split_core_memory(room_name)
+        
+        # エピソード記憶
+        episodic = ""
+        if episode_days > 0:
+            entries = _get_episodic_memory_entries(room_name, episode_days)
+            episodic = "\n".join([f"[{e['date']}] {e['summary']}" for e in entries])
+        
+        # 会話ログ
+        logs = ""
+        log_path = paths.get("log", "")
+        if os.path.exists(log_path):
+            logs = _get_recent_logs_text(log_path, log_count)
+        
+        # 文字数計算
+        sys_chars = len(system_prompt)
+        perm_chars = len(permanent)
+        diary_chars = len(diary)
+        ep_chars = len(episodic)
+        logs_chars = len(logs)
+        total = sys_chars + perm_chars + diary_chars + ep_chars + logs_chars
+        
+        gr.Info(f"データを読み込みました（合計 {total:,} 文字）")
+        
+        return (
+            system_prompt, f"文字数: **{sys_chars:,}**",
+            permanent, f"文字数: **{perm_chars:,}**",
+            diary, f"文字数: **{diary_chars:,}**",
+            episodic, f"文字数: **{ep_chars:,}**",
+            logs, f"文字数: **{logs_chars:,}**",
+            f"📝 合計文字数: **{total:,}** 文字"
+        )
+    
+    except Exception as e:
+        gr.Error(f"読み込みエラー: {e}")
+        traceback.print_exc()
+        empty = ""
+        char_str = "文字数: エラー"
+        return empty, char_str, empty, char_str, empty, char_str, empty, char_str, empty, char_str, "📝 合計文字数: エラー"
+
+
+def handle_outing_compress_section(text: str, section_name: str, room_name: str):
+    """
+    お出かけ専用タブ用：単一セクションをAIで圧縮
+    """
+    if not text or not text.strip():
+        gr.Warning(f"{section_name}が空です。")
+        return text, f"文字数: 0"
+    
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return text, f"文字数: {len(text):,}"
+    
+    api_key_name = config_manager.initial_api_key_name_global
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    
+    if not api_key:
+        gr.Error("APIキーが設定されていません。")
+        return text, f"文字数: {len(text):,}"
+    
+    try:
+        from gemini_api import get_configured_llm
+        
+        effective_settings = config_manager.get_effective_settings(room_name)
+        llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
+        
+        prompt = f"""以下の{section_name}を、重要な情報を保持しながら圧縮してください。
+
+【圧縮のルール】
+- 人格の核心となる情報は必ず保持
+- 冗長な表現は簡潔に
+
+【元データ】
+{text}"""
+        
+        gr.Info(f"{section_name}を圧縮中...")
+        result = llm.invoke(prompt)
+        
+        if result and result.content:
+            summarized = result.content.strip()
+            char_count = len(summarized)
+            gr.Info(f"圧縮完了！ {len(text):,} → {char_count:,} 文字")
+            return summarized, f"文字数: **{char_count:,}**"
+        else:
+            gr.Warning("AIからの応答がありませんでした。")
+            return text, f"文字数: {len(text):,}"
+    
+    except Exception as e:
+        gr.Error(f"圧縮エラー: {e}")
+        traceback.print_exc()
+        return text, f"文字数: {len(text):,}"
+
+
+def handle_outing_export_sections(
+    room_name: str,
+    system_prompt: str, sys_enabled: bool,
+    permanent: str, perm_enabled: bool,
+    diary: str, diary_enabled: bool,
+    episodic: str, ep_enabled: bool,
+    logs: str, logs_enabled: bool
+):
+    """
+    お出かけ専用タブ用：有効なセクションを結合してエクスポート
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(visible=False)
+    
+    try:
+        # 有効なセクションを結合
+        sections = []
+        
+        if sys_enabled and system_prompt.strip():
+            sections.append(f"## システムプロンプト\n\n{system_prompt.strip()}")
+        
+        if perm_enabled and permanent.strip():
+            sections.append(f"## コアメモリ（永続記憶）\n\n{permanent.strip()}")
+        
+        if diary_enabled and diary.strip():
+            sections.append(f"## コアメモリ（日記要約）\n\n{diary.strip()}")
+        
+        if ep_enabled and episodic.strip():
+            sections.append(f"## エピソード記憶\n\n{episodic.strip()}")
+        
+        if logs_enabled and logs.strip():
+            sections.append(f"## 直近の会話ログ\n\n{logs.strip()}")
+        
+        if not sections:
+            gr.Warning("エクスポートするセクションがありません。")
+            return gr.update(visible=False)
+        
+        combined = "\n\n---\n\n".join(sections)
+        
+        # ファイル保存
+        room_config = room_manager.get_room_config(room_name) or {}
+        display_name = room_config.get("agent_display_name") or room_name
+        
+        export_folder = _get_outing_export_folder(room_name)
+        file_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        export_filename = f"{display_name}_outing_{file_timestamp}.md"
+        export_path = os.path.join(export_folder, export_filename)
+        
+        with open(export_path, "w", encoding="utf-8") as f:
+            f.write(combined)
+        
+        gr.Info(f"エクスポート完了！ ({len(combined):,} 文字)")
+        return gr.update(value=export_path, visible=True)
+    
+    except Exception as e:
+        gr.Error(f"エクスポートエラー: {e}")
+        traceback.print_exc()
+        return gr.update(visible=False)
