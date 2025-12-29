@@ -1160,8 +1160,22 @@ try:
                     placeholder="「プレビュー生成」をクリックするとここに表示されます"
                 )
                 
-                # --- AI圧縮ボタン ---
-                outing_summarize_button = gr.Button("✨ AIで圧縮（要約）", variant="secondary")
+                # --- AI圧縮 ---
+                with gr.Row():
+                    outing_summarize_section = gr.Dropdown(
+                        choices=[
+                            ("全体", "all"),
+                            ("システムプロンプト", "system_prompt"),
+                            ("コアメモリ（永続）", "permanent"),
+                            ("コアメモリ（日記）", "diary"),
+                            ("エピソード記憶", "episodic"),
+                            ("会話ログ", "logs")
+                        ],
+                        value="all",
+                        label="圧縮対象",
+                        scale=1
+                    )
+                    outing_summarize_button = gr.Button("✨ AIで圧縮", variant="secondary", scale=1)
                 
                 # --- エクスポート ---
                 outing_export_button = gr.Button("📤 エクスポート", variant="primary")
@@ -3401,10 +3415,10 @@ try:
             outputs=[outing_preview_text, outing_char_count]
         )
         
-        # AI圧縮
+        # AI圧縮（セクション選択対応）
         outing_summarize_button.click(
             fn=ui_handlers.handle_summarize_outing_text,
-            inputs=[outing_preview_text, current_room_name],
+            inputs=[outing_preview_text, current_room_name, outing_summarize_section],
             outputs=[outing_preview_text, outing_char_count]
         )
         

@@ -8246,9 +8246,14 @@ def handle_generate_outing_preview(
         return "", "📝 推定文字数: エラー"
 
 
-def handle_summarize_outing_text(preview_text: str, room_name: str):
+def handle_summarize_outing_text(preview_text: str, room_name: str, target_section: str = "all"):
     """
     AIを使ってエクスポートテキストを要約圧縮する。
+    
+    Args:
+        preview_text: プレビューテキスト
+        room_name: ルーム名
+        target_section: 圧縮対象セクション ("all", "system_prompt", "permanent", "diary", "episodic", "logs")
     """
     if not preview_text or not preview_text.strip():
         gr.Warning("プレビューテキストがありません。先に「プレビュー生成」を実行してください。")
@@ -8260,6 +8265,7 @@ def handle_summarize_outing_text(preview_text: str, room_name: str):
     
     try:
         import google.generativeai as genai
+        import re
         
         # API設定
         api_key = config_manager.get_api_key()
@@ -8272,7 +8278,18 @@ def handle_summarize_outing_text(preview_text: str, room_name: str):
         # 要約モデル（軽量なFlashを使用）
         model = genai.GenerativeModel("gemini-2.0-flash")
         
-        prompt = """以下のAIペルソナデータを、重要な情報を保持しながらできるだけ圧縮してください。
+        # セクション検出用のパターン
+        section_patterns = {
+            "system_prompt": r"## システムプロンプト",
+            "permanent": r"## コアメモリ（永続記憶）",
+            "diary": r"## コアメモリ（日記要約）",
+            "episodic": r"## エピソード記憶",
+            "logs": r"## 直近の会話ログ"
+        }
+        
+        # 全体圧縮の場合
+        if target_section == "all":
+            prompt = """以下のAIペルソナデータを、重要な情報を保持しながらできるだけ圧縮してください。
 
 【圧縮のルール】
 - 人格の核心（性格、信念、関係性）は必ず保持
@@ -8283,15 +8300,57 @@ def handle_summarize_outing_text(preview_text: str, room_name: str):
 
 【元データ】
 """ + preview_text
+            gr.Info("AIで全体を圧縮中...")
+        else:
+            # 特定セクションのみ圧縮
+            pattern = section_patterns.get(target_section)
+            if not pattern:
+                gr.Warning(f"不明なセクション: {target_section}")
+                return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
+            
+            # セクションを抽出
+            all_patterns = list(section_patterns.values())
+            section_regex = f"({pattern}.*?)(?={'|'.join([re.escape(p) for p in all_patterns])}|$)"
+            match = re.search(section_regex, preview_text, re.DOTALL)
+            
+            if not match:
+                gr.Warning(f"指定されたセクションが見つかりません。先にプレビューを生成してください。")
+                return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
+            
+            section_text = match.group(1).strip()
+            
+            prompt = f"""以下のセクションを、重要な情報を保持しながらできるだけ圧縮してください。
+
+【圧縮のルール】
+- 人格の核心となる情報は必ず保持
+- 冗長な表現は簡潔に
+- Markdown形式を維持
+- セクションの見出し（##）を維持
+
+【圧縮対象セクション】
+{section_text}"""
+            
+            section_name = {"system_prompt": "システムプロンプト", "permanent": "コアメモリ（永続）", 
+                          "diary": "コアメモリ（日記）", "episodic": "エピソード記憶", "logs": "会話ログ"}
+            gr.Info(f"AIで「{section_name.get(target_section, target_section)}」を圧縮中...")
         
-        gr.Info("AIで圧縮中...")
         response = model.generate_content(prompt)
         
         if response and response.text:
             summarized = response.text.strip()
-            char_count = len(summarized)
-            gr.Info(f"圧縮完了！ {len(preview_text):,} → {char_count:,} 文字")
-            return summarized, f"📝 推定文字数: **{char_count:,}** 文字"
+            
+            # 特定セクションの場合は元のテキストを置換
+            if target_section != "all":
+                # セクションを置換
+                new_text = preview_text[:match.start(1)] + summarized + "\n\n" + preview_text[match.end(1):]
+                new_text = re.sub(r'\n{3,}', '\n\n', new_text)  # 余分な改行を削除
+                char_count = len(new_text)
+                gr.Info(f"圧縮完了！ {len(preview_text):,} → {char_count:,} 文字")
+                return new_text, f"📝 推定文字数: **{char_count:,}** 文字"
+            else:
+                char_count = len(summarized)
+                gr.Info(f"圧縮完了！ {len(preview_text):,} → {char_count:,} 文字")
+                return summarized, f"📝 推定文字数: **{char_count:,}** 文字"
         else:
             gr.Warning("AIからの応答がありませんでした。")
             return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
