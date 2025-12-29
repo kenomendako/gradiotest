@@ -386,7 +386,7 @@ def update_room_config(room_name: str, updates: dict) -> bool:
         if "override_settings" not in config:
             config["override_settings"] = {}
 
-        root_keys = ["room_name", "user_display_name", "description", "version"]
+        root_keys = ["room_name", "user_display_name", "description", "version", "last_sent_scenery_image"]
         
         overrides = config["override_settings"]
         for k, v in updates.items():

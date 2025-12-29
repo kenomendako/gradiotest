@@ -75,6 +75,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed - バグ修正
 
+#### 🌄 情景画像の「変更時のみ」送信が機能しない問題を修正 (2025-12-29)
+- `last_sent_scenery_image` の保存・読み込み経路の不整合を修正
+- 「変更時のみ」モードで正しく毎ターン送信がスキップされるようになった
+- 参照: [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-29_scenery_image_sending_fix.md)
+
 #### 🛠️ ツール結果表示の修正 (2025-12-28)
 - 現在地移動ツール等の実行結果で `[RAW_RESULT]` タグとUUIDが表示されてしまう問題を修正
 - ヘッダー形式 `tool_result:name:id` に対応するよう判定方式を変更
