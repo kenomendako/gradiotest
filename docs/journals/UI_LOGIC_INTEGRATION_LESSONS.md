@@ -427,3 +427,25 @@ GradioアプリケーションにおけるUIとロジックの連携は、目に
     send2trash(room_path)  # 復元可能！
     ```
     また、重要なデータは **Git でローカルバックアップ** を取り、定期的に自動コミットするスクリプトを用意すること。
+
+---
+
+### 教訓29：`room_config.json` の二重構造を常に意識せよ (2025-12-29)
+
+*   **現象**: 睡眠時記憶整理で更新したはずの「最終更新日」がUIに反映されず、古い日付のままになっていた。
+
+*   **真因**: `room_config.json` は二重構造を持っている。
+    - **ルートレベル**: 基本情報 (`room_name`, `description` など) と一部の状態
+    - **`override_settings` 内**: ルーム固有の設定 (モデル名、各種フラグなど)
+    
+    `room_manager.update_room_config()` は**ほぼ全てのキーを `override_settings` 内に保存**する設計だが、古いコードの一部は**ルートレベルに直接保存**したり、**ルートレベルからのみ読み込んだり**していた。この不整合により、保存場所と読み込み場所が一致せず、データが「見えない」状態になっていた。
+
+*   **解決アーキテクチャ：「フォールバック付き読み込み」**
+    読み込み時は `override_settings` を優先し、なければルートレベルを確認する。
+    ```python
+    override_settings = room_config.get("override_settings", {})
+    last_update = override_settings.get("last_episodic_update") or room_config.get("last_episodic_update", "未実行")
+    ```
+
+*   **教訓:**
+    設定ファイルの構造を変更する際は、**保存と読み込みの両方を同時に見直すこと**。古いコードが直接ファイル操作している箇所がないか、必ず grep で確認する。また、中央集権的な保存関数（`update_room_config`）を使うよう統一することが望ましい。
