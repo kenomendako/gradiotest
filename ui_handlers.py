@@ -488,13 +488,16 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
                 room_config = json.load(f)
         except: pass
     
-    last_exec = room_config.get("last_compression_result", "未実行")
+    # override_settings内を優先し、なければルートレベルを確認（手動/自動更新の両方に対応）
+    override_settings = room_config.get("override_settings", {})
+    
+    last_exec = override_settings.get("last_compression_result") or room_config.get("last_compression_result", "未実行")
     # 表示用の文字列を構築 (例: 2024-06-15まで圧縮済み (対象: 12件) | 最終結果: 圧縮完了...)
     last_compression_result = f"{last_date}まで圧縮済み (対象: {pending}件) | 最終: {last_exec}"
 
     # エピソード更新/話題クラスタ更新のステータス復元
-    last_episodic_update = room_config.get("last_episodic_update", "未実行")
-    last_topic_cluster_update = room_config.get("last_topic_cluster_update", "未実行")
+    last_episodic_update = override_settings.get("last_episodic_update") or room_config.get("last_episodic_update", "未実行")
+    last_topic_cluster_update = override_settings.get("last_topic_cluster_update") or room_config.get("last_topic_cluster_update", "未実行")
     
     # トピッククラスタのDataFrame用データを読み込む
     cluster_df_data = []
