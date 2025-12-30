@@ -293,16 +293,33 @@ try:
     }
 
     /* --- [Sidebar & Content Scrolling Fix] --- */
-    /* サイドバー全体の高さを100%（または100dvh）に保ち、内部のスクロールを有効化 */
-    div.sidebar {
+    /* 左右サイドバー共通設定 */
+    #left_sidebar, #right_sidebar {
         height: 100dvh !important;
         display: flex !important;
         flex-direction: column !important;
-        z-index: 1000 !important; /* 重なり順を保証 */
+    }
+    
+    /* 右サイドバー（プロフィール・情景）を左サイドバーより上に表示 */
+    #left_sidebar {
+        z-index: 1000 !important;
+    }
+    #right_sidebar {
+        z-index: 1001 !important;
+    }
+    
+    /* 縦長画面でのサイドバーつまみ位置調整：
+       左サイドバーのつまみを下にずらし、左右のつまみが重ならないようにする。
+       これにより開いたサイドバーが100%幅でも、もう一方のつまみが操作可能になる。 */
+    @media (max-width: 768px) {
+        #left_sidebar > .toggle-button {
+            top: 60px !important;
+        }
     }
     
     /* サイドバー内のコンテナをスクロール可能にし、中身が詰まらないようにする */
-    div.sidebar > div.sidebar-container {
+    #left_sidebar > div.sidebar-container,
+    #right_sidebar > div.sidebar-container {
         overflow-y: auto !important;
         flex-grow: 1 !important;
         height: 100% !important;
@@ -410,7 +427,7 @@ try:
         selected_knowledge_file_index_state = gr.State(None)
         last_sent_scenery_image_state = gr.State(None)  # 情景画像のAI送信用：最後に送信した画像パスを記憶
         # --- グローバル・左サイドバー (設定) ---
-        with gr.Sidebar(label="設定", width=320, open=True):
+        with gr.Sidebar(label="設定", width=320, open=True, elem_id="left_sidebar"):
             room_dropdown = gr.Dropdown(label="ルームを選択", interactive=True)
 
             with gr.Accordion("⚙️ 設定", open=False):
@@ -1150,7 +1167,7 @@ try:
 
 
         # --- グローバル・右サイドバー (情景・プロフィール) ---
-        with gr.Sidebar(label="情景・プロフィール", width=350, open=True, position="right"):
+        with gr.Sidebar(label="情景・プロフィール", width=350, open=True, position="right", elem_id="right_sidebar"):
             with gr.Accordion("🖼️ プロフィール・情景", open=True, elem_id="profile_scenery_accordion") as profile_scenery_accordion:
                 # --- プロフィール画像/アバター表示セクション ---
                 # gr.HTMLを使用して動画アバターまたは静止画を表示
