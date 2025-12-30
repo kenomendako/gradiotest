@@ -509,7 +509,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
 
     if final_prompt_parts:
         # 画像がない場合は、文字列として結合して送信することで、Gemini API との相性を最大化する。
-        has_images = any(isinstance(p, dict) and p.get('type') == 'file' for p in final_prompt_parts)
+        has_images = any(isinstance(p, dict) and p.get('type') in ('file', 'image_url') for p in final_prompt_parts)
         if not has_images:
             flat_content = "\n".join([p.get('text', '') if isinstance(p, dict) else str(p) for p in final_prompt_parts])
             messages.append(HumanMessage(content=flat_content))
