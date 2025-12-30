@@ -1284,3 +1284,50 @@ final_profile_update = gr.update(value=get_avatar_html(room_name, state=final_ex
 - `ui_handlers.py`: `get_avatar_html`, `extract_expression_from_response`
 - `nexus_ark.py`: 表情管理UI（アコーディオン内）
 - `assets/sample_persona/expressions.json`: デフォルト表情設定テンプレート
+
+---
+
+### レッスン41: マルチモーダルデータの検出条件の落とし穴（2025-12-30）
+
+#### 問題の症状
+
+ユーザーがチャットに画像を添付（クリップボードからペースト、またはファイルアップロード）しても、ペルソナAIが画像の内容を認識できない。コンソールログでは「ファイル永続化」は成功しているが、AIの応答には画像への言及がなかった。
+
+#### 根本原因
+
+`gemini_api.py` の `invoke_nexus_agent_stream` 関数内で、マルチモーダルデータ（画像や音声など）を含むかどうかを判定する条件が不完全だった。
+
+```python
+# 問題のあったコード（L512）
+has_images = any(isinstance(p, dict) and p.get('type') == 'file' for p in final_prompt_parts)
+```
+
+この条件は `type='file'`（音声/動画用）のみを検出していたが、ユーザーが添付した**画像**は `type='image_url'` 形式でエンコードされる。そのため、画像が含まれていても `has_images=False` と判定され、以下のフォールバック処理でテキストのみとして送信されていた：
+
+```python
+if not has_images:
+    # 画像があるはずなのにここに入ってしまう
+    flat_content = "\n".join([p.get('text', '') if isinstance(p, dict) else str(p) for p in final_prompt_parts])
+    messages.append(HumanMessage(content=flat_content))  # テキストのみになってしまう
+```
+
+#### 解決策
+
+検出条件に `image_url` タイプも含めるように修正：
+
+```python
+# 修正後
+has_images = any(isinstance(p, dict) and p.get('type') in ('file', 'image_url') for p in final_prompt_parts)
+```
+
+#### 教訓
+
+1. **添付ファイルの形式には複数のタイプがある**: 画像は `image_url`、音声/動画は `file`。条件分岐を書く際は両方を考慮すること。
+2. **レッスン39との関連**: 音声/動画を `file` タイプで送信するように修正した際、既存の画像検出ロジックを見落としていた可能性がある。
+3. **「送信成功」と「AI認識」は別問題**: ファイルの永続化（ログへの保存）が成功しても、APIへの送信形式が正しくなければAIは内容を認識できない。
+
+#### 関連ファイル
+
+- `ui_handlers.py`: `handle_message_submission`（画像を`image_url`形式でエンコード）
+- `gemini_api.py`: `invoke_nexus_agent_stream`（検出条件の修正箇所）
+
