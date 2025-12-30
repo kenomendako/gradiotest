@@ -1221,3 +1221,66 @@ final_entries.append(f"## SYSTEM:外出\n\n--- {source_name} での会話開始 
 #### 関連ファイル
 
 - `ui_handlers.py`: `handle_import_return_log`（修正箇所）, `format_history_for_gradio`（パースロジック）
+
+---
+
+## Lesson 43: アバター表情差分システムの実装
+
+### 概要
+
+AIの応答に応じてアバターの表情を動的に切り替える機能を実装した。静止画モードと動画モードの両方で動作する統一アーキテクチャを採用。
+
+### 設計ポイント
+
+#### 1. 表情タグの形式
+
+AIに出力させるタグ形式は `【表情】…{expression_name}…` とした。
+
+- **理由**: ログに残っても可読性が高く、正規表現でパースしやすい
+- **例**: `今日は楽しい一日でしたね【表情】…happy…`
+
+#### 2. フォールバック機構
+
+表情ファイルが見つからない場合の優先順位:
+
+1. 指定された表情ファイル (例: `avatar/happy.png` または `avatar/happy.mp4`)
+2. `idle` ファイル (`avatar/idle.png` または `avatar/idle.mp4`)
+3. `profile.png` (従来のプロフィール画像)
+
+```python
+# 静止画モードのフォールバック例
+for target in [state, "idle"]:
+    img_path = os.path.join(avatar_dir, f"{target}.png")
+    if os.path.exists(img_path):
+        return generate_html(img_path)
+# 最終フォールバック
+return use_profile_png()
+```
+
+#### 3. ストリーム応答完了時の表情更新
+
+`_stream_and_handle_response` の `finally` ブロックで、最後のAI応答から表情を抽出してアバターを更新する。
+
+```python
+# finallyブロック内
+final_expression = "idle"
+if final_chatbot_history:
+    ai_content = final_chatbot_history[-1][1]
+    if isinstance(ai_content, str):
+        final_expression = extract_expression_from_response(ai_content, room_name)
+final_profile_update = gr.update(value=get_avatar_html(room_name, state=final_expression))
+```
+
+### 注意点
+
+- **thinking状態**: AI応答生成中は `thinking` 状態のアバターを表示し、応答完了後に適切な表情に切り替える
+- **グループ会話**: 複数のAIが順番に応答する場合、最後に応答したAIの表情が適用される
+- **キーワードマッチング**: タグがない場合のフォールバックとして、応答本文からキーワードで表情を推測する機能も実装
+
+### 関連ファイル
+
+- `constants.py`: 表情関連の定数定義
+- `room_manager.py`: 表情設定の読み書き (`get_expressions_config`, `save_expressions_config`)
+- `ui_handlers.py`: `get_avatar_html`, `extract_expression_from_response`
+- `nexus_ark.py`: 表情管理UI（アコーディオン内）
+- `assets/sample_persona/expressions.json`: デフォルト表情設定テンプレート

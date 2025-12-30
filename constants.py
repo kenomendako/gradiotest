@@ -55,3 +55,28 @@ THINKING_LEVEL_OPTIONS = {
     "extreme": "極高 (32,768 tokens)"
 }
 DEFAULT_THINKING_LEVEL = "auto"
+
+# --- 表情差分設定 ---
+EXPRESSIONS_FILE = "expressions.json"
+EXPRESSION_TAG_PATTERN = r"【表情】…(\w+)…"  # 正規表現パターン
+
+# デフォルト表情リスト
+DEFAULT_EXPRESSIONS = [
+    "idle",        # 待機/通常（必須）
+    "thinking",    # 思考中
+    "happy",       # 嬉しい
+    "sad",         # 悲しい
+    "angry",       # 怒り
+    "surprised",   # 驚き
+    "embarrassed"  # 照れ
+]
+
+# 表情→感情キーワードのマッピング（デフォルト）
+DEFAULT_EXPRESSION_KEYWORDS = {
+    "happy": ["嬉しい", "楽しい", "幸せ", "ありがとう", "わーい", "♪", "笑", "やった"],
+    "sad": ["悲しい", "寂しい", "つらい", "残念", "ごめん"],
+    "angry": ["怒", "許せない", "ムカつく", "イライラ"],
+    "surprised": ["驚", "えっ", "まさか", "びっくり", "！？", "!?"],
+    "embarrassed": ["照れ", "恥ずかしい", "えへへ", "///"],
+    "thinking": ["うーん", "考え", "そうですね", "..."],
+}

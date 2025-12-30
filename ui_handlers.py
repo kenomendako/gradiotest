@@ -119,8 +119,45 @@ def get_avatar_html(room_name: str, state: str = "idle", mode: str = None) -> st
         effective_settings = config_manager.get_effective_settings(room_name)
         mode = effective_settings.get("avatar_mode", "video")  # デフォルトは動画優先
     
-    # 静止画モード: 動画を探さず、直接プロフィール画像を表示
+    # 静止画モード: まず表情差分の静止画を探し、なければ profile.png にフォールバック
     if mode == "static":
+        avatar_dir = os.path.join(constants.ROOMS_DIR, room_name, constants.AVATAR_DIR)
+        image_exts = [".png", ".jpg", ".jpeg", ".webp"]
+        
+        # 1. まず指定された表情の静止画を探す
+        for ext in image_exts:
+            expr_path = os.path.join(avatar_dir, f"{state}{ext}")
+            if os.path.exists(expr_path):
+                try:
+                    with open(expr_path, "rb") as f:
+                        encoded = base64.b64encode(f.read()).decode("utf-8")
+                    mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+                    mime_type = mime_map.get(ext, "image/png")
+                    return f'''<img 
+                        src="data:{mime_type};base64,{encoded}" 
+                        style="width:100%; height:200px; object-fit:contain; border-radius:12px;"
+                        alt="{state}">'''
+                except Exception as e:
+                    print(f"--- [Avatar] 表情画像読み込みエラー ({state}): {e} ---")
+        
+        # 2. 指定表情がない場合、idle の静止画を探す（state が idle でなければ）
+        if state != "idle":
+            for ext in image_exts:
+                idle_path = os.path.join(avatar_dir, f"idle{ext}")
+                if os.path.exists(idle_path):
+                    try:
+                        with open(idle_path, "rb") as f:
+                            encoded = base64.b64encode(f.read()).decode("utf-8")
+                        mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+                        mime_type = mime_map.get(ext, "image/png")
+                        return f'''<img 
+                            src="data:{mime_type};base64,{encoded}" 
+                            style="width:100%; height:200px; object-fit:contain; border-radius:12px;"
+                            alt="idle">'''
+                    except Exception as e:
+                        print(f"--- [Avatar] idle画像読み込みエラー: {e} ---")
+        
+        # 3. それでもなければ従来の profile.png にフォールバック
         _, _, profile_image_path, _, _ = get_room_files_paths(room_name)
         if profile_image_path and os.path.exists(profile_image_path):
             try:
@@ -173,6 +210,29 @@ def get_avatar_html(room_name: str, state: str = "idle", mode: str = None) -> st
             except Exception as e:
                 print(f"--- [Avatar] 動画読み込みエラー: {e} ---")
     
+    # 指定表情の動画がない場合、idle 動画を探す（state が idle でなければ）
+    if state != "idle":
+        for ext, mime_type in video_types:
+            idle_path = os.path.join(avatar_dir, f"idle{ext}")
+            if os.path.exists(idle_path):
+                try:
+                    with open(idle_path, "rb") as f:
+                        encoded = base64.b64encode(f.read()).decode("utf-8")
+                    
+                    if ext == ".gif":
+                        return f'''<img 
+                            src="data:{mime_type};base64,{encoded}" 
+                            style="width:100%; height:200px; object-fit:contain; border-radius:12px;"
+                            alt="idle">'''
+                    else:
+                        return f'''<video 
+                            src="data:{mime_type};base64,{encoded}" 
+                            autoplay loop muted playsinline
+                            style="width:100%; height:200px; object-fit:contain; border-radius:12px;">
+                        </video>'''
+                except Exception as e:
+                    print(f"--- [Avatar] idle動画読み込みエラー: {e} ---")
+    
     # 動画が見つからない場合は静止画にフォールバック
     _, _, profile_image_path, _, _ = get_room_files_paths(room_name)
     
@@ -197,6 +257,55 @@ def get_avatar_html(room_name: str, state: str = "idle", mode: str = None) -> st
     </div>'''
 
 
+
+
+def extract_expression_from_response(response_text: str, room_name: str) -> str:
+    """
+    AI応答テキストから表情を抽出する。
+    
+    優先順位:
+    1. 【表情】…{expression_name}… タグから抽出
+    2. キーワードマッチング
+    3. デフォルト (idle)
+    
+    Args:
+        response_text: AI応答のテキスト
+        room_name: ルームのフォルダ名
+        
+    Returns:
+        表情名 (例: "happy", "sad", "idle")
+    """
+    if not response_text:
+        return "idle"
+    
+    # 表情設定を読み込む
+    expressions_config = room_manager.get_expressions_config(room_name)
+    registered_expressions = expressions_config.get("expressions", constants.DEFAULT_EXPRESSIONS)
+    default_expression = expressions_config.get("default_expression", "idle")
+    
+    # 1. タグから抽出: 【表情】…{expression_name}…
+    match = re.search(constants.EXPRESSION_TAG_PATTERN, response_text)
+    if match:
+        expression = match.group(1)
+        # 登録済みの表情かどうかをチェック
+        if expression in registered_expressions:
+            print(f"--- [Expression] タグから抽出: {expression} ---")
+            return expression
+        else:
+            print(f"--- [Expression] タグ '{expression}' は未登録、フォールバック処理へ ---")
+    
+    # 2. キーワードマッチング
+    keywords = expressions_config.get("keywords", constants.DEFAULT_EXPRESSION_KEYWORDS)
+    for expression, keyword_list in keywords.items():
+        if expression not in registered_expressions:
+            continue
+        for keyword in keyword_list:
+            if keyword in response_text:
+                print(f"--- [Expression] キーワード '{keyword}' から検出: {expression} ---")
+                return expression
+    
+    # 3. デフォルト
+    return default_expression
 
 
 DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri": "金", "sat": "土", "sun": "日"}
@@ -1459,8 +1568,24 @@ def _stream_and_handle_response(
         latest_location_id = utils.get_current_location(soul_vessel_room)
         location_dropdown_update = gr.update(choices=new_location_choices, value=latest_location_id)
         
-        # [v20] 動画アバター対応: idle状態のアバターHTMLに戻す
-        final_profile_update = gr.update(value=get_avatar_html(soul_vessel_room, state="idle"))
+        # [v20] 動画アバター対応: 応答完了時に表情を更新
+        # 最後のAI応答から表情を抽出
+        final_expression = "idle"
+        try:
+            # タイプライター完了時などは chatbot_history が最新
+            # エラー時は final_chatbot_history が最新
+            target_history = final_chatbot_history if 'final_chatbot_history' in locals() else chatbot_history
+            
+            if target_history and len(target_history) > 0:
+                last_response = target_history[-1]
+                if last_response and len(last_response) >= 2:
+                    ai_content = last_response[1]
+                    if isinstance(ai_content, str):
+                        final_expression = extract_expression_from_response(ai_content, soul_vessel_room)
+        except Exception as e:
+            print(f"--- [Avatar] 表情抽出エラー: {e} ---")
+
+        final_profile_update = gr.update(value=get_avatar_html(soul_vessel_room, state=final_expression))
 
         # [v21] 現在地連動背景: ツール使用後に背景CSSも更新
         effective_settings_for_style = config_manager.get_effective_settings(soul_vessel_room)
@@ -5098,6 +5223,207 @@ def get_avatar_mode_for_room(room_name: str) -> gr.update:
     mode = room_config.get("avatar_mode", mode)
     
     return gr.update(value=mode)
+
+
+# ===== 表情リスト管理ハンドラ =====
+
+def refresh_expressions_list(room_name: str) -> gr.update:
+    """
+    表情リストをDataFrame用に整形して返す。
+    
+    Args:
+        room_name: ルームのフォルダ名
+        
+    Returns:
+        expressions_df の gr.update
+    """
+    if not room_name:
+        return gr.update(value=[])
+    
+    expressions_config = room_manager.get_expressions_config(room_name)
+    available_files = room_manager.get_available_expression_files(room_name)
+    keywords = expressions_config.get("keywords", {})
+    
+    rows = []
+    for expr in expressions_config.get("expressions", []):
+        # キーワードをカンマ区切りで表示
+        kw_list = keywords.get(expr, [])
+        kw_str = ", ".join(kw_list) if kw_list else ""
+        
+        # ファイルの有無
+        file_path = available_files.get(expr)
+        if file_path:
+            file_name = os.path.basename(file_path)
+        else:
+            file_name = "（なし）"
+        
+        rows.append([expr, kw_str, file_name])
+    
+    return gr.update(value=rows)
+
+
+def handle_add_expression(room_name: str, expression_name: str, keywords_str: str) -> tuple:
+    """
+    新しい表情を追加または既存表情のキーワードを更新する。
+    
+    Args:
+        room_name: ルームのフォルダ名
+        expression_name: 表情名
+        keywords_str: カンマ区切りのキーワード文字列
+        
+    Returns:
+        (expressions_df, new_expression_name, new_expression_keywords) の更新
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(), gr.update(), gr.update()
+    
+    if not expression_name or not expression_name.strip():
+        gr.Warning("表情名を入力してください。")
+        return gr.update(), gr.update(), gr.update()
+    
+    expression_name = expression_name.strip().lower()
+    
+    # キーワードをリストに変換
+    keywords_list = [k.strip() for k in keywords_str.split(",") if k.strip()] if keywords_str else []
+    
+    # 表情設定を読み込み
+    expressions_config = room_manager.get_expressions_config(room_name)
+    
+    # 表情リストに追加
+    if expression_name not in expressions_config["expressions"]:
+        expressions_config["expressions"].append(expression_name)
+        action = "追加"
+    else:
+        action = "更新"
+    
+    # キーワードを更新
+    if keywords_list:
+        expressions_config["keywords"][expression_name] = keywords_list
+    
+    # 保存
+    room_manager.save_expressions_config(room_name, expressions_config)
+    gr.Info(f"表情「{expression_name}」を{action}しました。")
+    
+    # UIを更新
+    return (
+        refresh_expressions_list(room_name),
+        gr.update(value=""),  # 入力欄をクリア
+        gr.update(value="")
+    )
+
+
+def handle_delete_expression(room_name: str, expressions_df_data, selected_index: gr.SelectData) -> gr.update:
+    """
+    選択した表情を削除する。
+    
+    Args:
+        room_name: ルームのフォルダ名
+        expressions_df_data: DataFrameのデータ
+        selected_index: 選択された行のインデックス
+        
+    Returns:
+        expressions_df の更新
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update()
+    
+    if selected_index is None:
+        gr.Warning("削除する表情を選択してください。")
+        return gr.update()
+    
+    row_index = selected_index.index[0] if hasattr(selected_index, 'index') else selected_index
+    
+    # DataFrameからPandasのDataFrameに変換されている場合
+    if isinstance(expressions_df_data, list) and len(expressions_df_data) > row_index:
+        expression_name = expressions_df_data[row_index][0]
+    elif hasattr(expressions_df_data, 'iloc'):
+        expression_name = expressions_df_data.iloc[row_index, 0]
+    else:
+        gr.Warning("表情の取得に失敗しました。")
+        return gr.update()
+    
+    if expression_name == "idle":
+        gr.Warning("「idle」（待機状態）は削除できません。")
+        return gr.update()
+    
+    # 表情設定を読み込み
+    expressions_config = room_manager.get_expressions_config(room_name)
+    
+    # 表情リストから削除
+    if expression_name in expressions_config["expressions"]:
+        expressions_config["expressions"].remove(expression_name)
+    
+    # キーワードも削除
+    if expression_name in expressions_config.get("keywords", {}):
+        del expressions_config["keywords"][expression_name]
+    
+    # 保存
+    room_manager.save_expressions_config(room_name, expressions_config)
+    gr.Info(f"表情「{expression_name}」を削除しました。")
+    
+    return refresh_expressions_list(room_name)
+
+
+def handle_expression_file_upload(room_name: str, expression_name: str, file_path: str) -> tuple:
+    """
+    表情用のファイル（画像/動画）をアップロードして保存する。
+    
+    Args:
+        room_name: ルームのフォルダ名
+        expression_name: 表情名
+        file_path: アップロードされたファイルのパス
+        
+    Returns:
+        (expressions_df, ...) の更新
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(), gr.update(), gr.update()
+    
+    if not expression_name or not expression_name.strip():
+        gr.Warning("先に表情名を入力してください。")
+        return gr.update(), gr.update(), gr.update()
+    
+    if not file_path or not os.path.exists(file_path):
+        gr.Warning("ファイルが見つかりません。")
+        return gr.update(), gr.update(), gr.update()
+    
+    expression_name = expression_name.strip().lower()
+    
+    # avatar ディレクトリを確保
+    avatar_dir = os.path.join(constants.ROOMS_DIR, room_name, constants.AVATAR_DIR)
+    os.makedirs(avatar_dir, exist_ok=True)
+    
+    # ファイル拡張子を取得
+    _, ext = os.path.splitext(file_path)
+    ext = ext.lower()
+    
+    # 保存先パス
+    dest_path = os.path.join(avatar_dir, f"{expression_name}{ext}")
+    
+    try:
+        shutil.copy2(file_path, dest_path)
+        print(f"--- [Expression] ファイルを保存: {dest_path} ---")
+        
+        # 表情がリストになければ追加
+        expressions_config = room_manager.get_expressions_config(room_name)
+        if expression_name not in expressions_config["expressions"]:
+            expressions_config["expressions"].append(expression_name)
+            room_manager.save_expressions_config(room_name, expressions_config)
+        
+        gr.Info(f"表情「{expression_name}」のファイルを保存しました。")
+        
+    except Exception as e:
+        gr.Error(f"ファイルの保存に失敗しました: {e}")
+        traceback.print_exc()
+    
+    return (
+        refresh_expressions_list(room_name),
+        gr.update(value=""),
+        gr.update(value="")
+    )
 
 
 def handle_save_cropped_image(room_name: str, original_image_path: str, cropped_image_data: Dict) -> Tuple[gr.update, gr.update, gr.update]:

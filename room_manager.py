@@ -489,3 +489,138 @@ def delete_room(room_name: str) -> bool:
         traceback.print_exc()
         return False
 
+
+# ===== 表情差分設定管理 =====
+
+def get_expressions_config(room_name: str) -> dict:
+    """
+    ルームの表情設定を読み込む。
+    expressions.json が存在しない場合はデフォルト設定を返す。
+    
+    Args:
+        room_name: ルームのフォルダ名
+        
+    Returns:
+        表情設定の辞書
+    """
+    if not room_name:
+        return _get_default_expressions_config()
+    
+    expressions_file = os.path.join(constants.ROOMS_DIR, room_name, constants.EXPRESSIONS_FILE)
+    
+    if os.path.exists(expressions_file):
+        try:
+            with open(expressions_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"警告: ルーム '{room_name}' の表情設定ファイルが読めません: {e}")
+    
+    return _get_default_expressions_config()
+
+
+def _get_default_expressions_config() -> dict:
+    """デフォルトの表情設定を返す"""
+    return {
+        "expressions": constants.DEFAULT_EXPRESSIONS.copy(),
+        "default_expression": "idle",
+        "keywords": constants.DEFAULT_EXPRESSION_KEYWORDS.copy()
+    }
+
+
+def save_expressions_config(room_name: str, config: dict) -> bool:
+    """
+    ルームの表情設定を保存する。
+    
+    Args:
+        room_name: ルームのフォルダ名
+        config: 保存する設定辞書
+        
+    Returns:
+        保存に成功した場合はTrue
+    """
+    if not room_name:
+        return False
+    
+    expressions_file = os.path.join(constants.ROOMS_DIR, room_name, constants.EXPRESSIONS_FILE)
+    
+    try:
+        with open(expressions_file, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        print(f"--- 表情設定を保存しました: {room_name} ---")
+        return True
+    except Exception as e:
+        print(f"エラー: 表情設定の保存に失敗しました: {e}")
+        return False
+
+
+def get_available_expression_files(room_name: str) -> dict:
+    """
+    avatar/ディレクトリ内の利用可能な表情ファイルを取得する。
+    
+    Args:
+        room_name: ルームのフォルダ名
+        
+    Returns:
+        {表情名: ファイルパス} の辞書
+    """
+    if not room_name:
+        return {}
+    
+    avatar_dir = os.path.join(constants.ROOMS_DIR, room_name, constants.AVATAR_DIR)
+    
+    if not os.path.isdir(avatar_dir):
+        return {}
+    
+    # サポートする拡張子
+    image_exts = [".png", ".jpg", ".jpeg", ".webp"]
+    video_exts = [".mp4", ".webm", ".gif"]
+    all_exts = image_exts + video_exts
+    
+    available = {}
+    
+    try:
+        for filename in os.listdir(avatar_dir):
+            name, ext = os.path.splitext(filename)
+            if ext.lower() in all_exts:
+                # 同じ表情名で動画と静止画がある場合、動画を優先
+                if name not in available or ext.lower() in video_exts:
+                    available[name] = os.path.join(avatar_dir, filename)
+    except Exception as e:
+        print(f"警告: アバターディレクトリの読み取りエラー: {e}")
+    
+    return available
+
+
+def initialize_expressions_file(room_name: str) -> bool:
+    """
+    ルームに expressions.json が存在しない場合、デフォルト設定をコピーする。
+    新規ルーム作成時に呼び出される。
+    
+    Args:
+        room_name: ルームのフォルダ名
+        
+    Returns:
+        初期化に成功した場合はTrue
+    """
+    if not room_name:
+        return False
+    
+    expressions_file = os.path.join(constants.ROOMS_DIR, room_name, constants.EXPRESSIONS_FILE)
+    
+    # 既に存在する場合はスキップ
+    if os.path.exists(expressions_file):
+        return True
+    
+    # サンプルファイルからコピー
+    sample_file = os.path.join(constants.SAMPLE_PERSONA_DIR, constants.EXPRESSIONS_FILE)
+    
+    if os.path.exists(sample_file):
+        try:
+            shutil.copy2(sample_file, expressions_file)
+            print(f"--- 表情設定ファイルを初期化しました: {room_name} ---")
+            return True
+        except Exception as e:
+            print(f"警告: 表情設定ファイルのコピーに失敗: {e}")
+    
+    # サンプルがない場合はデフォルト設定を生成
+    return save_expressions_config(room_name, _get_default_expressions_config())

@@ -1198,6 +1198,41 @@ try:
                         visible=False, transforms=["crop"], brush=None, eraser=None,
                     )
                     save_cropped_image_button = gr.Button("この範囲で保存", visible=False)
+                    
+                    # ★★★ 新規: 表情差分管理 ★★★
+                    with gr.Accordion("🎭 表情差分の管理", open=False) as expression_management_accordion:
+                        gr.Markdown(
+                            "AIの応答内容に応じて、キャラクターの表情を自動で切り替えます。\n\n"
+                            "**設定方法:** システムプロンプトに以下の形式で記載してください:\n"
+                            "```\n"
+                            "【表情について】応答の最後に【表情】…表情名… を付けてください。\n"
+                            "使用可能な表情: idle, happy, sad, angry, surprised, embarrassed\n"
+                            "```"
+                        )
+                        
+                        # 表情リスト表示
+                        expressions_df = gr.DataFrame(
+                            headers=["表情名", "キーワード", "ファイル"],
+                            datatype=["str", "str", "str"],
+                            interactive=False,
+                            row_count=(5, "dynamic"),
+                            col_count=(3, "fixed"),
+                            wrap=True,
+                            label="登録済みの表情リスト"
+                        )
+                        
+                        # 表情追加フォーム
+                        gr.Markdown("### 表情を追加・編集")
+                        with gr.Row():
+                            new_expression_name = gr.Textbox(label="表情名", placeholder="例: happy", scale=1)
+                            new_expression_keywords = gr.Textbox(label="検出キーワード（カンマ区切り）", placeholder="嬉しい, 楽しい, ♪", scale=2)
+                        expression_file_upload = gr.UploadButton(
+                            "画像/動画をアップロード", 
+                            file_types=["image", ".mp4", ".webm", ".gif"]
+                        )
+                        with gr.Row():
+                            add_expression_button = gr.Button("表情を追加", variant="primary")
+                            delete_expression_button = gr.Button("選択した表情を削除", variant="stop")
 
                 # --- 情景ビジュアルセクション ---
                 # フルスクリーンボタンにバグがあるため無効化
@@ -2900,6 +2935,28 @@ try:
             fn=ui_handlers.handle_thinking_avatar_upload,
             inputs=[current_room_name, thinking_upload_button],
             outputs=[]  # 特に出力なし（通知のみ）
+        )
+
+        # 5. 表情差分管理イベント
+        # アコーディオンが開かれたら表情リストを読み込む
+        expression_management_accordion.expand(
+            fn=ui_handlers.refresh_expressions_list,
+            inputs=[current_room_name],
+            outputs=[expressions_df]
+        )
+        
+        # 表情追加ボタン
+        add_expression_button.click(
+            fn=ui_handlers.handle_add_expression,
+            inputs=[current_room_name, new_expression_name, new_expression_keywords],
+            outputs=[expressions_df, new_expression_name, new_expression_keywords]
+        )
+        
+        # 表情ファイルアップロード
+        expression_file_upload.upload(
+            fn=ui_handlers.handle_expression_file_upload,
+            inputs=[current_room_name, new_expression_name, expression_file_upload],
+            outputs=[expressions_df, new_expression_name, new_expression_keywords]
         )
 
         world_builder_raw_outputs = [
