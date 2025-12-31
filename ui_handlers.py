@@ -6097,7 +6097,7 @@ def handle_embedding_mode_change(room_name: str, embedding_mode: str):
         print(f"--- [Embedding Mode] 設定保存エラー: {e} ---")
 
 def handle_memory_reindex(room_name: str, api_key_name: str):
-    """記憶の索引（過去ログ、エピソード記憶、夢日記）を更新する。"""
+    """記憶の索引（過去ログ、エピソード記憶、夢日記、日記ファイル）を更新する。"""
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーを選択してください。")
         return gr.update(), gr.update()
@@ -6108,7 +6108,7 @@ def handle_memory_reindex(room_name: str, api_key_name: str):
         return gr.update(), gr.update()
 
     # 処理開始を通知
-    yield "処理中: 過去ログ、エピソード記憶、夢日記、現行ログをベクトル化しています...", gr.update(interactive=False)
+    yield "処理中: 過去ログ、エピソード記憶、夢日記、日記ファイルをベクトル化しています...", gr.update(interactive=False)
 
     try:
         manager = rag_manager.RAGManager(room_name, api_key)
