@@ -795,10 +795,15 @@ def resize_image_for_api(
             if return_image:
                 return img
             
-            # Base64エンコードして返す
+            # Base64エンコードして返す（元の形式を維持）
             buffer = io.BytesIO()
-            img.save(buffer, format="PNG", optimize=True)
-            return base64.b64encode(buffer.getvalue()).decode("utf-8")
+            # 元の形式を取得（不明な場合はPNGにフォールバック）
+            output_format = img.format or "PNG"
+            # JPEGの場合はRGBモードが必要
+            if output_format.upper() in ("JPEG", "JPG") and img.mode != "RGB":
+                img = img.convert("RGB")
+            img.save(buffer, format=output_format, optimize=True)
+            return base64.b64encode(buffer.getvalue()).decode("utf-8"), output_format.lower()
         finally:
             if should_close and hasattr(img, 'close'):
                 img.close()

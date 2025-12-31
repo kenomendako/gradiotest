@@ -1733,11 +1733,11 @@ def handle_message_submission(
                     mime_type = kind.mime if kind else "application/octet-stream"
 
                     if mime_type.startswith('image/'):
-                        # ▼▼▼【APIコスト削減】送信前に画像をリサイズ（768px上限）▼▼▼
-                        resized_base64 = utils.resize_image_for_api(file_path, max_size=768, return_image=False)
-                        if resized_base64:
-                            encoded_string = resized_base64
-                            mime_type = "image/png"  # リサイズ後はPNG固定
+                        # ▼▼▼【APIコスト削減】送信前に画像をリサイズ（768px上限、元形式維持）▼▼▼
+                        resize_result = utils.resize_image_for_api(file_path, max_size=768, return_image=False)
+                        if resize_result:
+                            encoded_string, output_format = resize_result
+                            mime_type = f"image/{output_format}"
                         else:
                             # リサイズ失敗時は元画像をそのまま使用
                             with open(file_path, "rb") as f:
