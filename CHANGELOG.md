@@ -43,6 +43,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - 送信タイミング設定: 「変更時のみ」または「毎ターン」
 - 画像は512×512にリサイズしてコスト削減
 
+#### 📷 ユーザー添付画像リサイズ機能 (2025-12-31)
+- ユーザーが添付した画像をAPI送信前に768pxにリサイズ
+- 元の画像形式を維持（JPEG→JPEG、PNG→PNG）
+- 共通ユーティリティ`utils.resize_image_for_api()`を拡張してPIL Image対応
+
 #### 📝 書き置き機能 (2025-12-25)
 - 自律行動時にAIにメッセージを渡す「書き置き」機能を追加
 - 履歴更新ボタンで書き置きUIも更新
