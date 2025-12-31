@@ -246,7 +246,32 @@ class RAGManager:
                                 pending_items.append((record_id, doc))
             except Exception: pass
 
-        # 4. 現行ログ (log.txt) - 動的インデックスで処理するため、ここでは除外
+        # 4. 日記ファイル収集（memory_main.txt + memory_archived_*.txt）
+        diary_dir = self.room_dir / "memory"
+        if diary_dir.exists():
+            for f in diary_dir.glob("memory*.txt"):
+                # memory_main.txt と memory_archived_*.txt が対象
+                if f.name.startswith("memory") and f.name.endswith(".txt"):
+                    try:
+                        content = f.read_text(encoding="utf-8")
+                        if content.strip():
+                            # ファイル内容のハッシュでrecord_idを生成（変更検出用）
+                            content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
+                            record_id = f"diary:{f.name}:{content_hash}"
+                            if record_id not in processed_records:
+                                doc = Document(
+                                    page_content=content,
+                                    metadata={
+                                        "source": f.name,
+                                        "type": "diary",  # 日記であることを示すメタデータ
+                                        "path": str(f)
+                                    }
+                                )
+                                pending_items.append((record_id, doc))
+                    except Exception as e:
+                        print(f"  - 日記ファイル読み込みエラー ({f.name}): {e}")
+
+        # 5. 現行ログ (log.txt) - 動的インデックスで処理するため、ここでは除外
         # 現行ログは頻繁に変更されるため、毎回再構築する動的インデックス側で処理する方が効率的
 
         # --- 実行: 小分けにして保存しながら進む ---

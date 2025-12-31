@@ -343,7 +343,7 @@ def retrieval_node(state: AgentState):
         # 3c. 日記 (Memory) - キーワード「思い」「記憶」を含む場合、または他に結果がない場合
         if not results or "思い" in search_query or "記憶" in search_query:
             from tools.memory_tools import search_memory
-            mem_result = search_memory.func(query=search_query, room_name=room_name)
+            mem_result = search_memory.func(query=search_query, room_name=room_name, api_key=api_key)
             # 日記検索のヘッダーチェック
             if mem_result and "【記憶検索の結果：" in mem_result:
                 print(f"    -> 日記: ヒット ({len(mem_result)} chars)")
