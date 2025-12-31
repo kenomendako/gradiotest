@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - 中期記憶（エピソード記憶）生成・注入機能
 - 話題のクラスタリング機能
 - 応答時記憶想起機能（RAG検索）
+- **日記検索のRAG化** (2025-12-31): `search_memory`ツールをキーワード検索からRAGベクトル検索に変更。`memory_main.txt`とアーカイブ日記を自動インデックス化。
 
 #### 🔀 マルチモデル対応
 - OpenAI互換プロバイダへの対応

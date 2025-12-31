@@ -141,7 +141,7 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
         return f"【エラー】過去ログ検索中に予期せぬエラーが発生しました: {e}"
 
 @tool
-def search_memory(query: str, room_name: str) -> str:
+def search_memory(query: str, room_name: str, api_key: str) -> str:
     """
     あなたの長期記憶（日記アーカイブを含む）の中から、指定されたクエリに最も関連する日記の断片を検索します。
     ユーザーとの会話で過去の出来事を思い出す必要がある場合に使用します。
@@ -149,67 +149,45 @@ def search_memory(query: str, room_name: str) -> str:
     """
     if not query or not room_name:
         return "【エラー】検索クエリとルーム名が必要です。"
+    
+    if not api_key:
+        return "【エラー】APIキーが必要です。"
 
-    memory_folder = os.path.join(constants.ROOMS_DIR, room_name, "memory")
-    if not os.path.isdir(memory_folder):
-        return "【情報】記憶フォルダが見つかりません。"
-
-    search_files = [os.path.join(memory_folder, f) for f in os.listdir(memory_folder) if f.endswith(".txt")]
-
-    # 検索キーワードを分割
-    keywords = query.split()
-
-    found_blocks = []
-
-    for file_path in search_files:
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-
-            # 見出し行のインデックスをすべて特定 (##, ###, **)
-            header_indices = [i for i, line in enumerate(lines) if re.match(r"^(## |### |\*\*)", line.strip())]
-
-            for i, line in enumerate(lines):
-                # 行にキーワードが含まれているかチェック
-                if any(keyword in line for keyword in keywords):
-                    # ヒットした行を含むブロックを特定
-                    start_index = 0
-                    for h_idx in reversed(header_indices):
-                        if h_idx <= i:
-                            start_index = h_idx
-                            break
-
-                    end_index = len(lines)
-                    for h_idx in header_indices:
-                        if h_idx > start_index:
-                            end_index = h_idx
-                            break
-
-                    block_content = "".join(lines[start_index:end_index]).strip()
-                    header_line = lines[start_index].strip()
-
-                    # 重複を避けるため、ブロックの内容でチェック
-                    if block_content not in [b['content'] for b in found_blocks]:
-                        found_blocks.append({
-                            "file": os.path.basename(file_path),
-                            "header": header_line,
-                            "content": block_content
-                        })
-
-        except Exception as e:
-            print(f"記憶ファイル '{file_path}' の検索中にエラー: {e}")
-            continue
-
-    if not found_blocks:
-        return f"【検索結果】「{query}」に関する記憶は見つかりませんでした。"
-
-    # 結果を整形して返す
-    result_text = f"【記憶検索の結果：「{query}」】\n\n"
-    for block in found_blocks:
-        result_text += f"--- [出典: {block['file']}, 見出し: {block['header']}] ---\n"
-        result_text += f"{block['content']}\n\n"
-
-    return result_text.strip()
+    print(f"--- 記憶検索(RAG)開始: クエリ='{query}', ルーム='{room_name}' ---")
+    
+    try:
+        import rag_manager
+        rm = rag_manager.RAGManager(room_name, api_key)
+        results = rm.search(query, k=10, score_threshold=0.80)
+        
+        # 日記タイプのみをフィルタリング
+        diary_results = [r for r in results if r.metadata.get("type") == "diary"]
+        
+        print(f"  - RAG検索結果: 全{len(results)}件中、日記{len(diary_results)}件")
+        
+        if not diary_results:
+            # 日記が見つからない場合は全結果を使用（フォールバック）
+            if results:
+                print(f"  - 日記がないため、全結果を使用します")
+                diary_results = results[:5]
+            else:
+                return f"【検索結果】「{query}」に関する記憶は見つかりませんでした。"
+        
+        result_text = f"【記憶検索の結果：「{query}」】\n\n"
+        for doc in diary_results[:5]:  # 最大5件
+            source = doc.metadata.get("source", "不明")
+            # 長すぎる場合はトリミング
+            content = doc.page_content
+            if len(content) > 500:
+                content = content[:500] + "..."
+            result_text += f"--- [出典: {source}] ---\n{content}\n\n"
+        
+        return result_text.strip()
+        
+    except Exception as e:
+        print(f"  - RAG検索エラー: {e}")
+        traceback.print_exc()
+        return f"【エラー】記憶検索中にエラーが発生しました: {e}"
 
 @tool
 def read_main_memory(room_name: str) -> str:
