@@ -1733,9 +1733,16 @@ def handle_message_submission(
                     mime_type = kind.mime if kind else "application/octet-stream"
 
                     if mime_type.startswith('image/'):
-                        # 画像: image_url形式でBase64エンコード
-                        with open(file_path, "rb") as f:
-                            encoded_string = base64.b64encode(f.read()).decode("utf-8")
+                        # ▼▼▼【APIコスト削減】送信前に画像をリサイズ（768px上限）▼▼▼
+                        resized_base64 = utils.resize_image_for_api(file_path, max_size=768, return_image=False)
+                        if resized_base64:
+                            encoded_string = resized_base64
+                            mime_type = "image/png"  # リサイズ後はPNG固定
+                        else:
+                            # リサイズ失敗時は元画像をそのまま使用
+                            with open(file_path, "rb") as f:
+                                encoded_string = base64.b64encode(f.read()).decode("utf-8")
+                        # ▲▲▲
                         user_prompt_parts_for_api.append({
                             "type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}
                         })
