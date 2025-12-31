@@ -98,53 +98,79 @@ class RAGManager:
             json.dump(list(processed_files), f, indent=2, ensure_ascii=False)
 
     def _safe_save_index(self, db: FAISS, target_path: Path):
-        """インデックスを安全に保存する（リトライ付き）"""
+        """インデックスを安全に保存する（リネーム退避方式）"""
+        target_path = Path(target_path)
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             db.save_local(str(temp_path))
             
-            # Windowsでのファイルロック問題に対応するリトライロジック
+            # Windowsでのファイルロック問題に対応
             max_retries = 3
             for attempt in range(max_retries):
+                # 退避用のパス（タイムスタンプ付き）
+                old_path = target_path.parent / (target_path.name + f".old_{int(time.time())}_{attempt}")
+                
                 try:
                     if target_path.exists():
-                        # FAISSオブジェクトが保持するファイルハンドルを解放するためGCを強制実行
-                        gc.collect()
-                        shutil.rmtree(str(target_path))
+                        # 1. まずリネームを試みる（フォルダが開かれていてもリネームは成功することが多い）
+                        try:
+                            target_path.rename(old_path)
+                            # print(f"  - [RAG] 既存索引をリネーム退避: {old_path.name}")
+                        except Exception:
+                            # 2. リネームに失敗した場合は GC を呼んでから削除を試行（従来方式）
+                            gc.collect()
+                            time.sleep(0.5)
+                            shutil.rmtree(str(target_path))
+                    
+                    # 3. 新しいインデックスを配置
                     shutil.move(str(temp_path), str(target_path))
-                    return  # 成功
+                    
+                    # 4. 退避した古いディレクトリの削除を試みる（失敗しても索引更新自体は成功とする）
+                    self._cleanup_old_indices(target_path.parent, target_path.name)
+                    return # 成功
+                    
                 except PermissionError as e:
                     if attempt < max_retries - 1:
-                        wait_time = 2 * (attempt + 1)
-                        print(f"  - [RAG] ファイルロックを検出。{wait_time}秒待機してリトライ... ({attempt + 1}/{max_retries})")
+                        wait_time = 1 * (attempt + 1)
+                        print(f"  - [RAG] 保存待機中... ({attempt + 1}/{max_retries})")
                         time.sleep(wait_time)
                     else:
-                        print(f"  - [RAG] 最大リトライ回数に達しました。エラー: {e}")
+                        print(f"  - [RAG] 保存に失敗しました。他のプロセスが使用中の可能性があります。: {e}")
                         raise
 
+    def _cleanup_old_indices(self, parent_dir: Path, base_name: str):
+        """退避された古い .old フォルダをクリーンアップする"""
+        try:
+            for old_dir in parent_dir.glob(f"{base_name}.old_*"):
+                if old_dir.is_dir():
+                    try:
+                        shutil.rmtree(str(old_dir))
+                    except Exception:
+                        pass # 削除できない場合は諦める（次回以降に期待）
+        except Exception:
+            pass
+
     def _safe_load_index(self, target_path: Path) -> Optional[FAISS]:
+        """インデックスを安全に読み込む（一時コピー経由）"""
         if not target_path.exists():
             return None
+            
+        # ロード中の一時ディレクトリ消失によるエラーを防ぐため、コピーを作成してロード
+        # 注意: FAISS.load_local はロード完了後にファイルを必要としないため、
+        # ここでは一時ディレクトリでロードが完了すれば十分。
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_index_path = Path(temp_dir)
+            temp_index_path = Path(temp_dir) / "index"
             try:
-                # インデックスを一時フォルダにコピー
-                shutil.copytree(str(target_path), str(temp_index_path), dirs_exist_ok=True)
+                shutil.copytree(str(target_path), str(temp_index_path))
                 
-                # モードに応じたエンベディング（query用）を使用
-                query_embeddings = self.embeddings # 既に初期化済みのものを使用
-                
-                # Gemini API の場合はタスクタイプを query に変更した新しいインスタンスが必要な場合があるが、
-                # langchain_google_genai は内部で処理する場合が多い。
-                # ローカルモードの場合は self.embeddings がそのまま使える。
-                
+                # モードに応じたエンベディングを使用
                 return FAISS.load_local(
                     str(temp_index_path),
-                    query_embeddings,
+                    self.embeddings,
                     allow_dangerous_deserialization=True
                 )
             except Exception as e:
-                print(f"Index load error: {e}")
+                # print(f"  - [RAG] インデックス読み込みエラー: {e}")
                 return None
 
     def _create_index_in_batches(self, splits: List[Document], existing_db: Optional[FAISS] = None, progress_callback=None) -> FAISS:
