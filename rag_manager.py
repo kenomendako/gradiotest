@@ -1,5 +1,6 @@
 # rag_manager.py (v6: Incremental Save / Checkpoint System)
 
+import gc
 import os
 import shutil
 import tempfile
@@ -107,6 +108,8 @@ class RAGManager:
             for attempt in range(max_retries):
                 try:
                     if target_path.exists():
+                        # FAISSオブジェクトが保持するファイルハンドルを解放するためGCを強制実行
+                        gc.collect()
                         shutil.rmtree(str(target_path))
                     shutil.move(str(temp_path), str(target_path))
                     return  # 成功
