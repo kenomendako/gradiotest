@@ -743,28 +743,48 @@ def get_content_as_string(message) -> str:
     return str(content)
 
 
-def resize_image_for_api(image_path: str, max_size: int = 512) -> Optional[str]:
+def resize_image_for_api(
+    image_source: Union[str, "Image.Image"], 
+    max_size: int = 512,
+    return_image: bool = False
+) -> Optional[Union[str, "Image.Image"]]:
     """
-    画像をリサイズし、Base64エンコードした文字列を返す。
+    画像をリサイズし、Base64エンコードした文字列またはPIL Imageを返す。
     APIへの送信前に呼び出すことで、トークン消費を削減できる。
     
     Args:
-        image_path: 画像ファイルのパス
+        image_source: 画像ファイルのパス または PIL.Imageオブジェクト
         max_size: 最大辺のピクセル数（デフォルト512）
+        return_image: Trueの場合、Base64ではなくPIL Imageを返す
     
     Returns:
-        Base64エンコードされた画像文字列。失敗時はNone。
+        Base64エンコードされた画像文字列 または PIL Image。失敗時はNone。
     """
     try:
         from PIL import Image
         import base64
         
-        if not image_path or not os.path.exists(image_path):
+        # 入力がパスかPIL Imageかを判定
+        if isinstance(image_source, str):
+            if not image_source or not os.path.exists(image_source):
+                return None
+            img = Image.open(image_source)
+            should_close = True
+        elif hasattr(image_source, 'size') and hasattr(image_source, 'mode'):
+            # PIL Imageオブジェクト
+            img = image_source.copy()  # 元の画像を変更しないようにコピー
+            should_close = False
+        else:
+            print(f"警告: resize_image_for_api: 不明な入力タイプ: {type(image_source)}")
             return None
         
-        with Image.open(image_path) as img:
-            # アスペクト比を維持してリサイズ
-            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+        try:
+            # リサイズが必要かチェック
+            original_size = max(img.size)
+            if original_size > max_size:
+                # アスペクト比を維持してリサイズ
+                img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+                print(f"  - [Image Resize] {original_size}px -> {max(img.size)}px")
             
             # RGBAの場合はRGBに変換（PNGの透過対応）
             if img.mode == 'RGBA':
@@ -772,10 +792,19 @@ def resize_image_for_api(image_path: str, max_size: int = 512) -> Optional[str]:
                 background.paste(img, mask=img.split()[3])
                 img = background
             
+            if return_image:
+                return img
+            
+            # Base64エンコードして返す
             buffer = io.BytesIO()
             img.save(buffer, format="PNG", optimize=True)
             return base64.b64encode(buffer.getvalue()).decode("utf-8")
+        finally:
+            if should_close and hasattr(img, 'close'):
+                img.close()
             
     except Exception as e:
-        print(f"警告: 画像のリサイズに失敗しました ({image_path}): {e}")
+        source_info = image_source if isinstance(image_source, str) else f"PIL Image ({type(image_source)})"
+        print(f"警告: 画像のリサイズに失敗しました ({source_info}): {e}")
         return None
+

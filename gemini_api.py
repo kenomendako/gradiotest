@@ -733,6 +733,11 @@ def count_input_tokens(**kwargs):
                 if isinstance(part, str): formatted_parts.append({"type": "text", "text": part})
                 elif isinstance(part, Image.Image):
                     try:
+                        # ▼▼▼【APIコスト削減】送信前に画像をリサイズ（768px上限）▼▼▼
+                        resized_image = utils.resize_image_for_api(part, max_size=768, return_image=True)
+                        if resized_image:
+                            part = resized_image
+                        # ▲▲▲
                         mime_type = Image.MIME.get(part.format, 'image/png')
                         buffered = io.BytesIO(); part.save(buffered, format=part.format or "PNG")
                         encoded_string = base64.b64encode(buffered.getvalue()).decode("utf-8")
