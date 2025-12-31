@@ -31,6 +31,7 @@ from room_manager import get_world_settings_path, get_room_files_paths
 from episodic_memory_manager import EpisodicMemoryManager
 from action_plan_manager import ActionPlanManager  
 from tools.action_tools import schedule_next_action, cancel_action_plan, read_current_plan
+from tools.notification_tools import send_user_notification
 from dreaming_manager import DreamingManager
 from llm_factory import LLMFactory
 
@@ -62,7 +63,8 @@ all_tools = [
     set_personal_alarm,
     set_timer, set_pomodoro_timer,
     search_knowledge_base,
-    schedule_next_action, cancel_action_plan, read_current_plan
+    schedule_next_action, cancel_action_plan, read_current_plan,
+    send_user_notification
 ]
 
 side_effect_tools = [
@@ -636,6 +638,7 @@ def context_generator_node(state: AgentState):
         "schedule_next_action": "次の行動を予約する",
         "cancel_action_plan": "行動計画をキャンセルする",
         "read_current_plan": "現在の行動計画を読む",
+        "send_user_notification": "ユーザーに通知を送る",
     }
     tools_list_parts = []
     for tool in current_tools:
