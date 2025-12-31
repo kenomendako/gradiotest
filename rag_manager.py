@@ -97,12 +97,27 @@ class RAGManager:
             json.dump(list(processed_files), f, indent=2, ensure_ascii=False)
 
     def _safe_save_index(self, db: FAISS, target_path: Path):
+        """インデックスを安全に保存する（リトライ付き）"""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             db.save_local(str(temp_path))
-            if target_path.exists():
-                shutil.rmtree(str(target_path))
-            shutil.move(str(temp_path), str(target_path))
+            
+            # Windowsでのファイルロック問題に対応するリトライロジック
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    if target_path.exists():
+                        shutil.rmtree(str(target_path))
+                    shutil.move(str(temp_path), str(target_path))
+                    return  # 成功
+                except PermissionError as e:
+                    if attempt < max_retries - 1:
+                        wait_time = 2 * (attempt + 1)
+                        print(f"  - [RAG] ファイルロックを検出。{wait_time}秒待機してリトライ... ({attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                    else:
+                        print(f"  - [RAG] 最大リトライ回数に達しました。エラー: {e}")
+                        raise
 
     def _safe_load_index(self, target_path: Path) -> Optional[FAISS]:
         if not target_path.exists():
@@ -183,13 +198,13 @@ class RAGManager:
 
     def update_memory_index(self, status_callback=None) -> str:
         """
-        記憶用インデックスを更新する（過去ログ、エピソード記憶、夢日記）
+        記憶用インデックスを更新する（過去ログ、エピソード記憶、夢日記、日記ファイル）
         """
         def report(message):
             print(f"--- [RAG Memory] {message}")
             if status_callback: status_callback(message)
 
-        report("記憶索引を更新中: 過去ログ、エピソード記憶、夢日記の差分を確認...")
+        report("記憶索引を更新中: 過去ログ、エピソード記憶、夢日記、日記ファイルの差分を確認...")
         
         processed_records = self._load_processed_record()
         
