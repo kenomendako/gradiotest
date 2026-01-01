@@ -3180,8 +3180,8 @@ def handle_manual_dreaming(room_name: str, api_key_name: str):
         from dreaming_manager import DreamingManager
         dm = DreamingManager(room_name, api_key)
         
-        # 夢を見る（洞察生成 & エンティティ更新）
-        result_msg = dm.dream()
+        # 夢を見る（洞察生成 & エンティティ更新 & 目標更新）
+        result_msg = dm.dream_with_auto_level()
         
         # 最終実行日時を取得
         last_time = dm.get_last_dream_time()

@@ -36,6 +36,7 @@ from action_plan_manager import ActionPlanManager
 from tools.action_tools import schedule_next_action, cancel_action_plan, read_current_plan
 from tools.notification_tools import send_user_notification
 from dreaming_manager import DreamingManager
+from goal_manager import GoalManager
 from entity_memory_manager import EntityMemoryManager
 from llm_factory import LLMFactory
 
@@ -583,6 +584,16 @@ def context_generator_node(state: AgentState):
     except Exception as e:
         print(f"  - [Context] 夢想データの読み込みエラー: {e}")
         dream_insights_text = ""
+    
+    # --- [Goal Memory] 目標の注入 ---
+    goals_text = ""
+    try:
+        gm = GoalManager(room_name)
+        goals_text = gm.get_goals_for_prompt()
+        if goals_text:
+            dream_insights_text += f"\n\n{goals_text}\n"
+    except Exception as e:
+        print(f"  - [Context] 目標データの読み込みエラー: {e}")
 
     action_plan_context = ""
     try:

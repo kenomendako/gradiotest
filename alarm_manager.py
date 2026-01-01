@@ -564,7 +564,8 @@ def check_autonomous_actions():
                     
                     if not has_dreamed_today:
                         print(f"💤 {room_folder}: 深い眠りにつきました（夢想プロセス開始）...")
-                        result = dm.dream()
+                        # 自動レベル判定: 週次/月次省察が必要か自動判定
+                        result = dm.dream_with_auto_level()
                         
                         # --- 睡眠時記憶整理 ---
                         sleep_consolidation = effective_settings.get("sleep_consolidation", {})
