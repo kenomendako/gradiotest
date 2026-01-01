@@ -22,6 +22,7 @@ from tools.memory_tools import (
     read_secret_diary, plan_secret_diary_edit, _apply_secret_diary_edits
 )
 from tools.notepad_tools import read_full_notepad, plan_notepad_edit,  _apply_notepad_edits
+from tools.creative_tools import read_creative_notes, plan_creative_notes_edit, _apply_creative_notes_edits
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
@@ -64,11 +65,13 @@ all_tools = [
     set_timer, set_pomodoro_timer,
     search_knowledge_base,
     schedule_next_action, cancel_action_plan, read_current_plan,
-    send_user_notification
+    send_user_notification,
+    read_creative_notes, plan_creative_notes_edit
 ]
 
 side_effect_tools = [
     "plan_main_memory_edit", "plan_secret_diary_edit", "plan_notepad_edit", "plan_world_edit",
+    "plan_creative_notes_edit",
     "set_personal_alarm", "set_timer", "set_pomodoro_timer",
     "schedule_next_action"
 ]
@@ -639,6 +642,8 @@ def context_generator_node(state: AgentState):
         "cancel_action_plan": "行動計画をキャンセルする",
         "read_current_plan": "現在の行動計画を読む",
         "send_user_notification": "ユーザーに通知を送る",
+        "read_creative_notes": "創作ノートを読む",
+        "plan_creative_notes_edit": "創作ノートに書く",
     }
     tools_list_parts = []
     for tool in current_tools:
@@ -1237,11 +1242,12 @@ def safe_tool_executor(state: AgentState):
     is_plan_main_memory = tool_name == "plan_main_memory_edit"
     is_plan_secret_diary = tool_name == "plan_secret_diary_edit"
     is_plan_notepad = tool_name == "plan_notepad_edit"
+    is_plan_creative_notes = tool_name == "plan_creative_notes_edit"
     is_plan_world = tool_name == "plan_world_edit"
 
     output = ""
 
-    if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad or is_plan_world:
+    if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad or is_plan_creative_notes or is_plan_world:
         try:
             print(f"  - ファイル編集プロセスを開始: {tool_name}")
             
@@ -1249,17 +1255,19 @@ def safe_tool_executor(state: AgentState):
             if is_plan_main_memory: room_manager.create_backup(room_name, 'memory')
             elif is_plan_secret_diary: room_manager.create_backup(room_name, 'secret_diary')
             elif is_plan_notepad: room_manager.create_backup(room_name, 'notepad')
+            elif is_plan_creative_notes: pass  # 創作ノートはバックアップ不要（新規作成される可能性）
             elif is_plan_world: room_manager.create_backup(room_name, 'world_setting')
 
             read_tool = None
             if is_plan_main_memory: read_tool = read_main_memory
             elif is_plan_secret_diary: read_tool = read_secret_diary
             elif is_plan_notepad: read_tool = read_full_notepad
+            elif is_plan_creative_notes: read_tool = read_creative_notes
             elif is_plan_world: read_tool = read_world_settings
 
             raw_content = read_tool.invoke({"room_name": room_name})
 
-            if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad:
+            if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad or is_plan_creative_notes:
                 lines = raw_content.split('\n')
                 numbered_lines = [f"{i+1}: {line}" for i, line in enumerate(lines)]
                 current_content = "\n".join(numbered_lines)
@@ -1379,7 +1387,7 @@ def safe_tool_executor(state: AgentState):
 
             print("  - AIからの応答を受け、ファイル書き込みを実行します。")
 
-            if is_plan_main_memory or is_plan_secret_diary or is_plan_world or is_plan_notepad:
+            if is_plan_main_memory or is_plan_secret_diary or is_plan_world or is_plan_notepad or is_plan_creative_notes:
                 json_match = re.search(r'```json\s*([\s\S]*?)\s*```', edited_content_document, re.DOTALL)
                 content_to_process = json_match.group(1).strip() if json_match else edited_content_document
                 instructions = json.loads(content_to_process)
@@ -1390,6 +1398,8 @@ def safe_tool_executor(state: AgentState):
                     output = _apply_secret_diary_edits(instructions=instructions, room_name=room_name)
                 elif is_plan_notepad:
                     output = _apply_notepad_edits(instructions=instructions, room_name=room_name)
+                elif is_plan_creative_notes:
+                    output = _apply_creative_notes_edits(instructions=instructions, room_name=room_name)
                 else: # is_plan_world
                     output = _apply_world_edits(instructions=instructions, room_name=room_name)
 
