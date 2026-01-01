@@ -2954,16 +2954,34 @@ def reload_chat_log(
 
     full_raw_history = utils.load_chat_log(log_f)
 
-    # --- ▼▼▼ ここからが修正の核心 ▼▼▼ ---
-    display_turns = _get_display_history_count(api_history_limit_value)
+    # --- ▼▼▼ 「本日分」対応を追加 ▼▼▼ ---
+    if api_history_limit_value == "today":
+        # 本日の最初のメッセージを見つけ、そこから最後まで全て表示する
+        today_str = datetime.datetime.now().strftime('%Y-%m-%d')
+        date_pattern = re.compile(r'(\d{4}-\d{2}-\d{2})')
+        
+        # 本日分の開始インデックスを探す
+        today_start_index = len(full_raw_history)  # デフォルトは末尾（何も見つからない場合）
+        
+        for i, item in enumerate(full_raw_history):
+            content = item.get('content', '')
+            if isinstance(content, str):
+                match = date_pattern.search(content)
+                if match:
+                    msg_date = match.group(1)
+                    if msg_date >= today_str:
+                        today_start_index = i
+                        break  # 最初に見つかった本日以降のメッセージで停止
+        
+        absolute_start_index = today_start_index
+        visible_history = full_raw_history[absolute_start_index:]
+    else:
+        # 従来のロジック：往復数または全ログ
+        display_turns = _get_display_history_count(api_history_limit_value)
+        absolute_start_index = max(0, len(full_raw_history) - (display_turns * 2))
+        visible_history = full_raw_history[absolute_start_index:]
+    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
-    # 1. ログ全体から、表示すべき部分の開始インデックス（絶対座標）を計算
-    absolute_start_index = max(0, len(full_raw_history) - (display_turns * 2))
-
-    # 2. そのインデックスを使って、表示用の履歴をスライス
-    visible_history = full_raw_history[absolute_start_index:]
-
-    # 3. format_history_for_gradioに、計算した絶対座標の開始位置を渡す
     history, mapping_list = format_history_for_gradio(
         messages=visible_history,
         current_room_folder=room_name,
@@ -2971,9 +2989,8 @@ def reload_chat_log(
         display_thoughts=display_thoughts,
         screenshot_mode=screenshot_mode,
         redaction_rules=redaction_rules,
-        absolute_start_index=absolute_start_index # ★★★ 新しい引数を追加 ★★★
+        absolute_start_index=absolute_start_index
     )
-    # --- ▲▲▲ 修正ここまで ▲▲▲ ---
 
     return history, mapping_list
 

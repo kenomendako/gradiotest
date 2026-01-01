@@ -158,6 +158,61 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
                 return 0
     return 0
 
+# --- 日付ベースフィルタリング関数 ---
+def _filter_messages_from_today(messages: list, today_str: str) -> list:
+    """
+    本日（today_str）以降の最初のメッセージを見つけ、そこから最後まで全て返す。
+    タイムスタンプがないメッセージも、本日分の開始以降であれば含まれる。
+    
+    Args:
+        messages: LangChainメッセージのリスト
+        today_str: 本日の日付文字列 (YYYY-MM-DD形式)
+    
+    Returns:
+        本日分の開始から末尾までのメッセージリスト
+    """
+    date_pattern = re.compile(r'(\d{4}-\d{2}-\d{2})')
+    
+    # 本日分の開始インデックスを探す
+    today_start_index = len(messages)  # デフォルトは末尾（何も見つからない場合）
+    
+    for i, msg in enumerate(messages):
+        content = getattr(msg, 'content', '')
+        if isinstance(content, list):
+            content = ' '.join(p.get('text', '') if isinstance(p, dict) else str(p) for p in content)
+        
+        if isinstance(content, str):
+            match = date_pattern.search(content)
+            if match:
+                msg_date = match.group(1)
+                if msg_date >= today_str:
+                    today_start_index = i
+                    break
+    
+    return messages[today_start_index:]
+
+def _filter_raw_history_from_today(raw_history: list, today_str: str) -> list:
+    """
+    生の履歴辞書リストから本日分の開始以降を抽出する。
+    トークン計算用。
+    """
+    date_pattern = re.compile(r'(\d{4}-\d{2}-\d{2})')
+    
+    # 本日分の開始インデックスを探す
+    today_start_index = len(raw_history)
+    
+    for i, item in enumerate(raw_history):
+        content = item.get('content', '')
+        if isinstance(content, str):
+            match = date_pattern.search(content)
+            if match:
+                msg_date = match.group(1)
+                if msg_date >= today_str:
+                    today_start_index = i
+                    break
+    
+    return raw_history[today_start_index:]
+
 # --- 履歴構築 (Dual-Stateの核心) ---
 def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str, add_timestamp: bool, send_thoughts: bool, provider: str = "google") -> list:
     """
@@ -520,9 +575,16 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     messages = merge_consecutive_messages(messages, add_timestamp=add_timestamp)
 
     # 履歴制限
-    limit = int(api_history_limit) if api_history_limit.isdigit() else 0
-    if limit > 0 and len(messages) > limit * 2:
-        messages = messages[-(limit * 2):]
+    if api_history_limit == "today":
+        # 本日分: 日付が変わってからのメッセージのみを送信
+        today_str = datetime.datetime.now().strftime('%Y-%m-%d')
+        messages = _filter_messages_from_today(messages, today_str)
+        print(f"  - [History Limit] 本日分モード: {len(messages)}件のメッセージを送信")
+    elif api_history_limit.isdigit():
+        limit = int(api_history_limit)
+        if limit > 0 and len(messages) > limit * 2:
+            messages = messages[-(limit * 2):]
+    # "all" の場合は制限なし
 
     # Agent State 初期化
     initial_state = {
@@ -598,9 +660,13 @@ def count_input_tokens(**kwargs):
         raw_history = utils.load_chat_log(log_file)
         
         # 履歴制限の適用
-        limit = int(api_history_limit) if api_history_limit and api_history_limit.isdigit() else 0
-        if limit > 0 and len(raw_history) > limit * 2:
-            raw_history = raw_history[-(limit * 2):]
+        if api_history_limit == "today":
+            today_str = datetime.datetime.now().strftime('%Y-%m-%d')
+            raw_history = _filter_raw_history_from_today(raw_history, today_str)
+        elif api_history_limit and api_history_limit.isdigit():
+            limit = int(api_history_limit)
+            if limit > 0 and len(raw_history) > limit * 2:
+                raw_history = raw_history[-(limit * 2):]
 
         # --- [Step 2: エピソード記憶の取得] ---
         episodic_memory_section = ""
