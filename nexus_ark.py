@@ -1618,7 +1618,7 @@ try:
                         # --- 創作ノートアコーディオン ---
                         with gr.Accordion("🎨 創作ノート", open=False):
                             gr.Markdown("ペルソナの創作活動専用スペースです。詩、物語、アイデアスケッチなど。")
-                            creative_notes_editor = gr.Textbox(label="創作ノートの内容", interactive=True, elem_id="creative_notes_editor_code", lines=15, autoscroll=True)
+                            creative_notes_editor = gr.Textbox(label="創作ノートの内容", interactive=True, elem_id="creative_notes_editor_code", lines=15, max_lines=15, autoscroll=True)
                             with gr.Row():
                                 save_creative_notes_button = gr.Button("保存", variant="secondary")
                                 reload_creative_notes_button = gr.Button("再読込", variant="secondary")
