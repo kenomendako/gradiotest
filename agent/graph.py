@@ -28,12 +28,15 @@ from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
 from tools.timer_tools import set_timer, set_pomodoro_timer
 from tools.knowledge_tools import search_knowledge_base
+from tools.entity_tools import read_entity_memory, write_entity_memory, list_entity_memories, search_entity_memory
+
 from room_manager import get_world_settings_path, get_room_files_paths
 from episodic_memory_manager import EpisodicMemoryManager
 from action_plan_manager import ActionPlanManager  
 from tools.action_tools import schedule_next_action, cancel_action_plan, read_current_plan
 from tools.notification_tools import send_user_notification
 from dreaming_manager import DreamingManager
+from entity_memory_manager import EntityMemoryManager
 from llm_factory import LLMFactory
 
 import utils
@@ -66,7 +69,8 @@ all_tools = [
     search_knowledge_base,
     schedule_next_action, cancel_action_plan, read_current_plan,
     send_user_notification,
-    read_creative_notes, plan_creative_notes_edit
+    read_creative_notes, plan_creative_notes_edit,
+    read_entity_memory, write_entity_memory, list_entity_memories, search_entity_memory
 ]
 
 side_effect_tools = [
@@ -360,6 +364,27 @@ def retrieval_node(state: AgentState):
             else:
                 print(f"    -> 日記: なし")
 
+        # 3d. エンティティ記憶 (Entity Memory) [New]
+        try:
+            em_manager = EntityMemoryManager(room_name)
+            # クエリに関連するエンティティを検索
+            relevant_entities = em_manager.search_entries(search_query)
+            if relevant_entities:
+                entity_contents = []
+                for entity_name in relevant_entities[:3]:  # 最大3件
+                    content = em_manager.read_entry(entity_name)
+                    if content:
+                        entity_contents.append(f"【{entity_name}に関する詳細記憶】\n{content}")
+                
+                if entity_contents:
+                    entity_result = "\n\n".join(entity_contents)
+                    print(f"    -> エンティティ記憶: ヒット ({len(relevant_entities)}件)")
+                    results.append(entity_result)
+            else:
+                print(f"    -> エンティティ記憶: なし")
+        except Exception as em_e:
+            print(f"    -> エンティティ記憶: エラー ({em_e})")
+
         # ▼▼▼ [2024-12-28 最適化] 話題クラスタ検索を一時無効化 ▼▼▼
         # 現状のクラスタリング精度が低く、ノイズが多いため一時無効化。
         # 別タスク「話題クラスタの改良」完了後に再有効化する。
@@ -648,6 +673,10 @@ def context_generator_node(state: AgentState):
         "send_user_notification": "ユーザーに通知を送る",
         "read_creative_notes": "創作ノートを読む",
         "plan_creative_notes_edit": "創作ノートに書く",
+        "read_entity_memory": "特定の対象（人物・事物）に関する詳細な記憶を読む",
+        "write_entity_memory": "特定の対象に関する記憶を保存・更新する",
+        "list_entity_memories": "記憶している対象の一覧を表示する",
+        "search_entity_memory": "関連するエンティティ記憶を検索する",
     }
     tools_list_parts = []
     for tool in current_tools:

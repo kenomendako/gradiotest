@@ -14,6 +14,7 @@ import utils
 import rag_manager
 import room_manager
 from gemini_api import get_configured_llm
+from entity_memory_manager import EntityMemoryManager
 
 class DreamingManager:
     def __init__(self, room_name: str, api_key: str):
@@ -58,6 +59,21 @@ class DreamingManager:
             text_parts.append(f"- [{date_str}] 気づき: {content}\n  (指針: {strategy})")
             
         return "\n".join(text_parts)
+
+    def get_last_dream_time(self) -> str:
+        """
+        最後に夢を見た（洞察を生成した）日時を取得する。
+        """
+        try:
+            insights = self._load_insights()
+            if not insights:
+                return "未実行"
+            # insightsはappendされているので、リストの最後が最新
+            last_entry = insights[-1]
+            return last_entry.get("created_at", "不明")
+        except Exception as e:
+            print(f"Error getting last dream time: {e}")
+            return "取得エラー"
 
     def dream(self) -> str:
         """
@@ -162,8 +178,18 @@ class DreamingManager:
         {{
             "insight": "（ステップ3で変換した洞察。内容は客観的で鋭い分析に基づきつつ、**語り口は完全にあなた自身のもの**とすること。相手の呼び方は、あなたが普段使っているもの、あるいは心の中で呼んでいる名前を使用すること。）",
             "strategy": "（その分析に基づき、今後あなたがどう行動するかの指針。これもあなた自身の言葉で。）",
-            "log_entry": "（夢日記として残す、短い独白。夢の中でのつぶやき。）"
+            "log_entry": "（夢日記として残す、短い独白。夢の中でのつぶやき。）",
+            "entity_updates": [
+                {
+                    "entity_name": "（対象となる人物名やトピック名。例: {user_name}, 趣味, 仕事）",
+                    "content": "（その対象について、今回の会話で新たに判明した事実や、整理しておくべき重要な情報のまとめ。）",
+                    "append": true
+                }
+            ]
         }}
+        
+        ※`entity_updates` が不要な場合は、空のリスト `[]` にしてください。
+        ※`entity_name` はファイル名になるため、簡潔な名称にしてください。
         """
 
         try:
@@ -189,6 +215,21 @@ class DreamingManager:
                 "log_entry": dream_data.get("log_entry", "")
             }
             self._save_insight(insight_record)
+            
+            # --- [Phase 2] エンティティ記憶の自動更新 ---
+            should_update_entity = effective_settings.get("sleep_consolidation", {}).get("update_entity_memory", True)
+            entity_updates = dream_data.get("entity_updates", [])
+            
+            if entity_updates and should_update_entity:
+                em_manager = EntityMemoryManager(self.room_name)
+                for update in entity_updates:
+                    e_name = update.get("entity_name")
+                    e_content = update.get("content")
+                    e_append = update.get("append", True)
+                    
+                    if e_name and e_content:
+                        res = em_manager.create_or_update_entry(e_name, e_content, append=e_append)
+                        print(f"  - [Dreaming] エンティティ記憶 '{e_name}' を自動更新しました: {res}")
             
             print(f"  - [Dreaming] 夢を見ました。洞察: {dream_data['insight']}")
             return "夢想プロセスが正常に完了しました。"

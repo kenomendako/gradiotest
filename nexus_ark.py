@@ -1487,6 +1487,30 @@ try:
                                         placeholder="日付を選択すると、ここに詳細が表示されます。"
                                     )
                             
+                        # --- 📌 エンティティ記憶 (Entity Memory) ---
+                        with gr.Accordion("📌 エンティティ記憶 (Entity Memory)", open=False):
+                            gr.Markdown("会話から抽出された重要な物事や人物（エンティティ）に関する詳細な記録です。")
+                            refresh_entity_button = gr.Button("📌 エンティティ一覧を読み込む", variant="primary")
+                            
+                            with gr.Row():
+                                with gr.Column(scale=1):
+                                    entity_dropdown = gr.Dropdown(
+                                        label="エンティティを選択",
+                                        choices=[],
+                                        interactive=True,
+                                        info="自動・手動で作成されたエンティティが一覧表示されます。"
+                                    )
+                                    with gr.Row():
+                                        save_entity_button = gr.Button("変更を保存", variant="secondary")
+                                        delete_entity_button = gr.Button("削除", variant="stop")
+                                with gr.Column(scale=2):
+                                    entity_content_editor = gr.Textbox(
+                                        label="記録内容 (.md)",
+                                        lines=15,
+                                        interactive=True,
+                                        placeholder="エンティティを選択すると、ここに内容が表示されます。直接編集して保存することも可能です。"
+                                    )
+
                         # --- 睡眠時記憶整理 ---
                         with gr.Accordion("💫 睡眠時記憶整理 (Sleep Consolidation)", open=False):
                             gr.Markdown(
@@ -1508,11 +1532,11 @@ try:
                                 value=False,  # デフォルトOFF（時間がかかるため）
                                 interactive=True
                             )
-                            sleep_consolidation_topic_clusters_cb = gr.Checkbox(
-                                label="🏷️ 話題クラスタを更新する",
-                                value=True,  # デフォルトON
+                            sleep_consolidation_entity_memory_cb = gr.Checkbox(
+                                label="エンティティ記憶を更新する",
+                                value=True,
                                 interactive=True,
-                                info="エピソード記憶を話題ごとに分類"
+                                info="会話から重要な対象（人物・事物）の情報を整理"
                             )
                             # Parameters moved to Maintenance Accordion
                             sleep_consolidation_compress_cb = gr.Checkbox(
@@ -1531,46 +1555,13 @@ try:
                                     gr.Markdown("### 📚 エピソード記憶の更新")
                                     update_episodic_memory_button = gr.Button("エピソード記憶を今すぐ更新", variant="primary")
                                     episodic_update_status = gr.Textbox(label="エピソード更新ステータス", interactive=False, placeholder="更新を実行すると、ここに最終処理日等が表示されます")
-                                
-                                with gr.Column():
-                                    gr.Markdown("### 🏷️ 話題クラスタの更新")
-                                    with gr.Group():
-                                        gr.Markdown("#### 基本設定", elem_id="topic_cluster_settings_header")
-                                        with gr.Row():
-                                            topic_cluster_min_size_slider = gr.Slider(
-                                                minimum=2, maximum=10, value=3, step=1,
-                                                label="最小クラスタサイズ",
-                                                info="話題とみなす最小の記憶数"
-                                            )
-                                            topic_cluster_min_samples_slider = gr.Slider(
-                                                minimum=1, maximum=10, value=2, step=1,
-                                                label="最小サンプル数 (保守性)",
-                                                info="分類の厳しさ"
-                                            )
-                                        topic_cluster_selection_method_radio = gr.Radio(
-                                            choices=[("安定 (EOM)", "eom"), ("細分化 (Leaf)", "leaf")],
-                                            value="eom",
-                                            show_label=False,
-                                            container=False, # ラベル無しでコンパクトに
-                                            info="モード選択 (EOM/Leaf)"
-                                        )
-                                        topic_cluster_fixed_topics_textbox = gr.Textbox(
-                                            label="固定トピック (カンマ区切り)",
-                                            placeholder="例: Nexus Ark開発, 家族, 料理",
-                                            info="優先的に分類したいトピックを指定",
-                                            lines=1
-                                        )
 
-                                    update_topic_cluster_button = gr.Button("話題クラスタを更新する", variant="primary")
-                                    topic_cluster_status = gr.Textbox(label="ステータス", interactive=False)
-                                    
-                                    topic_cluster_list_display = gr.DataFrame(
-                                        label="現在の話題クラスタ一覧",
-                                        headers=["ID", "トピック", "件数", "要約"],
-                                        datatype=["str", "str", "number", "str"],
-                                        interactive=False,
-                                        wrap=True
-                                    )
+                                with gr.Column():
+                                    gr.Markdown("### 📌 エンティティ記憶 (Entity Memory) の更新")
+                                    manual_dream_button = gr.Button("エンティティ記憶を更新（睡眠時記憶整理を実行）", variant="primary")
+                                    dream_status_display = gr.Textbox(label="最終実行日時", interactive=False, placeholder="まだ実行されていません")
+                                
+
 
                             gr.Markdown("---")
                             with gr.Row():
@@ -1891,12 +1882,8 @@ try:
             sleep_consolidation_episodic_cb,
             sleep_consolidation_memory_index_cb,
             sleep_consolidation_current_log_cb,
-            sleep_consolidation_topic_clusters_cb,
+            sleep_consolidation_entity_memory_cb,
             sleep_consolidation_compress_cb,
-            topic_cluster_min_size_slider,
-            topic_cluster_min_samples_slider,
-            topic_cluster_selection_method_radio,
-            topic_cluster_fixed_topics_textbox,
             compress_episodes_status,
             # --- [v25] テーマ設定 ---
             room_theme_enabled_checkbox,  # 個別テーマのオンオフ
@@ -1958,9 +1945,10 @@ try:
             episodic_year_filter,
             episodic_month_filter,
             episodic_update_status, # [Phase 14 追加] エピソード更新ステータス
-            topic_cluster_status, # [Phase 13] 話題クラスタステータス
-            topic_cluster_list_display, # [Phase 3] 可視化用データフレーム
-            embedding_mode_radio # [Phase 16 追加] エンベディングモード同期用
+            entity_dropdown,
+            entity_content_editor,
+            embedding_mode_radio, # [Phase 16 追加] エンベディングモード同期用
+            dream_status_display  # [Phase 17 追加] 睡眠時記憶整理ステータス
         ]
 
         initial_load_outputs = [
@@ -2018,7 +2006,8 @@ try:
             token_count_display,
             room_delete_confirmed_state, # handle_delete_room が返すリセット値用
             memory_reindex_status,
-            current_log_reindex_status
+            current_log_reindex_status,
+            dream_status_display
         ]
         full_refresh_output_count = gr.State(len(unified_full_room_refresh_outputs))
         
@@ -2358,12 +2347,8 @@ try:
             sleep_consolidation_episodic_cb,
             sleep_consolidation_memory_index_cb,
             sleep_consolidation_current_log_cb,
-            sleep_consolidation_topic_clusters_cb,
+            sleep_consolidation_entity_memory_cb,
             sleep_consolidation_compress_cb,
-            topic_cluster_min_size_slider,
-            topic_cluster_min_samples_slider,
-            topic_cluster_selection_method_radio,
-            topic_cluster_fixed_topics_textbox,
         ]
 
         save_room_settings_button.click(
@@ -2763,18 +2748,39 @@ try:
             outputs=[episodic_detail_text]
         )
 
+        # --- 📌 Entity Memory Events ---
+        refresh_entity_button.click(
+            fn=ui_handlers.handle_refresh_entity_list,
+            inputs=[current_room_name],
+            outputs=[entity_dropdown, entity_content_editor]
+        )
+        
+        entity_dropdown.change(
+            fn=ui_handlers.handle_entity_selection_change,
+            inputs=[current_room_name, entity_dropdown],
+            outputs=[entity_content_editor]
+        )
+        
+        save_entity_button.click(
+            fn=ui_handlers.handle_save_entity_memory,
+            inputs=[current_room_name, entity_dropdown, entity_content_editor],
+            outputs=None
+        ).then(fn=lambda: gr.Info("保存しました"), outputs=None)
+        
+        delete_entity_button.click(
+            fn=ui_handlers.handle_delete_entity_memory,
+            inputs=[current_room_name, entity_dropdown],
+            outputs=[entity_dropdown, entity_content_editor]
+        )
+
         # --- 睡眠時記憶整理チェックボックス即保存 ---
         sleep_consolidation_inputs = [
             current_room_name,
             sleep_consolidation_episodic_cb,
             sleep_consolidation_memory_index_cb,
             sleep_consolidation_current_log_cb,
-            sleep_consolidation_topic_clusters_cb,
-            sleep_consolidation_compress_cb,
-            topic_cluster_min_size_slider,
-            topic_cluster_min_samples_slider,
-            topic_cluster_selection_method_radio,
-            topic_cluster_fixed_topics_textbox
+            sleep_consolidation_entity_memory_cb,
+            sleep_consolidation_compress_cb
         ]
         sleep_consolidation_episodic_cb.change(
             fn=ui_handlers.handle_sleep_consolidation_change,
@@ -2791,17 +2797,7 @@ try:
             inputs=sleep_consolidation_inputs,
             outputs=None
         )
-        sleep_consolidation_topic_clusters_cb.change(
-            fn=ui_handlers.handle_sleep_consolidation_change,
-            inputs=sleep_consolidation_inputs,
-            outputs=None
-        )
-        topic_cluster_selection_method_radio.change(
-            fn=ui_handlers.handle_sleep_consolidation_change,
-            inputs=sleep_consolidation_inputs,
-            outputs=None
-        )
-        topic_cluster_fixed_topics_textbox.change(
+        sleep_consolidation_entity_memory_cb.change(
             fn=ui_handlers.handle_sleep_consolidation_change,
             inputs=sleep_consolidation_inputs,
             outputs=None
@@ -2811,16 +2807,8 @@ try:
             inputs=sleep_consolidation_inputs,
             outputs=None
         )
-        topic_cluster_min_size_slider.change(
-            fn=ui_handlers.handle_sleep_consolidation_change,
-            inputs=sleep_consolidation_inputs,
-            outputs=None
-        )
-        topic_cluster_min_samples_slider.change(
-            fn=ui_handlers.handle_sleep_consolidation_change,
-            inputs=sleep_consolidation_inputs,
-            outputs=None
-        )
+
+
         
         # --- 手動圧縮ボタン ---
         compress_episodes_button.click(
@@ -2829,12 +2817,7 @@ try:
             outputs=[compress_episodes_status]
         )
         
-        # --- [Phase 13] 話題クラスタ手動更新 ---
-        update_topic_cluster_button.click(
-            fn=ui_handlers.handle_update_topic_clusters,
-            inputs=[current_room_name, current_api_key_name_state],
-            outputs=[topic_cluster_status]
-        )
+
         
         # --- エンベディングモード設定 ---
         embedding_mode_radio.change(
@@ -3404,15 +3387,13 @@ try:
             outputs=[current_log_reindex_status, current_log_reindex_button]
         )
 
-        update_topic_cluster_button.click(
-            fn=ui_handlers.handle_update_topic_clusters,
-            inputs=[
-                current_room_name, current_api_key_name_state,
-                topic_cluster_min_size_slider, topic_cluster_min_samples_slider,
-                topic_cluster_selection_method_radio, topic_cluster_fixed_topics_textbox
-            ],
-            outputs=[topic_cluster_status, topic_cluster_list_display]
+        manual_dream_button.click(
+            fn=ui_handlers.handle_manual_dreaming,
+            inputs=[current_room_name, current_api_key_name_state],
+            outputs=[manual_dream_button, dream_status_display]
         )
+
+
 
         play_audio_event = play_audio_button.click(
             fn=ui_handlers.handle_play_audio_button_click,

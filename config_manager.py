@@ -822,10 +822,13 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         "safety_block_threshold_sexually_explicit": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_dangerous_content": "BLOCK_ONLY_HIGH",
         "api_history_limit": constants.DEFAULT_API_HISTORY_LIMIT_OPTION,
-        "topic_cluster_min_size": 3,
-        "topic_cluster_min_samples": 2,
-        "topic_cluster_selection_method": "eom",
-        "topic_cluster_fixed_topics": [],
+        "sleep_consolidation": {
+            "update_episodic_memory": True,
+            "update_memory_index": True,
+            "update_current_log_index": False,
+            "update_entity_memory": True,
+            "compress_old_episodes": False
+        }
     }
     
     room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")

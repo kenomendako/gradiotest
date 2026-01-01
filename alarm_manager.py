@@ -604,18 +604,7 @@ def check_autonomous_actions():
                             except Exception as e:
                                 print(f"  ❌ {room_folder}: 現行ログ索引更新エラー - {e}")
                         
-                        if sleep_consolidation.get("update_topic_clusters", True):
-                            print(f"  🌙 {room_folder}: 話題クラスタを更新中...")
-                            try:
-                                from topic_cluster_manager import TopicClusterManager
-                                tcm = TopicClusterManager(room_folder, api_key_val)
-                                tcm_result = tcm.run_clustering()
-                                print(f"  ✅ {room_folder}: {tcm_result}")
-                                # 更新日時をroom_config.jsonに保存
-                                status_text = f"✅ 更新完了 ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}): {tcm_result}"
-                                room_manager.update_room_config(room_folder, {"last_topic_cluster_update": status_text})
-                            except Exception as e:
-                                print(f"  ❌ {room_folder}: 話題クラスタ更新エラー - {e}")
+
                         
                         if sleep_consolidation.get("compress_old_episodes", False):
                             print(f"  🌙 {room_folder}: 古いエピソード記憶を圧縮中...")

@@ -422,7 +422,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value=True),  # sleep_episodic
             gr.update(value=True),  # sleep_memory_index
             gr.update(value=False),  # sleep_current_log
-            gr.update(value=True),  # sleep_topic_clusters
+            gr.update(value=True),  # sleep_entity
             gr.update(value=False), # sleep_compress
             gr.update(value="未実行"), # compress_episodes_status
             # --- [v25] テーマ設定 (Default values) ---
@@ -481,11 +481,12 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(choices=["すべて"], value="すべて"), # dream_month_filter
             # --- [Phase 14] エピソード記憶閲覧リセット ---
             gr.update(choices=[], value=None), # episodic_date_dropdown
-            gr.update(value="日付を選択すると、ここに内容が表示されます。"), # episodic_detail_text
+            gr.update(value="日付を選択してください"), # episodic_detail_text
             gr.update(choices=["すべて"], value="すべて"), # episodic_year_filter
             gr.update(choices=["すべて"], value="すべて"), # episodic_month_filter
             gr.update(value="待機中"), # episodic_update_status
-            gr.update(value="", placeholder="「すべて」等の年月フィルタを切り替えると更新されます"), # topic_cluster_status
+            gr.update(choices=[], value=None), # entity_dropdown
+            gr.update(value=""), # entity_content_editor
             gr.update(value="api") # embedding_mode_radio
         )
 
@@ -582,7 +583,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     sleep_episodic = sleep_consolidation.get("update_episodic_memory", True)
     sleep_memory_index = sleep_consolidation.get("update_memory_index", True)
     sleep_current_log = sleep_consolidation.get("update_current_log_index", False)
-    sleep_topic_clusters = sleep_consolidation.get("update_topic_clusters", True)
+    sleep_entity = sleep_consolidation.get("update_entity_memory", True)
     sleep_compress = sleep_consolidation.get("compress_old_episodes", False)
     # 圧縮状況の詳細を動的に取得
     stats = EpisodicMemoryManager(room_name).get_compression_stats()
@@ -605,27 +606,27 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     # 表示用の文字列を構築 (例: 2024-06-15まで圧縮済み (対象: 12件) | 最終結果: 圧縮完了...)
     last_compression_result = f"{last_date}まで圧縮済み (対象: {pending}件) | 最終: {last_exec}"
 
-    # エピソード更新/話題クラスタ更新のステータス復元
+    # エピソード更新のステータス復元
     last_episodic_update = override_settings.get("last_episodic_update") or room_config.get("last_episodic_update", "未実行")
-    last_topic_cluster_update = override_settings.get("last_topic_cluster_update") or room_config.get("last_topic_cluster_update", "未実行")
     
-    # トピッククラスタのDataFrame用データを読み込む
-    cluster_df_data = []
+    # エンティティ一覧の初期取得
+    from entity_memory_manager import EntityMemoryManager
+    em = EntityMemoryManager(room_name)
+    entity_choices = em.list_entries()
+    entity_choices.sort()
+
+    # 最終ドリーム時間の取得
+    last_dream_time = "未実行"
     try:
-        clusters_path = os.path.join(constants.ROOMS_DIR, room_name, "topic_clusters.json")
-        if os.path.exists(clusters_path):
-            with open(clusters_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                for c in data.get("clusters", []):
-                    cluster_df_data.append([
-                        c.get("cluster_id", ""),
-                        c.get("auto_label", "No Label"),
-                        c.get("episode_count", 0),
-                        c.get("summary", "")
-                    ])
-        cluster_df_data.sort(key=lambda x: x[0])
-    except Exception as e:
-        print(f"Error loading clusters for room change: {e}")
+        from dreaming_manager import DreamingManager
+        # api_key is available as api_key in this scope? No, it's passed as api_key_name?
+        # Actually in _update_chat_tab_for_room_change, api_key is retrieved earlier.
+        # Let's check where api_key is defined.
+        # It is defined around line 380: api_key = ...
+        dm = DreamingManager(room_name, api_key)
+        last_dream_time = dm.get_last_dream_time()
+    except Exception:
+        pass
 
     return (
         room_name, chat_history, mapping_list,
@@ -681,12 +682,8 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=sleep_episodic),
         gr.update(value=sleep_memory_index),
         gr.update(value=sleep_current_log),
-        gr.update(value=sleep_topic_clusters),
+        gr.update(value=sleep_entity),
         gr.update(value=sleep_compress),
-        gr.update(value=effective_settings.get("topic_cluster_min_size", 3)),
-        gr.update(value=effective_settings.get("topic_cluster_min_samples", 2)),
-        gr.update(value=effective_settings.get("topic_cluster_selection_method", "eom")),
-        gr.update(value=", ".join(effective_settings.get("topic_cluster_fixed_topics", []))),
         gr.update(value=last_compression_result),
         # --- [v25] テーマ設定 ---
         gr.update(value=effective_settings.get("room_theme_enabled", False)),  # 個別テーマのオンオフ
@@ -745,13 +742,14 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(choices=["すべて"], value="すべて"), # dream_month_filter
         # --- [Phase 14] エピソード記憶リセット対応 ---
         gr.update(choices=[], value=None), # episodic_date_dropdown
-        gr.update(value="日付を選択すると、ここに内容が表示されます。"), # episodic_detail_text
+        gr.update(value="日付を選択してください"), # episodic_detail_text
         gr.update(choices=["すべて"], value="すべて"), # episodic_year_filter
         gr.update(choices=["すべて"], value="すべて"), # episodic_month_filter
         gr.update(value=last_episodic_update), # episodic_update_status
-        gr.update(value=last_topic_cluster_update), # topic_cluster_status
-        gr.update(value=cluster_df_data), # topic_cluster_list_display [Phase 3]
-        gr.update(value=effective_settings.get("embedding_mode", "api")) # embedding_mode_radio
+        gr.update(choices=entity_choices, value=None), # entity_dropdown
+        gr.update(value=""), # entity_content_editor
+        gr.update(value=effective_settings.get("embedding_mode", "api")), # embedding_mode_radio
+        gr.update(value=last_dream_time) # dream_status_display
     )
 
 
@@ -916,12 +914,8 @@ def handle_save_room_settings(
     sleep_update_episodic: bool = True,
     sleep_update_memory_index: bool = True,
     sleep_update_current_log: bool = False,
-    sleep_update_topic_clusters: bool = True,
+    sleep_update_entity: bool = True,
     sleep_update_compress: bool = False,
-    topic_cluster_min_size: int = 3,
-    topic_cluster_min_samples: int = 2,
-    topic_cluster_selection_method: str = "eom",
-    topic_cluster_fixed_topics: str = "",
     silent: bool = False,
     force_notify: bool = False
 ):
@@ -994,13 +988,9 @@ def handle_save_room_settings(
             "update_episodic_memory": bool(sleep_update_episodic),
             "update_memory_index": bool(sleep_update_memory_index),
             "update_current_log_index": bool(sleep_update_current_log),
-            "update_topic_clusters": bool(sleep_update_topic_clusters),
+            "update_entity_memory": bool(sleep_update_entity),
             "compress_old_episodes": bool(sleep_update_compress)
         },
-        "topic_cluster_min_size": int(topic_cluster_min_size),
-        "topic_cluster_min_samples": int(topic_cluster_min_samples),
-        "topic_cluster_selection_method": str(topic_cluster_selection_method),
-        "topic_cluster_fixed_topics": [t.strip() for t in topic_cluster_fixed_topics.split(",") if t.strip()]
     }
     result = room_manager.update_room_config(room_name, new_settings)
     if not silent:
@@ -2253,13 +2243,9 @@ def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name:
                 # --- 睡眠時記憶整理 ---
                 gr.update(value=True),  # sleep_consolidation_episodic_cb
                 gr.update(value=True),  # sleep_consolidation_memory_index_cb
-                gr.update(value=False),  # sleep_consolidation_current_log_cb
-                gr.update(value=True),  # sleep_consolidation_topic_clusters_cb
+                gr.update(value=False), # sleep_consolidation_current_log_cb
+                gr.update(value=True),  # sleep_consolidation_entity_memory_cb
                 gr.update(value=False), # sleep_consolidation_compress_cb
-                gr.update(value=3),     # topic_cluster_min_size
-                gr.update(value=2),     # topic_cluster_min_samples
-                gr.update(value="eom"), # topic_cluster_selection_method
-                gr.update(value=""),    # topic_cluster_fixed_topics
                 gr.update(value="未実行"), # compress_episodes_status
                 # --- [v25] テーマ設定 ---
                 gr.update(value=False), # room_theme_enabled_checkbox
@@ -2272,9 +2258,10 @@ def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name:
                 *[gr.update()]*4, # dream diary (4 items)
                 *[gr.update()]*4, # episodic browser (4 items)
                 gr.update(value="未実行"), # episodic_update_status
-                gr.update(value="未実行"), # topic_cluster_status
-                [], # topic_cluster_list_display
-                gr.update(value="api") # embedding_mode_radio
+                gr.update(choices=[], value=None), # entity_dropdown
+                gr.update(value=""), # entity_content_editor
+                gr.update(value="api"), # embedding_mode_radio
+                gr.update(value="未実行") # dream_status_display
             )
 
             # ケース2の全項目を組み立てる (unified_full_room_refresh_outputs に合わせる)
@@ -2293,7 +2280,8 @@ def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name:
                 "トークン数: (ルーム未選択)", # token_count
                 "", # room_delete_confirmed_state
                 "最終更新: -", # memory_reindex_status
-                "最終更新: -"  # current_log_reindex_status
+                "最終更新: -", # current_log_reindex_status
+                "未実行" # dream_status_display
             )
             
             final_reset_outputs = empty_chat_updates + world_outputs + session_outputs + tail_outputs
@@ -3179,6 +3167,32 @@ def handle_update_episodic_memory(room_name: str, api_key_name: str):
 
     yield gr.update(value="エピソード記憶を作成 / 更新", interactive=True), gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)..."), gr.update(value=status_text)
 
+def handle_manual_dreaming(room_name: str, api_key_name: str):
+    """睡眠時記憶整理（夢想プロセス）を手動で実行する"""
+    if not room_name:
+        return gr.update(), "ルーム名が指定されていません。"
+    
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        return gr.update(), "⚠️ 有効なAPIキーが設定されていません。"
+
+    try:
+        from dreaming_manager import DreamingManager
+        dm = DreamingManager(room_name, api_key)
+        
+        # 夢を見る（洞察生成 & エンティティ更新）
+        result_msg = dm.dream()
+        
+        # 最終実行日時を取得
+        last_time = dm.get_last_dream_time()
+        
+        return gr.update(), last_time
+
+    except Exception as e:
+        print(f"Manual dreaming error: {e}")
+        traceback.print_exc()
+        return gr.update(), f"エラーが発生しました: {e}"
+
 # --- [Project Morpheus] Dream Journal Handlers ---
 
 def handle_refresh_dream_journal(room_name: str):
@@ -3296,6 +3310,70 @@ def handle_dream_journal_selection_from_dropdown(room_name: str, selected_create
     except Exception as e:
         return f"詳細表示エラー: {e}"
 
+# --- 📌 エンティティ記憶 (Entity Memory) ハンドラ ---
+
+def handle_refresh_entity_list(room_name: str):
+    """エンティティの一覧を取得してドロップダウンを更新する"""
+    if not room_name:
+        return gr.update(choices=[]), ""
+    
+    from entity_memory_manager import EntityMemoryManager
+    em = EntityMemoryManager(room_name)
+    entities = em.list_entries()
+
+    if not entities:
+        return gr.update(choices=[], value=None), "エンティティがまだ登録されていません。"
+    
+    # 名称順に並び替える
+    entities.sort()
+    
+    return gr.update(choices=entities, value=None), "エンティティを選択してください。"
+
+def handle_entity_selection_change(room_name: str, entity_name: str):
+    """選択されたエンティティの内容を読み込む"""
+    if not room_name or not entity_name:
+        return ""
+    
+    from entity_memory_manager import EntityMemoryManager
+    em = EntityMemoryManager(room_name)
+    content = em.read_entry(entity_name)
+    
+    if content is None or content.startswith("Error:"):
+        return content or "読み込みに失敗しました。"
+    
+    return content
+
+def handle_save_entity_memory(room_name: str, entity_name: str, content: str):
+    """エンティティの内容を保存する"""
+    if not room_name or not entity_name:
+        return
+    
+    from entity_memory_manager import EntityMemoryManager
+    em = EntityMemoryManager(room_name)
+    # 手動保存時は上書きモード
+    path = em._get_entity_path(entity_name)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+def handle_delete_entity_memory(room_name: str, entity_name: str):
+    """エンティティを削除する"""
+    if not room_name or not entity_name:
+        return gr.update(), gr.update()
+    
+    from entity_memory_manager import EntityMemoryManager
+    em = EntityMemoryManager(room_name)
+    
+    success = em.delete_entry(entity_name)
+    
+    if success:
+        gr.Info(f"エンティティ '{entity_name}' を削除しました。")
+        # リストを再取得
+        entities = em.list_entries()
+        return gr.update(choices=entities, value=None), ""
+    else:
+        gr.Error(f"エンティティ '{entity_name}' の削除に失敗しました。")
+        return gr.update(), gr.update()
+
 # --- [Phase 14] Episodic Memory Browser Handlers ---
 
 def handle_refresh_episodic_entries(room_name: str):
@@ -3397,72 +3475,7 @@ def handle_episodic_selection_from_dropdown(room_name: str, selected_date: str):
     except Exception as e:
         return f"エピソード表示エラー: {e}"
 
-def handle_update_topic_clusters(room_name: str, api_key_name: str, min_size=None, min_samples=None, method=None, fixed_topics_str=None):
-    """話題クラスタ（記憶の分類）を手動で更新する"""
-    if not room_name:
-        return "ルーム名が指定されていません。", [] # DataFrame用に空リストを返す
-    
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-    if not api_key or api_key.startswith("YOUR_API_KEY"):
-        return "⚠️ 有効なAPIキーが設定されていません。", []
-    
-    # 引数が渡された場合のみ、settingsを保存する (New Call with 6 args)
-    if fixed_topics_str is not None:
-        fixed_topics = [t.strip() for t in fixed_topics_str.split(",") if t.strip()]
-        updates = {
-            "topic_cluster_min_size": int(min_size) if min_size is not None else None,
-            "topic_cluster_min_samples": int(min_samples) if min_samples is not None else None,
-            "topic_cluster_selection_method": str(method) if method is not None else None,
-            "topic_cluster_fixed_topics": fixed_topics
-        }
-        # Noneの項目を除去
-        updates = {k: v for k, v in updates.items() if v is not None}
-        room_manager.update_room_config(room_name, updates)
 
-    try:
-        from topic_cluster_manager import TopicClusterManager
-        tcm = TopicClusterManager(room_name, api_key)
-        
-        # クラスタリング実行
-        # TopicClusterManagerは内部でconfigを読み込むため、引数がなくても保存済み設定で動作する
-        result_msg = tcm.run_clustering()
-        
-        # 最終更新日時も含めてステータスを表示
-        from datetime import datetime
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        status_text = f"✅ 更新完了 ({now_str}): {result_msg}"
-        
-        # 実行結果を room_config.json のステータス欄にも保存
-        room_manager.update_room_config(room_name, {"last_topic_cluster_update": status_text})
-        
-        # 可視化用データの作成
-        df_data = []
-        try:
-            clusters_path = os.path.join(constants.ROOMS_DIR, room_name, "topic_clusters.json")
-            if os.path.exists(clusters_path):
-                with open(clusters_path, "r", encoding="utf-8") as f:
-                    import json
-                    data = json.load(f)
-                    for c in data.get("clusters", []):
-                        df_data.append([
-                            c.get("cluster_id", ""),
-                            c.get("auto_label", "No Label"),
-                            c.get("episode_count", 0),
-                            c.get("summary", "")
-                        ])
-            # クラスタID順にソート（必要なら）
-            df_data.sort(key=lambda x: x[0])
-            
-        except Exception as e:
-            print(f"Cluster dataframe creation error: {e}")
-            df_data = []
-
-        return status_text, df_data
-        
-    except Exception as e:
-        print(f"話題クラスタ更新エラー: {e}")
-        traceback.print_exc()
-        return f"❌ エラーが発生しました: {e}", []
 
 # 古い handle_dream_journal_selection は Dropdown 移行に伴い廃止
 
@@ -6080,7 +6093,7 @@ def _get_rag_index_last_updated(room_name: str, index_type: str = "memory") -> s
     except Exception:
         return "取得失敗"
 
-def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, update_memory_index: bool, update_current_log: bool, update_topic_clusters: bool = True, compress_episodes: bool = False, min_size: int = 3, min_samples: int = 2, selection_method: str = "eom", fixed_topics: str = ""):
+def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, update_memory_index: bool, update_current_log: bool, update_entity: bool = True, compress_episodes: bool = False):
     """睡眠時記憶整理設定を即座に保存する"""
     if not room_name:
         return
@@ -6091,13 +6104,9 @@ def handle_sleep_consolidation_change(room_name: str, update_episodic: bool, upd
                 "update_episodic_memory": bool(update_episodic),
                 "update_memory_index": bool(update_memory_index),
                 "update_current_log_index": bool(update_current_log),
-                "update_topic_clusters": bool(update_topic_clusters),
+                "update_entity_memory": bool(update_entity),
                 "compress_old_episodes": bool(compress_episodes)
-            },
-            "topic_cluster_min_size": int(min_size),
-            "topic_cluster_min_samples": int(min_samples),
-            "topic_cluster_selection_method": str(selection_method),
-            "topic_cluster_fixed_topics": [t.strip() for t in fixed_topics.split(",") if t.strip()]
+            }
         }
         room_manager.update_room_config(room_name, updates)
         # print(f"--- [睡眠時記憶整理] 設定保存: {room_name} ---")

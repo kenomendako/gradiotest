@@ -1,5 +1,5 @@
 ---
-trigger: glob
+trigger: manual
 ---
 
 ## システムプロンプト
