@@ -317,6 +317,10 @@ def retrieval_node(state: AgentState):
         if history_limit_option == "all":
             # 「全ログ」送信設定なら、log.txt はすべてコンテキストに含まれているので検索不要
             exclude_count = 999999
+        elif history_limit_option == "today":
+            # 「本日分」送信設定でも、本日のログは全てコンテキストに含まれているので
+            # 追加検索は不要（ただし過去のログは検索対象となる）
+            exclude_count = 999999
         elif history_limit_option.isdigit():
             # 「10往復」なら 20メッセージ分を除外
             # さらに安全マージンとして +2 (直前のシステムメッセージ等) しておくと確実
