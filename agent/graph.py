@@ -1342,6 +1342,23 @@ def safe_tool_executor(state: AgentState):
                     "  - **`insert_after` (挿入):** 指定した`line`番号の**直後**に、新しい行として`content`を挿入します。\n"
                     "  - **複数行の操作:** 複数行をまとめて削除・置換する場合は、**各行に対して**個別の指示を生成してください。\n\n"
                     "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
+                ),
+                "plan_creative_notes_edit": (
+                    "【最重要指示：これは『対話』ではなく『設計タスク』です】\n"
+                    "あなたは今、自身の創作ノート(`creative_notes.md`)を更新するための『設計図』を作成しています。\n"
+                    "このファイルは詩、物語、アイデアスケッチなど、あなたの創作活動専用スペースです。\n"
+                    "提示された【行番号付きデータ】とあなたの【変更要求】に基づき、完璧な【差分指示のリスト】を生成してください。\n\n"
+                    "【行番号付きデータ（creative_notes.md全文）】\n---\n{current_content}\n---\n\n"
+                    "【あなたの変更要求】\n「{modification_request}」\n\n"
+                    "【絶対的な出力ルール】\n"
+                    "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
+                    "- 各指示は \"operation\" ('replace', 'delete', 'insert_after'), \"line\" (対象行番号), \"content\" (新しい内容) のキーを持つ辞書です。\n\n"
+                    "- **【操作方法】**\n"
+                    "  - **`delete` (削除):** 指定した`line`番号の行を削除します。`content`は不要です。\n"
+                    "  - **`replace` (置換):** 指定した`line`番号の行を、新しい`content`に置き換えます。\n"
+                    "  - **`insert_after` (挿入):** 指定した`line`番号の**直後**に、新しい行として`content`を挿入します。\n"
+                    "  - **複数行の操作:** 複数行をまとめて削除・置換する場合は、**各行に対して**個別の指示を生成してください。\n\n"
+                    "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
                 )
             }
             formatted_instruction = instruction_templates[tool_name].format(

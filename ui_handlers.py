@@ -375,7 +375,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     if not has_valid_key:
         return (
             room_name, [], [], gr.update(interactive=False, placeholder="まず、左の「設定」からAPIキーを設定してください。"),
-            get_avatar_html(room_name, state="idle"), "", "", "", "",
+            get_avatar_html(room_name, state="idle"), "", "", "", "", "",
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
@@ -545,6 +545,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     # 動画アバターをサポートするHTML生成関数を使用
     profile_image = get_avatar_html(room_name, state="idle")
     notepad_content = load_notepad_content(room_name)
+    creative_notes_content = load_creative_notes_content(room_name)
     
     # location_dd_val を、ファイルから読み込んだ（または初期化した）値に修正
     location_dd_val = current_location_from_file
@@ -630,7 +631,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         room_name, chat_history, mapping_list,
         gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)。添付するにはファイルをドロップまたはクリップボタンを押してください..."),
         profile_image,
-        memory_str, notepad_content, load_system_prompt_content(room_name),
+        memory_str, notepad_content, creative_notes_content, load_system_prompt_content(room_name),
         core_memory_content,
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
@@ -3482,6 +3483,42 @@ def handle_clear_notepad_click(room_name: str) -> str:
 def handle_reload_notepad(room_name: str) -> str:
     if not room_name: gr.Warning("ルームが選択されていません。"); return ""
     content = load_notepad_content(room_name); gr.Info(f"「{room_name}」のメモ帳を再読み込みしました。"); return content
+
+# --- 創作ノートのハンドラ ---
+def _get_creative_notes_path(room_name: str) -> str:
+    """創作ノートのパスを取得"""
+    return os.path.join(constants.ROOMS_DIR, room_name, "creative_notes.md")
+
+def load_creative_notes_content(room_name: str) -> str:
+    """創作ノートの内容を読み込む"""
+    if not room_name: return ""
+    path = _get_creative_notes_path(room_name)
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f: return f.read()
+    return ""
+
+def handle_save_creative_notes(room_name: str, content: str) -> str:
+    """創作ノートを保存"""
+    if not room_name: gr.Warning("ルームが選択されていません。"); return content
+    path = _get_creative_notes_path(room_name)
+    try:
+        with open(path, "w", encoding="utf-8") as f: f.write(content)
+        gr.Info(f"「{room_name}」の創作ノートを保存しました。"); return content
+    except Exception as e: gr.Error(f"創作ノートの保存エラー: {e}"); return content
+
+def handle_reload_creative_notes(room_name: str) -> str:
+    """創作ノートを再読み込み"""
+    if not room_name: gr.Warning("ルームが選択されていません。"); return ""
+    content = load_creative_notes_content(room_name); gr.Info(f"「{room_name}」の創作ノートを再読み込みしました。"); return content
+
+def handle_clear_creative_notes(room_name: str) -> str:
+    """創作ノートを空にする"""
+    if not room_name: gr.Warning("ルームが選択されていません。"); return ""
+    path = _get_creative_notes_path(room_name)
+    try:
+        with open(path, "w", encoding="utf-8") as f: f.write("")
+        gr.Info(f"「{room_name}」の創作ノートを空にしました。"); return ""
+    except Exception as e: gr.Error(f"創作ノートクリアエラー: {e}"); return f"エラー: {e}"
 
 def render_alarms_as_dataframe():
     alarms = sorted(alarm_manager.load_alarms(), key=lambda x: x.get("time", "")); all_rows = []

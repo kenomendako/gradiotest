@@ -70,10 +70,18 @@ def _apply_creative_notes_edits(instructions: List[Dict[str, Any]], room_name: s
             if line_num is None: continue
             target_index = line_num - 1
             
-            # ファイルが空の場合、insert_after line 0 として扱う
-            if len(lines) == 1 and lines[0] == "" and target_index == 0:
-                pass  # 0行目への操作を許可
-            elif not (0 <= target_index < len(lines)): 
+            # 空ファイルへの対応: 最初のinsertは特別扱い
+            is_empty_file = len(lines) == 1 and lines[0] == ""
+            
+            if is_empty_file:
+                # 空ファイルの場合、全ての insert_after を line 0 への挿入として扱う
+                if op == "insert_after":
+                    target_index = 0
+                elif op == "replace" and target_index == 0:
+                    pass  # 0行目のreplaceは許可
+                else:
+                    continue
+            elif not (0 <= target_index < len(lines)):
                 continue
 
             final_content = inst.get("content", "")

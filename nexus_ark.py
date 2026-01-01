@@ -784,7 +784,7 @@ try:
                                 room_safety_sexually_explicit_dropdown = gr.Dropdown(choices=safety_choices, label="性的コンテンツ", interactive=True)
                                 room_safety_dangerous_content_dropdown = gr.Dropdown(choices=safety_choices, label="危険なコンテンツ", interactive=True)
                                     
-                        with gr.Accordion("📡 APIコンテキスト設定", open=False):
+                        with gr.Accordion("📡 送信コンテキスト設定", open=False):
                             room_api_history_limit_dropdown = gr.Dropdown(
                                 choices=list(constants.API_HISTORY_LIMIT_OPTIONS.values()), 
                                 label="APIへの履歴送信（短期記憶の長さ）", 
@@ -1614,12 +1614,24 @@ try:
                         gr.Markdown("---")
                         gr.Markdown("### 索引管理（旧機能）")
                         rag_update_button = gr.Button("手帳の索引を更新", variant="secondary", visible=False)
-                    with gr.TabItem("メモ帳"):
-                        notepad_editor = gr.Textbox(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code", lines=20, autoscroll=True)
-                        with gr.Row():
-                            save_notepad_button = gr.Button("メモ帳を保存", variant="secondary")
-                            reload_notepad_button = gr.Button("再読込", variant="secondary")
-                            clear_notepad_button = gr.Button("メモ帳を全削除", variant="stop")
+                    with gr.TabItem("ノート"):
+                        # --- メモ帳アコーディオン ---
+                        with gr.Accordion("📝 メモ帳（共有ホワイトボード）", open=False):
+                            gr.Markdown("ユーザーとペルソナが共有するメモ帳です。")
+                            notepad_editor = gr.Textbox(label="メモ帳の内容", interactive=True, elem_id="notepad_editor_code", lines=15, autoscroll=True)
+                            with gr.Row():
+                                save_notepad_button = gr.Button("保存", variant="secondary")
+                                reload_notepad_button = gr.Button("再読込", variant="secondary")
+                                clear_notepad_button = gr.Button("全削除", variant="stop")
+                        
+                        # --- 創作ノートアコーディオン ---
+                        with gr.Accordion("🎨 創作ノート", open=False):
+                            gr.Markdown("ペルソナの創作活動専用スペースです。詩、物語、アイデアスケッチなど。")
+                            creative_notes_editor = gr.Textbox(label="創作ノートの内容", interactive=True, elem_id="creative_notes_editor_code", lines=15, autoscroll=True)
+                            with gr.Row():
+                                save_creative_notes_button = gr.Button("保存", variant="secondary")
+                                reload_creative_notes_button = gr.Button("再読込", variant="secondary")
+                                clear_creative_notes_button = gr.Button("全削除", variant="stop")
 
                     # ▼▼▼【ここから下のブロックを「メモ帳」タブの直後に追加】▼▼▼
                     with gr.TabItem("知識") as knowledge_tab:
@@ -1828,7 +1840,7 @@ try:
             current_room_name, chatbot_display, current_log_map_state,
             chat_input_multimodal,
             profile_image_display,
-            memory_txt_editor, notepad_editor, system_prompt_editor,
+            memory_txt_editor, notepad_editor, creative_notes_editor, system_prompt_editor,
             core_memory_editor,
             room_dropdown,
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector,
@@ -2542,6 +2554,10 @@ try:
         save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_room_name, notepad_editor], outputs=[notepad_editor])
         reload_notepad_button.click(fn=ui_handlers.handle_reload_notepad, inputs=[current_room_name], outputs=[notepad_editor])
         clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_room_name], outputs=[notepad_editor])
+        # --- 創作ノートのイベントハンドラ ---
+        save_creative_notes_button.click(fn=ui_handlers.handle_save_creative_notes, inputs=[current_room_name, creative_notes_editor], outputs=[creative_notes_editor])
+        reload_creative_notes_button.click(fn=ui_handlers.handle_reload_creative_notes, inputs=[current_room_name], outputs=[creative_notes_editor])
+        clear_creative_notes_button.click(fn=ui_handlers.handle_clear_creative_notes, inputs=[current_room_name], outputs=[creative_notes_editor])
         alarm_dataframe.select(
             fn=ui_handlers.handle_alarm_selection_for_all_updates,
             inputs=[alarm_dataframe_original_data],
