@@ -342,7 +342,7 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
         f"{notification_info}"
         f"**【出力ルール】**\n"
         f"- 静観する場合: `[SILENT]` とだけ出力\n"
-        f"- 行動する場合: ツールを使用し、必要に応じて思考ログを記録"
+        f"- 行動する場合: ツールを使用し、完了後はユーザーへの報告や感想を必ず出力してください"
     )
     
     # --- 書き置きを読み取ったらログに記録してクリア ---
