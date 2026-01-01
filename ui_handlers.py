@@ -2956,23 +2956,25 @@ def reload_chat_log(
 
     # --- ▼▼▼ 「本日分」対応を追加 ▼▼▼ ---
     if api_history_limit_value == "today":
-        # 本日の日付以降のログのみを抽出
+        # 本日の最初のメッセージを見つけ、そこから最後まで全て表示する
         today_str = datetime.datetime.now().strftime('%Y-%m-%d')
         date_pattern = re.compile(r'(\d{4}-\d{2}-\d{2})')
         
-        visible_history = []
-        for item in full_raw_history:
-            keep = True
+        # 本日分の開始インデックスを探す
+        today_start_index = len(full_raw_history)  # デフォルトは末尾（何も見つからない場合）
+        
+        for i, item in enumerate(full_raw_history):
             content = item.get('content', '')
             if isinstance(content, str):
                 match = date_pattern.search(content)
                 if match:
                     msg_date = match.group(1)
-                    keep = msg_date >= today_str  # 本日以降なら保持
-            if keep:
-                visible_history.append(item)
+                    if msg_date >= today_str:
+                        today_start_index = i
+                        break  # 最初に見つかった本日以降のメッセージで停止
         
-        absolute_start_index = len(full_raw_history) - len(visible_history)
+        absolute_start_index = today_start_index
+        visible_history = full_raw_history[absolute_start_index:]
     else:
         # 従来のロジック：往復数または全ログ
         display_turns = _get_display_history_count(api_history_limit_value)

@@ -161,59 +161,57 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
 # --- 日付ベースフィルタリング関数 ---
 def _filter_messages_from_today(messages: list, today_str: str) -> list:
     """
-    本日（today_str）以降のタイムスタンプを持つメッセージのみを抽出する。
-    タイムスタンプが見つからないメッセージは保持する（安全側に倒す）。
+    本日（today_str）以降の最初のメッセージを見つけ、そこから最後まで全て返す。
+    タイムスタンプがないメッセージも、本日分の開始以降であれば含まれる。
     
     Args:
         messages: LangChainメッセージのリスト
         today_str: 本日の日付文字列 (YYYY-MM-DD形式)
     
     Returns:
-        本日以降のメッセージのみを含むリスト
+        本日分の開始から末尾までのメッセージリスト
     """
     date_pattern = re.compile(r'(\d{4}-\d{2}-\d{2})')
-    filtered = []
     
-    for msg in messages:
-        keep = True  # デフォルトは保持
-        
-        # メッセージのコンテンツを取得
+    # 本日分の開始インデックスを探す
+    today_start_index = len(messages)  # デフォルトは末尾（何も見つからない場合）
+    
+    for i, msg in enumerate(messages):
         content = getattr(msg, 'content', '')
         if isinstance(content, list):
-            # マルチモーダルの場合はテキスト部分を結合
             content = ' '.join(p.get('text', '') if isinstance(p, dict) else str(p) for p in content)
         
         if isinstance(content, str):
             match = date_pattern.search(content)
             if match:
                 msg_date = match.group(1)
-                keep = msg_date >= today_str  # 本日以降なら保持
-        
-        if keep:
-            filtered.append(msg)
+                if msg_date >= today_str:
+                    today_start_index = i
+                    break
     
-    return filtered
+    return messages[today_start_index:]
 
 def _filter_raw_history_from_today(raw_history: list, today_str: str) -> list:
     """
-    生の履歴辞書リストから本日以降のエントリのみを抽出する。
+    生の履歴辞書リストから本日分の開始以降を抽出する。
     トークン計算用。
     """
     date_pattern = re.compile(r'(\d{4}-\d{2}-\d{2})')
-    filtered = []
     
-    for item in raw_history:
-        keep = True
+    # 本日分の開始インデックスを探す
+    today_start_index = len(raw_history)
+    
+    for i, item in enumerate(raw_history):
         content = item.get('content', '')
         if isinstance(content, str):
             match = date_pattern.search(content)
             if match:
                 msg_date = match.group(1)
-                keep = msg_date >= today_str
-        if keep:
-            filtered.append(item)
+                if msg_date >= today_str:
+                    today_start_index = i
+                    break
     
-    return filtered
+    return raw_history[today_start_index:]
 
 # --- 履歴構築 (Dual-Stateの核心) ---
 def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str, add_timestamp: bool, send_thoughts: bool, provider: str = "google") -> list:
