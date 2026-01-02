@@ -159,6 +159,35 @@ def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str)
     return 0
 
 # --- 日付ベースフィルタリング関数 ---
+
+def _get_effective_today_cutoff(room_name: str) -> str:
+    """
+    「本日分」の切り捨て日付を決定する。
+    
+    今日のエピソード記憶が存在する場合は今日。
+    存在しない場合は昨日（エピソード記憶が生成されるまでは前日のログも必要）。
+    
+    Returns:
+        YYYY-MM-DD形式の日付文字列
+    """
+    import os
+    from constants import ROOMS_DIR
+    
+    today = datetime.datetime.now()
+    today_str = today.strftime('%Y-%m-%d')
+    yesterday = today - datetime.timedelta(days=1)
+    yesterday_str = yesterday.strftime('%Y-%m-%d')
+    
+    # 今日のエピソード記憶ファイルが存在するかチェック
+    episodic_dir = os.path.join(ROOMS_DIR, room_name, "episodic_memory")
+    today_episode_file = os.path.join(episodic_dir, f"{today_str}.json")
+    
+    if os.path.exists(today_episode_file):
+        # 今日のエピソード記憶が存在 → 今日以降のみ
+        return today_str
+    else:
+        # 今日のエピソード記憶がまだない → 昨日以降も含める
+        return yesterday_str
 def _filter_messages_from_today(messages: list, today_str: str) -> list:
     """
     本日（today_str）以降の最初のメッセージを見つけ、そこから最後まで全て返す。
@@ -576,9 +605,9 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
 
     # 履歴制限
     if api_history_limit == "today":
-        # 本日分: 日付が変わってからのメッセージのみを送信
-        today_str = datetime.datetime.now().strftime('%Y-%m-%d')
-        messages = _filter_messages_from_today(messages, today_str)
+        # 本日分: エピソード記憶の有無に応じて適切な日付でフィルタ
+        cutoff_date = _get_effective_today_cutoff(room_to_respond)
+        messages = _filter_messages_from_today(messages, cutoff_date)
         print(f"  - [History Limit] 本日分モード: {len(messages)}件のメッセージを送信")
     elif api_history_limit.isdigit():
         limit = int(api_history_limit)
@@ -661,8 +690,8 @@ def count_input_tokens(**kwargs):
         
         # 履歴制限の適用
         if api_history_limit == "today":
-            today_str = datetime.datetime.now().strftime('%Y-%m-%d')
-            raw_history = _filter_raw_history_from_today(raw_history, today_str)
+            cutoff_date = _get_effective_today_cutoff(room_name)
+            raw_history = _filter_raw_history_from_today(raw_history, cutoff_date)
         elif api_history_limit and api_history_limit.isdigit():
             limit = int(api_history_limit)
             if limit > 0 and len(raw_history) > limit * 2:
