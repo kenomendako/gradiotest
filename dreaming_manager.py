@@ -69,8 +69,8 @@ class DreamingManager:
             insights = self._load_insights()
             if not insights:
                 return "未実行"
-            # insightsはappendされているので、リストの最後が最新
-            last_entry = insights[-1]
+            # insightsは先頭に新しいものがinsertされているので、[0]が最新
+            last_entry = insights[0]
             return last_entry.get("created_at", "不明")
         except Exception as e:
             print(f"Error getting last dream time: {e}")
