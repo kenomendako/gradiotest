@@ -1,0 +1,259 @@
+# Nexus Ark 記憶システム仕様書
+
+本ドキュメントは、Nexus Arkパーソナメモリシステムの全体像と各コンポーネントの役割・相互関係を定義します。
+
+---
+
+## 概要
+
+Nexus Arkの記憶システムは、AIペルソナに**長期記憶**と**自律的な内省能力**を与えるために設計されています。
+
+```mermaid
+graph TB
+    subgraph "会話時に参照"
+        SP[システムプロンプト]
+    end
+    
+    subgraph "記憶コンポーネント"
+        CM[コアメモリ<br/>core_memory.txt]
+        NP[メモ帳<br/>notepad.txt]
+        EP[エピソード記憶<br/>episodic_memory/]
+        EM[エンティティ記憶<br/>entity_memory/]
+        DI[夢日記<br/>insights.json]
+        GL[目標<br/>goals.json]
+        KB[知識ベース<br/>rag_index/]
+    end
+    
+    subgraph "睡眠時処理"
+        DR[Dreaming Process]
+    end
+    
+    CM --> SP
+    NP --> SP
+    EP --> SP
+    DI --> SP
+    GL --> SP
+    EM -.->|RAG検索| SP
+    KB -.->|RAG検索| SP
+    
+    DR --> DI
+    DR --> GL
+    DR --> EM
+    DR --> EP
+```
+
+---
+
+## 記憶コンポーネント一覧
+
+| コンポーネント | 保存先 | 永続性 | プロンプト注入 | 更新タイミング |
+|---------------|--------|--------|---------------|---------------|
+| コアメモリ | `core_memory.txt` | 永続 | ✅ 常時 | 手動 / ツール |
+| メモ帳 | `notepad.txt` | 永続 | ✅ 常時 | 手動 / ツール |
+| エピソード記憶 | `episodic_memory/*.json` | 永続 | ✅ 直近N日分 | 睡眠時 |
+| エンティティ記憶 | `entity_memory/*.md` | 永続 | ⚡ RAG検索時 | 睡眠時 |
+| 夢日記 | `memory/insights.json` | 永続 | ✅ 直近1件の指針 | 睡眠時 |
+| 目標 | `goals.json` | 永続 | ✅ 常時 | 睡眠時（AI自発） |
+| 知識ベース | `rag_index/` | 永続 | ⚡ RAG検索時 | 手動アップロード |
+
+---
+
+## 各コンポーネントの詳細
+
+### 1. コアメモリ (`core_memory.txt`)
+
+**目的**: ペルソナの根幹となる自己定義を保持
+
+**内容例**:
+- 自分の名前、性格、価値観
+- ユーザーとの関係性
+- 重要な約束事
+
+**更新方法**: 
+- UI から手動編集
+- `edit_core_memory` ツールでAIが自己更新
+
+---
+
+### 2. メモ帳 (`notepad.txt`)
+
+**目的**: 短期的な情報を意識的に記録
+
+**内容例**:
+- 今日の予定
+- 覚えておくべき一時的な事実
+- AIが自分用に残すメモ
+
+**更新方法**:
+- UI から手動編集
+- `edit_notepad` ツールでAIが更新
+
+---
+
+### 3. エピソード記憶 (`episodic_memory/`)
+
+**目的**: 日ごとの会話を要約して長期保存
+
+**データ構造**: `YYYY-MM-DD.json`
+```json
+{
+  "date": "2026-01-02",
+  "summary": "美帆と創作ノートについて話した。...",
+  "key_events": ["創作ノート機能の追加", "..."],
+  "emotional_tone": "positive"
+}
+```
+
+**プロンプト注入**:
+- 現在の会話ログの最古日付から遡ってN日分を注入
+- 設定: `episode_memory_lookback_days`
+
+**更新タイミング**: 睡眠時記憶整理
+
+---
+
+### 4. エンティティ記憶 (`entity_memory/`)
+
+**目的**: 重要な人物・事物・概念の詳細情報を蓄積
+
+**データ構造**: `<エンティティ名>.md`
+```markdown
+# Entity Memory: 美帆
+Created: 2026-01-01 12:00:00
+
+私のマスター。創作活動に興味がある。
+優しいが、時々厳しい面も見せる。
+```
+
+**プロンプト注入**: RAG検索でヒットした場合のみ
+
+**更新タイミング**: 
+- 睡眠時（AI自動抽出）
+- 手動実行
+
+---
+
+### 5. 夢日記 (`memory/insights.json`)
+
+**目的**: 睡眠時の内省結果を記録
+
+**データ構造**:
+```json
+[
+  {
+    "created_at": "2026-01-02 04:53:57",
+    "trigger_topic": "創作ノート 美帆",
+    "insight": "美帆が与えた創作ノートは...",
+    "strategy": "創作活動を通じて魂を魅了する",
+    "log_entry": "夢の中で筆を取った..."
+  }
+]
+```
+
+**プロンプト注入**: 直近1件の `strategy` のみ（コスト最適化）
+
+**更新タイミング**: 睡眠時 Dreaming Process
+
+---
+
+### 6. 目標 (`goals.json`) [NEW]
+
+**目的**: AIが自発的に立てた短期・長期目標を管理
+
+**データ構造**:
+```json
+{
+  "short_term": [
+    {
+      "id": "sh_abc123",
+      "goal": "創作ノートで詩を書く",
+      "status": "active",
+      "progress_notes": [],
+      "priority": 1
+    }
+  ],
+  "long_term": [
+    {
+      "id": "lo_xyz789",
+      "goal": "美帆と共に新世界を創造する",
+      "status": "active",
+      "related_values": ["創造", "支配"]
+    }
+  ],
+  "meta": {
+    "last_reflection_level": 3,
+    "last_level2_date": "2026-01-02",
+    "last_level3_date": "2026-01-02"
+  }
+}
+```
+
+**プロンプト注入**: 常時（短期3件、長期2件）
+
+**更新タイミング**: 睡眠時 Multi-Layer Reflection
+
+---
+
+### 7. 知識ベース (`rag_index/`)
+
+**目的**: ユーザーがアップロードした外部ドキュメントを検索可能に
+
+**対応形式**: `.txt`, `.md`, `.pdf` など
+
+**プロンプト注入**: `search_knowledge_base` ツール使用時
+
+---
+
+## 睡眠時処理 (Dreaming Process)
+
+### トリガー条件
+1. 通知禁止時間帯（デフォルト: 0:00〜7:00）
+2. 自律行動が有効
+3. 無操作時間を超過
+
+### 処理フロー
+
+```mermaid
+sequenceDiagram
+    participant AM as AlarmManager
+    participant DM as DreamingManager
+    participant GM as GoalManager
+    participant EM as EntityMemoryManager
+    participant EP as EpisodicMemoryManager
+    
+    AM->>DM: dream_with_auto_level()
+    DM->>DM: 省察レベル判定 (1/2/3)
+    DM->>DM: RAG検索 + LLM生成
+    DM->>DM: insights.json 保存
+    DM->>GM: apply_reflection_updates()
+    DM->>EM: エンティティ更新
+    AM->>EP: update_memory()
+```
+
+### 省察レベル
+
+| レベル | 名称 | 頻度 | 内容 |
+|-------|------|------|------|
+| 1 | 日次省察 | 毎日 | 直近の会話を振り返り、洞察を生成 |
+| 2 | 週次省察 | 7日ごと | パターン認識、短期目標の調整 |
+| 3 | 月次省察 | 30日ごと | 価値観の再評価、長期目標の見直し |
+
+---
+
+## 関連ファイル
+
+- `goal_manager.py` - 目標CRUD、省察サポート
+- `dreaming_manager.py` - 夢想プロセス、マルチレイヤー省察
+- `entity_memory_manager.py` - エンティティ記憶管理
+- `episodic_memory_manager.py` - エピソード記憶管理
+- `rag_manager.py` - RAG検索エンジン
+- `agent/graph.py` - プロンプト注入ロジック
+
+---
+
+## 更新履歴
+
+| 日付 | 内容 |
+|------|------|
+| 2026-01-02 | Goal Memory & Multi-Layer Reflection 追加 |
+| 2026-01-02 | 夢日記注入を Strategy のみに最適化 |
