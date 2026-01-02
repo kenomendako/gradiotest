@@ -184,11 +184,9 @@ def _get_effective_today_cutoff(room_name: str) -> str:
     
     if os.path.exists(today_episode_file):
         # 今日のエピソード記憶が存在 → 今日以降のみ
-        print(f"  - [History Limit] 今日のエピソード記憶あり → 本日({today_str})以降を送信")
         return today_str
     else:
         # 今日のエピソード記憶がまだない → 昨日以降も含める
-        print(f"  - [History Limit] 今日のエピソード記憶なし → 昨日({yesterday_str})以降を送信")
         return yesterday_str
 def _filter_messages_from_today(messages: list, today_str: str) -> list:
     """
