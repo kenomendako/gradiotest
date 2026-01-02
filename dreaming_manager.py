@@ -286,8 +286,9 @@ class DreamingManager:
                     print(f"  - [Dreaming] 目標更新エラー: {ge}")
             
             # --- [Motivation] 未解決の問いを保存 ---
+            should_extract_questions = effective_settings.get("sleep_consolidation", {}).get("extract_open_questions", True)
             open_questions = dream_data.get("open_questions", [])
-            if open_questions:
+            if should_extract_questions and open_questions:
                 try:
                     from motivation_manager import MotivationManager
                     mm = MotivationManager(self.room_name)

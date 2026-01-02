@@ -1544,6 +1544,52 @@ try:
                                     placeholder="最終省察レベル、週次/月次省察の日付が表示されます"
                                 )
 
+                        # --- 🧠 内的状態 (Internal State) ---
+                        with gr.Accordion("🧠 内的状態 (Internal State)", open=False):
+                            gr.Markdown("ペルソナの内発的な動機と、気になっている話題を確認できます。")
+                            refresh_internal_state_button = gr.Button("🧠 内的状態を読み込む", variant="primary")
+                            
+                            gr.Markdown("#### 📊 現在の動機レベル")
+                            with gr.Row():
+                                with gr.Column(scale=1):
+                                    boredom_level_display = gr.Slider(
+                                        label="退屈 (Boredom)", minimum=0, maximum=1, value=0,
+                                        interactive=False, info="無操作時間に比例"
+                                    )
+                                    curiosity_level_display = gr.Slider(
+                                        label="好奇心 (Curiosity)", minimum=0, maximum=1, value=0,
+                                        interactive=False, info="未解決の問いに比例"
+                                    )
+                                with gr.Column(scale=1):
+                                    goal_achievement_level_display = gr.Slider(
+                                        label="目標達成欲 (Goal Drive)", minimum=0, maximum=1, value=0,
+                                        interactive=False, info="アクティブな目標に比例"
+                                    )
+                                    devotion_level_display = gr.Slider(
+                                        label="奉仕欲 (Devotion)", minimum=0, maximum=1, value=0,
+                                        interactive=False, info="ユーザーの状態に比例"
+                                    )
+                            
+                            dominant_drive_display = gr.Textbox(
+                                label="現在の最強動機",
+                                interactive=False,
+                                placeholder="読み込むと表示されます"
+                            )
+                            
+                            gr.Markdown("#### ❓ 未解決の問い（好奇心の源泉）")
+                            open_questions_display = gr.Dataframe(
+                                headers=["話題", "背景・文脈", "優先度", "尋ねた日時"],
+                                datatype=["str", "str", "number", "str"],
+                                row_count=(3, "dynamic"),
+                                col_count=(4, "fixed"),
+                                interactive=False,
+                                wrap=True
+                            )
+                            
+                            with gr.Row():
+                                clear_open_questions_button = gr.Button("🗑️ 未解決の問いをクリア", variant="stop")
+                                internal_state_last_update = gr.Markdown("最終更新: ---")
+
                         # --- 睡眠時記憶整理 ---
                         with gr.Accordion("💫 睡眠時記憶整理 (Sleep Consolidation)", open=False):
                             gr.Markdown(
@@ -1577,6 +1623,12 @@ try:
                                 value=False,  # デフォルトOFF（破壊的操作のため）
                                 interactive=True,
                                 info="半年以上前のエピソード記憶を週単位に統合"
+                            )
+                            sleep_consolidation_extract_questions_cb = gr.Checkbox(
+                                label="❓ 未解決の問いを抽出する",
+                                value=True,  # デフォルトON
+                                interactive=True,
+                                info="会話から「気になること」を抽出し、好奇心の源泉として記録"
                             )
 
                         # --- [Phase 14] 🛠️ 記憶のメンテナンス (手動実行) ---
@@ -2736,6 +2788,24 @@ try:
             fn=ui_handlers.handle_refresh_goals,
             inputs=[current_room_name],
             outputs=[short_term_goals_display, long_term_goals_display, goals_meta_display]
+        )
+
+        # --- Internal State Events ---
+        refresh_internal_state_button.click(
+            fn=ui_handlers.handle_refresh_internal_state,
+            inputs=[current_room_name],
+            outputs=[
+                boredom_level_display, curiosity_level_display,
+                goal_achievement_level_display, devotion_level_display,
+                dominant_drive_display, open_questions_display,
+                internal_state_last_update
+            ]
+        )
+        
+        clear_open_questions_button.click(
+            fn=ui_handlers.handle_clear_open_questions,
+            inputs=[current_room_name],
+            outputs=[open_questions_display, internal_state_last_update]
         )
 
         # --- Dream Journal Events ---

@@ -552,13 +552,11 @@ def check_autonomous_actions():
             should_trigger = should_contact or elapsed_minutes >= inactivity_limit
             
             if should_trigger:
-                # 重複発火防止チェック
+                # 重複発火防止チェック: 最低でも inactivity_limit 分は間隔を空ける
                 last_trigger = _last_autonomous_trigger_time.get(room_folder)
                 if last_trigger:
-                    # 動機モデルの場合は短い間隔で30分、無操作の場合はinactivity_limitを使用
-                    min_interval = 30 if should_contact else inactivity_limit
                     minutes_since_trigger = (now - last_trigger).total_seconds() / 60
-                    if minutes_since_trigger < min_interval:
+                    if minutes_since_trigger < inactivity_limit:
                         continue  # まだ間隔が空いていないのでスキップ
                 
                 quiet_start = auto_settings.get("quiet_hours_start", "00:00")
