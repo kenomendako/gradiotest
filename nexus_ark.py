@@ -1511,6 +1511,39 @@ try:
                                         placeholder="エンティティを選択すると、ここに内容が表示されます。直接編集して保存することも可能です。"
                                     )
 
+                        # --- 🎯 目標 (Goals) ---
+                        with gr.Accordion("🎯 目標 (Goals)", open=False):
+                            gr.Markdown("ペルソナが睡眠時省察で自発的に立てた目標です。短期目標と長期目標を確認できます。")
+                            refresh_goals_button = gr.Button("🎯 目標を読み込む", variant="primary")
+                            
+                            with gr.Row():
+                                with gr.Column(scale=1):
+                                    gr.Markdown("#### 短期目標")
+                                    short_term_goals_display = gr.Textbox(
+                                        label="",
+                                        lines=5,
+                                        max_lines=10,
+                                        interactive=False,
+                                        placeholder="目標を読み込むと表示されます"
+                                    )
+                                with gr.Column(scale=1):
+                                    gr.Markdown("#### 長期目標")
+                                    long_term_goals_display = gr.Textbox(
+                                        label="",
+                                        lines=5,
+                                        max_lines=10,
+                                        interactive=False,
+                                        placeholder="目標を読み込むと表示されます"
+                                    )
+                            
+                            with gr.Row():
+                                goals_meta_display = gr.Textbox(
+                                    label="省察メタデータ",
+                                    lines=2,
+                                    interactive=False,
+                                    placeholder="最終省察レベル、週次/月次省察の日付が表示されます"
+                                )
+
                         # --- 睡眠時記憶整理 ---
                         with gr.Accordion("💫 睡眠時記憶整理 (Sleep Consolidation)", open=False):
                             gr.Markdown(
@@ -2696,6 +2729,13 @@ try:
             fn=ui_handlers.handle_update_episodic_memory,
             inputs=[current_room_name, current_api_key_name_state],
             outputs=[update_episodic_memory_button, chat_input_multimodal, episodic_update_status]
+        )
+
+        # --- Goals Events ---
+        refresh_goals_button.click(
+            fn=ui_handlers.handle_refresh_goals,
+            inputs=[current_room_name],
+            outputs=[short_term_goals_display, long_term_goals_display, goals_meta_display]
         )
 
         # --- Dream Journal Events ---

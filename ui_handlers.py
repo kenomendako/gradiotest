@@ -3193,6 +3193,62 @@ def handle_manual_dreaming(room_name: str, api_key_name: str):
         traceback.print_exc()
         return gr.update(), f"エラーが発生しました: {e}"
 
+# --- [Goal Memory] Goals Display Handlers ---
+
+def handle_refresh_goals(room_name: str):
+    """目標（goals.json）を読み込んで表示用にフォーマットする"""
+    if not room_name:
+        return "", "", "ルームが選択されていません"
+    
+    try:
+        from goal_manager import GoalManager
+        gm = GoalManager(room_name)
+        goals = gm._load_goals()
+        
+        # 短期目標のフォーマット
+        short_term_text = ""
+        for g in goals.get("short_term", []):
+            status_emoji = "🔥" if g.get("status") == "active" else "✅"
+            short_term_text += f"{status_emoji} {g.get('goal', '(不明)')}\n"
+            short_term_text += f"   作成: {g.get('created_at', '-')}\n"
+            if g.get("progress_notes"):
+                for note in g["progress_notes"][-2:]:  # 最新2件のみ
+                    short_term_text += f"   📝 {note}\n"
+            short_term_text += "\n"
+        
+        if not short_term_text:
+            short_term_text = "（短期目標はまだありません）"
+        
+        # 長期目標のフォーマット
+        long_term_text = ""
+        for g in goals.get("long_term", []):
+            status_emoji = "🌟" if g.get("status") == "active" else "✅"
+            long_term_text += f"{status_emoji} {g.get('goal', '(不明)')}\n"
+            long_term_text += f"   作成: {g.get('created_at', '-')}\n"
+            if g.get("related_values"):
+                long_term_text += f"   価値観: {', '.join(g['related_values'])}\n"
+            long_term_text += "\n"
+        
+        if not long_term_text:
+            long_term_text = "（長期目標はまだありません）"
+        
+        # メタデータのフォーマット
+        meta = goals.get("meta", {})
+        level_names = {1: "日次", 2: "週次", 3: "月次"}
+        last_level = meta.get("last_reflection_level", 0)
+        meta_text = (
+            f"最終省察レベル: {level_names.get(last_level, '未実行')} ({last_level})\n"
+            f"週次省察: {meta.get('last_level2_date', '未実行')} / "
+            f"月次省察: {meta.get('last_level3_date', '未実行')}"
+        )
+        
+        return short_term_text.strip(), long_term_text.strip(), meta_text
+        
+    except Exception as e:
+        print(f"Goal refresh error: {e}")
+        traceback.print_exc()
+        return "", "", f"エラー: {e}"
+
 # --- [Project Morpheus] Dream Journal Handlers ---
 
 def handle_refresh_dream_journal(room_name: str):
