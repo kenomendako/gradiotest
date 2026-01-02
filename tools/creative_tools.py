@@ -87,12 +87,15 @@ def _apply_creative_notes_edits(instructions: List[Dict[str, Any]], room_name: s
             final_content = inst.get("content", "")
             # opが'replace'または'insert_after'で、かつcontentに実質的な内容がある場合のみ処理
             if op in ["replace", "insert_after"] and final_content.strip():
-                # content内の各行を処理する（創作ノートはタイムスタンプ任意）
+                # content内の各行を処理する（メモ帳と同様にタイムスタンプを付与）
                 lines_in_content = final_content.strip().split('\n')
                 processed_lines = []
                 for line in lines_in_content:
-                    # 創作物にはタイムスタンプを自動付与しない（創作の自由を尊重）
-                    processed_lines.append(line)
+                    # 正しい正規表現でタイムスタンプの有無をチェック
+                    if line.strip() and not re.match(r"^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}\]", line.strip()):
+                        processed_lines.append(f"{timestamp} {line.strip()}")
+                    else:
+                        processed_lines.append(line)
                 final_content = "\n".join(processed_lines)
 
             if op == "delete":

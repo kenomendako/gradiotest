@@ -1297,7 +1297,7 @@ def safe_tool_executor(state: AgentState):
             if is_plan_main_memory: room_manager.create_backup(room_name, 'memory')
             elif is_plan_secret_diary: room_manager.create_backup(room_name, 'secret_diary')
             elif is_plan_notepad: room_manager.create_backup(room_name, 'notepad')
-            elif is_plan_creative_notes: pass  # 創作ノートはバックアップ不要（新規作成される可能性）
+            elif is_plan_creative_notes: room_manager.create_backup(room_name, 'creative_notes')
             elif is_plan_world: room_manager.create_backup(room_name, 'world_setting')
 
             read_tool = None

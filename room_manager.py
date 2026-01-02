@@ -303,13 +303,15 @@ def create_backup(room_name: str, file_type: str) -> Optional[str]:
         'system_prompt': ("SystemPrompt.txt", os.path.join(constants.ROOMS_DIR, room_name, "SystemPrompt.txt")),
         'core_memory': ("core_memory.txt", os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")),
         'secret_diary': ("secret_diary.txt", os.path.join(constants.ROOMS_DIR, room_name, "private", "secret_diary.txt")),
-        'room_config': ("room_config.json", os.path.join(constants.ROOMS_DIR, room_name, "room_config.json"))
+        'room_config': ("room_config.json", os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")),
+        'creative_notes': ("creative_notes.md", os.path.join(constants.ROOMS_DIR, room_name, "creative_notes.md"))
     }
     folder_map = {
         'log': "logs", 'memory': "memories", 'notepad': "notepads",
         'world_setting': "world_settings", 'system_prompt': "system_prompts",
         'core_memory': "core_memories", 'secret_diary': "secret_diaries",
-        'room_config': "configs"
+        'room_config': "configs",
+        'creative_notes': "creative_notes"
     }
 
     if file_type not in file_map:
