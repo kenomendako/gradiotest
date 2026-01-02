@@ -1572,6 +1572,7 @@ try:
                             
                             dominant_drive_display = gr.Textbox(
                                 label="現在の最強動機",
+                                lines=3,
                                 interactive=False,
                                 placeholder="読み込むと表示されます"
                             )
