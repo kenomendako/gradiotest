@@ -68,7 +68,8 @@ class MotivationManager:
                     "last_service_opportunity": None
                 }
             },
-            "motivation_log": None
+            "motivation_log": None,
+            "last_autonomous_trigger": None  # 最終自律行動発火時刻（永続化）
         }
     
     def _load_state(self) -> Dict:
@@ -420,3 +421,30 @@ class MotivationManager:
             return None
         
         return max(unanswered, key=lambda q: q.get("priority", 0))
+    
+    # ========================================
+    # 自律行動発火時刻の永続化
+    # ========================================
+    
+    def get_last_autonomous_trigger(self) -> Optional[datetime.datetime]:
+        """最終自律行動発火時刻を取得"""
+        trigger_str = self._state.get("last_autonomous_trigger")
+        if not trigger_str:
+            return None
+        try:
+            return datetime.datetime.fromisoformat(trigger_str)
+        except ValueError:
+            return None
+    
+    def set_last_autonomous_trigger(self, dt: datetime.datetime = None):
+        """最終自律行動発火時刻を設定（引数なしで現在時刻）"""
+        if dt is None:
+            dt = datetime.datetime.now()
+        self._state["last_autonomous_trigger"] = dt.isoformat()
+        self._save_state()
+    
+    def clear_internal_state(self):
+        """内部状態を完全にリセット"""
+        self._state = self._get_empty_state()
+        self._save_state()
+        print(f"[MotivationManager] {self.room_name} の内部状態をリセットしました")

@@ -9354,3 +9354,31 @@ def handle_refresh_goals(room_name: str):
         traceback.print_exc()
         return "エラー", "エラー", str(e)
 
+
+def handle_reset_internal_state(room_name: str):
+    """
+    内部状態を完全にリセットする。
+    動機レベル、未解決の問い、最終発火時刻がすべてクリアされる。
+    
+    Returns:
+        status_text
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return "エラー: ルーム未選択"
+    
+    try:
+        from motivation_manager import MotivationManager
+        
+        mm = MotivationManager(room_name)
+        mm.clear_internal_state()
+        
+        gr.Info(f"「{room_name}」の内部状態をリセットしました。")
+        return f"✅ リセット完了 ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+    
+    except Exception as e:
+        print(f"Reset Internal State Error: {e}")
+        traceback.print_exc()
+        gr.Error(f"リセットに失敗しました: {e}")
+        return f"❌ エラー: {e}"
+

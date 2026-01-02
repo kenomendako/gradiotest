@@ -277,9 +277,18 @@ def trigger_alarm(alarm_config, current_api_key_name):
 def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: bool, motivation_log: dict = None):
     """自律行動を実行させる"""
     from motivation_manager import MotivationManager
-    # 発火時刻を記録（重複防止）
+    
+    # 発火時刻を記録（メモリ上 + 永続化）
     global _last_autonomous_trigger_time
-    _last_autonomous_trigger_time[room_name] = datetime.datetime.now()
+    now = datetime.datetime.now()
+    _last_autonomous_trigger_time[room_name] = now
+    
+    # MotivationManagerで永続化（再起動後も維持）
+    try:
+        mm = MotivationManager(room_name)
+        mm.set_last_autonomous_trigger(now)
+    except Exception as e:
+        print(f"  - 発火時刻の永続化エラー: {e}")
     
     print(f"🤖 自律行動トリガー: {room_name} (Quiet: {quiet_mode})")
     
@@ -553,7 +562,15 @@ def check_autonomous_actions():
             
             if should_trigger:
                 # 重複発火防止チェック: 最低でも inactivity_limit 分は間隔を空ける
+                # まずメモリ上の変数をチェック、なければ永続化データをチェック
                 last_trigger = _last_autonomous_trigger_time.get(room_folder)
+                if not last_trigger:
+                    # 永続化データから読み込み（アプリ再起動後対策）
+                    last_trigger = mm.get_last_autonomous_trigger()
+                    if last_trigger:
+                        # メモリにもキャッシュ
+                        _last_autonomous_trigger_time[room_folder] = last_trigger
+                
                 if last_trigger:
                     minutes_since_trigger = (now - last_trigger).total_seconds() / 60
                     if minutes_since_trigger < inactivity_limit:

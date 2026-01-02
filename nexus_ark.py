@@ -1665,6 +1665,12 @@ try:
                             gr.Markdown("半年以上前のエピソード記憶を週単位に統合して、データ量を削減します。")
                             compress_episodes_button = gr.Button("古い記憶を手動で圧縮する", variant="secondary")
                             compress_episodes_status = gr.Textbox(label="圧縮ステータス", interactive=False)
+                            
+                            gr.Markdown("---")
+                            gr.Markdown("### 🧠 内部状態のリセット")
+                            gr.Markdown("動機レベル、未解決の問い、最終発火時刻をすべてリセットします。")
+                            reset_internal_state_button = gr.Button("🧹 内部状態をリセット", variant="stop")
+                            reset_internal_state_status = gr.Textbox(label="リセットステータス", interactive=False)
 
                         # --- エンベディング設定 ---
                         gr.Markdown("---")
@@ -2806,6 +2812,13 @@ try:
             fn=ui_handlers.handle_clear_open_questions,
             inputs=[current_room_name],
             outputs=[open_questions_display, internal_state_last_update]
+        )
+        
+        # --- Internal State Maintenance ---
+        reset_internal_state_button.click(
+            fn=ui_handlers.handle_reset_internal_state,
+            inputs=[current_room_name],
+            outputs=[reset_internal_state_status]
         )
 
         # --- Dream Journal Events ---
